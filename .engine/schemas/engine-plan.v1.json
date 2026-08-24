@@ -147,7 +147,13 @@
         "state": {"enum": ["carried", "satisfied", "released"]},
         "reason": {"type": "string", "minLength": 1}
       },
-      "description": "An obligation handed forward from a predecessor plan. `released` is the escape hatch and it costs a stated reason — the guarantee is not that obligations are always met, only that one can never be dropped silently."
+      "allOf": [
+        {
+          "if": {"properties": {"state": {"const": "released"}}, "required": ["state"]},
+          "then": {"required": ["reason"]}
+        }
+      ],
+      "description": "An obligation handed forward from a predecessor plan. `released` is the escape hatch, and the stated reason is its entire price: the guarantee was never that obligations get met, only that one can never be dropped silently. Until now that price was collected by convention — the reason field was optional, the projection printed '(no reason given)' when it was missing, and nothing refused. So the escape hatch had a quieter escape hatch inside it, and the one release that mattered would have been the one nobody wrote a reason for. The conditional above makes it mechanical for every future release rather than something asserted about the ones already written: `released` without a reason does not validate, and the program library refuses the same shape at add_child, so neither the plan nor the program record can carry a release nobody explained."
     }
   }
 }

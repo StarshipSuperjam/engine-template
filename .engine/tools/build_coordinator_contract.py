@@ -35,6 +35,8 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
   review_coverage     str        depth and the passes that ran, rendered from coordinator evidence
   code_execution_line str        the code-execution disclosure (BO-41), computed from the review receipts
   plan_finding_lines  [str]      the sealed plan review's findings and dispositions, verbatim
+  obligation_lines    [str]      the sealed plan's carried obligations — each with its state and, for a
+                                 release, the reason — read from the plan record, never from Build state
   disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
   drift_line          str        the reviewed->submitted commit/divergence sentence, coordinator-computed
   close_linkage_lines [str]      advisory close-linkage lines to fold into Review (apply's fixed-point pass)
@@ -295,6 +297,14 @@ def compose(claim: dict, evidence: dict) -> str:
     # reading it from the record is what keeps it out of reach of the Build's receipt-supersession rule.
     for pl in evidence.get("plan_finding_lines", []):
         review_body.append(pl)
+    # What this plan owed its predecessor, and what it did about each. The carry-forward guarantee —
+    # satisfied, re-carried, or released with a stated reason, never dropped silently — is enforced
+    # where plans are written, which is a place the operator approving this merge never looks.
+    # Rendering the same record here puts a release's reason, and a carried obligation's destination,
+    # in front of the one reader whose approval that release is really spending.
+    if evidence.get("obligation_lines"):
+        review_body.append("- **Obligations carried from the predecessor plan.**")
+        review_body += [f"  {ol}" for ol in evidence["obligation_lines"]]
     for fs in rev["finding_summaries"]:
         line = f"- **Finding `{fs['id']}`.** {fs['operator_summary']}"
         if fs.get("public_reference"):

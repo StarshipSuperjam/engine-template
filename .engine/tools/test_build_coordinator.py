@@ -861,6 +861,58 @@ class TestReviewAndFindings(CoordinatorCase):
             self.assertEqual(len(bc._plan_disagreement_lines(state)), 1)
             self.assertEqual(len(bc._plan_finding_lines(state)), 1)
 
+    def _with_plan_document(self, document):
+        library = mock.Mock()
+        library.resolve.return_value = "a-plan--abc123"
+        library.head.return_value = document
+        return mock.patch.object(bc, "_library", return_value=library)
+
+    def test_carried_obligations_render_from_the_sealed_plan_record(self):
+        """The carry-forward guarantee reaches the operator who approves the merge.
+
+        It is enforced where plans are written — a place that operator never looks — so the same
+        record is rendered onto the merge surface: a release states its reason there, and a carried
+        obligation names where it went.
+        """
+        document = {"program": {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
+            {"id": "OB-CANON", "state": "carried",
+             "statement": "Amend eADR-0025 and eADR-0041 on plan authority."},
+            {"id": "OB-SPEC-REACCEPT", "state": "released",
+             "statement": "Re-accept the settled specification documents.",
+             "reason": "The corpus is stale; re-accepting it would record assent to text that no "
+                       "longer describes the engine."},
+        ]}}
+        with self._with_plan_document(document):
+            lines = bc._plan_obligation_lines(self.state())
+        self.assertEqual(len(lines), 2)
+        self.assertIn("**OB-CANON**", lines[0])
+        self.assertIn("_carried_", lines[0])
+        self.assertIn("_released_", lines[1])
+        self.assertIn("The corpus is stale", lines[1])
+
+    def test_a_standalone_plan_carries_no_obligations(self):
+        # A plan belongs to no program unless someone deliberately put it in one, so the ordinary case
+        # is an empty list — never an invented heading over nothing.
+        for document in ({}, {"program": {"program_id": "prg_aaaaaaaaaaaa"}},
+                         {"program": {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": []}}):
+            with self._with_plan_document(document):
+                self.assertEqual(bc._plan_obligation_lines(self.state()), [])
+
+    def test_an_unreadable_library_does_not_block_composing_the_pr_body(self):
+        # Same rule as the plan review beside it: the obligations are worth disclosing, and none of
+        # them is worth stranding a finished Build at the moment it tries to describe itself.
+        broken = mock.Mock()
+        broken.resolve.side_effect = RuntimeError("the library is gone")
+        with mock.patch.object(bc, "_library", return_value=broken):
+            self.assertEqual(bc._plan_obligation_lines(self.state()), [])
+
+    def test_obligations_are_immune_to_build_side_receipt_supersession(self):
+        # Structural, like the plan findings: they are read from the plan record at compose time and
+        # never enter build-state, so nothing in the Build's own receipt bookkeeping can strip them.
+        state = self.state()
+        self.assertNotIn("obligations", state)
+        self.assertNotIn("carried_obligations", json.dumps(state))
+
     def test_packet_contains_exact_plan_raw_intent_and_digest(self):
         packet = self.packet()
         self.assertEqual(packet["plan"], plan())
@@ -2356,6 +2408,91 @@ class TestV2CompletionGate(CoordinatorCase):
                                 "unscoped --complete-item instruction: " + line.strip())
         self.assertIn("work integrate", routine)
         self.assertIn("work integrate", orchestration)
+
+
+class TestTheCanonSaysOneThing(unittest.TestCase):
+    """The canon and the code must not disagree about where plan authority lives.
+
+    eADR-0025 and eADR-0041 both described a world where a Build's plan was session-held and made
+    durable by promotion to an Issue. That world is gone. A merged tree in which the code enters on a
+    seal while the canon still says the session hands over a plan is a tree whose contracts cannot be
+    trusted to mean anything — so the amendments are pinned here, by assertion id, at the same gate
+    the behaviour is.
+
+    These are text assertions on purpose. What they protect is not a mechanism but a promise about
+    what a reader of the canon will find, and the failure they catch is a future change that edits the
+    behaviour and leaves the record describing the old one.
+    """
+
+    @staticmethod
+    def _contract(name):
+        return (bc.ROOT / ".engine" / "contracts" / name).read_text(encoding="utf-8")
+
+    def setUp(self):
+        self.behavior = self._contract("eADR-0041-build-coordinator-behavior.md")
+        self.claim = self._contract("eADR-0025-draft-pr-is-the-claim.md")
+
+    def _row(self, identifier):
+        rows = [line for line in self.behavior.splitlines() if line.startswith(f"| {identifier} |")]
+        self.assertEqual(len(rows), 1, f"{identifier} must appear exactly once")
+        return rows[0]
+
+    def test_the_moved_assertions_are_corrected_in_place_not_left_standing(self):
+        # Each of the five names the cutover as a source, so a reader can see WHEN it changed and why
+        # — rather than finding a silently rewritten row with no history.
+        for identifier in ("BC-04", "BC-05", "BC-12", "BC-18", "BC-19"):
+            self.assertIn("2026-08-24", self._row(identifier), identifier)
+
+    def test_no_amended_assertion_still_describes_the_retired_mechanics(self):
+        for identifier in ("BC-04", "BC-05", "BC-12", "BC-18", "BC-19"):
+            row = self._row(identifier)
+            for retired in ("Promote only when", "promoted copy", "waives a now-retrospective"):
+                self.assertNotIn(retired, row, f"{identifier} still describes a retired mechanic")
+
+    def test_the_two_added_assertions_state_what_replaced_the_plan_gate(self):
+        entry, coverage = self._row("BC-28"), self._row("BC-29")
+        self.assertIn("only through a seal", entry)
+        self.assertIn("build-plan.v1", entry)              # names what is refused at entry
+        self.assertIn("approved depth", coverage)
+        self.assertIn("roster", coverage)                  # the demand is keyed on the roster, not the name
+
+    def test_the_weakened_hold_is_disclosed_as_a_weakening(self):
+        """The honest half. The table states a bar for ADDING a hold and none for weakening one, so
+        the only thing stopping a quiet edit is a session choosing to say so."""
+        row = next(line for line in self.behavior.splitlines()
+                   if line.startswith("| Required reviewer silently omitted |"))
+        self.assertIn("WEAKENED", row)
+        self.assertIn("2026-08-24", row)
+        self.assertIn("states a bar for ADDING a hold and states none", row)
+        self.assertNotIn("plan-review waiver, creating", row)   # the old escape clause is gone
+
+    def test_the_new_hold_carries_its_demonstrated_failure(self):
+        row = next(line for line in self.behavior.splitlines()
+                   if line.startswith("| An unattended bind whose Issue does not correspond"))
+        self.assertIn("authority nobody granted", row)
+        self.assertIn("digest equality", row)              # what the guarantee used to be
+        self.assertIn("intent_source", row)                # what replaced it
+
+    def test_the_amendment_revises_the_2026_08_15_position_by_name(self):
+        self.assertIn("introduced no new submission hard hold", self.behavior)
+        self.assertIn("revised by name again here", self.behavior)
+
+    def test_the_claim_record_no_longer_says_a_plan_is_session_held(self):
+        self.assertIn("The Build's plan is not a GitHub record at all", self.claim)
+        self.assertIn("2026-08-24", self.claim)
+        for retired in ("promoted to a suitable writable Issue", "non-durable until a Build must"):
+            self.assertNotIn(retired, self.claim, "eADR-0025 still describes promotion")
+
+    def test_the_claim_record_states_what_the_change_costs(self):
+        # The residual is the point of amending rather than deleting: recovery is workstation-only,
+        # and the operator's read of the PR is what stands behind a merge.
+        self.assertIn("workstation-only", self.claim)
+
+    def test_never_a_durable_leg_is_separated_rather_than_deleted(self):
+        # It was one sentence about two things and only one of them changed. Deleting it would have
+        # discarded the claim about BUILD state, which is the claim eADR-0025 actually rests on.
+        self.assertIn("never a durable leg, never plan authority", self.claim)
+        self.assertIn("one claim about two things", self.claim)
 
 
 class TestV1Migration(CoordinatorCase):

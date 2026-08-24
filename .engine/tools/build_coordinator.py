@@ -2596,6 +2596,37 @@ def _sealed_plan_review(state: dict) -> dict | None:
     return record.get("plan_review")
 
 
+def _plan_obligation_lines(state: dict) -> list[str]:
+    """What this plan owed a predecessor, and what it did about each — for the merge surface.
+
+    A program's carry-forward guarantee is that an obligation can be satisfied, re-carried, or
+    released with a reason, but never dropped silently. That guarantee is enforced where plans are
+    written, which is a place the operator approving the merge never looks. So the same record is
+    rendered here, at the one surface they do read: a release states its reason in the operator's
+    view, and an obligation carried to a successor names where it went.
+
+    Read from the sealed plan RECORD at compose time, like the plan review above and for the same
+    reason — it cannot be edited by the Build, mirrored stale into build-state, or stripped by the
+    Build's own receipt bookkeeping.
+    """
+    plan_id = state.get("plan", {}).get("plan_id")
+    if not plan_id:
+        return []
+    try:
+        library = _library()
+        slug = library.resolve(plan_id)
+        document = library.head(slug)
+    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
+        return []
+    lines = []
+    for obligation in ((document.get("program") or {}).get("carried_obligations") or []):
+        reason = (obligation.get("reason") or "").strip()
+        tail = f" {reason}" if reason else ""
+        lines.append(f"- **{obligation['id']}** — _{obligation['state']}_. "
+                     f"{obligation['statement']}{tail}")
+    return lines
+
+
 def _plan_review_clause(state: dict) -> str:
     """The PR body's one sentence about whether the SHIPPED plan was reviewed.
 
@@ -2831,6 +2862,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "code_execution_line": code_execution_line,
         "disagreement_lines": _plan_disagreement_lines(state) + review.required_disagreement_lines(state),
         "plan_finding_lines": _plan_finding_lines(state),
+        "obligation_lines": _plan_obligation_lines(state),
         "assumption_resolutions": assumption_resolutions,
         "cadence_escalations": cadence_escalations,
         "drift_line": drift_line,

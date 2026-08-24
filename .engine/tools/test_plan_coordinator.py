@@ -1770,6 +1770,56 @@ class ImportingANativePlan(_Surface):
         self.assertEqual(len(self.lib.read_record(arrival["slug"])["ledger"]), 2)
 
 
+class DepthSelectsReviewersAndNothingElse(_Surface):
+    """Depth never selects the plan's FORMAT and never selects its GRAPH TOPOLOGY.
+
+    It sounds too obvious to test, which is why it is worth testing: the shortcut it forbids is real
+    and would be quiet. Letting `quick` accept a thinner document, or fold a graph into a chain
+    "since nobody is reviewing it anyway", would make how carefully a plan is read decide what the
+    plan IS — and the plan is the thing a Build executes long after the reviewing is over. Depth is
+    how much scrutiny the operator asked for; it is never a discount on the artifact.
+    """
+
+    def _approved_at(self, depth):
+        slug, document = self._plan(plan_id=f"pln_{'0' * 11}{plan_coordinator.DEPTH_ORDER.index(depth)}")
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", depth)[0], 0)
+        return slug, self.lib.head(slug), self.lib.read_record(slug)
+
+    def test_the_document_and_its_payload_are_byte_identical_at_every_depth(self):
+        shapes = {}
+        for depth in plan_coordinator.DEPTH_ORDER:
+            _, document, record = self._approved_at(depth)
+            payload = document["build_plan"]
+            shapes[depth] = {
+                "document_version": document["schema_version"],
+                "payload_version": payload["schema_version"],
+                "payload_digest": record["current"]["build_plan_digest"],
+                "topology": sorted((item["id"], tuple(sorted(item.get("depends_on", []))))
+                                   for item in payload["work_items"]),
+                "parallelism": payload["parallelism"],
+            }
+        reference = shapes[plan_coordinator.DEPTH_ORDER[0]]
+        for depth, shape in shapes.items():
+            self.assertEqual(shape, reference, f"{depth} changed the plan itself, not just its review")
+
+    def test_the_approved_depth_is_the_only_thing_the_depth_choice_writes(self):
+        # Stated as the complement of the test above: approval records the depth against the digest
+        # being approved, and touches nothing else on the record.
+        for depth in plan_coordinator.DEPTH_ORDER:
+            slug, _, record = self._approved_at(depth)
+            self.assertEqual(record["approval"]["depth"], depth)
+            self.assertEqual(record["approval"]["plan_digest"], record["current"]["plan_digest"])
+            self.assertIsNone(record["plan_review"])
+            self.assertIsNone(record["seal"])
+
+    def test_a_deeper_depth_adds_reviewers_and_only_reviewers(self):
+        roster = plan_coordinator.installed_lenses()
+        lighter = set(plan_coordinator.required_lenses("quick", roster))
+        deeper = set(plan_coordinator.required_lenses("thorough", roster))
+        self.assertTrue(lighter <= deeper, "a deeper depth must never drop a reviewer a lighter one ran")
+
+
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
         self.assertEqual(set(plan_coordinator.DEPTHS), {"quick", "standard", "thorough"})

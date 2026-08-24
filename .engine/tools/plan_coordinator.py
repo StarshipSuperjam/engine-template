@@ -43,6 +43,15 @@ PlanCoordinatorError = plan_store.PlanStoreError
 # Review depths, offered only after a full render. ONE vocabulary across both coordinators: the depth
 # chosen here is the depth the Build's deliverable review runs at, so the operator consents once, at
 # plan approval, and that consent covers both gates.
+#
+# DEPTH SELECTS REVIEWERS AND NOTHING ELSE. It never selects the plan's FORMAT and never selects its
+# GRAPH TOPOLOGY: the document is engine-plan.v1 and the payload build-plan.v2 at every depth, the
+# nodes and their dependencies are whatever was authored, and both digests are byte-identical across
+# depths. Stated here and pinned by test rather than left as an obvious-sounding property, because the
+# tempting shortcut is real and would be quiet — letting `quick` accept a thinner document, or fold a
+# graph into a chain "since nobody is reviewing it anyway", would make how carefully a plan is read
+# decide what the plan IS. Depth is how much scrutiny the operator asked for; it is never a discount
+# on the artifact.
 DEPTHS = {
     "quick": "No cold reviewers on either side — your own read of the plan plus the automatic checks.",
     "standard": "Architecture, feasibility, product intent, risk and governance — the four-lens panel "

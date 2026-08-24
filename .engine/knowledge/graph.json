@@ -5598,7 +5598,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:b2ed32c618b32926922f81b837052a4ebed6e9d7bbdfc838e68d843697b4f5db",
+        "fingerprint": "sha256:e308899ffdedb029693e067591a4a61eeeb1247c9d87ef37630202be1e7f7f07",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -5898,7 +5898,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:973c22f4233a6a4e71c2e3ac4dc61afb43b9a028d3f8aaa5032266a74aa5aa8c",
+        "fingerprint": "sha256:2fd35939b477823bcc69908550010ad8cb7a5e7f7ebef20313d00c6c152b04c5",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6449,7 +6449,7 @@
       },
       "slug": "build-submission-evidence",
       "source": {
-        "fingerprint": "sha256:10560db4255302dc180ac528d5af6fddb79d9c5b3c4d9dc82bced5f9d099a268",
+        "fingerprint": "sha256:f71519b19aa24c66b7ebc1437996da3a71c3447c916522b29a25aa9a1d78282a",
         "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
@@ -7770,7 +7770,7 @@
       },
       "slug": "engine-plan.v1",
       "source": {
-        "fingerprint": "sha256:3d3675d54cefc43521d1a4a08dd219643bf70eef1214beefd5d0a127cb808da9",
+        "fingerprint": "sha256:5924cd76b297dfdee59fa52131ce3d424f12598f5098511626187cbeda7c5c60",
         "path": ".engine/schemas/engine-plan.v1.json"
       },
       "status": "active",
@@ -9913,7 +9913,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c4dcdba3f79790292033d43b5fd13d6dee75733cdcc16c0eb8621d03d74b711c",
+        "fingerprint": "sha256:7f08bb13dc72a628cc880bf9a1b0758056bdb2fc83d3a3ea803454c85046cbe4",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9937,7 +9937,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:be2893a8d538d5c424fac2a6ddb7e8c1e762845a36d882d5f14890391d42a09a",
+        "fingerprint": "sha256:18a3d8dc6a302b29cce8eb44f50b572b992fe6e91316440f3c0085ae878280f0",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -13880,7 +13880,7 @@
       },
       "slug": "plan_coordinator",
       "source": {
-        "fingerprint": "sha256:614a1b924a7fffeab55938b591b9d5d0bf4858b4fcd19124cc5d4ffaf8719060",
+        "fingerprint": "sha256:ec04574d526309fcda6e9282f2245745c1c39fb1d49b7c114124c92787a13207",
         "path": ".engine/tools/plan_coordinator.py"
       },
       "status": "active",
@@ -13905,7 +13905,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:adc18c4aaa42e021e4c728083b990a35d4150df7964fdb0bdec141240f6803e0",
+        "fingerprint": "sha256:4999cc5dc58705048bc90affd0a2abe19bd579e9d09cc6b36d092fa580b716b7",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -15777,7 +15777,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:754c2265bf9d2d6a58a6bd546b8255e9956d21c9c5c040489bfd102ed9a2cf3f",
+        "fingerprint": "sha256:a7e435f54de8346f0259fcc834ed15cedeb2c4de614d6bae956831ba1ae1afe3",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15807,7 +15807,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:6457e98bf8a58970290955257e61e73984af1560bbc940dd8779458fa18f3484",
+        "fingerprint": "sha256:956feb733d13b8d818cff461d4eb0cc12175f5f20846aae76f77825bb9ce5148",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -18248,7 +18248,7 @@
       },
       "slug": "test_plan_coordinator",
       "source": {
-        "fingerprint": "sha256:0dcff21dd61c87749c3cddbf0b0972351afedf104fe0fbd8c4d741245fae0f88",
+        "fingerprint": "sha256:1cc5bf1ae3359bddcd95dcb662bc849f580b98b89782a6bc7ac6d54a3045b1af",
         "path": ".engine/tools/test_plan_coordinator.py"
       },
       "status": "active",
@@ -18300,7 +18300,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:31f8d8c2f9f6664527e0d87ee1442d75d6fbee63be9189bc80970afc12562a9d",
+        "fingerprint": "sha256:1dff2b49543bffde45f8f78db938a87cde6a7588a5cd1e9eddfb204a81c0f842",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",

@@ -720,5 +720,59 @@ class TestReleaseImpactMarker(unittest.TestCase):
             bcc.validate_claim(claim)
 
 
+class TestCarriedObligationsReachTheMergeSurface(unittest.TestCase):
+    """A program's carry-forward guarantee is enforced where plans are WRITTEN. This puts the same
+    record where the operator approving the merge can read it.
+
+    The guarantee — satisfied, re-carried, or released with a stated reason, never dropped silently —
+    is only as good as somebody meeting it. Until now the only reader was whoever opened the program
+    projection, which the person clicking merge does not. A release in particular spends the
+    operator's trust, so its reason belongs in the operator's own view.
+    """
+
+    OBLIGATIONS = [
+        "- **OB-CANON** — _carried_. Amend eADR-0025 and eADR-0041 on plan authority.",
+        "- **OB-SPEC-REACCEPT** — _released_. Obtain operator re-acceptance of the settled documents. "
+        "The corpus is stale, so re-accepting it would record assent to text that no longer describes "
+        "the engine.",
+        "- **OB-V1-SUNSET** — _carried_. Delete the v1 schemas and the migrate-v1 verb. Carried to the "
+        "successor C.",
+    ]
+
+    def _body(self, lines=None):
+        return bcc.compose(_good_claim(),
+                           {**_good_evidence(),
+                            "obligation_lines": self.OBLIGATIONS if lines is None else lines})
+
+    def test_every_obligation_reaches_the_body_verbatim(self):
+        body = self._body()
+        for line in self.OBLIGATIONS:
+            self.assertIn(line, body)
+
+    def test_a_release_carries_its_reason_to_the_merge_surface(self):
+        # The whole point. A release without its reason on the operator's screen is a release they
+        # cannot judge, which is the same as one nobody explained.
+        self.assertIn("re-accepting it would record assent to text that no longer describes the engine",
+                      self._body())
+
+    def test_the_obligations_are_labelled_where_they_land(self):
+        body = self._body()
+        heading = body.index("- **Obligations carried from the predecessor plan.**")
+        self.assertLess(body.index("## Review"), heading)
+        self.assertLess(heading, body.index("- **OB-CANON**"))
+
+    def test_a_standalone_plan_renders_no_obligation_section(self):
+        # Most plans belong to no program, and a bare heading over nothing reads like a fault.
+        body = self._body([])
+        self.assertNotIn("Obligations carried from the predecessor plan", body)
+
+    def test_the_composed_body_still_passes_the_real_gate_with_obligations(self):
+        rule_path = os.path.join(ROOT, ".engine", "check", "pr-body-completeness.json")
+        with open(rule_path, encoding="utf-8") as fh:
+            rule = json.load(fh)
+        verdict, findings = validate.kind_presence(rule, {"pr_body": self._body()})
+        self.assertTrue(verdict, msg=f"gate rejected composed body: {[f['message'] for f in findings]}")
+
+
 if __name__ == "__main__":
     unittest.main()

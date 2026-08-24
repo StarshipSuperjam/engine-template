@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import plan_program
 import plan_store
@@ -304,6 +305,83 @@ class ObligationHelpers(unittest.TestCase):
 
     def test_a_plan_with_no_program_block_carries_nothing(self):
         self.assertEqual(plan_program.carried_forward({}), {})
+
+
+class ReleasedImpliesAReason(_Program):
+    """The escape hatch's price, collected mechanically rather than by convention.
+
+    Releasing an obligation is allowed and sometimes right. The stated reason is what separates a
+    decision from an omission — and it was optional: the field had no conditional behind it, the
+    projection printed "(no reason given)" and carried on, and nothing refused. That put an escape
+    hatch inside the escape hatch, and the release that would have used it is the inconvenient one,
+    where the reason matters most.
+
+    So the rule is pinned for EVERY FUTURE release rather than asserted about the ones already
+    written: at the schema, which is where a plan revision is minted, and at add_child, which is where
+    a plan enters a program chain. Two gates because there are two ways in.
+    """
+
+    @staticmethod
+    def _released(reason=None):
+        return _obligation("OB-9", "Re-accept the settled specification documents.", "released", reason)
+
+    def test_a_release_without_a_reason_does_not_validate(self):
+        document = _document(plan_id="pln_cccccccccccc", title="Releases without saying why")
+        document["program"] = {"program_id": "prg_aaaaaaaaaaaa",
+                               "carried_obligations": [self._released()]}
+        with self.assertRaises(plan_store.PlanStoreError):
+            self.plans.create(document)
+
+    def test_a_release_with_a_reason_validates(self):
+        slug, _ = self._plan("pln_cccccccccccc", "Releases, and says why",
+                             self._released("The corpus is stale; re-accepting it would record assent "
+                                            "to text that no longer describes the engine."))
+        self.assertEqual(len(self.plans.head(slug)["program"]["carried_obligations"]), 1)
+
+    def test_whitespace_is_not_a_reason(self):
+        # minLength catches the empty string. It cannot catch a space, which is the shape a session
+        # under pressure actually produces, so the program-side check tests the text rather than its
+        # length.
+        document = _document(plan_id="pln_dddddddddddd", title="A blank reason")
+        document["program"] = {"program_id": "prg_aaaaaaaaaaaa",
+                               "carried_obligations": [self._released("   ")]}
+        self.assertEqual([o["id"] for o in plan_program.unexplained_releases(document)], ["OB-9"])
+
+    def test_add_child_refuses_an_unexplained_release_on_the_first_child_too(self):
+        # There is no predecessor on a first child, so the carry-forward check cannot see this one —
+        # which is exactly why the release check is separate and runs for every child. A first plan
+        # can release something it inherited from outside the program.
+        slug = self.programs.create("Plan Coordinator", "Delivered across PRs.")
+        document = _document(plan_id="pln_eeeeeeeeeeee", title="First child")
+        document["program"] = {"program_id": "prg_aaaaaaaaaaaa",
+                               "carried_obligations": [self._released("a real reason")]}
+        plan_slug = self.plans.create(document)
+        # Reach past the schema on purpose, to prove the program gate stands on its own rather than
+        # riding the schema's coat-tails: a record written before this rule existed must still be
+        # refused entry to the chain. The store verifies its own digests, so the doctored document is
+        # handed to add_child through the reader rather than written to disk.
+        doctored = self.plans.head(plan_slug)
+        doctored["program"]["carried_obligations"][0].pop("reason")
+        with mock.patch.object(self.plans, "head", return_value=doctored), \
+                self.assertRaisesRegex(plan_program.ProgramError, "without saying why"):
+            self.programs.add_child(slug, "pln_eeeeeeeeeeee")
+
+    def test_the_refusal_names_every_unexplained_release(self):
+        document = _document(plan_id="pln_ffffffffffff", title="Two silent releases")
+        document["program"] = {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
+            {"id": "OB-8", "statement": "Sunset v1.", "state": "released"},
+            {"id": "OB-9", "statement": "Re-accept the spec.", "state": "released"}]}
+        self.assertEqual([o["id"] for o in plan_program.unexplained_releases(document)],
+                         ["OB-8", "OB-9"])
+
+    def test_only_the_escape_hatch_costs_a_reason(self):
+        # The rule is about releasing, not about paperwork: carried and satisfied stay free.
+        document = _document(plan_id="pln_999999999999", title="Ordinary states")
+        document["program"] = {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
+            _obligation("OB-1", "Cut over.", "carried"),
+            _obligation("OB-2", "Amend the contracts.", "satisfied")]}
+        self.assertEqual(plan_program.unexplained_releases(document), [])
+        self.assertTrue(self.plans.create(document))
 
 
 if __name__ == "__main__":
