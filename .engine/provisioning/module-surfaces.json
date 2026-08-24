@@ -876,6 +876,9 @@
   ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0044-plan-coordinator-local-library.md": [
+   "core"
+  ],
   ".engine/docs/ci-assurance.md": [
    "core"
   ],
@@ -1161,6 +1164,12 @@
   ".engine/schemas/engine-issue-input.v1.json": [
    "core"
   ],
+  ".engine/schemas/engine-plan.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/engine-program.v1.json": [
+   "core"
+  ],
   ".engine/schemas/engine.v1.json": [
    "core"
   ],
@@ -1189,6 +1198,9 @@
    "core"
   ],
   ".engine/schemas/operation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/plan-record.v1.json": [
    "core"
   ],
   ".engine/schemas/plan-review-finding.v1.json": [
@@ -1932,6 +1944,21 @@
   ".engine/tools/overlay_disclosure.py": [
    "core"
   ],
+  ".engine/tools/plan_contract.py": [
+   "core"
+  ],
+  ".engine/tools/plan_coordinator.py": [
+   "core"
+  ],
+  ".engine/tools/plan_program.py": [
+   "core"
+  ],
+  ".engine/tools/plan_projection.py": [
+   "core"
+  ],
+  ".engine/tools/plan_store.py": [
+   "core"
+  ],
   ".engine/tools/policy_override_check.py": [
    "core"
   ],
@@ -2374,6 +2401,24 @@
    "core"
   ],
   ".engine/tools/test_overlay_disclosure.py": [
+   "core"
+  ],
+  ".engine/tools/test_plan_contract.py": [
+   "core"
+  ],
+  ".engine/tools/test_plan_coordinator.py": [
+   "core"
+  ],
+  ".engine/tools/test_plan_dogfood.py": [
+   "core"
+  ],
+  ".engine/tools/test_plan_program.py": [
+   "core"
+  ],
+  ".engine/tools/test_plan_projection.py": [
+   "core"
+  ],
+  ".engine/tools/test_plan_store.py": [
    "core"
   ],
   ".engine/tools/test_policy.py": [

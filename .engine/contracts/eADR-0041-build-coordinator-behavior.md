@@ -78,6 +78,20 @@ close the residual that an honest session could still bypass the gate — a dura
 and adds a soft, recurring reminder (a bind-time `engine-coordinator-owned` PR label and a standing line in
 `status`/`checkpoint`) that a coordinator-staged PR must reach `ready` through the submit gate._
 
+_Amended 2026-08-23, deliberately narrowly, for the Plan Coordinator substrate (eADR-0044). A durable local
+plan library and its lifecycle command surface now exist in the engine, and NOTHING in this contract changes:
+they are unconsumed. `plan bind` still takes the plan the session hands it and applies its own three-layer
+validation; BC-03, BC-04, BC-05, BC-11, BC-12, BC-18 and BC-19 hold exactly as written; the coordinator's
+snapshot remains machine-local, non-durable and authority-free. One implementation detail moved and is
+recorded here so the built code and this contract cannot drift: the three-layer plan validation BC-11 depends
+on — schema for the declared version, work-item-id uniqueness, and DAG closure — was extracted from the CLI
+into `build_coordinator_dag.validate_plan_document`, which the Plan Coordinator's contract also calls before a
+plan may be sealed. That is single-homing, not a change of authority: there is now one implementation of what
+makes a payload valid rather than two that could drift, and a plan that seals is a plan `plan bind` will
+accept. The plan-stage review machinery (`review packet --stage plan`, its receipts, and BC-12's waivable plan
+half) is expected to MOVE to the Plan Coordinator when the Build Coordinator is cut over to sealed-handoff
+entry; until that lands and amends this record again, every plan-stage assertion below governs unchanged._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
