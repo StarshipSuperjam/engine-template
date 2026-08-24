@@ -299,7 +299,7 @@ def project_plan(library: plan_store.PlanLibrary, slug: str) -> Path:
     record = library.read_record(slug)
     document = library.head(slug)
     path = library.plan_dir(slug) / PLAN_MD
-    _write(path, render_plan(document, record))
+    _write(library, path, render_plan(document, record))
     return path
 
 
@@ -358,7 +358,7 @@ def project_library(library: plan_store.PlanLibrary) -> list:
             document = library.head(slug)
             entry["status"] = plan_store.derived_status(
                 record, head_blockers=plan_contract.seal_blockers(document))
-            _write(library.plan_dir(slug) / PLAN_MD, render_plan(document, record))
+            _write(library, library.plan_dir(slug) / PLAN_MD, render_plan(document, record))
         except plan_store.PlanStoreError as exc:
             entry["status"] = plan_store.derived_status(record)
             entry["readable"] = False
@@ -370,15 +370,16 @@ def project_library(library: plan_store.PlanLibrary) -> list:
              "plans": [{k: entry[k] for k in
                         ("plan_id", "slug", "title", "status", "revision", "last_activity")}
                        for entry in entries]}
-    _write(library.root / INDEX_JSON,
+    _write(library, library.root / INDEX_JSON,
            json.dumps(index, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
-    _write(library.root / INDEX_MD, render_index(entries))
+    _write(library, library.root / INDEX_MD, render_index(entries))
     return entries
 
 
-def _write(path: Path, text: str) -> None:
+def _write(library: plan_store.PlanLibrary, path: Path, text: str) -> None:
     # Projections are rebuildable, so they do not need the durability barrier the revisions get. They
     # DO need the same privacy: a projection restates the plan in full, so a world-readable PLAN.md
-    # beside a 0600 revision would leak exactly what the permissions were for.
-    plan_store.ensure_dir(path.parent)
+    # beside a 0600 revision would leak exactly what the permissions were for. The library is passed
+    # in so directory tightening is bounded by its root and never reaches a parent that is not ours.
+    plan_store.ensure_dir(path.parent, within=library.root)
     core.atomic_write(path, text, mode=plan_store.FILE_MODE)

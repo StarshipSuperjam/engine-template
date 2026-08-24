@@ -438,9 +438,26 @@ class Permissions(_Library):
         plan_dir = self.root / slug
         for directory in [plan_dir] + [p for p in plan_dir.iterdir() if p.is_dir()]:
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700, directory)
+        # The LIBRARY ROOT too. This is the one that actually went wrong: mkdir(parents=True) applies
+        # its mode only to the leaf, so the root was created 0755 while every plan folder inside it
+        # was 0700 — the revisions unreadable but the slug names, which carry plan titles, not.
+        self.assertEqual(self.root.stat().st_mode & 0o777, 0o700, self.root)
         for path in plan_dir.rglob("*"):
             if path.is_file() and path.suffix == ".json":
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600, path)
+
+    def test_tightening_never_reaches_outside_the_library(self):
+        # ensure_dir walks upward fixing modes; the walk must stop at the library root and never
+        # touch a parent that belongs to the operator or the system.
+        outside = self.root.parent
+        outside.chmod(0o755)
+        previous = os.umask(0o000)
+        try:
+            self._create()
+        finally:
+            os.umask(previous)
+        self.assertEqual(outside.stat().st_mode & 0o777, 0o755,
+                         "the store modified a directory above its own root")
 
 
 class DurabilityWiring(_Library):
