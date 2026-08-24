@@ -1227,6 +1227,12 @@
   ".engine/schemas/provisioning-catalog.v1.json": [
    "core"
   ],
+  ".engine/schemas/selftest-run-record.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/selftest-selection.v1.json": [
+   "core"
+  ],
   ".engine/schemas/skill.v1.json": [
    "core"
   ],
@@ -2094,6 +2100,9 @@
   ".engine/tools/selftest.py": [
    "core"
   ],
+  ".engine/tools/selftest_select.py": [
+   "core"
+  ],
   ".engine/tools/session_economy.py": [
    "core"
   ],
@@ -2512,6 +2521,9 @@
    "core"
   ],
   ".engine/tools/test_selftest_hermeticity.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest_select.py": [
    "core"
   ],
   ".engine/tools/test_session_economy.py": [
