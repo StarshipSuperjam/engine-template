@@ -302,6 +302,146 @@ class DerivedArtifactGuard(unittest.TestCase):
         self.assertEqual(m["full_reason"]["code"], "derived-guard-unreachable")
 
 
+class ManifestHonesty(unittest.TestCase):
+    """The manifest must be true, not merely present — every one of these was a live wrong statement."""
+
+    def test_each_changed_file_is_described_by_its_own_relationship(self):
+        """A test can import one changed file directly and reach another only through a chain. Lumping
+        them under the single strongest code made the manifest assert a direct import that was not one
+        — a false claim about the graph, in the artifact whose whole job is explaining the graph."""
+        m = S.classify([(_p("near"), "M"), (_p("far"), "M")],
+                       lambda: _index({"mid": ["far"], "test_x": ["mid", "near"]}),
+                       guard_factory=_no_guard, changed_from="base")
+        detail = m["selected"][0]["reason"]["detail"]
+        self.assertIn(f"imports {_p('near')} directly", detail)
+        self.assertIn(f"reaches {_p('far')} through a chain", detail)
+        self.assertNotIn(f"{_p('far')} directly", detail)
+
+    def test_a_path_reported_by_two_sources_is_counted_once(self):
+        """The three changed-set sources overlap by design, so a file edited but not yet committed
+        arrives twice. Counting the raw list named a file twice and overstated how many had changed —
+        in the commonest situation there is, uncommitted mid-build work."""
+        dupes = [("README.md", "M"), ("README.md", "M"), ("docs/a.md", "M"), ("docs/a.md", "M")]
+        m = S.classify(dupes, lambda: {}, guard_factory=_no_guard, changed_from="base")
+        detail = m["full_reason"]["detail"]
+        self.assertEqual(detail.count("README.md"), 1)
+        self.assertNotIn("more)", detail, "two distinct paths need no overflow count")
+
+    def test_every_single_reason_code_names_the_whole_batch(self):
+        """Naming only the first offender sends a reader round the loop once per file."""
+        gone = S.classify([(_p("a"), "D"), (_p("b"), "D")], lambda: {},
+                          guard_factory=_no_guard, changed_from="base")
+        self.assertIn(_p("b"), gone["full_reason"]["detail"])
+        orphans = S.classify([(_p("x"), "M"), (_p("y"), "M")], lambda: _index({"test_z": ["z"]}),
+                             guard_factory=_no_guard, changed_from="base")
+        self.assertIn(_p("y"), orphans["full_reason"]["detail"])
+
+    def test_a_changed_test_module_says_it_changed_even_when_it_guards_a_map(self):
+        """The guard seeds the selection first, and a setdefault could not displace it — so a test
+        module that BOTH changed and guards a generated map reported only that it guards one."""
+        target = _p("test_knowledge")
+        m = S.classify([(target, "M")], lambda: {},
+                       guard_factory=lambda _i: ({target}, None), changed_from="base")
+        entry = next(e for e in m["selected"] if e["path"] == target)
+        self.assertEqual(entry["reason"]["code"], "changed-test-module")
+
+    def test_a_real_dangling_import_keeps_its_whole_explanation(self):
+        """The detail was taken as everything before the first period — which, in a message opening
+        with a repo-relative path, is the period inside `.engine`. The file, the bad import and the
+        explanation were all lost, in the failure a session would most need explained."""
+        import knowledge_gen
+        message = knowledge_gen._dangling_import_message(f"{_TOOLS}/thing.py", "validate.gone")
+        self.assertGreater(len(message), 100)
+        try:
+            raise knowledge_gen.DanglingImportError(message)
+        except knowledge_gen.DanglingImportError as exc:
+            detail = " ".join(str(exc).split())
+        self.assertIn("thing.py", detail)
+        self.assertIn("validate.gone", detail)
+
+
+class TheIterationLoopIsReachable(unittest.TestCase):
+    """The test that would have caught the deadlock, and the reason it exists.
+
+    The guard closed a real silent miss and opened a worse hole: editing any tool stales the knowledge
+    map, the guard then always selects the test that catches that, so the focused run goes RED — and
+    regenerating to clear it put the regenerated map, a non-Python path, into the changed set, so the
+    next run classified `full`. No state in an ordinary build iteration was left where a focused run
+    could be green. Every unit fixture passed throughout; only walking the actual loop shows it."""
+
+    def test_a_generated_artifact_is_exempt_so_regenerating_does_not_force_a_full_run(self):
+        importers = S.build_importer_index(validate.ROOT)
+        exempt = S.derived_output_paths()
+        self.assertIn(".engine/knowledge/graph.json", exempt,
+                      "the register must name the generated map, or the exemption is inert")
+        after_regenerate = S.classify(
+            [(f"{_TOOLS}/quiet_call.py", "M"), (".engine/knowledge/graph.json", "M")],
+            lambda: importers, changed_from="base")
+        self.assertEqual(after_regenerate["classification"], "focused",
+                         "regenerating a stale map must not force the complete inventory")
+        self.assertIn("test_knowledge", {e["module"] for e in after_regenerate["selected"]})
+
+    def test_a_generated_artifact_alone_still_runs_its_guard_tests(self):
+        """A hand-edited generated map selects nothing by import, but the guard covers it."""
+        importers = S.build_importer_index(validate.ROOT)
+        m = S.classify([(".engine/knowledge/graph.json", "M")], lambda: importers, changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertIn("test_knowledge", {e["module"] for e in m["selected"]})
+
+
+class RealManifestMatchesItsSchema(unittest.TestCase):
+    """The gap that let production output violate its own schema: every fixture that validated a
+    manifest either bypassed the guard or hand-built the selection, so the two reason codes the guard
+    introduced were never seen by a validator."""
+
+    def test_a_manifest_from_the_real_guarded_path_validates(self):
+        import jsonschema
+        with open(os.path.join(validate.ENGINE_DIR, "schemas",
+                               "selftest-selection.v1.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        importers = S.build_importer_index(validate.ROOT)
+        produced = S.classify([(f"{_TOOLS}/quiet_call.py", "M")], lambda: importers,
+                              changed_from="base")
+        self.assertEqual(produced["classification"], "focused")
+        self.assertIn("derived-artifact-guard",
+                      {e["reason"]["code"] for e in produced["selected"]},
+                      "this case is only meaningful if it exercises the guard's own reason code")
+        jsonschema.validate(produced, schema)
+
+    def test_every_reason_the_module_can_emit_is_in_the_published_schema(self):
+        """Mechanical, so the two vocabularies cannot drift apart again."""
+        with open(os.path.join(validate.ENGINE_DIR, "schemas",
+                               "selftest-selection.v1.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        published_full = set(
+            schema["properties"]["full_reason"]["oneOf"][1]["properties"]["code"]["enum"])
+        published_sel = set(
+            schema["properties"]["selected"]["items"]["properties"]["reason"]["properties"]["code"]["enum"])
+        self.assertEqual(S.FULL_REASONS, published_full)
+        self.assertEqual(S.SELECTION_REASONS, published_sel)
+
+
+class ProtocolCannotReachTheNarrowingFlags(unittest.TestCase):
+    """The governance claim, made mechanical instead of stated.
+
+    'A focused run cannot become merge evidence' rested entirely on the Build protocol registering the
+    runner with no arguments — an unguarded file, with a schema that accepts any argv, and no test
+    asserting the absence. Adding one flag there would have made the coordinator record a subset run as
+    a passed full one, and every check in this repository would have stayed green."""
+
+    def test_the_registered_self_test_command_carries_no_narrowing_flag(self):
+        with open(os.path.join(validate.ENGINE_DIR, "build-protocol.json"), encoding="utf-8") as fh:
+            protocol = json.load(fh)
+        commands = protocol.get("validation_commands", protocol.get("validation", []))
+        argv = [c for c in commands if c.get("id") == "engine-selftest"]
+        self.assertEqual(len(argv), 1, "the self-test command must be registered exactly once")
+        registered = argv[0]["command"]
+        for flag in ("--changed-from", "--selection-path", "--run-record-path"):
+            self.assertNotIn(flag, registered,
+                             f"{flag} in the registered command would let a focused run be recorded "
+                             f"as the full validation the coordinator binds to a submitted commit")
+
+
 class Determinism(unittest.TestCase):
 
     def test_the_same_tree_and_changed_set_serialize_byte_identically(self):

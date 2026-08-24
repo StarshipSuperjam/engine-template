@@ -608,6 +608,49 @@ class RunRecord(unittest.TestCase):
             jsonschema.validate(record, record_schema)
 
 
+class RecordHonesty(unittest.TestCase):
+
+    def _run(self, bodies, selection=None, **kw):
+        return FocusedRuns._run(self, bodies, selection, **kw)
+
+    def test_the_nested_sentinel_is_recorded_true_on_a_crashed_run(self):
+        """The record is written by the PARENT, which sets the sentinel for the child it spawns —
+        so reading the parent's own environment reported False on every ordinary run. An unrequested
+        regression that rode in on an unrelated fix, contradicting the schema's own statement."""
+        _, record = self._run({"test_suicide.py": """
+            import os, signal, unittest
+            class T(unittest.TestCase):
+                def test_dies(self):
+                    os.kill(os.getpid(), signal.SIGKILL)
+        """})
+        self.assertTrue(record["nested_sentinel"])
+
+    def test_a_record_is_written_with_owner_only_permissions(self):
+        """The run log's own docstring already argued this posture; the new files must match it."""
+        tmp = _write_suite({"test_one.py": _CLEAN})
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        record_path = os.path.join(tmp, "record.json")
+        subprocess.run([sys.executable, _SELFTEST, "--start-dir", tmp, "--cwd", tmp,
+                        "--heartbeat-interval", "0.05", "--log-path", os.path.join(tmp, "run.log"),
+                        "--run-record-path", record_path], capture_output=True, text=True, timeout=60)
+        self.assertTrue(os.path.exists(record_path))
+
+    def test_the_atomic_write_refuses_a_symlink_planted_at_its_temporary_name(self):
+        """A predictable temporary name opened with a plain write follows symlinks — an arbitrary
+        local file overwrite as the running user. The module had already solved this for its log."""
+        tmp = tempfile.mkdtemp(prefix="selftest-symlink-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        victim = os.path.join(tmp, "victim.txt")
+        with open(victim, "w") as fh:
+            fh.write("untouched")
+        target = os.path.join(tmp, "record.json")
+        os.symlink(victim, f"{target}.{os.getpid()}.partial")
+        wrote = selftest._atomic_write_json(target, {"hello": "world"})
+        with open(victim) as fh:
+            self.assertEqual(fh.read(), "untouched", "the planted symlink must not be followed")
+        self.assertFalse(wrote, "the write must fail rather than clobber through a symlink")
+
+
 class NewFlagsAreDiscoverable(unittest.TestCase):
 
     def test_both_operator_facing_flags_appear_in_the_help(self):

@@ -188,6 +188,7 @@ class _StructuredResult(unittest.TextTestResult):
         self.slowest: list = []
         self.problems: list = []
         self.skipped_count = 0
+        self._record_broke = False
         self._started_at: dict = {}
 
     def _emit(self, payload: dict) -> None:
@@ -201,7 +202,13 @@ class _StructuredResult(unittest.TextTestResult):
             self._progress_write = None
 
     def _note_problem(self, test, kind: str) -> None:
-        self.problems.append({"kind": kind, "id": str(test), "module": _case_module(test)})
+        # Guarded exactly as `_emit` is, and for the reason its comment gives: recording must never
+        # break the run. A case whose own `__str__` raised would otherwise propagate out of the result
+        # hooks and abort the WHOLE run rather than that one case.
+        try:
+            self.problems.append({"kind": kind, "id": str(test), "module": _case_module(test)})
+        except Exception:                          # noqa: BLE001 - recording must not cost a verdict
+            self._record_broke = True
 
     def startTest(self, test):
         super().startTest(test)
@@ -213,12 +220,16 @@ class _StructuredResult(unittest.TextTestResult):
         self._completed += 1
         began = self._started_at.pop(id(test), None)
         if began is not None:
-            elapsed = time.monotonic() - began
-            module = _case_module(test)
-            slot = self.module_times.setdefault(module, {"seconds": 0.0, "cases": 0})
-            slot["seconds"] += elapsed
-            slot["cases"] += 1
-            self.slowest.append({"id": str(test), "module": module, "seconds": round(elapsed, 4)})
+            try:
+                elapsed = time.monotonic() - began
+                module = _case_module(test)
+                slot = self.module_times.setdefault(module, {"seconds": 0.0, "cases": 0})
+                slot["seconds"] += elapsed
+                slot["cases"] += 1
+                self.slowest.append({"id": str(test), "module": module,
+                                     "seconds": round(elapsed, 4)})
+            except Exception:                      # noqa: BLE001 - recording must not cost a verdict
+                self._record_broke = True
         self._emit({"event": "stop", "completed": self._completed, "id": str(test)})
 
     def addError(self, test, err):
@@ -250,9 +261,12 @@ def _sha256_text(text: str) -> str:
 def _atomic_write_json(path: str, payload: dict) -> bool:
     """Write one JSON document, replacing any previous one indivisibly. Returns False on any failure and
     NEVER raises: a record that cannot be written must not change the run's verdict."""
+    tmp = f"{path}.{os.getpid()}.partial"
     try:
-        tmp = f"{path}.{os.getpid()}.partial"
-        with open(tmp, "w", encoding="utf-8") as fh:
+        # O_EXCL|O_NOFOLLOW and 0600: never follow a symlink planted at the temporary name, never
+        # adopt one already there, and never widen the mode by the caller's umask.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, sort_keys=True, indent=2, ensure_ascii=False)
             fh.write("\n")
             fh.flush()
@@ -262,7 +276,7 @@ def _atomic_write_json(path: str, payload: dict) -> bool:
     except OSError:
         try:
             os.remove(tmp)
-        except (OSError, UnboundLocalError, NameError):
+        except OSError:
             pass
         return False
 
@@ -364,7 +378,11 @@ def _finish_run_record(path, rc: int, log_path, captured: str, *, scope="full", 
                           "modules_digest": _sha256_text(""), "cases_digest": _sha256_text("")},
             "executed": {"case_count": 0, "skipped_count": 0},
             "selection": selection, "selection_digest": _selection_digest(selection),
-            "nested_sentinel": bool(os.environ.get(_NESTED_ENV)),
+            # True by construction: this record is written by the PARENT, which sets the sentinel for
+            # the child it spawns. Reading the parent's own environment reported False on every
+            # ordinary run — a regression that rode in on the scope fix, that nothing asked for, and
+            # that contradicted the schema's own statement about this field.
+            "nested_sentinel": True,
             "modules": [], "slowest": [], "problems": [],
         }
     record["exit_status"] = rc
@@ -429,8 +447,10 @@ def _run_child(args: argparse.Namespace) -> int:
     """Discover and run in-process; return 0 on success, non-zero otherwise. A discovery/import failure
     is surfaced as a non-zero exit, never swallowed.
 
-    Exit statuses: 0 green, 1 a test failed, 2 the run could not be set up honestly (a discovery failure,
-    or a selection naming modules this tree does not produce — see below)."""
+    Exit statuses: 0 green, 1 a test failed OR discovery failed, 2 a focused run could not be set up
+    honestly — a selection naming modules this tree does not produce, or naming none at all. Discovery
+    failure is deliberately 1, not 2: it is on the DEFAULT path, whose exit statuses this change must
+    leave untouched. Only the paths that did not exist before use 2."""
     progress_write = None
     if args.progress_fd is not None and args.progress_fd >= 0:
         progress_write = os.fdopen(args.progress_fd, "w", buffering=1)
@@ -677,7 +697,9 @@ def _compute_selection(changed_from: str) -> dict:
             "classification": "full",
             "changed_from": changed_from,
             "changed_paths": [],
-            "full_reason": {"code": "git-unavailable",
+            # Not `git-unavailable`: that code means a git command failed, and filing an import error
+            # or a broken register under it sends a reader looking at the wrong thing.
+            "full_reason": {"code": "selector-unavailable",
                             "detail": f"the selector could not run ({exc!r}); running everything"},
             "selected": [],
         }
@@ -694,9 +716,12 @@ def _cleanup_selection(selection_path, caller_supplied) -> None:
             pass
 
 
-def _discoverable_module_count(start_dir: str, pattern: str):
-    """How many test modules the tree holds, for the focused announcement's denominator. Best-effort —
-    a count that cannot be taken simply goes unmentioned rather than failing the run."""
+def _discoverable_module_count(start_dir: str):
+    """How many test modules the tree holds, for the focused announcement's denominator.
+
+    Anchored the way the child's discovery is — against the engine directory derived from this file's
+    own location, never the parent's incidental working directory. Best-effort: a count that cannot be
+    taken goes unmentioned rather than failing the run."""
     try:
         count = 0
         for dirpath, dirnames, filenames in os.walk(start_dir):
@@ -757,8 +782,14 @@ def _run_parent(args: argparse.Namespace) -> int:
     scope_note = None
     selection_path = args.selection_path
     if selection_path is None and args.changed_from:
-        selection_path = os.path.join(os.path.dirname(log_path),
-                                      f"engine-selftest-selection-{os.getpid()}.json")
+        # Minted the way the run log is, for the reason the log's own docstring already gives: 0600
+        # and O_EXCL, so no other user can read it or pre-plant the name as a symlink. The first
+        # version composed a predictable name from the process id and opened it with a plain write,
+        # which follows symlinks — one guess per pid, in a world-writable directory, in the very
+        # module that had already rejected that posture for its neighbour.
+        fd, selection_path = tempfile.mkstemp(prefix="engine-selftest-selection-", suffix=".json",
+                                              dir=os.path.dirname(log_path))
+        os.close(fd)
         _atomic_write_json(selection_path, _compute_selection(args.changed_from))
     if selection_path:
         # Announce whichever way it went, and say WHY on a fallback. A session that asked to narrow and
@@ -770,7 +801,9 @@ def _run_parent(args: argparse.Namespace) -> int:
             # editing a widely-imported one can select most of the tree, and both used to be announced
             # in identical words — leaving a session unable to tell a cheap run from a near-full one
             # until it watched the clock.
-            available = _discoverable_module_count(start_dir, args.pattern)
+            available = _discoverable_module_count(
+                start_dir if os.path.isabs(start_dir)
+                else os.path.join(args.cwd or _ENGINE_DIR, start_dir))
             of_total = f" of {available}" if available else ""
             print(f"Focused run: {picked}{of_total} self-test module(s) selected by the changes since "
                   f"{manifest.get('changed_from')}.", flush=True)

@@ -5,7 +5,14 @@
   "description": "The manifest `.engine/tools/selftest_select.py` emits and `selftest.py --changed-from` consumes. It records a decision, never a verdict: it says which test modules a change could affect, not whether anything passed. It is NEVER merge evidence — the complete inventory still runs in CI against the exact submitted head, and that run alone gates the merge. Two classifications exist and no third: `focused`, where at least one test module was positively selected and each carries its own reason; and `full`, where the complete inventory must run and `full_reason` says which condition forced it. The partition is total by construction — the only positively-classified change is a Python file under .engine/tools/, and everything else falls to `full` — so a kind of file the selector has never heard of runs everything rather than falling into a gap. Both reason vocabularies are CLOSED enums rather than free text, so a reader can match on them and a reviewer can check the sets are exhaustive; reviewers specifically rejected 'a non-empty string', which any single character satisfies. Serialization is canonical (sorted keys, two-space indent, trailing newline) so the same tree and the same changed set produce byte-identical bytes and a digest of them means something.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "classification", "changed_from", "changed_paths", "full_reason", "selected"],
+  "required": [
+    "schema_version",
+    "classification",
+    "changed_from",
+    "changed_paths",
+    "full_reason",
+    "selected"
+  ],
   "properties": {
     "schema_version": {
       "description": "Carried in the document itself so the copy embedded in a run record stays readable on its own — a later manifest version nested inside an earlier record must still identify itself.",
@@ -13,29 +20,53 @@
     },
     "classification": {
       "description": "`focused` means a proper subset was selected and every entry in `selected` names why. `full` means the complete inventory must run. There is no documentation-only or empty-and-pass state: a run is focused only when something was positively selected, which is what makes an unexplained empty selection impossible rather than merely guarded against.",
-      "enum": ["focused", "full"]
+      "enum": [
+        "focused",
+        "full"
+      ]
     },
     "changed_from": {
       "description": "The commit the comparison was made against, as the caller named it. Null when the selector ran with no base — which is itself a `full` outcome.",
-      "type": ["string", "null"]
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "changed_paths": {
       "description": "Every repo-relative path that differed, sorted and de-duplicated. Drawn from three sources because each misses what the others catch: the diff from the merge base (committed adds, edits, deletions, renames), the working-tree status (staged and unstaged edits), and the untracked-but-not-ignored list — without which a session's own brand-new test module would be invisible to the selector meant to run it.",
       "type": "array",
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "full_reason": {
       "description": "Why the complete inventory must run; null exactly when the classification is `focused`.",
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["code", "detail"],
+          "required": [
+            "code",
+            "detail"
+          ],
           "properties": {
             "code": {
-              "description": "`git-unavailable`: a git command failed or its output could not be parsed. `no-changed-paths`: nothing differed, so there is no basis to narrow. `path-not-classifiable`: a changed path is not a Python file under .engine/tools/ — the catch-all that makes the partition total, and the reason nearly every prose or governed-data change runs everything. `deleted-or-renamed`: the import graph is built from the current tree and has no node for a file that is gone. `unparseable-python`: a tool will not parse, so its imports cannot be read. `dangling-import`: an in-repo import resolves to no file, so the graph would be incomplete. `unreached-tool`: a changed non-test tool that no test module reaches, directly or transitively.",
-              "enum": ["git-unavailable", "no-changed-paths", "path-not-classifiable", "deleted-or-renamed", "unparseable-python", "dangling-import", "unreached-tool"]
+              "description": "`git-unavailable`: a git command failed or its output could not be parsed. `no-changed-paths`: nothing differed, so there is no basis to narrow. `path-not-classifiable`: a changed path is not a Python file under .engine/tools/ — the catch-all that makes the partition total, and the reason nearly every prose or governed-data change runs everything. `deleted-or-renamed`: the import graph is built from the current tree and has no node for a file that is gone. `unparseable-python`: a tool will not parse, so its imports cannot be read. `dangling-import`: an in-repo import resolves to no file, so the graph would be incomplete. `unreached-tool`: a changed non-test tool that no test module reaches, directly or transitively. `selector-unavailable`: the selector itself could not run, which is NOT the same as git failing. `derived-guard-unreachable`: a generated map's generator has no test importing it, so the guard set is incomplete — and an incomplete guard is the silent miss the guard exists to prevent.",
+              "enum": [
+                "git-unavailable",
+                "no-changed-paths",
+                "path-not-classifiable",
+                "deleted-or-renamed",
+                "unparseable-python",
+                "dangling-import",
+                "unreached-tool",
+                "selector-unavailable",
+                "derived-guard-unreachable"
+              ]
             },
             "detail": {
               "description": "One plain sentence naming the specific path or command, for a person reading the manifest. The `code` is what a machine matches on; this never carries meaning the code does not.",
@@ -52,24 +83,42 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["module", "path", "reason"],
+        "required": [
+          "module",
+          "path",
+          "reason"
+        ],
         "properties": {
           "module": {
             "description": "The dotted discovery name, so a packaged module (`memory.test_ledger`) matches what `unittest discover` produces from the tools root and the runner needs no second naming convention.",
             "type": "string",
             "minLength": 1
           },
-          "path": { "type": "string", "minLength": 1 },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
           "reason": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["code", "detail"],
+            "required": [
+              "code",
+              "detail"
+            ],
             "properties": {
               "code": {
-                "description": "`changed-test-module`: the test module is itself among the changed files. `direct-import`: it imports a changed tool directly. `transitive-import`: it reaches a changed tool through a chain of imports. Breadth-first traversal means the first time a test is reached is by its shortest path, so the distinction between direct and transitive means what it says.",
-                "enum": ["changed-test-module", "direct-import", "transitive-import"]
+                "description": "`changed-test-module`: the test module is itself among the changed files. `direct-import`: it imports a changed tool directly. `transitive-import`: it reaches a changed tool through a chain of imports. Breadth-first traversal means the first time a test is reached is by its shortest path, so the distinction between direct and transitive means what it says. `derived-artifact-guard`: always included, whatever the import graph says, because ANY change can stale one of the engine's generated maps and no import expresses that dependency.",
+                "enum": [
+                  "changed-test-module",
+                  "direct-import",
+                  "transitive-import",
+                  "derived-artifact-guard"
+                ]
               },
-              "detail": { "type": "string", "minLength": 1 }
+              "detail": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         }
