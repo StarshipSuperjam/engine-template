@@ -16,8 +16,9 @@ It lives INLINE here rather than in `.engine/_fixtures/`, whose README reserves 
 deliberately-broken negative inputs used to prove the engine's own checks bite. This is the
 opposite: the known-good case.
 
-What the walk proves that nothing else can. The verbs after `seal` have no other consumer until PR B
-exists — nothing in PR A's own tests would otherwise exercise a review recorded against a real
+What the walk proves that nothing else can. Every governance step runs through the real command, so
+this is the lifecycle exercised end to end rather than the data structures shown accepting values.
+The verbs it drives have no other consumer until PR B exists — nothing in PR A's own tests would otherwise exercise a review recorded against a real
 multi-lens panel, a finding folded into a revision, a delta judged proportional, and a seal minted
 over the result. A suite that stopped at unit tests would ship those green and unused.
 """
@@ -140,7 +141,6 @@ class TheFullDistance(_Dogfood):
     """import -> approve -> review -> dispose -> fold the fix in -> judge the delta -> seal."""
 
     def _walk(self):
-        import plan_coordinator
         document = _plan_document()
         slug = self.lib.create(document, intake={
             "provenance": "hand-authored before the coordinator existed; the dogfood seed",
@@ -148,29 +148,30 @@ class TheFullDistance(_Dogfood):
                              "the pre-approval DAG authoring revision",
                              "Local-First Plan Coordinator and DAG-Only Build Orchestration"]})
 
-        # Present the whole plan, then choose a depth. The gate refuses the other order.
-        plan_coordinator._mark_previewed(self.lib, slug, self.lib.read_record(slug)["current"]["plan_digest"])
-        record = self.lib.read_record(slug)
-        self.lib.update_record(slug, lambda r: r.update({"approval": {
-            "revision": 1, "plan_digest": record["current"]["plan_digest"],
-            "depth": "thorough", "at": "2026-08-23T21:50:00Z"}}))
+        # Every step below goes through the REAL commands, not a record written by hand. That is the
+        # difference between proving the lifecycle works and proving the data structures accept being
+        # filled in: the CLI carries the guardrails (preview-before-approve, one-review-per-plan,
+        # the seal preconditions) and a walk that bypassed them would be exercising nothing.
+        library = ["--library", str(self.root)]
+        _run(library + ["preview", slug])
+        _run(library + ["approve", slug, "--depth", "thorough"])
 
-        # One cold panel, four lenses, against the approved revision.
-        self.lib.update_record(slug, lambda r: r.update({"plan_review": {
-            "revision": 1, "plan_digest": record["current"]["plan_digest"],
-            "packet_digest": plan_contract.digest(PLAN_JSON.encode("utf-8")),
-            "at": "2026-08-23T22:05:00Z",
-            "lenses": ["architecture", "feasibility", "product-intent", "risk-governance"],
-            "findings": json.loads(json.dumps(REVIEW_FINDINGS))}}))
+        # One cold panel, four lenses, against the approved revision — carrying the findings the real
+        # review actually raised.
+        findings_file = Path(self._tmp.name) / "findings.json"
+        findings_file.write_text(json.dumps(REVIEW_FINDINGS), encoding="utf-8")
+        _run(library + ["review", "record", slug,
+                        "--lens", "architecture", "--lens", "feasibility",
+                        "--lens", "product-intent", "--lens", "risk-governance",
+                        "--packet-digest", self.lib.read_record(slug)["current"]["plan_digest"],
+                        "--findings", str(findings_file)])
         return slug, document
 
     def _dispose_all(self, slug):
-        def change(record):
-            for finding in record["plan_review"]["findings"]:
-                disposition, rationale = DISPOSITIONS[finding["id"]]
-                finding["disposition"] = disposition
-                finding["rationale"] = rationale
-        self.lib.update_record(slug, change)
+        for finding in self.lib.read_record(slug)["plan_review"]["findings"]:
+            disposition, rationale = DISPOSITIONS[finding["id"]]
+            _run(["--library", str(self.root), "finding", "dispose", slug,
+                  "--id", finding["id"], "--disposition", disposition, "--rationale", rationale])
 
     def test_a_blocking_finding_leaves_an_editable_draft_and_no_seal(self):
         import plan_coordinator
@@ -260,7 +261,7 @@ class ThisBuildsOwnProgram(_Dogfood):
         pr_a = _plan_document()
         pr_a["program"] = {"program_id": programs.read(program_slug)["program_id"],
                            "carried_obligations": json.loads(json.dumps(self.PR_A_CARRIES))}
-        slug_a = self.lib.create(pr_a)
+        self.lib.create(pr_a)
         programs.add_child(program_slug, pr_a["plan_id"])
         return programs, program_slug, pr_a
 

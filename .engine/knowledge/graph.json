@@ -5978,7 +5978,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:d58e7f59b9dca832fe2e8c4595810fdd84b650fce4280e434e1ece551e02eef4",
+        "fingerprint": "sha256:937a9af70416b0c23709ce9c2422a2c18a43f794d855bccd36eace46631b3a0d",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -18182,7 +18182,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:6cbc9fac0a35e069f77f72badbf4cdcacbfb9492f2ea19c91fda6be94efab77b",
+        "fingerprint": "sha256:61f4c6bf53165294ac62bafd28419e2bd793d7011b1dcf5b90df907e959409ba",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
