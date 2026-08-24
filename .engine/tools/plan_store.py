@@ -211,9 +211,15 @@ def volume_determined(path: Path | None = None) -> bool:
 
 
 def _filesystem_type(path: Path) -> str | None:
-    """The filesystem type at `path`, or None when it cannot be determined. Python exposes no portable
-    API for this, so it shells out to `df` and degrades quietly — an unknown type must read as
-    unknown, never as 'local'."""
+    """The filesystem type at `path`, or None when it cannot be determined.
+
+    Python exposes no portable API for this, so each platform gets its own probe: `df`/`stat` on
+    Darwin, `/proc/mounts` on Linux, nothing anywhere else. Both degrade quietly to None, and
+    `volume_determined` is what tells a caller that None meant "could not tell" rather than "fine".
+
+    `path` is resolved up to its nearest EXISTING ancestor first, because the usual caller asks about
+    a library that has not been created yet. That is the normal case here, not an edge one.
+    """
     probe = path
     while not probe.exists() and probe != probe.parent:
         probe = probe.parent

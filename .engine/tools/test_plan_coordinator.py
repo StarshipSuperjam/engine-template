@@ -1097,8 +1097,7 @@ class FilesystemProbe(unittest.TestCase):
         return subprocess.CompletedProcess(args=[], returncode=code, stdout=stdout, stderr="")
 
     def test_a_matching_network_type_is_reported(self):
-        with mock.patch.object(plan_store.os, "uname",
-                               return_value=type("U", (), {"sysname": "Darwin"})()), \
+        with self._as("Darwin"), \
              mock.patch.object(plan_store.subprocess, "run",
                                side_effect=self._fake_run([
                                    self._completed("Filesystem ...\n//host/share  1 1 1 1% /mnt\n"),
@@ -1106,14 +1105,52 @@ class FilesystemProbe(unittest.TestCase):
             self.assertEqual(plan_store._filesystem_type(Path("/")), "smbfs")
 
     def test_a_local_disk_reports_nothing(self):
-        with mock.patch.object(plan_store.os, "uname",
-                               return_value=type("U", (), {"sysname": "Darwin"})()), \
+        with self._as("Darwin"), \
              mock.patch.object(plan_store.subprocess, "run",
                                side_effect=self._fake_run([self._completed("Filesystem ...\n", 1)])):
             self.assertIsNone(plan_store._filesystem_type(Path("/")))
 
-    def test_a_failing_probe_degrades_to_unknown_rather_than_crashing(self):
-        with mock.patch.object(plan_store.subprocess, "run", side_effect=OSError("no df here")):
+    def _as(self, sysname):
+        return mock.patch.object(plan_store.os, "uname",
+                                 return_value=type("U", (), {"sysname": sysname})())
+
+    def test_a_failing_probe_degrades_to_unknown_rather_than_crashing_on_darwin(self):
+        # Pin the platform. Without this the test passes on Darwin and fails on Linux, where the
+        # probe reads /proc/mounts and never calls subprocess at all — so mocking subprocess proves
+        # nothing there. CI caught exactly that: it returned 'ext4' and the assertion blew up.
+        with self._as("Darwin"), \
+             mock.patch.object(plan_store.subprocess, "run", side_effect=OSError("no df here")):
+            self.assertIsNone(plan_store._filesystem_type(Path("/")))
+
+    def test_the_linux_branch_reports_the_longest_matching_mount(self):
+        # A REAL directory, because the probe deliberately walks up to the nearest existing path —
+        # the library may not exist yet when this is asked. A made-up mount point would resolve to
+        # "/" and quietly test the wrong line.
+        with tempfile.TemporaryDirectory() as tmp:
+            mounts = ("proc /proc proc rw 0 0\n"
+                      "/dev/sda1 / ext4 rw 0 0\n"
+                      f"//host/share {tmp} cifs rw 0 0\n")
+            with self._as("Linux"), mock.patch("builtins.open", mock.mock_open(read_data=mounts)):
+                self.assertEqual(plan_store._filesystem_type(Path(tmp)), "cifs")
+
+    def test_the_linux_branch_prefers_the_deepest_mount_not_the_first_match(self):
+        # "/" prefixes every path, so a shallower mount must never win over a deeper one.
+        with tempfile.TemporaryDirectory() as tmp:
+            mounts = (f"//host/share {tmp} nfs rw 0 0\n"
+                      "/dev/sda1 / ext4 rw 0 0\n")
+            with self._as("Linux"), mock.patch("builtins.open", mock.mock_open(read_data=mounts)):
+                self.assertEqual(plan_store._filesystem_type(Path(tmp)), "nfs")
+
+    def test_a_probe_of_a_path_that_does_not_exist_yet_resolves_to_its_nearest_parent(self):
+        # The library is asked about before it is created, so this is the normal case, not an edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            mounts = f"//host/share {tmp} smbfs rw 0 0\n"
+            with self._as("Linux"), mock.patch("builtins.open", mock.mock_open(read_data=mounts)):
+                self.assertEqual(
+                    plan_store._filesystem_type(Path(tmp) / "not" / "created" / "yet"), "smbfs")
+
+    def test_an_unreadable_proc_mounts_degrades_to_unknown_rather_than_crashing(self):
+        with self._as("Linux"), mock.patch("builtins.open", side_effect=OSError("no /proc here")):
             self.assertIsNone(plan_store._filesystem_type(Path("/")))
 
     def test_an_undeterminable_volume_is_reported_as_undetermined(self):
