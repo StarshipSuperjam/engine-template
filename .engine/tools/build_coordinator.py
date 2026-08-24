@@ -2396,7 +2396,11 @@ def cmd_work_frontier(args, store: StateStore) -> None:
     print("  admitted (admission order): " + (", ".join(projection["admitted"]) or "none"))
     print("  claimable (a direct claim is permitted): " + (", ".join(projection["claimable"]) or "none"))
     for entry in projection["deferred"]:
-        print(f"  deferred {entry['id']}: {entry['kind']} — {entry['reason']}")
+        # Same reconciliation the status render makes, and it matters more here: this verb is where a
+        # session is sent to understand the admission decision, so a node named on both the claimable
+        # line and a deferral line must say on the spot that the two do not disagree.
+        note = " (still claimable directly)" if entry["id"] in projection["claimable"] else ""
+        print(f"  deferred {entry['id']}: {entry['kind']} — {entry['reason']}{note}")
     print("  rank (critical path desc, then id): "
           + ", ".join(f"{node_id}[{projection['critical_path'][node_id]}]"
                       for node_id in projection["admission_rank"]))
@@ -2560,11 +2564,18 @@ def cmd_work_integrate(args, store: StateStore) -> None:
                          if entry["id"] == args.item), None)
         if existing is None:
             state["progress"]["completed"].append({"id": args.item, "commit": args.commit})
-        else:
-            existing["commit"] = args.commit
+            return None
+        corrected = existing["commit"]
+        existing["commit"] = args.commit
+        return corrected
 
-    _work_mutate(store, change)
+    corrected = _work_mutate(store, change)
     print(f"integrated {args.item} at {args.commit}; focused verification recorded")
+    if corrected and corrected != args.commit:
+        # An operator running this to escape the unearned-completion refusal should see that the
+        # correction happened, not just that an integration did.
+        print(f"corrected the recorded completion for {args.item}: was {corrected[:12]}, "
+              f"now the integration commit {args.commit[:12]}")
 
 
 _CLAIM_FILL_GUIDANCE = (

@@ -226,6 +226,27 @@ class TestFrontierProjection(WorkCase):
         self.assertIn("deferred adapter: dependency", text)
         self.assertIn("shared[2]", text)
 
+    def test_frontier_render_reconciles_a_node_that_is_both_claimable_and_deferred(self):
+        # This verb is where a session is SENT to understand the admission decision, so the one place
+        # the two lists can look contradictory must resolve it on the line itself. Two independent
+        # roots under a serial plan: both claimable, the lower-ranked one deferred on capacity.
+        self.write_plan(plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])]))
+        os.remove(self.state_path)
+        self.store = bc.StateStore(self.state_path)
+        state = bc._initial_state("owner/repo", 7, BASE, "session", self.plan_value, None)
+        state["approval"] = {"plan_digest": bc._digest(self.plan_value), "spec_digest": None, "depth": "thorough"}
+        self.store.create(state)
+        projection = self.frontier()
+        self.assertEqual(projection["admitted"], ["a"])
+        self.assertIn("b", projection["claimable"])
+        self.assertEqual([d["kind"] for d in projection["deferred"]], [dag.DEFER_CAPACITY])
+        text = self.frontier(as_json=False)
+        self.assertIn("deferred b: capacity", text)
+        self.assertIn("(still claimable directly)", text)
+        # ...and the reason must not claim an occupancy the slot line above it contradicts.
+        self.assertIn("Frontier: 0 of 1 worker slot(s) in use", text)
+        self.assertNotIn("all 1 worker slot(s) are in use", text)
+
     def test_the_claim_verb_recomputes_the_frontier_under_the_lock(self):
         # The frontier the claim enforces is derived INSIDE store.mutate — from the state re-read
         # under the lock, not from anything the caller sampled earlier. Proved by moving the graph

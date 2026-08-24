@@ -2178,8 +2178,12 @@ class TestV2CompletionGate(CoordinatorCase):
         args = argparse.Namespace(item="shared", attempt="1" * 32, commit=HEAD_B,
                                   verification_input="focused tests green")
         with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
-                contextlib.redirect_stdout(io.StringIO()):
+                contextlib.redirect_stdout(io.StringIO()) as out:
             bc.cmd_work_integrate(args, self.store)
+        # The correction is announced: an operator recovering from the refusal must see that a stale
+        # completion was rewritten, not just that an integration happened.
+        self.assertIn("corrected the recorded completion for shared", out.getvalue())
+        self.assertIn(HEAD_A[:12], out.getvalue())
         state = self.state()
         # The stale entry is corrected in place, not left beside the new integration evidence.
         self.assertEqual(state["progress"]["completed"], [{"id": "shared", "commit": HEAD_B}])
