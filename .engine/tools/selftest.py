@@ -381,6 +381,7 @@ def _finish_run_record(path, rc: int, log_path, captured: str, *, scope="full", 
             "inventory": {"module_count": 0, "case_count": 0,
                           "modules_digest": _sha256_text(""), "cases_digest": _sha256_text("")},
             "executed": {"case_count": 0, "skipped_count": 0},
+            "record_incomplete": False,   # the child never got far enough to collect anything
             "selection": selection, "selection_digest": _selection_digest(selection),
             # True by construction: this record is written by the PARENT, which sets the sentinel for
             # the child it spawns. Reading the parent's own environment reported False on every
@@ -705,6 +706,7 @@ def _compute_selection(changed_from: str) -> dict:
             # or a broken register under it sends a reader looking at the wrong thing.
             "full_reason": {"code": "selector-unavailable",
                             "detail": f"the selector could not run ({exc!r}); running everything"},
+            "exempt_paths": [],
             "selected": [],
         }
 
@@ -756,6 +758,7 @@ def _not_started_record(args, verdict: str, detail: str) -> None:
         "inventory": {"module_count": 0, "case_count": 0,
                       "modules_digest": _sha256_text(""), "cases_digest": _sha256_text("")},
         "executed": {"case_count": 0, "skipped_count": 0},
+        "record_incomplete": False,   # nothing was collected, so nothing is missing from it
         "selection": None,
         "selection_digest": None,
         # True for the same reason as the crash record: the launcher sets the sentinel for the child it

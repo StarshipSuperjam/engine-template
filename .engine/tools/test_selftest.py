@@ -10,6 +10,7 @@ background process running must not stall the launcher's teardown).
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -642,6 +643,38 @@ class RecordHonesty(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(os.stat(record_path).st_mode), 0o600,
                          "the record must be owner-only, like the run log beside it")
 
+    def test_a_run_whose_bookkeeping_breaks_says_so_without_changing_its_verdict(self):
+        """The one state `record_incomplete` exists to describe, actually driven.
+
+        Two reviewers noticed the field could only ever be observed as false, so nothing showed what it
+        looks like when it means something. Driven here at the result object directly rather than
+        through a synthetic suite: the guard sits inside `_StructuredResult`'s own hooks, and reaching
+        it end-to-end depends on which of unittest's internals happens to touch a case first — which
+        would make the test about unittest rather than about the guard. A case whose printed form
+        raises is exactly what the guard catches: the entry is dropped, the flag is set, and — the
+        point of the whole thing — the base class's own verdict is untouched."""
+        class Hostile(unittest.TestCase):
+            def __str__(self):
+                raise RuntimeError("this case refuses to describe itself")
+
+            def runTest(self):
+                pass
+
+        case = Hostile()
+        result = selftest._StructuredResult(io.StringIO(), True, 1, progress_write=None)
+        result.addFailure(case, (AssertionError, AssertionError("a real failure"), None))
+
+        self.assertTrue(result._record_broke,
+                        "a bookkeeping failure must be recorded, not swallowed")
+        self.assertEqual(result.problems, [], "the entry it could not build is dropped")
+        self.assertFalse(result.wasSuccessful(),
+                         "the VERDICT comes from the base class and is untouched by the bookkeeping")
+
+    def test_an_ordinary_run_reports_its_bookkeeping_as_complete(self):
+        """The other half, so the field above cannot pass by being true for everything."""
+        _, record = self._run({"test_one.py": _CLEAN})
+        self.assertFalse(record["record_incomplete"])
+
     def test_the_atomic_write_refuses_a_symlink_planted_at_its_temporary_name(self):
         """A predictable temporary name opened with a plain write follows symlinks — an arbitrary
         local file overwrite as the running user. The module had already solved this for its log."""
@@ -656,6 +689,71 @@ class RecordHonesty(unittest.TestCase):
         with open(victim) as fh:
             self.assertEqual(fh.read(), "untouched", "the planted symlink must not be followed")
         self.assertFalse(wrote, "the write must fail rather than clobber through a symlink")
+
+
+class EveryWriterMatchesItsSchema(unittest.TestCase):
+    """The test that would have caught the same mistake twice.
+
+    A required field was added to each schema and wired into ONE writer out of three. Both times the
+    writers left behind were the ones for bad days — the crashed run, the parent-side exits, the
+    selector that could not run — so the artifact produced for the outcome the plan calls "the one it
+    is most needed for" was the one that failed its own contract. The existing schema test only ever
+    validated a clean pass and a focused pass, which is exactly how it got through. This drives every
+    writer there is."""
+
+    def _record_schema(self):
+        import validate as _validate
+        with open(os.path.join(_validate.ENGINE_DIR, "schemas",
+                               "selftest-run-record.v1.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_the_parent_side_exit_record_validates(self):
+        import jsonschema
+        tmp = tempfile.mkdtemp(prefix="selftest-schema-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        record_path = os.path.join(tmp, "record.json")
+        subprocess.run([sys.executable, _SELFTEST, "--start-dir", ".", "--cwd", ".",
+                        "--log-path", os.path.join("no_such_dir_xyz", "run.log"),
+                        "--run-record-path", record_path],
+                       capture_output=True, text=True, timeout=30.0)
+        with open(record_path) as fh:
+            record = json.load(fh)
+        self.assertEqual(record["verdict"], "log-unavailable")
+        jsonschema.validate(record, self._record_schema())
+
+    def test_the_crashed_run_record_validates(self):
+        import jsonschema
+        proc, record = FocusedRuns._run(self, {"test_suicide.py": """
+            import os, signal, unittest
+            class T(unittest.TestCase):
+                def test_dies(self):
+                    os.kill(os.getpid(), signal.SIGKILL)
+        """})
+        self.assertNotEqual(proc.returncode, 0)
+        jsonschema.validate(record, self._record_schema())
+
+    def test_the_selector_unavailable_fallback_manifest_validates(self):
+        """The manifest built by hand when the selector cannot run — the artifact whose whole purpose
+        is that a broken selector runs everything rather than fewer tests."""
+        import jsonschema
+        import validate as _validate
+        with open(os.path.join(_validate.ENGINE_DIR, "schemas",
+                               "selftest-selection.v1.json"), encoding="utf-8") as fh:
+            selection_schema = json.load(fh)
+        original = selftest._compute_selection.__globals__.get("__builtins__")
+        manifest = selftest._compute_selection("no-such-ref-anywhere-at-all")
+        self.assertEqual(manifest["classification"], "full")
+        jsonschema.validate(manifest, selection_schema)
+
+    def test_every_record_writer_declares_the_same_field_set(self):
+        """Mechanical, so a field added to the schema cannot reach one writer and miss the others."""
+        import inspect
+        source = inspect.getsource(selftest)
+        required = set(self._record_schema()["required"])
+        for field in required:
+            self.assertGreaterEqual(
+                source.count(f'"{field}"'), 2,
+                f"{field} is required by the schema but appears in too few writers to be on all of them")
 
 
 class NewFlagsAreDiscoverable(unittest.TestCase):

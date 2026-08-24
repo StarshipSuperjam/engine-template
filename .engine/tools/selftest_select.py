@@ -390,6 +390,9 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
     paths = sorted(statuses)
 
     exempt = exempt_factory()      # computed ONCE; the first version re-derived it inside a loop
+    # Recorded HERE, before the deleted-or-renamed return below — the first version populated it only
+    # further down, so the branch where a path was most literally waived reported nothing waived.
+    exempt_seen.update(path for path in paths if path in exempt)
     gone = [path for path in paths if statuses[path] & {"D", "R"} and path not in exempt]
     if gone:
         return full("deleted-or-renamed",
@@ -400,13 +403,17 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
     # knowledge map; the guard below now always selects the test that catches that, so the focused run
     # goes red; regenerating to clear it puts the regenerated map — a non-Python path — into the
     # changed set, so the next run classifies `full`. No state in an ordinary build iteration was left
-    # where a focused run could be green. The exemption is safe precisely BECAUSE of the guard: the
-    # tests policing every one of these outputs are already in every focused selection
-    # unconditionally, so the regenerated file carries nothing the selection does not already act on.
+    # where a focused run could be green.
+    #
+    # WHAT MAKES IT SAFE is each output's own HARD drift check in the validator suite — the other
+    # registered validation command, which this selector never narrows. NOT the guard's test modules:
+    # that was the first rationale and a reviewer disproved it for three of the members, whose test
+    # modules only exercise synthetic trees and never assert the committed artifact is current. See
+    # this module's docstring, and `test_every_exempt_output_is_policed_by_a_hard_check`, which holds
+    # the true bound mechanically so a member added later cannot become exempt without one.
     # CATEGORY 2 of the three-way partition — see this module's docstring. These paths neither narrow
     # the run nor force the full inventory, and that is a deliberate, disclosed exception to the
     # otherwise two-way rule, not an oversight.
-    exempt_seen.update(path for path in paths if path in exempt)
     considered = [path for path in paths if path not in exempt]
     unclassifiable = [path for path in considered if not is_tool_python(path)]
     if unclassifiable:
