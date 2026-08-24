@@ -10,6 +10,7 @@ background process running must not stall the launcher's teardown).
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -19,6 +20,8 @@ import tempfile
 import textwrap
 import time
 import unittest
+
+import selftest
 
 _SELFTEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "selftest.py")
 
@@ -306,6 +309,266 @@ class SelftestLauncher(_LauncherCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("cannot open the run log", r.stdout + r.stderr)
         self.assertNotIn("Traceback (most recent call last)", r.stdout + r.stderr)
+
+
+# --------------------------------------------------------------------------------------------------
+# Focused runs and the run record. Everything above this line is the launcher's ORIGINAL fixture and is
+# byte-identical to its state before this change — preservation is verified by diffing that region, not
+# by counting `def test_`, which also matches the synthetic suite bodies these fixtures embed as strings.
+# --------------------------------------------------------------------------------------------------
+
+
+_SELECTION_SCHEMA = "selftest-selection.v1"
+
+
+def _selection(modules, classification="focused", code=None):
+    """A selection manifest the launcher can be handed directly, without a git repository to derive
+    one from — which is why `--selection-path` exists as a hidden flag."""
+    return {
+        "schema_version": _SELECTION_SCHEMA,
+        "classification": classification,
+        "changed_from": "fixture-base",
+        "changed_paths": [],
+        "full_reason": None if classification == "focused"
+                       else {"code": code or "path-not-classifiable", "detail": "fixture"},
+        "selected": [{"module": m, "path": f".engine/tools/{m}.py",
+                      "reason": {"code": "changed-test-module", "detail": "fixture"}}
+                     for m in modules],
+    }
+
+
+_CLEAN = """
+    import unittest
+    class T(unittest.TestCase):
+        def test_ok(self): pass
+"""
+_ALSO_CLEAN = """
+    import unittest
+    class T(unittest.TestCase):
+        def test_fine(self): pass
+"""
+_BAD_IMPORT = "import a_module_that_is_definitely_not_installed\n"
+_SETUP_FAILS = """
+    import unittest
+    def setUpModule():
+        raise RuntimeError("module setup exploded")
+    class T(unittest.TestCase):
+        def test_never_runs(self): pass
+"""
+
+
+class FocusedRuns(unittest.TestCase):
+    """The launcher driven with a selection, against synthetic suites."""
+
+    def _run(self, bodies, selection=None, *, record=True, timeout=60.0):
+        tmp = _write_suite(bodies)
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        cmd = [sys.executable, _SELFTEST, "--start-dir", tmp, "--cwd", tmp,
+               "--heartbeat-interval", "0.05", "--stall-threshold", "0.1",
+               "--log-path", os.path.join(tmp, "run.log")]
+        record_path = os.path.join(tmp, "record.json")
+        if record:
+            cmd += ["--run-record-path", record_path]
+        if selection is not None:
+            sel_path = os.path.join(tmp, "selection.json")
+            with open(sel_path, "w") as fh:
+                json.dump(selection, fh)
+            cmd += ["--selection-path", sel_path]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        loaded = None
+        if record and os.path.exists(record_path):
+            with open(record_path) as fh:
+                loaded = json.load(fh)
+        return proc, loaded
+
+    def test_a_focused_run_executes_only_the_selected_modules(self):
+        proc, record = self._run(
+            {"test_one.py": _CLEAN, "test_two.py": _ALSO_CLEAN},
+            _selection(["test_one"]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(record["scope"], "focused")
+        self.assertEqual(record["executed"]["case_count"], 1)
+        self.assertEqual([e["module"] for e in record["modules"]], ["test_one"])
+
+    def test_a_focused_run_still_reports_the_complete_inventory(self):
+        """Half of what makes a focused record unusable as merge evidence: what was NOT run is visible
+        by subtraction, because the inventory is taken from the canonical full discovery."""
+        _, record = self._run(
+            {"test_one.py": _CLEAN, "test_two.py": _ALSO_CLEAN, "test_three.py": _CLEAN},
+            _selection(["test_one"]))
+        self.assertEqual(record["inventory"]["module_count"], 3)
+        self.assertEqual(record["executed"]["case_count"], 1)
+
+    def test_a_module_that_cannot_be_imported_is_never_filtered_out(self):
+        """The load-bearing false-green case. A module that fails to import is presented by unittest as
+        a synthetic case attributed to the LOADER, not to the module that broke — so a filter keyed on
+        module name alone discards it, the filtered suite runs clean, and the child exits 0. Here the
+        broken module is deliberately NOT selected; the run must still go red."""
+        proc, record = self._run(
+            {"test_one.py": _CLEAN, "test_broken.py": _BAD_IMPORT},
+            _selection(["test_one"]))
+        self.assertNotEqual(proc.returncode, 0,
+                            "an unimportable module must fail the run even when it was not selected")
+        self.assertEqual(record["verdict"], "failed")
+        self.assertIn("test_broken", [p["module"] for p in record["problems"]])
+
+    def test_a_selection_naming_modules_this_tree_does_not_produce_is_refused(self):
+        """The other false-green case. An empty filtered suite is reported by unittest as SUCCESSFUL,
+        so a selection that matches nothing would otherwise be a clean green having run nothing."""
+        proc, record = self._run({"test_one.py": _CLEAN}, _selection(["test_absent"]))
+        self.assertEqual(proc.returncode, 2)
+        self.assertEqual(record["verdict"], "selection-unmatched")
+        self.assertIn("test_absent", record["detail"])
+        self.assertIn("does not produce", proc.stdout + proc.stderr)
+
+    def test_a_full_classification_runs_everything_and_says_so(self):
+        proc, record = self._run(
+            {"test_one.py": _CLEAN, "test_two.py": _ALSO_CLEAN},
+            _selection([], classification="full", code="path-not-classifiable"))
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(record["scope"], "full")
+        self.assertEqual(record["executed"]["case_count"], 2)
+        self.assertIn("COMPLETE inventory", proc.stdout + proc.stderr + "")
+
+
+class RunRecord(unittest.TestCase):
+
+    def _run(self, bodies, selection=None, **kw):
+        return FocusedRuns._run(self, bodies, selection, **kw)
+
+    def test_a_record_is_written_on_a_pass_and_on_a_failure(self):
+        _, passed = self._run({"test_one.py": _CLEAN})
+        self.assertEqual(passed["verdict"], "passed")
+        self.assertEqual(passed["exit_status"], 0)
+        _, failed = self._run({"test_bad.py": """
+            import unittest
+            class T(unittest.TestCase):
+                def test_no(self): self.fail("nope")
+        """})
+        self.assertEqual(failed["verdict"], "failed")
+        self.assertEqual(failed["exit_status"], 1)
+
+    def test_a_module_level_setup_failure_is_recorded(self):
+        """A `setUpModule` failure is reported straight to the result's error hook and NEVER passes
+        through a start or stop event, so a failure list derived from the progress stream would be
+        silently empty while the exit status said FAILED."""
+        proc, record = self._run({"test_setupmod.py": _SETUP_FAILS})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("test_setupmod", [p["module"] for p in record["problems"]])
+
+    def test_the_recorded_verdict_agrees_with_the_exit_status(self):
+        for bodies, expected in ((({"test_one.py": _CLEAN}), 0),
+                                 (({"test_broken.py": _BAD_IMPORT}), 1)):
+            proc, record = self._run(bodies)
+            with self.subTest(expected=expected):
+                self.assertEqual(proc.returncode, expected)
+                self.assertEqual(record["exit_status"], proc.returncode)
+
+    def test_the_recorded_log_digest_matches_the_log_actually_written(self):
+        """The digest is taken from the parent's in-memory capture, which is byte-identical to the file
+        by construction — so it cannot depend on a buffered flush completing during teardown."""
+        tmp = _write_suite({"test_one.py": _CLEAN})
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        log_path = os.path.join(tmp, "run.log")
+        record_path = os.path.join(tmp, "record.json")
+        subprocess.run(
+            [sys.executable, _SELFTEST, "--start-dir", tmp, "--cwd", tmp,
+             "--heartbeat-interval", "0.05", "--log-path", log_path,
+             "--run-record-path", record_path],
+            capture_output=True, text=True, timeout=60.0)
+        with open(record_path) as fh:
+            record = json.load(fh)
+        with open(log_path, encoding="utf-8", errors="replace") as fh:
+            on_disk = fh.read()
+        self.assertEqual(record["log"]["sha256"], selftest._sha256_text(on_disk))
+
+    def test_a_killed_child_still_leaves_a_record(self):
+        """The run record must survive the outcome it is most needed for."""
+        proc, record = self._run({"test_suicide.py": """
+            import os, signal, unittest
+            class T(unittest.TestCase):
+                def test_dies(self):
+                    os.kill(os.getpid(), signal.SIGKILL)
+        """})
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIsNotNone(record, "a killed child must still leave a record")
+        # The parent propagates the child's raw returncode, which Python reports as a NEGATIVE
+        # number for a signal death; the status the shell sees is that value modulo 256.
+        self.assertIn(record["exit_status"], (proc.returncode, proc.returncode - 256))
+        self.assertIn(record["verdict"], ("crashed", "failed"))
+
+    def test_the_parent_side_log_failure_exit_still_leaves_a_record(self):
+        """One of the three exits the child never reaches."""
+        tmp = tempfile.mkdtemp(prefix="selftest-record-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        record_path = os.path.join(tmp, "record.json")
+        proc = subprocess.run(
+            [sys.executable, _SELFTEST, "--start-dir", ".", "--cwd", ".",
+             "--log-path", os.path.join("no_such_dir_xyz", "run.log"),
+             "--run-record-path", record_path],
+            capture_output=True, text=True, timeout=30.0)
+        self.assertNotEqual(proc.returncode, 0)
+        with open(record_path) as fh:
+            record = json.load(fh)
+        self.assertEqual(record["verdict"], "log-unavailable")
+
+    def test_the_record_names_one_validation_command_and_declares_its_scope(self):
+        """A record that did not say what it covered would read as 'this tree is validated'."""
+        _, record = self._run({"test_one.py": _CLEAN})
+        self.assertEqual(record["attests"], "engine-selftest")
+        self.assertIn(record["scope"], ("full", "focused"))
+        self.assertTrue(record["nested_sentinel"],
+                        "a launcher run always sets the nested sentinel, which is why some tests skip")
+
+    def test_the_record_validates_against_its_own_schema(self):
+        import jsonschema
+        import validate as _validate
+        schemas_dir = os.path.join(_validate.ENGINE_DIR, "schemas")
+        with open(os.path.join(schemas_dir, "selftest-run-record.v1.json")) as fh:
+            record_schema = json.load(fh)
+        with open(os.path.join(schemas_dir, "selftest-selection.v1.json")) as fh:
+            selection_schema = json.load(fh)
+        validator = jsonschema.Draft202012Validator(record_schema)
+        for bodies, selection in (({"test_one.py": _CLEAN}, None),
+                                  ({"test_one.py": _CLEAN, "test_two.py": _ALSO_CLEAN},
+                                   _selection(["test_one"]))):
+            _, record = self._run(bodies, selection)
+            with self.subTest(selection=bool(selection)):
+                validator.validate(record)
+                if record["selection"] is not None:
+                    # The record schema stays self-contained — this is the only place in the engine's
+                    # schema corpus where one document embeds another, and a cross-file reference would
+                    # oblige every consumer to carry a registry. The SELECTION schema is checked here as
+                    # the authority for the nested object, and `selection_digest` carries its identity.
+                    jsonschema.validate(record["selection"], selection_schema)
+                    self.assertTrue(record["selection_digest"],
+                                    "an embedded selection must carry its own digest")
+
+    def test_the_scope_field_is_required_by_the_schema(self):
+        """Required and non-defaultable, so a record cannot be silent about what it covered."""
+        import jsonschema
+        import validate as _validate
+        with open(os.path.join(_validate.ENGINE_DIR, "schemas",
+                               "selftest-run-record.v1.json")) as fh:
+            record_schema = json.load(fh)
+        _, record = self._run({"test_one.py": _CLEAN})
+        record.pop("scope")
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(record, record_schema)
+
+
+class NewFlagsAreDiscoverable(unittest.TestCase):
+
+    def test_both_operator_facing_flags_appear_in_the_help(self):
+        """Every pre-existing flag is hidden and the docstring says they are fixture-only; a capability
+        nobody can find is not delivered."""
+        proc = subprocess.run([sys.executable, _SELFTEST, "--help"],
+                              capture_output=True, text=True, timeout=30.0)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("--changed-from", proc.stdout)
+        self.assertIn("--run-record-path", proc.stdout)
+        self.assertNotIn("--selection-path", proc.stdout,
+                         "the hand-off path is an internal seam, not an operator flag")
 
 
 if __name__ == "__main__":
