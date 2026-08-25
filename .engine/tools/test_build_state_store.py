@@ -258,6 +258,47 @@ class DoesNotDestroy(_Library):
             build_state_store.supersede(self.lib, self.slug, reason="second")
 
 
+class ASnapshotWrittenByTheEngineBeforeThisOne(unittest.TestCase):
+    """IT SURVIVES A FIELD BEING REMOVED — the direction a schema-first rule does not cover.
+
+    The Build schemas forbid unknown properties, so dropping a field breaks every snapshot already
+    written with it: the store re-validates the WHOLE document on read and on write, so such a Build
+    becomes unreadable the moment the removal lands, and the refusal names no verb that recovers it.
+    """
+
+    def _round(self, **over):
+        entry = {"reviewed_commit": "a" * 40, "final_commit": "b" * 40, "judgment": "scoped",
+                 "lenses": ["usability"], "guidance": None}
+        entry.update(over)
+        return entry
+
+    def test_a_round_recorded_with_the_superseded_spent_flag_still_loads(self):
+        migrated = core.forward_migrate({"repair_rounds": [self._round(spent=True)]})
+        self.assertEqual(migrated["repair_rounds"], [self._round()],
+                         "`spent` is dropped, not tolerated: the ledger records what a round cost "
+                         "once, as `counted`")
+
+    def test_the_migration_touches_nothing_it_does_not_have_to(self):
+        clean = {"repair_rounds": [self._round(counted=True)], "revision": 4}
+        self.assertIs(core.forward_migrate(clean), clean,
+                      "a snapshot with nothing to migrate is returned as it stands, not rebuilt")
+        self.assertEqual(core.forward_migrate({"revision": 1}), {"revision": 1})
+        self.assertEqual(core.forward_migrate({"repair_rounds": []}), {"repair_rounds": []})
+
+    def test_the_migration_does_not_mutate_the_document_it_was_handed(self):
+        original = {"repair_rounds": [self._round(spent=True)]}
+        core.forward_migrate(original)
+        self.assertIn("spent", original["repair_rounds"][0],
+                      "the loaded document is copied, never edited underneath its caller")
+
+    def test_a_legacy_round_keeps_costing_its_slot(self):
+        """Dropping the flag must not refund the round. `_round_counted` reads an absent `counted` as
+        counted -- the fail-toward-spent direction."""
+        import build_coordinator as bc
+        migrated = core.forward_migrate({"repair_rounds": [self._round(spent=True)]})
+        self.assertTrue(bc._round_counted(migrated["repair_rounds"][0]))
+
+
 class OneHome(unittest.TestCase):
     """IT HAS ONE HOME — asserted structurally, because drift here is silent."""
 

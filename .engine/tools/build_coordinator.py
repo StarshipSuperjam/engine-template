@@ -3040,12 +3040,15 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
 
     # A round that was FANNED OUT AND NEVER COMPLETED is paid for and can never be absorbed into a later
     # assess. That fact is read LIVE off the open repair record rather than stamped onto the ledger entry
-    # as a second cost flag: what a round cost is now recorded once, as `counted`, and a ledger carrying
-    # both `spent` and `counted` would be carrying two answers to one question -- with nothing keeping
-    # them agreeing. The live read is sufficient because absorption only ever reaches the MOST RECENT
-    # round (below), which is exactly the round `prior` describes.
-    fanned_out = bool(prior and prior.get("packet_digest")
-                      and prior["reviewed_commit"] == reviewed and prior["final_commit"] == head)
+    # as a second cost flag: what a round cost is recorded once, as `counted`, and a ledger carrying both
+    # `spent` and `counted` would be carrying two answers to one question with nothing keeping them
+    # agreeing. What makes the round unabsorbable is that its lenses HAVE NOT COME BACK -- never where the
+    # head happens to sit. Adding the commit pair to this condition reopened the identity keying that
+    # StarshipSuperjam/engine-template#1065 named as the defect: one `sync-artifacts` commit moved the
+    # head, `_same_episode` correctly read the generated commit as nothing authored, and the abandoned
+    # round was re-pointed instead of counted. Repeated, the ledger never grew -- the counted budget
+    # refunded every time and the ceiling never reached, because the ceiling counts entries.
+    fanned_out = bool(prior and prior.get("packet_digest") and not _repair_round_complete(prior))
 
     def _same_episode(entry: dict) -> bool:
         """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
@@ -3458,7 +3461,10 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
-            "repair_rounds": value.get("repair_rounds", []),
+            # Through the same forward migration the stores apply: a handoff exported under #1071
+            # carries `spent`, and passing it through verbatim would mint a snapshot that fails
+            # validation on its very next touch.
+            "repair_rounds": core.forward_migrate({"repair_rounds": value.get("repair_rounds", [])})["repair_rounds"],
             "plan_change_escalations": value.get("plan_change_escalations", []),
             "reconciles": value.get("reconciles", [])}
 

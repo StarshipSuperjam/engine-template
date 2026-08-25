@@ -195,6 +195,48 @@ class TheRoundCounter(_RealRepo):
                          "re-pointing at a commit the engine generated itself is bookkeeping, not a round")
         self.assertIn("re-points the repair round already recorded", err)
 
+    def test_a_generated_commit_cannot_absorb_a_fan_out_that_never_came_back(self):
+        """StarshipSuperjam/engine-template#1065, on the path the spend-counting rewrite reopened.
+
+        A round whose panel was dispatched and never returned is PAID FOR. #1071 recorded that on the
+        ledger entry so no later assess could absorb it; the spend-counting rewrite dropped that flag and
+        read the fact live off the open repair record instead -- but keyed the live read on the commit
+        pair, which is exactly the identity keying #1065 named as the defect. One `sync-artifacts` commit
+        then moved the head, `_same_episode` read the generated commit as `nothing authored landed`, and
+        the abandoned round was re-pointed instead of counted. Repeated, the ledger never grew: ten
+        dispatched panels, one entry, and BOTH bounds silent -- the counted budget refunded every time and
+        the absolute ceiling never reached, because the ceiling counts entries."""
+        reviewed = self.commit("src.py", "the deliverable")
+        repaired = self.commit("src.py", "the repair")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        state, _ = self._assess(state, repaired)
+        self.assertEqual(len(state["repair_rounds"]), 1)
+        # The panel was cut and the lenses never returned: no receipt, packet still open.
+        state["repair"]["packet_digest"] = "sha256:" + "5" * 64
+        generated = self.commit(DERIVED_PATH, "regenerated")
+        state, err = self._assess(state, generated)
+        self.assertEqual(len(state["repair_rounds"]), 2,
+                         "a dispatched-and-abandoned round is paid for; a generated commit must not "
+                         "absorb it and refund its slot")
+        self.assertNotIn("re-points the repair round already recorded", err)
+
+    def test_ten_abandoned_fan_outs_reach_the_bounds_they_are_supposed_to_reach(self):
+        """The consequence stated as the obligation states it. The headline promises no class of round
+        repeats unbounded while the operator is away; that is only true if every dispatched panel leaves
+        an entry behind."""
+        reviewed = self.commit("src.py", "the deliverable")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        head = self.commit("src.py", "the repair")
+        for attempt in range(3):
+            state, _ = self._assess(state, head, lenses=("usability", "technical-integrity"))
+            state["repair"]["packet_digest"] = "sha256:" + "5" * 64   # dispatched, never returned
+            head = self.commit(DERIVED_PATH, f"regenerated {attempt}")
+        # Three panels, three entries -- each abandoned, each still on the ledger. The whole budget.
+        self.assertEqual(len(state["repair_rounds"]), 3)
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            self._assess(state, head, lenses=("usability", "technical-integrity"))
+        self.assertIn("counted budget", str(caught.exception))
+
     def test_real_work_past_a_completed_round_does_open_a_new_one(self):
         """The counter is not simply looser. Authored work the round's lenses have not read is a genuine
         second round and still counts toward the gate."""
