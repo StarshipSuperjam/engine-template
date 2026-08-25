@@ -48,10 +48,12 @@ Usage:
 
 Two flags are for you. `--changed-from` runs only the self-tests that the changes since a commit could
 affect, falling back to the complete inventory for anything it cannot positively classify (see
-selftest_select.py, which decides); it is an ITERATION aid and never merge evidence, because CI still
-runs everything against the exact submitted head. `--run-record-path` writes a machine-readable record
-of what the run actually did — the complete discovered inventory, what was selected and why, per-module
-timings, failures, and skips. Both appear in `--help`.
+selftest_select.py, which decides); it is an ITERATION aid — at most CANDIDATE evidence inside a
+coordinated Build — and never merge evidence: the only merge path is the Build coordinator's final
+import of the engine-ci proof, and CI still runs everything against the exact submitted head.
+`--run-record-path` writes a machine-readable record of what the run actually did — the complete
+discovered inventory, the committed tree it ran over (nullable, with a dirty flag), what was selected
+and why, per-module timings, failures, and skips. Both appear in `--help`.
 
 Every OTHER flag is hidden and exists for the regression fixture (test_selftest.py), which drives the
 launcher against tiny synthetic suites in a temp directory with a millisecond heartbeat; a normal run
@@ -308,6 +310,39 @@ def _selection_digest(selection):
         return None
 
 
+def _tree_binding(start_dir) -> dict:
+    """The committed tree this record describes, and whether the working tree had drifted from it.
+
+    `tree` is `git rev-parse HEAD^{tree}` resolved FROM THE SUITE'S START DIRECTORY — the tree the
+    record is an account of, not the tool's own home; a fixture run against a synthetic suite in a
+    temp directory therefore binds nothing rather than falsely binding the engine's tree. Null
+    exactly when no repository or committed tree is derivable there. `worktree_dirty` reads the same
+    porcelain the selector reads (`--untracked-files=all`, so a new file inside a new directory
+    counts) and is null exactly when `tree` is: the dirtiness of a tree that could not be resolved is
+    not a fact this record can state.
+
+    One helper, called by EVERY writer of the record — the required-field-in-one-writer-of-three
+    mistake was made twice in the slice that built this record, and a shared derivation is the shape
+    that prevents the third. Best-effort by the same rule as everything else here: a binding that
+    cannot be computed must never fail the run, so any failure is (None, None), recorded rather than
+    guessed. A consumer gating on this record refuses null or dirty and compares the tree against an
+    identity it derived itself; the record cannot authenticate its own claim."""
+    try:
+        proc = subprocess.run(["git", "-C", start_dir, "rev-parse", "HEAD^{tree}"],
+                              capture_output=True, text=True, timeout=30)
+        tree = proc.stdout.strip()
+        if proc.returncode != 0 or len(tree) != 40 or any(c not in "0123456789abcdef" for c in tree):
+            return {"tree": None, "worktree_dirty": None}
+        status = subprocess.run(["git", "-C", start_dir, "status", "--porcelain=v1",
+                                 "--untracked-files=all"],
+                                capture_output=True, text=True, timeout=60)
+        if status.returncode != 0:
+            return {"tree": None, "worktree_dirty": None}
+        return {"tree": tree, "worktree_dirty": bool(status.stdout.strip())}
+    except (OSError, subprocess.SubprocessError):
+        return {"tree": None, "worktree_dirty": None}
+
+
 def _write_run_record(args, outcome: dict, started: float, *, inventory=None, selection=None,
                       scope="full", result=None, executed=None) -> None:
     """The child's own account of what it ran. Best-effort by construction — see `_atomic_write_json`."""
@@ -350,11 +385,13 @@ def _write_run_record(args, outcome: dict, started: float, *, inventory=None, se
         # under-report in the artifact this slice calls the honesty record, with no trace at all.
         "record_incomplete": bool(getattr(result, "_record_broke", False)),
         "log": None,
+        **_tree_binding(args.start_dir),
     }
     _atomic_write_json(path, record)
 
 
-def _finish_run_record(path, rc: int, log_path, captured: str, *, scope="full", selection=None) -> None:
+def _finish_run_record(path, rc: int, log_path, captured: str, *, scope="full", selection=None,
+                       start_dir=None) -> None:
     """The parent's postscript: the VERBATIM exit status, and the log digest.
 
     The digest is taken from the parent's in-memory capture rather than by re-reading the file. The two
@@ -389,6 +426,11 @@ def _finish_run_record(path, rc: int, log_path, captured: str, *, scope="full", 
             # that contradicted the schema's own statement about this field.
             "nested_sentinel": True,
             "modules": [], "slowest": [], "problems": [],
+            # The parent still knows which tree the crashed run was pointed at, so a crashed record
+            # binds (or honestly declines to bind) exactly as a completed one does. A caller that
+            # cannot name the start directory gets the null binding, never a guess from the cwd.
+            **(_tree_binding(start_dir) if start_dir is not None
+               else {"tree": None, "worktree_dirty": None}),
         }
     record["exit_status"] = rc
     record["log"] = {"path": log_path, "sha256": _sha256_text(captured)} if log_path else None
@@ -767,6 +809,7 @@ def _not_started_record(args, verdict: str, detail: str) -> None:
         "nested_sentinel": True,
         "modules": [], "slowest": [], "problems": [],
         "log": None,
+        **_tree_binding(args.start_dir),
     })
 
 
@@ -971,7 +1014,8 @@ def _run_parent(args: argparse.Namespace) -> int:
     output = "".join(captured)
     _finish_run_record(args.run_record_path, rc, log_path, output,
                        scope="focused" if scope_note else "full",
-                       selection=_read_json(selection_path) if selection_path else None)
+                       selection=_read_json(selection_path) if selection_path else None,
+                       start_dir=args.start_dir)
     _cleanup_selection(selection_path, args.selection_path)
     _print_result(rc, elapsed, log_path, output, scope_note)
     return rc  # VERBATIM — the child's exit status is the launcher's verdict.

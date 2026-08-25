@@ -756,6 +756,67 @@ class EveryWriterMatchesItsSchema(unittest.TestCase):
                 f"{field} is required by the schema but appears in too few writers to be on all of them")
 
 
+class TreeBinding(unittest.TestCase):
+    """The PR #1059 residual, discharged: the record names the committed tree it ran over.
+
+    Both states are driven — the synthetic-fixture path where no repository exists and the binding is
+    honestly null, and a real repository where the record's tree must equal what git itself says and
+    the dirty flag must notice drift, including the new-file-inside-a-new-directory shape that a
+    default porcelain read collapses."""
+
+    def _run_in(self, suite_dir, out_dir):
+        record_path = os.path.join(out_dir, "record.json")
+        proc = subprocess.run(
+            [sys.executable, _SELFTEST, "--start-dir", suite_dir, "--cwd", suite_dir,
+             "--heartbeat-interval", "0.05", "--stall-threshold", "0.1",
+             "--log-path", os.path.join(out_dir, "run.log"),
+             "--run-record-path", record_path],
+            capture_output=True, text=True, timeout=60.0)
+        with open(record_path) as fh:
+            return proc, json.load(fh)
+
+    def test_a_run_outside_any_repository_binds_nothing_rather_than_guessing(self):
+        """A fixture run in a bare temp directory has no tree to attest; null is the honest value, and
+        the dirtiness of an unresolvable tree is not a fact the record may invent."""
+        _, record = FocusedRuns._run(self, {"test_one.py": _CLEAN})
+        self.assertIsNone(record["tree"])
+        self.assertIsNone(record["worktree_dirty"])
+
+    def test_a_run_inside_a_repository_records_the_committed_tree_and_sees_drift(self):
+        suite_dir = _write_suite({"test_one.py": _CLEAN})
+        self.addCleanup(shutil.rmtree, suite_dir, ignore_errors=True)
+        out_dir = tempfile.mkdtemp(prefix="selftest-tree-out-")
+        self.addCleanup(shutil.rmtree, out_dir, ignore_errors=True)
+        # The run itself writes bytecode caches into the suite directory; the engine repo ignores
+        # them, so the fixture repo must too or the clean run reads as self-dirtied.
+        with open(os.path.join(suite_dir, ".gitignore"), "w") as fh:
+            fh.write("__pycache__/\n")
+        git = ["git", "-C", suite_dir, "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(git + ["init", "-q"], check=True, timeout=30)
+        subprocess.run(git + ["add", "."], check=True, timeout=30)
+        subprocess.run(git + ["commit", "-q", "-m", "seed"], check=True, timeout=30)
+        expected = subprocess.run(git + ["rev-parse", "HEAD^{tree}"], check=True, timeout=30,
+                                  capture_output=True, text=True).stdout.strip()
+
+        proc, record = self._run_in(suite_dir, out_dir)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(record["tree"], expected,
+                         "the record must attest the tree the suite actually ran over")
+        self.assertIs(record["worktree_dirty"], False)
+
+        # Drift in the shape the porcelain default collapses: a new file inside a new directory.
+        os.makedirs(os.path.join(suite_dir, "newdir"))
+        with open(os.path.join(suite_dir, "newdir", "stray.txt"), "w") as fh:
+            fh.write("drift\n")
+        out_dir2 = tempfile.mkdtemp(prefix="selftest-tree-out2-")
+        self.addCleanup(shutil.rmtree, out_dir2, ignore_errors=True)
+        _, dirty_record = self._run_in(suite_dir, out_dir2)
+        self.assertEqual(dirty_record["tree"], expected,
+                         "the committed tree is unchanged; only the working tree drifted")
+        self.assertIs(dirty_record["worktree_dirty"], True,
+                      "an untracked file inside an untracked directory must count as drift")
+
+
 class NewFlagsAreDiscoverable(unittest.TestCase):
 
     def test_both_operator_facing_flags_appear_in_the_help(self):
