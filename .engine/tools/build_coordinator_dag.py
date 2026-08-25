@@ -23,9 +23,20 @@ def _work_items(plan: dict) -> list[dict]:
     return plan["work_items"]
 
 
-# The plan document's schema version, or v1 when unstated (the historical default).
 def plan_version(plan: dict) -> str:
-    return plan.get("schema_version", "build-plan.v1")
+    """The plan document's schema version. An unstated version is REFUSED, never defaulted.
+
+    It used to default to v1, which was reasonable while v1 existed: an old document missing the
+    field genuinely was v1. With v1 deleted the same default would name a schema that is not there,
+    so a versionless document now fails by saying exactly what it is missing.
+    """
+    version = plan.get("schema_version")
+    if not version:
+        raise CoordinatorError(
+            "this Build plan does not state a schema_version, so there is no way to know what it is. "
+            "Nothing is assumed — the version was never optional, only defaulted, and the generation "
+            "it defaulted to no longer exists.")
+    return version
 
 
 def validate_plan_document(value: dict, plan_schemas: dict) -> str:

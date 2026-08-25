@@ -140,7 +140,7 @@ writer and judges cohesion.
 
 Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
 items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
-`N of M` progress, counted from `work integrate`, where `checkpoint --complete-item` is refused. Owned product work
+`N of M` progress, counted from `work integrate`, which is now the only path that completes a node. Owned product work
 follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
 follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair

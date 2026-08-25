@@ -97,10 +97,13 @@ If a Build is restored from a cold handoff with a claim that never returned a re
 retry. A claim never expires on its own, and a timed-out or unreachable worker is never marked failed from
 elapsed time alone.
 
-### Migrate a v1 plan
+### A plan carrying a v1 payload
 
-`plan migrate-v1 --input <v1.json>` rewrites an old v1 plan as an equivalent v2 linear chain. The rewrite
-changes the plan, so it needs renewed approval before it is bound.
+There is no converter, and that is the decision rather than a gap. A v1 payload now exists only inside a
+SEALED plan, and a migration would invalidate the seal that is the only thing making it a plan a Build may
+enter — so a converted plan would be one nobody approved. `plan bind` refuses it and names the path:
+re-author the work as a fresh plan through the Project Manager, importing the old plan's deliberation, and
+seal that. A stored v1 plan stays READABLE forever, so nothing is lost in the re-authoring.
 
 ## Done when
 

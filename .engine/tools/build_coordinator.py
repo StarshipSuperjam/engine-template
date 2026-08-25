@@ -32,25 +32,17 @@ import review_integrity
 ROOT = Path(__file__).resolve().parents[2]
 PROTOCOL_PATH = ROOT / ".engine" / "build-protocol.json"
 BINDINGS_PATH = ROOT / ".engine" / "policies" / "model-bindings.json"
-PLAN_SCHEMA = ROOT / ".engine" / "schemas" / "build-plan.v1.json"
-STATE_SCHEMA = ROOT / ".engine" / "schemas" / "build-state.v1.json"
-HANDOFF_SCHEMA = ROOT / ".engine" / "schemas" / "build-handoff.v1.json"
 PLAN_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-plan.v2.json"
 STATE_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-state.v2.json"
 HANDOFF_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-handoff.v2.json"
-# schema_version -> the schema file that validates a document carrying it.
-PLAN_SCHEMAS = {"build-plan.v1": PLAN_SCHEMA, "build-plan.v2": PLAN_SCHEMA_V2}
-STATE_SCHEMAS = {"build-state.v1": STATE_SCHEMA, "build-state.v2": STATE_SCHEMA_V2}
-HANDOFF_SCHEMAS = {"build-handoff.v1": HANDOFF_SCHEMA, "build-handoff.v2": HANDOFF_SCHEMA_V2}
-# The Engine major at which the v1 Build reader is removed. Until then v1 stays readable and existing
-# v1 Builds run; new v1 binds are refused in deployed Engines (see cmd_plan_bind). A self-test fails
-# closed once the Engine major reaches this while the v1 reader still ships — the mechanical removal
-# trigger, so the legacy reader cannot become an indefinite disconnected artifact.
-PLAN_V1_REMOVE_AT_MAJOR = 1
-PLAN_BEGIN = "<!-- engine-build-plan:v1 "
-PLAN_END = "<!-- /engine-build-plan -->"
-HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
-HANDOFF_END = "<!-- /engine-build-handoff -->"
+# schema_version -> the schema file that validates a document carrying it. ONE generation. The maps
+# stay maps because a future v3 should be a one-line addition rather than a fork, but there is no
+# longer a v1 entry to fall back to, and nothing here defaults an absent version: a document that
+# does not say what it is is refused by name (`_state_schema_for`, `dag.plan_version`), because
+# guessing v1 for a versionless document is how an unreadable file became a silently-misread one.
+PLAN_SCHEMAS = {"build-plan.v2": PLAN_SCHEMA_V2}
+STATE_SCHEMAS = {"build-state.v2": STATE_SCHEMA_V2}
+HANDOFF_SCHEMAS = {"build-handoff.v2": HANDOFF_SCHEMA_V2}
 # The registered validation commands (id, operator label, argv) are declared in build-protocol.json, so
 # both execution (cmd_validate) and PR rendering (the contract composer's Validation section) read one source.
 
@@ -70,19 +62,15 @@ _canonical = core.canonical
 _digest = core.digest
 
 
-# The plan document's schema version, or v1 when unstated. Re-exported from the pure layer so the
-# version rule has one home now that the Plan Coordinator reads it too.
+# The plan document's schema version. Re-exported from the pure layer so the version rule has one
+# home now that the Plan Coordinator reads it too.
 _plan_version = dag.plan_version
 
-# A v2 node's completion is earned at `work integrate`, which records the integration commit BC-27
-# requires. `checkpoint --complete-item` writes the same progress entry with no such evidence, so on a
-# DAG Build it is a published bypass of the graph's own completion rule. The flag stays for v1, whose
-# only completion path it is.
-_V2_COMPLETE_ITEM_REFUSAL = (
-    "checkpoint --complete-item cannot complete a work item on a build-plan.v2 Build: completion is "
-    "earned by `work result` and then `work integrate`, which records the integration commit on the PR "
-    "branch. Checkpoint still records the note and the current item — drop the flag. The flag remains "
-    "only for a legacy build-plan.v1 Build, whose sole completion path it is.")
+# `checkpoint --complete-item` is GONE with the v1 sunset. A node's completion is earned at `work
+# integrate`, which records the integration commit BC-27 requires; the flag wrote the same progress
+# entry with no such evidence, and it survived only because v1 — which had no other completion path —
+# still existed. With v1 deleted it has no honest caller left, and a flag whose only remaining use
+# would be to bypass the graph's completion rule is removed rather than guarded.
 
 # The mid-flight refusal. A snapshot written before this change can carry v2 completions that no
 # integration ever earned; every gate reading them would be reading a bypass. The remedy is to earn or
@@ -199,11 +187,22 @@ def _verify_draft(repo: str, pr: int) -> dict:
 
 
 def _state_schema_for(state: dict) -> Path:
-    """Select the snapshot schema from the document's own version (defaulting to v1)."""
-    version = state.get("schema_version", "build-state.v1")
+    """Select the snapshot schema from the document's own version. Absent is REFUSED, never defaulted.
+
+    Defaulting was the v1-era behaviour and it is exactly what the sunset removes. A snapshot that
+    does not say what it is would have been read as v1 and validated against a schema it was never
+    written to — quietly, and against a schema that no longer exists.
+    """
+    version = state.get("schema_version")
+    if not version:
+        raise CoordinatorError(
+            "this Build snapshot does not state a schema_version, so there is no way to know what it "
+            "is. Nothing is assumed: expected " + " or ".join(sorted(STATE_SCHEMAS)) + ".")
     schema = STATE_SCHEMAS.get(version)
     if schema is None:
-        raise CoordinatorError(f"unrecognized Build snapshot version {version!r}")
+        raise CoordinatorError(
+            f"unrecognized Build snapshot version {version!r}; expected "
+            + " or ".join(sorted(STATE_SCHEMAS)))
     return schema
 
 
@@ -251,7 +250,7 @@ _REPAIR_ROUND_ESCALATION = 2
 def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: str, plan: dict,
                    issue: int | None, mode: str = "same-session") -> dict:
     state = {
-        "schema_version": "build-state.v1", "revision": 1,
+        "schema_version": "build-state.v2", "revision": 1,
         # `worktree` is what lets a session that restarted find this snapshot again without having
         # remembered anything: it is standing in the worktree, and the durable store looks the Build
         # up by it. Recorded at bind because bind is the moment the two are genuinely bound.
@@ -273,10 +272,6 @@ def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: s
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
-    # Always v2. A build-state.v1 snapshot can no longer come into existence, because a v1 plan can no
-    # longer enter a Build; the v1 snapshot schema and its dispatch stay only so an old file still reads
-    # cleanly enough to be refused by name, and the v1 sunset in the successor plan removes them.
-    state["schema_version"] = "build-state.v2"
     state["work"] = {}
     return state
 
@@ -698,15 +693,18 @@ def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
 def cmd_plan_bind(args, store: Snapshot) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
-    # v1 is unreachable at entry from here on. The schemas, the dispatch and `plan migrate-v1` still
-    # exist — their removal is the successor plan's v1 sunset — but no new Build starts on one, and the
-    # refusal names the two ways forward rather than leaving the operator at a dead end.
+    # The closed door. B2 made v1 unreachable at entry; the sunset removed the schemas and the
+    # converter, so this refusal is now terminal rather than a wait. Deliberately so: migrating a
+    # SEALED plan would invalidate the seal that is the only thing making it a plan a Build may enter,
+    # and a converter that produced a plan nobody approved would have been a way around the seal
+    # wearing the costume of a migration. Re-authoring is the path, and the refusal names it.
     if _plan_version(plan) == "build-plan.v1":
         raise CoordinatorError(
-            "this sealed plan carries a build-plan.v1 payload, and v1 no longer enters a Build. If a "
-            "v1 Build is already in flight, finish it on the engine it started on; otherwise wait for "
-            "the v1 migration decision rather than migrating a sealed plan, whose seal a migration "
-            "would invalidate.")
+            "this sealed plan carries a build-plan.v1 payload, and v1 no longer enters a Build. There "
+            "is no converter: a migration would invalidate the seal, and an unapproved plan is not a "
+            "plan. Re-author this work as a fresh plan through the Project Manager — its deliberation "
+            "can be imported from the old one — and seal that. If a v1 Build is already in flight, "
+            "finish it on the engine it started on.")
     issue = args.issue
     # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an
     # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it
@@ -784,50 +782,11 @@ def plan_store_module():
     return plan_store
 
 
-def _migrate_v1_to_v2(v1: dict) -> dict:
-    """Transform a v1 plan into a v2 linear-chain DAG, preserving item order.
-
-    Each item depends on its predecessor (the linear chain reproduces v1's array-order execution),
-    every node is integrator-executed with a default output contract, and the plan is serial. The
-    result has a NEW digest, so it requires renewed approval and affected review — the migration is
-    never a silent receipt-preserving rename.
-    """
-    items = v1["work_items"]
-    migrated = []
-    for index, item in enumerate(items):
-        migrated.append({
-            "id": item["id"], "description": item["description"], "paths": item["paths"],
-            "verification": item["verification"],
-            "depends_on": [items[index - 1]["id"]] if index else [],
-            "exclusive_resources": [],
-            "executor_class": "integrator",
-            "output_contract": {"deliverable": item["description"],
-                                "artifact_kinds": ["integrated-commit"],
-                                "required_evidence": ["changed_paths", "verification_results"]},
-        })
-    v2 = {k: v for k, v in v1.items() if k != "work_items"}
-    v2["schema_version"] = "build-plan.v2"
-    v2["work_items"] = migrated
-    v2["parallelism"] = {"mode": "serial", "max_concurrency": 1}
-    return v2
-
-
-def cmd_plan_migrate_v1(args, store: Snapshot | None) -> None:
-    v1 = _plan(args.input)
-    if _plan_version(v1) != "build-plan.v1":
-        raise CoordinatorError("plan migrate-v1 requires a build-plan.v1 document")
-    v2 = _migrate_v1_to_v2(v1)
-    _validate(v2, PLAN_SCHEMA_V2)
-    dag.validate_dag(v2)
-    rendered = json.dumps(v2, indent=2, sort_keys=True) + "\n"
-    if args.output and args.output != "-":
-        Path(args.output).write_text(rendered, encoding="utf-8")
-        target = args.output
-    else:
-        sys.stdout.write(rendered)
-        target = "stdout"
-    print(f"migrated to build-plan.v2 ({_digest(v2)}) at {target}; the new digest requires renewed "
-          f"operator approval and affected review before it can be bound", file=sys.stderr)
+# The v1 converter is GONE, and its absence is the operator's decision of 2026-08-25 rather than an
+# oversight. A converter can only produce a document nobody approved, and the only place a v1 payload
+# still exists is inside a SEALED plan, whose seal a migration would invalidate — so the "migrate then
+# bind" path was never a path, only a longer way to the same refusal. `plan bind` names re-authoring
+# through the Project Manager instead, which is the thing that actually gets the work built.
 
 
 def _reset_after_revision(state: dict, plan: dict) -> None:
@@ -1400,21 +1359,10 @@ def cmd_checkpoint(args, store: Snapshot) -> None:
             raise CoordinatorError(f"checkpoint work item {note['work_item']} is not in the approved plan")
         completed = {item["id"] for item in state["progress"]["completed"]}
         next_item = _next_incomplete(plan, state)
-        # v1 keeps its exact historical wording; a v2 graph's "next" is dependency READINESS, so the
-        # refusal names the same concept the operation doc and status render use.
-        noun = "ready" if _plan_version(plan) == "build-plan.v2" else "incomplete"
+        # A graph's "next" is dependency READINESS, and this names the same concept the operation doc
+        # and the status render use.
         if plan["profile"] == "routine" and next_item and note["work_item"] != next_item:
-            raise CoordinatorError(f"Routine must advance the next {noun} work item {next_item}")
-        if args.complete_item:
-            if _plan_version(plan) == "build-plan.v2":
-                raise CoordinatorError(_V2_COMPLETE_ITEM_REFUSAL)
-            if args.complete_item not in items:
-                raise CoordinatorError(f"completed work item {args.complete_item} is not in the approved plan")
-            if args.complete_item not in completed:
-                if plan["profile"] == "routine" and args.complete_item != next_item:
-                    raise CoordinatorError(f"Routine must complete the next {noun} work item {next_item}")
-                state["progress"]["completed"].append({"id": args.complete_item, "commit": _head()})
-                completed.add(args.complete_item)
+            raise CoordinatorError(f"Routine must advance the next ready work item {next_item}")
         state["progress"]["current_item"] = note["work_item"]
         note.setdefault("objective", plan["objective"])
         note.setdefault("assumptions", [])
@@ -2057,8 +2005,7 @@ def _handoff(state: dict) -> dict:
     }
     repair = None if not state["repair"] else {k: v for k, v in state["repair"].items() if k != "rationale"}
     preflights = [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["preflights"]]
-    is_v2 = state.get("schema_version") == "build-state.v2"
-    value = {"schema_version": "build-handoff.v2" if is_v2 else "build-handoff.v1",
+    value = {"schema_version": "build-handoff.v2",
              "build": state["build"], "plan": state["plan"],
              "approval": state["approval"], "reviews": state["reviews"], "finding_summaries": summaries,
              "progress": state["progress"], "validation": validation, "repair": repair, "preflights": preflights,
@@ -2069,9 +2016,8 @@ def _handoff(state: dict) -> dict:
              "repair_rounds": state.get("repair_rounds", []),
              "plan_change_escalations": state.get("plan_change_escalations", []),
              "reconciles": state.get("reconciles", [])}
-    if is_v2:
-        value["work"] = _bounded_work(state.get("work", {}))
-    _validate(value, HANDOFF_SCHEMA_V2 if is_v2 else HANDOFF_SCHEMA)
+    value["work"] = _bounded_work(state.get("work", {}))
+    _validate(value, HANDOFF_SCHEMA_V2)
     return value
 
 
@@ -3006,14 +2952,17 @@ def cmd_contract_preview(args, store: Snapshot) -> None:
 
 def _extract_marker_blocks(body: str) -> list:
     """The valid engine marker blocks already on the draft that a fresh compose must carry through unchanged:
-    a published handoff block (v2 or v1) and the build-id marker. The pr-contract composition marker is NOT
-    preserved — the composer mints a fresh one bound to the current claim digest and commit."""
+    a published handoff block and the build-id marker. The pr-contract composition marker is NOT
+    preserved — the composer mints a fresh one bound to the current claim digest and commit.
+
+    One handoff generation now: the v1 marker retired with its schema, so a body carrying one holds a
+    block this engine can neither validate nor rewrite, and carrying it through a fresh compose would
+    republish content nothing here can vouch for."""
     blocks = []
-    for begin, end in ((github.HANDOFF_BEGIN_V2, github.HANDOFF_END_V2),
-                       (github.HANDOFF_BEGIN, github.HANDOFF_END)):
-        m = re.search(re.escape(begin) + r".*?" + re.escape(end), body, re.DOTALL)
-        if m:
-            blocks.append(m.group(0))
+    m = re.search(re.escape(github.HANDOFF_BEGIN_V2) + r".*?" + re.escape(github.HANDOFF_END_V2),
+                  body, re.DOTALL)
+    if m:
+        blocks.append(m.group(0))
     m = re.search(r"<!-- engine-build-id:v1 [^\n]*?-->", body)
     if m:
         blocks.append(m.group(0))
@@ -3166,7 +3115,6 @@ def parser() -> argparse.ArgumentParser:
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
     bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.set_defaults(func=cmd_plan_bind)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
-    migrate = plan.add_parser("migrate-v1"); migrate.add_argument("--input", required=True); migrate.add_argument("--output", default="-"); migrate.set_defaults(func=cmd_plan_migrate_v1)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
@@ -3177,7 +3125,7 @@ def parser() -> argparse.ArgumentParser:
     frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
-    checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
+    checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
     state_p = sub.add_parser("state").add_subparsers(dest="state_command", required=True)
     swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
     smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
@@ -3217,7 +3165,6 @@ def main(argv: list[str] | None = None) -> int:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
         stateless = (args.command == "depths"
                      or args.command == "state"
-                     or (args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1")
                      or (args.command == "contract" and getattr(args, "contract_command", None) == "template"))
         # `plan bind` is the one command that has no snapshot to resolve: it is the command that
         # creates one. Without --state it chooses the durable address itself, from the plan it binds.

@@ -43,6 +43,17 @@ PLAN_SCHEMAS = {"engine-plan.v1": PLAN_SCHEMA}
 # held and shown, so an imported legacy plan is never unreadable — but it can never be sealed, since
 # the whole point of the handoff is a DAG the Build Coordinator can schedule. The refusal is stated
 # at seal, not at read, so the operator meets it with a plan in hand rather than at import.
+#
+# THIS ENTRY IS THE ONE SURVIVING v1 SURFACE IN THE ENGINE, and it survives on purpose. The v1 sunset
+# deleted the v1 state and handoff schemas, the version dispatch, the marker readers and the
+# converter; this map and the build-plan.v1 schema it names were kept by the operator's decision of
+# 2026-08-25, for one reason: a plan library on this workstation may still hold a stored plan whose
+# payload is v1, and a stored plan that cannot be READ is an operator's own deliberation made
+# unreachable by an engine upgrade. So v1 stays readable and is refused at every door that matters —
+# it cannot be sealed, it cannot be bound, and no converter exists to launder one into a sealable
+# plan. It is a compatibility bridge rather than a permanent resident, and it is the SINGLE named
+# exclusion of the v1 completeness search; its removal is tracked as issue 1070 in the R05 window,
+# once deployed libraries have had a full release cycle to age past v1-payload plans.
 BUILD_PLAN_SCHEMAS = {
     "build-plan.v1": ROOT / ".engine" / "schemas" / "build-plan.v1.json",
     "build-plan.v2": ROOT / ".engine" / "schemas" / "build-plan.v2.json",

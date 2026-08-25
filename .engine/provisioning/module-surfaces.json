@@ -1110,9 +1110,6 @@
   ".engine/schemas/audit-finding.v1.json": [
    "core"
   ],
-  ".engine/schemas/build-handoff.v1.json": [
-   "core"
-  ],
   ".engine/schemas/build-handoff.v2.json": [
    "core"
   ],
@@ -1129,9 +1126,6 @@
    "core"
   ],
   ".engine/schemas/build-protocol.v1.json": [
-   "core"
-  ],
-  ".engine/schemas/build-state.v1.json": [
    "core"
   ],
   ".engine/schemas/build-state.v2.json": [
@@ -1375,6 +1369,9 @@
    "core"
   ],
   ".engine/tools/build_readiness.py": [
+   "core"
+  ],
+  ".engine/tools/build_state_store.py": [
    "core"
   ],
   ".engine/tools/catalog_completeness_check.py": [
@@ -2218,6 +2215,9 @@
    "core"
   ],
   ".engine/tools/test_build_readiness.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_state_store.py": [
    "core"
   ],
   ".engine/tools/test_census_completeness.py": [

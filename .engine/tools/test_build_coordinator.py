@@ -370,12 +370,17 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_trivial_plan_uses_the_reduced_document_shape(self):
         value = {
-            "schema_version": "build-plan.v1", "profile": "trivial",
+            "schema_version": "build-plan.v2", "profile": "trivial",
             "intent_source": {"kind": "direct"}, "raw_intent": "Correct one typo.",
             "objective": "Correct the typo.",
             "success_obligations": [{"outcome": "Text is correct.", "verification": "Read it."}],
+            "parallelism": {"mode": "serial", "max_concurrency": 1},
             "work_items": [{"id": "W1", "description": "Correct it", "paths": ["README.md"],
-                            "verification": ["Read the changed line"]}],
+                            "verification": ["Read the changed line"], "depends_on": [],
+                            "exclusive_resources": [], "executor_class": "integrator",
+                            "output_contract": {"deliverable": "the corrected line",
+                                                "artifact_kinds": ["integrated-commit"],
+                                                "required_evidence": ["changed_paths"]}}],
             "spec": {"posture": "none", "selection_basis": "Copy-only change.",
                      "disclosure": "No settled specification applies."},
         }
@@ -1689,13 +1694,13 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
 
     def test_handoff_schema_forbids_private_reference(self):
         # Defense in depth: the schema itself must REJECT a finding summary carrying private_reference,
-        # so a future re-introduction fails validation instead of silently leaking (v1 path).
+        # so a future re-introduction fails validation instead of silently leaking.
         self.seed(issue=11)
         self.store.mutate(lambda s: s["findings"].append(self._blocking_finding_with_private(None)))
         handoff = bc._handoff(self.state())
         handoff["finding_summaries"][0]["private_reference"] = "should be forbidden by the schema"
         with self.assertRaises(bc.CoordinatorError):
-            bc._validate(handoff, bc.HANDOFF_SCHEMA)
+            bc._validate(handoff, bc.HANDOFF_SCHEMA_V2)
 
     def test_v2_handoff_never_publishes_private_reference(self):
         # The v2 (execution-DAG) handoff path is symmetric to v1 but needs its own witness: the v2
@@ -1985,14 +1990,8 @@ status: locked
         # The message now names the field and the constraint rather than reporting the whole object
         # as "not valid under any of the given schemas": a `oneOf` error is descended into, so an
         # author reading this refusal is told which value to fix.
-        value["schema_version"] = "build-plan.v1"
-        for key in ("parallelism",):
-            value.pop(key, None)
-        value["work_items"] = [{k: v for k, v in item.items()
-                                if k in ("id", "description", "paths", "verification")}
-                               for item in value["work_items"]]
         with self.assertRaisesRegex(bc.CoordinatorError, r"criteria\.0\.reason: '' should be non-empty"):
-            bc._validate(value, bc.PLAN_SCHEMA)
+            bc._validate(value, bc.PLAN_SCHEMA_V2)
 
     def test_changed_criterion_invalidates_approval(self):
         root = Path(self.temp.name) / "repo"
@@ -2294,9 +2293,8 @@ class TestV2CompletionGate(CoordinatorCase):
         path.write_text(json.dumps(note), encoding="utf-8")
         return str(path)
 
-    def _checkpoint(self, complete_item=None, work_item="shared"):
-        args = argparse.Namespace(plan=str(self.plan_path), input=self._note(work_item),
-                                  complete_item=complete_item, json=False)
+    def _checkpoint(self, work_item="shared"):
+        args = argparse.Namespace(plan=str(self.plan_path), input=self._note(work_item), json=False)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_changed_paths", return_value=[]), \
                 mock.patch.object(bc, "_assert_spec_boundary", return_value={}), \
@@ -2307,12 +2305,14 @@ class TestV2CompletionGate(CoordinatorCase):
         """Write the completion the removed writer used to write: an id and a commit, no integration."""
         self.store.mutate(lambda s: s["progress"]["completed"].append({"id": node_id, "commit": HEAD_A}))
 
-    def test_complete_item_is_refused_on_a_v2_plan_and_names_the_work_verbs(self):
-        with self.assertRaises(bc.CoordinatorError) as caught:
-            self._checkpoint(complete_item="shared")
-        message = str(caught.exception)
-        self.assertIn("work result", message)
-        self.assertIn("work integrate", message)
+    def test_checkpoint_can_no_longer_be_asked_to_complete_anything(self):
+        # The refusal became a removal with the v1 sunset. `--complete-item` wrote a completion with
+        # no integration evidence and survived only for v1, which had no other completion path; with
+        # v1 gone its only remaining use would be to bypass the graph's own rule, so the flag is not
+        # there to pass. The CLI is the assertion: argparse rejects it outright.
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            bc.parser().parse_args(["checkpoint", "--plan", "p.json", "--input", "n.json",
+                                    "--complete-item", "shared"])
         self.assertEqual(self.state()["progress"]["completed"], [])
 
     def test_checkpoint_without_the_flag_still_records_the_note(self):
@@ -2321,9 +2321,9 @@ class TestV2CompletionGate(CoordinatorCase):
         self.assertEqual(state["checkpoint"]["work_item"], "shared")
         self.assertEqual(state["progress"]["completed"], [])
 
-    def test_a_v1_build_state_can_no_longer_come_into_existence(self):
-        # The v1 island is closed at the door rather than maintained: a bound Build is always a v2
-        # snapshot now, so `checkpoint --complete-item` has no surviving arm to complete anything on.
+    def test_a_bound_build_is_always_a_v2_snapshot(self):
+        # The v1 island is gone rather than maintained: a bound Build is always a v2 snapshot, which
+        # is what left `checkpoint --complete-item` with nothing to complete anything on.
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, plan_v1(), None)
         self.assertEqual(state["schema_version"], "build-state.v2")
         self.assertEqual(state["work"], {})
@@ -2550,50 +2550,97 @@ class TestTheCanonSaysOneThing(unittest.TestCase):
         self.assertIn("does not make a Build resumable on another machine", self.claim)
 
 
-class TestV1Migration(CoordinatorCase):
-    def _v1_two_items(self):
-        value = plan_v1()
-        value["work_items"] = [
-            {"id": "one", "description": "First", "paths": ["a/x.py"], "verification": ["run one"]},
-            {"id": "two", "description": "Second", "paths": ["a/y.py"], "verification": ["run two"]},
-        ]
-        return value
+class TestV1Sunset(unittest.TestCase):
+    """The v1 generation is gone, and this is the search that PROVES it — with its one exclusion.
 
-    def test_migrate_produces_a_linear_chain_with_a_new_digest(self):
-        v1 = self._v1_two_items()
-        v2 = bc._migrate_v1_to_v2(v1)
-        self.assertEqual(v2["schema_version"], "build-plan.v2")
-        self.assertEqual(v2["work_items"][0]["depends_on"], [])
-        self.assertEqual(v2["work_items"][1]["depends_on"], ["one"])
-        self.assertTrue(all(i["executor_class"] == "integrator" for i in v2["work_items"]))
-        self.assertEqual(v2["parallelism"], {"mode": "serial", "max_concurrency": 1})
-        self.assertNotEqual(bc._digest(v1), bc._digest(v2))
-        bc.dag.validate_dag(v2)  # the chain is acyclic
+    A removal is only as good as the evidence that nothing survived it, and a grep the author ran
+    once while deleting is not that evidence. This class is the completeness search, run every time
+    the suite runs, and its one exclusion is named on purpose: an exclusion nobody can find is
+    indistinguishable from an oversight.
 
-    def test_migrate_cli_emits_v2_and_requires_v1_input(self):
-        self.write_plan(self._v1_two_items())
-        args = argparse.Namespace(input=str(self.plan_path), output="-")
-        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_plan_migrate_v1(args, None)
-        emitted = json.loads(out.getvalue())
-        self.assertEqual(emitted["schema_version"], "build-plan.v2")
-        # a v2 input is refused
-        self.write_plan(plan_v2())
-        args = argparse.Namespace(input=str(self.plan_path), output="-")
-        with self.assertRaisesRegex(bc.CoordinatorError, "requires a build-plan.v1"):
-            bc.cmd_plan_migrate_v1(args, None)
+    What the search looks for is deliberately NOT the string "v1". A refusal has to name what it
+    refuses — `plan bind` says the words "build-plan.v1" precisely because a message that would not
+    name the version would leave an operator guessing — so banning the string would push the engine
+    toward vaguer refusals in the name of tidiness. What must not survive is v1 as a LOADABLE
+    SURFACE: a schema file, a path built to one, or a version key something dispatches on. Those are
+    the two structural forms below, and they are what a survival actually looks like.
+    """
 
-    def test_v1_reader_sunsets_at_the_removal_major(self):
-        # Fails closed once the Engine major reaches the sunset while the v1 reader still ships — the
-        # mechanical removal trigger. A no-op below the sunset (and at the 0.0.0 construction sentinel).
-        release = json.loads((bc.ROOT / ".engine" / "engine.json").read_text()).get("engine_release", "0.0.0")
-        if release == "0.0.0":
-            return
-        major = int(release.split(".")[0])
-        v1_reader_present = (bc.ROOT / ".engine" / "schemas" / "build-plan.v1.json").exists()
-        if major >= bc.PLAN_V1_REMOVE_AT_MAJOR and v1_reader_present:
-            self.fail(f"Engine major {major} has reached the v1 sunset ({bc.PLAN_V1_REMOVE_AT_MAJOR}) but the "
-                      f"build-plan.v1 reader still ships; remove the v1 reader and its ordered path.")
+    # A path built to a v1 schema file. That is what the FILE scan can identify without guessing:
+    # a version key is spelled the same in a dispatch map and in an `if version == ...` refusal, so
+    # dispatch is asserted directly against the real maps below instead of grepped for.
+    SCHEMA_PATHS = ('"build-state.v1.json"', '"build-handoff.v1.json"', '"build-plan.v1.json"')
+
+    # THE single exclusion, and the only one. `plan_contract` keeps a read-only build-plan.v1 payload
+    # map, with its schema file, by the operator's decision of 2026-08-25: a plan library may still
+    # hold a stored plan whose payload is v1, and a stored plan that cannot be READ is an operator's
+    # own deliberation made unreachable by an engine upgrade. It is refused at every door and its
+    # removal is tracked as issue 1070 in R05.
+    EXCLUDED_CODE = "plan_contract.py"
+    EXCLUDED_SCHEMA = "build-plan.v1.json"
+
+    # Not exclusions — prose that must MENTION what was removed to be honest about removing it: a
+    # decision record amends by dated paragraph and quotes what it corrected, a v2 schema says what
+    # it extended, and a test names the thing whose absence it asserts.
+    HISTORY = ("build-state.v2.json", "build-handoff.v2.json", "build-plan.v2.json")
+
+    def _shipped_code_and_schemas(self):
+        for directory in ("tools", "schemas"):
+            for path in sorted((bc.ROOT / ".engine" / directory).rglob("*")):
+                if not path.is_file() or path.suffix not in (".py", ".json"):
+                    continue
+                if path.name.startswith("test_") or path.name in self.HISTORY:
+                    continue
+                yield path
+
+    def test_the_v1_state_and_handoff_schemas_are_gone(self):
+        for gone in ("build-state.v1.json", "build-handoff.v1.json"):
+            self.assertFalse((bc.ROOT / ".engine" / "schemas" / gone).exists(),
+                             f"{gone} still ships after the v1 sunset")
+
+    def test_the_kept_payload_map_is_the_single_code_exclusion(self):
+        import plan_contract
+        self.assertTrue((bc.ROOT / ".engine" / "schemas" / self.EXCLUDED_SCHEMA).exists())
+        self.assertIn("build-plan.v1", plan_contract.BUILD_PLAN_SCHEMAS)
+        source = (bc.ROOT / ".engine" / "tools" / self.EXCLUDED_CODE).read_text(encoding="utf-8")
+        self.assertIn("issue 1070", source,
+                      "the kept v1 map does not name the issue that retires it")
+
+    def test_the_coordinator_dispatches_one_generation_only(self):
+        self.assertEqual(sorted(bc.PLAN_SCHEMAS), ["build-plan.v2"])
+        self.assertEqual(sorted(bc.STATE_SCHEMAS), ["build-state.v2"])
+        self.assertEqual(sorted(bc.HANDOFF_SCHEMAS), ["build-handoff.v2"])
+        for gone in ("PLAN_V1_REMOVE_AT_MAJOR", "cmd_plan_migrate_v1", "_migrate_v1_to_v2",
+                     "PLAN_BEGIN", "HANDOFF_BEGIN"):
+            self.assertFalse(hasattr(bc, gone), f"build_coordinator.{gone} survives the v1 sunset")
+
+    def test_the_plan_marker_readers_retired_with_their_schemas(self):
+        for gone in ("plan_block", "replace_plan_block", "durable_plan", "_plan_markers",
+                     "_version_tag", "PLAN_BEGIN", "HANDOFF_BEGIN"):
+            self.assertFalse(hasattr(bc.github, gone), f"github.{gone} survives the v1 sunset")
+
+    def test_an_absent_schema_version_is_refused_never_defaulted(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not state a schema_version"):
+            bc._state_schema_for({"revision": 1})
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not state a schema_version"):
+            bc.dag.plan_version({"work_items": []})
+
+    def test_the_migrate_verb_is_gone_and_the_refusal_names_the_path(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            bc.parser().parse_args(["plan", "migrate-v1", "--input", "p.json"])
+        source = (bc.ROOT / ".engine" / "tools" / "build_coordinator.py").read_text(encoding="utf-8")
+        self.assertIn("is no converter", source)
+        self.assertIn("Re-author this work as a fresh plan through the Project Manager", source)
+
+    def test_no_v1_schema_path_or_dispatch_key_survives_outside_the_one_exclusion(self):
+        strays = []
+        for path in self._shipped_code_and_schemas():
+            if path.name in (self.EXCLUDED_CODE, self.EXCLUDED_SCHEMA):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            strays += [f"{path.name}: {token}" for token in self.SCHEMA_PATHS if token in text]
+        self.assertEqual(strays, [], "the v1 sunset left a loadable v1 surface behind: "
+                         + ", ".join(strays))
 
 
 class TestDepthsVerb(unittest.TestCase):

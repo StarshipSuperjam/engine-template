@@ -563,24 +563,23 @@ class TestStatusV2(WorkCase):
 
 
 class TestMarkerVersioning(unittest.TestCase):
-    def test_v2_plan_block_reads_back_and_does_not_cross_match_v1(self):
-        v2 = plan_v2()
-        body = "prose\n\n" + ghub.plan_block(v2) + "\nmore prose\n"
-        got = ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMAS)
-        self.assertEqual(bc._digest(got), bc._digest(v2))
-        with self.assertRaisesRegex(bc.CoordinatorError, "no unique"):
-            ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMA)  # a legacy v1-only reader sees no block
+    """One marked block, one generation. The plan block and the v1 handoff marker are gone."""
 
-    def test_v1_and_v2_plan_blocks_together_are_rejected(self):
-        body = ghub.plan_block(plan_v1()) + "\n\n" + ghub.plan_block(plan_v2())
-        with self.assertRaisesRegex(bc.CoordinatorError, "no unique"):
-            ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMAS)
+    def test_the_handoff_block_reads_back_exactly_what_it_wrote(self):
+        handoff = {"schema_version": "build-handoff.v2", "x": 1}
+        body = "prose\n\n" + ghub.handoff_block(handoff) + "\nmore prose\n"
+        found = ghub.find_handoff_block(body)
+        self.assertIsNotNone(found)
+        self.assertEqual(bc._digest(handoff), found[0])
 
-    def test_handoff_markers_do_not_cross_match(self):
-        v2_handoff = {"schema_version": "build-handoff.v2", "x": 1}
-        body = ghub.handoff_block(v2_handoff)
-        self.assertIsNotNone(ghub.find_handoff_block(body, "v2"))
-        self.assertIsNone(ghub.find_handoff_block(body, "v1"))
+    def test_two_handoff_blocks_in_one_body_are_refused(self):
+        handoff = {"schema_version": "build-handoff.v2", "x": 1}
+        body = ghub.handoff_block(handoff) + "\n\n" + ghub.handoff_block(handoff)
+        with self.assertRaisesRegex(bc.CoordinatorError, "more than one engine-build-handoff"):
+            ghub.find_handoff_block(body)
+
+    def test_a_body_with_no_handoff_block_reads_as_none_rather_than_failing(self):
+        self.assertIsNone(ghub.find_handoff_block("prose with no markers at all\n"))
 
 
 class TestHandoffV2(WorkCase):
