@@ -1659,8 +1659,11 @@ class TestValidationRepairAndStatus(CoordinatorCase):
     # --- repair-round escalation (never a cap on review coverage) ----------------------
 
     def assess(self, judgment, head, lens=None, guidance=None, reviewed=None, classified=None,
-               lenses=("usability", "technical-integrity")):
-        ns = argparse.Namespace(judgment=judgment, rationale="Round rationale.", lens=lens, guidance=guidance)
+               lenses=("usability", "technical-integrity"), accept_receipt_loss=False):
+        # `accept_receipt_loss` defaults OFF so the receipt-loss refusal stays live in every test that is
+        # not deliberately about it; a helper that set it everywhere would silence a real guard wholesale.
+        ns = argparse.Namespace(judgment=judgment, rationale="Round rationale.", lens=lens, guidance=guidance,
+                                accept_receipt_loss=accept_receipt_loss)
         out = io.StringIO()
         with mock.patch.object(bc, "_head", return_value=head), \
              mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
@@ -1674,10 +1677,12 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             bc.cmd_repair_assess(ns, self.store)
         return out.getvalue()
 
-    def refused_assess(self, judgment, head, lens=None, guidance=None, classified=None):
+    def refused_assess(self, judgment, head, lens=None, guidance=None, classified=None,
+                       accept_receipt_loss=False):
         """Drive an assess expected to refuse, returning the refusal text."""
         with self.assertRaises(bc.CoordinatorError) as caught:
-            self.assess(judgment, head, lens=lens, guidance=guidance, classified=classified)
+            self.assess(judgment, head, lens=lens, guidance=guidance, classified=classified,
+                        accept_receipt_loss=accept_receipt_loss)
         return str(caught.exception)
 
     def receipt_round(self, head):
@@ -1893,12 +1898,15 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.panel_round(HEAD_B); self.panel_round(HEAD_C)
         self.assess("scoped", HEAD_D, lens=["usability"]); self.receipt_round(HEAD_D)
-        self.assess("none", HEAD_E)
-        self.assess("none", HEAD_F)
-        self.assess("none", "1" * 40)
+        # The cheap check leaves a receipt behind, and each `none` here judges a divergence that receipt
+        # does not cover -- so every one of them would refuse on receipt loss. That refusal has its own
+        # tests; this scenario is about what the CEILING counts, so the loss is accepted explicitly.
+        self.assess("none", HEAD_E, accept_receipt_loss=True)
+        self.assess("none", HEAD_F, accept_receipt_loss=True)
+        self.assess("none", "1" * 40, accept_receipt_loss=True)
         self.assertEqual(len(self.state()["repair_rounds"]), 6)
         self.assertEqual(sum(1 for r in self.state()["repair_rounds"] if r["counted"]), 2)
-        message = self.refused_assess("none", "2" * 40)
+        message = self.refused_assess("none", "2" * 40, accept_receipt_loss=True)
         self.assertIn("absolute ceiling", message)
 
     def test_an_amended_commit_is_not_reported_to_the_operator_as_a_base_change(self):

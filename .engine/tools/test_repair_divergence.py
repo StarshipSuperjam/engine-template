@@ -392,22 +392,29 @@ class TestSchemaAgreement(unittest.TestCase):
         Build snapshot, whose schema forbids unknown properties, so the FIRST real `repair assess` after
         such a drift refuses -- while a unit suite whose fixtures are hand-built stays green. Bind the
         shapes together instead of trusting them to stay in step."""
+        import glob
         import json
         here = os.path.dirname(os.path.abspath(__file__))
 
         def shape(name):
             """The classification shape each schema declares — by $ref where the file has $defs, and
-            inline in the handoff schemas, which have none. All four are bound: a Build restored from a
-            legacy v1 snapshot hits the same unknown-property refusal, and only checking v2 left three
-            files free to drift."""
+            inline in the handoff schemas, which have none. Every state and handoff schema on disk is
+            bound, DISCOVERED rather than named: a snapshot restored against any of them hits the same
+            unknown-property refusal, and a hand-written roster goes stale in both directions — it names
+            a file a sunset removed (v1, StarshipSuperjam/engine-template#1071) and misses the next one
+            added."""
             doc = json.load(open(os.path.join(here, "..", "schemas", f"{name}.json"), encoding="utf-8"))
             if "$defs" in doc and "divergence_classification" in doc["$defs"]:
                 return doc["$defs"]["divergence_classification"]
             entry = doc["properties"]["repair_rounds"]["items"]["properties"]["classification"]
             return entry
 
-        schemas = {name: shape(name) for name in ("build-state.v1", "build-state.v2",
-                                                  "build-handoff.v1", "build-handoff.v2")}
+        names = sorted(os.path.basename(f)[:-len(".json")]
+                       for f in glob.glob(os.path.join(here, "..", "schemas", "build-state.v*.json"))
+                       + glob.glob(os.path.join(here, "..", "schemas", "build-handoff.v*.json")))
+        # An empty roster would pass every assertion below without binding anything.
+        self.assertTrue({"build-state.v2", "build-handoff.v2"} <= set(names), names)
+        schemas = {name: shape(name) for name in names}
         declared = set.intersection(*(set(sc["properties"]) for sc in schemas.values()))
         with tempfile.TemporaryDirectory() as root:
             _git(root, "init", "-q")
