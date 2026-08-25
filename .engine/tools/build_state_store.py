@@ -218,6 +218,10 @@ def migrate(source: Path | str, selector: str, schema, *,
             "destroy the evidence already there; supersede it explicitly if that is what you mean.")
     if worktree is not None:
         state.setdefault("build", {})["worktree"] = str(Path(worktree).resolve())
+    # Through the same forward migration the stores apply on load. This verb exists to move a document
+    # written by an older engine forward, so it is the last place that should refuse one for carrying a
+    # field that engine declared and this one retired.
+    state = core.forward_migrate(state)
     core.validate(state, schema(state) if callable(schema) else schema)
     plan_store.ensure_dir(destination.parent, within=library.root)
     # The rehearsal: the exact bytes, written to a scratch name in the destination folder, so a full

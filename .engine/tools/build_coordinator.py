@@ -3120,7 +3120,14 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # judgment and a single-lens cold check are recorded, disclosed, and bounded by the absolute ceiling,
     # but they do not consume the counted budget. "Minimal" is derived here from the roster, never declared
     # by the session that would benefit from declaring it.
-    counted = len(lenses) >= _COUNTED_LENS_FLOOR
+    spends_now = len(lenses) >= _COUNTED_LENS_FLOOR
+    # A replacement re-judges a round; it never un-spends one. Writing the fresh answer straight onto
+    # the entry let a completed panel be re-assessed as a single-lens check or a `none` and come back
+    # UNCOUNTED -- the ledger forgot a panel it had paid for, so the next assess's `prior_counted` was
+    # short by one and the budget stop arrived late. The gate already knew this (`already_counted`);
+    # the ledger did not, and the ledger is what every later round reads.
+    already_counted = any(_round_counted(r) for r in same)
+    counted = spends_now or already_counted
     guidance = getattr(args, "guidance", None)
     # A replacement never ERASES a recorded consultation: dropping the answer would remove the escalation
     # from the PR body and, with it, the preflight requirement that the body carry it, while the rounds
@@ -3173,8 +3180,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         # commit pair as a panel turns a free round into a counted one, and skipping the check on the
         # replacement path made that a way past the budget. Only a replacement that was ALREADY counted
         # is free -- it is the same spend, judged again.
-        already_counted = any(_round_counted(r) for r in same)
-        if counted and not already_counted and prior_counted >= _REPAIR_ROUND_ESCALATION:
+        if spends_now and not already_counted and prior_counted >= _REPAIR_ROUND_ESCALATION:
             stop = (f"{prior_counted} repair rounds have already dispatched a review panel on this "
                     f"deliverable, which is the whole counted budget. This one would spend past it.")
         # The ceiling counts ROUNDS, so a replacement -- which adds none -- never trips it.
@@ -3461,11 +3467,7 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
-            # Through the same forward migration the stores apply: a handoff exported under
-            # StarshipSuperjam/engine-template#1071
-            # carries `spent`, and passing it through verbatim would mint a snapshot that fails
-            # validation on its very next touch.
-            "repair_rounds": core.forward_migrate({"repair_rounds": value.get("repair_rounds", [])})["repair_rounds"],
+            "repair_rounds": value.get("repair_rounds", []),
             "plan_change_escalations": value.get("plan_change_escalations", []),
             "reconciles": value.get("reconciles", [])}
 
@@ -3514,6 +3516,12 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # so drop any stray copy before validation — an old block still restores cleanly instead of failing
     # closed on the forbidden key. The value is reviewer-internal and never survives the round-trip
     # (restore already yields None for it), so dropping it here loses nothing an up-to-date export keeps.
+    # Same reason, same side of the gate: a handoff exported under
+    # StarshipSuperjam/engine-template#1071 carries `spent` on its repair rounds, and the schema no
+    # longer declares it. This MUST run before `_validate` -- a strip placed in the restore builder
+    # below can never run, because validation refuses the document first.
+    value["repair_rounds"] = core.forward_migrate(
+        {"repair_rounds": value.get("repair_rounds", [])})["repair_rounds"]
     stripped_private = False
     for _summary in value.get("finding_summaries") or []:
         # Guard the shape: a malformed block (a non-dict summary) must still reach _validate and fail

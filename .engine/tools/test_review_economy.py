@@ -222,7 +222,7 @@ class TheRoundCounter(_RealRepo):
                          "absorb it and refund its slot")
         self.assertNotIn("re-points the repair round already recorded", err)
 
-    def test_ten_abandoned_fan_outs_reach_the_bounds_they_are_supposed_to_reach(self):
+    def test_abandoned_panels_reach_the_counted_budget_they_are_supposed_to_reach(self):
         """The consequence stated as the obligation states it. The headline promises no class of round
         repeats unbounded while the operator is away; that is only true if every dispatched panel leaves
         an entry behind."""
@@ -238,6 +238,42 @@ class TheRoundCounter(_RealRepo):
         with self.assertRaises(bc.CoordinatorError) as caught:
             self._assess(state, head, lenses=("usability", "technical-integrity"))
         self.assertIn("counted budget", str(caught.exception))
+
+    def test_abandoned_cheap_checks_reach_the_absolute_ceiling(self):
+        """The other half of the same promise, and the half only the CEILING can keep. A single-lens
+        check spends no counted budget, so if an abandoned one could be absorbed nothing would ever stop
+        it -- the ceiling is the only bound in play, and it counts ledger entries."""
+        reviewed = self.commit("src.py", "the deliverable")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        head = self.commit("src.py", "the repair")
+        for attempt in range(6):
+            state, _ = self._assess(state, head, lenses=("usability",))
+            state["repair"]["packet_digest"] = "sha256:" + "5" * 64   # dispatched, never returned
+            head = self.commit(DERIVED_PATH, f"regenerated {attempt}")
+        self.assertEqual(len(state["repair_rounds"]), 6)
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [False] * 6,
+                         "a one-lens check never spends the counted budget")
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            self._assess(state, head, lenses=("usability",))
+        self.assertIn("absolute ceiling", str(caught.exception))
+
+    def test_re_judging_a_completed_panel_does_not_refund_it(self):
+        """A replacement re-judges a round; it never un-spends one. The entry used to take the fresh
+        answer, so a completed two-lens panel re-assessed as a single-lens check came back UNCOUNTED --
+        the ledger forgot a panel it had paid for, and every later round read the short number."""
+        reviewed = self.commit("src.py", "the deliverable")
+        repaired = self.commit("src.py", "the repair")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        state, _ = self._assess(state, repaired, lenses=("usability", "technical-integrity"))
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True])
+        # The panel came back, then a generated commit moved the head: the same episode, re-pointed.
+        state["repair"]["receipts"] = [self.receipt("usability", reviewed, repaired, packet_digest=None)]
+        state["repair"]["packet_digest"] = None
+        generated = self.commit(DERIVED_PATH, "regenerated")
+        state, _ = self._assess(state, generated, lenses=("usability",))
+        self.assertEqual(len(state["repair_rounds"]), 1)
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True],
+                         "the panel was dispatched and paid for; re-judging it cheap cannot refund it")
 
     def test_real_work_past_a_completed_round_does_open_a_new_one(self):
         """The counter is not simply looser. Authored work the round's lenses have not read is a genuine
