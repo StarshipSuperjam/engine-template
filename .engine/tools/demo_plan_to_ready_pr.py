@@ -151,7 +151,10 @@ def _throwaway(holder):
     pr_state = os.path.join(holder, "pr.json")
     with open(pr_state, "w", encoding="utf-8") as fh:
         json.dump({"number": PR, "state": "OPEN", "isDraft": True, "headRefOid": head,
-                   "baseRefOid": head, "mergeable": "MERGEABLE", "body": BODY}, fh)
+                   "baseRefOid": head, "mergeable": "MERGEABLE", "body": BODY,
+                   "statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
+                                          "conclusion": "SUCCESS",
+                                          "completedAt": "2026-08-25T00:00:00Z"}]}, fh)
 
     env = dict(os.environ)
     env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
@@ -192,9 +195,19 @@ def _seed_submission(state_path, head, plan_digest):
     state = store.read()
 
     def fill(current):
-        current["validation"] = {"commit": head, "results": [
-            {"id": "self-test", "commit": head, "passed": True,
-             "summary": "seeded green — the validation run is demo_959's subject, not this one's"}]}
+        # Split-shaped, with the imported final proof: the ready gate now demands both halves, and
+        # a legacy single-slot seed would honestly park at the final-validation rung.
+        current["validation"] = {
+            "candidate": {
+                "commit": head, "merge_base": head,
+                "protocol_digest": bc._digest(b"entry-door-protocol"),
+                "argv_digests": {"self-test": bc._digest(b"entry-door-argv")},
+                "inventory_digest": "fixture-inventory", "run_record": None,
+                "results": [{"id": "self-test", "commit": head, "passed": True,
+                             "summary": "seeded green — the validation run is demo_959's subject, "
+                                        "not this one's"}]},
+            "final": {"commit": head, "source": "ci-import", "run_id": 1,
+                      "context": "engine-ci", "tree": "0" * 40}}
         current["preflights"] = [{"id": pid, "commit": head, "passed": True,
                                   "summary": "seeded green for the entry-door fixture"}
                                  for pid in required]

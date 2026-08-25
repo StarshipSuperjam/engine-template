@@ -79,11 +79,18 @@ def required_check(data: dict, context: str) -> tuple:
     "absent", "pending", "success", "failure".
 
     Both rollup shapes are read: a CheckRun carries name/status/conclusion, a StatusContext carries
-    context/state. Several entries can share the name — a superseded run's red lingers in the rollup
-    beside the newer green (observed on this repository) — so when they do, the LATEST entry by its
-    own timestamps decides, which is how the platform itself resolves the required check. An entry
-    still running has no completion time and sorts by its start, so a fresh in-progress run correctly
-    reads as pending even while an older completed entry sits beside it."""
+    context/state. Resolution is deliberately conservative, in two layers a reviewer attacked and
+    this ordering answers. ANY matching entry still in flight makes the whole answer pending — a
+    metadata event firing during a long full run produces overlapping entries, and sorting an
+    in-flight run's start against a completed run's finish would read success while the decisive run
+    is still executing. Among completed entries, CheckRun-shaped ones outrank StatusContext-shaped
+    ones: the registered workflow's check IS a CheckRun, while a commit status sharing its name can
+    be posted by any repository writer through the status API — a same-named status must never
+    out-vote the platform's own check. Ties within the preferred shape go to the LATEST entry by its
+    own timestamps, which is how a superseded run's lingering red loses to the newer green (observed
+    on this repository's pull requests). A same-named CheckRun from another app remains
+    indistinguishable here and is bounded elsewhere: the import verifies provenance by the
+    platform-reported workflow path, and the operator's merge stands behind branch protection."""
     entries = [x for x in (data.get("statusCheckRollup") or [])
                if x.get("name") == context or x.get("context") == context]
     if not entries:
@@ -92,14 +99,18 @@ def required_check(data: dict, context: str) -> tuple:
     def stamp(entry):
         return entry.get("completedAt") or entry.get("startedAt") or entry.get("createdAt") or ""
 
-    latest = max(entries, key=stamp)
+    def in_flight(entry):
+        if "state" in entry:                       # StatusContext shape
+            return (entry.get("state") or "").upper() in ("EXPECTED", "PENDING")
+        return (entry.get("status") or "").upper() != "COMPLETED"
+
+    pending = [x for x in entries if in_flight(x)]
+    if pending:
+        return "pending", max(pending, key=stamp)
+    check_runs = [x for x in entries if "state" not in x]
+    latest = max(check_runs or entries, key=stamp)
     if "state" in latest:                          # StatusContext shape
-        state = (latest.get("state") or "").upper()
-        if state in ("EXPECTED", "PENDING"):
-            return "pending", latest
-        return ("success" if state == "SUCCESS" else "failure"), latest
-    if (latest.get("status") or "").upper() != "COMPLETED":
-        return "pending", latest
+        return ("success" if (latest.get("state") or "").upper() == "SUCCESS" else "failure"), latest
     conclusion = (latest.get("conclusion") or "").upper()
     return ("success" if conclusion == "SUCCESS" else "failure"), latest
 

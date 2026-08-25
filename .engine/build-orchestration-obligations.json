@@ -570,7 +570,7 @@
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_the_import_verb_is_the_only_minting_site_for_final_evidence"
+      "anchor": "test_the_import_verb_is_the_only_writer_of_final_evidence"
     },
     {
       "id": "BO-71",

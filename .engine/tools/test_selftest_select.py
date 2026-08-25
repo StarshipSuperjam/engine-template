@@ -583,11 +583,14 @@ class TheProtocolDeclaresExactlyWhatCandidateRuns(unittest.TestCase):
                                "build-protocol.v1.json"), encoding="utf-8") as fh:
             schema = json.load(fh)
         protocol = self._protocol()
-        forged = json.loads(json.dumps(protocol))
-        forged["validation_commands"]["candidate"][1]["command"].append("{arbitrary_token}")
         jsonschema.validate(protocol, schema)     # the shipped registry is valid
-        with self.assertRaises(jsonschema.ValidationError):
-            jsonschema.validate(forged, schema)
+        for token in ("{arbitrary_token}", "uv{arbitrary_token}", "--flag={bogus_token}",
+                      "prefix{run_record_path}", "{merge_base}{arbitrary_token}"):
+            with self.subTest(token=token):
+                forged = json.loads(json.dumps(protocol))
+                forged["validation_commands"]["candidate"][1]["command"].append(token)
+                with self.assertRaises(jsonschema.ValidationError):
+                    jsonschema.validate(forged, schema)
 
     def test_the_final_descriptor_names_the_imported_proof(self):
         """`final` is a descriptor of the CI proof to import, not a command to run — a command here

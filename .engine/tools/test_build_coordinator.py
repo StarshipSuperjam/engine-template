@@ -1712,6 +1712,12 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
             "inventory count": lambda r: r["inventory"].update({"module_count": 1}),
             "log digest": lambda r: r["log"].update({"sha256": bc._digest(b"other")}),
             "foreign attestation": lambda r: r.update({"attests": "engine-ci"}),
+            "missing scope": lambda r: r.pop("scope", None),
+            "unrecognised scope": lambda r: r.update({"scope": "whatever"}),
+            "malformed log": lambda r: r.update({"log": "not-a-dict"}),
+            "log without a path": lambda r: r.update({"log": {"sha256": bc._digest(b"x")}}),
+            "unreadable log with no digest to hide behind": lambda r: r.update(
+                {"log": {"path": "/nonexistent/run.log", "sha256": "sha256:absent"}}),
         }
         for name, mutator in cases.items():
             with self.subTest(corruption=name):
@@ -1822,12 +1828,24 @@ class TestFinalImportAndRollupGate(CoordinatorCase):
                          "provenance must go through the platform-filtered enumeration, bound to the "
                          "local head and its tree — never a run picked out of rollup fields")
 
-    def test_the_import_verb_is_the_only_minting_site_for_final_evidence(self):
-        """Mechanical: the ci-import source value is minted in exactly one place. Candidate re-runs
-        may PRESERVE or DROP a final, but nothing else may create one."""
+    def test_the_import_verb_is_the_only_writer_of_final_evidence(self):
+        """Mechanical, on the WRITE side — a literal count alone is blind to laundering (a promotion
+        that copies an existing final carries no minting literal), so every assignment to the final
+        slot is enumerated and pinned to the two permitted writers: the import verb's record
+        callback, and cmd_validate's head-guarded preserve-or-drop."""
         import inspect
+        import re
         source = inspect.getsource(bc)
-        self.assertEqual(source.count('"source": "ci-import"'), 1)
+        self.assertEqual(source.count('"source": "ci-import"'), 1,
+                         "final evidence is minted in exactly one place")
+        assignments = [line.strip() for line in source.splitlines()
+                       if re.search(r'\["final"\]\s*=', line)]
+        self.assertEqual(assignments, ['raw["final"] = final'],
+                         "the import verb's record callback is the only subscript writer of final")
+        self.assertEqual(source.count('"final": preserved_final'), 1,
+                         "cmd_validate's preserve-or-drop is the only other write, as a dict literal")
+        self.assertIn('split["final"].get("commit") == head', source,
+                      "the preserved value is head-guarded, so preservation can never re-stamp")
 
     def test_head_drift_refuses_with_the_push_or_pull_remedy(self):
         with self.assertRaisesRegex(bc.CoordinatorError, "push this head"):
@@ -1853,6 +1871,27 @@ class TestFinalImportAndRollupGate(CoordinatorCase):
             with self.subTest(rollup=name):
                 with self.assertRaisesRegex(bc.CoordinatorError, message):
                     self._import(pr=self._pr(**over))
+
+    def test_an_overlapping_in_flight_run_reads_as_pending_not_success(self):
+        """A metadata event firing during a long full run: the in-flight entry must win as pending
+        even though the completed entry's finish time out-sorts its start time."""
+        rollup = [{"name": "engine-ci", "status": "COMPLETED", "conclusion": "SUCCESS",
+                   "startedAt": "2026-08-25T01:00:00Z", "completedAt": "2026-08-25T01:40:00Z"},
+                  {"name": "engine-ci", "status": "IN_PROGRESS",
+                   "startedAt": "2026-08-25T01:05:00Z"}]
+        state, _ = bc.github.required_check({"statusCheckRollup": rollup}, "engine-ci")
+        self.assertEqual(state, "pending")
+
+    def test_a_same_named_commit_status_cannot_outvote_the_platforms_check_run(self):
+        """Any repository writer can post a commit status through the status API; the registered
+        workflow's check is a CheckRun, and the CheckRun-shaped entry decides."""
+        rollup = [{"name": "engine-ci", "status": "COMPLETED", "conclusion": "FAILURE",
+                   "completedAt": "2026-08-25T01:00:00Z"},
+                  {"context": "engine-ci", "state": "SUCCESS",
+                   "createdAt": "2026-08-25T02:00:00Z"}]
+        state, entry = bc.github.required_check({"statusCheckRollup": rollup}, "engine-ci")
+        self.assertEqual(state, "failure")
+        self.assertNotIn("state", entry)
 
     def test_a_superseded_red_beside_a_newer_green_reads_as_green(self):
         """The observed shape on this repository: the pre-contract run's failure lingers in the
@@ -1908,20 +1947,37 @@ class TestFinalImportAndRollupGate(CoordinatorCase):
                             for line in status["required_evidence"]),
                         status["required_evidence"])
 
+    def _seed_everything_but_final(self):
+        """Every rung below final-validation satisfied: quick depth needs no deliverable receipts,
+        so seeding green preflights and a complete contract at HEAD_A walks the ladder to the rung
+        this class exists to test."""
+        def seed(s):
+            s["reviews"]["deliverable"].update({
+                "packet_digest": bc._digest(b"packet"), "referent_digest": bc._digest(b"referent"),
+                "required_lenses": [], "reviewed_commit": HEAD_A, "base_commit": BASE})
+            s.update({
+                "preflights": [{"id": "pr-contract", "commit": HEAD_A, "passed": True, "summary": "ok"},
+                               {"id": "checkout-integrity", "commit": HEAD_A, "passed": True,
+                                "summary": "ok"}],
+                "pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"body"),
+                                "complete": True}})
+        self.store.mutate(seed)
+
     def test_the_final_validation_phase_names_the_verb_in_next_and_available(self):
-        self._import()          # final present -> exercise the rung by dropping ONLY the import
-        self.store.mutate(lambda s: s["validation"].update({"final": None}))
+        """The rung is actually ENTERED — a reviewer proved the first version of this test never
+        reached its named branch and asserted only the sibling's line. Unconditional now."""
+        self._seed_everything_but_final()
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             status = bc._status(self.state())
-        if status["phase"] == "final-validation":
-            self.assertIn("validate final import", status["suggested_next"])
-            self.assertTrue(any("validate final import" in x
-                                for x in status["available_activities"]))
-        else:
-            # Everything upstream of the rung is not seeded here; the required-evidence line is the
-            # load-bearing forward surface in that case and must name the verb.
-            self.assertTrue(any("validate final import" in line
-                                for line in status["required_evidence"]))
+        self.assertEqual(status["phase"], "final-validation")
+        self.assertIn("validate final import", status["suggested_next"])
+        self.assertTrue(any("validate final import" in x
+                            for x in status["available_activities"]))
+        self._import()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "ready",
+                         "with the proof imported the same state reaches ready")
 
     def test_submit_preview_re_reads_the_live_rollup_with_three_distinct_messages(self):
         self.store.mutate(lambda s: s.update(
@@ -2481,10 +2537,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_runbook_stays_within_its_line_cap(self):
         # A ratchet against bloat, kept with no slack: it sat at exactly 250 and moved to 251 when the v2
         # completion path had to be taught (a Routine session following the old text would reach for a verb
-        # the coordinator now refuses). Raise it only for instruction a session cannot work without, and
-        # only by what that instruction actually costs.
+        # the coordinator now refuses), and to 253 when the candidate/final split's order of operations
+        # became a numbered list — a usability reviewer showed the prose form taught the sequence to
+        # nobody, and the push step is one a session cannot work without. Raise it only for instruction a
+        # session cannot work without, and only by what that instruction actually costs.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 251)
+        self.assertLessEqual(len(text.splitlines()), 253)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]

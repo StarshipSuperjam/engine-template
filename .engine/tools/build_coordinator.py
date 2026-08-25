@@ -1450,6 +1450,13 @@ def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) 
         return ["the run record is missing or unreadable"]
     if record.get("attests") != "engine-selftest":
         problems.append(f"record attests {record.get('attests')!r}, not the registered command")
+    # Three reviewers independently proved the first version believed fields it claimed to distrust:
+    # a missing `scope` crashed the caller after an empty problem list, a malformed `log` crashed the
+    # checker itself, and a log whose file was unreadable AND whose digest was absent passed
+    # vacuously (None == None). Every field is now shape-checked before use, and every absent or
+    # unreadable component is a refusal, never a crash and never a silent pass.
+    if record.get("scope") not in ("full", "focused"):
+        problems.append(f"the record's scope {record.get('scope')!r} is missing or unrecognised")
     if record.get("tree") is None:
         problems.append("the record binds no tree — a gating record must name the tree it ran over")
     elif record.get("tree") != head_tree:
@@ -1457,19 +1464,23 @@ def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) 
                         f"head's tree {head_tree[:12]}")
     if record.get("worktree_dirty") is not False:
         problems.append("the record reports a dirty (or unknown) working tree")
-    reported = ((record.get("inventory") or {}).get("module_count"))
-    if reported != inventory_count:
-        problems.append(f"the record reports {reported} inventory modules; this tree derives "
+    inventory = record.get("inventory")
+    reported = inventory.get("module_count") if isinstance(inventory, dict) else None
+    if not isinstance(reported, int) or reported != inventory_count:
+        problems.append(f"the record reports {reported!r} inventory modules; this tree derives "
                         f"{inventory_count} — the count is re-derived, never believed")
     log = record.get("log")
-    if not log:
-        problems.append("the record names no run log")
+    if not (isinstance(log, dict) and isinstance(log.get("path"), str)
+            and isinstance(log.get("sha256"), str)):
+        problems.append("the record's log entry is missing or malformed")
     else:
         try:
             actual = _digest(Path(log["path"]).read_bytes())
         except OSError:
             actual = None
-        if actual != log.get("sha256"):
+        if actual is None:
+            problems.append("the record's log cannot be read back to check its digest")
+        elif actual != log["sha256"]:
             problems.append("the record's log digest does not match the log on disk")
     return problems
 
@@ -1510,7 +1521,8 @@ def _final_import(args, store: StateStore) -> None:
         if not _candidate_ok(state, head):
             raise CoordinatorError(
                 "green candidate validation for this exact head is required before the proof is "
-                "imported — the imported run stands on top of candidate evidence, not instead of it")
+                "imported — run `validate` first; the imported run stands on top of candidate "
+                "evidence, not instead of it")
         repo, pr_number = state["build"]["repository"], state["build"]["pr"]
         pr = github.pr_state(ROOT, repo, pr_number)
         if pr.get("headRefOid") != head:
@@ -1547,9 +1559,15 @@ def _final_import(args, store: StateStore) -> None:
             raise CoordinatorError(
                 "no GitHub token is available for the receipt fetch — " + boot.gh_unreachable_note())
         head_tree = _run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
-        ok, detail = ci_gatekeeper.find_reusable_receipt(
-            repo=repo, token=token, pr_number=pr_number, head_sha=head,
-            expected_tree=head_tree, root=str(ROOT))
+        try:
+            ok, detail = ci_gatekeeper.find_reusable_receipt(
+                repo=repo, token=token, pr_number=pr_number, head_sha=head,
+                expected_tree=head_tree, root=str(ROOT))
+        except Exception as exc:                   # noqa: BLE001 - a transport failure is a refusal
+            raise CoordinatorError(
+                f"the receipt fetch failed before verification ({type(exc).__name__}: {exc}) — "
+                "check network reachability and gh authentication, then re-import; submission is "
+                "delayed, implementation and review are unaffected") from exc
         if not ok:
             raise CoordinatorError(
                 "no run of the registered workflow yields a verifiable receipt for this head: "
@@ -1639,6 +1657,8 @@ def cmd_validate(args, store: StateStore) -> None:
                 and all(existing.get(key) is not None and existing.get(key) == identity[key]
                         for key in identity)
                 and existing["results"] and all(x["passed"] for x in existing["results"])):
+            print("cache hit: nothing re-ran — the head, merge base, protocol, argv and inventory "
+                  "digests all match the recorded green candidate run (use --force to re-run).")
             print(json.dumps({"cached": True, "commit": head,
                               "identity": identity, "results": existing["results"]},
                              indent=2, sort_keys=True))
