@@ -161,7 +161,8 @@ class TheFullDistance(_Dogfood):
         # the seal preconditions) and a walk that bypassed them would be exercising nothing.
         library = ["--library", str(self.root)]
         _run(library + ["preview", slug])
-        _run(library + ["approve", slug, "--depth", "thorough"])
+        _run(library + ["approve", slug, "--depth", "thorough",
+                        "--operator-decision", "Approve at thorough."])
 
         # One cold panel, four lenses, against the approved revision — carrying the findings the real
         # review actually raised.
@@ -188,6 +189,10 @@ class TheFullDistance(_Dogfood):
                 argv += ["--operator-summary",
                          f"{finding['id']} was raised as blocking and answered before the seal: {rationale}"]
             _run(argv)
+        # The seal's findings-presentation gate: the operator is shown what the panel found and what
+        # was done about each. The dogfood walks the real path, so it walks this too.
+        _run(["--library", str(self.root), "present-findings", slug,
+              "--operator-decision", "I read all four lenses and every disposition."])
 
     def test_a_blocking_finding_leaves_an_editable_draft_and_no_seal(self):
         import plan_coordinator
@@ -211,7 +216,7 @@ class TheFullDistance(_Dogfood):
 
         # The delta needs one proportional judgment, and then the plan seals.
         self.assertEqual(plan_coordinator.seal_refusals(self.lib, slug), [])
-        out, err = _run(["--library", str(self.root), "seal", slug,
+        out, err = _run(["--library", str(self.root), "seal", slug, "--operator-decision", "Seal it.",
                          "--delta-judgment", "scoped",
                          "--delta-rationale", "One failure mode added; the authorization argument was "
                                               "corrected, nothing in the graph moved."])
@@ -228,7 +233,7 @@ class TheFullDistance(_Dogfood):
         slug, document = self._walk()
         self._dispose_all(slug)
         self.lib.append_revision(slug, _fold_in_the_review_fix(document), expected_revision=1)
-        _run(["--library", str(self.root), "seal", slug, "--delta-judgment", "scoped",
+        _run(["--library", str(self.root), "seal", slug, "--operator-decision", "Seal it.", "--delta-judgment", "scoped",
               "--delta-rationale", "As above."])
         refusals = plan_coordinator.seal_refusals(self.lib, slug)
         self.assertTrue(any("already sealed" in r for r in refusals), refusals)
@@ -237,7 +242,7 @@ class TheFullDistance(_Dogfood):
         slug, document = self._walk()
         self._dispose_all(slug)
         self.lib.append_revision(slug, _fold_in_the_review_fix(document), expected_revision=1)
-        _run(["--library", str(self.root), "seal", slug, "--delta-judgment", "scoped",
+        _run(["--library", str(self.root), "seal", slug, "--operator-decision", "Seal it.", "--delta-judgment", "scoped",
               "--delta-rationale", "As above."])
         bundle = Path(self._tmp.name) / "pra.json"
         _run(["--library", str(self.root), "export", slug, "--output", str(bundle)])

@@ -224,6 +224,48 @@ class ProgramLibrary:
             self._write(slug, record)
             return record
 
+    def carry_forward_decay(self, slug: str, *, plan_id: str | None = None) -> list:
+        """Carry-forward obligations a successor no longer answers for, re-checked against CURRENT heads.
+
+        `add_child` checks once, at join time, against the predecessor as it stood THEN. That was the
+        whole guarantee, and it decays: a predecessor revised afterwards can mint obligations its
+        successor never saw, and nothing looked again. Observed live — the second pull request of this
+        very program gained obligations after its successor had already joined, and the successor's
+        record went on claiming to answer for a set that had grown underneath it.
+
+        So the same comparison is re-derivable at any time, from the heads as they are now. It is
+        surfaced rather than refused at `add`, because the decay is usually the predecessor's author
+        doing exactly the right thing; what must not happen is the successor SEALING while unaware.
+
+        Returns one entry per affected successor: its id, its predecessor's, and the obligations it
+        does not answer for. `plan_id` narrows the sweep to one successor.
+        """
+        record = self.read(slug)
+        decay = []
+        for child in record["children"]:
+            predecessor_id = child.get("predecessor_plan_id")
+            if not predecessor_id:
+                continue
+            if plan_id and child["plan_id"] != plan_id:
+                continue
+            try:
+                dropped = dropped_obligations(
+                    self.plans.head(self.plans.resolve(predecessor_id)),
+                    self.plans.head(self.plans.resolve(child["plan_id"])))
+            except Exception:  # noqa: BLE001 — an unreadable sibling must not hide the rest
+                continue
+            if dropped:
+                decay.append({"plan_id": child["plan_id"], "predecessor_plan_id": predecessor_id,
+                              "obligations": dropped})
+        return decay
+
+    def program_for_plan(self, plan_id: str) -> str | None:
+        """The program slug this plan is a child of, or None. Nothing auto-selects; this is a lookup."""
+        for slug in self.slugs():
+            if any(child["plan_id"] == plan_id for child in self.read(slug)["children"]):
+                return slug
+        return None
+
     def close(self, slug: str, state: str, reason: str) -> dict:
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
             record = self.read(slug)

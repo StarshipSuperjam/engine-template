@@ -606,11 +606,16 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
 
 
 def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest: str,
-                          build_plan_digest: str) -> None:
+                          build_plan_digest: str, consent: dict | None = None) -> None:
     """Mark the sealed plan as the one now driving a Build. Best-effort and non-fatal.
 
     The binding is a record, not a lock: the plan library is the plan's home and the Build snapshot is
     the Build's, and a library that cannot be written must not strand a Build that is otherwise sound.
+
+    The bind ATTESTATION rides along here rather than into build-state, because the plan record is
+    where the other three gates' attestations already live and a consent trail split across two
+    stores is a trail with a seam to lose things in. The refusal that demands it is in `cmd_plan_bind`
+    and is NOT best-effort — this write is what records it, not what enforces it.
     """
     import moment
     library = _library()
@@ -622,6 +627,8 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
 
         def mark(current):
             current["build_binding"] = binding
+            if consent:
+                current.setdefault("consent", []).append(consent)
 
         library.update_record(slug, mark, expected_revision=record["current"]["revision"])
     except Exception as exc:  # noqa: BLE001 — disclosed, never fatal
@@ -716,6 +723,15 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     if plan["profile"] == "routine" and mode != "unattended":
         raise CoordinatorError("routine plans require unattended mode and durable Issue authority")
     _check_authorization(plan, issue, mode)
+    # The last consent gate, and the one the silent ceremony reached: a sealed plan bound to a fresh
+    # pull request in the same unattended breath as the seal that produced it. The operator's go for
+    # the BUILD to begin is its own decision, distinct from their go to seal the plan, and it is
+    # taken here where the Build actually starts. Recorded, not proven (issue 914's residual).
+    import moment
+    import plan_lifecycle
+    if not (getattr(args, "operator_decision", None) or "").strip():
+        raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
+    consent = plan_lifecycle.attestation("bind", args.operator_decision, at=moment.utc_now())
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
@@ -727,7 +743,8 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     if store is None:
         store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
     store.create(state)
-    _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"])
+    _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],
+                          consent)
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -814,6 +831,121 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
     # The artifact-sync receipt is cycle-bound like validation: a revised plan may change what is built, so a
     # stale sync receipt must not stand in for a fresh preparation of the re-authored change.
     state.pop("artifact_sync", None)
+
+
+def _unchanged_nodes(old: dict, new: dict) -> set:
+    """Node ids the successor plan carries UNCHANGED, and whose ancestors are all unchanged too.
+
+    Two rules, and the second is the one that matters. A node is a candidate when the successor's
+    item is byte-identical to the bound plan's item of the same id — same description, same paths,
+    same verification, same output contract — because anything less means the work asked for moved.
+
+    Then the ancestry rule prunes it: a node whose dependency changed is NOT unchanged, however
+    identical its own text, because its integration was verified against a predecessor that no longer
+    exists. Keeping such a node would carry forward evidence about a graph that was never built,
+    which is exactly the laundering a mid-Build revision must not perform.
+    """
+    old_items = {item["id"]: item for item in old.get("work_items", [])}
+    new_items = {item["id"]: item for item in new.get("work_items", [])}
+    identical = {node_id for node_id, item in new_items.items()
+                 if node_id in old_items and _canonical(old_items[node_id]) == _canonical(item)}
+    # Prune by ancestry, to a fixed point: dropping a node can drop its dependants in turn.
+    while True:
+        pruned = {node_id for node_id in identical
+                  if all(dep in identical for dep in new_items[node_id].get("depends_on", []))}
+        if pruned == identical:
+            return identical
+        identical = pruned
+
+
+def cmd_plan_adopt(args, store: Snapshot) -> None:
+    """Consume a SEALED successor plan without restarting the Build. OB-MIDBUILD-REVISION.
+
+    The problem this answers. A seal is terminal, so a plan discovered mid-Build to be wrong cannot
+    be edited — the way past a seal is a clone. But until now adopting that clone meant abandoning
+    the Build: a fresh bind on a fresh snapshot, throwing away every node already integrated and
+    verified, because `plan revise` resets the whole graph. The cost of correcting a plan was
+    therefore the cost of rebuilding everything it got right, which is a strong incentive to keep
+    building against a plan you already believe is flawed.
+
+    What is preserved, and why each is safe. The BINDING — same pull request, same snapshot, same
+    branch — because the work is the same work. The APPROVAL and its depth, taken from the successor's
+    OWN plan-side approval: the successor was approved and its panel ran on the plan side, so the
+    Build inherits consent that was actually granted for THIS document rather than carrying over the
+    predecessor's. And the integration evidence of nodes the successor carries unchanged with
+    unchanged ancestry (see `_unchanged_nodes`).
+
+    What is reset: every changed or new node, everything downstream of one, and all cycle-bound
+    Build evidence — deliverable receipts, findings, validation, preflights, the composed contract.
+    The deliverable panel re-runs on what was actually built; the PLAN panel never re-runs, because
+    it already ran on the plan side, against the successor, before this verb could be reached.
+
+    What is refused: a successor that is not sealed, one that does not name this plan as its
+    predecessor, and one adopted without the operator's recorded decision. Lineage is the load-bearing
+    check — without it this verb would let any sealed plan take over any Build in flight, which is a
+    plan swap wearing the costume of a correction.
+    """
+    import moment
+    import plan_lifecycle
+    if not (getattr(args, "operator_decision", None) or "").strip():
+        raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
+    state = store.read()
+    bound_id = state["plan"]["plan_id"]
+    successor_id, sealed_digest, successor = _sealed_plan(args.successor)
+    if successor_id == bound_id:
+        raise CoordinatorError(
+            f"{successor_id} is the plan this Build is already bound to. A sealed plan cannot be "
+            "revised, so adopting it again would change nothing.")
+    library = _library()
+    record = library.read_record(library.resolve(successor_id))
+    lineage = " ".join((record.get("intake") or {}).get("predecessors", []))
+    if bound_id not in lineage:
+        raise CoordinatorError(
+            f"{successor_id} does not name {bound_id} among its predecessors, so nothing shows it is a "
+            f"correction of the plan this Build is executing rather than an unrelated plan. Adopt only a "
+            f"clone of the bound plan:\n    plan_coordinator.py clone {bound_id} "
+            "--reason \"<what the Build discovered>\"\n  then approve, review and seal that clone.")
+    bound_plan = _plan(args.input)
+    if _digest(bound_plan) != state["plan"]["digest"]:
+        raise CoordinatorError(
+            "--input must be the plan this Build is currently executing, so the two can be compared "
+            f"node by node; this one digests to {_digest(bound_plan)}, not {state['plan']['digest']}")
+    consent = plan_lifecycle.attestation("bind", args.operator_decision, at=moment.utc_now())
+    keep = _unchanged_nodes(bound_plan, successor)
+
+    def change(current):
+        preserved_work = {node_id: entry for node_id, entry in (current.get("work") or {}).items()
+                          if node_id in keep}
+        preserved_progress = [entry for entry in current["progress"]["completed"]
+                              if entry["id"] in keep]
+        previous_digest = current["plan"]["digest"]
+        _reset_after_revision(current, successor)
+        # The successor is a SEALED plan in its own right, so the Build is not diverging from a seal —
+        # it is executing a different one. Re-pointing rather than flagging divergence is the whole
+        # difference between this verb and `plan revise`.
+        current["plan"].update({"plan_id": successor_id, "sealed_digest": sealed_digest,
+                                "diverged_from_seal": False})
+        current["work"] = preserved_work
+        current["progress"] = {"current_item": None, "completed": preserved_progress}
+        # Consent that was granted for THIS document, on the plan side, at the depth its panel ran.
+        approval = record.get("approval")
+        if approval:
+            current["approval"] = {"plan_digest": current["plan"]["digest"], "spec_digest": None,
+                                   "depth": approval["depth"]}
+        current.setdefault("plan_change_escalations", []).append(
+            {"reviewed_plan_digest": previous_digest, "plan_digest": _digest(successor),
+             "operator_change": f"adopted sealed successor {successor_id}: {args.operator_decision}"})
+
+    store.mutate(change, from_revision=state["revision"])
+    _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
+                          sealed_digest, _digest(successor), consent)
+    preserved = sorted(keep)
+    print(f"adopted sealed successor {successor_id}; the Build continues on PR "
+          f"{state['build']['pr']} with its binding intact")
+    print(f"  preserved unchanged, with integration evidence: {', '.join(preserved) or 'no nodes'}")
+    print("  reset: every changed or new node, everything downstream of one, and all Build-side "
+          "review, validation and preflight evidence")
+    print("  the plan panel does NOT re-run — it ran on the plan side, against this successor")
 
 
 def cmd_plan_revise(args, store: Snapshot) -> None:
@@ -2671,6 +2803,31 @@ def _plan_obligation_lines(state: dict) -> list[str]:
     return lines
 
 
+def _plan_consent_lines(state: dict) -> list[str]:
+    """What the operator was asked at each plan consent gate, and what they answered — verbatim.
+
+    Read from the sealed plan RECORD at compose time, like the plan review and the obligations above
+    and for the same reason: the Build cannot edit it, and nothing here can mirror it stale.
+
+    It is published because publishing is the only thing the mechanism actually buys. The
+    attestations are a session's record of what the operator said; a session that would fabricate one
+    could. Putting them in front of that same operator at merge is what turns a fabrication into a
+    discrete, visible lie — a decision they do not recognise, in their own supposed words — rather
+    than a silence nobody can see. Un-forgeability needs an identity the session cannot mint, which
+    is issue 914's residual and is not claimed here.
+    """
+    plan_id = state.get("plan", {}).get("plan_id")
+    if not plan_id:
+        return []
+    try:
+        import plan_lifecycle
+        library = _library()
+        record = library.read_record(library.resolve(plan_id))
+    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
+        return []
+    return plan_lifecycle.consent_trail(record)
+
+
 def _plan_review_clause(state: dict) -> str:
     """The PR body's one sentence about whether the SHIPPED plan was reviewed.
 
@@ -2906,6 +3063,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "code_execution_line": code_execution_line,
         "disagreement_lines": _plan_disagreement_lines(state) + review.required_disagreement_lines(state),
         "plan_finding_lines": _plan_finding_lines(state),
+        "consent_lines": _plan_consent_lines(state),
         "obligation_lines": _plan_obligation_lines(state),
         "assumption_resolutions": assumption_resolutions,
         "cadence_escalations": cadence_escalations,
@@ -3113,7 +3271,8 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
-    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.set_defaults(func=cmd_plan_bind)
+    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decision", help="The operator's actual words giving the go for the Build to begin. Published verbatim in the pull request's consent trail; a record, not a proof."); bind.set_defaults(func=cmd_plan_bind)
+    adopt = plan.add_parser("adopt", help="consume a SEALED successor plan without restarting the Build"); adopt.add_argument("--successor", required=True, help="a sealed plan in the library that names the bound plan as its predecessor"); adopt.add_argument("--input", required=True, help="the plan this Build is currently executing, for the node-by-node comparison"); adopt.add_argument("--operator-decision", help="The operator's actual words authorising the Build to continue on the successor."); adopt.set_defaults(func=cmd_plan_adopt)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)

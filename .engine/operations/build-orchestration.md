@@ -59,17 +59,18 @@ reasoning is present and that later work uses the same plan. It cannot prove the
 Bind the plan once:
 
 ```text
-build_coordinator.py --state <OS-temp-path> plan bind \
-  --plan <plan-id> --repository <owner/repo> --pr <number>
+build_coordinator.py plan bind --plan <plan-id> \
+  --repository <owner/repo> --pr <number> --operator-decision "<the operator's go>"
 ```
 
 `--plan` names a SEALED plan in the local library, and nothing else enters a Build: an unsealed plan is
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
-The snapshot must live in the OS temporary directory. It is one atomically replaced, lock-protected document
-of current evidence, not an append-only event ledger and not repository state. There is no editable phase;
-`status` derives the phase from evidence.
+The snapshot is durable and lives beside its sealed plan, so a killed Build resumes with its evidence
+intact; a later command finds it from the worktree, and `--state <path>` still names one outright. It is one
+atomically replaced, lock-protected document of current evidence, carrying no authority — not an event
+ledger and not repository state. `status` derives the phase from evidence.
 
 ### Where the plan lives
 
@@ -103,7 +104,7 @@ Fill `.engine/templates/risk-assessment.md` in plain language: headline, affecte
 record.
 
 The operator approves plan and depth together with `plan_coordinator.py approve <plan> --depth
-quick|standard|thorough`. **That one choice covers both gates**: it names the lenses the seal will require, and
+quick|standard|thorough --operator-decision "<their words>"`, which refuses without their recorded decision. **That one choice covers both gates**: it names the lenses the seal will require, and
 it is the depth the Build's deliverable review runs at. Consent is given once, here. On the Build side,
 `approve --plan <plan.json> --depth …` records the same depth against the bound payload; changing approved
 depth clears review coverage, and progress prose does not. A sealed plan's revision is always the operator's
@@ -119,12 +120,25 @@ against the approved revision before the seal — `review packet` cuts it, `revi
 refuses while the recorded lenses do not cover the approved depth's roster. A bound plan is a reviewed plan by
 construction, which is why this side has no plan-review gate and no waiver for one.
 
+Recording is fallible, so it is correctable up to a named moment: `review amend` completes a partial record
+until its first finding is dispositioned, `finding amend` corrects one finding until that finding is, and the
+approval is fixed the moment any review is recorded against it, which pins the depth from panel time. Nothing
+is correctable after a seal. And the seal refuses until the panel's outcome was SHOWN to the operator —
+`present-findings <plan> --operator-decision "<their words>"` records that it was. Approve, seal and bind each
+refuse without the operator's decision in their own words; the trail is published in the pull request. It is a
+record of what was said, not proof that it was.
+
 Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
 be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
 escalated — with whether it still blocks recorded separately. Severity alone never blocks. Before involving the
 operator, synthesize the findings into one recommended call and state its tradeoff; never relay raw reviewer
 outputs as the decision surface. Return to the operator only when the review changes design, law, authority, or
 the agreed capability boundary, or leaves a genuine operator decision unresolved.
+
+If the Build discovers the plan itself is wrong, the seal still holds: clone it, take the clone through its
+own approval and panel, then `plan adopt --successor <id> --input <bound-plan.json>`. The Build keeps its
+pull request and the integration evidence of every node the successor carries unchanged with unchanged
+ancestry; changed nodes and their dependants reset, and the plan panel does not re-run.
 
 What the Build still owes is DISCLOSURE. The composed PR contract renders the sealed plan review's findings,
 their dispositions, and a disagreement line for any blocking finding decided not to block — read from the plan
@@ -140,7 +154,7 @@ writer and judges cohesion.
 
 Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
 items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
-`N of M` progress, counted from `work integrate`, which is now the only path that completes a node. Owned product work
+`N of M` progress, counted from `work integrate`, the only completion path. Owned product work
 follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
 follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair

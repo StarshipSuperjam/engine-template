@@ -64,9 +64,9 @@ of every routine fire; the build's actual work follows the distributed-implement
    intended paths as scope posture, not an infallible path wall. Run `checkpoint` before committing to begin
    that item. Completion runs one way and only one way: after the commit exists, run `work result` and then
    `work integrate --item <id> --attempt <attempt> --commit <sha>`, which records the integration commit that
-   IS the completion. There is no flag that marks an item done without one — `checkpoint --complete-item`
-   was removed with the v1 sunset, because a completion with no integration evidence is a bypass of the
-   graph's own rule wearing the costume of bookkeeping.
+   IS the completion. No flag marks an item done without one: `checkpoint --complete-item` was removed
+   with the v1 sunset, because a completion carrying no integration evidence is a bypass of the graph's
+   own rule wearing the costume of bookkeeping.
 
    Update the bounded handoff, push the open pull request, and report
    “commit X landed — N of M planned done.” The coordinator refuses completing a work item that is not the next

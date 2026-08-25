@@ -101,6 +101,13 @@ def validate_document(document: dict) -> str:
     if schema is None:
         raise PlanContractError(
             f"unrecognized plan document version {version!r}; expected " + " or ".join(sorted(PLAN_SCHEMAS)))
+    # A first revision has never been revised, so `revised_at` on it is a field with only one honest
+    # answer: the moment it was created. Requiring the author to supply it caught nobody's mistake
+    # and turned a hand-authored first revision into a schema refusal over a timestamp the record
+    # already held. Defaulted here rather than made optional in the schema, so every STORED document
+    # still carries the field and no reader has to handle its absence.
+    if document.get("revision") == 1 and not document.get("revised_at") and document.get("created_at"):
+        document["revised_at"] = document["created_at"]
     core.validate(document, schema)
     return dag.validate_plan_document(document["build_plan"], BUILD_PLAN_SCHEMAS)
 

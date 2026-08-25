@@ -136,7 +136,7 @@ class CoordinatorCase(unittest.TestCase):
 
     def bind_args(self, **over):
         args = {"plan": PLAN_ID, "mode": "same-session", "repository": "owner/repo", "pr": 7,
-                "issue": None}
+                "issue": None, "operator_decision": "yes, start the Build"}
         args.update(over)
         return argparse.Namespace(**args)
 
@@ -2103,12 +2103,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             self.assertIn("no draft PR is", external)
 
     def test_runbook_stays_within_its_line_cap(self):
-        # A ratchet against bloat, kept with no slack: it sat at exactly 250 and moved to 251 when the v2
+        # A ratchet against bloat, kept with no slack: it sat at exactly 250, moved to 251 when the v2
         # completion path had to be taught (a Routine session following the old text would reach for a verb
-        # the coordinator now refuses). Raise it only for instruction a session cannot work without, and
-        # only by what that instruction actually costs.
+        # the coordinator now refuses), and to 261 for the correction and consent paths — a session that
+        # does not know `present-findings` exists meets a seal refusal it cannot resolve, and one that does
+        # not know `plan adopt` exists abandons a Build to correct a plan. Raise it only for instruction a
+        # session cannot work without, and only by what that instruction actually costs.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 251)
+        self.assertLessEqual(len(text.splitlines()), 261)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -2158,9 +2160,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_short_runbook_preserves_the_quality_and_authority_gates(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
-        # Same ratchet as the line cap: 3063 -> 3081, the measured cost of teaching the v2 completion path
-        # and validate's node-roster flag. The preservation-source ratio (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3081)
+        # Same ratchet as the line cap: 3063 -> 3081 for the v2 completion path, then 3081 -> 3294 here,
+        # the measured cost of four things a session cannot work without. The snapshot is durable now and
+        # no longer belongs in OS temp, so the old instruction sends a session to the wrong place; approve,
+        # seal and bind refuse without the operator's recorded decision, so the old commands simply fail;
+        # the seal refuses until the panel's outcome was presented, which is unresolvable without knowing
+        # the verb; and correcting a plan mid-Build no longer means abandoning the Build. The
+        # preservation-source ratio (448/6296) is unchanged.
+        self.assertLessEqual(len(text.split()), 3294)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges"):
             self.assertIn(phrase, text)
@@ -2437,16 +2444,19 @@ class TestV2CompletionGate(CoordinatorCase):
         self.assertIn("| A v2 work item is unintegrated, or is recorded complete without its integration commit |", text)
         self.assertIn("TestV2CompletionGate", text)
 
-    def test_no_runbook_instructs_the_refused_mechanic_for_v2(self):
+    def test_no_runbook_instructs_the_removed_mechanic(self):
         operations = bc.ROOT / ".engine" / "operations"
         routine = (operations / "routine-entry.md").read_text(encoding="utf-8")
         orchestration = (operations / "build-orchestration.md").read_text(encoding="utf-8")
-        # Every surviving mention of the flag is scoped: it appears only in a v1 sentence, or in a
-        # sentence saying it is refused. A bare instruction to run it would fail here.
+        # The flag was refused for v2 and kept for v1; with the v1 sunset it is REMOVED, so every
+        # surviving mention has to be a sentence saying so. A bare instruction to run it fails here,
+        # and so does a sentence that still describes it as merely refused — a runbook telling an
+        # operator a gone flag is "refused" sends them looking for a flag that is not there.
         for line in routine.splitlines() + orchestration.splitlines():
             if "--complete-item" in line:
-                self.assertTrue("v1" in line or "refused" in line,
-                                "unscoped --complete-item instruction: " + line.strip())
+                self.assertIn("removed", line,
+                              "a runbook still describes the removed flag as available or refused: "
+                              + line.strip())
         self.assertIn("work integrate", routine)
         self.assertIn("work integrate", orchestration)
 
