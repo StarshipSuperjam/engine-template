@@ -5898,7 +5898,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:2fd35939b477823bcc69908550010ad8cb7a5e7f7ebef20313d00c6c152b04c5",
+        "fingerprint": "sha256:a4a36263d18b1ed49e17b811774c5a8e8278add155598f77bded5133d9f18a98",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -9913,7 +9913,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:7f08bb13dc72a628cc880bf9a1b0758056bdb2fc83d3a3ea803454c85046cbe4",
+        "fingerprint": "sha256:9eea6e9b2b225438b2967f09ae58b642153e13e268ceb1a704df0d0283600d76",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11661,7 +11661,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:b771986a8305a49049cc87801cfa2bc9df420d7a03b5434b46d75ee88d06f623",
+        "fingerprint": "sha256:894b624dfabbbba18257d13e07da1de5d3766202690ce2dbd5f89478e5986523",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -13928,7 +13928,7 @@
       },
       "slug": "plan_coordinator",
       "source": {
-        "fingerprint": "sha256:ec04574d526309fcda6e9282f2245745c1c39fb1d49b7c114124c92787a13207",
+        "fingerprint": "sha256:de68549ddbb1d965449c5261b51f9508d66976dfffb58b35d8c3cb77a4efa9b9",
         "path": ".engine/tools/plan_coordinator.py"
       },
       "status": "active",
@@ -15825,7 +15825,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:a7e435f54de8346f0259fcc834ed15cedeb2c4de614d6bae956831ba1ae1afe3",
+        "fingerprint": "sha256:470f64aa9f4655a36a1e755fd114e679bf94b7cdde315e60164c00aa50de3a2a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -18296,7 +18296,7 @@
       },
       "slug": "test_plan_coordinator",
       "source": {
-        "fingerprint": "sha256:1cc5bf1ae3359bddcd95dcb662bc849f580b98b89782a6bc7ac6d54a3045b1af",
+        "fingerprint": "sha256:c3b35e4b04e765bb88238f93bb6866fd84903453cf9770419ebe611821ac11ac",
         "path": ".engine/tools/test_plan_coordinator.py"
       },
       "status": "active",
