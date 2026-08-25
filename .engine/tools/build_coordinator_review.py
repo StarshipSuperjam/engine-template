@@ -86,17 +86,35 @@ def lens_packets(referent_digest: str, contracts: list[dict]) -> list[dict]:
     ]
 
 
-def current_receipt_lenses(stage: dict) -> set[str]:
+def _never_covers(receipt: dict) -> bool:
+    return False
+
+
+def current_receipt_lenses(stage: dict, covers=_never_covers) -> set[str]:
+    """The lenses this stage has a standing receipt from.
+
+    Two ways to stand. A receipt whose `lens_packet_digest` matches the current contract attests THIS
+    packet outright. A receipt that does not may still stand, when `covers` says the range it recorded
+    reading already contains every authored commit the current packet asks about — the carry-forward
+    that stops a re-bind from spending cold reviews on work already read
+    (StarshipSuperjam/engine-template#1065). `covers` is injected rather than computed here because the
+    answer needs git and this module stays pure; the default answers no, so a caller that does not opt
+    in gets exactly the old exact-match behaviour.
+
+    Note what carry-forward deliberately does NOT do: it never rewrites the receipt onto the new packet.
+    The finding keys hang off the receipt's digests, so restamping would supersede every disposition
+    recorded against it — the same evidence loss the carry-forward exists to prevent, arriving by a
+    different door. The receipt stays a fact; only this question changed."""
     expected = {item["lens"]: item["lens_packet_digest"] for item in stage.get("reviewer_contracts", [])}
     return {
         receipt["lens"]
         for receipt in stage["receipts"]
-        if receipt.get("lens_packet_digest") == expected.get(receipt["lens"])
+        if receipt.get("lens_packet_digest") == expected.get(receipt["lens"]) or covers(receipt)
     }
 
 
-def missing_receipts(stage: dict) -> list[str]:
-    done = current_receipt_lenses(stage)
+def missing_receipts(stage: dict, covers=_never_covers) -> list[str]:
+    done = current_receipt_lenses(stage, covers)
     return [item["lens"] for item in stage.get("reviewer_contracts", []) if item["lens"] not in done]
 
 
@@ -210,6 +228,54 @@ def plan_change_escalation(state: dict) -> dict | None:
 # cover its approved depth. A precondition that cannot fail needs no gate — and needs no waiver either.
 
 
+# A disposition that SETTLES a finding. Recording one of these is the session saying, on the merge
+# surface, that the finding is done with — fixed, tracked elsewhere, or judged wrong. The submission gate
+# reads that as settled instead of demanding the finding be re-recorded with the blocking flag flipped
+# (StarshipSuperjam/engine-template#1012). `partially-accepted` is absent on purpose: it says part of the
+# finding stands, so the flag is the only thing that can say whether that part blocks. `escalated` is
+# absent for the opposite reason — it is the one disposition that means "the operator decides", so it
+# blocks whatever the flag says.
+SETTLING_DISPOSITIONS = frozenset({"accepted-fixed", "accepted-tracked", "rejected"})
+
+
+def disposition_conflict(disposition: str, blocks_this_pr: bool) -> str | None:
+    """Why this (disposition, blocking flag) pair contradicts itself, or None.
+
+    Refused at RECORD time rather than reconciled at gate time. A finding claiming both "accepted, and
+    fixed" and "still blocks this pull request" is not a state the gate should have to interpret — one
+    of the two is wrong, and the session knows which while it is still holding the reviewer's report."""
+    if disposition in SETTLING_DISPOSITIONS and blocks_this_pr:
+        return (f"a finding dispositioned '{disposition}' says it is settled, so it cannot also be recorded "
+                "as blocking this pull request. Record it --does-not-block-this-pr (a blocking-severity "
+                "finding still needs its --operator-summary, and still publishes a disagreement line), or "
+                "choose the disposition that matches what is actually true: 'partially-accepted' when part "
+                "of it stands, 'escalated' when the operator must decide.")
+    if disposition == "escalated" and not blocks_this_pr:
+        return ("an escalated finding names a decision only the operator can make, so it blocks this pull "
+                "request until they make it — record it --blocks-this-pr, or disposition it as something "
+                "the session has actually settled.")
+    return None
+
+
+def blocks_submission(finding: dict) -> bool:
+    """Whether this finding still holds the pull request.
+
+    Derived from the disposition FIRST and the flag second, so a fixed blocker clears the gate without
+    being re-recorded. The friction this removes was real — a session that fixed a blocking finding had
+    to record it a second time with an operator summary to say what its disposition already said — and
+    what it does NOT remove is the disclosure: a blocking-severity finding that stops blocking still
+    renders its disagreement line into the pull-request body and still needs the operator-safe summary
+    that line is built from. The gate got quieter; the merge surface did not."""
+    if finding.get("superseded"):
+        return False
+    disposition = finding.get("disposition")
+    if disposition == "escalated":
+        return True
+    if disposition in SETTLING_DISPOSITIONS:
+        return False
+    return bool(finding.get("blocks_this_pr"))
+
+
 def disagreement_line(finding: dict) -> str:
     # Only the operator-safe summary reaches this line — never `private_reference`, which is
     # reviewer-internal detail (StarshipSuperjam/engine-template#981). `operator_summary` is required
@@ -226,5 +292,8 @@ def required_disagreement_lines(state: dict) -> list[str]:
     return [
         disagreement_line(finding)
         for finding in live_findings(state)
-        if finding["severity"] == "blocking" and not finding["blocks_this_pr"]
+        # Keyed on what the SUBMISSION GATE concluded, not on the raw flag. A blocking-severity finding
+        # that stops blocking because its disposition settled it is exactly as much of a disagreement
+        # with the reviewer as one whose flag was flipped by hand, and the operator meets both at merge.
+        if finding["severity"] == "blocking" and not blocks_submission(finding)
     ]

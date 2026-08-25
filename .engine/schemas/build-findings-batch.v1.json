@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "build-findings-batch.v1 — one review round's findings, in one file",
+  "description": "The batch input both recording verbs read (StarshipSuperjam/engine-template#1060). Recording a round used to be one invocation per finding, each carrying about a dozen flags; a session assembling thirty of those in shell loops is where a real failure happened — repeated --finding values built from a shell array collapsed into a single string, so the receipt demanded one bogus id and the step had to be redone. This is not a token saving: the summaries and rationales are the payload either way. It removes a class of quoting and ordering mistakes. ONE FILE, BOTH VERBS: `review record --findings-from-file` takes the ids for its receipt and `finding record --from-file` takes the dispositions, so a receipt's ids and the findings recorded against it are the same list by construction and cannot drift. ALL OR NOTHING: every entry is validated — this schema, then the cross-field refusals the per-flag form applies — before anything is written, and the write is one mutation, so a malformed entry records nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "stage", "findings"],
+  "properties": {
+    "schema_version": {
+      "description": "Names what this document is. A batch that does not say is refused rather than guessed.",
+      "const": "build-findings-batch.v1"
+    },
+    "stage": {
+      "description": "The review this batch belongs to. A batch names its own stage so a file cut for one review cannot be replayed against another; the verb refuses a mismatch instead of recording under the wrong key.",
+      "enum": ["deliverable", "repair"]
+    },
+    "findings": {
+      "description": "The round's findings. May be empty — a lens that found nothing still records a receipt, and naming the same empty batch at both verbs keeps that honest.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/finding"}
+    }
+  },
+  "$defs": {
+    "finding": {
+      "description": "One finding and the session's disposition of it. The reviewer owns the severity; the session owns the disposition and whether it blocks — reviewer severity never chooses the remedy.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "lens", "severity", "summary", "disposition", "rationale", "blocks_this_pr"],
+      "properties": {
+        "id": {
+          "description": "This round's id for the finding, as named in the receipt that demands it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "lens": {
+          "description": "The reviewer that raised it. `review record` refuses a batch carrying a lens other than the one whose receipt it is recording, because a receipt answers for what ITS lens found.",
+          "type": "string",
+          "minLength": 1
+        },
+        "severity": {"enum": ["blocking", "serious", "nit"]},
+        "summary": {"type": "string", "minLength": 1},
+        "disposition": {"enum": ["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "escalation_kind": {
+          "description": "The operator-owned decision boundary. Required on an escalated finding and refused on any other.",
+          "oneOf": [
+            {"enum": ["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]},
+            {"type": "null"}
+          ]
+        },
+        "blocks_this_pr": {
+          "description": "Whether this finding still holds the pull request. Must agree with the disposition: a settled disposition (accepted-fixed, accepted-tracked, rejected) cannot also block, and an escalated one always does. The contradiction is refused at record time rather than interpreted at gate time.",
+          "type": "boolean"
+        },
+        "handoff_summary": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+        "operator_summary": {
+          "description": "The operator-safe text the merge-surface disagreement line is built from. Required on a blocking-severity finding that no longer blocks: the gate got quieter, the disclosure did not.",
+          "oneOf": [{"type": "string"}, {"type": "null"}]
+        },
+        "private_reference": {
+          "description": "Local-only reviewer note. Kept in build-state, never published to the pull-request body (StarshipSuperjam/engine-template#981).",
+          "oneOf": [{"type": "string"}, {"type": "null"}]
+        }
+      }
+    }
+  }
+}

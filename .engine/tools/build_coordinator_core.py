@@ -181,6 +181,27 @@ def validate(instance: Any, schema_path: Path) -> None:
         raise CoordinatorError(f"{schema_path.stem} rejected {where}: {error.message}")
 
 
+def validate_part(instance: Any, schema_path: Path, pointer: str, label: str) -> None:
+    """Validate one FRAGMENT against a named definition inside a schema, with the same error legibility
+    the whole-document path gives.
+
+    Why a fragment gets its own entry point: a payload handed to a verb should fail on its own terms at
+    the moment it is read, rather than surviving until the write and surfacing as a complaint about the
+    enclosing record. The ordering matters wherever a verb also enforces ceremony — a session that
+    mistyped a severity should be told about the severity, not about a flag it has not reached yet."""
+    document = json_file(schema_path)
+    schema = {**{key: value for key, value in document.items() if key.startswith("$def")}, "$ref": pointer}
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError as exc:
+        raise CoordinatorError("the Engine runtime is missing jsonschema; run this tool through uv") from exc
+    errors = sorted(Draft202012Validator(schema).iter_errors(instance), key=lambda e: list(e.path))
+    if errors:
+        error = _most_specific(errors[0])
+        where = ".".join(str(p) for p in error.absolute_path) or label
+        raise CoordinatorError(f"{label} rejected {where}: {error.message}")
+
+
 def _most_specific(error) -> Any:
     """Descend into a failed `oneOf`/`anyOf` to the sub-error that actually names the problem.
 

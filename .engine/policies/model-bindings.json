@@ -5,9 +5,9 @@
     "mechanical": { "model": "haiku", "effort": "low" }
   },
   "overrides": {
-    "engine-qa-review-spec-conformance": { "model": "sonnet", "effort": "high" },
-    "engine-qa-review-technical-integrity": { "model": "sonnet", "effort": "high" },
-    "engine-qa-review-usability": { "model": "sonnet", "effort": "high" }
+    "engine-qa-review-spec-conformance": { "model": "sonnet" },
+    "engine-qa-review-technical-integrity": { "model": "sonnet" },
+    "engine-qa-review-usability": { "model": "sonnet" }
   },
   "implementation_classes": {
     "builder": {

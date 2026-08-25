@@ -109,7 +109,12 @@
         "packet_digest": {"$ref": "#/$defs/digest"},
         "at": {"$ref": "#/$defs/timestamp"},
         "lenses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+        "delivered_efforts": {
+          "description": "Per lens, the reasoning effort that reviewer reports having run at (StarshipSuperjam/engine-template#1067). One approval pays for two panels — this one and the Build's deliverable review — so both record what they actually delivered against the depth the operator approved. Self-reported by the spawning session and the reviewers; nothing here verifies it, and every place it is disclosed says so. Absent on a review recorded before this field existed, which the seal discloses as unrecorded rather than assuming it was met.",
+          "type": "object",
+          "additionalProperties": {"enum": ["low", "medium", "high"]}
+        }
       },
       "description": "ONE cold review per approved revision. Folding fixes in as later revisions does NOT re-run it: a plan whose every revision re-triggered a panel would never converge, which is the failure the Build side already removed."
     },

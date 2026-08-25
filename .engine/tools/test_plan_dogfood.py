@@ -174,7 +174,10 @@ class TheFullDistance(_Dogfood):
                         # The receipt names the PACKET it read, and `review record` now re-renders and
                         # compares — the plan digest is a different thing and no longer stands in for it.
                         "--packet-digest", self._packet_digest(slug),
-                        "--findings", str(findings_file)])
+                        "--findings", str(findings_file),
+                        # The panel ran at the effort the approved depth promises, and now says so:
+                        # the record is refused without it (StarshipSuperjam/engine-template#1067).
+                        "--delivered-effort", "high"])
         return slug, document
 
     def _dispose_all(self, slug):

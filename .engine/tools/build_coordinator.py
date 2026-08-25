@@ -25,6 +25,7 @@ import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
+import build_review_range as ranges
 import build_state_store
 import repo_identity
 import review_integrity
@@ -304,8 +305,114 @@ def _missing_findings(state: dict) -> list[str]:
     return review.missing_findings(state)
 
 
-def _missing_receipts(stage: dict) -> list[str]:
-    return review.missing_receipts(stage)
+def _stage_range(stage: dict, kind: str) -> tuple[str | None, str | None]:
+    """The (base, tip) a stage's reviewers are being asked to read. The deliverable review reads the
+    branch — base to reviewed commit; a repair review reads only the divergence the repair named."""
+    if kind == "repair":
+        return stage.get("reviewed_commit"), stage.get("final_commit")
+    return stage.get("base_commit"), stage.get("reviewed_commit")
+
+
+def _coverage(stage: dict, kind: str):
+    """The carry-forward predicate for one stage: does a receipt's recorded range already contain every
+    authored commit this stage asks about? Built here because it needs git and ROOT; consumed by the pure
+    `build_coordinator_review` through injection, so that module keeps no repository knowledge."""
+    base, tip = _stage_range(stage, kind)
+    return lambda receipt: ranges.receipt_covers(ROOT, receipt, base, tip)
+
+
+def _missing_receipts(stage: dict, kind: str = "deliverable") -> list[str]:
+    return review.missing_receipts(stage, _coverage(stage, kind))
+
+
+def _outstanding_repair_lenses(repair: dict | None) -> list[str]:
+    """The repair lenses that still owe a read — the requested lenses minus those with a receipt that
+    stands, whether it attests this packet or carries forward from a range that already covered it.
+    Single-homed because the status render, the readiness predicate and `_repair_round_complete` must
+    agree; when they disagreed, `status` reported a repair satisfied that the gate then refused."""
+    if not repair:
+        return []
+    covers = _coverage(repair, "repair")
+    standing = {r["lens"] for r in repair.get("receipts", []) if
+                r.get("packet_digest") == repair.get("packet_digest") or covers(r)}
+    return [lens for lens in repair.get("lenses", []) if lens not in standing]
+
+
+_EFFORT_RANK = {"low": 0, "medium": 1, "high": 2}
+
+
+def _depth_effort(depth: str) -> str | None:
+    """The reasoning effort the approved review depth PROMISES its reviewers will run at, or None where
+    the depth pins none. Read from the one bindings file through `agent_bindings`, never re-derived."""
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import agent_bindings
+    return agent_bindings.depth_effort(depth, agent_bindings.load_bindings(str(ROOT)), str(ROOT))
+
+
+def effort_shortfall(delivered: str | None, promised: str | None) -> bool:
+    """True when a self-reported delivered effort is below what the depth promised.
+
+    An UNRECORDED effort is not a shortfall — it is an unknown, and the disclosure says so rather than
+    inventing a number. The measurement is self-reported throughout: the spawning session knows its own
+    effort at panel time and the reviewer reports its own, and nothing here can independently verify
+    either. Commit-bound reviewer attestations (StarshipSuperjam/engine-template#916) are the named
+    residual; until they exist, every place this value is disclosed says who reported it."""
+    if delivered is None or promised is None:
+        return False
+    return _EFFORT_RANK.get(delivered, -1) < _EFFORT_RANK.get(promised, -1)
+
+
+CODE_EXECUTION_KINDS = ("none", "discarded-copy", "in-place")
+
+
+def code_execution_disclosure(kinds: set) -> str:
+    """The pull-request body's sentence about what reviewers did with the change's code.
+
+    Three real behaviours, three values. The disclosure used to carry only two, so a lens that ran the
+    suite IN THE OPERATOR'S OWN CHECKOUT was published as having used a throwaway copy — a materially
+    different claim about what touched their project, and the reason B2 carried finding CO-1. A mixed
+    panel says both rather than picking whichever is more comfortable."""
+    ran_in_place = "in-place" in kinds
+    ran_in_copy = "discarded-copy" in kinds
+    if ran_in_place and ran_in_copy:
+        return ("reviewers ran the change's code to judge it — one or more in a throwaway copy that never "
+                "touched your project, and one or more directly in this checkout")
+    if ran_in_place:
+        return "a reviewer ran the change's code directly in this checkout to judge it"
+    if ran_in_copy:
+        return ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
+                "your project")
+    return "no reviewer executed the change's code"
+
+
+def _effort_shortfall_lines(state: dict) -> list[str]:
+    """One line per deliverable receipt whose self-reported effort came in under the approved depth's,
+    plus one line for receipts that recorded no effort at all.
+
+    Rendered into `status` as a warning AND into the pull-request body, from this one function, so the
+    operator cannot meet a claim at merge that `status` never showed the session."""
+    approval = state.get("approval") or {}
+    depth = approval.get("depth")
+    if not depth:
+        return []
+    try:
+        promised = _depth_effort(depth)
+    except Exception:                                   # noqa: BLE001 — an unreadable bindings file must
+        return []                                       # not wedge status; the drift check owns that.
+    if not promised:
+        return []
+    lines, silent = [], []
+    for receipt in state.get("reviews", {}).get("deliverable", {}).get("receipts", []):
+        delivered = receipt.get("delivered_effort")
+        if delivered is None:
+            silent.append(receipt["lens"])
+        elif effort_shortfall(delivered, promised):
+            lines.append(f"reviewer effort below the approved depth (self-reported): {receipt['lens']} ran at "
+                         f"{delivered}, and `{depth}` promises {promised}")
+    if silent:
+        lines.append("these review receipts recorded no delivered effort, so the approved "
+                     f"`{depth}` depth's promise of {promised} is unverified for them: " + ", ".join(sorted(silent)))
+    return lines
 
 
 # `_plan_review_ready` is gone, and with it the checkpoint and validate gates that called it. A Build
@@ -400,7 +507,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     unresolved_assumptions: list[str] = []
     delivery = state["reviews"]["deliverable"]
     missing_findings = _missing_findings(state)
-    blocking = [f["id"] for f in review.live_findings(state) if f["blocks_this_pr"]]
+    blocking = [f["id"] for f in review.live_findings(state) if review.blocks_submission(f)]
 
     if state["approval"] is None or state["approval"].get("plan_digest") != state["plan"]["digest"]:
         required_evidence.append("operator approval of this plan digest and review depth")
@@ -432,10 +539,21 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             judgments.append(
                 "re-anchor the review bindings with `reconcile`: this branch's history was rewritten and the "
                 "reviewed commit is no longer on it" if rewritten else
-                "choose none, scoped, or full re-review for reviewed-to-final divergence")
+                "the branch has moved past the reviewed commit: judge how much of that divergence needs "
+                "re-reading and record it with `repair assess`. `none` is a real judgment, not a skip — "
+                "it ends the repair loop without a re-review and clears the repair packet, so reach for "
+                "it when the divergence genuinely carries nothing a lens would find.")
         elif repair["judgment"] != "none":
-            done = {r["lens"] for r in repair["receipts"]}
-            required_evidence.extend(f"repair-review receipt: {x}" for x in repair["lenses"] if x not in done)
+            outstanding = _outstanding_repair_lenses(repair)
+            # Name the DELTA each outstanding lens still owes, never a bare "run it again". The wall this
+            # replaces was a session told to re-run two lenses with no way to see that one of them had
+            # already read everything in the range.
+            base, tip = _stage_range(repair, "repair")
+            by_lens = {r["lens"]: r for r in repair.get("receipts", [])}
+            for lens in outstanding:
+                detail = (" — " + ranges.coverage_report(ROOT, by_lens[lens], base, tip)
+                          if lens in by_lens else "")
+                required_evidence.append(f"repair-review receipt: {lens}{detail}")
     protocol = _protocol()
     if state["approval"]:
         depth = state["approval"]["depth"]
@@ -503,6 +621,13 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if sync_receipt and sync_receipt.get("commit") != _head():
         warnings.append("derived artifacts were synced at " + sync_receipt["commit"][:12]
                         + ", but HEAD has since moved — run `sync-artifacts` again if sources changed")
+    # Delivered reviewer effort against the depth that was approved
+    # (StarshipSuperjam/engine-template#1067). A warning here and a hard line in the pull-request body:
+    # the operator approved a depth that promises an effort, and until this existed nothing recorded
+    # whether the panel delivered it — a sealed `thorough` whose lenses actually ran at `medium`
+    # published its promise unchallenged. Both halves are self-reported, and every rendering says so.
+    for line in _effort_shortfall_lines(state):
+        warnings.append(line)
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     dispositions_ready = not missing_findings and not blocking
@@ -511,7 +636,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
         state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
         and state["repair"]["final_commit"] == head and (state["repair"]["judgment"] == "none" or
-        not [x for x in state["repair"]["lenses"] if x not in {r["lens"] for r in state["repair"]["receipts"]}]))
+        not _outstanding_repair_lenses(state["repair"])))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
 
@@ -1036,7 +1161,15 @@ def cmd_status(args, store: Snapshot) -> None:
     if progress["total"]:
         print(f"Progress: {len(progress['completed'])} of {progress['total']} complete"
               + (f"; next {progress['next']}" if progress["next"] else "; all planned items complete"))
-    for label, key in (("Missing evidence", "required_evidence"), ("Engineering judgment", "engineering_judgment"), ("Warnings", "warnings")):
+    # The three buckets say what they ARE, not just what they are called. A session reading this while
+    # stuck could not tell a hard gate fact from a prompt for its own judgment, and read
+    # "choose none, scoped or full" as an instruction to pick one now — which is how a destructive
+    # `--judgment none` got run mid-stream as though it were a step (StarshipSuperjam/engine-template#1012).
+    for label, key in (
+            ("Missing evidence (the gate refuses to submit until each of these exists)", "required_evidence"),
+            ("Engineering judgment (your call — the coordinator reports these, it does not make them)",
+             "engineering_judgment"),
+            ("Warnings (disclosed at merge; no action is demanded here)", "warnings")):
         values = result[key]
         if values:
             print(label + ":")
@@ -1226,6 +1359,32 @@ def _packet(args, store: Snapshot | None) -> None:
         commit = _head()
         if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
             raise CoordinatorError("green validation for the current commit is required before deliverable review")
+    # THE EFFORT GATE, at panel spawn (StarshipSuperjam/engine-template#1067). This is the moment the
+    # session still holds every exit: it can raise its own effort and re-cut, or go back to the operator
+    # for a lighter depth. Once the lenses have run, the only honest options left are re-running them or
+    # publishing a shortfall, so the refusal belongs here. On the Claude arm a reviewer persona carries no
+    # effort of its own by design — the depth reaches the lens ONLY through the spawning session's effort
+    # — which is why the session has to state it. The value is self-reported and nothing here can check
+    # it; commit-bound reviewer attestations (StarshipSuperjam/engine-template#916) are the residual.
+    promised_effort = _depth_effort(state["approval"]["depth"])
+    session_effort = getattr(args, "session_effort", None)
+    if promised_effort and required:
+        if not session_effort:
+            raise CoordinatorError(
+                f"the approved `{state['approval']['depth']}` depth runs its reviewers at {promised_effort} "
+                "effort, and on this runtime an un-pinned reviewer inherits the SPAWNING SESSION's effort — "
+                "so the packet has to state what that is. Re-run with `--session-effort "
+                f"{promised_effort}` once this session is actually running at it.")
+        if effort_shortfall(session_effort, promised_effort) and not getattr(args, "accept_effort_shortfall", False):
+            raise CoordinatorError(
+                f"this session reports running at {session_effort} effort, but the approved "
+                f"`{state['approval']['depth']}` depth promises reviewers at {promised_effort}, and an "
+                "un-pinned reviewer cannot exceed the session that spawns it — so this panel would "
+                "under-deliver the depth the operator approved. Either raise this session's effort to "
+                f"{promised_effort} and re-cut the packet, or ask the operator to re-approve at the depth "
+                "this panel can actually deliver. To proceed anyway, pass --accept-effort-shortfall: the "
+                "gap is then published as a hard disclosure in the pull-request body, where the operator "
+                "meets it at merge.")
     stable = core.StableCommit(ROOT, f"{stage} review-packet construction") if commit else None
     if stable:
         stable_head = stable.__enter__()
@@ -1259,24 +1418,44 @@ def _packet(args, store: Snapshot | None) -> None:
     # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
     # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947).
     checkout_baseline = review_integrity.snapshot(str(ROOT))
+    # What this new packet asks its lenses to read, so a receipt already covering that range survives the
+    # re-cut instead of being thrown away and re-run for nothing.
+    new_base = (state["repair"]["reviewed_commit"] if stage == "repair" else packet["base_commit"])
+    new_tip = commit
+    covers = lambda receipt: ranges.receipt_covers(ROOT, receipt, new_base, new_tip)   # noqa: E731
+
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
+        # A receipt survives on either ground: it attests THIS packet, or the range it recorded reading
+        # already contains every authored commit this packet asks about. It is kept byte-identical
+        # either way — never restamped onto the new packet, because the finding keys hang off its
+        # digests and restamping would supersede every disposition recorded against it
+        # (StarshipSuperjam/engine-template#1065, and
+        # StarshipSuperjam/engine-template#1051 for why that loss matters).
         preserved_receipts = [receipt for receipt in (old or {}).get("receipts", [])
                               if receipt["lens"] in expected
-                              and receipt.get("lens_packet_digest") == expected[receipt["lens"]]]
+                              and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]
+                                   or covers(receipt))]
+        # The session's own effort at the moment the panel was spawned, recorded on the stage rather than
+        # only on each receipt: it is a fact about the fan-out, and it is the ceiling every un-pinned
+        # reviewer in that fan-out inherits. `effort_shortfall_accepted` is the operator-facing half —
+        # a session that proceeded under a known gap, kept so the disclosure cannot be forgotten.
+        spawn = {"session_effort": session_effort,
+                 "effort_shortfall_accepted": bool(getattr(args, "accept_effort_shortfall", False))}
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
             s["repair"]["base_commit"] = packet["base_commit"]
             s["repair"]["reviewer_contracts"] = contracts
             s["repair"]["receipts"] = preserved_receipts
+            s["repair"].update(spawn)
         else:
             target = s["reviews"][stage]
             target.update({"packet_digest": packet["packet_digest"], "referent_digest": referent_digest,
                            "required_lenses": required, "installed_lenses": installed_names,
                            "reviewer_contracts": contracts, "receipts": preserved_receipts, "reviewed_commit": commit,
-                           "base_commit": packet["base_commit"]})
+                           "base_commit": packet["base_commit"], **spawn})
         # A finding lives exactly as long as a receipt still demands it -- derived, for BOTH branches, from
         # the single home in `review` rather than from a per-branch stage filter. The two old filters keyed
         # on `f["stage"] != stage`, which cut both ways: a repair regeneration deleted findings whose
@@ -1308,8 +1487,95 @@ def _packet(args, store: Snapshot | None) -> None:
 # that can never gain an entry is a field nobody can read anything true out of.
 
 
+FINDINGS_BATCH_SCHEMA = ROOT / ".engine" / "schemas" / "build-findings-batch.v1.json"
+
+
+def _findings_batch(source: str, stage: str, lens: str | None = None) -> list[dict]:
+    """Read and validate a findings batch — the ONE file that drives both recording verbs.
+
+    WHY A FILE (StarshipSuperjam/engine-template#1060). Recording a review round meant one invocation
+    per finding, each carrying about a dozen flags, and a session assembling thirty of those in shell
+    loops. In an observed build a repeated `--finding` built from a shell array collapsed into a single
+    string, so the receipt demanded one bogus id and the whole step had to be redone. This is not a
+    token saving — the summaries and rationales are the payload and cost the same either way — it is
+    the removal of a class of quoting and ordering mistakes.
+
+    WHY ONE FILE FOR BOTH VERBS. `review record` needs the finding IDS for its receipt and
+    `finding record` needs the full dispositions; cutting them separately is how the two came to
+    disagree. Naming the same file at both verbs makes the receipt's ids and the recorded findings
+    the same list by construction, so they cannot drift.
+
+    ALL OR NOTHING. Every entry is validated — schema first, then the same cross-field refusals the
+    per-flag form applies — BEFORE anything is written, and the write is a single mutation. A malformed
+    entry anywhere records nothing, so a half-applied batch is not a state a session can land in.
+    """
+    try:
+        document = json.loads(_input(source))
+    except ValueError as exc:
+        raise CoordinatorError(f"findings batch is not JSON: {exc}") from exc
+    _validate(document, FINDINGS_BATCH_SCHEMA)
+    if document["stage"] != stage:
+        raise CoordinatorError(
+            f"this findings batch is authored for the {document['stage']} stage, but the command names "
+            f"{stage}. A batch names its own stage so a file cut for one review cannot be replayed "
+            "against another; re-cut it, or run the verb against the stage it was written for.")
+    entries = document["findings"]
+    ids = [entry["id"] for entry in entries]
+    duplicates = sorted({x for x in ids if ids.count(x) > 1})
+    if duplicates:
+        raise CoordinatorError("a findings batch may not carry the same id twice: " + ", ".join(duplicates))
+    if lens is not None:
+        foreign = sorted({entry["lens"] for entry in entries if entry["lens"] != lens})
+        if foreign:
+            raise CoordinatorError(
+                f"this batch carries findings from {', '.join(foreign)}, but the receipt being recorded is "
+                f"{lens}'s. A receipt names what ITS lens found; cut one batch per lens, or record the "
+                "receipt with the ids that belong to it.")
+    for entry in entries:
+        problem = _finding_entry_problem(entry)
+        if problem:
+            raise CoordinatorError(f"findings batch entry {entry['id']}: {problem} — nothing was recorded")
+    return entries
+
+
+def _finding_entry_problem(entry: dict) -> str | None:
+    """Every cross-field refusal a single finding must survive, in one place, so the batch form and the
+    per-flag form cannot enforce different rules on the same data."""
+    disposition, severity = entry["disposition"], entry["severity"]
+    blocks = bool(entry["blocks_this_pr"])
+    if disposition == "escalated" and not entry.get("escalation_kind"):
+        return "an escalated finding must name the operator-owned decision boundary (escalation_kind)"
+    if disposition != "escalated" and entry.get("escalation_kind"):
+        return "only an escalated finding may name an escalation boundary"
+    conflict = review.disposition_conflict(disposition, blocks)
+    if conflict:
+        return conflict
+    if severity == "blocking" and not review.blocks_submission(
+            {"disposition": disposition, "blocks_this_pr": blocks}) and not entry.get("operator_summary"):
+        return ("a blocking finding that no longer blocks this pull request needs a safe operator-facing "
+                "operator_summary — that text is what the disagreement line published at merge is built from")
+    return None
+
+
+def _receipt_finding_ids(args) -> list[str]:
+    """The ids a receipt demands: from the batch file when one is named, else the repeatable flag.
+
+    Refusing BOTH is deliberate. Two sources for one list is exactly the ambiguity this change removes;
+    a session that has a batch file should name it and nothing else."""
+    batch = getattr(args, "findings_from_file", None)
+    if batch and args.finding:
+        raise CoordinatorError(
+            "name the ids with --findings-from-file or with --finding, not both — two sources for one "
+            "list is the ambiguity the batch form exists to remove")
+    if batch:
+        return [entry["id"] for entry in _findings_batch(batch, args.stage, args.lens)]
+    return list(args.finding or [])
+
+
 def cmd_review_record(args, store: Snapshot) -> None:
-    finding_ids = sorted(set(args.finding or []))
+    finding_ids = sorted(set(_receipt_finding_ids(args)))
+    delivered_effort = getattr(args, "delivered_effort", None)
+
     def change(state):
         if args.stage == "repair":
             target = state["repair"]
@@ -1326,14 +1592,18 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
                        "commit": target["final_commit"], "finding_ids": finding_ids,
-                       "code_execution": args.code_execution}
+                       "code_execution": args.code_execution,
+                       # What this lens actually READ, so a later re-bind can ask whether anything in the
+                       # new range is new to it instead of assuming everything is.
+                       "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]},
+                       "delivered_effort": delivered_effort}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery["reviewer_contracts"] = [
                 item for item in delivery["reviewer_contracts"] if item["lens"] != args.lens
             ] + [contract]
-            if not [lens for lens in target["lenses"] if lens not in {r["lens"] for r in target["receipts"]}]:
+            if not _outstanding_repair_lenses(target):
                 # `base_commit` advances WITH `reviewed_commit`, never behind it. Advancing only the
                 # reviewed commit left the pair naming two different points in history, so any later
                 # measurement across `base_commit..reviewed_commit` spanned a wider range than the branch
@@ -1360,21 +1630,41 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "referent_digest": target["referent_digest"],
                        "lens_packet_digest": contract["lens_packet_digest"],
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
-                       "code_execution": args.code_execution}
+                       "code_execution": args.code_execution,
+                       "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]},
+                       "delivered_effort": delivered_effort}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
     store.mutate(change)
+    shortfall = _effort_shortfall_lines(store.read())
+    for line in shortfall:
+        print("disclosure: " + line, file=sys.stderr)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
 
 
+def _finding_entry_from_args(args) -> dict:
+    return {"id": args.id, "lens": args.lens, "severity": args.severity, "summary": args.summary,
+            "disposition": args.disposition, "rationale": args.rationale,
+            "escalation_kind": args.escalation_kind, "blocks_this_pr": bool(args.blocks_this_pr),
+            "handoff_summary": args.handoff_summary,
+            "operator_summary": getattr(args, "operator_summary", None),
+            "private_reference": getattr(args, "private_reference", None)}
+
+
 def cmd_finding_record(args, store: Snapshot) -> None:
-    if args.disposition == "escalated" and not args.escalation_kind:
-        raise CoordinatorError("an escalated finding must name the operator-owned decision boundary")
-    if args.disposition != "escalated" and args.escalation_kind:
-        raise CoordinatorError("only an escalated finding may name an escalation boundary")
-    operator_summary = getattr(args, "operator_summary", None)
-    private_reference = getattr(args, "private_reference", None)
-    if args.severity == "blocking" and not args.blocks_this_pr and not operator_summary:
-        raise CoordinatorError("a downgraded blocking finding needs a safe operator-facing --operator-summary")
+    if getattr(args, "from_file", None):
+        if args.id:
+            raise CoordinatorError(
+                "record a batch with --from-file or a single finding with the per-finding flags, not "
+                "both — a batch names its own findings")
+        entries = _findings_batch(args.from_file, args.stage)
+    else:
+        if not args.id:
+            raise CoordinatorError("record a finding with --id … or a whole round with --from-file <file|->")
+        entries = [_finding_entry_from_args(args)]
+        problem = _finding_entry_problem(entries[0])
+        if problem:
+            raise CoordinatorError(problem)
+
     def change(state):
         # A disposition must be recordable against the packet ITS OWN RECEIPT names, not only against the
         # live one. A receipt can outlive the packet that produced it -- a repair receipt is spliced into
@@ -1384,42 +1674,59 @@ def cmd_finding_record(args, store: Snapshot) -> None:
         # and the Build wedged out of submission; the same lookup also replaces a bare KeyError on
         # `--stage repair` with an empty repair slot. StarshipSuperjam/engine-template#1051.
         demanded = review.demanded_findings(state)
-        by_receipt = next((
-            (produced_by, receipt) for produced_by, receipt in review.live_receipts(state)
-            if produced_by == args.stage and receipt["lens"] == args.lens
-            and args.id in receipt["finding_ids"]), None)
         live = state["repair"] if args.stage == "repair" and state["repair"] else state["reviews"].get(args.stage)
-        contract = None if not live else next(
-            (item for item in live["reviewer_contracts"] if item["lens"] == args.lens), None)
-        live_offers = bool(live and live["packet_digest"] and contract and args.lens in (
-            live["lenses"] if args.stage == "repair" else live["required_lenses"]))
-        if live_offers:
-            packet = live["packet_digest"]
-            lens_packet_digest = contract["lens_packet_digest"]
-            commit = live["final_commit"] if args.stage == "repair" else live["reviewed_commit"]
-        elif by_receipt:
-            receipt = by_receipt[1]
-            packet = receipt["packet_digest"]
-            lens_packet_digest = receipt.get("lens_packet_digest")
-            commit = receipt["commit"]
-        elif args.id in demanded:
-            raise CoordinatorError(
-                f"no live {args.stage} receipt from {args.lens} demands {args.id} — the id is demanded by a "
-                "different lens or stage; record it against the one whose receipt names it")
-        elif not live or not live["packet_digest"]:
-            raise CoordinatorError(f"no current {args.stage} review packet")
-        else:
-            raise CoordinatorError(f"{args.lens} was not requested by the current {args.stage} packet")
-        finding = {"id": args.id, "stage": args.stage, "lens": args.lens, "packet_digest": packet,
-                   "lens_packet_digest": lens_packet_digest,
-                   "commit": commit, "severity": args.severity,
-                   "summary": args.summary, "disposition": args.disposition, "rationale": args.rationale,
-                   "escalation_kind": args.escalation_kind,
-                   "blocks_this_pr": args.blocks_this_pr, "handoff_summary": args.handoff_summary,
-                   "operator_summary": operator_summary, "private_reference": private_reference}
-        state["findings"] = [f for f in state["findings"] if f["id"] != args.id] + [finding]
+        recorded = []
+        for entry in entries:
+            lens, finding_id = entry["lens"], entry["id"]
+            by_receipt = next((
+                (produced_by, receipt) for produced_by, receipt in review.live_receipts(state)
+                if produced_by == args.stage and receipt["lens"] == lens
+                and finding_id in receipt["finding_ids"]), None)
+            contract = None if not live else next(
+                (item for item in live["reviewer_contracts"] if item["lens"] == lens), None)
+            live_offers = bool(live and live["packet_digest"] and contract and lens in (
+                live["lenses"] if args.stage == "repair" else live["required_lenses"]))
+            # THE RECEIPT THAT DEMANDED IT WINS. A finding belongs to the review that raised it, so its
+            # key is the key of that receipt — even when a live packet would also offer the lens. Reading
+            # the live packet first meant that anything advancing the stage's reviewed commit between the
+            # receipt and the disposition (a completed repair round splicing forward, a packet re-cut)
+            # stamped the finding with a NEWER commit than its own receipt, so `missing_findings` demanded
+            # it forever and no amount of re-recording the finding could satisfy it — the fix was to
+            # re-record the RECEIPT and its siblings together, which no message ever said
+            # (StarshipSuperjam/engine-template#1012).
+            if by_receipt:
+                receipt = by_receipt[1]
+                packet = receipt["packet_digest"]
+                lens_packet_digest = receipt.get("lens_packet_digest")
+                commit = receipt["commit"]
+            elif live_offers:
+                packet = live["packet_digest"]
+                lens_packet_digest = contract["lens_packet_digest"]
+                commit = live["final_commit"] if args.stage == "repair" else live["reviewed_commit"]
+            elif finding_id in demanded:
+                raise CoordinatorError(
+                    f"no live {args.stage} receipt from {lens} demands {finding_id} — the id is demanded by "
+                    "a different lens or stage; record it against the one whose receipt names it")
+            elif not live or not live["packet_digest"]:
+                raise CoordinatorError(f"no current {args.stage} review packet")
+            else:
+                raise CoordinatorError(f"{lens} was not requested by the current {args.stage} packet")
+            recorded.append({"id": finding_id, "stage": args.stage, "lens": lens, "packet_digest": packet,
+                             "lens_packet_digest": lens_packet_digest, "commit": commit,
+                             "severity": entry["severity"], "summary": entry["summary"],
+                             "disposition": entry["disposition"], "rationale": entry["rationale"],
+                             "escalation_kind": entry.get("escalation_kind"),
+                             "blocks_this_pr": bool(entry["blocks_this_pr"]),
+                             "handoff_summary": entry.get("handoff_summary"),
+                             "operator_summary": entry.get("operator_summary"),
+                             "private_reference": entry.get("private_reference")})
+        # One assignment for the whole batch: every entry was validated and resolved above, so nothing
+        # can land half-written.
+        replaced = {finding["id"] for finding in recorded}
+        state["findings"] = [f for f in state["findings"] if f["id"] not in replaced] + recorded
     store.mutate(change)
-    print(f"recorded disposition for {args.id}; reviewer severity did not choose the remedy")
+    print(f"recorded {len(entries)} disposition(s) ({', '.join(e['id'] for e in entries)}); "
+          "reviewer severity did not choose the remedy")
 
 
 def cmd_assumption_dispose(args, store: Snapshot) -> None:
@@ -1689,8 +1996,7 @@ def _repair_round_complete(repair: dict | None) -> bool:
     the escalation gate creates."""
     if not repair or repair["judgment"] == "none":
         return False
-    return not [lens for lens in repair["lenses"]
-                if lens not in {receipt["lens"] for receipt in repair["receipts"]}]
+    return not _outstanding_repair_lenses(repair)
 
 
 class _Unmeasurable(Exception):
@@ -1946,14 +2252,37 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # merge" outcome this gate exists to prevent. Re-assessing the SAME divergence (upgrading a scoped
     # judgment to full, say) replaces its entry in place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
+
+    def _authored_between(base: str | None, tip: str) -> bool:
+        """Did anything a REVIEWER would read land between these two commits? `sync-artifacts` commits
+        machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
+        answers yes: never a free pass (StarshipSuperjam/engine-template#1065)."""
+        try:
+            return bool(ranges.authored_only(ROOT, ranges.commits(ROOT, base, tip)))
+        except ranges.RangeUnreadable:
+            return True
+
+    def _same_episode(entry: dict) -> bool:
+        """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
+
+        Two things have to hold. The head must have moved onto nothing authored — otherwise real work
+        landed that the round's lenses have not read, and judging it is a genuinely new round. And the
+        divergence now being judged must start where that round already stood: at its reviewed commit
+        (nothing completed yet) or at its final commit (the round completed and the anchor advanced with
+        it). That second case is the observed one — a completed round, then a `sync-artifacts` commit,
+        which put the repair's final commit behind HEAD and forced a re-bind that the counter charged as
+        a third round in a build that had run two (StarshipSuperjam/engine-template#1063)."""
+        if _authored_between(entry["final_commit"], head):
+            return False
+        return reviewed in (entry["reviewed_commit"], entry["final_commit"])
+
+    # A fan-out was PAID FOR. Re-assessing the IDENTICAL divergence after a packet was cut means the
+    # lenses were dispatched and the round abandoned; that costs full price and must count, or repeated
+    # abandoned fan-outs would collapse into one round. This is deliberately narrow — the same commit
+    # pair, not merely the same reviewed commit — so it never swallows the bookkeeping case above.
     fanned_out = bool(prior and prior.get("packet_digest")
                       and prior["reviewed_commit"] == reviewed and prior["final_commit"] == head)
-    # Replace in place ONLY when nothing was spent yet: no repair packet was cut for this same divergence,
-    # so this assess is the operator upgrading their judgment, not a second attempt. Once a packet exists
-    # the lenses were dispatched and that round cost full price, so a further assess is a NEW round even at
-    # the same commit pair -- otherwise an abandoned fan-out repeated forever would count once.
-    same = ([] if fanned_out else
-            [r for r in rounds if r["reviewed_commit"] == reviewed and r["final_commit"] == head])
+    same = [] if fanned_out else [r for r in rounds if _same_episode(r)]
     prior_rounds = len(rounds) - len(same)
     guidance = getattr(args, "guidance", None)
     if not same and prior_rounds >= _REPAIR_ROUND_ESCALATION and not guidance:
@@ -1963,14 +2292,49 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
             "re-review, accept-track the residual findings, or keep going), then record their answer with "
             "--guidance. That text is published in the PR body, so the operator sees at merge whether they "
             "were actually consulted. This is a discipline prompt backed by their merge, not a wall.")
+    # CARRY-FORWARD. A receipt is a fact about what a lens read, and that fact does not stop being true
+    # because the binding moved. Every prior repair receipt whose recorded range already covers the new
+    # divergence survives, byte-identical; the rest are named, with the delta they still owe, so the
+    # session is told precisely which lenses owe a read of which commits instead of facing the
+    # all-or-nothing wall that cost two true receipts in StarshipSuperjam/engine-template#1063.
+    carried, dropped = [], []
+    for receipt in (prior or {}).get("receipts", []):
+        (carried if ranges.receipt_covers(ROOT, receipt, reviewed, head) else dropped).append(receipt)
+    # A dropped receipt is always NAMED. It is only REFUSED on a `none` judgment, and the difference is
+    # what each path costs. A scoped or full round drops a receipt and then asks that lens to read the new
+    # range, so the evidence is replaced rather than lost — naming it is enough, and walling every ordinary
+    # second round behind a flag would turn a safety valve into a rubber stamp. `none` is the destructive
+    # one StarshipSuperjam/engine-template#1012 named: it discards the receipt AND ends the repair loop
+    # with no re-review, mid-stream, prompted by a status line that used to read like a step to take.
+    if dropped:
+        detail = "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in dropped)
+        also = f" {len(carried)} receipt(s) DO still cover it and are kept." if carried else ""
+        if args.judgment == "none" and not getattr(args, "accept_receipt_loss", False):
+            raise CoordinatorError(
+                f"a `none` judgment here would discard {len(dropped)} recorded repair receipt(s) that do "
+                f"not cover this new divergence, AND end the repair loop without re-reviewing it: {detail}."
+                + also + " That is real cold-review evidence and a terminal judgment in one step, so this "
+                "stops rather than doing it quietly. If the divergence genuinely carries nothing a lens "
+                "would find, pass --accept-receipt-loss and it proceeds; if it does carry something, judge "
+                "it `scoped` and name the lenses that must re-read it.")
+        print(f"warning: {len(dropped)} repair receipt(s) do not cover this new divergence and are being "
+              f"dropped: {detail}." + also + " Those lenses owe a read of the new range.", file=sys.stderr)
     entry = {"reviewed_commit": reviewed, "final_commit": head, "judgment": args.judgment,
              "lenses": lenses, "guidance": guidance}
     rounds = [r for r in rounds if r not in same] + [entry]
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
-              "referent_digest": None, "reviewer_contracts": [], "receipts": []}
+              "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
+              "session_effort": (prior or {}).get("session_effort"),
+              "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted"))}
     store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
+    if carried:
+        print(f"carried {len(carried)} repair receipt(s) forward — "
+              + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in carried), file=sys.stderr)
+    if same:
+        print("this re-points the repair round already recorded at "
+              f"{reviewed[:12]} rather than opening a new one against the escalation gate", file=sys.stderr)
 
 
 def _pr_contract(body: str) -> tuple[bool, str]:
@@ -2999,10 +3363,22 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     if missing:
         raise CoordinatorError(
             "these review receipts predate the code-execution disclosure and must be re-recorded before "
-            f"composing: {', '.join(missing)} — re-run `review record … --code-execution none|discarded-copy`")
-    ran_code = any(r.get("code_execution") == "discarded-copy" for r in receipts)
-    code_execution_line = ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
-                           "your project" if ran_code else "no reviewer executed the change's code")
+            f"composing: {', '.join(missing)} — re-run `review record … --code-execution "
+            "none|discarded-copy|in-place`")
+    # Three behaviours, three words. Reviewers do one of three things with the change's code, and the
+    # disclosure used to carry only two — so a lens that ran the suite IN THE OPERATOR'S OWN CHECKOUT
+    # was recorded as though it had used a throwaway copy, which is a materially different claim about
+    # what touched their project. B2's carried finding CO-1; the third value is the fix.
+    code_execution_line = code_execution_disclosure({r.get("code_execution") for r in receipts})
+    # The effort the panel actually delivered against the depth the operator approved
+    # (StarshipSuperjam/engine-template#1067). A HARD line, not a warning: a sealed `thorough` whose
+    # lenses ran at `medium` published its promise unchallenged, and the operator's merge is the only
+    # place that can be met. Self-reported on both halves, and the sentence says so.
+    effort_lines = _effort_shortfall_lines(state)
+    if effort_lines:
+        review_coverage += (" Reviewer effort did not match what this depth promises, self-reported by the "
+                            "spawning session and the reviewers, and independently unverified: "
+                            + "; ".join(effort_lines) + ".")
 
     drift_line = _drift_line(state, head)
 
@@ -3278,10 +3654,10 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
-    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
+    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.add_argument("--session-effort", choices=["low", "medium", "high"], help="The reasoning effort THIS session is running at as it spawns the panel. On the Claude arm an un-pinned reviewer inherits it, so it is the ceiling every lens in the fan-out runs at; self-reported."); packet.add_argument("--accept-effort-shortfall", action="store_true", help="Spawn the panel knowing it runs below the approved depth's effort. The gap becomes a hard disclosure in the PR body."); packet.set_defaults(func=_packet)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--delivered-effort", choices=["low", "medium", "high"], help="The reasoning effort this reviewer actually ran at, self-reported. Compared against the approved depth's effort; a shortfall is disclosed in the PR body."); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
-    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
+    frecord = finding.add_parser("record"); frecord.add_argument("--id"); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.add_argument("--from-file", help="A build-findings-batch.v1 file (or -) carrying a whole round's dispositions. Validated entirely before anything is written, then recorded in one mutation: a malformed entry records nothing."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
@@ -3292,7 +3668,7 @@ def parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
-    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
+    assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.set_defaults(func=cmd_repair_assess)
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)

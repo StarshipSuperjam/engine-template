@@ -23,7 +23,7 @@
     "overrides": {
       "description": "Per-persona bindings, keyed by the persona's name (its .claude/agents/<name>.md slug). An override wins over the persona's tier default — this is how a specific lens is tuned to a stronger or cheaper model without changing its declared capability tier. A key that names no installed persona is a stale override, caught by the agent-bindings coherence test.",
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/binding" }
+      "additionalProperties": { "$ref": "#/$defs/override_binding" }
     },
     "implementation_classes": {
       "description": "Per-provider model/effort bindings for the DAG Build's DISPATCHED worker classes — the source of truth the coordinator renders into a worker's route and into the worker personas. This is a SEPARATE axis from the review `tiers`: reviewer personas resolve a name-free demand tier (judgment|mechanical) to one model, while a dispatched worker resolves its implementation class (builder|bounded) to a per-PROVIDER model+effort, because Claude and Codex realize the same class with different frontier/efficient models. The `integrator` class is never dispatched (it is the current senior session, so it carries no fixed binding here). A worker model alias MAY carry digits/dots (a provider-native family name like gpt-5.6-terra), so it uses its own grammar — the review `binding` anti-rot pattern is deliberately left untouched. Optional: a deployment with no DAG worker packs need not declare it.",
@@ -45,6 +45,16 @@
     }
   },
   "$defs": {
+    "override_binding": {
+      "description": "One persona's override. The MODEL is required; the effort is OPTIONAL, and the three reviewer overrides deliberately omit it. A reviewer persona carries no effort frontmatter by design \u2014 the operator's review-depth choice scales reviewer effort at launch \u2014 so an effort named here had nothing to ride on, and the bindings file was asserting something the Claude arm could not deliver (StarshipSuperjam/engine-template#1067). Where an effort IS genuinely stamped, an override that omits one falls back to the persona's tier effort rather than un-pinning it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "properties": {
+        "model": { "$ref": "#/$defs/binding/properties/model" },
+        "effort": { "$ref": "#/$defs/binding/properties/effort" }
+      }
+    },
     "binding": {
       "description": "One model + effort pairing that realizes a capability demand.",
       "type": "object",

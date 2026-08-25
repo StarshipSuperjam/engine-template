@@ -365,7 +365,11 @@ class _Governed(_Surface):
         slug, document = self._plan(**over)
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decision", "yes, at that depth")[0], 0)
-        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
+        # Every lens in this fixture ran at the effort its depth promises. `review record` refuses a
+        # panel that does not say what it delivered (StarshipSuperjam/engine-template#1067), and the
+        # bare level applies to every lens named in the record.
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug),
+                "--delivered-effort", "high"]
         for lens in (lenses if lenses is not None else self._covering_lenses(depth)):
             argv += ["--lens", lens]
         if findings:
@@ -1037,7 +1041,8 @@ class SingleMintedGatesUnderConcurrency(_Governed):
         digest = self._packet_digest(slug)
         # Both sessions read a record with no review; A records first, B must still be refused.
         self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
-                                          "--packet-digest", digest)[0], 0)
+                                          "--packet-digest", digest,
+                                          "--delivered-effort", "medium")[0], 0)
 
         def racing_write(current):
             current["plan_review"] = {"revision": 1, "plan_digest": digest, "packet_digest": digest,
