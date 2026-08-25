@@ -64,6 +64,22 @@
       "provider": "codex",
       "reason": "The session-economy gate refuses an over-powered Explore/Plan subagent spawn and a session scheduling its own wake-up. Codex exposes neither surface: it has no subagent-spawn tool carrying a subagent_type and model, and no in-session wake-up scheduler. There is nothing there for the gate to observe, so its absence is the shape of that runtime rather than a weaker floor. If Codex later grows either surface this exception must be revisited, not renewed.",
       "contract_ref": "eADR-0034"
+    },
+    {
+      "kind": "agent",
+      "id": "engine-grounding-scout",
+      "missing_or_weaker": "missing",
+      "provider": "codex",
+      "reason": "The grounding scout is Claude-only and gets no Codex render, so codex_gen skips the scout role rather than emitting a twin that could not do the job. A non-worker render deliberately pins NO model, and a scout's entire value is that it runs on the cheap tier: a twin inheriting the frontier model would cost more than the inline sweep it exists to replace, so the render would silently invert the point of the persona. Its leaf-lock needs no render either, and that absence is not a weaker floor: the Codex agent contract carries no per-tool allow or denylist at all — its typed fields are name, description, developer_instructions, model, model_reasoning_effort and sandbox_mode — and exposes no subagent-spawn surface, so a denial of Agent and Task has nothing to be expressed against. That matches the session_economy entry above, which records the same absent surface from the gate's side. Revisit if Codex gains per-persona model binding.",
+      "contract_ref": "eADR-0034"
+    },
+    {
+      "kind": "agent",
+      "id": "engine-validation-runner",
+      "missing_or_weaker": "missing",
+      "provider": "codex",
+      "reason": "The validation runner is Claude-only for the same model reason as the grounding scout above, and for a second one that is fatal on its own. The coherence floor requires sandbox_mode read-only on every non-worker render; the runner's containment recipe requires it to COPY the whole working tree into a disposable directory before running anything, which is a write. A Codex twin would therefore be sandboxed out of the one job it exists for — it could not make the copy, and running in the live checkout instead is exactly what the recipe forbids. Shipping a persona that is silently unable to run is worse than shipping none. The same vacuous-leaf-lock note applies: Codex has no per-tool denylist and no subagent-spawn surface for the Agent/Task denial to render into. Revisit if Codex gains per-persona model binding or a sandbox posture that separates writing a scratch copy from writing the work under review.",
+      "contract_ref": "eADR-0034"
     }
   ]
 }
