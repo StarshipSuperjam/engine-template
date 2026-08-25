@@ -968,7 +968,7 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_deliverable_packet_requires_green_validation(self):
         self.store.mutate(lambda s: s.update({"validation": None}))
         args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
-        with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green validation"):
+        with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
     def test_deliverable_packet_captures_a_checkout_baseline(self):
@@ -1275,6 +1275,27 @@ class TestArtifactSync(CoordinatorCase):
         self.assertIsNone(self.state().get("artifact_sync"))
 
 
+def _candidate_validation_fake(payload="complete validation output\n", rc=0, record_mutator=None):
+    """A fake `_run_validation` for the candidate protocol: writes the log, and — for the command
+    carrying `--run-record-path` — a run record consistent with everything the coordinator checks
+    against its own derivations (tree, cleanliness, inventory count, log digest). `record_mutator`
+    lets a test corrupt exactly one field to prove the corresponding refusal is real."""
+    def validation(command, path):
+        path.write_text(payload, encoding="utf-8")
+        if "--run-record-path" in command:
+            record_path = command[command.index("--run-record-path") + 1]
+            tree = bc._run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
+            count, _ = bc.ci_gatekeeper.inventory_digest(str(bc.ROOT))
+            record = {"attests": "engine-selftest", "scope": "full", "tree": tree,
+                      "worktree_dirty": False, "inventory": {"module_count": count},
+                      "log": {"path": str(path), "sha256": bc._digest(payload.encode())}}
+            if record_mutator:
+                record_mutator(record)
+            Path(record_path).write_text(json.dumps(record), encoding="utf-8")
+        return rc
+    return validation
+
+
 class TestValidationRepairAndStatus(CoordinatorCase):
     def setUp(self):
         super().setUp()
@@ -1282,29 +1303,34 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.integrate_all()
 
     def test_validation_records_every_result_against_head(self):
-        def validation(command, path):
-            path.write_text("complete validation output\n", encoding="utf-8")
-            return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
-        self.assertEqual({r["commit"] for r in self.state()["validation"]["results"]}, {HEAD_A})
-        self.assertTrue(all(Path(r["log_path"]).read_text() == "complete validation output\n" for r in self.state()["validation"]["results"]))
+        candidate = self.state()["validation"]["candidate"]
+        self.assertEqual({r["commit"] for r in candidate["results"]}, {HEAD_A})
+        self.assertTrue(all(Path(r["log_path"]).read_text() == "complete validation output\n" for r in candidate["results"]))
 
     def test_validation_runs_only_registered_commands(self):
         seen = []
+        inner = _candidate_validation_fake()
         def validation(command, path):
-            seen.append(command); path.write_text("ok\n"); return 0
+            seen.append(command); return inner(command, path)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
-        self.assertEqual(seen, [item["command"] for item in bc._protocol()["validation_commands"]])
+        registered = bc._protocol()["validation_commands"]["candidate"]
+        self.assertEqual(len(seen), len(registered))
+        for ran, item in zip(seen, registered):
+            self.assertEqual(len(ran), len(item["command"]))
+            for ran_token, registered_token in zip(ran, item["command"]):
+                if registered_token in ("{merge_base}", "{run_record_path}"):
+                    self.assertNotIn("{", ran_token, "placeholders must be substituted, never passed through")
+                else:
+                    self.assertEqual(ran_token, registered_token, "only registered tokens may run")
 
     def test_validation_preserves_complete_logs(self):
         payload = "x" * 5000
-        def validation(command, path):
-            path.write_text(payload); return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake(payload=payload)), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
-        for result in self.state()["validation"]["results"]:
+        for result in self.state()["validation"]["candidate"]["results"]:
             self.assertEqual(Path(result["log_path"]).read_text(), payload)
             self.assertEqual(result["log_digest"], bc._digest(payload.encode()))
 
@@ -1326,7 +1352,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [{"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
         with mock.patch.object(bc, "_head", return_value=HEAD_B):
             status = bc._status(self.state())
-        self.assertIn("green validation for the final commit", status["required_evidence"])
+        self.assertIn("green candidate validation for the final commit", status["required_evidence"])
 
     def test_status_requires_validation_for_current_head(self):
         self.test_validation_becomes_stale_when_head_changes()
@@ -1450,7 +1476,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
     def test_repair_review_requires_validation_for_repaired_commit(self):
         self.store.mutate(lambda s: s.update({"repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []}}))
         args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
-        with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green validation"):
+        with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
     def test_repair_findings_are_dispositioned_in_the_repair_stage(self):
@@ -1572,6 +1598,460 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_installed", return_value=[]):
             status = bc._status(self.state(), value)
         self.assertEqual(status["progress"], {"completed": [], "total": 2, "current": None, "next": "W1"})
+
+
+class TestCandidateEvidenceAndCache(CoordinatorCase):
+    """The split evidence model: the cache's content-addressed identity, the downgrade seams that can
+    never mint final evidence, and the run record's refusal paths — each corruption driven singly."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed(); self.approve("quick")
+        self.integrate_all()
+
+    def _validate(self, fake=None, **over):
+        calls = []
+        inner = fake or _candidate_validation_fake()
+        def counting(command, path):
+            calls.append(command); return inner(command, path)
+        args = {"plan": str(self.plan_path)}
+        args.update(over)
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_derived_drift", return_value=[]), \
+                mock.patch.object(bc, "_run_validation", side_effect=counting), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_validate(argparse.Namespace(**args), self.store)
+        return calls, out.getvalue()
+
+    def test_a_repeat_at_the_same_identity_is_a_cache_hit_that_mutates_nothing(self):
+        self._validate()
+        before = Path(self.state_path).read_bytes()
+        calls, out = self._validate()
+        self.assertEqual(calls, [], "a cache hit must re-run nothing")
+        self.assertIn('"cached": true', out)
+        self.assertEqual(Path(self.state_path).read_bytes(), before,
+                         "a cache hit performs no state mutation at all")
+
+    def test_force_always_re_runs(self):
+        self._validate()
+        calls, _ = self._validate(force=True)
+        self.assertEqual(len(calls), 2, "--force must re-run every registered candidate command")
+
+    def test_every_identity_component_is_load_bearing(self):
+        """Corrupting any single stored component — commit, merge base, protocol digest, an argv
+        digest, the inventory digest — must miss the cache and re-run."""
+        self._validate()
+        components = ["commit", "merge_base", "protocol_digest", "argv_digests", "inventory_digest"]
+        for component in components:
+            with self.subTest(component=component):
+                def corrupt(state, key=component):
+                    candidate = state["validation"]["candidate"]
+                    if key == "argv_digests":
+                        candidate[key] = {list(candidate[key])[0]: bc._digest(b"other")}
+                    elif key in ("commit", "merge_base"):
+                        candidate[key] = HEAD_B
+                    else:
+                        candidate[key] = bc._digest(b"other")
+                self.store.mutate(corrupt)
+                calls, _ = self._validate()
+                self.assertEqual(len(calls), 2, f"a changed {component} must be a cache miss")
+
+    def test_a_red_candidate_never_hits_the_cache(self):
+        with self.assertRaises(bc.CoordinatorError):
+            self._validate(fake=_candidate_validation_fake(rc=1))
+        calls, _ = self._validate()
+        self.assertEqual(len(calls), 2, "only a green candidate may satisfy a repeat")
+
+    def test_a_legacy_slot_normalizes_to_null_identity_and_never_hits(self):
+        """The downgrade seam: an old single-slot snapshot stays readable, stands behind packets at
+        its commit, and can never be a cache hit or final evidence."""
+        legacy = {"commit": HEAD_A, "results": [{"id": "engine-ci", "commit": HEAD_A,
+                                                 "passed": True, "summary": "ok"}]}
+        self.store.mutate(lambda s: s.update({"validation": legacy}))
+        state = self.state()
+        split = bc._split_validation(state)
+        self.assertIsNone(split["candidate"]["protocol_digest"])
+        self.assertIsNone(split["final"])
+        self.assertTrue(bc._candidate_ok(state, HEAD_A))
+        self.assertFalse(bc._final_ok(state, HEAD_A))
+        calls, _ = self._validate()
+        self.assertEqual(len(calls), 2, "null identity describes nothing and must never hit")
+
+    def test_no_coordinator_write_path_mints_final_evidence(self):
+        """`validate` preserves a same-head final and DROPS a different-head one; it never creates
+        one. The only writer of `final` is the import verb — held here at the state level, and by
+        the source audit below."""
+        final = {"commit": HEAD_A, "source": "ci-import", "run_id": 5,
+                 "context": "engine-ci", "tree": "b" * 40}
+        self._validate()
+        self.store.mutate(lambda s: s["validation"].update({"final": final}))
+        self._validate(force=True)
+        self.assertEqual(bc._split_validation(self.state())["final"], final,
+                         "a same-head candidate re-run preserves valid final evidence")
+        self.store.mutate(lambda s: s["validation"]["final"].update({"commit": HEAD_B}))
+        self._validate(force=True)
+        self.assertIsNone(bc._split_validation(self.state())["final"],
+                          "final evidence for another head must be dropped, never inherited")
+
+    def test_every_reader_routes_through_the_accessor(self):
+        """Mechanical: raw `state["validation"]` subscripts may appear only in the accessor itself
+        and in the writers (cmd_validate's store, the clears, and state seeding) — a reader that
+        bypasses `_split_validation` re-opens the shape drift this closes."""
+        import inspect
+        source = inspect.getsource(bc)
+        readers = [line.strip() for line in source.splitlines()
+                   if 'state["validation"]["' in line.replace(" ", "")]
+        self.assertEqual(readers, [], f"raw validation readers bypass the accessor: {readers}")
+
+    def test_each_run_record_corruption_is_refused_singly(self):
+        cases = {
+            "foreign tree": lambda r: r.update({"tree": "c" * 40}),
+            "null tree": lambda r: r.update({"tree": None, "worktree_dirty": None}),
+            "dirty tree": lambda r: r.update({"worktree_dirty": True}),
+            "inventory count": lambda r: r["inventory"].update({"module_count": 1}),
+            "log digest": lambda r: r["log"].update({"sha256": bc._digest(b"other")}),
+            "foreign attestation": lambda r: r.update({"attests": "engine-ci"}),
+            "missing scope": lambda r: r.pop("scope", None),
+            "unrecognised scope": lambda r: r.update({"scope": "whatever"}),
+            "malformed log": lambda r: r.update({"log": "not-a-dict"}),
+            "log without a path": lambda r: r.update({"log": {"sha256": bc._digest(b"x")}}),
+            "unreadable log with no digest to hide behind": lambda r: r.update(
+                {"log": {"path": "/nonexistent/run.log", "sha256": "sha256:absent"}}),
+            # A reviewer got a traceback out of the log read with an embedded null byte, which
+            # `except OSError` does not catch, and noted the unbounded read of an
+            # attacker-named path beside it.
+            "log path with an embedded null byte": lambda r: r["log"].update({"path": "a\x00b"}),
+            "log path that is a directory, not a file": lambda r: r["log"].update({"path": "/tmp"}),
+        }
+        for name, mutator in cases.items():
+            with self.subTest(corruption=name):
+                self.store.mutate(lambda s: s.update({"validation": None}))
+                with self.assertRaisesRegex(bc.CoordinatorError, "failed"):
+                    self._validate(fake=_candidate_validation_fake(record_mutator=mutator))
+                candidate = bc._split_validation(self.state())["candidate"]
+                refused = [r for r in candidate["results"] if not r["passed"]]
+                self.assertTrue(refused, f"{name}: the corrupted record must fail its result")
+                self.assertIn("run record refused", refused[0]["summary"])
+
+    def test_a_missing_run_record_is_refused(self):
+        def no_record(command, path):
+            path.write_text("ok\n", encoding="utf-8"); return 0
+        with self.assertRaisesRegex(bc.CoordinatorError, "failed"):
+            self._validate(fake=no_record)
+        candidate = bc._split_validation(self.state())["candidate"]
+        self.assertIn("missing or unreadable",
+                      [r for r in candidate["results"] if not r["passed"]][0]["summary"])
+
+    def test_bare_validate_says_it_is_the_candidate_variant(self):
+        _, out = self._validate()
+        self.assertIn("validate candidate", out.splitlines()[0])
+        self.assertIn("{", out, "the JSON consumers parse from the first brace still follows")
+
+    def test_handoff_restore_downgrades_to_candidate_without_final(self):
+        """A cold continuation must re-import against the live rollup: the handoff carries candidate
+        evidence in the legacy shape, and a restored state holds no final."""
+        self._validate()
+        final = {"commit": HEAD_A, "source": "ci-import", "run_id": 5,
+                 "context": "engine-ci", "tree": "b" * 40}
+        self.store.mutate(lambda s: s["validation"].update({"final": final}))
+        out = io.StringIO()
+        handoff_path = Path(self.temp.name) / "handoff.json"
+        with self.sealed(), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_handoff_export(argparse.Namespace(output=str(handoff_path)), self.store)
+        value = json.loads(handoff_path.read_text())
+        self.assertEqual(set(value["validation"]), {"commit", "results"},
+                         "the handoff carries candidate evidence in the legacy shape only")
+        restored = bc._restore_result_set(value["validation"])
+        state_like = {"validation": restored}
+        self.assertIsNone(bc._split_validation(state_like)["final"])
+        self.assertIsNone(bc._split_validation(state_like)["candidate"]["protocol_digest"],
+                          "a restored candidate has null identity and can never be a cache hit")
+
+
+class TestFinalImportAndRollupGate(CoordinatorCase):
+    """`validate final import` — the only writer of final evidence — and the live rollup wall at
+    submission. Every refusal is driven singly, with its distinct, actionable message."""
+
+    TREE = "d" * 40
+
+    def setUp(self):
+        super().setUp()
+        self.seed(); self.approve("quick")
+        self.integrate_all()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_derived_drift", return_value=[]), \
+                mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
+
+    def _pr(self, **over):
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A,
+              "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "body",
+              "statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
+                                     "conclusion": "SUCCESS", "completedAt": "2026-08-25T01:00:00Z"}]}
+        pr.update(over)
+        return pr
+
+    def _import(self, pr=None, found=None, token="tok", merge_base=None):
+        """Drive the import with the live seams stubbed; git plumbing answers with fixture values."""
+        real_run = bc._run
+        def fake_run(argv, **kw):
+            if argv[:2] == ["git", "merge-base"]:
+                out = (merge_base if merge_base is not None else BASE) + "\n"
+                return subprocess.CompletedProcess(argv, 0, out, "")
+            if argv == ["git", "rev-parse", "HEAD^{tree}"]:
+                return subprocess.CompletedProcess(argv, 0, self.TREE + "\n", "")
+            return real_run(argv, **kw)
+        found = found if found is not None else (True, {"run_id": 42, "run_attempt": 1,
+                                                        "receipt": {"schema": "engine-ci-receipt/v1"}})
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_run", side_effect=fake_run), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr or self._pr()), \
+                mock.patch("boot.gh_token", return_value=token), \
+                mock.patch.object(bc.ci_gatekeeper, "find_reusable_receipt",
+                                  return_value=found) as finder, \
+                contextlib.redirect_stdout(out):
+            bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path), mode="final",
+                                               action="import"), self.store)
+        return finder, out.getvalue()
+
+    def test_a_verified_import_records_final_and_only_then_is_the_head_final_ok(self):
+        state = self.state()
+        self.assertFalse(bc._final_ok(state, HEAD_A))
+        finder, out = self._import()
+        state = self.state()
+        final = bc._split_validation(state)["final"]
+        self.assertEqual((final["commit"], final["run_id"], final["tree"], final["source"]),
+                         (HEAD_A, 42, self.TREE, "ci-import"))
+        self.assertTrue(bc._final_ok(state, HEAD_A))
+        kwargs = finder.call_args.kwargs
+        self.assertEqual((kwargs["pr_number"], kwargs["head_sha"], kwargs["expected_tree"]),
+                         (7, HEAD_A, self.TREE),
+                         "provenance must go through the platform-filtered enumeration, bound to the "
+                         "local head and its tree — never a run picked out of rollup fields")
+
+    @staticmethod
+    def _final_slot_writers(source):
+        """Every function in `source` that could put a value under the `final` key, BY SYNTAX TREE.
+
+        Two reviewers independently defeated the literal-pin version of this audit: each planted a
+        laundering promotion into the coordinator — one reaching the slot through `.update({...})`,
+        one through a differently-named dict literal — and watched all 278 tests pass. A grep for
+        chosen spellings catches only the spellings someone thought of, which is the same blindness
+        the bare minting-literal count had. This finds subscript stores, `final=` keywords, and any
+        dict literal carrying a "final" key, and reports the enclosing function of each."""
+        import ast
+        tree = ast.parse(source)
+        enclosing = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.walk(node):
+                    enclosing.setdefault(id(child), node.name)
+        writers = set()
+        for node in ast.walk(tree):
+            hit = False
+            if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+                hit = getattr(node.slice, "value", None) == "final"
+            elif isinstance(node, ast.Dict):
+                hit = any(isinstance(k, ast.Constant) and k.value == "final" for k in node.keys)
+            elif isinstance(node, ast.keyword):
+                hit = node.arg == "final"
+            if hit:
+                writers.add(enclosing.get(id(node)))
+        return writers
+
+    def test_the_import_verb_is_the_only_writer_of_final_evidence(self):
+        """Only two functions may reach the final slot: the import verb's record callback, and
+        cmd_validate's head-guarded preserve-or-drop."""
+        import inspect
+        source = inspect.getsource(bc)
+        self.assertEqual(
+            self._final_slot_writers(source),
+            {"_final_import", "cmd_validate", "_split_validation"},
+            "exactly three functions may touch the final key: the import verb (whose nested record "
+            "callback performs the only mint), cmd_validate's head-guarded preserve-or-drop, and the "
+            "read-side normalizer that CONSTRUCTS a view and never persists one — pinned here too, so "
+            "the normalizer's role cannot quietly become a writer either. Any fourth is laundering")
+        self.assertEqual(source.count('"source": "ci-import"'), 1,
+                         "final evidence is minted in exactly one place")
+        self.assertIn('split["final"].get("commit") == head', source,
+                      "the preserved value is head-guarded, so preservation can never re-stamp")
+
+    def test_the_write_side_audit_catches_a_laundering_promotion(self):
+        """The audit's own positive control: the exact exploit two reviewers used to defeat the
+        previous version — a promotion reaching the slot through `.update()`, with no subscript
+        assignment, no minting literal, and a differently-named dict — must now be seen."""
+        import inspect
+        laundered = inspect.getsource(bc) + (
+            "\n\ndef cmd_promote_evidence(args, store):\n"
+            "    promoted = {\"commit\": \"x\", \"source\": \"local\"}\n"
+            "    store.mutate(lambda s: s[\"validation\"].update({\"final\": promoted}))\n")
+        self.assertIn("cmd_promote_evidence", self._final_slot_writers(laundered),
+                      "the audit must see a laundering promotion no literal pin would catch")
+
+    def test_head_drift_refuses_with_the_push_or_pull_remedy(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "push this head"):
+            self._import(pr=self._pr(headRefOid=HEAD_B))
+
+    def test_a_base_advance_is_a_reconcile_message_never_a_forgery_message(self):
+        with self.assertRaisesRegex(bc.CoordinatorError,
+                                    "routine base advance, not an integrity failure"):
+            self._import(merge_base=HEAD_B)
+
+    def test_each_rollup_state_has_its_own_refusal(self):
+        cases = {
+            "absent": ({"statusCheckRollup": []}, "may not have started"),
+            "pending": ({"statusCheckRollup": [{"name": "engine-ci", "status": "IN_PROGRESS",
+                                                "startedAt": "2026-08-25T01:00:00Z"}]},
+                        "still running"),
+            "red": ({"statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
+                                            "conclusion": "FAILURE",
+                                            "completedAt": "2026-08-25T01:00:00Z"}]},
+                    "red for this head"),
+        }
+        for name, (over, message) in cases.items():
+            with self.subTest(rollup=name):
+                with self.assertRaisesRegex(bc.CoordinatorError, message):
+                    self._import(pr=self._pr(**over))
+
+    def test_an_overlapping_in_flight_run_reads_as_pending_not_success(self):
+        """A metadata event firing during a long full run: the in-flight entry must win as pending
+        even though the completed entry's finish time out-sorts its start time."""
+        rollup = [{"name": "engine-ci", "status": "COMPLETED", "conclusion": "SUCCESS",
+                   "startedAt": "2026-08-25T01:00:00Z", "completedAt": "2026-08-25T01:40:00Z"},
+                  {"name": "engine-ci", "status": "IN_PROGRESS",
+                   "startedAt": "2026-08-25T01:05:00Z"}]
+        state, _ = bc.github.required_check({"statusCheckRollup": rollup}, "engine-ci")
+        self.assertEqual(state, "pending")
+
+    def test_a_same_named_commit_status_cannot_outvote_the_platforms_check_run(self):
+        """Any repository writer can post a commit status through the status API; the registered
+        workflow's check is a CheckRun, and the CheckRun-shaped entry decides."""
+        rollup = [{"name": "engine-ci", "status": "COMPLETED", "conclusion": "FAILURE",
+                   "completedAt": "2026-08-25T01:00:00Z"},
+                  {"context": "engine-ci", "state": "SUCCESS",
+                   "createdAt": "2026-08-25T02:00:00Z"}]
+        state, entry = bc.github.required_check({"statusCheckRollup": rollup}, "engine-ci")
+        self.assertEqual(state, "failure")
+        self.assertNotIn("state", entry)
+
+    def test_a_superseded_red_beside_a_newer_green_reads_as_green(self):
+        """The observed shape on this repository: the pre-contract run's failure lingers in the
+        rollup beside the later success; the LATEST entry decides."""
+        rollup = [{"name": "engine-ci", "status": "COMPLETED", "conclusion": "FAILURE",
+                   "completedAt": "2026-08-25T01:00:00Z"},
+                  {"name": "engine-ci", "status": "COMPLETED", "conclusion": "SUCCESS",
+                   "completedAt": "2026-08-25T01:02:00Z"}]
+        self._import(pr=self._pr(statusCheckRollup=rollup))
+        self.assertTrue(bc._final_ok(self.state(), HEAD_A))
+
+    def test_no_token_refuses_with_the_single_homed_note(self):
+        import boot
+        with self.assertRaisesRegex(bc.CoordinatorError, "no GitHub token is available"):
+            self._import(token=None)
+
+    def test_no_verifiable_receipt_refuses_with_the_enumeration_detail(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "no run of the registered workflow"):
+            self._import(found=(False, {"reason": "no-receipt-for-this-tree", "refusals": []}))
+
+    def test_import_requires_green_candidate_at_the_exact_head(self):
+        self.store.mutate(lambda s: s.update({"validation": None}))
+        with self.assertRaisesRegex(bc.CoordinatorError, "stands on top of candidate evidence"):
+            self._import()
+
+    def test_import_refuses_a_pre_split_candidate(self):
+        legacy = {"commit": HEAD_A, "results": [{"id": "engine-ci", "commit": HEAD_A,
+                                                 "passed": True, "summary": "ok"}]}
+        self.store.mutate(lambda s: s.update({"validation": legacy}))
+        with self.assertRaisesRegex(bc.CoordinatorError, "re-run `validate` at this head"):
+            self._import()
+
+    def test_import_refuses_when_the_registry_and_gatekeeper_disagree(self):
+        protocol = bc._protocol()
+        protocol["validation_commands"]["final"]["context"] = "someone-elses-check"
+        with mock.patch.object(bc, "_protocol", return_value=protocol), \
+                self.assertRaisesRegex(bc.CoordinatorError, "no longer matches what the CI gatekeeper"):
+            self._import()
+
+    def test_registry_final_descriptor_matches_the_gatekeeper_constants(self):
+        final = bc._protocol()["validation_commands"]["final"]
+        self.assertEqual(
+            (final["context"], final["workflow"], final["receipt_artifact"], final["max_age_days"]),
+            (bc.ci_gatekeeper.CHECK_CONTEXT, bc.ci_gatekeeper.WORKFLOW_PATH,
+             bc.ci_gatekeeper.RECEIPT_ARTIFACT_NAME, bc.ci_gatekeeper.MAX_RECEIPT_AGE_DAYS))
+
+    def test_the_forward_surfaces_name_the_import_verb_before_the_wall(self):
+        """A session reads status BEFORE it acts: the required-evidence line and, at the
+        final-validation phase, the next/available lines all name `validate final import`."""
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertTrue(any("validate final import" in line
+                            for line in status["required_evidence"]),
+                        status["required_evidence"])
+
+    def _seed_everything_but_final(self):
+        """Every rung below final-validation satisfied: quick depth needs no deliverable receipts,
+        so seeding green preflights and a complete contract at HEAD_A walks the ladder to the rung
+        this class exists to test."""
+        def seed(s):
+            s["reviews"]["deliverable"].update({
+                "packet_digest": bc._digest(b"packet"), "referent_digest": bc._digest(b"referent"),
+                "required_lenses": [], "reviewed_commit": HEAD_A, "base_commit": BASE})
+            s.update({
+                "preflights": [{"id": "pr-contract", "commit": HEAD_A, "passed": True, "summary": "ok"},
+                               {"id": "checkout-integrity", "commit": HEAD_A, "passed": True,
+                                "summary": "ok"}],
+                "pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"body"),
+                                "complete": True}})
+        self.store.mutate(seed)
+
+    def test_the_final_validation_phase_names_the_verb_in_next_and_available(self):
+        """The rung is actually ENTERED — a reviewer proved the first version of this test never
+        reached its named branch and asserted only the sibling's line. Unconditional now."""
+        self._seed_everything_but_final()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "final-validation")
+        self.assertIn("validate final import", status["suggested_next"])
+        self.assertTrue(any("validate final import" in x
+                            for x in status["available_activities"]))
+        self._import()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "ready",
+                         "with the proof imported the same state reaches ready")
+
+    def test_submit_preview_re_reads_the_live_rollup_with_three_distinct_messages(self):
+        self.store.mutate(lambda s: s.update(
+            {"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"body"), "complete": True}}))
+        ready = {"phase": "ready", "head_commit": HEAD_A,
+                 "required_evidence": [], "engineering_judgment": []}
+        ancestor = subprocess.CompletedProcess([], 0, "", "")
+        cases = {
+            "absent": ([], "push the head and wait"),
+            "pending": ([{"name": "engine-ci", "status": "IN_PROGRESS",
+                          "startedAt": "2026-08-25T01:00:00Z"}], "still running"),
+            "red": ([{"name": "engine-ci", "status": "COMPLETED", "conclusion": "FAILURE",
+                      "completedAt": "2026-08-25T01:00:00Z"}], "red for this head"),
+        }
+        for name, (rollup, message) in cases.items():
+            with self.subTest(rollup=name):
+                pr = self._pr(statusCheckRollup=rollup)
+                with mock.patch.object(bc, "_status", return_value=ready), \
+                        mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                        mock.patch.object(bc, "_run", return_value=ancestor), \
+                        self.assertRaisesRegex(bc.CoordinatorError, message):
+                    bc._submit_preview(self.store, str(self.plan_path))
+        pr = self._pr()
+        with mock.patch.object(bc, "_status", return_value=ready), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                mock.patch.object(bc, "_run", return_value=ancestor):
+            preview = bc._submit_preview(self.store, str(self.plan_path))
+        self.assertEqual(preview["action"], "mark-ready")
 
 
 class TestPreflightHandoffAndSubmission(CoordinatorCase):
@@ -2083,8 +2563,8 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_every_mapped_obligation_has_one_live_disposition(self):
         obligations = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())
-        self.assertEqual(len(obligations["obligations"]), 68)
-        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
+        self.assertEqual(len(obligations["obligations"]), 73)
+        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 73)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
         # The two core-owned runbooks are present in EVERY projection, so they are asserted unconditionally;
@@ -2102,10 +2582,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_runbook_stays_within_its_line_cap(self):
         # A ratchet against bloat, kept with no slack: it sat at exactly 250 and moved to 251 when the v2
         # completion path had to be taught (a Routine session following the old text would reach for a verb
-        # the coordinator now refuses). Raise it only for instruction a session cannot work without, and
-        # only by what that instruction actually costs.
+        # the coordinator now refuses), and to 253 when the candidate/final split's order of operations
+        # became a numbered list — a usability reviewer showed the prose form taught the sequence to
+        # nobody, and the push step is one a session cannot work without. Raise it only for instruction a
+        # session cannot work without, and only by what that instruction actually costs.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 251)
+        self.assertLessEqual(len(text.splitlines()), 253)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -2155,9 +2637,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_short_runbook_preserves_the_quality_and_authority_gates(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
-        # Same ratchet as the line cap: 3063 -> 3081, the measured cost of teaching the v2 completion path
-        # and validate's node-roster flag. The preservation-source ratio (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3081)
+        # Same ratchet as the line cap: 3063 -> 3081 for the v2 completion path, -> 3147 for the
+        # candidate/final validation split (step 5 now teaches the cache, the imported merge proof and
+        # the rollup wall — verbs a session cannot work without; 3147 -> 3152 restoring the focused-tests
+        # anchor BO-21 binds). The preservation-source ratio
+        # (448/6296) is unchanged.
+        self.assertLessEqual(len(text.split()), 3152)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges"):
             self.assertIn(phrase, text)

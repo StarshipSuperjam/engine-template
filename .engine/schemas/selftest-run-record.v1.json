@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "selftest-run-record.v1.json",
   "title": "selftest-run-record.v1 — what one self-test run actually did",
-  "description": "The machine-readable account `selftest.py --run-record-path` writes. IT IS DELIBERATELY NOT CALLED A RECEIPT. In this repository a receipt already means the opposite thing: the CI gatekeeper's `engine-ci-receipt` is precisely what lets a merge go green WITHOUT re-running the inventory. This document is the reverse — a record of a run that may deliberately have executed a subset, and that must never substitute for anything. Reviewers judged two artifacts sharing one word with inverse meanings a real hazard, and the rename is the fix.\n\nThree properties make a focused run structurally distinguishable rather than merely legible. `scope` is REQUIRED and has no default, so a record that does not say what it covered is invalid rather than ambiguous. `inventory` always reports the COMPLETE discovered tree even when the run was focused, so what was skipped is visible by subtraction. And `attests` names the single validation command this record speaks for, saying nothing about the other command the Build protocol registers — a documentation-only change legitimately runs no self-tests while still being able to break the validator suite, and a bare 'passed' would read as 'this tree is validated'.\n\nA focused run NEVER satisfies the Build coordinator's validation-freshness hold. The hold exists so a submitted commit is the one that passed validation; a focused run passes a subset chosen by a heuristic, and `scope` is the field that makes that mechanically checkable rather than a matter of trust.\n\nThe body is written by the CHILD process, which holds every outcome first-hand, and finished by the parent, which adds the verbatim exit status and the log digest. The child writes it rather than the parent deriving it from the progress pipe because that pipe is a best-effort liveness channel — never drained after the child exits, its trailing partial line discarded — which is right for a heartbeat and silently lossy for a record.\n\nWHAT THIS RECORD DOES NOT BIND, stated plainly because a later consumer will be tempted to trust it: there is no commit or tree identity in it. A truthful record produced against one tree can sit beside another and read as an attestation of that one. `scope: \"full\"` also means only 'unfiltered' — a run pointed at an empty directory yields a valid full record with an inventory count of zero. The load-bearing fields are the inventory counts and digests, and a consumer must RE-DERIVE the inventory rather than believe the record's own count, exactly as the CI gatekeeper re-derives rather than believing its receipt.",
+  "description": "The machine-readable account `selftest.py --run-record-path` writes. IT IS DELIBERATELY NOT CALLED A RECEIPT. In this repository a receipt already means the opposite thing: the CI gatekeeper's `engine-ci-receipt` is precisely what lets a merge go green WITHOUT re-running the inventory. This document is the reverse — a record of a run that may deliberately have executed a subset, and that must never substitute for anything. Reviewers judged two artifacts sharing one word with inverse meanings a real hazard, and the rename is the fix.\n\nThree properties make a focused run structurally distinguishable rather than merely legible. `scope` is REQUIRED and has no default, so a record that does not say what it covered is invalid rather than ambiguous. `inventory` always reports the COMPLETE discovered tree even when the run was focused, so what was skipped is visible by subtraction. And `attests` names the single validation command this record speaks for, saying nothing about the other command the Build protocol registers — a documentation-only change legitimately runs no self-tests while still being able to break the validator suite, and a bare 'passed' would read as 'this tree is validated'.\n\nWhat a focused run may and may not stand for, the candidate/final law: a focused run may stand as CANDIDATE evidence behind the Build coordinator's iteration and packet gates — disclosed by this record's own `scope` field — and NEVER as final or merge evidence. The only merge path is the coordinator's final import of the CI proof for the exact head, so a submitted commit's full-inventory proof is the engine-ci run, and `scope` is the field that makes the difference mechanically checkable rather than a matter of trust.\n\nThe body is written by the CHILD process, which holds every outcome first-hand, and finished by the parent, which adds the verbatim exit status and the log digest. The child writes it rather than the parent deriving it from the progress pipe because that pipe is a best-effort liveness channel — never drained after the child exits, its trailing partial line discarded — which is right for a heartbeat and silently lossy for a record.\n\nWHAT THIS RECORD BINDS AND WHAT IT DOES NOT, stated plainly because a later consumer will be tempted to trust it. It names the committed tree it describes: `tree` is the repository's HEAD tree hash resolved from the suite's start directory, with `worktree_dirty` saying whether the working tree had drifted from that commit when the record was written — and both are null exactly when no repository is derivable there, which is the synthetic-fixture path. That is corroboration, not authentication: the record is an unauthenticated local file, so a consumer gating on it must refuse a null, dirty, or mismatched tree against an identity it derived itself. `scope: \"full\"` also means only 'unfiltered' — a run pointed at an empty directory yields a valid full record with an inventory count of zero. The load-bearing fields are the inventory counts and digests, and a consumer must RE-DERIVE the inventory rather than believe the record's own count, exactly as the CI gatekeeper re-derives rather than believing its receipt.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -23,7 +23,9 @@
     "selection_digest",
     "slowest",
     "started_at",
-    "verdict"
+    "tree",
+    "verdict",
+    "worktree_dirty"
   ],
   "properties": {
     "schema_version": {
@@ -275,6 +277,47 @@
     "record_incomplete": {
       "description": "True if any part of the run's own bookkeeping failed while being collected — a case whose printed form raised, say. The run's VERDICT is unaffected and remains the child's exit status verbatim; this says only that the timings, failures or skips below may be incomplete. Recorded because the alternative was a silently partial record in the artifact that exists to be honest about what a run covered.",
       "type": "boolean"
+    },
+    "tree": {
+      "description": "The committed tree this record describes: `git rev-parse HEAD^{tree}` resolved from the suite's start directory, so the identity is the tree the tests actually ran over, not the tool's own home. Null exactly when no repository or committed tree is derivable there — the synthetic-fixture path — never a guess. A gating consumer must refuse null and must compare this against a tree identity it derived itself; the record cannot authenticate its own claim.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "worktree_dirty": {
+      "description": "Whether the working tree had drifted from the committed tree when the record was written, read from the same porcelain the selector reads (`--untracked-files=all`, so a new file inside a new directory counts). Null exactly when `tree` is null: the dirtiness of a tree that could not be resolved is not a fact this record can state. A gating consumer must refuse true — a dirty tree's committed hash does not describe what actually ran.",
+      "type": [
+        "boolean",
+        "null"
+      ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "description": "The two binding fields travel together: a resolved tree always carries a dirtiness verdict, and an unresolvable one never invents it.",
+      "if": {
+        "properties": {
+          "tree": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "worktree_dirty": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "worktree_dirty": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  ]
 }

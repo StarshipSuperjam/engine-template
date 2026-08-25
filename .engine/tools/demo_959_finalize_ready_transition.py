@@ -190,9 +190,21 @@ def _ready_state(head: str) -> dict:
                         "latest_failure": None,
                         "integration": {"attempt_id": "0" * 32, "commit": head,
                                         "focused_verification": "fixture only"}}},
-        "validation": {"commit": head, "results": [
-            {"id": "self-test", "commit": head, "passed": True,
-             "summary": "seeded green for the finalize-transition fixture"}]},
+        # The split shape, seeded whole: candidate evidence with a full (fixture) identity, and an
+        # imported final proof for the same head. A legacy single-slot seed normalizes to
+        # candidate-never-final and now parks at the final-validation rung — this demo is about the
+        # finalize transition, so it seeds the evidence the ready gate demands, exactly as a real
+        # Build earns it (validate, then validate final import).
+        "validation": {
+            "candidate": {
+                "commit": head, "merge_base": head,
+                "protocol_digest": bc._digest(b"finalize-demo-protocol"),
+                "argv_digests": {"self-test": bc._digest(b"finalize-demo-argv")},
+                "inventory_digest": "fixture-inventory", "run_record": None,
+                "results": [{"id": "self-test", "commit": head, "passed": True,
+                             "summary": "seeded green for the finalize-transition fixture"}]},
+            "final": {"commit": head, "source": "ci-import", "run_id": 1,
+                      "context": "engine-ci", "tree": "0" * 40}},
         "repair": None,
         "preflights": [{"id": pid, "commit": head, "passed": True,
                         "summary": "seeded green for the finalize-transition fixture"}
@@ -233,7 +245,10 @@ def _scenario(copy: str, head: str, plan_path: str, bin_dir: str, holder: str, *
     calls_path = os.path.join(holder, f"calls-{mode}-{initial_draft}.log")
     with open(pr_state_path, "w") as fh:
         json.dump({"number": PR, "state": "OPEN", "isDraft": initial_draft,
-                   "headRefOid": head, "baseRefOid": head, "mergeable": "MERGEABLE", "body": BODY}, fh)
+                   "headRefOid": head, "baseRefOid": head, "mergeable": "MERGEABLE", "body": BODY,
+                   "statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
+                                          "conclusion": "SUCCESS",
+                                          "completedAt": "2026-08-25T00:00:00Z"}]}, fh)
     open(calls_path, "w").close()
     state_path = _seed_state(head)
     proc = _run_submit_apply(copy, state_path, plan_path, bin_dir, pr_state_path, calls_path, mode)
