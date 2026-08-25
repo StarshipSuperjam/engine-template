@@ -2846,9 +2846,10 @@ def _repair_round_lines(state: dict) -> list[str]:
         return []
     counted = sum(1 for entry in rounds if _round_counted(entry))
     lines = [f"- **Repair rounds.** {len(rounds)} round(s) ran after the deliverable review, "
-             f"{counted} of which dispatched a review panel. A panel round is what spends the budget "
-             f"({_REPAIR_ROUND_ESCALATION} of them); {_REPAIR_ROUND_CEILING} rounds of any kind is the "
-             f"absolute ceiling. Passing either stop needs recorded operator guidance, disclosed above."]
+             f"{counted} of which dispatched a review panel. A panel round is what spends the budget; the "
+             f"budget is {_REPAIR_ROUND_ESCALATION} panel rounds, and {_REPAIR_ROUND_CEILING} rounds of any "
+             f"kind is the absolute ceiling. Passing either stop needs recorded operator guidance, "
+             f"disclosed above."]
     for index, entry in enumerate(rounds, start=1):
         lines.append("  - " + _round_line(index, entry))
         classification = entry.get("classification")
