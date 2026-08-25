@@ -25,6 +25,7 @@ import build_coordinator_github as github
 import build_coordinator_review as review
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
+import build_state_store
 import repo_identity
 import review_integrity
 
@@ -207,8 +208,33 @@ def _state_schema_for(state: dict) -> Path:
 
 
 class StateStore(core.StateStore):
+    """A snapshot at a path the caller named with --state. The escape hatch and the tests' store."""
+
     def __init__(self, path: str, expected_revision: int | None = None):
         super().__init__(path, _state_schema_for, expected_revision)
+
+
+# Either store, wherever a command only needs "the snapshot for this Build". They are peers with one
+# shared discipline (core.RevisionedStore) and a genuinely different home, and no command below cares
+# which one it got — which is the point of the split being in addressing rather than in behaviour.
+Snapshot = core.RevisionedStore
+
+
+def _resolve_store(args) -> Snapshot:
+    """Which snapshot this command acts on: the one named, or the one bound to this worktree.
+
+    `--state` still means exactly what it always meant — this file, no lookup — and it wins, because
+    a caller who named a path is answering the question this function otherwise has to infer. What
+    changed is the default. Before, omitting `--state` was an error, because there was nowhere else a
+    snapshot could be; now the durable snapshot lives with the plan that bound it, and the worktree
+    the session is standing in is what names it. That is the whole restart story: a session that
+    comes back to the same worktree finds the same evidence, with nothing to have remembered.
+    """
+    if args.state:
+        return StateStore(args.state, args.expect_revision)
+    library = _library()
+    return build_state_store.resolve_for_worktree(
+        ROOT, _state_schema_for, args.expect_revision, library=library)
 
 
 def _empty_review() -> dict:
@@ -226,7 +252,11 @@ def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: s
                    issue: int | None, mode: str = "same-session") -> dict:
     state = {
         "schema_version": "build-state.v1", "revision": 1,
-        "build": {"repository": repo, "pr": pr, "base_at_bind": base, "mode": mode},
+        # `worktree` is what lets a session that restarted find this snapshot again without having
+        # remembered anything: it is standing in the worktree, and the durable store looks the Build
+        # up by it. Recorded at bind because bind is the moment the two are genuinely bound.
+        "build": {"repository": repo, "pr": pr, "base_at_bind": base, "mode": mode,
+                  "worktree": str(ROOT)},
         # The plan of record is the sealed library plan, named by id and by the digest its seal minted.
         # `digest` remains the executed build payload's digest: equal to the sealed payload at bind, and
         # the thing every later `--plan` assertion is checked against.
@@ -665,7 +695,7 @@ def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
             "written from the Issue you meant.")
 
 
-def cmd_plan_bind(args, store: StateStore) -> None:
+def cmd_plan_bind(args, store: Snapshot) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
     # v1 is unreachable at entry from here on. The schemas, the dispatch and `plan migrate-v1` still
@@ -693,6 +723,11 @@ def cmd_plan_bind(args, store: StateStore) -> None:
         raise CoordinatorError("the draft PR head does not match this worktree")
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
+    # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
+    # sealed plan, which is the default because the alternative is what actually happened: a killed
+    # Build whose approval, receipts, findings and progress were reconstructed by hand.
+    if store is None:
+        store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
     store.create(state)
     _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"])
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
@@ -703,6 +738,50 @@ def cmd_plan_bind(args, store: StateStore) -> None:
               "the Build proceeds — reach ready only through 'submit apply', never a bare 'gh pr ready'.",
               file=sys.stderr)
     print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
+
+
+def cmd_state_where(args, store: "Snapshot | None") -> None:
+    """Say where this Build's evidence actually is. The first question a resuming session asks."""
+    library = _library()
+    found = build_state_store.bound_snapshots(ROOT, library=library)
+    warning = plan_store_module().volume_warning(library.root)
+    print(f"plan library: {library.root}")
+    if warning:
+        print(f"WARNING: {warning}")
+    elif not plan_store_module().volume_determined(library.root):
+        print("note: this platform could not determine the library's filesystem type, so the "
+              "network-filesystem check did not run. That is a gap, not a pass.")
+    if not found:
+        print(f"no durable Build snapshot is bound to {ROOT}")
+        return
+    for slug, path in found:
+        state = core.json_file(path)
+        print(f"{slug}: {path} (revision {state.get('revision')}, "
+              f"PR {state['build']['pr']}, {state['build']['repository']})")
+
+
+def cmd_state_migrate(args, store: "Snapshot | None") -> None:
+    """Move one OS-temp snapshot into the durable library, or refuse and leave it untouched."""
+    destination = build_state_store.migrate(args.source, args.plan, _state_schema_for,
+                                            library=_library(), worktree=ROOT)
+    print(json.dumps({"migrated": str(destination), "source": str(Path(args.source).resolve()),
+                      "source_kept": True}))
+
+
+def cmd_state_supersede(args, store: "Snapshot | None") -> None:
+    """Set this plan's durable snapshot aside so a second Build of it may start. Never implicit."""
+    library = _library()
+    slug = library.resolve(args.plan)
+    retired = build_state_store.supersede(library, slug, reason=args.reason)
+    if retired is None:
+        raise CoordinatorError(
+            f"{slug} holds no durable Build snapshot, so there is nothing to supersede.")
+    print(json.dumps({"superseded": str(retired)}))
+
+
+def plan_store_module():
+    import plan_store
+    return plan_store
 
 
 def _migrate_v1_to_v2(v1: dict) -> dict:
@@ -733,7 +812,7 @@ def _migrate_v1_to_v2(v1: dict) -> dict:
     return v2
 
 
-def cmd_plan_migrate_v1(args, store: StateStore | None) -> None:
+def cmd_plan_migrate_v1(args, store: Snapshot | None) -> None:
     v1 = _plan(args.input)
     if _plan_version(v1) != "build-plan.v1":
         raise CoordinatorError("plan migrate-v1 requires a build-plan.v1 document")
@@ -778,7 +857,7 @@ def _reset_after_revision(state: dict, plan: dict) -> None:
     state.pop("artifact_sync", None)
 
 
-def cmd_plan_revise(args, store: StateStore) -> None:
+def cmd_plan_revise(args, store: Snapshot) -> None:
     plan = _plan(args.input)
     state = store.read()
     if _digest(plan) == state["plan"]["digest"]:
@@ -826,7 +905,7 @@ def cmd_plan_revise(args, store: StateStore) -> None:
           "and the divergence is disclosed at merge")
 
 
-def cmd_approve(args, store: StateStore) -> None:
+def cmd_approve(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     state = store.read()
     _assert_plan(state, plan)
@@ -847,7 +926,7 @@ def cmd_approve(args, store: StateStore) -> None:
     print(f"approved plan and {args.depth} review depth")
 
 
-def cmd_status(args, store: StateStore) -> None:
+def cmd_status(args, store: Snapshot) -> None:
     state = store.read()
     plan = None
     if args.plan:
@@ -919,7 +998,7 @@ def cmd_status(args, store: StateStore) -> None:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
 
 
-def cmd_depths(args, store: "StateStore | None") -> None:
+def cmd_depths(args, store: "Snapshot | None") -> None:
     """Advisory, read-only: which review depths are worth OFFERING for this repo's installed reviewer roster,
     and the reviewer effort each resolves to. Consulted before `approve` so the operator is never asked to pick
     a depth that buys nothing over a lighter one (StarshipSuperjam/engine-template#763). The exact offer rule
@@ -977,7 +1056,7 @@ def _emit_packet(packet: dict, args) -> None:
           f"{len(packet['required_lenses'])} required lens(es), commit {packet.get('commit') or 'plan'}")
 
 
-def _packet(args, store: StateStore | None) -> None:
+def _packet(args, store: Snapshot | None) -> None:
     plan = _plan(args.plan)
     impact = json.loads(_input(args.impact)) if args.impact else {}
     protocol = _protocol()
@@ -1138,7 +1217,7 @@ def _packet(args, store: StateStore | None) -> None:
 # that can never gain an entry is a field nobody can read anything true out of.
 
 
-def cmd_review_record(args, store: StateStore) -> None:
+def cmd_review_record(args, store: Snapshot) -> None:
     finding_ids = sorted(set(args.finding or []))
     def change(state):
         if args.stage == "repair":
@@ -1196,7 +1275,7 @@ def cmd_review_record(args, store: StateStore) -> None:
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
 
 
-def cmd_finding_record(args, store: StateStore) -> None:
+def cmd_finding_record(args, store: Snapshot) -> None:
     if args.disposition == "escalated" and not args.escalation_kind:
         raise CoordinatorError("an escalated finding must name the operator-owned decision boundary")
     if args.disposition != "escalated" and args.escalation_kind:
@@ -1252,7 +1331,7 @@ def cmd_finding_record(args, store: StateStore) -> None:
     print(f"recorded disposition for {args.id}; reviewer severity did not choose the remedy")
 
 
-def cmd_assumption_dispose(args, store: StateStore) -> None:
+def cmd_assumption_dispose(args, store: Snapshot) -> None:
     """Resolve a plan assumption authored 'unresolved' to 'verified' or 'accepted-risk' in the receipt layer,
     bound to a --basis, WITHOUT editing the plan (StarshipSuperjam/engine-template#1014). Mirrors
     cmd_finding_record: store.mutate never touches state['plan']['digest'], so approval and every review
@@ -1295,7 +1374,7 @@ def _changed_paths(base: str) -> list[str]:
     return sorted(x for x in paths if x)
 
 
-def cmd_checkpoint(args, store: StateStore) -> None:
+def cmd_checkpoint(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     try:
         note = json.loads(_input(args.input))
@@ -1363,7 +1442,7 @@ def _derived_drift() -> list:
     return [d for d in derived_state.verify() if d.status in ("drift", "error")]
 
 
-def cmd_validate(args, store: StateStore) -> None:
+def cmd_validate(args, store: Snapshot) -> None:
     state = store.read()
     revision = state["revision"]
     unearned = _unearned_completions(state)
@@ -1453,7 +1532,7 @@ def _rmdir_empty_parents(start: Path) -> None:
         return
 
 
-def cmd_sync_artifacts(args, store: StateStore) -> None:
+def cmd_sync_artifacts(args, store: Snapshot) -> None:
     """Transactional artifact preparation: regenerate the built-in derived members in declared order and
     commit them, so the read-only `validate` (which refuses a dirty or moved tree) then runs against a
     current tree. Refuses a dirty tree at entry (the proven executor precondition that makes restore
@@ -1659,7 +1738,7 @@ def _history_was_rewritten(state: dict, head: str) -> bool:
     return bool(recorded_base) and bool(current_base) and recorded_base != current_base
 
 
-def cmd_reconcile(args, store: StateStore) -> None:
+def cmd_reconcile(args, store: Snapshot) -> None:
     """Re-anchor the deliverable review's commit bindings after a diff-preserving history rewrite.
 
     The merge-freshness floor and a linear-history ruleset together make a rebase the required reconcile
@@ -1743,7 +1822,7 @@ def cmd_reconcile(args, store: StateStore) -> None:
               f"spans the branch as it actually stands. Recompose the PR body before submitting.")
 
 
-def cmd_repair_assess(args, store: StateStore) -> None:
+def cmd_repair_assess(args, store: Snapshot) -> None:
     head = _head()
     state = store.read()
     revision = state["revision"]
@@ -1883,7 +1962,7 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
             "ci_passed": ci_passed, "ci_summary": ci_summary, "declarations": declarations}
 
 
-def cmd_preflight(args, store: StateStore) -> None:
+def cmd_preflight(args, store: Snapshot) -> None:
     state = store.read()
     revision = state["revision"]
     repo, pr = state["build"]["repository"], state["build"]["pr"]
@@ -1996,7 +2075,7 @@ def _handoff(state: dict) -> dict:
     return value
 
 
-def cmd_handoff_export(args, store: StateStore) -> None:
+def cmd_handoff_export(args, store: Snapshot) -> None:
     """Write the Build's own evidence out for a cold resume. Nothing is published to GitHub.
 
     The plan half of a handoff is gone: the plan is not re-derived from an Issue body, because it is
@@ -2084,7 +2163,7 @@ def _restore_work(work_map: dict) -> dict:
     return restored
 
 
-def cmd_handoff_restore(args, store: StateStore) -> None:
+def cmd_handoff_restore(args, store: Snapshot) -> None:
     if not args.input:
         raise CoordinatorError(
             "restore reads an exported handoff file: pass --input. Handoffs are no longer published "
@@ -2158,7 +2237,7 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
     print(f"restored Build snapshot against sealed plan {plan_id}")
 
 
-def _submit_preview(store: StateStore, plan_path: str) -> dict:
+def _submit_preview(store: Snapshot, plan_path: str) -> dict:
     state = store.read()
     revision = state["revision"]
     plan = _plan(plan_path)
@@ -2199,13 +2278,13 @@ def _submit_preview(store: StateStore, plan_path: str) -> dict:
             "snapshot_revision": revision, "action": action, "merge": False}
 
 
-def cmd_submit_preview(args, store: StateStore) -> None:
+def cmd_submit_preview(args, store: Snapshot) -> None:
     with core.StableCommit(ROOT, "submission preview"):
         preview = _submit_preview(store, args.plan)
     print(json.dumps(preview, indent=2, sort_keys=True))
 
 
-def cmd_submit_apply(args, store: StateStore) -> None:
+def cmd_submit_apply(args, store: Snapshot) -> None:
     preview = None
     try:
         with core.StableCommit(ROOT, "ready transition"):
@@ -2269,7 +2348,7 @@ def _bindings() -> dict:
     return _json(BINDINGS_PATH)
 
 
-def _work_mutate(store: StateStore, change) -> Any:
+def _work_mutate(store: Snapshot, change) -> Any:
     """Every work verb reads the current revision and mutates under an explicit compare-and-swap.
 
     A shared helper so no work verb repeats the legacy pattern of mutating without a from_revision;
@@ -2314,7 +2393,7 @@ def _claim_refusal_reason(plan: dict, state: dict, node_id: str, node: dict) -> 
     return f"it is {st}" + (f" ({reasons})" if reasons else "")
 
 
-def cmd_work_packet(args, store: StateStore) -> None:
+def cmd_work_packet(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     state = store.read()
@@ -2341,7 +2420,7 @@ def cmd_work_packet(args, store: StateStore) -> None:
     print(json.dumps(packet))
 
 
-def cmd_work_frontier(args, store: StateStore) -> None:
+def cmd_work_frontier(args, store: Snapshot) -> None:
     """Read-only projection of the admission decision: what is admitted, what waits, and why.
 
     Writes NOTHING — no mutate, no store write, no GitHub call. It exists so a session can ask what
@@ -2384,7 +2463,7 @@ def cmd_work_frontier(args, store: StateStore) -> None:
                       for node_id in projection["admission_rank"]))
 
 
-def cmd_work_claim(args, store: StateStore) -> None:
+def cmd_work_claim(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     item = work.node_item(plan, args.item)
@@ -2419,7 +2498,7 @@ def cmd_work_claim(args, store: StateStore) -> None:
     print(json.dumps(emitted["packet"]))
 
 
-def cmd_work_attach(args, store: StateStore) -> None:
+def cmd_work_attach(args, store: Snapshot) -> None:
     def change(state):
         nw = _node_work(state, args.item)
         claim = nw.get("claim")
@@ -2433,7 +2512,7 @@ def cmd_work_attach(args, store: StateStore) -> None:
     print(f"attached worker reference to {args.item} attempt {args.attempt}")
 
 
-def cmd_work_result(args, store: StateStore) -> None:
+def cmd_work_result(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     item = work.node_item(plan, args.item)
@@ -2469,7 +2548,7 @@ def _commit_on_branch(commit: str) -> bool:
     return _run(["git", "merge-base", "--is-ancestor", commit, "HEAD"]).returncode == 0
 
 
-def cmd_work_reject(args, store: StateStore) -> None:
+def cmd_work_reject(args, store: Snapshot) -> None:
     def change(state):
         nw = _node_work(state, args.item)
         claim = nw.get("claim")
@@ -2484,7 +2563,7 @@ def cmd_work_reject(args, store: StateStore) -> None:
     print(f"rejected {args.item} attempt {args.attempt} ({args.rejection_class}); resources released")
 
 
-def cmd_work_retry(args, store: StateStore) -> None:
+def cmd_work_retry(args, store: Snapshot) -> None:
     def change(state):
         nw = _node_work(state, args.item)
         failure = nw.get("latest_failure")
@@ -2503,7 +2582,7 @@ def cmd_work_retry(args, store: StateStore) -> None:
     print(f"retry recorded for {args.item} via {args.strategy} ({consequence}): {args.reason}")
 
 
-def cmd_work_abandon(args, store: StateStore) -> None:
+def cmd_work_abandon(args, store: Snapshot) -> None:
     def change(state):
         nw = _node_work(state, args.item)
         claim = nw.get("claim")
@@ -2519,7 +2598,7 @@ def cmd_work_abandon(args, store: StateStore) -> None:
     print(f"abandoned {args.item} attempt {args.attempt}; resources released")
 
 
-def cmd_work_integrate(args, store: StateStore) -> None:
+def cmd_work_integrate(args, store: Snapshot) -> None:
     if not args.verification_input.strip():
         raise CoordinatorError("integration requires a focused-verification summary")
     if not _commit_on_branch(args.commit):
@@ -2891,7 +2970,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     }
 
 
-def cmd_contract_preview(args, store: StateStore) -> None:
+def cmd_contract_preview(args, store: Snapshot) -> None:
     """Read-only: validate the claim and current evidence, render the candidate body, run the real
     completeness rule locally, and report the source/claim/commit/candidate digests. No GitHub write."""
     state = store.read()
@@ -2941,7 +3020,7 @@ def _extract_marker_blocks(body: str) -> list:
     return blocks
 
 
-def _apply_body(repo: str, pr: int, *, expected_before: str, new_body: str, revision: int, store: StateStore) -> str:
+def _apply_body(repo: str, pr: int, *, expected_before: str, new_body: str, revision: int, store: Snapshot) -> str:
     """One safe body write: confirm the live body is still what we last saw and Build evidence has not moved,
     write, then read back and require byte-equality. Mirrors cmd_handoff_export's proven idiom. Returns the
     written body (now the confirmed live body). Never clobbers an external edit — a mismatch refuses."""
@@ -2998,7 +3077,7 @@ def _close_linkage_result(repo: str, pr: int, base: str, head: str) -> dict:
     return {"lines": parsed.get("lines", []), "defang": parsed.get("defang")}
 
 
-def cmd_contract_apply(args, store: StateStore) -> None:
+def cmd_contract_apply(args, store: Snapshot) -> None:
     """Compose the body and apply it to the still-draft PR under a source-digest compare-and-swap, folding
     close-linkage advisory lines to a fixed point (max three passes), then record the full preflight set and
     bind pr_contract to the stable body. Never marks ready and never merges."""
@@ -3099,6 +3178,10 @@ def parser() -> argparse.ArgumentParser:
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
+    state_p = sub.add_parser("state").add_subparsers(dest="state_command", required=True)
+    swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
+    smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
+    ssupersede = state_p.add_parser("supersede"); ssupersede.add_argument("--plan", required=True); ssupersede.add_argument("--reason", required=True); ssupersede.set_defaults(func=cmd_state_supersede)
     validate = sub.add_parser("validate"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
@@ -3133,13 +3216,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
         stateless = (args.command == "depths"
+                     or args.command == "state"
                      or (args.command == "plan" and getattr(args, "plan_command", None) == "migrate-v1")
                      or (args.command == "contract" and getattr(args, "contract_command", None) == "template"))
-        if not args.state and not standalone and not stateless:
-            raise CoordinatorError("--state is required for this command")
+        # `plan bind` is the one command that has no snapshot to resolve: it is the command that
+        # creates one. Without --state it chooses the durable address itself, from the plan it binds.
+        binding = args.command == "plan" and getattr(args, "plan_command", None) == "bind"
         if standalone and (not args.repository or not args.depth):
             raise CoordinatorError("standalone review packets require --repository and --depth")
-        store = None if (standalone or stateless) else StateStore(args.state, args.expect_revision)
+        deferred = binding and not args.state
+        store = None if (standalone or stateless or deferred) else _resolve_store(args)
         args.func(args, store)
         return 0
     except CoordinatorError as exc:

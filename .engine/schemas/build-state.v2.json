@@ -18,7 +18,9 @@
         "repository": {"type": "string", "minLength": 1},
         "pr": {"type": "integer", "minimum": 1},
         "base_at_bind": {"$ref": "#/$defs/commit"},
-        "mode": {"enum": ["same-session", "unattended"]}
+        "mode": {"enum": ["same-session", "unattended"]},
+        "worktree": {"type": "string", "minLength": 1,
+                     "description": "Absolute path of the worktree this Build runs in. How a session that restarted finds its durable snapshot again: the worktree is what the session is standing in, where a pointer file is something the crash could have taken with it. Optional, because a snapshot addressed by an explicit --state path needs no such lookup."}
       }
     },
     "plan": {

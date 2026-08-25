@@ -120,6 +120,22 @@ for weakening one, and editing a hold quietly on the strength of that silence is
 exists to prevent. Nothing about the Build's own state changed: the snapshot is still machine-local,
 non-durable and authority-free._
 
+_Amended 2026-08-25, for the Build's own execution state — the one thing every amendment above said had
+not changed. It has now. "Machine-local, non-durable and authority-free" was three claims, and the middle
+one was refuted by use: a Build killed mid-flight lost its approval, receipts, findings, dispositions and
+progress, and they were reconstructed by hand. The snapshot is therefore DURABLE, and the OS-temporary-
+directory refusal in `StateStore.__init__` that enforced the old claim in code is DELETED rather than
+relaxed in silence — a guarantee removed on purpose is named where the guarantee was made. One assertion is
+ADDED with its evidence (BC-30). The durable snapshot lives beside the sealed plan that bound it, inside the
+same local, gitignored, owner-only library, and it is written through the same lock, compare-and-swap and
+atomic durable write that library already uses rather than a second copy of them. The other two claims stand
+unchanged and are the ones this contract rests on: the snapshot is still machine-local, and it still carries
+NO AUTHORITY — the plan is the authority, and a snapshot that disagrees with the sealed plan still loses.
+Two costs, stated here rather than discovered later. Build evidence now persists for as long as its plan
+folder does, including reviewers' local-only private notes, under the workstation-only trust model of
+eADR-0044. And durability is not portability: the library is per-workstation, so a durable snapshot does not
+make a Build resumable on another machine._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
@@ -153,6 +169,7 @@ non-durable and authority-free._
 | BC-27 | mechanical fact | A DAG node is complete only with a recorded integration commit on the PR branch and focused verification. | Work integrate; `test_build_coordinator_work.TestWorkDispositions`; `test_build_coordinator.TestV2CompletionGate` | Without it, a returned worker artifact could be treated as completion without the orchestrator integrating and verifying it. | Completion requires an integration commit proven on the PR branch plus recorded focused verification; worker commits are transport, never completion. Until 2026-08-24 the cited evidence covered only the work path, while `checkpoint --complete-item` wrote the same completion with no integration — so the assertion held of one writer and not of the coordinator as a whole. The second citation closes that gap by exercising the refusal itself. |
 | BC-28 | mechanical fact | A plan enters a Build only through a seal. | `plan bind`; `test_build_coordinator.TestSealedPlanEntry`; the 2026-08-24 cutover | The session handed the coordinator a plan document and the coordinator validated its SHAPE — so a plan that had never been presented whole, approved, or reviewed was indistinguishable at bind from one that had. Everything upstream of bind was convention. | `plan bind --plan <id>` resolves a plan in the local library, verifies its revision chain, requires a recorded seal, and refuses when the plan has moved since it was sealed or when the payload digest does not match the sealed one. There is no other entry: `--source issue` is retired, `plan promote` and `handoff export --publish` are gone, and a build-plan.v1 payload is refused at entry with its remedy named. |
 | BC-29 | mechanical fact | A plan cannot be sealed with less review than the approved depth demanded. | `plan_coordinator.seal_refusals`; `test_plan_coordinator`; the 2026-08-24 panel move | On the Build side this was BC-12's waivable half: coverage the operator approved could be omitted and then excused retrospectively, which made the depth choice advisory. | The seal refuses a recorded review whose lenses do not cover the approved depth's installed roster, and the review receipt is verified against the packet the approved revision actually renders. The demand is keyed on the ROSTER, not the depth name, so `quick` — whose roster is empty by the operator's own choice — seals with no cold review, and nothing else does. |
+| BC-30 | recovery behavior | A Build's own execution evidence survives a forced restart of the workstation it runs on. | `build_state_store.DurableBuildStore`; `test_build_state_store`; the 2026-08-25 durable-state change | The snapshot lived in the OS temporary directory by construction, and `StateStore` REFUSED any other path. A Build killed mid-flight lost its approval, review receipts, findings, dispositions and progress; they were reconstructed by hand. | The snapshot is durable and lives beside the sealed plan that bound it, one per plan, written owner-only through the same lock, compare-and-swap and atomic durable write the plan library uses. A session resuming in the same worktree finds it with nothing remembered; a second Build of the same plan displaces the first only through an explicit `state supersede`, which keeps the displaced snapshot. Durability buys survival, not standing: the snapshot still carries no authority, and the library is per-workstation, so it is a restart of THIS machine that is survived, not a move to another. |
 
 ### Hard holds and demonstrated failures
 

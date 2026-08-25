@@ -188,7 +188,8 @@ class TestPlanAndSnapshot(CoordinatorCase):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
-        self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE, "mode": "same-session"})
+        self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
+                                                 "mode": "same-session", "worktree": str(bc.ROOT)})
 
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
@@ -314,11 +315,14 @@ class TestPlanAndSnapshot(CoordinatorCase):
             bc.StateStore(self.state_path, expected_revision=1).mutate(lambda s: None)
         self.assertTrue(Path(self.state_path).exists())
 
-    def test_snapshot_outside_os_temp_is_refused(self):
-        # The filesystem root is outside the OS temp dir in every environment. bc.ROOT is NOT: a projected
-        # deployment is itself created under the temp dir, where the refusal correctly does not fire.
-        with self.assertRaisesRegex(bc.CoordinatorError, "OS temporary"):
-            bc.StateStore(str(Path(os.sep) / "state.json"))
+    def test_a_snapshot_outside_os_temp_is_accepted_now_that_state_is_durable(self):
+        # The inverse of the assertion this replaces. Until 2026-08-25 a snapshot outside the OS
+        # temporary directory was REFUSED, and that refusal is exactly what made a killed Build lose
+        # its evidence. It is deleted with the eADR-0025 and eADR-0041 amendments, and durability has
+        # a proper home in build_state_store. Asserted here, where the old guarantee was made, so the
+        # deletion is visible at the class that carried it rather than only in the new module.
+        self.assertEqual(bc.StateStore(str(Path(os.sep) / "state.json")).path,
+                         Path(os.sep) / "state.json")
 
     def test_plan_revision_invalidates_approval_and_reviews_but_not_build_identity(self):
         self.seed(); self.approve()
@@ -2525,11 +2529,25 @@ class TestTheCanonSaysOneThing(unittest.TestCase):
         # and the operator's read of the PR is what stands behind a merge.
         self.assertIn("workstation-only", self.claim)
 
-    def test_never_a_durable_leg_is_separated_rather_than_deleted(self):
-        # It was one sentence about two things and only one of them changed. Deleting it would have
-        # discarded the claim about BUILD state, which is the claim eADR-0025 actually rests on.
-        self.assertIn("never a durable leg, never plan authority", self.claim)
-        self.assertIn("one claim about two things", self.claim)
+    def test_never_a_durable_leg_is_separated_and_then_narrowed_rather_than_deleted(self):
+        # One sentence about two things, taken apart one at a time rather than dropped. 2026-08-24
+        # separated them; 2026-08-25 dropped the durability half for the Build's own state, because
+        # a killed Build losing its evidence refuted it. What survives is the claim eADR-0025
+        # actually rests on, and it must still be there in those words.
+        self.assertIn("never plan authority", self.claim)
+        self.assertIn("one sentence about two different things", self.claim)
+        self.assertIn("carries no authority", self.claim)
+        # The BOLDED phrase is the live claim; the earlier amendments quote the old wording as
+        # history, which is the record working as intended and must not be rewritten.
+        self.assertNotIn("**never a durable leg, never plan authority**", self.claim,
+                         "eADR-0025 still claims the Build's own state is never durable")
+
+    def test_the_claim_record_states_what_durable_build_state_costs(self):
+        # Amending rather than deleting means the residuals are named: evidence now persists as long
+        # as its plan folder, and durability is not portability.
+        self.assertIn("Amended 2026-08-25", self.claim)
+        self.assertIn("private notes", self.claim)
+        self.assertIn("does not make a Build resumable on another machine", self.claim)
 
 
 class TestV1Migration(CoordinatorCase):
