@@ -57,7 +57,10 @@
         "completed": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "commit"], "properties": {"id": {"type": "string"}, "commit": {"$ref": "#/$defs/commit"}}}}
       }
     },
-    "validation": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/result_set"}]},
+    "validation": {
+      "description": "Three shapes: null; the legacy single slot (result_set), kept so old snapshots and restored handoffs stay readable and normalize on read to candidate-with-null-identity; and the candidate/final split.",
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/result_set"}, {"$ref": "#/$defs/validation_split"}]
+    },
     "repair": {
       "oneOf": [
         {"type": "null"},
@@ -173,6 +176,43 @@
       "type": "object", "additionalProperties": false,
       "required": ["commit", "results"],
       "properties": {"commit": {"$ref": "#/$defs/commit"}, "results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/result"}}}
+    },
+    "validation_split": {
+      "description": "The split evidence model. `candidate` is build-loop evidence — the structural suite plus the affected-selection self-test run, cached by content-addressed identity. `final` is the imported engine-ci proof for the exact head; its ONLY writer is `validate final import`. A legacy single-slot value (the result_set arm above) normalizes on read to a candidate with null identity — never a cache hit, never final.",
+      "type": "object", "additionalProperties": false,
+      "required": ["candidate", "final"],
+      "properties": {
+        "candidate": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/candidate_validation"}]},
+        "final": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/final_validation"}]}
+      }
+    },
+    "candidate_validation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["commit", "merge_base", "protocol_digest", "argv_digests", "inventory_digest", "run_record", "results"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/commit"},
+        "merge_base": {"$ref": "#/$defs/commit"},
+        "protocol_digest": {"$ref": "#/$defs/digest"},
+        "argv_digests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
+        "inventory_digest": {"type": "string", "minLength": 1},
+        "run_record": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["id", "digest", "scope", "tree"], "properties": {"id": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}, "scope": {"enum": ["full", "focused"]}, "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}}]},
+        "results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/result"}}
+      }
+    },
+    "final_validation": {
+      "description": "An imported, verified engine-ci proof. `run_id` names the workflow run the platform reported as produced by the registered workflow file; `tree` is the receipt's tree binding, equal to the head's tree under the up-to-date-with-base precondition the import enforces.",
+      "type": "object", "additionalProperties": false,
+      "required": ["commit", "source", "run_id", "tree", "context"],
+      "properties": {
+        "commit": {"$ref": "#/$defs/commit"},
+        "source": {"const": "ci-import"},
+        "run_id": {"type": "integer", "minimum": 1},
+        "run_attempt": {"type": ["integer", "null"], "minimum": 1},
+        "context": {"type": "string", "minLength": 1},
+        "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "receipt_digest": {"$ref": "#/$defs/digest"},
+        "imported_at": {"type": "string", "minLength": 1}
+      }
     }
   }
 }

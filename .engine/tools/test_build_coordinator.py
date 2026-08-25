@@ -968,7 +968,7 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_deliverable_packet_requires_green_validation(self):
         self.store.mutate(lambda s: s.update({"validation": None}))
         args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
-        with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green validation"):
+        with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
     def test_deliverable_packet_captures_a_checkout_baseline(self):
@@ -1275,6 +1275,27 @@ class TestArtifactSync(CoordinatorCase):
         self.assertIsNone(self.state().get("artifact_sync"))
 
 
+def _candidate_validation_fake(payload="complete validation output\n", rc=0, record_mutator=None):
+    """A fake `_run_validation` for the candidate protocol: writes the log, and — for the command
+    carrying `--run-record-path` — a run record consistent with everything the coordinator checks
+    against its own derivations (tree, cleanliness, inventory count, log digest). `record_mutator`
+    lets a test corrupt exactly one field to prove the corresponding refusal is real."""
+    def validation(command, path):
+        path.write_text(payload, encoding="utf-8")
+        if "--run-record-path" in command:
+            record_path = command[command.index("--run-record-path") + 1]
+            tree = bc._run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
+            count, _ = bc.ci_gatekeeper.inventory_digest(str(bc.ROOT))
+            record = {"attests": "engine-selftest", "scope": "full", "tree": tree,
+                      "worktree_dirty": False, "inventory": {"module_count": count},
+                      "log": {"path": str(path), "sha256": bc._digest(payload.encode())}}
+            if record_mutator:
+                record_mutator(record)
+            Path(record_path).write_text(json.dumps(record), encoding="utf-8")
+        return rc
+    return validation
+
+
 class TestValidationRepairAndStatus(CoordinatorCase):
     def setUp(self):
         super().setUp()
@@ -1282,29 +1303,34 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.integrate_all()
 
     def test_validation_records_every_result_against_head(self):
-        def validation(command, path):
-            path.write_text("complete validation output\n", encoding="utf-8")
-            return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
-        self.assertEqual({r["commit"] for r in self.state()["validation"]["results"]}, {HEAD_A})
-        self.assertTrue(all(Path(r["log_path"]).read_text() == "complete validation output\n" for r in self.state()["validation"]["results"]))
+        candidate = self.state()["validation"]["candidate"]
+        self.assertEqual({r["commit"] for r in candidate["results"]}, {HEAD_A})
+        self.assertTrue(all(Path(r["log_path"]).read_text() == "complete validation output\n" for r in candidate["results"]))
 
     def test_validation_runs_only_registered_commands(self):
         seen = []
+        inner = _candidate_validation_fake()
         def validation(command, path):
-            seen.append(command); path.write_text("ok\n"); return 0
+            seen.append(command); return inner(command, path)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
-        self.assertEqual(seen, [item["command"] for item in bc._protocol()["validation_commands"]])
+        registered = bc._protocol()["validation_commands"]["candidate"]
+        self.assertEqual(len(seen), len(registered))
+        for ran, item in zip(seen, registered):
+            self.assertEqual(len(ran), len(item["command"]))
+            for ran_token, registered_token in zip(ran, item["command"]):
+                if registered_token in ("{merge_base}", "{run_record_path}"):
+                    self.assertNotIn("{", ran_token, "placeholders must be substituted, never passed through")
+                else:
+                    self.assertEqual(ran_token, registered_token, "only registered tokens may run")
 
     def test_validation_preserves_complete_logs(self):
         payload = "x" * 5000
-        def validation(command, path):
-            path.write_text(payload); return 0
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake(payload=payload)), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
-        for result in self.state()["validation"]["results"]:
+        for result in self.state()["validation"]["candidate"]["results"]:
             self.assertEqual(Path(result["log_path"]).read_text(), payload)
             self.assertEqual(result["log_digest"], bc._digest(payload.encode()))
 
@@ -1326,7 +1352,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [{"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
         with mock.patch.object(bc, "_head", return_value=HEAD_B):
             status = bc._status(self.state())
-        self.assertIn("green validation for the final commit", status["required_evidence"])
+        self.assertIn("green candidate validation for the final commit", status["required_evidence"])
 
     def test_status_requires_validation_for_current_head(self):
         self.test_validation_becomes_stale_when_head_changes()
@@ -1450,7 +1476,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
     def test_repair_review_requires_validation_for_repaired_commit(self):
         self.store.mutate(lambda s: s.update({"repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []}}))
         args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
-        with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green validation"):
+        with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
     def test_repair_findings_are_dispositioned_in_the_repair_stage(self):
@@ -1572,6 +1598,165 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_installed", return_value=[]):
             status = bc._status(self.state(), value)
         self.assertEqual(status["progress"], {"completed": [], "total": 2, "current": None, "next": "W1"})
+
+
+class TestCandidateEvidenceAndCache(CoordinatorCase):
+    """The split evidence model: the cache's content-addressed identity, the downgrade seams that can
+    never mint final evidence, and the run record's refusal paths — each corruption driven singly."""
+
+    def setUp(self):
+        super().setUp()
+        self.seed(); self.approve("quick")
+        self.integrate_all()
+
+    def _validate(self, fake=None, **over):
+        calls = []
+        inner = fake or _candidate_validation_fake()
+        def counting(command, path):
+            calls.append(command); return inner(command, path)
+        args = {"plan": str(self.plan_path)}
+        args.update(over)
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_derived_drift", return_value=[]), \
+                mock.patch.object(bc, "_run_validation", side_effect=counting), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_validate(argparse.Namespace(**args), self.store)
+        return calls, out.getvalue()
+
+    def test_a_repeat_at_the_same_identity_is_a_cache_hit_that_mutates_nothing(self):
+        self._validate()
+        before = Path(self.state_path).read_bytes()
+        calls, out = self._validate()
+        self.assertEqual(calls, [], "a cache hit must re-run nothing")
+        self.assertIn('"cached": true', out)
+        self.assertEqual(Path(self.state_path).read_bytes(), before,
+                         "a cache hit performs no state mutation at all")
+
+    def test_force_always_re_runs(self):
+        self._validate()
+        calls, _ = self._validate(force=True)
+        self.assertEqual(len(calls), 2, "--force must re-run every registered candidate command")
+
+    def test_every_identity_component_is_load_bearing(self):
+        """Corrupting any single stored component — commit, merge base, protocol digest, an argv
+        digest, the inventory digest — must miss the cache and re-run."""
+        self._validate()
+        components = ["commit", "merge_base", "protocol_digest", "argv_digests", "inventory_digest"]
+        for component in components:
+            with self.subTest(component=component):
+                def corrupt(state, key=component):
+                    candidate = state["validation"]["candidate"]
+                    if key == "argv_digests":
+                        candidate[key] = {list(candidate[key])[0]: bc._digest(b"other")}
+                    elif key in ("commit", "merge_base"):
+                        candidate[key] = HEAD_B
+                    else:
+                        candidate[key] = bc._digest(b"other")
+                self.store.mutate(corrupt)
+                calls, _ = self._validate()
+                self.assertEqual(len(calls), 2, f"a changed {component} must be a cache miss")
+
+    def test_a_red_candidate_never_hits_the_cache(self):
+        with self.assertRaises(bc.CoordinatorError):
+            self._validate(fake=_candidate_validation_fake(rc=1))
+        calls, _ = self._validate()
+        self.assertEqual(len(calls), 2, "only a green candidate may satisfy a repeat")
+
+    def test_a_legacy_slot_normalizes_to_null_identity_and_never_hits(self):
+        """The downgrade seam: an old single-slot snapshot stays readable, stands behind packets at
+        its commit, and can never be a cache hit or final evidence."""
+        legacy = {"commit": HEAD_A, "results": [{"id": "engine-ci", "commit": HEAD_A,
+                                                 "passed": True, "summary": "ok"}]}
+        self.store.mutate(lambda s: s.update({"validation": legacy}))
+        state = self.state()
+        split = bc._split_validation(state)
+        self.assertIsNone(split["candidate"]["protocol_digest"])
+        self.assertIsNone(split["final"])
+        self.assertTrue(bc._candidate_ok(state, HEAD_A))
+        self.assertFalse(bc._final_ok(state, HEAD_A))
+        calls, _ = self._validate()
+        self.assertEqual(len(calls), 2, "null identity describes nothing and must never hit")
+
+    def test_no_coordinator_write_path_mints_final_evidence(self):
+        """`validate` preserves a same-head final and DROPS a different-head one; it never creates
+        one. The only writer of `final` is the import verb — held here at the state level, and by
+        the source audit below."""
+        final = {"commit": HEAD_A, "source": "ci-import", "run_id": 5,
+                 "context": "engine-ci", "tree": "b" * 40}
+        self._validate()
+        self.store.mutate(lambda s: s["validation"].update({"final": final}))
+        self._validate(force=True)
+        self.assertEqual(bc._split_validation(self.state())["final"], final,
+                         "a same-head candidate re-run preserves valid final evidence")
+        self.store.mutate(lambda s: s["validation"]["final"].update({"commit": HEAD_B}))
+        self._validate(force=True)
+        self.assertIsNone(bc._split_validation(self.state())["final"],
+                          "final evidence for another head must be dropped, never inherited")
+
+    def test_every_reader_routes_through_the_accessor(self):
+        """Mechanical: raw `state["validation"]` subscripts may appear only in the accessor itself
+        and in the writers (cmd_validate's store, the clears, and state seeding) — a reader that
+        bypasses `_split_validation` re-opens the shape drift this closes."""
+        import inspect
+        source = inspect.getsource(bc)
+        readers = [line.strip() for line in source.splitlines()
+                   if 'state["validation"]["' in line.replace(" ", "")]
+        self.assertEqual(readers, [], f"raw validation readers bypass the accessor: {readers}")
+
+    def test_each_run_record_corruption_is_refused_singly(self):
+        cases = {
+            "foreign tree": lambda r: r.update({"tree": "c" * 40}),
+            "null tree": lambda r: r.update({"tree": None, "worktree_dirty": None}),
+            "dirty tree": lambda r: r.update({"worktree_dirty": True}),
+            "inventory count": lambda r: r["inventory"].update({"module_count": 1}),
+            "log digest": lambda r: r["log"].update({"sha256": bc._digest(b"other")}),
+            "foreign attestation": lambda r: r.update({"attests": "engine-ci"}),
+        }
+        for name, mutator in cases.items():
+            with self.subTest(corruption=name):
+                self.store.mutate(lambda s: s.update({"validation": None}))
+                with self.assertRaisesRegex(bc.CoordinatorError, "failed"):
+                    self._validate(fake=_candidate_validation_fake(record_mutator=mutator))
+                candidate = bc._split_validation(self.state())["candidate"]
+                refused = [r for r in candidate["results"] if not r["passed"]]
+                self.assertTrue(refused, f"{name}: the corrupted record must fail its result")
+                self.assertIn("run record refused", refused[0]["summary"])
+
+    def test_a_missing_run_record_is_refused(self):
+        def no_record(command, path):
+            path.write_text("ok\n", encoding="utf-8"); return 0
+        with self.assertRaisesRegex(bc.CoordinatorError, "failed"):
+            self._validate(fake=no_record)
+        candidate = bc._split_validation(self.state())["candidate"]
+        self.assertIn("missing or unreadable",
+                      [r for r in candidate["results"] if not r["passed"]][0]["summary"])
+
+    def test_bare_validate_says_it_is_the_candidate_variant(self):
+        _, out = self._validate()
+        self.assertIn("validate candidate", out.splitlines()[0])
+        self.assertIn("{", out, "the JSON consumers parse from the first brace still follows")
+
+    def test_handoff_restore_downgrades_to_candidate_without_final(self):
+        """A cold continuation must re-import against the live rollup: the handoff carries candidate
+        evidence in the legacy shape, and a restored state holds no final."""
+        self._validate()
+        final = {"commit": HEAD_A, "source": "ci-import", "run_id": 5,
+                 "context": "engine-ci", "tree": "b" * 40}
+        self.store.mutate(lambda s: s["validation"].update({"final": final}))
+        out = io.StringIO()
+        handoff_path = Path(self.temp.name) / "handoff.json"
+        with self.sealed(), mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(out):
+            bc.cmd_handoff_export(argparse.Namespace(output=str(handoff_path)), self.store)
+        value = json.loads(handoff_path.read_text())
+        self.assertEqual(set(value["validation"]), {"commit", "results"},
+                         "the handoff carries candidate evidence in the legacy shape only")
+        restored = bc._restore_result_set(value["validation"])
+        state_like = {"validation": restored}
+        self.assertIsNone(bc._split_validation(state_like)["final"])
+        self.assertIsNone(bc._split_validation(state_like)["candidate"]["protocol_digest"],
+                          "a restored candidate has null identity and can never be a cache hit")
 
 
 class TestPreflightHandoffAndSubmission(CoordinatorCase):
