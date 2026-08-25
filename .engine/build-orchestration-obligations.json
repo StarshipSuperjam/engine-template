@@ -566,7 +566,7 @@
     },
     {
       "id": "BO-70",
-      "intent": "No coordinator verb promotes candidate evidence to final: the ci-import source is minted only by `validate final import`, which verifies the live rollup and a platform-filtered, tree-bound receipt for the exact head on top of green candidate evidence.",
+      "intent": "No coordinator verb promotes candidate evidence to final — held by a syntax-tree audit that finds every function able to write the final key by any spelling, not by literal pins: the ci-import source is minted only by `validate final import`, which verifies the live rollup and a platform-filtered, tree-bound receipt for the exact head on top of green candidate evidence.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",

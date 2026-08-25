@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import time
@@ -1441,6 +1442,11 @@ def _candidate_identity(head: str, protocol_validation: dict, merge_base: str) -
     return identity, inventory_count
 
 
+# A hard ceiling on the run log a record may name for its digest check. Real logs are megabytes at
+# most; this refuses an unbounded read of a path the coordinator did not choose.
+_MAX_RECORD_LOG_BYTES = 256 * 1024 * 1024
+
+
 def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) -> list:
     """Why a run record may NOT stand as candidate evidence. The record is an unauthenticated local
     file, so nothing in it is believed — the tree, the dirtiness, the inventory count and the log
@@ -1474,13 +1480,26 @@ def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) 
             and isinstance(log.get("sha256"), str)):
         problems.append("the record's log entry is missing or malformed")
     else:
+        # The one operation here that touches attacker-named data. A reviewer got a traceback out of
+        # it with an embedded null byte (ValueError, which `except OSError` does not catch), and
+        # noted that an unbounded read of a named path also invites a huge file or a blocking FIFO.
+        # So: a regular file, of bounded size, read inside a catch-all — every failure is a refusal.
+        actual = None
         try:
-            actual = _digest(Path(log["path"]).read_bytes())
-        except OSError:
+            path = Path(log["path"])
+            info = path.stat()
+            if not stat.S_ISREG(info.st_mode):
+                problems.append("the record's log path is not a regular file")
+            elif info.st_size > _MAX_RECORD_LOG_BYTES:
+                problems.append(f"the record's log is {info.st_size} bytes, beyond the "
+                                f"{_MAX_RECORD_LOG_BYTES}-byte bound for a digest check")
+            else:
+                actual = _digest(path.read_bytes())
+        except (OSError, ValueError):
             actual = None
-        if actual is None:
+        if not problems and actual is None:
             problems.append("the record's log cannot be read back to check its digest")
-        elif actual != log["sha256"]:
+        elif actual is not None and actual != log["sha256"]:
             problems.append("the record's log digest does not match the log on disk")
     return problems
 

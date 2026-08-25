@@ -1718,6 +1718,11 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
             "log without a path": lambda r: r.update({"log": {"sha256": bc._digest(b"x")}}),
             "unreadable log with no digest to hide behind": lambda r: r.update(
                 {"log": {"path": "/nonexistent/run.log", "sha256": "sha256:absent"}}),
+            # A reviewer got a traceback out of the log read with an embedded null byte, which
+            # `except OSError` does not catch, and noted the unbounded read of an
+            # attacker-named path beside it.
+            "log path with an embedded null byte": lambda r: r["log"].update({"path": "a\x00b"}),
+            "log path that is a directory, not a file": lambda r: r["log"].update({"path": "/tmp"}),
         }
         for name, mutator in cases.items():
             with self.subTest(corruption=name):
@@ -1828,24 +1833,64 @@ class TestFinalImportAndRollupGate(CoordinatorCase):
                          "provenance must go through the platform-filtered enumeration, bound to the "
                          "local head and its tree — never a run picked out of rollup fields")
 
+    @staticmethod
+    def _final_slot_writers(source):
+        """Every function in `source` that could put a value under the `final` key, BY SYNTAX TREE.
+
+        Two reviewers independently defeated the literal-pin version of this audit: each planted a
+        laundering promotion into the coordinator — one reaching the slot through `.update({...})`,
+        one through a differently-named dict literal — and watched all 278 tests pass. A grep for
+        chosen spellings catches only the spellings someone thought of, which is the same blindness
+        the bare minting-literal count had. This finds subscript stores, `final=` keywords, and any
+        dict literal carrying a "final" key, and reports the enclosing function of each."""
+        import ast
+        tree = ast.parse(source)
+        enclosing = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.walk(node):
+                    enclosing.setdefault(id(child), node.name)
+        writers = set()
+        for node in ast.walk(tree):
+            hit = False
+            if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Store):
+                hit = getattr(node.slice, "value", None) == "final"
+            elif isinstance(node, ast.Dict):
+                hit = any(isinstance(k, ast.Constant) and k.value == "final" for k in node.keys)
+            elif isinstance(node, ast.keyword):
+                hit = node.arg == "final"
+            if hit:
+                writers.add(enclosing.get(id(node)))
+        return writers
+
     def test_the_import_verb_is_the_only_writer_of_final_evidence(self):
-        """Mechanical, on the WRITE side — a literal count alone is blind to laundering (a promotion
-        that copies an existing final carries no minting literal), so every assignment to the final
-        slot is enumerated and pinned to the two permitted writers: the import verb's record
-        callback, and cmd_validate's head-guarded preserve-or-drop."""
+        """Only two functions may reach the final slot: the import verb's record callback, and
+        cmd_validate's head-guarded preserve-or-drop."""
         import inspect
-        import re
         source = inspect.getsource(bc)
+        self.assertEqual(
+            self._final_slot_writers(source),
+            {"_final_import", "cmd_validate", "_split_validation"},
+            "exactly three functions may touch the final key: the import verb (whose nested record "
+            "callback performs the only mint), cmd_validate's head-guarded preserve-or-drop, and the "
+            "read-side normalizer that CONSTRUCTS a view and never persists one — pinned here too, so "
+            "the normalizer's role cannot quietly become a writer either. Any fourth is laundering")
         self.assertEqual(source.count('"source": "ci-import"'), 1,
                          "final evidence is minted in exactly one place")
-        assignments = [line.strip() for line in source.splitlines()
-                       if re.search(r'\["final"\]\s*=', line)]
-        self.assertEqual(assignments, ['raw["final"] = final'],
-                         "the import verb's record callback is the only subscript writer of final")
-        self.assertEqual(source.count('"final": preserved_final'), 1,
-                         "cmd_validate's preserve-or-drop is the only other write, as a dict literal")
         self.assertIn('split["final"].get("commit") == head', source,
                       "the preserved value is head-guarded, so preservation can never re-stamp")
+
+    def test_the_write_side_audit_catches_a_laundering_promotion(self):
+        """The audit's own positive control: the exact exploit two reviewers used to defeat the
+        previous version — a promotion reaching the slot through `.update()`, with no subscript
+        assignment, no minting literal, and a differently-named dict — must now be seen."""
+        import inspect
+        laundered = inspect.getsource(bc) + (
+            "\n\ndef cmd_promote_evidence(args, store):\n"
+            "    promoted = {\"commit\": \"x\", \"source\": \"local\"}\n"
+            "    store.mutate(lambda s: s[\"validation\"].update({\"final\": promoted}))\n")
+        self.assertIn("cmd_promote_evidence", self._final_slot_writers(laundered),
+                      "the audit must see a laundering promotion no literal pin would catch")
 
     def test_head_drift_refuses_with_the_push_or_pull_remedy(self):
         with self.assertRaisesRegex(bc.CoordinatorError, "push this head"):

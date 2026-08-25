@@ -138,7 +138,9 @@ never a run selected out of rollup fields. Handoff restore and legacy snapshots 
 candidate-never-final, so a cold continuation re-imports against the live rollup. The invalidation law:
 code (a new head) drops both classes; a same-head candidate re-run preserves final; metadata (body, labels)
 touches neither. And said outright so nobody mistakes it later: this wall is DISCIPLINE-TIER — held by
-tests (a single-minting audit on the import verb, the cache matrix, the record-refusal set) and by review,
+tests (a syntax-tree audit that enumerates every function able to write the final key by any
+spelling — literal pins were defeated twice by reviewers who planted laundering promotions and
+watched them pass — plus the cache matrix and the record-refusal set) and by review,
 not by the guardrail floor, because flooring the whole coordinator would turn every ordinary edit into a
 hard acknowledgement; whether a narrower final-evidence writer deserves flooring is surfaced to the
 operator as a follow-on decision, not decided here. One hard hold is ADDED with its evidence in the table

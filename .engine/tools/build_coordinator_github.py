@@ -88,9 +88,13 @@ def required_check(data: dict, context: str) -> tuple:
     be posted by any repository writer through the status API — a same-named status must never
     out-vote the platform's own check. Ties within the preferred shape go to the LATEST entry by its
     own timestamps, which is how a superseded run's lingering red loses to the newer green (observed
-    on this repository's pull requests). A same-named CheckRun from another app remains
-    indistinguishable here and is bounded elsewhere: the import verifies provenance by the
-    platform-reported workflow path, and the operator's merge stands behind branch protection."""
+    on this repository's pull requests). Two residuals, both stated rather than
+    flattered: a same-named CheckRun from another installed app is indistinguishable here, and where
+    NO CheckRun exists at all a lone same-named commit status decides, since a preference between
+    shapes can only rank the shapes that are present. Both are bounded downstream — the import
+    verifies provenance by the platform-reported workflow path, and the operator's merge stands
+    behind branch protection — but neither is closed by this reader, and the submission re-read
+    leans on that downstream bound rather than on anything proven here."""
     entries = [x for x in (data.get("statusCheckRollup") or [])
                if x.get("name") == context or x.get("context") == context]
     if not entries:
