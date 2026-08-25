@@ -3365,6 +3365,51 @@ class TestEvidenceDurability(CoordinatorCase):
         # and it must NOT offer the activity that is a guaranteed refusal in this state
         self.assertFalse(any("proportional re-review" in a for a in status["available_activities"]))
 
+    def test_no_private_plan_title_or_local_path_reaches_the_composed_body(self):
+        """THE MERGE SURFACE, not one function at a time.
+
+        Three separate composers read the same plan library and render its failure into the same
+        pull-request body, and that body is pushed to a public repository. The library's own errors
+        enumerate sibling plan slugs — the operator's private working titles for unrelated work — and
+        absolute filesystem paths. Two of the three were fixed with per-function assertions, and the
+        third, written a round earlier, went on quoting the exception until a lens found it.
+
+        So this asserts on the RENDERED BODY: point the library at a real one holding plans with
+        recognisable names, name a plan that does not resolve, compose, and require that nothing
+        private survives anywhere in the output. A composer added later is covered without anyone
+        remembering to add it here."""
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim, _good_evidence
+        import plan_store
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            library = plan_store.PlanLibrary(root)
+            # Real slugs, in the library's OWN shape. With anything else `resolve` reports "the library
+            # is empty", carries no titles, and this test passes without ever exercising the leak —
+            # which is exactly what it did the first time it was written.
+            secrets = ["layoff-tooling-q3--aa11bb", "acquisition-terms-draft--cc22dd"]
+            for index, slug in enumerate(secrets):
+                folder = root / slug
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / "record.json").write_text(
+                    json.dumps({"plan_id": f"pln_{index:012d}", "current": {"revision": 1}}),
+                    encoding="utf-8")
+            self.assertEqual(library.slugs(), sorted(secrets),
+                             "the fixture must populate the library, or this test proves nothing")
+            state = {"plan": {"plan_id": "pln_deadbeefdead"}, "approval": {"depth": "thorough"},
+                     "reviews": {"deliverable": {"receipts": []}}}
+            with mock.patch.object(bc, "_library", return_value=library):
+                lines = (bc._plan_consent_lines(state) + bc._plan_effort_lines(state)
+                         + [bc._plan_review_clause(state)])
+            body = bcc.compose(_good_claim(), {**_good_evidence(), "consent_lines": lines})
+            self.assertNotIn(tmp, body, "an absolute local path reached the merge surface")
+        self.assertTrue(any("could not be read" in line or "could NOT be established" in line
+                            for line in lines),
+                        "the failure must still be disclosed — silence is the other way to get this wrong")
+        for slug in secrets:
+            self.assertNotIn(slug, body, f"a private plan title reached the merge surface: {slug}")
+        self.assertNotIn("the library holds", body)
+
     def test_the_reconcile_disclosure_reaches_the_operator_in_the_composed_body(self):
         """Drives the REAL composer: state -> drift line -> rendered pull-request body. The two rules this
         sentence must never break are that it cannot claim no repair happened when one did, and that the

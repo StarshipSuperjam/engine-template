@@ -414,6 +414,19 @@ class TheB1EffortShortfall(unittest.TestCase):
                           if "ABOVE the session" in line], [],
                          "a receipt that names its own session must not be measured against another's")
 
+    def test_a_receipt_that_honestly_stamped_no_session_is_not_handed_back_to_the_list(self):
+        """The stamp is nullable: a panel spawned without a stated effort records None, honestly. Reading
+        it with `is None` handed exactly that receipt back to the drifting list the stamp replaced, and
+        the false line came straight back. Presence is the question, not truthiness."""
+        receipt = {"lens": "security-governance", "delivered_effort": "high",
+                   "spawn_session_effort": None}
+        state = {"approval": {"depth": "thorough"},
+                 "reviews": {"deliverable": {"session_effort": "medium", "receipts": [receipt]}},
+                 "repair": {"session_effort": None, "receipts": []}}
+        self.assertEqual([line for line in bc._effort_shortfall_lines(state)
+                          if "ABOVE the session" in line], [],
+                         "a receipt whose stamp says 'no session effort stated' claims nothing")
+
     def test_a_spliced_repair_receipt_answers_to_the_session_that_spawned_it(self):
         """A repair receipt is spliced into the deliverable stage, so comparing it against the
         DELIVERABLE session's effort measured it against a number it never ran under. The repair stage

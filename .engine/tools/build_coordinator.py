@@ -511,8 +511,12 @@ def _effort_shortfall_lines(state: dict) -> list[str]:
                 "knowing it (self-reported, and nothing here verifies it)")
     for receipt in receipts:
         delivered = receipt.get("delivered_effort")
-        spawning = receipt.get("spawn_session_effort")
-        if spawning is None:
+        # Presence, not truthiness. The stamp is nullable — a panel spawned without a stated effort
+        # records None honestly — so testing `is None` handed exactly that receipt back to the drifting
+        # list this stamp replaced, and it then produced the false "reviewed above its session" line.
+        if "spawn_session_effort" in receipt:
+            spawning = receipt["spawn_session_effort"]
+        else:
             spawning = repair_session if receipt["lens"] in repair_lenses else session
         if delivered is None:
             silent.append(receipt["lens"])
@@ -3420,20 +3424,24 @@ def _plan_consent_lines(state: dict) -> list[str]:
     plan_id = state.get("plan", {}).get("plan_id")
     if not plan_id:
         return []
-    try:
-        import plan_lifecycle
-        library = _library()
-        record = library.read_record(library.resolve(plan_id))
-    except Exception as exc:  # noqa: BLE001
+    import plan_lifecycle
+    record, problem = _sealed_plan_record(state)
+    if problem:
         # SAYS SO, rather than returning empty. Returning [] made an unreadable library indistinguishable
         # from a Build that had no consent points at all — the body simply omitted the trail, and nothing
         # in the completeness check demanded it. The headline safeguard of this whole program would have
         # degraded into silence at exactly the surface it exists to reach. A body that cannot show the
         # trail must say it could not, so the operator knows to ask.
-        return [f"**The operator-consent trail could not be read from the plan library, so it is NOT "
-                f"published here.** That is not the same as there having been no consent gates — it means "
+        #
+        # NAMED, NEVER QUOTED, and through the one shared read. The library's own errors enumerate
+        # sibling plan slugs and absolute paths — the operator's private working titles for unrelated
+        # work — and this line is composed into a body pushed to a public repository. Two sibling
+        # functions stopped quoting it and this one, written a round earlier, kept doing so; the fix is
+        # not to remember three times but to have one read that owns the failure.
+        return ["**The operator-consent trail could not be read from the plan library, so it is NOT "
+                "published here.** That is not the same as there having been no consent gates — it means "
                 f"this body cannot show you what you were recorded as deciding for plan {plan_id}, and you "
-                f"should ask before merging. ({exc})"]
+                "should ask before merging."]
     trail = plan_lifecycle.consent_trail(record)
     if not trail:
         return ["**No operator-consent attestations are recorded for this plan.** Approve, seal and bind "
@@ -3613,9 +3621,14 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # recorded no cold-review receipts) no lens ran, so naming the installed lenses as having "ran after"
     # would be a false claim in the PR body — the honesty defect this line must not commit. Key the sentence
     # on the recorded receipts, not on the installed set.
-    plan_review_ran = bool(_sealed_plan_review(state))
+    # A read FAILURE is not an absence here either. `bool(review)` is False both when the plan was
+    # sealed without one and when the library would not open, and the else-branch below asserts that no
+    # cold reviewers ran — a claim about how the change was reviewed, made because a read failed. The
+    # unknown takes the branch that says so rather than the one that says no.
+    plan_record, plan_problem = _sealed_plan_record(state)
+    plan_review_ran = bool((plan_record or {}).get("plan_review"))
     cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
-    if cold_review_ran:
+    if cold_review_ran or plan_problem:
         lenses = ", ".join(sorted(x["lens"] for x in _installed())) or "no installed deliverable lenses"
         plan_clause = _plan_review_clause(state)
         review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
