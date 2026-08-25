@@ -210,8 +210,20 @@ def render_skill(src_dir: str, root: str | None = None):
 
 def _agent_sources(root: str) -> list:
     # Every persona in .claude/agents/ is engine-authored today; render them all, engine-prefixed
-    # or not (the roster is the source directory, so a new persona gets its twin automatically).
-    return sorted(glob.glob(os.path.join(root, _AGENT_SRC_ALL)))
+    # or not (the roster is the source directory, so a new persona gets its twin automatically) —
+    # EXCEPT the scout role, which is Claude-only and is skipped rather than rendered.
+    #
+    # The skip is structural, not a preference. This renderer never emits a `model` (a pinned id
+    # rots), and the coherence floor requires `sandbox_mode = "read-only"` on every non-worker
+    # render. A scout survives neither rule: its whole value is running on the cheap tier, so a twin
+    # inheriting the frontier model would cost more than the inline work it replaces; and a
+    # shell-capable scout must copy the working tree into a disposable directory before it runs
+    # anything, which a read-only sandbox forbids. The twin would be silently expensive or silently
+    # unable to run — worse than an absent one, because the roster would still offer it. The absence
+    # is declared per persona in .engine/policies/provider-exceptions.json, which is what keeps the
+    # parity check green; remove this skip without removing those entries and the two disagree.
+    return [path for path in sorted(glob.glob(os.path.join(root, _AGENT_SRC_ALL)))
+            if dict(validate.frontmatter(path)).get("role") != "scout"]
 
 
 def _skill_sources(root: str) -> list:
