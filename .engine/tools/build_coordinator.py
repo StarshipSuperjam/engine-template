@@ -518,7 +518,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
             "continue implementation",
             "send a wide recall or impact sweep to `engine-grounding-scout` rather than running it inline",
             "run focused verification through `engine-validation-runner` unless you need the raw log",
-            "run final validation when the change is cohesive"]
+            "run final validation when the change is cohesive — here, not through a scout, since its "
+            "evidence binds to this checkout and a scout only ever sees a copy"]
     elif not delivery_ready:
         phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
     elif not repair_ready:

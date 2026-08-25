@@ -30,6 +30,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import agent_coherence_check as acc          # noqa: E402  (single source for the containment tokens)
 
 AGENT_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "agent.v1.json"))
 TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "template.v1.json"))
@@ -483,12 +484,48 @@ class TestShippedRosterDelegationPosture(unittest.TestCase):
         path = os.path.join(AGENTS_DIR, f"{name}.md")
         return " ".join(validate._body_without_frontmatter(validate.read(path)).split())
 
+    # The memory server's three MUTATING operations. A persona that only blocks Edit/Write/NotebookEdit
+    # is certified "read-only" by the coherence leg while still holding these, and `withhold` drops a
+    # note from every read path including the session briefing — so a scout could rewrite the project's
+    # memory of record. Named here rather than derived, deliberately: hardcoding the correct strings is
+    # what catches a typo in a persona's denylist, which would deny nothing while looking right.
+    MEMORY_WRITES = ("mcp__engine-memory__pin", "mcp__engine-memory__withhold",
+                     "mcp__engine-memory__restore")
+
+    def _cannot_use(self, name, tool):
+        """True when the platform cannot give this persona `tool`, under EITHER lock form.
+
+        A denylist blocks what it names; an allowlist blocks everything it omits. Both are valid and
+        both are in use here — the grounding scout carries an allowlist because its reading tools are
+        genuinely enumerable, which is the only form that also bounds a server nobody has connected yet.
+        A test that assumed one form would pass vacuously against the other.
+        """
+        fm = self._fm(name)
+        allow = fm.get("tools")
+        if isinstance(allow, list):
+            return tool not in allow
+        deny = fm.get("disallowedTools")
+        return isinstance(deny, list) and tool in deny
+
     def test_every_worker_and_scout_denies_both_subagent_tool_names(self):
         for name in self.LEAF_LOCKED:
-            deny = self._fm(name).get("disallowedTools")
-            self.assertIsInstance(deny, list, f"{name} must carry a list-form denylist to lock anything")
+            fm = self._fm(name)
+            self.assertTrue(isinstance(fm.get("tools"), list) or isinstance(fm.get("disallowedTools"), list),
+                            f"{name} carries neither a list-form allowlist nor denylist, so it locks nothing")
             for tool in self.SUBAGENT_TOOLS:
-                self.assertIn(tool, deny, f"{name} can still spawn via {tool}")
+                self.assertTrue(self._cannot_use(name, tool), f"{name} can still spawn via {tool}")
+
+    def test_no_scout_can_write_the_projects_memory(self):
+        """The control that closed a blocking review finding, pinned so it cannot be dropped in passing.
+
+        Both scouts' bodies now tell the reader this guarantee is mechanical. If the frontmatter loses
+        it, that shipped prose becomes a false assurance — which is worse than never having claimed it.
+        """
+        for name in ("engine-grounding-scout", "engine-validation-runner"):
+            for tool in self.MEMORY_WRITES:
+                self.assertTrue(self._cannot_use(name, tool),
+                                f"{name} can call {tool}; a scout must never change what the project "
+                                f"remembers, and its own body says it cannot")
 
     def test_every_judgment_persona_carries_the_bounded_delegation_mandate(self):
         for name in self.JUDGMENT:
@@ -518,8 +555,12 @@ class TestShippedRosterDelegationPosture(unittest.TestCase):
                                  f"the reason; if it is not, restore the mandate instead of the lock")
 
     def test_the_validation_runner_keeps_its_containment_and_raw_log_clauses(self):
-        body = self._body("engine-validation-runner")
-        for token in ("including uncommitted changes", "disposable copy", "git worktree add"):
+        # Mirrors agent_coherence_check._SCOUT_CONTAINMENT_TOKENS deliberately, and must be kept equal
+        # to it: this is the roster-level copy, and an earlier version of this case drifted from the
+        # check's list, so a runner body that merely MENTIONED the command and said nothing about the
+        # live checkout passed here while failing there.
+        body = self._body("engine-validation-runner").lower()
+        for token in acc._SCOUT_CONTAINMENT_TOKENS:
             self.assertIn(token, body,
                           "the runner lost part of its scout containment recipe")
         self.assertIn("raw log never goes in your reply", body,

@@ -208,16 +208,23 @@ class TestScoutContainmentLeg(unittest.TestCase):
             _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
             findings = acc.git_safety_findings("hard", root=d)
             self.assertEqual(len(findings), 1)
-            self.assertIn("including uncommitted changes", findings[0]["message"])
-            self.assertIn("disposable copy", findings[0]["message"])
+            # Assert against the MISSING list, not the surrounding prose: the message template names
+            # every token unconditionally, so an assertIn over the body text would pass no matter what
+            # was actually absent and would discriminate nothing.
+            missing = findings[0]["message"].split("(missing: ", 1)[1].split(")", 1)[0]
+            self.assertIn("including uncommitted changes", missing)
+            self.assertIn("disposable copy", missing)
+            self.assertIn("delete the copy when the run is done", missing)
+
     def test_partial_scout_recipe_names_only_what_is_missing(self):
         with tempfile.TemporaryDirectory() as d:
             body = _SCOUT_HEAD + ("Run never in the live checkout. Copy the whole working tree, including "
-                                  "uncommitted changes, into a disposable copy and run there.\n")
+                                  "uncommitted changes, into a disposable copy and run there. Then "
+                                  "delete the copy when the run is done.\n")
             _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
             findings = acc.git_safety_findings("hard", root=d)
             self.assertEqual(len(findings), 1)
-            self.assertIn("missing: Never `git worktree add`", findings[0]["message"])
+            self.assertIn("missing: never `git worktree add`", findings[0]["message"])
 
     def test_a_body_recommending_the_forbidden_operation_is_flagged(self):
         # The bypass this token set exists to close, reproduced. A presence check scores a body by what
@@ -252,7 +259,8 @@ class TestScoutContainmentLeg(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             body = _SCOUT_HEAD + ("Run never in the live\ncheckout. Copy the whole working tree, including "
                                   "uncommitted\nchanges, into a fresh disposable\ncopy in a temporary "
-                                  "directory. Never `git worktree\nadd` from an existing checkout.\n")
+                                  "directory. Never `git worktree\nadd` from an existing checkout. Delete the copy\n"
+                                  "when the run is done.\n")
             _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
             self.assertEqual(acc.git_safety_findings("hard", root=d), [],
                              "a wrapped but complete scout recipe is clean")

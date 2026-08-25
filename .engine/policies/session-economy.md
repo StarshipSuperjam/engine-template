@@ -46,9 +46,11 @@ actually came from. This is the standing answer.
 - **`engine-grounding-scout`** — the engine's own cheap scout for the ceremony sweeps: the memory-recall
   fan-out and the knowledge-graph impact traversal. Returns a cited shortlist, never a conclusion. It
   denies `Bash`, `Agent` and `Task` outright, so it is a mechanical leaf.
-- **`engine-validation-runner`** — runs the self-tests or the validation suite in a disposable copy of the
-  working tree and returns a digest of what failed and why, keeping thousands of lines of log out of the
-  orchestrating window. Denies `Agent` and `Task`.
+- **`engine-validation-runner`** — the focused verification you run *while building*: the self-tests, the
+  structural checks, or a named subset, in a disposable copy of the working tree, returning a digest of
+  what failed and why instead of thousands of log lines. Not the Build coordinator's own validation —
+  those runs bind their evidence to the live checkout, which a copy cannot produce. Denies `Agent` and
+  `Task`.
 - **DAG workers (`engine-worker-bounded`, `engine-worker-builder`)** — implementation nodes of an approved
   Build graph, dispatched with a bounded packet. Both now deny `Agent` and `Task` too.
 
@@ -68,6 +70,13 @@ Three residuals, named rather than hidden:
   rather than as a lock, and the leaf-lock above does not bind it. Whether such a wrapper exists is a
   property of your machine, not of this project; closing it is a change to your own file.
 - **The scouts are Claude-only.** They have no Codex twin; see `provider-exceptions.json` for why.
+- **A denylist does not bound the tools a session connects.** A persona that names tools to block inherits
+  everything else the session can reach, including whatever MCP servers happen to be connected — so a
+  write-capable server the engine has never heard of is reachable by any persona that only denies by name.
+  The grounding scout is exempt because it carries an allowlist instead: its whole tool set is enumerated,
+  so a newly connected server adds nothing to it. Every other persona, the validation runner included,
+  denies by name, because a reviewer's or a shell-capable scout's reach cannot honestly be enumerated in
+  advance. For those, what bounds the surface is which servers you connect.
 
 **This is not a cost router and does not meter spend.** The engine cannot see its own token use and does not
 own the model-invocation loop; `model-routing.md` rejects that scaffolding and that rejection stands. This

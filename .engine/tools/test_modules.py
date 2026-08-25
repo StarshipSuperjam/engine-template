@@ -494,13 +494,20 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         the failure that actually happened: delete the group and there is nothing left to walk, so it
         passes. This walks the other way, from the shipped personas to the claims, so a persona that
         no module carries is a failure rather than a silence.
+
+        BOTH arms, because the hole is identical on each and the workers' claims were missing from each.
+        A first version of this case walked only `.claude/agents/`, and a reviewer showed that dropping
+        a claim on a `.codex/agents/*.toml` twin — or adding a new unclaimed one — left every module
+        test green. A guard that covers one runtime of a two-runtime surface is the shape of the bug.
         """
+        BOTH_ARMS = ((".claude/agents", "*.md", "agent"), (".codex/agents", "*.toml", "codex-agent"))
         claims = module_coherence.provides_claims(module_coherence.discover_manifests())
-        for path in sorted(glob.glob(os.path.join(validate.ROOT, ".claude", "agents", "*.md"))):
-            rel = os.path.relpath(path, validate.ROOT)
-            self.assertTrue(claims.get(rel),
-                            f"{rel} is claimed by no module, so it ships to no deployment — add it to "
-                            f"the provides `agent` group of the module that owns it")
+        for directory, pattern, group in BOTH_ARMS:
+            for path in sorted(glob.glob(os.path.join(validate.ROOT, directory, pattern))):
+                rel = os.path.relpath(path, validate.ROOT)
+                self.assertTrue(claims.get(rel),
+                                f"{rel} is claimed by no module, so it ships to no deployment — add it "
+                                f"to the provides `{group}` group of the module that owns it")
 
     def test_check_corpus_split_core_two_guards_validators_core_owns_the_rest(self):
         # The locked engine/corpus boundary:

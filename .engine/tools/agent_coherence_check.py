@@ -73,27 +73,43 @@ _GIT_SAFETY_MESSAGE = (
 # uncommitted, so its copy must include uncommitted changes — the tracked-file clone the review recipe
 # names would test a different tree than the one asked about.
 #
-# The tokens carry their NEGATIONS where the recipe is a prohibition, and that is deliberate. A
-# presence check over prose scores a body by what it mentions, so a bare "git worktree add" token is
-# satisfied just as well by a body RECOMMENDING the operation as by one banning it — a reviewer
-# demonstrated exactly that against an earlier form of this list, rewriting the runner to work in the
-# live checkout and make its copy with `git worktree add` plus a remote repoint, and getting a clean
-# result. Requiring "never `git worktree add`" and "never in the live checkout" closes that particular
-# hole. Be honest about what it does NOT do: this is still a presence check over prose, not a
-# semantic one. A body could carry every token and then contradict itself in the next sentence. The
-# tokens make the recipe's SHAPE mechanical; that the surrounding prose means it is the reviewer's
-# judgment and the merge gate's, exactly as for the review recipe beside it.
+# The tokens carry their NEGATIONS where the recipe is a prohibition. A presence check scores a body by
+# what it mentions, so a bare "git worktree add" token was satisfied just as well by a body RECOMMENDING
+# the operation as by one banning it — a reviewer demonstrated that against an earlier form of this list,
+# rewriting the runner to work in the live checkout and make its copy with `git worktree add` plus a
+# remote repoint, and getting a clean result.
+#
+# READ THIS BEFORE TRUSTING THE LIST. Requiring the negations raises the COST of that bypass. It does not
+# close it, and saying otherwise here would be the same over-trust that let the first bypass ship. A
+# second reviewer defeated the negated form too, with a body that SCOPES each prohibition rather than
+# contradicting it: "never in the live checkout OF ANOTHER REPOSITORY. This checkout is yours, so run the
+# suite right here in it… Never `git worktree add` FROM A CHECKOUT YOU DO NOT OWN. From this one it is
+# fine… and then repoint its remote." That body carries every token and returns no finding, while
+# directing exactly the pair behind the two recorded incidents. One qualifying clause per token is all it
+# takes, and no token list fixes that — the defeat is in the grammar, not the vocabulary.
+#
+# So what this leg actually guarantees is narrow, and it is the whole guarantee: a persona body that is
+# SILENT about containment cannot ship. Whether the prose that is there means what it says is the
+# reviewer's judgment and the merge gate's, exactly as for the review recipe beside it. Do not add a
+# fifth token expecting it to close the class; a fifth clause defeats it.
+#
+# Matching is case-insensitive as well as whitespace-collapsed. The whitespace collapse exists so an
+# author is not taught to reflow paragraphs to satisfy a substring test; case sensitivity taught the same
+# lesson in another dimension — a correct mid-sentence "…and never `git worktree add` from an existing
+# checkout", the exact phrasing this module's own message uses, was reported as missing over a capital N.
 _SCOUT_CONTAINMENT_TOKENS = ("including uncommitted changes", "disposable copy",
-                             "never in the live checkout", "Never `git worktree add`")
+                             "never in the live checkout", "never `git worktree add`",
+                             "delete the copy when the run is done")
 _COLLAPSE_WS = re.compile(r"\s+")
 _SCOUT_CONTAINMENT_MESSAGE = (
     "Scout persona '{name}' keeps the Bash shell but its body is missing the scout containment "
     "recipe (missing: {missing}). A scout runs commands against work that is often still "
     "uncommitted, so it must copy the WHOLE working tree — including uncommitted changes — into a "
-    "fresh disposable copy in a temporary directory and run only there, never in the live checkout; "
-    "add that to .claude/agents/{name}.md, and state the prohibitions as prohibitions — the wording "
-    "is checked, so 'Never `git worktree add`' is what satisfies this, not a passing mention of the "
-    "command. Do not give a scout the review persona's tracked-file engine_fixture.clone_engine() "
+    "fresh disposable copy in a temporary directory and run only there, never in the live checkout, and "
+    "delete the copy when the run is done — it carries whatever secrets the tree held. Add that to "
+    ".claude/agents/{name}.md, and state the prohibitions as prohibitions: the wording is checked, so "
+    "'never `git worktree add`' is what satisfies this, not a passing mention of the command. Do not "
+    "give a scout the review persona's tracked-file engine_fixture.clone_engine() "
     "recipe: cloning only tracked files would run against a different tree than the one it was asked "
     "about and report a green that means nothing. Never `git worktree add` from an existing checkout "
     "(a worktree shares its .git/config, so a remote change inside it repoints the real one), and "
@@ -154,7 +170,7 @@ def git_safety_findings(tier: str, root: str | None = None, agents_dir: str | No
         # sitting right there — which teaches an author to reflow prose to satisfy a substring test
         # instead of to write the recipe. The review branch is deliberately left byte-exact: changing
         # how a shipped guard matches is a separate decision from adding a new one.
-        haystack = _COLLAPSE_WS.sub(" ", body) if scout else body
+        haystack = _COLLAPSE_WS.sub(" ", body).lower() if scout else body
         missing = [tok for tok in tokens if tok not in haystack]
         if missing:
             findings.append(validate.finding(

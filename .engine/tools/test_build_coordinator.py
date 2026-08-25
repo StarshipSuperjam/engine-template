@@ -2682,7 +2682,13 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
                        # stops naming them teaches the inline behaviour again by omission.
-                       "engine-grounding-scout", "engine-validation-runner"):
+                       "engine-grounding-scout", "engine-validation-runner",
+                       # And the CORRECTION is load-bearing too. Pinning only the persona name would
+                       # leave a future edit free to reattach the runner to the coordinator's own
+                       # validation and stay green — the exact defect a deliverable reviewer caught,
+                       # where a scout confined to a copy was told to produce evidence that binds to
+                       # the live tree. This sentence is the half that says which runs are not its job.
+                       "It is the wrong tool for the two classes below"):
             self.assertIn(phrase, text)
 
     def test_runbook_keeps_review_synthesis_marker_grammar_and_routine_authority_boundary(self):
