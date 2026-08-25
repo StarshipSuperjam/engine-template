@@ -204,7 +204,7 @@
     },
     {
       "id": "BO-25",
-      "intent": "Validate before spending cold deliverable review.",
+      "intent": "Validate candidate evidence before spending cold deliverable review; the packet gate stands on the affected-selection run, disclosed, with the full-inventory proof imported before ready.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
@@ -212,7 +212,7 @@
     },
     {
       "id": "BO-26",
-      "intent": "Run frozen CI validation and serial self-tests.",
+      "intent": "Run exactly the registered candidate commands — the frozen structural suite and the affected self-test run against the merge base, with only the two coordinator-owned placeholders substituted.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
@@ -236,7 +236,7 @@
     },
     {
       "id": "BO-29",
-      "intent": "Invalidate validation after every code change.",
+      "intent": "Invalidate candidate evidence after every code change; the content-addressed cache may satisfy a repeat only at an identical identity.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
@@ -317,7 +317,7 @@
     },
     {
       "id": "BO-39",
-      "intent": "Mark ready only with current validation, review, findings, repair judgment, preflights, and PR contract.",
+      "intent": "Mark ready only with current candidate evidence, the imported engine-ci proof for the exact head, review, findings, repair judgment, preflights, and PR contract — re-reading the live rollup at submission.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
@@ -555,6 +555,46 @@
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
       "anchor": "test_no_completion_without_a_returned_result"
+    },
+    {
+      "id": "BO-69",
+      "intent": "A repeated candidate validate at an identical content-addressed identity — head, merge base, protocol digest, argv digests, inventory digest — is a cache hit that re-runs nothing and mutates nothing; any component changing, a red result, a null-identity legacy slot, or --force re-runs.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_every_identity_component_is_load_bearing"
+    },
+    {
+      "id": "BO-70",
+      "intent": "No coordinator verb promotes candidate evidence to final: the ci-import source is minted only by `validate final import`, which verifies the live rollup and a platform-filtered, tree-bound receipt for the exact head on top of green candidate evidence.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_the_import_verb_is_the_only_minting_site_for_final_evidence"
+    },
+    {
+      "id": "BO-71",
+      "intent": "A gating self-test run record is refused unless its tree matches the validated head, the working tree was clean, its log digest matches the log on disk, and the inventory count is re-derived rather than believed.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_each_run_record_corruption_is_refused_singly"
+    },
+    {
+      "id": "BO-72",
+      "intent": "Submission re-reads the live rollup after evidence completeness and refuses distinctly on absent, pending, and red engine-ci for the presented head.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_submit_preview_re_reads_the_live_rollup_with_three_distinct_messages"
+    },
+    {
+      "id": "BO-73",
+      "intent": "A legacy snapshot or a restored handoff normalizes to candidate evidence with null identity — never a cache hit, never final — so a cold continuation must re-import the proof against the live rollup.",
+      "classification": "mechanical-fact",
+      "disposition": "mechanical",
+      "owner": ".engine/tools/build_coordinator.py",
+      "anchor": "test_handoff_restore_downgrades_to_candidate_without_final"
     }
   ]
 }

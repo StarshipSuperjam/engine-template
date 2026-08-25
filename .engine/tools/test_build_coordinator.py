@@ -2462,8 +2462,8 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_every_mapped_obligation_has_one_live_disposition(self):
         obligations = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())
-        self.assertEqual(len(obligations["obligations"]), 68)
-        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 68)
+        self.assertEqual(len(obligations["obligations"]), 73)
+        self.assertEqual(len({row["id"] for row in obligations["obligations"]}), 73)
 
     def test_special_delivery_and_submission_disclosures_remain_reachable(self):
         # The two core-owned runbooks are present in EVERY projection, so they are asserted unconditionally;
@@ -2534,9 +2534,11 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_short_runbook_preserves_the_quality_and_authority_gates(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
-        # Same ratchet as the line cap: 3063 -> 3081, the measured cost of teaching the v2 completion path
-        # and validate's node-roster flag. The preservation-source ratio (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3081)
+        # Same ratchet as the line cap: 3063 -> 3081 for the v2 completion path, -> 3147 for the
+        # candidate/final validation split (step 5 now teaches the cache, the imported merge proof and
+        # the rollup wall — verbs a session cannot work without). The preservation-source ratio
+        # (448/6296) is unchanged.
+        self.assertLessEqual(len(text.split()), 3147)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges"):
             self.assertIn(phrase, text)

@@ -120,6 +120,32 @@ for weakening one, and editing a hold quietly on the strength of that silence is
 exists to prevent. Nothing about the Build's own state changed: the snapshot is still machine-local,
 non-durable and authority-free._
 
+_Amended 2026-08-24 for the candidate/final validation split (the validator-efficiency sequence's final
+slice). The coordinator's one validation slot becomes two evidence classes with a wall between them.
+CANDIDATE evidence is what the build loop runs and what deliverable and repair packets gate on: the frozen
+structural suite plus the affected-selection self-test run against the merge base, cached by a
+content-addressed identity (head, merge base, protocol digest, substituted argv digests, re-derived
+inventory digest) where a hit re-runs nothing and mutates nothing, and where a legacy or restored slot's
+null identity can never hit. Stated plainly as a disclosed NARROWING: the packet gates once stood on the
+full self-test inventory and now stand on the affected selection — accepted because every push of the same
+head still runs CI's full inventory, and ready still requires that full proof imported at the exact head —
+and the two shipped statements this would otherwise contradict (the run-record schema's
+validation-freshness sentence and the runner docstring) were amended in the same change. FINAL evidence is
+never run locally: `validate final import` is its only writer, and it verifies the live rollup green for
+the exact head, the head current with its base (the condition under which the receipt's merge tree equals
+the head's tree), and a platform-filtered, tree-bound receipt through the CI gatekeeper's run enumeration —
+never a run selected out of rollup fields. Handoff restore and legacy snapshots downgrade to
+candidate-never-final, so a cold continuation re-imports against the live rollup. The invalidation law:
+code (a new head) drops both classes; a same-head candidate re-run preserves final; metadata (body, labels)
+touches neither. And said outright so nobody mistakes it later: this wall is DISCIPLINE-TIER — held by
+tests (a single-minting audit on the import verb, the cache matrix, the record-refusal set) and by review,
+not by the guardrail floor, because flooring the whole coordinator would turn every ordinary edit into a
+hard acknowledgement; whether a narrower final-evidence writer deserves flooring is surfaced to the
+operator as a follow-on decision, not decided here. One hard hold is ADDED with its evidence in the table
+below — the coordinator previously never read CI status at all (`pr_state` did not query the rollup), so a
+draft could be marked ready while the required check was red or still running, observed in the wild as the
+superseded-red-beside-newer-green rollup this repository produced on its own pull requests._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
@@ -138,7 +164,7 @@ non-durable and authority-free._
 | BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates; the 2026-08-24 panel move | Coverage was entangled with phase advancement. | A manifest names required lenses; absent receipts hold submission. The DELIVERABLE review is the only review this coordinator runs and it cannot be waived. The plan half moved with the panel: coverage of the approved depth is now a gate on the SEAL (plan_coordinator refuses a review that does not cover the approved depth's roster), and the retrospective plan-review waiver is DELETED rather than relocated — its precondition was a Build that started before its plan was reviewed, which sealed-handoff entry makes unreachable. |
 | BC-13 | submission prerequisite | Deliverable review must run against a recorded commit. | Build step 6 | Multiple packet generations obscured the actual reviewed commit. | One reviewed commit, shared referent digest, and contract-specific lens-packet digest per receipt. |
 | BC-14 | submission prerequisite | Findings must be dispositioned, and only findings explicitly left blocking hold submission. | Finding policy and human merge gate | `blocking`/`serious` labels automatically drove more work. | Completeness is mechanical; correctness of rationale and `blocks_this_pr` is engineering judgment. |
-| BC-15 | submission prerequisite | Validation and required registered preflights must be green for the final commit; advisory checks remain visible. | Build steps 6–7 | Receipts could be current while the substantive commit changed. | Results bind to commit and PR-body digest as applicable; advisory close-linkage evidence cannot masquerade as a merge wall. |
+| BC-15 | submission prerequisite | Candidate evidence must be green for the final commit, the engine-ci proof for that exact head must be imported and verified, and required registered preflights must be green; advisory checks remain visible. | Build steps 6–7; the 2026-08-24 split amendment | Receipts could be current while the substantive commit changed, and the coordinator never read CI status at all, so a ready draft could carry a red or still-running required check. | Results bind to commit and PR-body digest as applicable; the live rollup is re-read at submission with distinct absent/pending/red refusals; advisory close-linkage evidence cannot masquerade as a merge wall. |
 | BC-16 | AI judgment | Reviewed-to-final divergence receives one proportional `none`, `scoped`, or `full` re-review judgment. | Build step 6; historical cases 681, 685, 955 | Invalidation rules produced recursive cold audits. | The coordinator measures and records the choice but never selects it. |
 | BC-17 | explicit non-goal | A focused re-review's repair does not automatically trigger another review. | Historical case 685; operator correction during StarshipSuperjam/engine-template#964 | Every audit-created change created another audit obligation. | A fresh proportional judgment may be `none`, terminating the loop. |
 | BC-18 | recovery behavior | Local implementation remains usable during GitHub or network loss. | Same-session posture; the 2026-08-24 cutover | GitHub comments were required for every transition. | Local commands use the atomic snapshot; GitHub is required only for bind verification, durable handoff, and submission. The cutover strengthens this rather than qualifying it: the plan is read from the local library, so a Build no longer needs GitHub reachable to know what it is building. |
@@ -165,7 +191,8 @@ to this table with equivalent evidence before it can become mandatory.
 | Plan/depth approval absent | Implementation spends work and review effort before the operator has approved the Build gate. |
 | Required reviewer silently omitted | The operator approves coverage that never runs, creating a false review claim. **WEAKENED 2026-08-24, disclosed as a weakening.** This hold once covered two reviews; it now covers one, because the plan review left this coordinator. The deliverable half is unchanged and unwaivable. The plan half is not abandoned — it became a gate on the SEAL (BC-29), which is strictly stronger than what stood here, since the old wording's own escape clause was an explicit plan-review waiver and that waiver is deleted rather than moved. It is recorded as a weakening anyway: this table states a bar for ADDING a hold and states none for weakening one, and treating that silence as permission to edit a hold quietly is precisely the move the bar exists to prevent. What a reader loses is that this coordinator no longer refuses on plan-review coverage at all; what protects them is a different record's gate, and they are entitled to be told which. |
 | Deliverable review absent | A draft is submitted with only author and test-suite judgment. |
-| Validation absent or stale | The final commit differs from the commit that passed the checks. |
+| Candidate validation absent or stale | The final commit differs from the commit that passed the checks. Since the 2026-08-24 split this row gates on CANDIDATE evidence — the affected-selection run, a disclosed narrowing bounded by the imported full proof below. |
+| Final proof absent, stale, or unverifiable | A draft is marked ready without the engine-ci run for its exact head imported and verified. Demonstrated, not hypothetical: before this row the coordinator never queried the rollup at all, so nothing mechanical stood between a red or still-pending required check and `submit apply` — the superseded-red rollups this repository's own pull requests produced were resolved by human eyes only. The import refuses a base advance with a reconcile message (a routine condition), and refuses forged provenance structurally: the vouching run is chosen by the platform's own workflow-path metadata, never by a receipt's claim and never from rollup display fields. |
 | Reviewed commit differs and no re-review judgment exists | Repairs or base reconciliation bypass the required proportional engineering decision. |
 | Finding explicitly left blocking | The orchestrator knowingly submits a concern it said prevents this PR from shipping. |
 | Required registered preflight absent or failed | A repository-specific hard submission rule is skipped or known red; advisory close-linkage output is still recorded but does not block. |
