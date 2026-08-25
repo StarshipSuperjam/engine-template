@@ -503,7 +503,15 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
         phase, next_one, available = "engineering-decision", None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
     elif not valid:
-        phase, next_one, available = "implementation", None, ["continue implementation", "run focused verification", "run final validation when the change is cohesive"]
+        # The delegation targets are named HERE, in the projection a session reads at the moment it is
+        # about to do the work — not only in the runbook, which it may have read hours ago or not at all.
+        # Naming them at the point of action is what makes the routing a default rather than a rule
+        # someone has to remember (see .engine/policies/session-economy.md).
+        phase, next_one, available = "implementation", None, [
+            "continue implementation",
+            "send a wide recall or impact sweep to `engine-grounding-scout` rather than running it inline",
+            "run focused verification",
+            "run final validation when the change is cohesive, through `engine-validation-runner` unless you need the raw log"]
     elif not delivery_ready:
         phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
     elif not repair_ready:

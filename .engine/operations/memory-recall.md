@@ -32,6 +32,8 @@ the step that does the real work on the keyword side, and skipping it is what ma
    On a forwards-facing request, use judgment: a rejected approach may leave no canonical artifact, only the
    conversation that rejected it, so memory can help even when the prompt names no past. The standing cue
    makes that option visible; it does not make every prompt require a lookup.
+   When the sweep will take several searches, hand steps 2–5 to `engine-grounding-scout` and work from the
+   cited shortlist it returns; it is cheap and cannot spawn, and step 6's judgment is never delegated.
 2. **Turn the question into several short search phrases.** Write three to six, and make them differ from each
    other — this is the step that does the real work:
    - Keep one phrase using the question's own key terms — when the wording happens to match, that is the
