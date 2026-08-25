@@ -130,7 +130,7 @@
       "role": "scout",
       "slug": "engine-grounding-scout",
       "source": {
-        "fingerprint": "sha256:b031cf83e046b2748ef3a79fbd1f8af76daf11df68de3ae52e74a3047c6ab894",
+        "fingerprint": "sha256:7f4c0aadab49070975902e42686ce3f49843ecf9ded1d2cc824d902479e2aae1",
         "path": ".claude/agents/engine-grounding-scout.md"
       },
       "status": "active",
@@ -7434,7 +7434,7 @@
       },
       "slug": "session-economy",
       "source": {
-        "fingerprint": "sha256:0e9dbd4ad2e266c33894f741c92f3a43494c8f1bff929ad64ade295e88fc3c65",
+        "fingerprint": "sha256:ce16c9b86f62e47ed4df7ac68044fc0edf523be6a8e2f2d9c306dd3fc5376280",
         "path": ".engine/policies/session-economy.md"
       },
       "status": "active",
@@ -9623,7 +9623,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:67e15f36d5d1f9e216ca434c62e7f098965ac50c39e5056dbc99183343f177d9",
+        "fingerprint": "sha256:82822b226ae63cdb94026afc95e7d32c0ad9cb4acbbca9c985ac43ac73a9a508",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
