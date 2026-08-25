@@ -291,6 +291,9 @@
   ".claude/agents/engine-design-review-risk-governance.md": [
    "design-review"
   ],
+  ".claude/agents/engine-grounding-scout.md": [
+   "core"
+  ],
   ".claude/agents/engine-qa-review-divergence-hunter.md": [
    "qa-review"
   ],
@@ -305,6 +308,15 @@
   ],
   ".claude/agents/engine-qa-review-usability.md": [
    "qa-review"
+  ],
+  ".claude/agents/engine-validation-runner.md": [
+   "core"
+  ],
+  ".claude/agents/engine-worker-bounded.md": [
+   "core"
+  ],
+  ".claude/agents/engine-worker-builder.md": [
+   "core"
   ],
   ".claude/skills/engine-change-conduct/SKILL.md": [
    "core"
@@ -473,6 +485,12 @@
   ],
   ".codex/agents/engine-qa-review-usability.toml": [
    "qa-review"
+  ],
+  ".codex/agents/engine-worker-bounded.toml": [
+   "core"
+  ],
+  ".codex/agents/engine-worker-builder.toml": [
+   "core"
   ],
   ".engine/audits/audit-digest.md": [
    "audit-library"

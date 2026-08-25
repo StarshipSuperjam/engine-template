@@ -534,11 +534,32 @@ class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
         self.root = str(Path(__file__).resolve().parents[2])
         self.bindings = agent_bindings.load_bindings(self.root)
 
-    def test_no_reviewer_override_asserts_an_effort_any_more(self):
+    def test_an_override_pins_an_effort_only_where_the_persona_has_one_to_ride_on(self):
+        """The PROPERTY, not the count. This asserted that no override anywhere pins an effort, which was
+        true of the three reviewers and became false the moment a worker persona with real effort
+        frontmatter joined the table — a merge turned a correct rule into a wrong one. What actually
+        matters is whether the persona the override names carries an effort for the pin to ride on: a
+        reviewer does not (its depth arrives through the spawning session), a mechanical worker does."""
         for name, override in (self.bindings.get("overrides") or {}).items():
-            self.assertNotIn("effort", override,
-                             f"{name} pins an effort, but a reviewer persona carries no effort "
-                             "frontmatter for it to ride on")
+            persona = Path(self.root) / ".claude" / "agents" / f"{name}.md"
+            self.assertTrue(persona.is_file(), f"{name} is overridden but has no persona file")
+            frontmatter = persona.read_text(encoding="utf-8").split("---")[1]
+            stamped = any(line.strip().startswith("effort:") for line in frontmatter.splitlines())
+            if "effort" in override:
+                self.assertTrue(stamped,
+                                f"{name} pins an effort, but its persona carries no effort frontmatter "
+                                "for that pin to ride on — the bindings would be asserting something "
+                                "this runtime cannot deliver")
+
+    def test_the_reviewer_personas_still_carry_no_effort_of_their_own(self):
+        """The other half, kept explicit: the reason the reviewer overrides dropped their effort pins."""
+        reviewers = [name for name in (self.bindings.get("overrides") or {}) if "-qa-review-" in name]
+        self.assertTrue(reviewers, "the reviewer overrides are the subject; an empty set proves nothing")
+        for name in reviewers:
+            frontmatter = (Path(self.root) / ".claude" / "agents" / f"{name}.md").read_text(
+                encoding="utf-8").split("---")[1]
+            self.assertFalse(any(line.strip().startswith("effort:") for line in frontmatter.splitlines()),
+                             f"{name} now stamps an effort; the override table's reasoning needs revisiting")
 
     def test_the_overrides_still_pin_their_models(self):
         overrides = self.bindings.get("overrides") or {}

@@ -150,7 +150,9 @@ divergence disclosed too, with the review stated as not covering the delta.
 Choose an implementation strategy proportionate to the work: orchestrator-inline for small or coupled work,
 isolated workers for cleanly separable work when context pressure justifies them, or the durable routine path
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
-writer and judges cohesion.
+writer and judges cohesion. Reconnaissance is not implementation: send a wide recall or impact sweep to
+`engine-grounding-scout` and a broad file search to a native `Explore`. Both are cheap, neither can spawn,
+and the judgment stays here.
 
 Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
 items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
@@ -177,7 +179,13 @@ This reconcile is no longer the sole guarantee: the floor now requires freshness
 
 ### 5. Validate, review the deliverable, and repair proportionately
 
-When the implementation is cohesive, run `validate` (the CI suite and self-tests, each bound to the current commit); v2 adds `--plan` and refuses while any node is unintegrated. Use focused tests while building and run full validation once on the cohesive candidate; a later accepted repair must be green again on its new final commit. The required `engine-ci` check in GitHub has two routes to green: new or changed code (every push, and a PR opened, pushed, or reopened) runs the full inventory, while a metadata-only event (a body edit, or a label such as `guardrail-ack`) instead verifies a receipt an earlier full run left for the IDENTICAL checked-out tree — bound to its content-addressed tree hash, so it holds only if the content is unchanged — and re-runs only the checks whose verdict can change while the tree is unchanged, disclosing in the run's summary that it reused an earlier proof and from which run; any doubt resolves to a full run, so applying an acknowledgement label no longer re-spends the whole inventory on a tree already judged.
+Validation is now two evidence classes, earned in this order once the implementation is cohesive. While building, use focused tests — and run those through `engine-validation-runner`, which works in a disposable copy and returns a digest instead of thousands of log lines. It is the wrong tool for the two classes below: both bind evidence to the live tree, which a scout confined to a throwaway copy cannot produce.
+
+1. **Candidate** — run `validate` (its preamble says so itself): the structural CI suite plus the self-tests selected as affected against the merge base, each bound to the current commit, with a run record the coordinator verifies against its own derivations (the committed tree, a clean working tree, a re-derived inventory) rather than believing. v2 adds `--plan` and refuses while any node is unintegrated. A repeat at the same content-addressed identity is a cache hit that re-runs nothing and mutates nothing; `--force` re-runs. Candidate evidence backs the build loop, the deliverable packet, and the repair gate — a disclosed narrowing from the full inventory, bounded by the imported proof below.
+2. **Push the head and let `engine-ci` run.** Code events run the complete inventory; a metadata-only event (a body edit, or a label such as `guardrail-ack`) instead verifies a receipt an earlier full run left for the IDENTICAL tree, disclosing the reuse and its source run; any doubt resolves to a full run.
+3. **Final** — never run locally: `validate final import` requires the pushed head current with its base and the live rollup green, then imports that run's tree-bound receipt through the CI gatekeeper's platform-filtered enumeration. `submit preview` re-reads the rollup and refuses distinctly on absent, pending, or red.
+
+A later accepted repair must be green candidate evidence again on its new final commit, and its head's proof re-imported.
 
 Only after green validation, create `review packet --stage deliverable --session-effort <level>`, carrying the exact raw intent, approved plan, settled criteria where present, reviewed commit and base, and impact evidence. The spec-conformance reviewer checks plan-derived success obligations every Build and settled criteria add a higher-authority comparison; the divergence hunter reverse-sweeps the diff against intent, plan, non-goals, and any settled criteria; other installed reviewers judge usability, technical integrity, and release safety at the approved depth. A pass may run the operator's code, so each shell-capable persona runs it only in a throwaway copy it makes itself (never worktree-ing or repointing a checkout it did not create); creating the deliverable packet snapshots the checkout, and the submission preflight's required `checkout-integrity` leg (`review_integrity`) refuses to report ready if the review moved its origin, branch, or stash; a companion advisory `checkout-worktrees` leg surfaces a stray worktree registration without blocking, since a concurrent peer may add one legitimately.
 

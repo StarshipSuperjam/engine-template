@@ -55,7 +55,52 @@ def verify_draft(root: Path, repo: str, pr: int) -> dict:
 
 def pr_state(root: Path, repo: str, pr: int) -> dict:
     return gh_json(root, ["pr", "view", str(pr), "--repo", repo,
-                          "--json", "number,state,isDraft,headRefOid,baseRefOid,mergeable,body"])
+                          "--json", "number,state,isDraft,headRefOid,baseRefOid,mergeable,body,statusCheckRollup"])
+
+
+def required_check(data: dict, context: str) -> tuple:
+    """`(state, entry)` for one named check in the PR's live statusCheckRollup — `state` is one of
+    "absent", "pending", "success", "failure".
+
+    Both rollup shapes are read: a CheckRun carries name/status/conclusion, a StatusContext carries
+    context/state. Resolution is deliberately conservative, in two layers a reviewer attacked and
+    this ordering answers. ANY matching entry still in flight makes the whole answer pending — a
+    metadata event firing during a long full run produces overlapping entries, and sorting an
+    in-flight run's start against a completed run's finish would read success while the decisive run
+    is still executing. Among completed entries, CheckRun-shaped ones outrank StatusContext-shaped
+    ones: the registered workflow's check IS a CheckRun, while a commit status sharing its name can
+    be posted by any repository writer through the status API — a same-named status must never
+    out-vote the platform's own check. Ties within the preferred shape go to the LATEST entry by its
+    own timestamps, which is how a superseded run's lingering red loses to the newer green (observed
+    on this repository's pull requests). Two residuals, both stated rather than
+    flattered: a same-named CheckRun from another installed app is indistinguishable here, and where
+    NO CheckRun exists at all a lone same-named commit status decides, since a preference between
+    shapes can only rank the shapes that are present. Both are bounded downstream — the import
+    verifies provenance by the platform-reported workflow path, and the operator's merge stands
+    behind branch protection — but neither is closed by this reader, and the submission re-read
+    leans on that downstream bound rather than on anything proven here."""
+    entries = [x for x in (data.get("statusCheckRollup") or [])
+               if x.get("name") == context or x.get("context") == context]
+    if not entries:
+        return "absent", None
+
+    def stamp(entry):
+        return entry.get("completedAt") or entry.get("startedAt") or entry.get("createdAt") or ""
+
+    def in_flight(entry):
+        if "state" in entry:                       # StatusContext shape
+            return (entry.get("state") or "").upper() in ("EXPECTED", "PENDING")
+        return (entry.get("status") or "").upper() != "COMPLETED"
+
+    pending = [x for x in entries if in_flight(x)]
+    if pending:
+        return "pending", max(pending, key=stamp)
+    check_runs = [x for x in entries if "state" not in x]
+    latest = max(check_runs or entries, key=stamp)
+    if "state" in latest:                          # StatusContext shape
+        return ("success" if (latest.get("state") or "").upper() == "SUCCESS" else "failure"), latest
+    conclusion = (latest.get("conclusion") or "").upper()
+    return ("success" if conclusion == "SUCCESS" else "failure"), latest
 
 
 def set_ready(root: Path, repo: str, pr: int) -> None:

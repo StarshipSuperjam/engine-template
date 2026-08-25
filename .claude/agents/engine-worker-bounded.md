@@ -7,6 +7,7 @@ model: haiku
 effort: low
 permissions: scoped-write
 output-contract: worker-result.v1
+disallowedTools: [Agent, Task]
 ---
 
 ## Mandate

@@ -1,37 +1,50 @@
 {
   "schema_version": "build-protocol.v1",
-  "validation_commands": [
-    {
-      "id": "engine-ci",
-      "label": "Engine CI \u2014 the full mechanical check suite",
-      "command": [
-        "uv",
-        "run",
-        "--directory",
-        ".engine",
-        "--frozen",
-        "--",
-        "python",
-        "tools/validate.py",
-        "--suite",
-        "CI"
-      ]
-    },
-    {
-      "id": "engine-selftest",
-      "label": "Engine self-tests \u2014 the full behavioural self-test run",
-      "command": [
-        "uv",
-        "run",
-        "--directory",
-        ".engine",
-        "--frozen",
-        "--",
-        "python",
-        "tools/selftest.py"
-      ]
+  "validation_commands": {
+    "candidate": [
+      {
+        "id": "engine-ci",
+        "label": "Engine CI \u2014 the full mechanical check suite",
+        "command": [
+          "uv",
+          "run",
+          "--directory",
+          ".engine",
+          "--frozen",
+          "--",
+          "python",
+          "tools/validate.py",
+          "--suite",
+          "CI"
+        ]
+      },
+      {
+        "id": "engine-selftest",
+        "label": "Engine self-tests \u2014 affected selection against the merge base, with a run record",
+        "command": [
+          "uv",
+          "run",
+          "--directory",
+          ".engine",
+          "--frozen",
+          "--",
+          "python",
+          "tools/selftest.py",
+          "--changed-from",
+          "{merge_base}",
+          "--run-record-path",
+          "{run_record_path}"
+        ]
+      }
+    ],
+    "final": {
+      "mode": "ci-import",
+      "context": "engine-ci",
+      "workflow": ".github/workflows/engine-ci.yml",
+      "receipt_artifact": "engine-ci-receipt",
+      "max_age_days": 14
     }
-  ],
+  },
   "deliverable_review": {
     "quick": [],
     "standard": [
@@ -92,7 +105,11 @@
     },
     {
       "id": "validation-freshness",
-      "prevents": "submitting a commit other than the one that passed validation"
+      "prevents": "packets or submission standing on candidate evidence for a commit other than the one presented"
+    },
+    {
+      "id": "final-import",
+      "prevents": "marking ready without an imported, verified engine-ci proof for the exact submitted head"
     },
     {
       "id": "repair-judgment",

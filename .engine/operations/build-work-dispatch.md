@@ -108,7 +108,7 @@ readable, so the deliberation is not lost.
 
 Every node the plan requires is `complete` — each with an integration commit on the PR branch and recorded
 focused verification — no node is left `failed` or `recovery_required` without a disposition, and the Build has
-passed the full validation, deliverable review, and preflight the runbook requires. Only the operator merges.
+passed the candidate validation, imported engine-ci proof, deliverable review, and preflight the runbook requires. Only the operator merges.
 
 ## Notes
 

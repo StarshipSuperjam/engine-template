@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import time
@@ -27,6 +28,8 @@ import build_coordinator_spec as spec_service
 import build_coordinator_work as work
 import build_review_range as ranges
 import build_state_store
+import ci_gatekeeper
+import moment
 import repo_identity
 import review_integrity
 
@@ -652,8 +655,10 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         judgments.append("resolve or deliberately re-disposition findings blocking this PR: " + ", ".join(blocking))
     if state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned":
         judgments.append(state["checkpoint"]["judgment"])
-    if state["validation"] is None or state["validation"]["commit"] != head or not all(x["passed"] for x in (state["validation"] or {}).get("results", [])):
-        required_evidence.append("green validation for the final commit")
+    if not _candidate_ok(state, head):
+        required_evidence.append("green candidate validation for the final commit")
+    if not _final_ok(state, head):
+        required_evidence.append("imported engine-ci proof for the final commit — `validate final import`")
     if delivery["packet_digest"] is None and not fast_path:
         required_evidence.append("deliverable-review packet")
     else:
@@ -757,7 +762,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     dispositions_ready = not missing_findings and not blocking
-    valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
+    valid = _candidate_ok(state, head)
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
     repair_ready = not delivery["reviewed_commit"] or delivery["reviewed_commit"] == head or (
         state["repair"] is not None and state["repair"]["reviewed_commit"] == delivery["reviewed_commit"]
@@ -765,6 +770,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         not _outstanding_repair_lenses(state["repair"])))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
+    final_ready = _final_ok(state, head)
 
     if not approval_ready:
         phase, next_one, available = "planning", "approve the plan and review depth", []
@@ -773,7 +779,23 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
         phase, next_one, available = "engineering-decision", None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
     elif not valid:
-        phase, next_one, available = "implementation", None, ["continue implementation", "run focused verification", "run final validation when the change is cohesive"]
+        # The delegation targets are named HERE, in the projection a session reads at the moment it is
+        # about to do the work — not only in the runbook, which it may have read hours ago or not at all.
+        # Naming them at the point of action is what makes the routing a default rather than a rule
+        # someone has to remember (see .engine/policies/session-economy.md).
+        #
+        # The runner is attached to FOCUSED verification and deliberately NOT to final validation. Both
+        # coordinator validation classes bind their evidence to the live tree — `validate` mints a run
+        # record naming this repository's current tree and refuses a dirty one, and Final imports a CI
+        # receipt and is never run locally at all. A scout confined to a disposable copy can produce
+        # neither: the record, the log and the state update all vanish with the copy. Routing either
+        # class through it would return a readable summary and no admissible evidence.
+        phase, next_one, available = "implementation", None, [
+            "continue implementation",
+            "send a wide recall or impact sweep to `engine-grounding-scout` rather than running it inline",
+            "run focused verification through `engine-validation-runner` unless you need the raw log",
+            "run final validation when the change is cohesive — here, not through a scout, since its "
+            "evidence binds to this checkout and a scout only ever sees a copy"]
     elif not delivery_ready:
         phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
     elif not repair_ready:
@@ -787,6 +809,13 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                        ["record the proportional re-review judgment"])
     elif not preflight_ready or not contract_ready:
         phase, next_one, available = "submission-preflight", "run submission preflights", []
+    elif not final_ready:
+        # A session reads this list BEFORE it acts (the same principle as the repair rung above): the
+        # brand-new mandatory verb is named here and in the refusals, never only at the wall.
+        phase, next_one, available = ("final-validation",
+                                       "import the merge proof with `validate final import`",
+                                       ["push the head and wait for engine-ci, then import the proof "
+                                        "with `validate final import`"])
     else:
         phase, next_one, available = "ready", "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
@@ -1493,14 +1522,14 @@ def _packet(args, store: Snapshot | None) -> None:
         required = repair["lenses"]
         required_contracts = [item for item in installed if item["lens"] in required]
         commit = repair["final_commit"]
-        if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
-            raise CoordinatorError("green validation for the repaired commit is required before re-review")
+        if not _candidate_ok(state, commit):
+            raise CoordinatorError("green candidate validation for the repaired commit is required before re-review")
     else:
         required_contracts = _required(protocol, state["approval"]["depth"], installed)
         required = [item["lens"] for item in required_contracts]
         commit = _head()
-        if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
-            raise CoordinatorError("green validation for the current commit is required before deliverable review")
+        if not _candidate_ok(state, commit):
+            raise CoordinatorError("green candidate validation for the current commit is required before deliverable review")
     # THE EFFORT GATE, at panel spawn (StarshipSuperjam/engine-template#1067). This is the moment the
     # session still holds every exit: it can raise its own effort and re-cut, or go back to the operator
     # for a lighter depth. Once the lenses have run, the only honest options left are re-running them or
@@ -1997,7 +2026,242 @@ def _derived_drift() -> list:
     return [d for d in derived_state.verify() if d.status in ("drift", "error")]
 
 
+def _split_validation(state) -> dict:
+    """The ONE reader of `state['validation']`'s shape — every consumer routes through here.
+
+    Three shapes live on disk: null, the legacy single slot `{commit, results}`, and the split
+    `{candidate, final}`. This normalizes on READ and is never persisted: the state store re-validates
+    the raw document on every mutate, so a persisted rewrite would be a second writer of a shape the
+    store already governs. A legacy slot comes back as a candidate with NULL identity — never a cache
+    hit, and never final: an old snapshot or a restored handoff can stand behind packets it already
+    stood behind, but the ready gate's imported proof cannot be inherited, only re-imported live."""
+    raw = state.get("validation")
+    if raw is None:
+        return {"candidate": None, "final": None}
+    if "candidate" in raw or "final" in raw:
+        return {"candidate": raw.get("candidate"), "final": raw.get("final")}
+    return {"candidate": {"commit": raw["commit"], "merge_base": None, "protocol_digest": None,
+                          "argv_digests": None, "inventory_digest": None, "run_record": None,
+                          "results": raw["results"]},
+            "final": None}
+
+
+def _candidate_ok(state, commit: str) -> bool:
+    """Green candidate evidence at exactly this commit — the gate packets and repairs stand on."""
+    candidate = _split_validation(state)["candidate"]
+    return bool(candidate and candidate["commit"] == commit and candidate["results"]
+                and all(x["passed"] for x in candidate["results"]))
+
+
+def _final_ok(state, commit: str) -> bool:
+    """An imported, verified engine-ci proof for exactly this commit, on top of green candidate
+    evidence. The ONLY writer of the final object is `validate final import`; nothing here or
+    anywhere else promotes a candidate."""
+    final = _split_validation(state)["final"]
+    return bool(final and final["commit"] == commit and _candidate_ok(state, commit))
+
+
+def _merge_base() -> str:
+    """The base the candidate self-test selection diffs against. Resolved offline against the last
+    fetch; when no base ref resolves at all, HEAD itself is returned, which the selector classifies
+    as no-changed-paths and answers with the COMPLETE inventory — every failure here fails toward
+    more tests, never fewer."""
+    for ref in ("origin/HEAD", "origin/main"):
+        proc = _run(["git", "merge-base", "HEAD", ref])
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    return _head()
+
+
+def _candidate_identity(head: str, protocol_validation: dict, merge_base: str) -> tuple:
+    """The content-addressed identity a cached candidate result must match, and the independently
+    derived inventory count. Identity covers the head, the whole registered validation object (so a
+    protocol edit is a miss), each command's argv with {merge_base} substituted (a different diff
+    base selects different tests), and the re-derived inventory digest (a test module added or
+    removed is a miss). {run_record_path} is deliberately LEFT UNSUBSTITUTED in the identity: the
+    record path is minted fresh every run and is not identity-bearing — hashing it would make every
+    lookup a miss and quietly disable the cache."""
+    argv_digests = {}
+    for item in protocol_validation["candidate"]:
+        argv = [token.replace("{merge_base}", merge_base) for token in item["command"]]
+        argv_digests[item["id"]] = _digest(argv)
+    inventory_count, inventory = ci_gatekeeper.inventory_digest(str(ROOT))
+    identity = {"commit": head, "merge_base": merge_base,
+                "protocol_digest": _digest(protocol_validation),
+                "argv_digests": argv_digests, "inventory_digest": inventory}
+    return identity, inventory_count
+
+
+# A hard ceiling on the run log a record may name for its digest check. Real logs are megabytes at
+# most; this refuses an unbounded read of a path the coordinator did not choose.
+_MAX_RECORD_LOG_BYTES = 256 * 1024 * 1024
+
+
+def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) -> list:
+    """Why a run record may NOT stand as candidate evidence. The record is an unauthenticated local
+    file, so nothing in it is believed — the tree, the dirtiness, the inventory count and the log
+    digest are each checked against something derived here. Empty list = admissible."""
+    problems = []
+    if not isinstance(record, dict):
+        return ["the run record is missing or unreadable"]
+    if record.get("attests") != "engine-selftest":
+        problems.append(f"record attests {record.get('attests')!r}, not the registered command")
+    # Three reviewers independently proved the first version believed fields it claimed to distrust:
+    # a missing `scope` crashed the caller after an empty problem list, a malformed `log` crashed the
+    # checker itself, and a log whose file was unreadable AND whose digest was absent passed
+    # vacuously (None == None). Every field is now shape-checked before use, and every absent or
+    # unreadable component is a refusal, never a crash and never a silent pass.
+    if record.get("scope") not in ("full", "focused"):
+        problems.append(f"the record's scope {record.get('scope')!r} is missing or unrecognised")
+    if record.get("tree") is None:
+        problems.append("the record binds no tree — a gating record must name the tree it ran over")
+    elif record.get("tree") != head_tree:
+        problems.append(f"the record's tree {str(record.get('tree'))[:12]} is not the validated "
+                        f"head's tree {head_tree[:12]}")
+    if record.get("worktree_dirty") is not False:
+        problems.append("the record reports a dirty (or unknown) working tree")
+    inventory = record.get("inventory")
+    reported = inventory.get("module_count") if isinstance(inventory, dict) else None
+    if not isinstance(reported, int) or reported != inventory_count:
+        problems.append(f"the record reports {reported!r} inventory modules; this tree derives "
+                        f"{inventory_count} — the count is re-derived, never believed")
+    log = record.get("log")
+    if not (isinstance(log, dict) and isinstance(log.get("path"), str)
+            and isinstance(log.get("sha256"), str)):
+        problems.append("the record's log entry is missing or malformed")
+    else:
+        # The one operation here that touches attacker-named data. A reviewer got a traceback out of
+        # it with an embedded null byte (ValueError, which `except OSError` does not catch), and
+        # noted that an unbounded read of a named path also invites a huge file or a blocking FIFO.
+        # So: a regular file, of bounded size, read inside a catch-all — every failure is a refusal.
+        actual = None
+        try:
+            path = Path(log["path"])
+            info = path.stat()
+            if not stat.S_ISREG(info.st_mode):
+                problems.append("the record's log path is not a regular file")
+            elif info.st_size > _MAX_RECORD_LOG_BYTES:
+                problems.append(f"the record's log is {info.st_size} bytes, beyond the "
+                                f"{_MAX_RECORD_LOG_BYTES}-byte bound for a digest check")
+            else:
+                actual = _digest(path.read_bytes())
+        except (OSError, ValueError):
+            actual = None
+        if not problems and actual is None:
+            problems.append("the record's log cannot be read back to check its digest")
+        elif actual is not None and actual != log["sha256"]:
+            problems.append("the record's log digest does not match the log on disk")
+    return problems
+
+
+def _final_import(args, store: Snapshot) -> None:
+    """`validate final import` — the ONLY writer of final evidence, and it mints nothing locally.
+
+    The rollup is the green gate; provenance comes exclusively from ci_gatekeeper's platform-filtered
+    run enumeration (`find_reusable_receipt`), never from a run selected out of rollup fields — a
+    receipt artifact uploaded by a foreign workflow can never vouch, and the newest run at this head
+    is normally a reuse run that uploaded nothing, which enumeration walks past by design.
+
+    The receipt attests the tree of the pull-request MERGE checkout, so the import REQUIRES the head
+    to be up to date with its base — the same condition the strict merge policy imposes at the merge
+    boundary — under which the merge tree provably equals the head's own tree. A base advance gets
+    its own reconcile refusal, never a forgery message."""
+    state = store.read()
+    revision = state["revision"]
+    protocol_final = _protocol()["validation_commands"]["final"]
+    # The registry declares what the gatekeeper enforces; if the two ever disagree, refusing here is
+    # honest and cheap, and a test pins them equal so this refusal should never fire in a shipped tree.
+    declared = {"context": protocol_final["context"], "workflow": protocol_final["workflow"],
+                "receipt_artifact": protocol_final["receipt_artifact"],
+                "max_age_days": protocol_final["max_age_days"]}
+    enforced = {"context": ci_gatekeeper.CHECK_CONTEXT, "workflow": ci_gatekeeper.WORKFLOW_PATH,
+                "receipt_artifact": ci_gatekeeper.RECEIPT_ARTIFACT_NAME,
+                "max_age_days": ci_gatekeeper.MAX_RECEIPT_AGE_DAYS}
+    if declared != enforced:
+        raise CoordinatorError(
+            "the protocol's final descriptor no longer matches what the CI gatekeeper enforces: "
+            f"declared {declared}, enforced {enforced} — reconcile the registry before importing")
+    raw_validation = state.get("validation")
+    if raw_validation is not None and "candidate" not in raw_validation and "final" not in raw_validation:
+        raise CoordinatorError(
+            "the recorded candidate evidence predates the candidate/final split (or was restored from "
+            "a handoff) and carries no identity — re-run `validate` at this head first")
+    with core.StableCommit(ROOT, "final validation import") as head:
+        if not _candidate_ok(state, head):
+            raise CoordinatorError(
+                "green candidate validation for this exact head is required before the proof is "
+                "imported — run `validate` first; the imported run stands on top of candidate "
+                "evidence, not instead of it")
+        repo, pr_number = state["build"]["repository"], state["build"]["pr"]
+        pr = github.pr_state(ROOT, repo, pr_number)
+        if pr.get("headRefOid") != head:
+            raise CoordinatorError(
+                f"the live PR head {str(pr.get('headRefOid'))[:12]} is not the local head "
+                f"{head[:12]} — push this head (or pull the newer one) before importing")
+        base_oid = pr.get("baseRefOid") or ""
+        base_check = _run(["git", "merge-base", head, base_oid]) if base_oid else None
+        if base_check is None or base_check.returncode != 0:
+            raise CoordinatorError(
+                "the live base commit is not known locally — fetch the target branch, then re-import")
+        if base_check.stdout.strip() != base_oid:
+            raise CoordinatorError(
+                "the target branch advanced past this head's base, so the CI proof attests a merge "
+                "tree this head cannot reproduce — reconcile with the base (the merge policy will "
+                "require exactly that), re-validate, and re-import. This is a routine base advance, "
+                "not an integrity failure")
+        rollup_state, _entry = github.required_check(pr, protocol_final["context"])
+        if rollup_state == "absent":
+            raise CoordinatorError(
+                f"no {protocol_final['context']} check is reported for this head yet — the run may "
+                "not have started; wait for the required check to appear, then re-import")
+        if rollup_state == "pending":
+            raise CoordinatorError(
+                f"{protocol_final['context']} is still running for this head — wait for the required "
+                "check to complete, then re-import")
+        if rollup_state != "success":
+            raise CoordinatorError(
+                f"{protocol_final['context']} is red for this head — the required check must pass "
+                "before its proof can be imported; fix the failure or re-run the check")
+        import boot
+        token = boot.gh_token()
+        if not token:
+            raise CoordinatorError(
+                "no GitHub token is available for the receipt fetch — " + boot.gh_unreachable_note())
+        head_tree = _run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
+        try:
+            ok, detail = ci_gatekeeper.find_reusable_receipt(
+                repo=repo, token=token, pr_number=pr_number, head_sha=head,
+                expected_tree=head_tree, root=str(ROOT))
+        except Exception as exc:                   # noqa: BLE001 - a transport failure is a refusal
+            raise CoordinatorError(
+                f"the receipt fetch failed before verification ({type(exc).__name__}: {exc}) — "
+                "check network reachability and gh authentication, then re-import; submission is "
+                "delayed, implementation and review are unaffected") from exc
+        if not ok:
+            raise CoordinatorError(
+                "no run of the registered workflow yields a verifiable receipt for this head: "
+                + json.dumps(detail, sort_keys=True))
+        final = {"commit": head, "source": "ci-import", "run_id": detail["run_id"],
+                 "run_attempt": detail.get("run_attempt"), "context": protocol_final["context"],
+                 "tree": head_tree, "receipt_digest": _digest(detail["receipt"]),
+                 "imported_at": moment.utc_now()}
+
+    def record(current):
+        raw = current.get("validation")
+        if raw is None or "candidate" not in raw:
+            raise CoordinatorError("candidate evidence disappeared while importing; re-run `validate`")
+        raw["final"] = final
+
+    store.mutate(record, from_revision=revision)
+    print(json.dumps({"imported": final}, indent=2, sort_keys=True))
+
+
 def cmd_validate(args, store: Snapshot) -> None:
+    if getattr(args, "mode", None) == "final":
+        if getattr(args, "action", None) != "import":
+            raise CoordinatorError("the final proof is imported, never run locally: `validate final import`")
+        _final_import(args, store)
+        return
     state = store.read()
     revision = state["revision"]
     unearned = _unearned_completions(state)
@@ -2041,17 +2305,72 @@ def cmd_validate(args, store: Snapshot) -> None:
         raise CoordinatorError(
             "derived artifacts are stale, so validation would fail its drift checks — run "
             "`build_coordinator.py sync-artifacts` first, then re-run validate: " + detail)
+    if getattr(args, "mode", None) is None:
+        # A one-line preamble, above the JSON consumers parse from the first brace: the bare verb now
+        # means the candidate variant, and the merge proof is a separate, imported thing.
+        print("validate = validate candidate — build-loop evidence. The merge proof is the engine-ci "
+              "run, imported with `validate final import`, never run locally.")
+    protocol_validation = _protocol()["validation_commands"]
     results = []
+    run_record_summary = None
     with core.StableCommit(ROOT, "validation") as head:
-        for item in _protocol()["validation_commands"]:
+        head_tree = _run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
+        merge_base = _merge_base()
+        identity, inventory_count = _candidate_identity(head, protocol_validation, merge_base)
+        split = _split_validation(state)
+        existing = split["candidate"]
+        # The cache: a hit performs NO mutate and re-runs nothing. Every identity component must
+        # match, and the EXISTING slot's components must all be non-null — a legacy slot's null
+        # identity describes nothing and can never hit, only be replaced.
+        if (not getattr(args, "force", False) and existing
+                and all(existing.get(key) is not None and existing.get(key) == identity[key]
+                        for key in identity)
+                and existing["results"] and all(x["passed"] for x in existing["results"])):
+            print("cache hit: nothing re-ran — the head, merge base, protocol, argv and inventory "
+                  "digests all match the recorded green candidate run (use --force to re-run).")
+            print(json.dumps({"cached": True, "commit": head,
+                              "identity": identity, "results": existing["results"]},
+                             indent=2, sort_keys=True))
+            return
+        for item in protocol_validation["candidate"]:
+            argv = [token.replace("{merge_base}", merge_base) for token in item["command"]]
+            record_path = None
+            if any("{run_record_path}" in token for token in argv):
+                # Minted fresh, private and unpredictable (mkdtemp is 0700 with a random name), so a
+                # peer process cannot pre-plant or race the file the coordinator will read back; the
+                # read-back happens immediately below, inside the same stable-commit window.
+                record_dir = __import__("tempfile").mkdtemp(prefix="engine-candidate-record-")
+                record_path = str(Path(record_dir) / "record.json")
+                argv = [token.replace("{run_record_path}", record_path) for token in argv]
             stamp = f"{int(time.time())}-{item['id']}-{head[:12]}-{secrets.token_hex(6)}.log"
             log_path = Path(__import__("tempfile").gettempdir()) / stamp
-            returncode = _run_validation(item["command"], log_path)
+            returncode = _run_validation(argv, log_path)
             log_digest = _digest(log_path.read_bytes())
+            passed = returncode == 0
             summary = f"exit {returncode}; complete log at {log_path} ({log_digest})"
-            results.append({"id": item["id"], "commit": head, "passed": returncode == 0,
+            if record_path is not None:
+                try:
+                    record_bytes = Path(record_path).read_bytes()
+                    record = json.loads(record_bytes)
+                except (OSError, ValueError):
+                    record_bytes, record = None, None
+                problems = _candidate_record_problems(record, head_tree=head_tree,
+                                                      inventory_count=inventory_count)
+                if problems:
+                    # A bad record fails the RESULT rather than aborting: the red rows stay recorded,
+                    # exactly as a failing command's do, and the refusal reasons travel in the summary.
+                    passed = False
+                    summary += "; run record refused as candidate evidence: " + "; ".join(problems)
+                else:
+                    run_record_summary = {"id": item["id"], "digest": _digest(record_bytes),
+                                          "scope": record["scope"], "tree": record["tree"]}
+                summary += f"; run record at {record_path}"
+            results.append({"id": item["id"], "commit": head, "passed": passed,
                             "summary": summary, "log_path": str(log_path), "log_digest": log_digest})
-    store.mutate(lambda s: s.update({"validation": {"commit": head, "results": results}}),
+    # A same-head candidate re-run preserves valid final evidence; any other head drops it.
+    preserved_final = split["final"] if (split["final"] and split["final"].get("commit") == head) else None
+    candidate = {**identity, "run_record": run_record_summary, "results": results}
+    store.mutate(lambda s: s.update({"validation": {"candidate": candidate, "final": preserved_final}}),
                  from_revision=revision)
     print(json.dumps({"commit": head, "results": results}, indent=2, sort_keys=True))
     if not all(x["passed"] for x in results):
@@ -2668,11 +2987,15 @@ def _handoff(state: dict) -> dict:
                           "severity": finding["severity"], "disposition": finding["disposition"], "escalation_kind": finding["escalation_kind"],
                           "blocks_this_pr": finding["blocks_this_pr"], "summary": finding["handoff_summary"],
                           "operator_summary": finding.get("operator_summary")})
-    validation = None if not state["validation"] else {
-        "commit": state["validation"]["commit"],
+    # Handoff carries the CANDIDATE evidence only, in the legacy {commit, results} shape: a cold
+    # restore then normalizes it to a candidate with null identity (never a cache hit) and NO final —
+    # the imported proof cannot cross a handoff, only be re-imported against the live rollup.
+    _handoff_candidate = _split_validation(state)["candidate"]
+    validation = None if not _handoff_candidate else {
+        "commit": _handoff_candidate["commit"],
         "results": [{"id": x["id"], "commit": x["commit"], "passed": x["passed"],
                      **({"log_digest": x["log_digest"]} if x.get("log_digest") else {})}
-                    for x in state["validation"]["results"]],
+                    for x in _handoff_candidate["results"]],
     }
     repair = None if not state["repair"] else {k: v for k, v in state["repair"].items() if k != "rationale"}
     preflights = [{"id": x["id"], "commit": x["commit"], "passed": x["passed"]} for x in state["preflights"]]
@@ -2887,6 +3210,19 @@ def _submit_preview(store: Snapshot, plan_path: str) -> dict:
         raise CoordinatorError("the final commit does not contain the live target-branch base; reconcile, validate, and assess review proportionally")
     if status["phase"] != "ready":
         raise CoordinatorError("submission evidence is incomplete: " + "; ".join(status["required_evidence"] + status["engineering_judgment"]))
+    # The live rollup, re-read at the moment of submission: importing the proof once does not excuse
+    # presenting a head whose required check is no longer green. Three distinct states, three messages.
+    rollup_state, _rollup_entry = github.required_check(
+        pr, _protocol()["validation_commands"]["final"]["context"])
+    if rollup_state == "absent":
+        raise CoordinatorError("no engine-ci check is reported for this head — push the head and wait "
+                               "for the required check before submission")
+    if rollup_state == "pending":
+        raise CoordinatorError("engine-ci is still running for this head — wait for the required check "
+                               "to complete before submission")
+    if rollup_state != "success":
+        raise CoordinatorError("engine-ci is red for this head — the required check must pass before "
+                               "submission; fix the failure or re-run the check, then re-import the proof")
     action = "mark-ready" if pr.get("isDraft") else "record-ready"
     if stable_head != status["head_commit"]:
         raise CoordinatorError("submission status was not derived from the stable final commit")
@@ -3595,17 +3931,37 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
 
     # Validation receipts, stripped of machine-local log paths (mirrors the handoff strip), rendered with the
     # operator labels from the one build-protocol declaration that also drives execution.
-    val = state.get("validation")
-    if val and val.get("results"):
-        labels = {c["id"]: c["label"] for c in _protocol().get("validation_commands", [])}
+    # The STANDING evidence-provenance disclosure, rendered for EVERY coordinated Build: which
+    # candidate commands ran and at what scope (a focused self-test run says so, it never hides), and
+    # whether the merge proof is an imported engine-ci run — named by run id and tree — or still owed.
+    # A green here is otherwise indistinguishable from a full local run, and the operator's merge is
+    # the binding gate, so the merge surface says what evidence actually stood where.
+    split_val = _split_validation(state)
+    candidate_val = split_val["candidate"]
+    if candidate_val and candidate_val.get("results"):
+        labels = {c["id"]: c["label"]
+                  for c in _protocol().get("validation_commands", {}).get("candidate", [])}
         vlines = []
-        for r in val["results"]:
+        for r in candidate_val["results"]:
             status = "passed" if r["passed"] else "**FAILED**"
             tail = f" (log {r['log_digest']})" if r.get("log_digest") else ""
-            vlines.append(f"- **{labels.get(r['id'], r['id'])}** — {status} at `{r['commit'][:12]}`{tail}")
+            record = candidate_val.get("run_record")
+            scope = ""
+            if record and record.get("id") == r["id"]:
+                scope = f", scope **{record['scope']}** (tree `{str(record['tree'])[:12]}`)"
+            vlines.append(f"- **{labels.get(r['id'], r['id'])}** — {status} at `{r['commit'][:12]}`"
+                          f"{scope} — candidate evidence, not merge evidence{tail}")
+        final_val = split_val["final"]
+        if final_val:
+            vlines.append(f"- **Merge proof** — imported engine-ci run `{final_val.get('run_id')}` "
+                          f"for `{str(final_val.get('commit'))[:12]}` (tree "
+                          f"`{str(final_val.get('tree'))[:12]}`), verified via its tree-bound receipt.")
+        else:
+            vlines.append("- **Merge proof** — not yet imported: `validate final import` must verify "
+                          "the live engine-ci run for the submitted head before ready.")
         validation_results = "\n".join(vlines)
     else:
-        validation_results = "- The full CI suite and self-tests are run green against the final commit and recorded before the draft is marked ready."
+        validation_results = "- Candidate validation (the CI suite and the affected self-tests) runs green against the final commit, and the engine-ci proof for that head is imported and verified, before the draft is marked ready."
 
     # Spec-derived acceptance steps: the canonical resolution, rendered (multi-document merge) or its honest
     # no-spec disclosure — never re-authored here.
@@ -3951,7 +4307,7 @@ def parser() -> argparse.ArgumentParser:
     swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
     smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
     ssupersede = state_p.add_parser("supersede"); ssupersede.add_argument("--plan", required=True); ssupersede.add_argument("--reason", required=True); ssupersede.set_defaults(func=cmd_state_supersede)
-    validate = sub.add_parser("validate"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
+    validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.add_argument("--accept-receipt-loss", action="store_true", help="Re-bind even though recorded repair receipts do not cover the new divergence and will be dropped. Without it the re-bind refuses and names what each lens still owes."); assess.set_defaults(func=cmd_repair_assess)

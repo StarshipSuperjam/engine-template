@@ -11,7 +11,7 @@ write a flattering story about the change.
 
 ## Steps
 
-1. Reconcile the target branch, run final validation, and retain complete stdout and stderr in OS-temporary
+1. Reconcile the target branch, run candidate validation and import the engine-ci proof for the final head, and retain complete stdout and stderr in OS-temporary
    logs. Relay live progress or a heartbeat while commands run. Local state records each log path and digest;
    status stays concise. Durable handoff carries results and digests but never machine-local paths.
 2. Regenerate the knowledge graph and self-map last. State how many generated index files changed and confirm
