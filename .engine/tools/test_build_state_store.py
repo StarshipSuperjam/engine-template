@@ -20,6 +20,7 @@ behavioural test notices until it has already lost an update.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -27,10 +28,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import build_coordinator_core as core
 import build_state_store
 import plan_store
+from test_build_coordinator import plan_v2
+
+PLAN = plan_v2()
 
 TOOLS = Path(__file__).resolve().parent
 SCHEMA = TOOLS.parents[1] / ".engine" / "schemas" / "build-state.v2.json"
@@ -290,6 +295,71 @@ class OneHome(unittest.TestCase):
             store = core.StateStore(str(path), SCHEMA)
             store.create(_state())
             self.assertEqual(store.read()["build"]["pr"], 1)
+
+
+class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
+    """`plan bind` with NO --state must land the Build in the durable store. That is the whole restart
+    story, and until now nothing drove it.
+
+    Every test that exercised binding handed `cmd_plan_bind` a store object, and the one end-to-end CLI
+    demonstration always passed `--state <path>` — so both bypassed the default entirely. The store's own
+    mechanics were well covered and the wiring read correctly, but the seam from 'an operator types
+    `plan bind` with no flags' to 'the Build now lives beside its sealed plan' was joined by inspection
+    only. A regression in the `deferred` condition, or a swallowed failure in the fallback, would have
+    silently defeated the central promise of this change with a green suite."""
+
+    def test_main_defers_the_store_for_bind_and_only_for_bind(self):
+        """Driven through main()'s real argument parsing, not a hand-built namespace — the seam IS the
+        parsing, so a namespace test would assume exactly what is in question."""
+        import build_coordinator as bc
+        seen = {}
+
+        def spy(args, store):
+            seen["store"] = store
+            seen["command"] = f"{args.command}/{getattr(args, 'plan_command', None)}"
+
+        with mock.patch.object(bc, "cmd_plan_bind", spy), \
+                mock.patch.object(bc, "_resolve_store", side_effect=AssertionError(
+                    "bind must NOT resolve a snapshot: it is the command that creates one")):
+            code = bc.main(["plan", "bind", "--plan", "pln_0123456789ab", "--repository", "o/r",
+                            "--pr", "1", "--operator-decision", "go"])
+        self.assertEqual(code, 0)
+        self.assertEqual(seen["command"], "plan/bind")
+        self.assertIsNone(seen["store"], "without --state, bind must choose its own durable address")
+
+    def test_but_an_explicit_state_path_still_wins(self):
+        """The escape hatch has to keep working, or every existing invocation breaks."""
+        import build_coordinator as bc
+        seen = {}
+        with mock.patch.object(bc, "cmd_plan_bind", lambda a, s: seen.update(store=s)), \
+                mock.patch.object(bc, "_resolve_store", return_value="explicit"):
+            bc.main(["--state", "/tmp/x.json", "plan", "bind", "--plan", "pln_0123456789ab",
+                     "--repository", "o/r", "--pr", "1", "--operator-decision", "go"])
+        self.assertEqual(seen["store"], "explicit")
+
+    def test_and_bind_reaches_the_durable_store_for_the_plan_it_binds(self):
+        """The other half of the seam: given no store, bind asks the durable store for THIS plan's
+        address rather than inventing one."""
+        import build_coordinator as bc
+        asked = {}
+
+        def store_for_plan(plan_id, schema_for, library=None):
+            asked["plan_id"] = plan_id
+            raise bc.CoordinatorError("stop here — the address lookup is what was under test")
+
+        head = "a" * 40
+        with mock.patch.object(bc.build_state_store, "store_for_plan", store_for_plan), \
+                mock.patch.object(bc, "_sealed_plan",
+                                  return_value=("pln_0123456789ab", "sha256:" + "f" * 64, PLAN)), \
+                mock.patch.object(bc, "_verify_draft",
+                                  return_value={"headRefOid": head, "baseRefOid": "0" * 40}), \
+                mock.patch.object(bc, "_head", return_value=head), \
+                mock.patch.object(bc, "_library", return_value=mock.MagicMock()), \
+                self.assertRaises(bc.CoordinatorError):
+            bc.cmd_plan_bind(argparse.Namespace(
+                plan="pln_0123456789ab", repository="o/r", pr=1, issue=None, mode="same-session",
+                operator_decision="go", state=None), None)
+        self.assertEqual(asked["plan_id"], "pln_0123456789ab")
 
 
 class TheKillAndResumeDemo(unittest.TestCase):

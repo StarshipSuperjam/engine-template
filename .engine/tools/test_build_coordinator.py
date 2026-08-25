@@ -893,7 +893,7 @@ class TestReviewAndFindings(CoordinatorCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 bc.cmd_finding_record(argparse.Namespace(
                     id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="s",
-                    disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr=False,
+                    disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr_stated=False,
                     handoff_summary="s", operator_summary=None, private_reference=None), self.store)
         # Regenerate the deliverable packet against MOVED reviewer contracts, which is what supersedes
         # Build-side findings — the mechanism whose reach over plan findings is the subject here.
@@ -1076,7 +1076,7 @@ class TestReviewAndFindings(CoordinatorCase):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         before = self.state()
         retried = self.packet()
         after = self.state()
@@ -1114,14 +1114,14 @@ class TestReviewAndFindings(CoordinatorCase):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), ["PI-1"])
 
     def test_severity_does_not_choose_remedy_or_blocking_posture(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
         finding = self.state()["findings"][0]
         self.assertEqual(finding["severity"], "blocking")
         self.assertEqual(finding["disposition"], "rejected")
@@ -1130,14 +1130,14 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_partial_acceptance_keeps_bounded_remedy(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_finding_record(argparse.Namespace(id="A-1", stage="deliverable", lens="divergence-hunter", severity="serious", summary="Concern", disposition="partially-accepted", rationale="Accept the failure case, reject the proposed new subsystem.", escalation_kind=None, blocks_this_pr=False, handoff_summary="Bounded remedy chosen."), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="A-1", stage="deliverable", lens="divergence-hunter", severity="serious", summary="Concern", disposition="partially-accepted", rationale="Accept the failure case, reject the proposed new subsystem.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary="Bounded remedy chosen."), self.store)
         self.assertEqual(self.state()["findings"][0]["disposition"], "partially-accepted")
 
     def test_escalation_names_an_operator_owned_boundary(self):
         self.packet()
         args = argparse.Namespace(id="A-2", stage="deliverable", lens="divergence-hunter", severity="serious",
                                   summary="Boundary", disposition="escalated", rationale="Changes authority.",
-                                  escalation_kind=None, blocks_this_pr=True, handoff_summary=None)
+                                  escalation_kind=None, blocks_this_pr_stated=True, handoff_summary=None)
         with self.assertRaisesRegex(bc.CoordinatorError, "operator-owned"):
             bc.cmd_finding_record(args, self.store)
 
@@ -1245,7 +1245,7 @@ class TestReviewAndFindings(CoordinatorCase):
             # unchanged — an engineering blocker is the orchestrator's work, never an operator decision.
             bc.cmd_finding_record(argparse.Namespace(id="A-3", stage="deliverable", lens="divergence-hunter", severity="blocking",
                 summary="Engineering repair", disposition="partially-accepted", rationale="Repair stays in approved design.",
-                escalation_kind=None, blocks_this_pr=True, handoff_summary=None), self.store)
+                escalation_kind=None, blocks_this_pr_stated=True, handoff_summary=None), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             status = bc._status(self.state())
         self.assertTrue(any("resolve" in item for item in status["engineering_judgment"]))
@@ -1578,7 +1578,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
                                                     packet_digest=packet["packet_digest"],
                                                     lens_packet_digest=contract["lens_packet_digest"],
                                                     finding=["R-1"], code_execution="none"), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), [])
         self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_B)
         self.assertEqual(self.state()["reviews"]["deliverable"]["receipts"][0]["packet_digest"], packet["packet_digest"])
@@ -3067,7 +3067,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern",
                 disposition="accepted-fixed", rationale="Fixed directly.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Repair concern"), self.store)
+                blocks_this_pr_stated=False, handoff_summary="Repair concern"), self.store)
         self.assertEqual(bc.review.missing_findings(self.state()), [])
 
     def test_a_none_judgment_after_a_spliced_round_leaves_no_unrecordable_demand(self):
@@ -3087,7 +3087,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-2", stage="repair", lens="usability", severity="nit", summary="Minor.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Minor."), self.store)
+                blocks_this_pr_stated=False, handoff_summary="Minor."), self.store)
         self.assertEqual(bc.review.missing_findings(self.state()), [])
 
     def test_a_deliverable_regeneration_never_orphans_a_repair_finding(self):
@@ -3102,7 +3102,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-3", stage="repair", lens="usability", severity="blocking", summary="Serious.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Serious.",
+                blocks_this_pr_stated=False, handoff_summary="Serious.",
                 operator_summary="A repair-stage concern, fixed."), self.store)
         self.assertTrue(any(f["id"] == "R-3" for f in self.state()["findings"]))
         self.assertTrue(bc.review.required_disagreement_lines(self.state()))
@@ -3129,7 +3129,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-9", stage="repair", lens="usability", severity="nit", summary="x",
                 disposition="accepted-fixed", rationale="y", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="x"), self.store)
+                blocks_this_pr_stated=False, handoff_summary="x"), self.store)
 
     # --- #1000: reconcile ------------------------------------------------------------------
 
@@ -3511,7 +3511,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-8", stage="repair", lens="usability", severity="blocking", summary="Earlier concern",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Earlier concern",
+                blocks_this_pr_stated=False, handoff_summary="Earlier concern",
                 operator_summary="An earlier concern, fixed."), self.store)
         self.assertTrue(bc.review.required_disagreement_lines(self.state()))
         # Close the round, then re-run a different lens at a newer commit: the repair slot's own receipt

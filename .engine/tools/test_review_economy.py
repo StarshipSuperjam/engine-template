@@ -80,6 +80,35 @@ class ThePr1063Replay(_RealRepo):
                         "a commit touching only registry-owned generated output is not a reviewer's work")
         self.assertEqual(ranges.authored_only(self.repo, ranges.commits(self.repo, authored, generated)), [])
 
+    def test_the_batched_classification_agrees_with_the_per_commit_one(self):
+        """Two implementations of one question is how a swap silently drifts. The per-commit reader is
+        still the definition; the batched `git log` is the fast path, and it must not disagree."""
+        self.commit("src.py", "authored one")
+        self.commit(DERIVED_PATH, "generated")
+        self.commit("src.py", "authored two")
+        self.git("commit", "-q", "--allow-empty", "-m", "empty")
+        tip = self.git("rev-parse", "HEAD")
+        batched = {sha: derived for sha, derived in ranges._classified_range(self.repo, self.base, tip)}
+        for sha in ranges.commits(self.repo, self.base, tip):
+            self.assertEqual(batched[sha], ranges.is_derived_only(self.repo, sha), sha[:12])
+        self.assertEqual(ranges.authored_between(self.repo, self.base, tip),
+                         ranges.authored_only(self.repo, ranges.commits(self.repo, self.base, tip)))
+
+    def test_the_range_is_classified_once_per_command(self):
+        """The cost the caching exists to remove: `repair assess` asks to decide and asks again to
+        explain, and the status render asks a third time."""
+        tip = self.commit("src.py", "authored")
+        ranges._AUTHORED_CACHE.clear()
+        calls = []
+        real = ranges._git
+        ranges._git = lambda root, args: (calls.append(args[0]), real(root, args))[1]
+        try:
+            for _ in range(3):
+                ranges.authored_between(self.repo, self.base, tip)
+        finally:
+            ranges._git = real
+        self.assertEqual(calls.count("log"), 1, f"the range was re-shelled: {calls}")
+
     def test_an_empty_commit_counts_as_authored_rather_than_free(self):
         """Not a technicality. `is_derived_only` decides whether a lens owes a read, and a commit that
         touched nothing carries no evidence either way — so it fails toward asking."""

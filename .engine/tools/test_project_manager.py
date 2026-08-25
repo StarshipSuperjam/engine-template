@@ -1915,15 +1915,17 @@ class TheRetitle(unittest.TestCase):
     FORMS = ("Plan Coordinator", "plan_coordinator", "plan-coordinator")
 
     # path -> why the old name belongs there. Each of these is history, data, or generated.
+    #
+    # A NOTE ON WHAT THIS LIST IS FOR. Two schema files were once excused here on the ground that "the
+    # data boundary must not move". That reason was wrong, and a wrong reason is worse than a missing
+    # entry: what was asked to be held is schema IDENTIFIERS and stored records, and editing an English
+    # description string moves neither. The strings were retitled and the entries removed. An exclusion
+    # list earns its keep only while every reason on it is true — otherwise the next genuine miss hides
+    # among the excuses.
     ALLOWED = {
         ".engine/contracts/eADR-0044-plan-coordinator-local-library.md":
             "the decision record's own FILENAME is history and is kept; its 2026-08-25 amendment is the "
             "one place the old name is spoken in this repository, and it speaks of it as the past",
-        ".engine/schemas/engine-plan.v1.json":
-            "a schema. The data boundary is held whole: this node changes nothing under .engine/schemas/, "
-            "because a schema id names the artifact and renaming one would invalidate every stored record",
-        ".engine/schemas/build-plan.imported.json":
-            "the same, for the imported-plan payload schema",
         ".engine/provisioning/module-surfaces.json":
             "generated, and what it carries is the eADR FILENAME above — it is correct because that file "
             "is correctly named",

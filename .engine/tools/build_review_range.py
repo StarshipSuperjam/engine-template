@@ -62,6 +62,44 @@ def commits(root: Path, base: str | None, tip: str | None) -> list[str]:
     return [line for line in _git(root, ["rev-list", f"{base}..{tip}"]).splitlines() if line]
 
 
+_AUTHORED_CACHE: dict = {}
+
+
+def _classified_range(root: Path, base: str, tip: str) -> list[tuple[str, bool]]:
+    """[(sha, is_derived_only)] for `base..tip`, newest first, in ONE `git log` rather than two
+    subprocesses per commit.
+
+    Cached per (root, base, tip). Callers ask the same question more than once by design — `repair assess`
+    decides with it and then explains the decision with it, and the status render asks again — and every
+    one of those was re-shelling the whole range. On a long branch that multiplied the cost of the very
+    gate this module exists to make cheap. The cache lives for the process, which is the life of one
+    command; nothing here is a daemon, and git history within one command does not change under us."""
+    key = (str(root), base, tip)
+    if key in _AUTHORED_CACHE:
+        return _AUTHORED_CACHE[key]
+    shas = commits(root, base, tip)
+    if not shas:
+        _AUTHORED_CACHE[key] = []
+        return []
+    owned = _derived_owner(root)
+    # `-m --first-parent` so a merge reports the paths it actually brought in rather than nothing.
+    text = _git(root, ["log", "--no-renames", "--first-parent", "-m", "--name-only",
+                       "--pretty=format:%x00%H", f"{base}..{tip}"])
+    seen: dict = {}
+    for chunk in text.split("\x00"):
+        if not chunk.strip():
+            continue
+        head, _, rest = chunk.partition("\n")
+        sha = head.strip()
+        paths = [line for line in rest.splitlines() if line.strip()]
+        # A commit that touched NOTHING is not derived-only: it carries no evidence either way, and the
+        # safe direction for a gate deciding whether a reviewer owes a read is to call it authored.
+        seen[sha] = bool(paths) and all(owned(path) for path in paths)
+    out = [(sha, seen.get(sha, False)) for sha in shas]
+    _AUTHORED_CACHE[key] = out
+    return out
+
+
 def _paths_in(root: Path, commit: str) -> list[str]:
     """Every path this commit changed against its first parent (against the empty tree for a root
     commit, so an initial commit is classified rather than crashing)."""
@@ -100,11 +138,19 @@ def is_derived_only(root: Path, commit: str, owned=None) -> bool:
 
 
 def authored_only(root: Path, shas: list[str]) -> list[str]:
-    """`shas` minus the commits that are pure derived-artifact regeneration, order preserved."""
+    """`shas` minus the commits that are pure derived-artifact regeneration, order preserved.
+
+    Kept for callers holding a bare list of shas; the range-shaped callers go through
+    `authored_between`, which classifies the whole span in one git invocation."""
     if not shas:
         return []
     owned = _derived_owner(root)
     return [sha for sha in shas if not is_derived_only(root, sha, owned)]
+
+
+def authored_between(root: Path, base: str | None, tip: str | None) -> list[str]:
+    """The authored commits in `base..tip` — the range-shaped question, answered once and cached."""
+    return [sha for sha, derived in _classified_range(root, base, tip) if not derived]
 
 
 def unread_authored(root: Path, read: dict | None, new_base: str | None, new_tip: str | None) -> list[str]:
@@ -116,11 +162,11 @@ def unread_authored(root: Path, read: dict | None, new_base: str | None, new_tip
     no recorded range (one written before ranges existed) covers nothing and so is never carried: an
     absent range is not a claim of coverage, and inventing one would launder an unread delta.
     """
-    fresh = commits(root, new_base, new_tip)
     if not read or not read.get("base") or not read.get("tip"):
-        return authored_only(root, fresh)
+        return authored_between(root, new_base, new_tip)
     already = set(commits(root, read["base"], read["tip"]))
-    return authored_only(root, [sha for sha in fresh if sha not in already])
+    return [sha for sha, derived in _classified_range(root, new_base, new_tip)
+            if not derived and sha not in already]
 
 
 def receipt_covers(root: Path, receipt: dict, new_base: str | None, new_tip: str | None) -> bool:

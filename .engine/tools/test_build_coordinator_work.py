@@ -726,6 +726,36 @@ class MidBuildRevision(WorkCase):
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_integrate(args, self.store)
 
+    def test_adoption_carries_the_settled_specification_forward_with_the_approval(self):
+        """A project WITH a settled specification is the case nothing covered, and the case that broke.
+
+        `approve` is what normally resolves the specification and records its fingerprint. Adoption
+        inherits the approval without passing through approve, so leaving the fingerprint absent meant
+        the next command compared the live specification against nothing, refused with 'settled
+        specification changed since approval' — which had not happened — and pointed at a plan revision
+        that would have undone the adoption's whole purpose. Invisible here until a specification exists,
+        which is exactly why it shipped."""
+        successor = self._successor()
+        spec = {"digest": "sha256:" + "5" * 64, "posture": "settled"}
+        with mock.patch.object(bc, "_canonical_spec", return_value=spec):
+            self._adopt(successor)
+        state = self.state()
+        self.assertEqual(state["approval"]["spec_digest"], spec["digest"])
+        self.assertEqual(state["plan"]["spec_digest"], spec["digest"],
+                         "the plan's own fingerprint is what _assert_spec_current compares against")
+        # And the proof that it is coherent: the very next assertion passes instead of refusing.
+        with mock.patch.object(bc, "_canonical_spec", return_value=spec):
+            bc._assert_spec_current(state, successor)
+
+    def test_an_unresolvable_specification_refuses_the_adoption_rather_than_half_applying_it(self):
+        successor = self._successor()
+        before = self.state()["plan"]["digest"]
+        with mock.patch.object(bc, "_canonical_spec", side_effect=bc.CoordinatorError("no spec")), \
+                self.assertRaises(bc.CoordinatorError):
+            self._adopt(successor)
+        self.assertEqual(self.state()["plan"]["digest"], before,
+                         "the snapshot must be untouched when the adoption refuses")
+
     # -- the node comparison, which is where the safety lives --
 
     def test_an_unchanged_node_with_unchanged_ancestry_is_preserved(self):

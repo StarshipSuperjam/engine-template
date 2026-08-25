@@ -190,8 +190,12 @@ def effort_shortfalls(depth: str, delivered: dict, root: Path | None = None) -> 
 
 
 def require_delivered_effort(depth: str, lenses: list[str], delivered: dict,
-                             root: Path | None = None) -> None:
+                             root: Path | None = None, *, accepted: bool = False) -> None:
     """Refuse a review record whose panel came in under the approved depth's effort.
+
+    A shortfall REFUSES but is not unrecordable: `--accept-effort-shortfall` records the honest number
+    and publishes the gap. Without that escape the only way past an honest medium panel under a thorough
+    approval was to type `high`, which is exactly the false record this gate exists to prevent.
 
     HERE, and not at the seal, because here is where the exits are still open
     (StarshipSuperjam/engine-template#1067). The approval freezes at the first review recorded, so a
@@ -213,13 +217,19 @@ def require_delivered_effort(depth: str, lenses: list[str], delivered: dict,
             "`--delivered-effort <lens>=<effort>` per lens. It is self-reported — the point is that the "
             "claim is on the record, not that anything here can check it.")
     shortfalls = effort_shortfalls(depth, delivered, root)
-    if shortfalls:
+    if shortfalls and not accepted:
         raise ProjectManagerError(
             "this panel came in under the depth the operator approved: " + "; ".join(shortfalls)
-            + ". This refuses here rather than at the seal because here is where the exits still exist: "
-            "the approval freezes the moment a review is recorded. Either re-run those lenses at "
-            f"{promised} and record that, or take it back to the operator and re-approve at the depth "
-            "this panel can actually deliver — recording it now would seal a promise that was not kept.")
+            + ". Three ways on, and the third is why this is a refusal rather than a wall: re-run those "
+            f"lenses at {promised} and record that; take it back to the operator and re-approve at the "
+            "depth this panel can actually deliver (the approval is still unfrozen — it freezes the "
+            "moment a review is recorded); or record it as it stands with "
+            "`--accept-effort-shortfall`, which keeps the honest number and publishes the gap in the "
+            "pull request.\n\n"
+            "That third exit exists deliberately. This value is self-reported and nothing here can check "
+            "it, so a gate whose only unblocking path was to overstate it would manufacture the very "
+            "false record it exists to prevent — the Build side has had this escape since it was built, "
+            "and the asymmetry was the defect.")
 
 
 def available_depths(roster: list[dict], protocol: dict | None = None,
@@ -839,7 +849,8 @@ def cmd_review_record(args) -> int:
     # enclosing record — and not be pre-empted by a flag the author has not reached yet.
     _validate_findings(findings)
     delivered = parse_delivered_efforts(getattr(args, "delivered_effort", None), list(args.lens))
-    require_delivered_effort(approval["depth"], list(args.lens), delivered)
+    accepted = bool(getattr(args, "accept_effort_shortfall", False))
+    require_delivered_effort(approval["depth"], list(args.lens), delivered, accepted=accepted)
     review = {
         "revision": approval["revision"],
         "plan_digest": approval["plan_digest"],
@@ -848,6 +859,7 @@ def cmd_review_record(args) -> int:
         "lenses": list(args.lens),
         "findings": findings,
         "delivered_efforts": delivered,
+        "effort_shortfall_accepted": bool(accepted and effort_shortfalls(approval["depth"], delivered)),
     }
     def record_review(current):
         # INSIDE the lock. Recording a review does not mint a revision, so the compare-and-swap on
@@ -905,7 +917,8 @@ def cmd_review_amend(args) -> int:
     # review must say what it ran at, checked against the same approved depth.
     added_efforts = parse_delivered_efforts(getattr(args, "delivered_effort", None), added_lenses)
     if added_lenses:
-        require_delivered_effort(record["approval"]["depth"], added_lenses, added_efforts)
+        require_delivered_effort(record["approval"]["depth"], added_lenses, added_efforts,
+                                 accepted=bool(getattr(args, "accept_effort_shortfall", False)))
     added = plan_lifecycle.translate_findings(
         json.loads(core.input_text(args.findings)) if args.findings else [],
         lenses=list(args.lens or review["lenses"]))
@@ -1863,6 +1876,8 @@ def build_parser() -> argparse.ArgumentParser:
                                                   "the record shape (id, lens, severity, summary) or "
                                                   "plan-review-finding.v1 (severity, message, location), "
                                                   "which the reviewer personas emit and which is mapped")
+    record_review.add_argument("--accept-effort-shortfall", action="store_true",
+                            help="Record a panel that came in UNDER the approved depth, keeping the honest number. The gap is published in the pull request.")
     record_review.add_argument("--delivered-effort", action="append",
                             help="The reasoning effort a reviewer actually ran at, self-reported. "
                                  "A bare level (`high`) applies to every lens named here; "
@@ -1877,6 +1892,8 @@ def build_parser() -> argparse.ArgumentParser:
                               help="must equal the recorded review's packet digest — a lens that read a "
                                    "different packet did not review the same plan")
     amend_review.add_argument("--findings", help="a JSON array of findings to ADD (never to replace)")
+    amend_review.add_argument("--accept-effort-shortfall", action="store_true",
+                            help="Record a panel that came in UNDER the approved depth, keeping the honest number. The gap is published in the pull request.")
     amend_review.add_argument("--delivered-effort", action="append",
                             help="The reasoning effort a reviewer actually ran at, self-reported. "
                                  "A bare level (`high`) applies to every lens named here; "

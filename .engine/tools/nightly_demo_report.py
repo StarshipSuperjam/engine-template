@@ -41,6 +41,27 @@ import telemetry                        # noqa: E402  (the supported GitHub boun
 
 # The marker this tool mints and then binds to. Versioned, so a future change of report shape can adopt or
 # deliberately orphan the previous generation rather than inheriting it by accident.
+class ReportAmbiguous(Exception):
+    """More than one open Issue looks like this workflow's report. Never resolved by picking one."""
+
+
+def _fenced(output: str) -> str:
+    """Demonstration output, made safe to place inside a code fence in a body OTHER engine code parses.
+
+    The workflow's security story is that the write-token half RENDERS demonstration output and never
+    parses it. That story was false one layer down: a fence does not contain what it wraps. Output
+    carrying a triple backtick closes the fence early, and anything after it is body — including the
+    engine's own invisible trailers. A demonstration could therefore set the severity class the triage
+    meter counts and the dedup key the Issue register uses, because those parsers take the LAST trailer
+    of their kind and the forged one was later.
+
+    So two things are neutralized: the fence terminator, and the comment opener that every engine
+    control marker begins with. Both are replaced visibly rather than deleted — a reader sees that
+    something was defanged instead of silently reading altered output."""
+    text = (output or "").replace("`" * 3, "'" * 3 + " [backticks neutralized]")
+    return text.replace("<!--", "&lt;!-- [marker neutralized]")
+
+
 MARKER = "<!-- engine-nightly-demos:v1 -->"
 TITLE = "a shipped demonstration is failing"
 KIND = "Fix"
@@ -49,12 +70,36 @@ KIND = "Fix"
 _NAMED = 12
 
 
+def _is_report(body: str) -> bool:
+    """Whether this body is one THIS workflow wrote — not merely one that contains its marker.
+
+    Plain containment was forgeable, and not hypothetically: the marker is an invisible HTML comment, so
+    anyone who copies a report body into a follow-up or a duplicate carries it along without seeing it.
+    A green run then closed their Issue outright and a red run overwrote its entire body.
+
+    The marker must therefore be the LAST non-empty line, which is where this tool puts it and where a
+    quoted report almost never sits — a person quoting the report writes something after it, and that
+    something is what distinguishes their Issue from ours. This is a position check, not a proof of
+    authorship: it raises the cost of an accident from zero to deliberate, which is the honest claim.
+    Real authorship binding needs the commit-bound attestations of
+    StarshipSuperjam/engine-template#916."""
+    lines = [line for line in (body or "").splitlines() if line.strip()]
+    return bool(lines) and lines[-1].strip() == MARKER
+
+
 def find_report(issues: list) -> dict | None:
-    """The one open Issue this workflow owns, or None. Bound by the marker in the body — never by title."""
-    for issue in issues:
-        if MARKER in (issue.get("body") or ""):
-            return issue
-    return None
+    """The one open Issue this workflow owns, or None.
+
+    Refuses rather than guesses when several match. Silently taking the first would let a second matching
+    Issue — however it came to exist — quietly decide which one a write token acts on."""
+    matches = [issue for issue in issues if _is_report(issue.get("body") or "")]
+    if len(matches) > 1:
+        raise ReportAmbiguous(
+            "more than one open engine Issue ends with this workflow's marker (#"
+            + ", #".join(str(m["number"]) for m in matches)
+            + "). This tool keeps exactly one, so it will not choose between them: close or edit all but "
+              "the one it should keep, and the next run will adopt that.")
+    return matches[0] if matches else None
 
 
 def render(result: dict, repository: str, run_url: str | None = None) -> str:
@@ -73,7 +118,7 @@ def render(result: dict, repository: str, run_url: str | None = None) -> str:
         "demonstration itself has gone stale against a deliberate change. Both need a person; neither is "
         "urgent tonight.\n\n"
         + "\n".join(lines))
-    tail = "\n".join(f"### {f['demo']}\n\n```\n{f['output']}\n```" for f in shown)
+    tail = "\n".join(f"### {f['demo']}\n\n```\n{_fenced(f['output'])}\n```" for f in shown)
     whats_next = (
         "Run the corpus locally and read the failure the demonstration itself prints — each one states, in "
         "plain words, what it expected and what it saw:\n\n"
@@ -116,7 +161,16 @@ def main(argv: list | None = None) -> int:
     parser.add_argument("--run-url", default=None)
     parser.add_argument("--dry-run", action="store_true", help="render and decide, but call no API")
     args = parser.parse_args(argv)
-    result = json.loads(Path(args.result).read_text(encoding="utf-8"))
+    raw = Path(args.result).read_text(encoding="utf-8") if Path(args.result).is_file() else ""
+    if not raw.strip():
+        # A corpus run that crashed writes nothing. Saying so is the whole point: a reporting job that
+        # dies quietly leaves an open report neither refreshed nor closed, on a workflow that blocks
+        # nothing — a guard that has stopped guarding without anyone noticing.
+        print("nightly-demo-report: the demonstration run produced no result to report — it did not "
+              "merely fail, it did not finish. Nothing was filed, updated or closed; an open report is "
+              "still open and is now stale. Check the corpus step's log.", file=sys.stderr)
+        return 2
+    result = json.loads(raw)
     if not args.repository:
         print("nightly-demo-report: no repository to report to", file=sys.stderr)
         return 2

@@ -385,30 +385,68 @@ def code_execution_disclosure(kinds: set) -> str:
     return "no reviewer executed the change's code"
 
 
-def _effort_shortfall_lines(state: dict) -> list[str]:
-    """One line per deliverable receipt whose self-reported effort came in under the approved depth's,
-    plus one line for receipts that recorded no effort at all.
+def _depth_effort_or_none(state: dict) -> str | None:
+    """The approved depth's promised effort, or None where there is no depth or no promise to caveat."""
+    depth = (state.get("approval") or {}).get("depth")
+    try:
+        return _depth_effort(depth) if depth else None
+    except Exception:                                   # noqa: BLE001 — the disclosure above says so itself
+        return None
 
-    Rendered into `status` as a warning AND into the pull-request body, from this one function, so the
-    operator cannot meet a claim at merge that `status` never showed the session."""
+
+def _effort_shortfall_lines(state: dict) -> list[str]:
+    """What to say about reviewer effort, from the stage AND the receipts.
+
+    Reading only the receipts was a hole big enough to swallow the whole mechanism. A session can accept a
+    known shortfall at panel spawn — the operator's own recorded choice — and every reviewer can then
+    self-report meeting the depth, at which point the gap the operator asked to publish disappeared
+    entirely. That is not a corner case: it happened on the first Build to use this, where the session
+    spawned at `medium` and all five lenses reported `high`.
+
+    The two claims can also disagree, and one of them must be wrong: on this runtime a reviewer inherits
+    the spawning session's effort and cannot exceed it. Resolving that silently in the reviewer's favour
+    is the more flattering reading, so it is the one not taken — the disagreement is stated and the
+    operator decides what it is worth (StarshipSuperjam/engine-template#1067)."""
     approval = state.get("approval") or {}
     depth = approval.get("depth")
     if not depth:
         return []
+    stage = state.get("reviews", {}).get("deliverable", {})
+    receipts = stage.get("receipts", [])
     try:
         promised = _depth_effort(depth)
-    except Exception:                                   # noqa: BLE001 — an unreadable bindings file must
-        return []                                       # not wedge status; the drift check owns that.
+    except Exception as exc:                            # noqa: BLE001
+        # NOT silence. This function is the sole source of the merge-surface disclosure as well as of the
+        # status line, and a status render that degrades quietly is a different thing from a pull-request
+        # body that quietly drops a line this engine calls hard.
+        return [f"the effort the approved `{depth}` depth promises could not be read, so nothing here "
+                f"checked what the panel delivered against it: {exc}"]
     if not promised:
         return []
-    lines, silent = [], []
-    for receipt in state.get("reviews", {}).get("deliverable", {}).get("receipts", []):
+    lines, silent, overclaim = [], [], []
+    session = stage.get("session_effort")
+    if stage.get("effort_shortfall_accepted") or effort_shortfall(session, promised):
+        lines.append(
+            f"this panel was spawned from a session reporting {session or 'an unrecorded'} effort against an "
+            f"approved `{depth}` depth that promises {promised}, and the session proceeded knowing it "
+            "(self-reported, and nothing here verifies it)")
+    for receipt in receipts:
         delivered = receipt.get("delivered_effort")
         if delivered is None:
             silent.append(receipt["lens"])
         elif effort_shortfall(delivered, promised):
             lines.append(f"reviewer effort below the approved depth (self-reported): {receipt['lens']} ran at "
                          f"{delivered}, and `{depth}` promises {promised}")
+        elif session and effort_shortfall(session, delivered):
+            # Collected, not repeated per lens: five near-identical sentences in a pull-request body is
+            # how a real disclosure gets skimmed past.
+            overclaim.append(f"{receipt['lens']} ({delivered})")
+    if overclaim:
+        lines.append(
+            "these reviewers report running ABOVE the session that spawned them, which is not possible "
+            f"here — a reviewer inherits the session's effort and cannot exceed it, so one of the two "
+            f"self-reports is wrong and neither is verified: " + ", ".join(sorted(overclaim))
+            + f" against a session reporting {session}")
     if silent:
         lines.append("these review receipts recorded no delivered effort, so the approved "
                      f"`{depth}` depth's promise of {promised} is unverified for them: " + ", ".join(sorted(silent)))
@@ -1038,6 +1076,13 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     consent = plan_lifecycle.attestation("bind", args.operator_decision, at=moment.utc_now())
     keep = _unchanged_nodes(bound_plan, successor)
 
+    # Resolved BEFORE the mutation, so a specification that cannot be resolved refuses the adoption
+    # rather than half-applying it — the same fail-before-write discipline the store keeps everywhere.
+    adopted_spec_digest = None
+    if record.get("approval"):
+        adopted_spec_digest = _canonical_spec(
+            successor, repository=state["build"]["repository"], check_issue=False)["digest"]
+
     def change(current):
         preserved_work = {node_id: entry for node_id, entry in (current.get("work") or {}).items()
                           if node_id in keep}
@@ -1053,10 +1098,19 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
         current["work"] = preserved_work
         current["progress"] = {"current_item": None, "completed": preserved_progress}
         # Consent that was granted for THIS document, on the plan side, at the depth its panel ran.
+        #
+        # AND ITS SETTLED-SPECIFICATION FINGERPRINT, resolved here rather than left absent. `approve` is
+        # what normally resolves the specification and records its digest; adoption inherits the approval
+        # WITHOUT passing through approve, so leaving the fingerprint None meant the next command compared
+        # the live specification against nothing and refused with "settled specification changed since
+        # approval" — which had not happened — and pointed at a plan revision that would have undone the
+        # adoption's whole purpose. Invisible in a project with no settled specification, and a wall in
+        # every project that has one.
         approval = record.get("approval")
         if approval:
-            current["approval"] = {"plan_digest": current["plan"]["digest"], "spec_digest": None,
-                                   "depth": approval["depth"]}
+            current["approval"] = {"plan_digest": current["plan"]["digest"],
+                                   "spec_digest": adopted_spec_digest, "depth": approval["depth"]}
+            current["plan"]["spec_digest"] = adopted_spec_digest
         current.setdefault("plan_change_escalations", []).append(
             {"reviewed_plan_digest": previous_digest, "plan_digest": _digest(successor),
              "operator_change": f"adopted sealed successor {successor_id}: {args.operator_decision}"})
@@ -1644,7 +1698,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
 def _finding_entry_from_args(args) -> dict:
     return {"id": args.id, "lens": args.lens, "severity": args.severity, "summary": args.summary,
             "disposition": args.disposition, "rationale": args.rationale,
-            "escalation_kind": args.escalation_kind, "blocks_this_pr": bool(args.blocks_this_pr),
+            "escalation_kind": args.escalation_kind,
+            "blocks_this_pr": bool(getattr(args, "blocks_this_pr_stated", None)),
             "handoff_summary": args.handoff_summary,
             "operator_summary": getattr(args, "operator_summary", None),
             "private_reference": getattr(args, "private_reference", None)}
@@ -1660,6 +1715,26 @@ def cmd_finding_record(args, store: Snapshot) -> None:
     else:
         if not args.id:
             raise CoordinatorError("record a finding with --id … or a whole round with --from-file <file|->")
+        # STATED, never defaulted. The blocking choice stopped being an argparse-required group so the
+        # batch form could run without it, and argparse resolves an omitted store_true/store_false pair to
+        # False — so a session that simply forgot the flag recorded the finding as NOT holding the pull
+        # request, silently. A submission gate must not fail toward permitting, and argparse cannot express
+        # "required unless --from-file", so the requirement lives here where it can
+        # (StarshipSuperjam/engine-template#1060's batch form must not cost
+        # StarshipSuperjam/engine-template#1012's gate).
+        if getattr(args, "blocks_this_pr_stated", None) is None:
+            raise CoordinatorError(
+                "say whether this finding holds the pull request: --blocks-this-pr or "
+                "--does-not-block-this-pr. It is not defaulted, because the default that argparse would "
+                "pick is 'does not block' — and a finding recorded as not blocking because nobody said "
+                "otherwise is exactly the silence the submission gate exists to break.")
+        missing = [name for name in ("lens", "severity", "summary", "disposition", "rationale")
+                   if not getattr(args, name, None)]
+        if missing:
+            raise CoordinatorError(
+                "a single finding needs " + ", ".join("--" + m for m in missing)
+                + ". (Recording a whole round? `--from-file <file|->` takes them all from one "
+                  "build-findings-batch.v1 file and needs none of these flags.)")
         entries = [_finding_entry_from_args(args)]
         problem = _finding_entry_problem(entries[0])
         if problem:
@@ -2258,9 +2333,20 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
         answers yes: never a free pass (StarshipSuperjam/engine-template#1065)."""
         try:
-            return bool(ranges.authored_only(ROOT, ranges.commits(ROOT, base, tip)))
+            return bool(ranges.authored_between(ROOT, base, tip))
         except ranges.RangeUnreadable:
             return True
+
+    # A round that was FANNED OUT AND NEVER COMPLETED is paid for and can never be absorbed into a later
+    # assess. Keying that on commit identity was the defect: an abandoned fan-out counted only while the
+    # tip had not moved, so a single `sync-artifacts` commit landing before the next assessment ERASED an
+    # already-paid round and dropped the count. What actually distinguishes the two cases is not where
+    # HEAD is, it is whether the lenses came back — so that is what gets recorded.
+    if prior and prior.get("packet_digest") and not _repair_round_complete(prior):
+        rounds = [{**r, "spent": True}
+                  if (r["reviewed_commit"] == prior["reviewed_commit"]
+                      and r["final_commit"] == prior["final_commit"]) else r
+                  for r in rounds]
 
     def _same_episode(entry: dict) -> bool:
         """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
@@ -2272,17 +2358,13 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         it). That second case is the observed one — a completed round, then a `sync-artifacts` commit,
         which put the repair's final commit behind HEAD and forced a re-bind that the counter charged as
         a third round in a build that had run two (StarshipSuperjam/engine-template#1063)."""
+        if entry.get("spent"):
+            return False                    # its lenses were dispatched and never returned; it counts
         if _authored_between(entry["final_commit"], head):
             return False
         return reviewed in (entry["reviewed_commit"], entry["final_commit"])
 
-    # A fan-out was PAID FOR. Re-assessing the IDENTICAL divergence after a packet was cut means the
-    # lenses were dispatched and the round abandoned; that costs full price and must count, or repeated
-    # abandoned fan-outs would collapse into one round. This is deliberately narrow — the same commit
-    # pair, not merely the same reviewed commit — so it never swallows the bookkeeping case above.
-    fanned_out = bool(prior and prior.get("packet_digest")
-                      and prior["reviewed_commit"] == reviewed and prior["final_commit"] == head)
-    same = [] if fanned_out else [r for r in rounds if _same_episode(r)]
+    same = [r for r in rounds if _same_episode(r)]
     prior_rounds = len(rounds) - len(same)
     guidance = getattr(args, "guidance", None)
     if not same and prior_rounds >= _REPAIR_ROUND_ESCALATION and not guidance:
@@ -3167,6 +3249,46 @@ def _plan_obligation_lines(state: dict) -> list[str]:
     return lines
 
 
+def _added_workflow_disclosure(base: str) -> str:
+    """For every GitHub workflow this change ADDS: what fires it and what it is allowed to do.
+
+    Read out of the file rather than written by hand. An added workflow is invisible to the weakening
+    guard, which inspects modifications to files that already exist — so nothing mechanical reviews the
+    triggers or the token of a workflow that arrives whole. This is the disclosure that stands in for
+    that missing review, and a disclosure a session has to remember to write is one that will eventually
+    not be written."""
+    added = [p for p in _run(["git", "diff", "--diff-filter=A", "--name-only", f"{base}...HEAD"]
+                             ).stdout.splitlines() if p.startswith(".github/workflows/")]
+    if not added:
+        return ""
+    lines = ["**This change adds GitHub workflows.** Nothing automatic reviews an added workflow's "
+             "triggers or permissions, so they are stated here, read from the files themselves:"]
+    for rel in sorted(added):
+        try:
+            import yaml
+            doc = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8")) or {}
+        except Exception as exc:                        # noqa: BLE001
+            lines.append(f"- `{rel}` — could not be read to disclose its triggers and permissions ({exc}); "
+                         "read the file before merging.")
+            continue
+        triggers = doc.get(True, doc.get("on")) or {}
+        names = ", ".join(sorted(triggers)) if isinstance(triggers, dict) else str(triggers)
+        # `{}` and absent are DIFFERENT and the difference is the point: an empty mapping grants nothing
+        # by default (the least-privilege posture), while an absent key inherits the repository default,
+        # which may be write. Reporting both as "not declared" would flatten the safer one into the
+        # riskier one at the exact surface where the operator judges it.
+        top = ("grants nothing by default" if doc.get("permissions") == {}
+               else ", ".join(f"{k}={v}" for k, v in sorted((doc.get("permissions") or {}).items()))
+               or "NOT DECLARED — inherits the repository default, which may include write")
+        per_job = {job: spec.get("permissions") for job, spec in (doc.get("jobs") or {}).items()
+                   if isinstance(spec, dict) and spec.get("permissions")}
+        grants = "; ".join(f"`{job}`: " + ", ".join(f"{k}={v}" for k, v in sorted(perm.items()))
+                           for job, perm in sorted(per_job.items())) or "none declared per job"
+        lines.append(f"- `{rel}` — fires on: {names or 'nothing declared'}. Workflow-level permissions: "
+                     f"{top}. Per job: {grants}.")
+    return "\n".join(lines)
+
+
 def _plan_consent_lines(state: dict) -> list[str]:
     """What the operator was asked at each plan consent gate, and what they answered — verbatim.
 
@@ -3187,9 +3309,22 @@ def _plan_consent_lines(state: dict) -> list[str]:
         import plan_lifecycle
         library = _library()
         record = library.read_record(library.resolve(plan_id))
-    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
-        return []
-    return plan_lifecycle.consent_trail(record)
+    except Exception as exc:  # noqa: BLE001
+        # SAYS SO, rather than returning empty. Returning [] made an unreadable library indistinguishable
+        # from a Build that had no consent points at all — the body simply omitted the trail, and nothing
+        # in the completeness check demanded it. The headline safeguard of this whole program would have
+        # degraded into silence at exactly the surface it exists to reach. A body that cannot show the
+        # trail must say it could not, so the operator knows to ask.
+        return [f"**The operator-consent trail could not be read from the plan library, so it is NOT "
+                f"published here.** That is not the same as there having been no consent gates — it means "
+                f"this body cannot show you what you were recorded as deciding for plan {plan_id}, and you "
+                f"should ask before merging. ({exc})"]
+    trail = plan_lifecycle.consent_trail(record)
+    if not trail:
+        return ["**No operator-consent attestations are recorded for this plan.** Approve, seal and bind "
+                "each require one, so an empty trail on a Build that reached here is itself worth asking "
+                "about."]
+    return trail
 
 
 def _plan_review_clause(state: dict) -> str:
@@ -3316,6 +3451,14 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # Report-only change profile, over the live base — the same invocation the preflight records.
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     change_profile = (profile.stdout or "").strip()
+    # An ADDED workflow discloses itself. The weakening guard only inspects files that already existed, so
+    # a change that ADDS a workflow — with whatever triggers and whatever token — passes no automatic
+    # review at all; the plan named the pull-request disclosure as the compensating control precisely for
+    # that reason. Leaving it to the submitting session to remember would make the control exactly as
+    # reliable as memory, so it is composed from the file itself.
+    added_workflows = _added_workflow_disclosure(base)
+    if added_workflows:
+        change_profile = (change_profile + "\n\n" + added_workflows).strip()
 
     # Validation receipts, stripped of machine-local log paths (mirrors the handoff strip), rendered with the
     # operator labels from the one build-protocol declaration that also drives execution.
@@ -3374,11 +3517,16 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # (StarshipSuperjam/engine-template#1067). A HARD line, not a warning: a sealed `thorough` whose
     # lenses ran at `medium` published its promise unchallenged, and the operator's merge is the only
     # place that can be met. Self-reported on both halves, and the sentence says so.
+    # The caveat rides the DEPTH CLAIM itself, not only its exceptions. Stating "self-reported and
+    # unverified" only when there is a shortfall to admit means the exact failure this closes — a session
+    # claiming an effort it did not deliver — produces a body that reads as an unqualified assurance
+    # (StarshipSuperjam/engine-template#1067).
+    if cold_review_ran and _depth_effort_or_none(state):
+        review_coverage += (" What effort those reviewers ran at is self-reported by the spawning session "
+                            "and by the reviewers themselves; nothing in this engine verifies it.")
     effort_lines = _effort_shortfall_lines(state)
     if effort_lines:
-        review_coverage += (" Reviewer effort did not match what this depth promises, self-reported by the "
-                            "spawning session and the reviewers, and independently unverified: "
-                            + "; ".join(effort_lines) + ".")
+        review_coverage += " " + "; ".join(effort_lines) + "."
 
     drift_line = _drift_line(state, head)
 
@@ -3657,7 +3805,7 @@ def parser() -> argparse.ArgumentParser:
     packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.add_argument("--session-effort", choices=["low", "medium", "high"], help="The reasoning effort THIS session is running at as it spawns the panel. On the Claude arm an un-pinned reviewer inherits it, so it is the ceiling every lens in the fan-out runs at; self-reported."); packet.add_argument("--accept-effort-shortfall", action="store_true", help="Spawn the panel knowing it runs below the approved depth's effort. The gap becomes a hard disclosure in the PR body."); packet.set_defaults(func=_packet)
     record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--delivered-effort", choices=["low", "medium", "high"], help="The reasoning effort this reviewer actually ran at, self-reported. Compared against the approved depth's effort; a shortfall is disclosed in the PR body."); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
-    frecord = finding.add_parser("record"); frecord.add_argument("--id"); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.add_argument("--from-file", help="A build-findings-batch.v1 file (or -) carrying a whole round's dispositions. Validated entirely before anything is written, then recorded in one mutation: a malformed entry records nothing."); frecord.set_defaults(func=cmd_finding_record)
+    frecord = finding.add_parser("record"); frecord.add_argument("--id"); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens"); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"]); frecord.add_argument("--summary"); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]); frecord.add_argument("--rationale"); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(); block.add_argument("--blocks-this-pr", action="store_const", const=True, dest="blocks_this_pr_stated"); block.add_argument("--does-not-block-this-pr", action="store_const", const=False, dest="blocks_this_pr_stated"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.add_argument("--findings-from-file", "--from-file", dest="from_file", help="A build-findings-batch.v1 file (or -) carrying a whole round's dispositions. The SAME flag name and the SAME file `review record` takes, so one cut file feeds both verbs and their ids cannot drift; --from-file remains as an alias. Validated entirely before anything is written, then recorded in one mutation: a malformed entry records nothing."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)

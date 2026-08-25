@@ -64,6 +64,15 @@ jobs:
         # so a deployed project could receive this workflow between a release and a census change. Compared
         # case-insensitively against the recorded home, the way every other home check in this engine folds
         # it. Plain python3 (present on the runner) so the relative path resolves from the workspace root.
+        #
+        # WHY THIS DOES NOT DELEGATE TO repo_identity.is_home_repo, which is the obvious tidy-up: that
+        # predicate deliberately fails TOWARD home, because its callers are safety checks that must RUN
+        # when placement is uncertain. Here the safe direction is the exact opposite — an uncertain
+        # repository must NOT run the engine's own construction demonstrations or file Issues into
+        # somebody's product register. Same words, opposite failure direction; sharing one home would put
+        # a trap under whichever caller lost the argument. It also reads GITHUB_REPOSITORY rather than the
+        # on-disk origin, which is the independent context signal the release gate uses for the same
+        # reason.
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -87,17 +96,20 @@ jobs:
       - name: Run the demonstration corpus
         id: corpus
         if: steps.home.outputs.home == 'true'
-        # Never fails the job. A red corpus is REPORTED, not thrown — the reporting job needs the result
-        # either way, and a failed job here would leave a stale Issue open with nobody to close it.
+        # This step FAILS when the corpus is red, so a broken night is red in the actions list rather
+        # than green with an Issue somebody has to notice. The reporting job still runs — it is gated on
+        # `always()`, not on this step's success — because the Issue is needed most on exactly the nights
+        # this fails, and a red corpus with no report would be the silence this workflow exists to end.
         run: |
           set -uo pipefail
           uv run --directory .engine --frozen -- python tools/demonstration_corpus.py --json-out "${RUNNER_TEMP}/demo-result.json" | tee "${RUNNER_TEMP}/demo-log.txt"
+          ok="$(python3 -c "import json,os;p=os.environ['RUNNER_TEMP']+'/demo-result.json';print(str(json.load(open(p))['ok']).lower() if os.path.getsize(p) else 'missing')" 2>/dev/null || echo missing)"
           # The hand-off to the fenced reporting job, base64 on one line. Not an artifact — that would need
           # two more third-party actions for a few kilobytes of JSON. Not raw JSON in a job output either:
           # this string contains demonstration output, and encoding it removes every question about
           # newlines, delimiters and quoting between here and the job that reads it.
           {
-            echo "ok=$(python3 -c "import json;print(str(json.load(open('${RUNNER_TEMP}/demo-result.json'))['ok']).lower())")"
+            echo "ok=${ok}"
             echo "result=$(python3 -c "import base64,sys;print(base64.b64encode(open('${RUNNER_TEMP}/demo-result.json','rb').read()).decode())")"
           } >> "${GITHUB_OUTPUT}"
           {
@@ -105,11 +117,24 @@ jobs:
             echo ""
             cat "${RUNNER_TEMP}/demo-log.txt"
           } >> "${GITHUB_STEP_SUMMARY}"
+          # A corpus that CRASHED wrote no result at all — a different thing from one that failed, and
+          # the more dangerous one: the reporting job would find nothing to report and the night would
+          # pass in silence with a stale Issue still open. Say so, loudly, and fail.
+          if [ ! -s "${RUNNER_TEMP}/demo-result.json" ]; then
+            echo "::error::The demonstration corpus produced no result — it did not finish. Nothing can be reported for this run; any open nightly report is now stale."
+            exit 1
+          fi
+          if [ "${ok}" != "true" ]; then
+            echo "::error::One or more shipped demonstrations are failing. The nightly report Issue carries the current set."
+            exit 1
+          fi
 
   report:
     name: keep one Issue, or none
     needs: demonstrations
-    if: needs.demonstrations.outputs.home == 'true'
+    # `always()`, not success: the report is needed MOST on the nights the corpus step fails, and
+    # gating it on success would mean a red night files nothing and an open report is never closed.
+    if: always() && needs.demonstrations.outputs.home == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

@@ -212,9 +212,11 @@ class TheWorkflowIsFencedAndHomeOnly(unittest.TestCase):
 
     def test_both_jobs_gate_on_being_the_engine_s_own_repository(self):
         self.assertIn("home_repository", self.text)
-        self.assertIn("if: needs.demonstrations.outputs.home == 'true'",
-                      self.text.replace('if: needs.demonstrations.outputs.home == "true"',
-                                        "if: needs.demonstrations.outputs.home == 'true'"))
+        # Asserted on the PARSED condition, not on an exact line: the reporting job's `if` also carries
+        # `always()` so a red night still files its report, and a substring match on the old spelling
+        # broke the moment that was added — a brittle assertion about a real property.
+        self.assertIn("needs.demonstrations.outputs.home == 'true'",
+                      str(self.doc["jobs"]["report"]["if"]))
 
     def test_and_it_retires_at_first_run_so_a_generated_project_never_receives_it(self):
         census = json.loads((ROOT / ".engine" / "provisioning" / "first-run-assets.json")
