@@ -259,6 +259,19 @@ class TestPlanAndSnapshot(CoordinatorCase):
                 self.assertRaisesRegex(bc.CoordinatorError, r"sealed against Issue #770"):
             bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
 
+    def test_an_interactive_issue_the_plan_never_named_is_refused(self):
+        """The other half of "in ANY mode": correspondence fails when the plan names no Issue at all.
+
+        Same-session Builds are authorized by the operator being present, so --issue is optional here —
+        but a number supplied anyway does not simply sit unused. It is stored as the authorizing Issue
+        and composed into the pull request as a Closes link, so accepting it unchecked would put an
+        unverified claim on the merge surface: a PR asserting it closes work nothing tied it to.
+        """
+        with self.sealed(), self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_plan_bind(self.bind_args(issue=999), self.store)
+        self.assertIn("names no Issue", str(caught.exception))
+        self.assertIn("Bind without --issue", str(caught.exception))
+
     def test_an_interactive_bind_still_needs_no_issue(self):
         self._bind_ok(self._from_issue(770))
         self.assertIsNone(self.state()["plan"]["authorizing_issue"])
@@ -503,8 +516,32 @@ class TestSealedPlanEntry(CoordinatorCase):
         with mock.patch.object(bc, "_sealed_plan", return_value=(self.document["plan_id"], other, plan())), \
                 mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
                 mock.patch.object(bc.github, "pr_state", return_value={"number": 7, "state": "OPEN", "headRefOid": bc._head()}), \
-                self.assertRaisesRegex(bc.CoordinatorError, "sealed plan changed since this Build was bound"):
+                self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_handoff_restore(argparse.Namespace(input=str(handoff_path)), restored)
+        # The refusal names the fault AND the way out. A blocked cold continuation with no remedy is a
+        # session stuck mid-Build with nothing to read but source, which is how a refusal becomes a trap.
+        self.assertIn("sealed plan changed since this Build was bound", str(caught.exception))
+        self.assertIn("bind a fresh Build", str(caught.exception))
+
+    def test_cold_restore_is_blocked_with_its_remedy_when_the_payload_moved(self):
+        """The seal this snapshot names is the one in the library, but the work inside it is not."""
+        self.seal_it()
+        sealed_digest = self.library.read_record(self.slug)["seal"]["sealed_digest"]
+        state = bc._initial_state("owner/repo", 7, BASE, self.document["plan_id"], sealed_digest, plan(), None)
+        self.store.create(state)
+        handoff = bc._handoff(self.state())
+        handoff_path = Path(self.temp.name) / "handoff.json"
+        handoff_path.write_text(json.dumps(handoff), encoding="utf-8")
+        restored = bc.StateStore(str(Path(self.temp.name) / "restored.json"))
+        moved = plan()
+        moved["objective"] = moved["objective"] + " And one sentence more."
+        with mock.patch.object(bc, "_sealed_plan", return_value=(self.document["plan_id"], sealed_digest, moved)), \
+                mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value={"number": 7, "state": "OPEN", "headRefOid": bc._head()}), \
+                self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(handoff_path)), restored)
+        self.assertIn("build payload no longer matches this Build", str(caught.exception))
+        self.assertIn("Export the handoff again", str(caught.exception))
 
     def test_a_pre_cutover_handoff_is_refused_with_its_remedy(self):
         path = Path(self.temp.name) / "legacy.json"

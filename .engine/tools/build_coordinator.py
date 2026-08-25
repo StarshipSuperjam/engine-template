@@ -644,6 +644,17 @@ def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
                 "unattended Build needs both halves: a plan whose recorded intent came from an Issue, "
                 "and that same Issue supplied here. Bind it same-session instead, or plan the "
                 "unattended work from the Issue that authorizes it.")
+    elif issue is not None and reference is None:
+        # Same-session, --issue supplied, and the plan names no Issue at all. The Build is authorized
+        # either way — the operator is present — but the number does not vanish: it is stored as the
+        # authorizing Issue and composed into the pull request as a Closes link. An unverified Closes is
+        # a false claim on the merge surface, so the correspondence rule holds in EVERY mode, which is
+        # what this function's contract says and what this arm makes true.
+        raise CoordinatorError(
+            f"this sealed plan names no Issue, so there is nothing for --issue {issue} to correspond to "
+            "and no way to show that the two are about the same work. The pull request would claim to "
+            f"close #{issue} on nothing but your say-so at bind time. Bind without --issue, or bind a "
+            "plan whose recorded intent came from that Issue.")
     if issue is not None and reference is not None and issue != reference:
         raise CoordinatorError(
             f"Issue #{issue} does not authorize this plan: the plan was sealed against Issue "
@@ -2130,9 +2141,17 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
         raise CoordinatorError(f"the sealed plan this Build was bound to is unusable, so cold "
                                f"continuation is blocked: {exc}") from exc
     if recorded_id != plan_id or sealed_digest != value["plan"]["sealed_digest"]:
-        raise CoordinatorError("the sealed plan changed since this Build was bound; cold continuation is blocked")
+        raise CoordinatorError(
+            "the sealed plan changed since this Build was bound, so cold continuation is blocked: this "
+            "snapshot names a seal the library no longer holds. A seal is terminal, so nothing re-seals "
+            "it — bind a fresh Build to the plan that is sealed now, or restore the plan revision this "
+            "Build was bound to and continue against that.")
     if _digest(plan) != value["plan"]["digest"]:
-        raise CoordinatorError("the sealed plan's build payload no longer matches this Build; cold continuation is blocked")
+        raise CoordinatorError(
+            "the sealed plan's build payload no longer matches this Build, so cold continuation is "
+            "blocked: the seal is the one this snapshot names, but the work it describes is not. Export "
+            "the handoff again from the session that owns this Build, or bind a fresh Build to the "
+            "sealed plan rather than continuing against a payload this snapshot was never built from.")
     state = _restore_base_state(value, "build-state.v2")
     state["work"] = _restore_work(value.get("work", {}))
     store.create(state)

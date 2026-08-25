@@ -101,6 +101,11 @@ accept. The plan-stage review machinery (`review packet --stage plan`, its recei
 half) is expected to MOVE to the Plan Coordinator when the Build Coordinator is cut over to sealed-handoff
 entry; until that lands and amends this record again, every plan-stage assertion below governs unchanged._
 
+_In plain terms first, for a reader who does not track these assertions by number: a plan is now reviewed
+once, before it is locked, rather than reviewed again after the building has started — and once it is locked,
+that seal is the only way work can begin. The rest of this paragraph says which numbered assertions that
+moved, added, or weakened._
+
 _Amended 2026-08-24 — the cutover the paragraph above said was coming has landed, so its closing sentence no
 longer holds and is revised here by date: the plan-stage assertions do NOT all govern unchanged, and the five
 that moved are corrected in place below (BC-04, BC-05, BC-12, BC-18, BC-19). A plan now enters a Build only

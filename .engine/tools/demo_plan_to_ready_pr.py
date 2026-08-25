@@ -226,6 +226,26 @@ def _arc_one(copy, head, env, pr_state, holder):
                 "bind refuses: " + (unsealed.stdout + unsealed.stderr).strip().splitlines()[-1][:96])
 
     _plan_cmd(copy, env, "preview", plan_id)
+
+    # The panel move, shown rather than asserted. The rule that used to live on the Build side — every
+    # reviewer the chosen care level calls for must actually have reviewed — is now a condition of the
+    # SEAL. Ask for the most thorough level, hand back a review one reviewer did, and the seal refuses
+    # and names who is missing. This is what makes "a sealed plan is a reviewed plan" true rather than
+    # merely assumed, and it is the reason the Build side can stop asking.
+    _plan_cmd(copy, env, "approve", plan_id, "--depth", "thorough")
+    packet = _plan_cmd(copy, env, "review", "packet", plan_id)
+    # The PACKET digest, not the plan digest that precedes it in the same header — a receipt has to name
+    # what the reviewer actually read, which is why `review record` re-renders and compares.
+    digest = next((line.split(":", 1)[1].strip() for line in packet.stdout.splitlines()
+                   if line.startswith("Packet digest:")), "")
+    recorded = _plan_cmd(copy, env, "review", "record", plan_id, "--packet-digest", digest,
+                         "--lens", "architecture")
+    ok &= _pass("one reviewer's review is recorded", recorded.returncode == 0,
+                "architecture read the plan; the other four the level calls for did not")
+    short = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none")
+    ok &= _pass("cannot seal a thorough plan one reviewer looked at", short.returncode != 0,
+                "the seal refuses: " + (short.stdout + short.stderr).strip().splitlines()[-1][:96])
+
     approved = _plan_cmd(copy, env, "approve", plan_id, "--depth", "quick")
     ok &= _pass("approved, after the whole plan was rendered", approved.returncode == 0,
                 "care level: quick — your own read, no cold reviewers")

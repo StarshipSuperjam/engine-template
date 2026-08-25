@@ -665,6 +665,18 @@ def cmd_finding_dispose(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
+    # A seal freezes the dispositions too, not merely the plan text. The Build reads this review LIVE from
+    # the record when it composes the pull request, which is what makes a plan-review disagreement immune
+    # to the Build's own receipt-supersession rule — but reading live from a record that stayed editable
+    # would relocate the silent drop rather than close it: a finding left honestly blocking at seal could
+    # be turned into "rejected, no issue" any time before compose, and the operator would meet the edited
+    # version at merge with nothing showing it had changed.
+    if record.get("seal"):
+        raise PlanCoordinatorError(
+            "this plan is sealed, and a seal freezes its review dispositions as well as its text — the "
+            "pull request publishes them as they stood when you sealed. If a disposition is genuinely "
+            "wrong, clone this plan into a new one and disposition it there rather than editing a "
+            "sealed record.")
     review = record.get("plan_review")
     if not review:
         raise PlanCoordinatorError("no plan review is recorded, so there is nothing to disposition")
@@ -684,6 +696,10 @@ def cmd_finding_dispose(args) -> int:
             "pass --operator-summary.")
 
     def change(current):
+        if current.get("seal"):          # re-asserted inside the lock, not from the copy above
+            raise PlanCoordinatorError(
+                "this plan was sealed while you were dispositioning; a seal is terminal and freezes the "
+                "dispositions the pull request will publish")
         for finding in current["plan_review"]["findings"]:
             if finding["id"] == args.id:
                 finding["disposition"] = args.disposition

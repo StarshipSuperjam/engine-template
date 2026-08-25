@@ -643,6 +643,29 @@ class Dispositions(_Governed):
         self.assertEqual(code, 2)
         self.assertIn("A1", err)
 
+    def test_a_seal_freezes_the_dispositions_the_pull_request_will_publish(self):
+        """The Build reads this review live from the record, so an editable record is an editable PR.
+
+        A blocking finding left honestly blocking at seal is a disagreement the operator meets at merge.
+        If it could be turned into "rejected, no issue" afterwards, reading live would relocate the
+        silent drop rather than close it — the immunity the panel move claims would be worth nothing.
+        """
+        slug, _ = self._to_reviewed(findings=({"id": "A1", "lens": "architecture",
+                                               "severity": "blocking", "summary": "One."},))
+        self.assertEqual(self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-tracked",
+            "--rationale", "Carried to the successor plan.", "--blocks-this-pr")[0], 0)
+        self.assertEqual(self.run_command("seal", slug)[0], 0)
+        code, _, err = self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "rejected",
+            "--rationale", "On reflection, no.", "--does-not-block-this-pr",
+            "--operator-summary", "No real issue here.")
+        self.assertEqual(code, 2)
+        self.assertIn("sealed", err)
+        frozen = self.lib.read_record(slug)["plan_review"]["findings"][0]
+        self.assertEqual(frozen["disposition"], "accepted-tracked")
+        self.assertTrue(frozen["blocks_this_pr"])
+
     def test_disposing_without_a_review_is_refused(self):
         slug, _ = self._plan()
         code, _, err = self.run_command("finding", "dispose", slug, "--id", "A1",
