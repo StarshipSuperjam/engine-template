@@ -292,5 +292,16 @@ class OneHome(unittest.TestCase):
             self.assertEqual(store.read()["build"]["pr"], 1)
 
 
+class TheKillAndResumeDemo(unittest.TestCase):
+    """The standalone reproducer, run end to end. Importing it here is also what keeps the demonstration
+    alive for the census reference-closure, so it ships rather than retiring as construction evidence —
+    a Build outliving the session that started it is forever-relevant to any deployed project."""
+
+    def test_the_kill_and_resume_demo_passes(self):
+        import quiet_call
+        import demo_build_resumes_after_a_kill as demo
+        self.assertEqual(quiet_call.run(demo.main), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

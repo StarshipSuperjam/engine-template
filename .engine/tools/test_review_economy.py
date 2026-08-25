@@ -521,5 +521,14 @@ class Issue1012BookkeepingTraps(unittest.TestCase):
         self.assertIn("clears the repair packet", source)
 
 
+class TheV1SunsetDemo(unittest.TestCase):
+    """The v1-sunset reproducer, run end to end — and kept alive for the census reference-closure."""
+
+    def test_the_v1_sunset_demo_passes(self):
+        import quiet_call
+        import demo_v1_plan_sunset_refused as demo
+        self.assertEqual(quiet_call.run(demo.main), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

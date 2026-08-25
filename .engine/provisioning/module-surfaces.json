@@ -1497,6 +1497,9 @@
   ".engine/tools/demo_build_entry_depth_gate.py": [
    "core"
   ],
+  ".engine/tools/demo_build_resumes_after_a_kill.py": [
+   "core"
+  ],
   ".engine/tools/demo_ci_author_exempt.py": [
    "core"
   ],
@@ -1504,6 +1507,9 @@
    "core"
   ],
   ".engine/tools/demo_control_plane_labels.py": [
+   "core"
+  ],
+  ".engine/tools/demo_cross_repo_spec_link.py": [
    "core"
   ],
   ".engine/tools/demo_dag_admission.py": [
@@ -1596,7 +1602,13 @@
   ".engine/tools/demo_uv_workspace_cache.py": [
    "core"
   ],
+  ".engine/tools/demo_v1_plan_sunset_refused.py": [
+   "core"
+  ],
   ".engine/tools/demo_weakening_guard_narrowed_set.py": [
+   "core"
+  ],
+  ".engine/tools/demonstration_corpus.py": [
    "core"
   ],
   ".engine/tools/dependency_discipline/__init__.py": [
@@ -1947,6 +1959,9 @@
   ".engine/tools/moment.py": [
    "core"
   ],
+  ".engine/tools/nightly_demo_report.py": [
+   "core"
+  ],
   ".engine/tools/operator_guarded_paths_check.py": [
    "core"
   ],
@@ -2268,6 +2283,9 @@
   ".engine/tools/test_contract_canon.py": [
    "core"
   ],
+  ".engine/tools/test_demonstration_corpus.py": [
+   "core"
+  ],
   ".engine/tools/test_derived_state.py": [
    "core"
   ],
@@ -2407,6 +2425,9 @@
    "core"
   ],
   ".engine/tools/test_moment.py": [
+   "core"
+  ],
+  ".engine/tools/test_nightly_demos.py": [
    "core"
   ],
   ".engine/tools/test_operation.py": [

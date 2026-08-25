@@ -40,7 +40,8 @@ def canonical_spec(
         if not repository or issue_body is None:
             raise core.CoordinatorError("repository and Issue reader are required to resolve originating authority")
         try:
-            issue_result = spec_referent.resolve_from_body(str(root), issue_body(repository, intent["issue"]))
+            issue_result = spec_referent.resolve_from_body(
+                str(root), issue_body(repository, intent["issue"]), repository)
         except spec_referent.SpecReferentError as exc:
             raise core.CoordinatorError(f"could not resolve the originating Issue's settled specification: {exc}") from exc
 
