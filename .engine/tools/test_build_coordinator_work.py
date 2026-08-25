@@ -563,24 +563,23 @@ class TestStatusV2(WorkCase):
 
 
 class TestMarkerVersioning(unittest.TestCase):
-    def test_v2_plan_block_reads_back_and_does_not_cross_match_v1(self):
-        v2 = plan_v2()
-        body = "prose\n\n" + ghub.plan_block(v2) + "\nmore prose\n"
-        got = ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMAS)
-        self.assertEqual(bc._digest(got), bc._digest(v2))
-        with self.assertRaisesRegex(bc.CoordinatorError, "no unique"):
-            ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMA)  # a legacy v1-only reader sees no block
+    """One marked block, one generation. The plan block and the v1 handoff marker are gone."""
 
-    def test_v1_and_v2_plan_blocks_together_are_rejected(self):
-        body = ghub.plan_block(plan_v1()) + "\n\n" + ghub.plan_block(plan_v2())
-        with self.assertRaisesRegex(bc.CoordinatorError, "no unique"):
-            ghub.durable_plan(body, plan_schema=bc.PLAN_SCHEMAS)
+    def test_the_handoff_block_reads_back_exactly_what_it_wrote(self):
+        handoff = {"schema_version": "build-handoff.v2", "x": 1}
+        body = "prose\n\n" + ghub.handoff_block(handoff) + "\nmore prose\n"
+        found = ghub.find_handoff_block(body)
+        self.assertIsNotNone(found)
+        self.assertEqual(bc._digest(handoff), found[0])
 
-    def test_handoff_markers_do_not_cross_match(self):
-        v2_handoff = {"schema_version": "build-handoff.v2", "x": 1}
-        body = ghub.handoff_block(v2_handoff)
-        self.assertIsNotNone(ghub.find_handoff_block(body, "v2"))
-        self.assertIsNone(ghub.find_handoff_block(body, "v1"))
+    def test_two_handoff_blocks_in_one_body_are_refused(self):
+        handoff = {"schema_version": "build-handoff.v2", "x": 1}
+        body = ghub.handoff_block(handoff) + "\n\n" + ghub.handoff_block(handoff)
+        with self.assertRaisesRegex(bc.CoordinatorError, "more than one engine-build-handoff"):
+            ghub.find_handoff_block(body)
+
+    def test_a_body_with_no_handoff_block_reads_as_none_rather_than_failing(self):
+        self.assertIsNone(ghub.find_handoff_block("prose with no markers at all\n"))
 
 
 class TestHandoffV2(WorkCase):
@@ -674,3 +673,177 @@ class TestWorkRouting(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MidBuildRevision(WorkCase):
+    """OB-MIDBUILD-REVISION: a Build in flight consumes a SEALED successor without restarting.
+
+    The shape this answers. A seal is terminal, so a plan discovered mid-Build to be wrong cannot be
+    edited — the way past a seal is a clone. Until now adopting that clone meant abandoning the Build
+    and rebuilding everything the old plan got right, which is a strong incentive to keep building
+    against a plan you already believe is flawed.
+    """
+
+    SUCCESSOR = "pln_fedcba987654"
+
+    def _successor(self, *, change_adapter=True):
+        """A sealed successor: `shared` byte-identical, `adapter` changed (or not)."""
+        items = [json.loads(json.dumps(item)) for item in self.plan_value["work_items"]]
+        if change_adapter:
+            items[1]["description"] = "Build adapter, corrected"
+        return plan_v2(items=items)
+
+    def _library(self, *, predecessors=(PLAN_ID,), depth="thorough"):
+        record = {"intake": {"predecessors": [f"{p} — a plan" for p in predecessors]},
+                  "approval": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
+                               "depth": depth, "at": "2026-08-25T00:00:00Z"}}
+        library = mock.MagicMock()
+        library.resolve.return_value = "successor-slug"
+        library.read_record.return_value = record
+        return mock.patch.object(bc, "_library", return_value=library)
+
+    def _adopt(self, successor, **over):
+        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
+                                  operator_decision="Yes, continue on the corrected plan.")
+        for key, value in over.items():
+            setattr(args, key, value)
+        with mock.patch.object(bc, "_sealed_plan",
+                               return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
+                self._library(), mock.patch.object(bc, "_record_build_binding"), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_plan_adopt(args, self.store)
+        return out.getvalue()
+
+    def _through_integration(self, item):
+        claim = self.claim(item)
+        self.result(item, claim["attempt_id"], {
+            "outcome": "returned", "base_sha": claim["base_sha"],
+            "evidence": {"changed_paths": [f".engine/tools/{item}.py"],
+                         "verification_results": ["green"]}})
+        args = argparse.Namespace(item=item, attempt=claim["attempt_id"], commit=HEAD_A,
+                                  verification_input="focused tests pass")
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_integrate(args, self.store)
+
+    def test_adoption_carries_the_settled_specification_forward_with_the_approval(self):
+        """A project WITH a settled specification is the case nothing covered, and the case that broke.
+
+        `approve` is what normally resolves the specification and records its fingerprint. Adoption
+        inherits the approval without passing through approve, so leaving the fingerprint absent meant
+        the next command compared the live specification against nothing, refused with 'settled
+        specification changed since approval' — which had not happened — and pointed at a plan revision
+        that would have undone the adoption's whole purpose. Invisible here until a specification exists,
+        which is exactly why it shipped."""
+        successor = self._successor()
+        spec = {"digest": "sha256:" + "5" * 64, "posture": "settled"}
+        with mock.patch.object(bc, "_canonical_spec", return_value=spec):
+            self._adopt(successor)
+        state = self.state()
+        self.assertEqual(state["approval"]["spec_digest"], spec["digest"])
+        self.assertEqual(state["plan"]["spec_digest"], spec["digest"],
+                         "the plan's own fingerprint is what _assert_spec_current compares against")
+        # And the proof that it is coherent: the very next assertion passes instead of refusing.
+        with mock.patch.object(bc, "_canonical_spec", return_value=spec):
+            bc._assert_spec_current(state, successor)
+
+    def test_an_unresolvable_specification_refuses_the_adoption_rather_than_half_applying_it(self):
+        successor = self._successor()
+        before = self.state()["plan"]["digest"]
+        with mock.patch.object(bc, "_canonical_spec", side_effect=bc.CoordinatorError("no spec")), \
+                self.assertRaises(bc.CoordinatorError):
+            self._adopt(successor)
+        self.assertEqual(self.state()["plan"]["digest"], before,
+                         "the snapshot must be untouched when the adoption refuses")
+
+    # -- the node comparison, which is where the safety lives --
+
+    def test_an_unchanged_node_with_unchanged_ancestry_is_preserved(self):
+        successor = self._successor()
+        self.assertEqual(bc._unchanged_nodes(self.plan_value, successor), {"shared"})
+
+    def test_a_node_whose_dependency_changed_is_not_preserved_however_identical_it_is(self):
+        items = [json.loads(json.dumps(item)) for item in self.plan_value["work_items"]]
+        items[0]["description"] = "Build shared, corrected"     # the ROOT moved
+        successor = plan_v2(items=items)
+        # `adapter` is byte-identical, and it is still dropped: its integration was verified against a
+        # predecessor that no longer exists.
+        self.assertEqual(bc._unchanged_nodes(self.plan_value, successor), set())
+
+    def test_a_wholly_unchanged_successor_preserves_everything(self):
+        self.assertEqual(bc._unchanged_nodes(self.plan_value, plan_v2()), {"shared", "adapter"})
+
+    # -- the verb --
+
+    def test_adoption_preserves_the_binding_and_the_unchanged_node_s_evidence(self):
+        self._through_integration("shared")
+        self._through_integration("adapter")
+        before = self.state()
+        self._adopt(self._successor())
+        after = self.state()
+        self.assertEqual(after["build"], before["build"], "the binding must survive adoption")
+        self.assertEqual(after["plan"]["plan_id"], self.SUCCESSOR)
+        self.assertFalse(after["plan"]["diverged_from_seal"],
+                         "the Build is executing a different SEAL, not diverging from one")
+        self.assertEqual(sorted(after["work"]), ["shared"])
+        self.assertEqual([e["id"] for e in after["progress"]["completed"]], ["shared"])
+
+    def test_the_changed_node_and_its_dependants_are_reset(self):
+        self._through_integration("shared")
+        self._through_integration("adapter")
+        self._adopt(self._successor())
+        self.assertNotIn("adapter", self.state()["work"])
+
+    def test_the_plan_panel_never_re_runs_the_successor_s_own_approval_is_inherited(self):
+        self._through_integration("shared")
+        self._adopt(self._successor())
+        approval = self.state()["approval"]
+        self.assertEqual(approval["depth"], "thorough")
+        self.assertEqual(approval["plan_digest"], self.state()["plan"]["digest"])
+
+    def test_the_change_is_recorded_for_the_merge_surface(self):
+        self._through_integration("shared")
+        self._adopt(self._successor())
+        escalation = self.state()["plan_change_escalations"][-1]
+        self.assertIn(self.SUCCESSOR, escalation["operator_change"])
+        self.assertIn("Yes, continue on the corrected plan.", escalation["operator_change"])
+
+    # -- the refusals --
+
+    def test_a_successor_that_does_not_name_the_bound_plan_is_refused(self):
+        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
+                                  operator_decision="Go.")
+        with mock.patch.object(bc, "_sealed_plan",
+                               return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, self._successor())), \
+                self._library(predecessors=("pln_999999999999",)), \
+                self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_plan_adopt(args, self.store)
+        self.assertIn("does not name", str(caught.exception))
+        self.assertEqual(self.state()["plan"]["plan_id"], PLAN_ID)
+
+    def test_adoption_without_the_operator_s_decision_is_refused(self):
+        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
+                                  operator_decision=None)
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_plan_adopt(args, self.store)
+        self.assertIn("no recorded operator decision", str(caught.exception))
+
+    def test_adopting_the_plan_already_bound_is_refused(self):
+        args = argparse.Namespace(successor=PLAN_ID, input=str(self.plan_path),
+                                  operator_decision="Go.")
+        with mock.patch.object(bc, "_sealed_plan",
+                               return_value=(PLAN_ID, SEALED, self.plan_value)), \
+                self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_plan_adopt(args, self.store)
+        self.assertIn("already bound to", str(caught.exception))
+
+    def test_an_input_that_is_not_the_executing_plan_is_refused(self):
+        other = Path(self.temp.name) / "other.json"
+        other.write_text(json.dumps(plan_v2(objective="Something else")), encoding="utf-8")
+        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(other),
+                                  operator_decision="Go.")
+        with mock.patch.object(bc, "_sealed_plan",
+                               return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, self._successor())), \
+                self._library(), self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_plan_adopt(args, self.store)
+        self.assertIn("must be the plan this Build is currently executing", str(caught.exception))

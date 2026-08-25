@@ -9,14 +9,11 @@ from typing import Callable
 
 import build_coordinator_core as core
 
-PLAN_BEGIN = "<!-- engine-build-plan:v1 "
-PLAN_END = "<!-- /engine-build-plan -->"
-HANDOFF_BEGIN = "<!-- engine-build-handoff:v1 "
-HANDOFF_END = "<!-- /engine-build-handoff -->"
-# v2 markers version BOTH the begin and end tokens (defence in depth: the v1 end token is not a
-# substring of the v2 end token, so a v1 reader can never straddle a v2 block and vice versa).
-PLAN_BEGIN_V2 = "<!-- engine-build-plan:v2 "
-PLAN_END_V2 = "<!-- /engine-build-plan:v2 -->"
+# One generation of markers, and one marked block. The v1 pair is gone with the v1 schemas, and with
+# it the plan block entirely: B2 removed every path that WROTE a plan to GitHub, which left these
+# readers able to read only an Issue body this engine can no longer produce. The handoff block is now
+# the only marked block a PR body carries, and it is versioned in BOTH its begin and end tokens so a
+# reader can never straddle a block of another generation.
 HANDOFF_BEGIN_V2 = "<!-- engine-build-handoff:v2 "
 HANDOFF_END_V2 = "<!-- /engine-build-handoff:v2 -->"
 GITHUB_BODY_BUDGET_BYTES = 60_000
@@ -31,19 +28,6 @@ GITHUB_BODY_BUDGET_BYTES = 60_000
 COORDINATOR_OWNED_LABEL = "engine-coordinator-owned"
 COORDINATOR_OWNED_LABEL_COLOR = "5319e7"
 COORDINATOR_OWNED_LABEL_DESCRIPTION = "Staged by the Build coordinator; reach ready only through submit apply."
-
-
-def _version_tag(schema_version: str) -> str:
-    """'build-plan.v2' -> 'v2'. The tag that selects a document's marker pair."""
-    return (schema_version or "build-plan.v1").rsplit(".", 1)[-1]
-
-
-def _plan_markers(tag: str) -> tuple[str, str]:
-    return (PLAN_BEGIN_V2, PLAN_END_V2) if tag == "v2" else (PLAN_BEGIN, PLAN_END)
-
-
-def _handoff_markers(tag: str) -> tuple[str, str]:
-    return (HANDOFF_BEGIN_V2, HANDOFF_END_V2) if tag == "v2" else (HANDOFF_BEGIN, HANDOFF_END)
 
 
 def gh_json(root: Path, argv: list[str]):
@@ -151,84 +135,34 @@ def issue_body(root: Path, repo: str, issue: int) -> str:
     return data.get("body") or ""
 
 
-def plan_block(plan: dict) -> str:
-    begin, end = _plan_markers(_version_tag(plan.get("schema_version", "build-plan.v1")))
-    plan_digest = core.digest(plan)
-    rendered = json.dumps(plan, indent=2, sort_keys=True, ensure_ascii=False)
-    return f"{begin}{plan_digest} -->\n```json\n{rendered}\n```\n{end}"
-
-
-def replace_plan_block(body: str, plan: dict) -> str:
-    begin, end = _plan_markers(_version_tag(plan.get("schema_version", "build-plan.v1")))
-    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
-    block = plan_block(plan)
-    matches = list(pattern.finditer(body))
-    if len(matches) > 1:
-        raise core.CoordinatorError("Issue contains more than one Build plan block; resolve it manually")
-    after = body[:matches[0].start()] + block + body[matches[0].end():] if matches else \
-        body.rstrip() + ("\n\n" if body.strip() else "") + block + "\n"
-    require_body_budget(after, "durable Issue body")
-    return after
-
-
-def durable_plan(body: str, *, plan_schema) -> dict:
-    """Read the exact durable plan block. ``plan_schema`` may be a single Path (legacy v1-only) or a
-    map of schema_version -> Path, in which case the block's own version is detected and validated
-    against the matching schema. Exactly one plan block, of one version, may be present."""
-    schemas = plan_schema if isinstance(plan_schema, dict) else {"build-plan.v1": plan_schema}
-    found = []
-    for schema_version, schema in schemas.items():
-        begin, end = _plan_markers(_version_tag(schema_version))
-        pattern = re.compile(
-            re.escape(begin) + r"(sha256:[0-9a-f]{64}) -->\n```json\n(.*?)\n```\n" + re.escape(end),
-            re.DOTALL,
-        )
-        matches = list(pattern.finditer(body))
-        if len(matches) > 1:
-            raise core.CoordinatorError(f"durable Issue has more than one engine-build-plan:{_version_tag(schema_version)} block")
-        if matches:
-            found.append((schema, matches[0]))
-    if len(found) != 1:
-        raise core.CoordinatorError("durable Issue has no unique engine-build-plan block")
-    schema, match = found[0]
-    try:
-        plan = json.loads(match.group(2))
-    except ValueError as exc:
-        raise core.CoordinatorError("durable Issue plan block is malformed") from exc
-    core.validate(plan, schema)
-    if core.digest(plan) != match.group(1):
-        raise core.CoordinatorError("durable Issue plan content does not match its marker digest")
-    return plan
-
-
-# Everything that WROTE a plan to GitHub is gone: publishing a plan into an Issue body, authoring or
-# resuming the dedicated Build Issue behind a creation nonce, and linking that Issue to close with the PR.
-# A plan enters a Build from the local sealed library now, so there is no plan on GitHub to write, and a
-# write path with no caller is a liability rather than a spare part. The READERS below and above stay:
-# they are what still lets an old body be recognised and refused by name, and they retire with the v1
-# schemas in the successor plan's sunset.
+# Nothing here writes or reads a plan on GitHub any more. B2 removed every WRITE path — publishing a
+# plan into an Issue body, authoring or resuming the dedicated Build Issue behind a creation nonce,
+# and linking that Issue to close with the PR — and the v1 sunset removes the matching READERS
+# (`plan_block`, `replace_plan_block`, `durable_plan`). They were kept for one release so an old body
+# could still be recognised and refused by name; with the v1 schemas deleted there is no schema left
+# to validate such a block against, and a reader that cannot validate what it finds is not a refusal
+# mechanism, it is a parser. A plan enters a Build from the local sealed library, and only from there.
 
 
 def handoff_block(value: dict) -> str:
-    begin, end = _handoff_markers(_version_tag(value.get("schema_version", "build-handoff.v1")))
     rendered = json.dumps(value, indent=2, sort_keys=True)
-    return f"{begin}{core.digest(value)} -->\n```json\n{rendered}\n```\n{end}"
+    return f"{HANDOFF_BEGIN_V2}{core.digest(value)} -->\n```json\n{rendered}\n```\n{HANDOFF_END_V2}"
 
 
-def find_handoff_block(body: str, tag: str) -> tuple[str, str] | None:
-    """Return (digest, json_text) for the unique handoff block of one version tag, or None.
+def find_handoff_block(body: str) -> tuple[str, str] | None:
+    """Return (digest, json_text) for the unique handoff block, or None. Raises on a duplicate.
 
-    Raises on a duplicated block. The distinct v1/v2 markers guarantee the two versions never
-    cross-match, so a body may safely be probed for each version in turn.
+    One generation, so no tag argument: the v1 handoff marker retired with its schema, and probing a
+    body for a version this engine can neither write nor validate would find only noise.
     """
-    begin, end = _handoff_markers(tag)
+    begin, end = HANDOFF_BEGIN_V2, HANDOFF_END_V2
     pattern = re.compile(
         re.escape(begin) + r"(sha256:[0-9a-f]{64}) -->\n```json\n(.*?)\n```\n" + re.escape(end),
         re.DOTALL,
     )
     matches = list(pattern.finditer(body))
     if len(matches) > 1:
-        raise core.CoordinatorError(f"PR contract has more than one engine-build-handoff:{tag} block")
+        raise core.CoordinatorError("PR contract has more than one engine-build-handoff block")
     if not matches:
         return None
     return matches[0].group(1), matches[0].group(2)

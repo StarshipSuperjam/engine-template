@@ -619,7 +619,7 @@ def handler(payload: dict) -> dict:
 # Accepting a plan is GROUNDWORK, not a Build entry. It used to be the second interactive way into
 # Build: the plan-exit completion fired a PostToolUse hook and the engine flipped the stance signal to
 # Build, so approving a plan WAS "build it" with no verb to type. That is gone. What a plan-acceptance
-# now does is import the accepted document into the Plan Coordinator as an unapproved draft — no
+# now does is import the accepted document into the Project Manager as an unapproved draft — no
 # approval, no review, no seal, and no Build authority of any kind — and report where it landed.
 #
 # Why the change. A plan the operator accepts has not been through the one thing the plan side exists
@@ -632,7 +632,7 @@ def handler(payload: dict) -> dict:
 # `ExitPlanMode` tool call — keyed on the completion EVENT itself, not a permission_mode value, because
 # acceptance offers several target modes. Codex has no equivalent signal, so its adapter reads the
 # acceptance ENVELOPE the operator types (issue 1024's observed prefix), anchored at byte zero. Both
-# call plan_coordinator.import_native_plan and both inject the same arrival report.
+# call project_manager.import_native_plan and both inject the same arrival report.
 #
 # NEITHER WRITES THE STANCE SIGNAL. After this change the signal has exactly two writers, both typed
 # operator verbs (set-build and set-routine); no hook writes it at all. `$engine-start` is the only
@@ -644,7 +644,7 @@ def handler(payload: dict) -> dict:
 _PLAN_EXIT_TOOL = "ExitPlanMode"
 # The Codex acceptance envelope, spelled out here rather than imported, because the handler that reads
 # it runs on EVERY prompt and must not drag the plan library into that path to learn one string. It is
-# the same string plan_coordinator declares, and a test pins the two together — the cheap way to keep
+# the same string project_manager declares, and a test pins the two together — the cheap way to keep
 # one constant in two places honest, and the same shape the depth vocabulary already uses.
 _PLAN_ENVELOPE = "PLEASE IMPLEMENT THIS PLAN:"
 
@@ -652,24 +652,24 @@ _PLAN_ENVELOPE = "PLEASE IMPLEMENT THIS PLAN:"
 def _import_native(text: str, provenance: str) -> dict:
     """Import an accepted native plan and return the hook decision — the shared tail of both adapters.
 
-    plan_coordinator is imported HERE rather than at module scope on purpose. This module is also the
+    project_manager is imported HERE rather than at module scope on purpose. This module is also the
     PreToolUse gate, which runs on every tool call, and the Codex adapter runs on every prompt; pulling
     the plan library, its contract, its projections and the Build Coordinator's core into that path for
     the rare turn that actually imports something would be a real cost on every turn that does not.
     """
     try:
-        import plan_coordinator
-        arrival = plan_coordinator.import_native_plan(text, provenance=provenance)
+        import project_manager
+        arrival = project_manager.import_native_plan(text, provenance=provenance)
     except Exception as exc:      # noqa: BLE001 — an import that fails must not cost the operator their turn
         # Deliberately not silent. The operator has just accepted a plan and is entitled to know it did
         # not land; saying so is strictly better than letting them discover it later from an empty
         # shelf. It still proceeds, and it still changes no stance.
         return hooks.inject(
-            "The plan you just accepted could NOT be imported into the Plan Coordinator: "
+            "The plan you just accepted could NOT be imported into the Project Manager: "
             f"{exc}. Nothing was saved and nothing was built. Tell the operator plainly, and offer the "
-            "typed recovery path — `python tools/plan_coordinator.py import-native --input - "
+            "typed recovery path — `python tools/project_manager.py import-native --input - "
             "--provenance ...` with the plan text on stdin.")
-    return hooks.inject(plan_coordinator.arrival_report(arrival))
+    return hooks.inject(project_manager.arrival_report(arrival))
 
 
 def accept_handler(payload: dict) -> dict:

@@ -50,7 +50,17 @@
         "predecessors": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }
     },
-    "program_id": {"type": "string", "pattern": "^prg_[0-9a-f]{12}$"}
+    "program_id": {"type": "string", "pattern": "^prg_[0-9a-f]{12}$"},
+    "consent": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/attestation"},
+      "description": "The operator decisions recorded at this plan's consent gates, in the order they were made. Additive by construction: an attestation is never edited or removed, because the trail is what the pull request publishes and a trail that could be rewritten would say nothing. It is a RECORD, not a proof — a session that would fabricate one could, and what the gate changes is that silence becomes a discrete published lie rather than an omission nobody can see. Un-forgeability is issue 914's residual."
+    },
+    "amendments": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/amendment"},
+      "description": "Corrections made to recorded artifacts before their freeze moments. Kept so a corrected record still shows that it was corrected: an amendment that left no trace would make the recording layer look infallible, which is exactly the impression the freeze rules exist to avoid giving."
+    }
   },
   "$defs": {
     "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
@@ -99,7 +109,13 @@
         "packet_digest": {"$ref": "#/$defs/digest"},
         "at": {"$ref": "#/$defs/timestamp"},
         "lenses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
-        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+        "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+        "effort_shortfall_accepted": {"description": "This review was recorded knowing its panel came in under the approved depth's promised effort. Kept because the honest number is the one worth having: without an acknowledged path the only way past the gate was to overstate a self-reported value, which is the false record the gate exists to prevent (StarshipSuperjam/engine-template#1067).", "type": "boolean"},
+        "delivered_efforts": {
+          "description": "Per lens, the reasoning effort that reviewer reports having run at (StarshipSuperjam/engine-template#1067). One approval pays for two panels — this one and the Build's deliverable review — so both record what they actually delivered against the depth the operator approved. Self-reported by the spawning session and the reviewers; nothing here verifies it, and every place it is disclosed says so. Absent on a review recorded before this field existed, which the seal discloses as unrecorded rather than assuming it was met.",
+          "type": "object",
+          "additionalProperties": {"enum": ["low", "medium", "high"]}
+        }
       },
       "description": "ONE cold review per approved revision. Folding fixes in as later revisions does NOT re-run it: a plan whose every revision re-triggered a panel would never converge, which is the failure the Build side already removed."
     },
@@ -117,7 +133,31 @@
         "operator_summary": {"type": "string", "minLength": 1,
                              "description": "The operator-safe sentence published on the merge surface. Required by `finding dispose` when a BLOCKING finding is not left blocking, because that is the disagreement an operator must meet at merge rather than discover afterwards."},
         "blocks_this_pr": {"type": "boolean",
-                           "description": "Whether this plan finding still blocks the pull request it authorized. Recorded here rather than mirrored into Build state, so the disclosure cannot be stripped by the Build's own receipt bookkeeping."}
+                           "description": "Whether this plan finding still blocks the pull request it authorized. Recorded here rather than mirrored into Build state, so the disclosure cannot be stripped by the Build's own receipt bookkeeping."},
+        "location": {"type": "string", "minLength": 1,
+                     "description": "Where in the plan the finding lands, carried through from the reviewer shape (plan-review-finding.v1) rather than dropped in translation. It is usually the most actionable part of a finding, and a record that discarded it made the reviewer's own output worse than what they wrote."}
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate", "decision", "at"],
+      "properties": {
+        "gate": {"enum": ["approve", "findings-presented", "seal", "bind"]},
+        "decision": {"type": "string", "minLength": 1,
+                     "description": "The operator's actual words. Not a checkbox and not a paraphrase: the pull request publishes this verbatim, and a paraphrase is where a consent that was never given starts to look like one that was."},
+        "at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "amendment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact", "at", "reason"],
+      "properties": {
+        "artifact": {"type": "string", "minLength": 1,
+                     "description": "What was corrected: \"approval\", \"plan_review\", or \"finding <id>\"."},
+        "at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1}
       }
     },
     "seal": {

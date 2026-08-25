@@ -34,10 +34,19 @@ class TestRemoteBounds(unittest.TestCase):
                      "replace_handoff_block", "BUILD_MARKER"):
             self.assertFalse(hasattr(github, gone), gone)
 
-    def test_the_readers_that_recognise_an_old_body_are_kept(self):
-        # They are what lets a pre-cutover artifact be identified and refused by name rather than
-        # misread; they retire with the v1 schemas in the successor plan's sunset.
-        for kept in ("plan_block", "durable_plan", "handoff_block", "find_handoff_block"):
+    def test_the_plan_readers_retired_with_the_v1_schemas(self):
+        # They were kept for one release so a pre-cutover Issue body could be identified and refused
+        # by name rather than misread. With the v1 schemas deleted there is nothing left to validate
+        # such a block against, and a reader that cannot validate what it finds is not a refusal
+        # mechanism — it is a parser for content nothing here can vouch for.
+        for gone in ("plan_block", "replace_plan_block", "durable_plan", "_plan_markers",
+                     "_version_tag", "PLAN_BEGIN", "HANDOFF_BEGIN"):
+            self.assertFalse(hasattr(github, gone), gone)
+
+    def test_the_handoff_reader_and_writer_are_kept(self):
+        # The handoff block is the one marked block a PR body still carries, and it is written and
+        # read from here.
+        for kept in ("handoff_block", "find_handoff_block", "HANDOFF_BEGIN_V2", "HANDOFF_END_V2"):
             self.assertTrue(hasattr(github, kept), kept)
 
 

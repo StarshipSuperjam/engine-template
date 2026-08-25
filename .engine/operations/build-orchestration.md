@@ -35,7 +35,7 @@ be one session. An Issue is never created merely because a Build exists — not 
 Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold recovers its
 plan from the local plan library (see "Where the plan lives").
 
-The plan is not authored here. It is authored, reviewed and SEALED through the Plan Coordinator first, and a
+The plan is not authored here. It is authored, reviewed and SEALED through the Project Manager first, and a
 Build binds that sealed plan's `build-plan.v2` payload. The discipline below is what that lifecycle enforces
 on the way to a seal. Present a readable projection generated from that exact document; it is a view, not a
 second authority, and must never be edited or translated back into JSON after approval. Keep raw intent
@@ -59,17 +59,18 @@ reasoning is present and that later work uses the same plan. It cannot prove the
 Bind the plan once:
 
 ```text
-build_coordinator.py --state <OS-temp-path> plan bind \
-  --plan <plan-id> --repository <owner/repo> --pr <number>
+build_coordinator.py plan bind --plan <plan-id> \
+  --repository <owner/repo> --pr <number> --operator-decision "<the operator's go>"
 ```
 
 `--plan` names a SEALED plan in the local library, and nothing else enters a Build: an unsealed plan is
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
-The snapshot must live in the OS temporary directory. It is one atomically replaced, lock-protected document
-of current evidence, not an append-only event ledger and not repository state. There is no editable phase;
-`status` derives the phase from evidence.
+The snapshot is durable and lives beside its sealed plan, so a killed Build resumes with its evidence
+intact; a later command finds it from the worktree, and `--state <path>` still names one outright. It is one
+atomically replaced, lock-protected document of current evidence, carrying no authority — not an event
+ledger and not repository state. `status` derives the phase from evidence.
 
 ### Where the plan lives
 
@@ -94,7 +95,7 @@ reconstruct an approved plan from a summary, transcript fragments, or implementa
 ### 2. Assess risk and approve the Build gate
 
 **Risk and depth are settled on the plan side, before the seal.** Run the knowledge impact check, then
-`plan_coordinator.py depths <plan>`: it lists only the depths worth offering for this repository's installed
+`project_manager.py depths <plan>`: it lists only the depths worth offering for this repository's installed
 reviewers, dropping any that would run what a lighter one does (only Quick when no reviewers,
 StarshipSuperjam/engine-template#763), with each depth's resolved reviewer EFFORT.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
@@ -102,8 +103,8 @@ Fill `.engine/templates/risk-assessment.md` in plain language: headline, affecte
 `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review
 record.
 
-The operator approves plan and depth together with `plan_coordinator.py approve <plan> --depth
-quick|standard|thorough`. **That one choice covers both gates**: it names the lenses the seal will require, and
+The operator approves plan and depth together with `project_manager.py approve <plan> --depth
+quick|standard|thorough --operator-decision "<their words>"`, which refuses without their recorded decision. **That one choice covers both gates**: it names the lenses the seal will require, and
 it is the depth the Build's deliverable review runs at. Consent is given once, here. On the Build side,
 `approve --plan <plan.json> --depth …` records the same depth against the bound payload; changing approved
 depth clears review coverage, and progress prose does not. A sealed plan's revision is always the operator's
@@ -119,12 +120,25 @@ against the approved revision before the seal — `review packet` cuts it, `revi
 refuses while the recorded lenses do not cover the approved depth's roster. A bound plan is a reviewed plan by
 construction, which is why this side has no plan-review gate and no waiver for one.
 
+Recording is fallible, so it is correctable up to a named moment: `review amend` completes a partial record
+until its first finding is dispositioned, `finding amend` corrects one finding until that finding is, and the
+approval is fixed the moment any review is recorded against it, which pins the depth from panel time. Nothing
+is correctable after a seal. And the seal refuses until the panel's outcome was SHOWN to the operator —
+`present-findings <plan> --operator-decision "<their words>"` records that it was. Approve, seal and bind each
+refuse without the operator's decision in their own words; the trail is published in the pull request. It is a
+record of what was said, not proof that it was.
+
 Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
 be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
 escalated — with whether it still blocks recorded separately. Severity alone never blocks. Before involving the
 operator, synthesize the findings into one recommended call and state its tradeoff; never relay raw reviewer
 outputs as the decision surface. Return to the operator only when the review changes design, law, authority, or
 the agreed capability boundary, or leaves a genuine operator decision unresolved.
+
+If the Build discovers the plan itself is wrong, the seal still holds: clone it, take the clone through its
+own approval and panel, then `plan adopt --successor <id> --input <bound-plan.json>`. The Build keeps its
+pull request and the integration evidence of every node the successor carries unchanged with unchanged
+ancestry; changed nodes and their dependants reset, and the plan panel does not re-run.
 
 What the Build still owes is DISCLOSURE. The composed PR contract renders the sealed plan review's findings,
 their dispositions, and a disagreement line for any blocking finding decided not to block — read from the plan
@@ -142,7 +156,7 @@ and the judgment stays here.
 
 Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
 items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
-`N of M` progress, counted from `work integrate`, where `checkpoint --complete-item` is refused. Owned product work
+`N of M` progress, counted from `work integrate`, the only completion path. Owned product work
 follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
 follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair
@@ -173,7 +187,11 @@ Validation is now two evidence classes, earned in this order once the implementa
 
 A later accepted repair must be green candidate evidence again on its new final commit, and its head's proof re-imported.
 
-Only after green validation, create `review packet --stage deliverable`, carrying the exact raw intent, approved plan, settled criteria where present, reviewed commit and base, and impact evidence. The spec-conformance reviewer checks plan-derived success obligations every Build and settled criteria add a higher-authority comparison; the divergence hunter reverse-sweeps the diff against intent, plan, non-goals, and any settled criteria; other installed reviewers judge usability, technical integrity, and release safety at the approved depth. A pass may run the operator's code, so each shell-capable persona runs it only in a throwaway copy it makes itself (never worktree-ing or repointing a checkout it did not create); creating the deliverable packet snapshots the checkout, and the submission preflight's required `checkout-integrity` leg (`review_integrity`) refuses to report ready if the review moved its origin, branch, or stash; a companion advisory `checkout-worktrees` leg surfaces a stray worktree registration without blocking, since a concurrent peer may add one legitimately.
+Only after green validation, create `review packet --stage deliverable --session-effort <level>`, carrying the exact raw intent, approved plan, settled criteria where present, reviewed commit and base, and impact evidence. The spec-conformance reviewer checks plan-derived success obligations every Build and settled criteria add a higher-authority comparison; the divergence hunter reverse-sweeps the diff against intent, plan, non-goals, and any settled criteria; other installed reviewers judge usability, technical integrity, and release safety at the approved depth. A pass may run the operator's code, so each shell-capable persona runs it only in a throwaway copy it makes itself (never worktree-ing or repointing a checkout it did not create); creating the deliverable packet snapshots the checkout, and the submission preflight's required `checkout-integrity` leg (`review_integrity`) refuses to report ready if the review moved its origin, branch, or stash; a companion advisory `checkout-worktrees` leg surfaces a stray worktree registration without blocking, since a concurrent peer may add one legitimately.
+
+**State the panel's effort, and record what each lens delivered.** A depth promises an effort, and a reviewer here carries none of its own — it inherits the session's, so the session's effort is the panel's ceiling. `--session-effort` says what that is; a packet that would under-deliver the approved depth is refused (raise the session and re-cut, or re-approve at a lighter depth), and `--accept-effort-shortfall` proceeds while publishing the gap in the pull-request body. Each `review record` carries `--delivered-effort`, and `--code-execution none|discarded-copy|in-place` for what the lens did with the change's code. All of these are self-reported; the disclosures say so.
+
+**Record a whole round from one file.** `review record --findings-from-file` takes the receipt's ids and `finding record --from-file` the dispositions, from one `build-findings-batch.v1` file — so they cannot disagree. A malformed entry records nothing. The per-finding flags still work for a one-off.
 
 Record the reviewed commit and critically adjudicate findings. After accepted repairs, measure
 reviewed-to-final divergence with `repair assess` and make one engineering judgment:
@@ -183,7 +201,7 @@ reviewed-to-final divergence with `repair assess` and make one engineering judgm
 - `full`: rerun all applicable deliverable lenses because architecture, authority, or broad behavior changed.
 
 Diff size informs but never chooses. A focused re-review's prescribed repair receives another proportional
-judgment; `none` is valid and terminates the loop. There is no automatic audit recursion. A scoped or full
+judgment; `none` is valid and terminates the loop — and because it also clears the repair packet, it refuses when recorded receipts would go with it, until `--accept-receipt-loss`. A receipt binds to the commit RANGE its lens read, so a re-bind keeps every receipt still covering the new divergence and asks only the lenses that owe a read, naming the commits. A commit carrying only regenerated artifacts invalidates no binding and opens no round. There is no automatic audit recursion. A scoped or full
 repair packet requires validation for the repaired commit. If target-branch reconciliation happens after
 review, validate it and make the same nature-based judgment.
 

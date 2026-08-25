@@ -42,7 +42,7 @@ a capability present on one runtime and deliberately absent on the other: Claude
 operator accepted a plan, Codex had no comparable signal, and the ledger recorded the absence as the
 enforcement of explicit entry rather than a gap. Two things changed, so that ledger entry is revised in place
 rather than duplicated. Accepting a plan no longer enters Build on either runtime — it imports the accepted
-document into the Plan Coordinator as an unapproved draft, which grants no Build authority at all, so nothing
+document into the Project Manager as an unapproved draft, which grants no Build authority at all, so nothing
 infers build intent from an acceptance anywhere. And the capability now exists on both sides: Claude keys on
 its plan-exit completion, Codex on the acceptance envelope the operator types, read by a `UserPromptSubmit`
 owner registered after boot's per-prompt scent. What stays asymmetric is the SIGNAL each runtime offers, not

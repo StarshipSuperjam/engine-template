@@ -19,6 +19,7 @@ import os
 import shutil
 import sys
 import tempfile
+from pathlib import Path
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -87,23 +88,85 @@ class ParseHelperTests(unittest.TestCase):
     def test_md_link_targets_handles_blob_url_and_fragment(self):
         body = ("[a](docs/spec/a.md) and [b](https://github.com/o/r/blob/main/docs/spec/b.md#sec) "
                 "and [c](docs/spec/c.md?x=1) and [not](notes.txt)")
-        self.assertEqual(spec_referent._md_link_targets(body),
-                         ["docs/spec/a.md", "docs/spec/b.md", "docs/spec/c.md"])
+        targets, foreign = spec_referent._md_link_targets(body)
+        self.assertEqual(targets, ["docs/spec/a.md", "docs/spec/b.md", "docs/spec/c.md"])
+        self.assertEqual(foreign, 0, "with no repository named, nothing is judged foreign")
 
     def test_spec_pointers_partitions_under_vs_total(self):
         # one under docs/spec, one .md not under it
-        under, total = spec_referent._spec_pointers("[a](docs/spec/a.md) [r](README.md)")
+        under, total, _ = spec_referent._spec_pointers("[a](docs/spec/a.md) [r](README.md)")
         self.assertEqual(under, ["docs/spec/a.md"])
         self.assertEqual(total, 2)
 
     def test_spec_pointers_drops_escaping_link(self):
-        under, total = spec_referent._spec_pointers("[x](docs/spec/../secret.md)")
+        under, total, _ = spec_referent._spec_pointers("[x](docs/spec/../secret.md)")
         self.assertEqual(under, [])            # normalizes out of docs/spec
         self.assertEqual(total, 1)
 
     def test_spec_pointers_dedupes_and_sorts(self):
-        under, _ = spec_referent._spec_pointers("[a](docs/spec/b.md) [a2](docs/spec/a.md) [a3](docs/spec/a.md)")
+        under, _, _ = spec_referent._spec_pointers("[a](docs/spec/b.md) [a2](docs/spec/a.md) [a3](docs/spec/a.md)")
         self.assertEqual(under, ["docs/spec/a.md", "docs/spec/b.md"])
+
+
+class CrossRepositoryPointers(unittest.TestCase):
+    """A description that lives in ANOTHER repository is not this project's settled description
+    (StarshipSuperjam/engine-template#990).
+
+    The blind spot was narrow and expensive. Every blob link was reduced to a bare in-repo path, so a
+    perfectly ordinary cross-repository reference resolved against the product tree, was not found there,
+    and became a `doc-missing` AUTHORITY FAILURE that hard-blocked approval. An engine-mechanic building
+    engine-template has no `docs/` tree at all — its spec corpus lives in the mechanic — so the shape was
+    not exotic; it cost engine-template#777, which was recorded with `intent_source: direct` purely to get
+    past it."""
+
+    HOME = "StarshipSuperjam/engine-template"
+    FOREIGN = "[spec](https://github.com/StarshipSuperjam/engine-mechanic/blob/main/docs/spec/x.md)"
+    LOCAL = "[spec](https://github.com/StarshipSuperjam/engine-template/blob/main/docs/spec/x.md)"
+
+    def test_a_foreign_blob_link_is_not_a_pointer_here(self):
+        under, total, foreign = spec_referent._spec_pointers(self.FOREIGN, self.HOME)
+        self.assertEqual(under, [])
+        self.assertEqual(total, 0)
+        self.assertEqual(foreign, 1)
+
+    def test_an_in_product_blob_link_still_binds(self):
+        """The fix must not buy its way out by dropping real pointers — the authority check has to keep
+        engaging on the links it is actually for."""
+        under, _, foreign = spec_referent._spec_pointers(self.LOCAL, self.HOME)
+        self.assertEqual(under, ["docs/spec/x.md"])
+        self.assertEqual(foreign, 0)
+
+    def test_a_repo_relative_link_is_always_in_product(self):
+        under, _, _ = spec_referent._spec_pointers("[spec](docs/spec/x.md)", self.HOME)
+        self.assertEqual(under, ["docs/spec/x.md"])
+
+    def test_the_slug_is_matched_the_way_the_engine_matches_slugs(self):
+        for variant in ("starshipsuperjam/engine-template", "StarshipSuperjam/engine-template.git"):
+            body = f"[spec](https://github.com/{variant}/blob/main/docs/spec/x.md)"
+            under, _, _ = spec_referent._spec_pointers(body, self.HOME)
+            self.assertEqual(under, ["docs/spec/x.md"], variant)
+
+    def test_an_unknown_repository_drops_nothing(self):
+        """The safe direction. Silently discarding what might be a real spec pointer would turn an
+        authority check off without saying so — worse than the failure being fixed."""
+        under, _, foreign = spec_referent._spec_pointers(self.FOREIGN, None)
+        self.assertEqual(under, ["docs/spec/x.md"])
+        self.assertEqual(foreign, 0)
+
+    def test_the_no_op_says_the_link_lives_elsewhere_rather_than_that_there_is_none(self):
+        """An operator reading 'isn't linked to a settled description' about a body that plainly HAS a
+        link would go looking for the one they can see."""
+        result = spec_referent.resolve_from_body(".", self.FOREIGN, self.HOME)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["no_op_reason"], "cross-repository-pointer")
+        self.assertIn("different repository", result["detail"])
+
+    def test_and_it_is_a_disclosed_no_op_never_an_authority_failure(self):
+        """The whole point: this reason is outside the set that blocks approval."""
+        import build_coordinator_spec
+        source = Path(build_coordinator_spec.__file__).read_text(encoding="utf-8")
+        authority = source.split("authority_failures = ", 1)[1].split("\n", 1)[0]
+        self.assertNotIn("cross-repository-pointer", authority)
 
 
 # ---- the GitHub boundary (fail-closed) -----------------------------------------------------------
@@ -468,6 +531,15 @@ class DispatchTests(_Seeded):
         import io
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(spec_referent.main(["resolve"]), 2)
+
+
+class TheCrossRepoDemo(unittest.TestCase):
+    """The #990 reproducer, run end to end — and kept alive for the census reference-closure."""
+
+    def test_the_990_falsification_demo_passes(self):
+        import quiet_call
+        import demo_cross_repo_spec_link as demo
+        self.assertEqual(quiet_call.run(demo.main), 0)
 
 
 if __name__ == "__main__":

@@ -181,6 +181,27 @@ def validate(instance: Any, schema_path: Path) -> None:
         raise CoordinatorError(f"{schema_path.stem} rejected {where}: {error.message}")
 
 
+def validate_part(instance: Any, schema_path: Path, pointer: str, label: str) -> None:
+    """Validate one FRAGMENT against a named definition inside a schema, with the same error legibility
+    the whole-document path gives.
+
+    Why a fragment gets its own entry point: a payload handed to a verb should fail on its own terms at
+    the moment it is read, rather than surviving until the write and surfacing as a complaint about the
+    enclosing record. The ordering matters wherever a verb also enforces ceremony — a session that
+    mistyped a severity should be told about the severity, not about a flag it has not reached yet."""
+    document = json_file(schema_path)
+    schema = {**{key: value for key, value in document.items() if key.startswith("$def")}, "$ref": pointer}
+    try:
+        from jsonschema import Draft202012Validator
+    except ImportError as exc:
+        raise CoordinatorError("the Engine runtime is missing jsonschema; run this tool through uv") from exc
+    errors = sorted(Draft202012Validator(schema).iter_errors(instance), key=lambda e: list(e.path))
+    if errors:
+        error = _most_specific(errors[0])
+        where = ".".join(str(p) for p in error.absolute_path) or label
+        raise CoordinatorError(f"{label} rejected {where}: {error.message}")
+
+
 def _most_specific(error) -> Any:
     """Descend into a failed `oneOf`/`anyOf` to the sub-error that actually names the problem.
 
@@ -354,13 +375,31 @@ def run_validation(command: list[str], log_path: Path, *, root: Path) -> int:
         return process.wait()
 
 
-class StateStore:
+class RevisionedStore:
+    """THE revisioned-JSON store discipline, in one place: lock, validate, compare-and-swap, replace.
+
+    Every store this engine keeps — the Build's snapshot, the durable Build snapshot in the plan
+    library — is the same four moves in the same order, and the reason they live here rather than in
+    each store is that two copies of a compare-and-swap drift, and a drifted CAS loses an update
+    without saying so. Subclasses choose WHERE their file lives and HOW durably it is written; they
+    do not restate what a safe write is.
+
+    Three knobs, each a real difference between the stores rather than a configuration flourish:
+    `durable` picks the platform barrier plus a directory fsync (survives a power cut, not merely a
+    process crash), `file_mode` applies permissions explicitly instead of inheriting the umask, and
+    `what`/`missing_remedy`/`stale_remedy` supply the store's own words for a failure, because two
+    stores recover differently and a generic phrase sends an operator to the wrong command.
+    """
+
+    durable = False
+    file_mode: int | None = None
+    what = "snapshot"
+    missing_remedy = "there is nothing to read"
+    stale_remedy = "re-read it"
+
     def __init__(self, path: str, schema: "Path | Callable[[dict], Path]", expected_revision: int | None = None):
         self.path = Path(path).resolve()
         self.schema = schema
-        temp_root = Path(tempfile.gettempdir()).resolve()
-        if os.path.commonpath((self.path, temp_root)) != str(temp_root):
-            raise CoordinatorError(f"Build snapshots belong in the OS temporary directory ({temp_root})")
         self.lock = self.path.with_name(self.path.name + ".lock")
         self.expected_revision = expected_revision
 
@@ -381,7 +420,7 @@ class StateStore:
     def read(self) -> dict:
         with self._locked():
             if not self.path.exists():
-                raise CoordinatorError(f"no Build snapshot at {self.path}; use 'plan bind' first")
+                raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
             state = json_file(self.path)
             validate(state, self._schema_for(state))
             return state
@@ -389,25 +428,45 @@ class StateStore:
     def create(self, state: dict) -> None:
         with self._locked():
             if self.path.exists():
-                raise CoordinatorError(f"Build snapshot already exists at {self.path}")
+                raise CoordinatorError(f"{self.what} already exists at {self.path}")
             self._write(state)
 
     def mutate(self, change: Callable[[dict], Any], *, from_revision: int | None = None) -> Any:
         with self._locked():
             if not self.path.exists():
-                raise CoordinatorError(f"no Build snapshot at {self.path}; use 'plan bind' first")
+                raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
             state = json_file(self.path)
             validate(state, self._schema_for(state))
             expected = self.expected_revision if self.expected_revision is not None else from_revision
-            assert_revision(state["revision"], expected, "snapshot", "reload status")
+            assert_revision(state["revision"], expected, "snapshot", self.stale_remedy)
             result = change(state)
             state["revision"] += 1
             self._write(state)
             return result
 
     def _write(self, state: dict) -> None:
-        # Atomic but deliberately NOT durable: this snapshot lives in OS temp by construction (see
-        # __init__), holds one Build's current facts, and is expected not to survive a reboot. The
-        # durable store is plan_store, and the difference is a design choice, not an oversight.
         validate(state, self._schema_for(state))
-        atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n")
+        atomic_write(self.path, json.dumps(state, indent=2, sort_keys=True) + "\n",
+                     durable=self.durable, mode=self.file_mode)
+
+
+class StateStore(RevisionedStore):
+    """A Build snapshot at a path the caller names outright.
+
+    Until 2026-08-25 this constructor REFUSED any path outside the OS temporary directory, and that
+    refusal was the code embodiment of "the Build's state is never a durable leg" (eADR-0025,
+    eADR-0041). It is deleted here rather than quietly relaxed, because the claim it enforced is the
+    one that changed: a Build's evidence was observed to die with a forced restart, and evidence that
+    cannot survive a restart is not evidence an operator can rely on. Durability now has a proper
+    home — `build_state_store.DurableBuildStore`, a peer of this class rather than a subclass of it,
+    addressed by the plan binding — and this class keeps the narrower job it always did well: a
+    snapshot at an explicit path, for a caller who has one, and for the tests that construct them.
+
+    What did NOT change, and is worth saying because deleting a refusal invites the assumption that
+    it did: this store still carries no authority. The plan is the authority, and it lives in the
+    plan library.
+    """
+
+    what = "Build snapshot"
+    missing_remedy = "use 'plan bind' first"
+    stale_remedy = "reload status"

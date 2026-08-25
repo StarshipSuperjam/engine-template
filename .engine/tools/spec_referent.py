@@ -113,6 +113,11 @@ _PLAIN_NOOP = {
     "doc-not-locked": "the linked description isn't settled yet",
     "no-criteria": "the settled description doesn't list anything to check",
     "all-engine-account": "everything for this change is checked on the engine's account",
+    # Said plainly rather than folded into "isn't linked": a body whose only description link points
+    # at ANOTHER repository has a link, and an operator reading "isn't linked to a settled
+    # description" would go looking for the one they can see (StarshipSuperjam/engine-template#990).
+    "cross-repository-pointer": "the only description this change links to lives in a different "
+                                "repository, so it isn't this project's settled description",
 }
 
 
@@ -206,33 +211,68 @@ def _table_with_columns(text: str, columns: tuple) -> "list | None":
 
 # ---- the work-item pointer (a parseable markdown link into docs/spec/) -----------------------------
 
-def _md_link_targets(body: str) -> list:
+_BLOB_URL = re.compile(r"^(?:https?://)?(?:[^/]*github[^/]*/)?([^/]+)/([^/]+)/blob/[^/]+/(.+)$")
+
+
+def _md_link_targets(body: str, repository: str | None = None) -> list:
     """Every Markdown-link target `[text](path)` in the body, normalized to a candidate path: a GitHub blob URL
     is reduced to its in-repo path (after `/blob/<ref>/`), and a trailing #fragment/?query is dropped. Only
-    targets that name a `.md` document are returned."""
-    out = []
+    targets that name a `.md` document are returned.
+
+    A BLOB URL BELONGS TO THE REPOSITORY ITS OWN URL NAMES (StarshipSuperjam/engine-template#990). Reducing
+    every blob link to a bare path made a link into ANOTHER repository read as a pointer into the product
+    being built. The product then had no such file — an engine-mechanic building engine-template has no
+    `docs/` tree at all, because its spec corpus lives in the mechanic — so a perfectly ordinary
+    cross-repository reference became a `doc-missing` AUTHORITY FAILURE and hard-blocked approval. It cost a
+    real build: StarshipSuperjam/engine-template#777 was recorded with `intent_source: direct` purely to get past it.
+
+    So when `repository` names the repository under build, a blob link into a different one is dropped here
+    rather than resolved against the wrong tree. Two deliberate asymmetries. A link with no blob URL at all —
+    a plain repo-relative path — is unambiguously in-product and is always kept. And when `repository` is
+    unknown, nothing is dropped: silently discarding what might be a real spec pointer would turn an
+    authority check off without saying so, which is a worse failure than the one being fixed."""
+    out, foreign = [], 0
     for m in re.finditer(r"\[[^\]]*\]\(([^)]+)\)", body):
         raw = m.group(1).strip()
-        blob = re.search(r"/blob/[^/]+/(.+)$", raw)        # a github.com/<o>/<r>/blob/<ref>/<path> URL
-        path = blob.group(1) if blob else raw
+        blob = _BLOB_URL.match(raw)
+        if blob:
+            path = blob.group(3)
+            if repository and not _same_repository(f"{blob.group(1)}/{blob.group(2)}", repository):
+                # Counted, not merely skipped: the caller says so plainly rather than reporting a body
+                # that plainly HAS a link as having none.
+                foreign += 1 if path.split("#", 1)[0].split("?", 1)[0].strip().endswith(".md") else 0
+                continue
+        else:
+            path = raw
         path = path.split("#", 1)[0].split("?", 1)[0].strip()
         if path.endswith(".md"):
             out.append(path)
-    return out
+    return out, foreign
 
 
-def _spec_pointers(body: str) -> tuple:
-    """(distinct repo-root-relative `docs/spec/*.md` pointers, count of all .md links). Each candidate is
+def _same_repository(a: str, b: str) -> bool:
+    """Whether two `owner/name` slugs name the same repository, matched the way the rest of the engine
+    matches them (case-insensitively, `.git` suffix ignored) rather than by a bare string compare."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import repo_identity
+        return repo_identity.slug_eq(a, b)
+    except Exception:                                       # noqa: BLE001 — never fail an extraction on this
+        return a.strip().lower().removesuffix(".git") == (b or "").strip().lower().removesuffix(".git")
+
+
+def _spec_pointers(body: str, repository: str | None = None) -> tuple:
+    """(distinct repo-root-relative `docs/spec/*.md` pointers, count of all in-product .md links, count of .md links dropped as another repository's). Each candidate is
     normalized; only those that land under `docs/spec/` by path are kept (the realpath containment guard is
     enforced AGAIN at open time, so a symlink cannot escape). The total-.md count lets the caller tell
     "a link exists but not under docs/spec" from "no link at all"."""
-    md = _md_link_targets(body)
+    md, foreign = _md_link_targets(body, repository)
     under = []
     for path in md:
         norm = os.path.normpath(path.lstrip("/"))          # a leading slash means repo-root
         if norm == _SPEC_DIR or norm.startswith(_SPEC_DIR + os.sep):
             under.append(norm)
-    return sorted(set(under)), len(md)
+    return sorted(set(under)), len(md), foreign
 
 
 # ---- resolving a doc to its referent (the confined read; both entry points pass through here) -------
@@ -289,16 +329,34 @@ def resolve_doc(root: str, pointer: str, *, require_locked: bool = True) -> dict
     return {"ok": True, "doc_path": rel, "status": status, "criteria": criteria}
 
 
-def resolve_from_body(root: str, body: str) -> dict:
+def resolve_from_body(root: str, body: str, repository: str | None = None) -> dict:
     """Resolve a work-item body to its referent or a disclosed no-op: extract the `docs/spec/*.md` pointer
     (none -> `no-issue-pointer`; a .md link that isn't under docs/spec -> `pointer-not-under-docs-spec`; more
-    than one distinct spec doc -> `ambiguous-pointer`, never first-match-guessed), then resolve the doc."""
-    under, total_md = _spec_pointers(body)
+    than one distinct spec doc -> `ambiguous-pointer`, never first-match-guessed), then resolve the doc.
+
+    `repository` is the repository under build. Given it, a blob link into another repository is not a
+    pointer here at all and drops out before resolution, so a cross-repository reference produces a
+    disclosed no-op instead of a doc-missing authority failure
+    (StarshipSuperjam/engine-template#990)."""
+    under, total_md, foreign = _spec_pointers(body, repository)
     if not under:
-        return _noop("pointer-not-under-docs-spec" if total_md else "no-issue-pointer")
+        if total_md:
+            return _noop("pointer-not-under-docs-spec")
+        return _noop("cross-repository-pointer" if foreign else "no-issue-pointer")
     if len(under) > 1:
         return _noop("ambiguous-pointer", extra="; ".join(under))
     return resolve_doc(root, under[0])
+
+
+def _origin_repository(root: str) -> str | None:
+    """The `owner/name` this checkout's git origin names, or None where it cannot be read. None means the
+    cross-repository filter does not engage — see `_md_link_targets` for why that is the safe direction."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import repo_identity
+        return repo_identity.origin_slug(root)
+    except Exception:                                       # noqa: BLE001
+        return None
 
 
 def resolve(root: str, *, issue=None, doc=None, gh=None) -> dict:
@@ -313,7 +371,7 @@ def resolve(root: str, *, issue=None, doc=None, gh=None) -> dict:
     if issue is None or gh is None:                         # a mis-call — a clear error, never an opaque crash
         raise SpecReferentError("resolve() needs doc=<path>, or both issue=<n> and a GitHub client")
     body = gh.issue_body(issue)                             # RAISES SpecReferentError on a read failure
-    return resolve_from_body(root, body)
+    return resolve_from_body(root, body, _origin_repository(root))
 
 
 # ---- the review-steps projection (StarshipSuperjam/engine-template#282 — operator-runnable acceptance steps, two plain groups) -----

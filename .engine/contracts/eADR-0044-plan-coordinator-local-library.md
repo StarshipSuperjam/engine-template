@@ -5,9 +5,11 @@ status: accepted
 date: 2026-08-23
 ---
 
+_Amended 2026-08-25: the component is retitled. It shipped as the **Plan Coordinator**, and that named one duty out of several — it also manages task completion, owns the continuous-improvement workflows, and organizes work across build phases through the program object — so on the operator's decision of 2026-08-24 it is now the **Project Manager**, and this record and everything else that speaks of it in the present tense says so. Nothing the decision below decides changes; only the name of the thing it decides about. The retitle stops at the DATA BOUNDARY, and that line is drawn deliberately: the schema ids (`engine-plan.v1`, `plan-record.v1`, `engine-program.v1`) and the `plan` verb namespace name the ARTIFACTS rather than the component, and renaming a schema id would invalidate every record already stored in every deployed project — no rename is worth an unreadable library. Stored plan-library and program records keep their contents, and history keeps its names: merged pull-request titles, this file's own name, and the decision records that cite it were written under the old title and remain accurate as history. So the old name survives in exactly two kinds of place — this file's name, and prose speaking about the past — and nowhere else._
+
 ## Decision
 
-Planning gets a mechanical lifecycle owner of its own, paired with the Build Coordinator: a Plan Coordinator that carries a plan from raw intent through deliberation, approval, one cold review, and a terminal seal. Its plans live in a durable, gitignored, per-instance library at `.engine/plans/` in the project's canonical checkout — the only copy of what they hold — as immutable JSON revisions with a derived status and no stored lifecycle field. The library is the plan's home; the pull request remains the claim, and everything reviewable about a plan still reaches the PR through the composed contract.
+Planning gets a mechanical lifecycle owner of its own, paired with the Build Coordinator: a Project Manager that carries a plan from raw intent through deliberation, approval, one cold review, and a terminal seal. Its plans live in a durable, gitignored, per-instance library at `.engine/plans/` in the project's canonical checkout — the only copy of what they hold — as immutable JSON revisions with a derived status and no stored lifecycle field. The library is the plan's home; the pull request remains the claim, and everything reviewable about a plan still reaches the PR through the composed contract.
 
 ## Significance
 

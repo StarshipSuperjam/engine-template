@@ -3,7 +3,7 @@
 
 This is the new front door, run end to end for the first time. Two arcs:
 
-  ARC 1 — the ordinary one. A plan is written into the Plan Coordinator, read whole, approved with a
+  ARC 1 — the ordinary one. A plan is written into the Project Manager, read whole, approved with a
   care level, sealed, and only then handed to a Build. The Build binds to that seal, does the work,
   integrates it, and turns its draft pull request ready. The thing worth seeing is that every one of
   those steps refuses to be skipped: a plan nobody approved cannot be sealed, and a plan nobody sealed
@@ -47,6 +47,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402 — the real coordinator, for schema-true seeding only
 import validate                  # noqa: E402 — locates this repo's root (validate.ROOT) to copy
 
+DEMO_CONSENT = ("A demonstration stands in for the operator here; this text is what a real "
+                "operator would have typed, and the engine records it verbatim.")
 REPO = "owner/entry-door-demo"
 PR = 4
 BODY = "Entry-door demo fixture body — the exact PR contract the ready read-back pins."
@@ -170,7 +172,7 @@ def _tool(copy, name, env, *args):
 
 
 def _plan_cmd(copy, env, *args):
-    return _tool(copy, "plan_coordinator.py", env, *args)
+    return _tool(copy, "project_manager.py", env, *args)
 
 
 def _build_cmd(copy, env, state_path, *args):
@@ -228,13 +230,15 @@ def _arc_one(copy, head, env, pr_state, holder):
     created = _plan_cmd(copy, env, "init", "--document", document)
     ok &= _pass("the plan is on the shelf", created.returncode == 0, created.stdout.strip().split("\n")[0])
 
-    early = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none")
+    early = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none",
+                           "--operator-decision", DEMO_CONSENT)
     ok &= _pass("cannot seal what nobody approved", early.returncode != 0,
                 "the seal refuses: " + (early.stdout + early.stderr).strip().splitlines()[-1][:96])
 
     state_path = os.path.join(tempfile.mkdtemp(prefix="entry-door-state-"), "state.json")
     unsealed = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
-                          "--repository", REPO, "--pr", str(PR))
+                          "--repository", REPO, "--pr", str(PR),
+                          "--operator-decision", DEMO_CONSENT)
     ok &= _pass("cannot build what nobody sealed", unsealed.returncode != 0,
                 "bind refuses: " + (unsealed.stdout + unsealed.stderr).strip().splitlines()[-1][:96])
 
@@ -248,33 +252,41 @@ def _arc_one(copy, head, env, pr_state, holder):
     gate_doc = _write(os.path.join(holder, "gate-doc.json"), _document(gate_id, "Rotate the log keys"))
     _plan_cmd(copy, env, "init", "--document", gate_doc)
     _plan_cmd(copy, env, "preview", gate_id)
-    _plan_cmd(copy, env, "approve", gate_id, "--depth", "thorough")
+    _plan_cmd(copy, env, "approve", gate_id, "--depth", "thorough",
+                  "--operator-decision", DEMO_CONSENT)
     packet = _plan_cmd(copy, env, "review", "packet", gate_id)
     # The PACKET digest, not the plan digest that precedes it in the same header — a receipt has to name
     # what the reviewer actually read, which is why `review record` re-renders and compares.
     digest = next((line.split(":", 1)[1].strip() for line in packet.stdout.splitlines()
                    if line.startswith("Packet digest:")), "")
+    # `--delivered-effort` is required now: a review record has to say what its panel actually ran at,
+    # checked against the depth the operator approved. The demo stands in for a reviewer that met it.
     recorded = _plan_cmd(copy, env, "review", "record", gate_id, "--packet-digest", digest,
-                         "--lens", "architecture")
+                         "--lens", "architecture", "--delivered-effort", "high")
     ok &= _pass("one reviewer's review is recorded", recorded.returncode == 0,
                 "architecture read that plan; the others its level calls for did not")
-    short = _plan_cmd(copy, env, "seal", gate_id, "--delta-judgment", "none")
+    short = _plan_cmd(copy, env, "seal", gate_id, "--delta-judgment", "none",
+                           "--operator-decision", DEMO_CONSENT)
     ok &= _pass("cannot seal a thorough plan one reviewer looked at", short.returncode != 0,
                 "the seal refuses: " + (short.stdout + short.stderr).strip().splitlines()[-1][:96])
-    dodge = _plan_cmd(copy, env, "approve", gate_id, "--depth", "quick")
+    dodge = _plan_cmd(copy, env, "approve", gate_id, "--depth", "quick",
+                      "--operator-decision", DEMO_CONSENT)
     ok &= _pass("and cannot dodge that by asking for less care", dodge.returncode != 0,
                 "re-approving lower would leave the half-finished review attached to a smaller question")
 
     _plan_cmd(copy, env, "preview", plan_id)
-    approved = _plan_cmd(copy, env, "approve", plan_id, "--depth", "quick")
+    approved = _plan_cmd(copy, env, "approve", plan_id, "--depth", "quick",
+                         "--operator-decision", DEMO_CONSENT)
     ok &= _pass("approved, after the whole plan was rendered", approved.returncode == 0,
                 "care level: quick — your own read, no cold reviewers")
 
-    sealed = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none")
+    sealed = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none",
+                           "--operator-decision", DEMO_CONSENT)
     ok &= _pass("sealed", sealed.returncode == 0, "the plan is now read-only and can start a Build")
 
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
-                       "--repository", REPO, "--pr", str(PR))
+                       "--repository", REPO, "--pr", str(PR),
+                          "--operator-decision", DEMO_CONSENT)
     ok &= _pass("the Build binds to that seal", bound.returncode == 0,
                 "the Build is anchored to the sealed plan, not to a document handed over in chat")
 
@@ -329,7 +341,8 @@ def _arc_two(copy, head, env, holder, pr_state):
                 imported.stdout.strip().splitlines()[0] if imported.returncode == 0 else "refused")
     plan_id = imported.stdout.split()[1] if imported.returncode == 0 else ""
 
-    refused = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none")
+    refused = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none",
+                           "--operator-decision", DEMO_CONSENT)
     message = (refused.stdout + refused.stderr)
     ok &= _pass("the draft cannot be sealed", refused.returncode != 0,
                 "nothing was interpreted or decomposed, and the seal says so")
@@ -344,13 +357,16 @@ def _arc_two(copy, head, env, holder, pr_state):
                 "the import was groundwork; this is the plan")
 
     _plan_cmd(copy, env, "preview", plan_id)
-    _plan_cmd(copy, env, "approve", plan_id, "--depth", "quick")
-    sealed = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none")
+    _plan_cmd(copy, env, "approve", plan_id, "--depth", "quick",
+              "--operator-decision", DEMO_CONSENT)
+    sealed = _plan_cmd(copy, env, "seal", plan_id, "--delta-judgment", "none",
+                           "--operator-decision", DEMO_CONSENT)
     ok &= _pass("now it seals", sealed.returncode == 0, "approved at a care level, then locked")
 
     state_path = os.path.join(tempfile.mkdtemp(prefix="entry-door-arc2-"), "state.json")
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
-                       "--repository", REPO, "--pr", str(PR))
+                       "--repository", REPO, "--pr", str(PR),
+                          "--operator-decision", DEMO_CONSENT)
     ok &= _pass("and drives a running Build", bound.returncode == 0,
                 "the arc ends where arc 1 began: a Build anchored to a seal")
     return ok

@@ -1,5 +1,5 @@
 {
-  "description": "The first-run-only assets the instantiator removes at the Retire step once setup is sound. This committed manifest mirrors instantiator.py's _FIRST_RUN_ASSET_FILES / _FIRST_RUN_ASSET_DIRS (a parity test binds them) so the first-run reference-closure check (engine/check/first-run-reference-closure) can read the retired set WITHOUT importing the instantiator it is about to verify nothing references. Permanent provisioning data: it stays after retirement (the check no-ops once the machinery is gone). Authored, not derived — keep it in sync with the literal (the parity test fails if it drifts).",
+  "description": "The first-run-only assets the instantiator removes at the Retire step once setup is sound. This committed manifest mirrors instantiator.py's _FIRST_RUN_ASSET_FILES / _FIRST_RUN_ASSET_DIRS (a parity test binds them) so the first-run reference-closure check (engine/check/first-run-reference-closure) can read the retired set WITHOUT importing the instantiator it is about to verify nothing references. Permanent provisioning data: it stays after retirement (the check no-ops once the machinery is gone). Authored, not derived \u2014 keep it in sync with the literal (the parity test fails if it drifts).",
   "files": [
     ".engine/tools/instantiator.py",
     ".engine/tools/test_instantiator.py",
@@ -49,7 +49,11 @@
     ".engine/templates/first-run.md",
     ".engine/operations/engine-development.md",
     "assets/engine_banner.jpg",
-    ".engine/operator-local-references.json"
+    ".engine/operator-local-references.json",
+    ".github/workflows/engine-nightly-demos.yml",
+    ".engine/tools/nightly_demo_report.py",
+    ".engine/tools/test_nightly_demos.py",
+    ".engine/tools/test_plan_to_ready_pr_demo.py"
   ],
   "directories": []
 }

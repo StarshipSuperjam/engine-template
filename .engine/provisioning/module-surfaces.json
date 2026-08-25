@@ -1128,7 +1128,7 @@
   ".engine/schemas/audit-finding.v1.json": [
    "core"
   ],
-  ".engine/schemas/build-handoff.v1.json": [
+  ".engine/schemas/build-findings-batch.v1.json": [
    "core"
   ],
   ".engine/schemas/build-handoff.v2.json": [
@@ -1147,9 +1147,6 @@
    "core"
   ],
   ".engine/schemas/build-protocol.v1.json": [
-   "core"
-  ],
-  ".engine/schemas/build-state.v1.json": [
    "core"
   ],
   ".engine/schemas/build-state.v2.json": [
@@ -1395,6 +1392,12 @@
   ".engine/tools/build_readiness.py": [
    "core"
   ],
+  ".engine/tools/build_review_range.py": [
+   "core"
+  ],
+  ".engine/tools/build_state_store.py": [
+   "core"
+  ],
   ".engine/tools/catalog_completeness_check.py": [
    "core"
   ],
@@ -1512,6 +1515,9 @@
   ".engine/tools/demo_build_entry_depth_gate.py": [
    "core"
   ],
+  ".engine/tools/demo_build_resumes_after_a_kill.py": [
+   "core"
+  ],
   ".engine/tools/demo_ci_author_exempt.py": [
    "core"
   ],
@@ -1519,6 +1525,9 @@
    "core"
   ],
   ".engine/tools/demo_control_plane_labels.py": [
+   "core"
+  ],
+  ".engine/tools/demo_cross_repo_spec_link.py": [
    "core"
   ],
   ".engine/tools/demo_dag_admission.py": [
@@ -1611,7 +1620,13 @@
   ".engine/tools/demo_uv_workspace_cache.py": [
    "core"
   ],
+  ".engine/tools/demo_v1_plan_sunset_refused.py": [
+   "core"
+  ],
   ".engine/tools/demo_weakening_guard_narrowed_set.py": [
+   "core"
+  ],
+  ".engine/tools/demonstration_corpus.py": [
    "core"
   ],
   ".engine/tools/dependency_discipline/__init__.py": [
@@ -1962,6 +1977,9 @@
   ".engine/tools/moment.py": [
    "core"
   ],
+  ".engine/tools/nightly_demo_report.py": [
+   "core"
+  ],
   ".engine/tools/operator_guarded_paths_check.py": [
    "core"
   ],
@@ -1980,7 +1998,7 @@
   ".engine/tools/plan_contract.py": [
    "core"
   ],
-  ".engine/tools/plan_coordinator.py": [
+  ".engine/tools/plan_lifecycle.py": [
    "core"
   ],
   ".engine/tools/plan_program.py": [
@@ -2042,6 +2060,9 @@
   ],
   ".engine/tools/product_design/test_spec_form.py": [
    "product-design"
+  ],
+  ".engine/tools/project_manager.py": [
+   "core"
   ],
   ".engine/tools/projects_sync/__init__.py": [
    "github-projects-sync"
@@ -2238,6 +2259,9 @@
   ".engine/tools/test_build_readiness.py": [
    "core"
   ],
+  ".engine/tools/test_build_state_store.py": [
+   "core"
+  ],
   ".engine/tools/test_census_completeness.py": [
    "core"
   ],
@@ -2275,6 +2299,9 @@
    "core"
   ],
   ".engine/tools/test_contract_canon.py": [
+   "core"
+  ],
+  ".engine/tools/test_demonstration_corpus.py": [
    "core"
   ],
   ".engine/tools/test_derived_state.py": [
@@ -2418,6 +2445,9 @@
   ".engine/tools/test_moment.py": [
    "core"
   ],
+  ".engine/tools/test_nightly_demos.py": [
+   "core"
+  ],
   ".engine/tools/test_operation.py": [
    "core"
   ],
@@ -2442,10 +2472,10 @@
   ".engine/tools/test_plan_contract.py": [
    "core"
   ],
-  ".engine/tools/test_plan_coordinator.py": [
+  ".engine/tools/test_plan_dogfood.py": [
    "core"
   ],
-  ".engine/tools/test_plan_dogfood.py": [
+  ".engine/tools/test_plan_lifecycle.py": [
    "core"
   ],
   ".engine/tools/test_plan_program.py": [
@@ -2457,6 +2487,9 @@
   ".engine/tools/test_plan_store.py": [
    "core"
   ],
+  ".engine/tools/test_plan_to_ready_pr_demo.py": [
+   "core"
+  ],
   ".engine/tools/test_policy.py": [
    "core"
   ],
@@ -2464,6 +2497,9 @@
    "core"
   ],
   ".engine/tools/test_pr_reconcile.py": [
+   "core"
+  ],
+  ".engine/tools/test_project_manager.py": [
    "core"
   ],
   ".engine/tools/test_protection_guard.py": [
@@ -2506,6 +2542,9 @@
    "core"
   ],
   ".engine/tools/test_retired_settings.py": [
+   "core"
+  ],
+  ".engine/tools/test_review_economy.py": [
    "core"
   ],
   ".engine/tools/test_review_integrity.py": [

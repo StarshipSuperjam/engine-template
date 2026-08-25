@@ -1780,6 +1780,30 @@ _FIRST_RUN_ASSET_FILES = (
     # no-op) and the only thing in `assets/` in greenfield, and an emptied `assets/` does not travel (git commits
     # no empty directory).
     "assets/engine_banner.jpg",
+    # The nightly demonstration workflow, and only the workflow. It runs the ENGINE's own construction
+    # reproducers on a schedule and reports them into the engine's own Issue register — neither of which
+    # belongs in somebody's product repository, where it would burn scheduled minutes on demonstrations
+    # about the engine's history and file Issues nobody asked for. The workflow ALSO gates on the
+    # repository being the recorded home, which is what covers the window this census cannot: an upgrade
+    # re-delivers engine files, so a deployed project can receive this file between a release and a census
+    # change, and the gate makes that copy exit cleanly instead of running. Sanctioned below, because it is
+    # not under `.engine/`. The corpus runner and the reporter it calls are NOT retired: they are ordinary
+    # operator-runnable tools, and a deployed project's own demonstrations are worth being able to run.
+    ".github/workflows/engine-nightly-demos.yml",
+    # The reporter that workflow calls, and the test that describes both. The reporter exists to keep the
+    # engine's OWN nightly Issue singular; with the workflow gone there is nothing to call it, and a
+    # shipped tool nobody calls is clutter that still has to be understood. The test asserts on the
+    # workflow file and on this retirement machinery, so it could not survive first run in any case. The
+    # corpus RUNNER is not here: it is an ordinary operator-runnable tool, and a deployed project's own
+    # demonstrations are worth being able to run.
+    ".engine/tools/nightly_demo_report.py",
+    ".engine/tools/test_nightly_demos.py",
+    # The five-second test that walks `demo_plan_to_ready_pr`, which is retired above. A test file
+    # inherits the retirement of what it imports, so this one could not live beside the plan-library
+    # tests that ship: naming a removed demonstration would break a generated repository's first check
+    # with a programmer error its owner cannot read. Splitting by provenance is what keeps both halves
+    # honest — the library tests ship, the demonstration walk retires with its subject.
+    ".engine/tools/test_plan_to_ready_pr_demo.py",
     # The engine's OWN local-reference vocabulary (StarshipSuperjam/engine-template#943). engine-template commits
     # `.engine/operator-local-references.json` declaring `D-` so the shipped local-reference floor scans its own
     # traveling surfaces for bare decision-record ids in THIS repo. That declaration is engine-template's, not a
@@ -1809,6 +1833,10 @@ _SANCTIONED_NON_ENGINE_RETIRE_PATHS = frozenset({
     os.path.join(".claude", "skills", "engine-setup"),
     os.path.join(".agents", "skills", "engine-setup"),
     os.path.join("assets", "engine_banner.jpg"),
+    # The engine's own nightly demonstration workflow. Engine-owned by provenance (the engine ships every
+    # `.github/workflows/engine-*.yml`) but not under `.engine/`, so it needs saying here rather than
+    # inheriting safety from a prefix.
+    os.path.join(".github", "workflows", "engine-nightly-demos.yml"),
 })
 
 

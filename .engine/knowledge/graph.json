@@ -153,7 +153,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:b288e8cc84d04afe7001ae377066eded1c2b76762606302b734b7bd9c8f8eb95",
+        "fingerprint": "sha256:d55ecdda0f9e6f2642044fbad4581726ce9bebdc3050b6dd7cfb6eb0b415e5c8",
         "path": ".claude/agents/engine-qa-review-divergence-hunter.md"
       },
       "status": "active",
@@ -176,7 +176,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:61429af1980fff6b95ac7ed3d2d0a9e5e945b35da9ea2561390e4cd7b87d66f1",
+        "fingerprint": "sha256:0f8c0ed6d856ba27dbd8ce7b6ec7a21e14616a47e76e17a5cae933982d11336a",
         "path": ".claude/agents/engine-qa-review-security-governance.md"
       },
       "status": "active",
@@ -199,7 +199,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:3fa8940b9a13736dee37d965dbc54313235f5442a2d122b347c25a3e20c0e8b3",
+        "fingerprint": "sha256:e75592a0b730d424c7f749ba9c7fc2da068730a8ac446307d65d83a2d11f64dc",
         "path": ".claude/agents/engine-qa-review-spec-conformance.md"
       },
       "status": "active",
@@ -222,7 +222,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:f6a5e67a4c3a8596e5ae07824caa3826ad79cc66a45af1f19b137c20521712f2",
+        "fingerprint": "sha256:6258f1f08db6f1991164cccaa053b9a6765e89ceff72620cbed8b9a0a07729fe",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -245,7 +245,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:af1d0376234f87993a83343aad3ffcb72f41748483c7f0ca1b8d2acc8638a16c",
+        "fingerprint": "sha256:e5559fb3b1312863b1fd972cd6a5477cc93f9097da3ac80584e2899704169765",
         "path": ".claude/agents/engine-qa-review-usability.md"
       },
       "status": "active",
@@ -3254,7 +3254,7 @@
       },
       "slug": "engine-qa-review-divergence-hunter",
       "source": {
-        "fingerprint": "sha256:8c589094cc31ccace672044ff6bc4795dd0304b849254dc6a61ad18cdff2f390",
+        "fingerprint": "sha256:45b8895566cfb72d2b692da1648b006cdec9065673a97ae0027be259ef74f12b",
         "path": ".codex/agents/engine-qa-review-divergence-hunter.toml"
       },
       "status": "active",
@@ -3274,7 +3274,7 @@
       },
       "slug": "engine-qa-review-security-governance",
       "source": {
-        "fingerprint": "sha256:ce0d951ae8fbc4e1ca57cc5fc99daf0da1e6764dc7e581b592b1f06361c8d6a7",
+        "fingerprint": "sha256:ef2ddab93ec42ef6664d07dd4ee9ae0be400e5ad2d3af2646defd9feb0616306",
         "path": ".codex/agents/engine-qa-review-security-governance.toml"
       },
       "status": "active",
@@ -3294,7 +3294,7 @@
       },
       "slug": "engine-qa-review-spec-conformance",
       "source": {
-        "fingerprint": "sha256:a426ea7e5042417bb9dd4ef454578c740b0112f2832986052a2f589a6942fa0e",
+        "fingerprint": "sha256:445b4892943d217ea333a9d6331b9714f882e6fd1f8f29641cf43fee09b86c15",
         "path": ".codex/agents/engine-qa-review-spec-conformance.toml"
       },
       "status": "active",
@@ -3314,7 +3314,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:7effd6b3d15e7b7e85860095ba00afd5e3118361e51860b3a4428813d6f44154",
+        "fingerprint": "sha256:f2291feafad926a2b2814d34304ef52b08368e5151c24d2cc1d8cc27f5acbf34",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -3334,7 +3334,7 @@
       },
       "slug": "engine-qa-review-usability",
       "source": {
-        "fingerprint": "sha256:37e387378f8aa99a7e44943a1e877fa79503732eaca368e3919eb71dea23903a",
+        "fingerprint": "sha256:7616fd71595a15bef2556bdc661d52ec94b59472b4b3c984d6bdc9207e26c4c5",
         "path": ".codex/agents/engine-qa-review-usability.toml"
       },
       "status": "active",
@@ -5734,7 +5734,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:e308899ffdedb029693e067591a4a61eeeb1247c9d87ef37630202be1e7f7f07",
+        "fingerprint": "sha256:7ee4a089bf2eae93c7970bc467c97ff48f74ce9fadcff60837cc94a6bc49d2bc",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -5914,7 +5914,7 @@
       },
       "slug": "eADR-0034-dual-provider-adapter-core",
       "source": {
-        "fingerprint": "sha256:801be2fe12611f0b1e3c6c5e2e2cb0600c69c8058aca1df752e5242cdb58ab13",
+        "fingerprint": "sha256:e85d67a47443c7527d441d31ef77196aace11a1e3c10bebfa5b80ef5bbf596f1",
         "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
       },
       "status": "accepted",
@@ -6034,7 +6034,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:a7a740fb60634ccdf0e80baf5c04c1c741ccb0ca2eae35e785d387f1283de7ad",
+        "fingerprint": "sha256:fedeb39b6a0479ee3e899163704baf33e738bbff2c25072712af336b103723b1",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6094,7 +6094,7 @@
       },
       "slug": "eADR-0044-plan-coordinator-local-library",
       "source": {
-        "fingerprint": "sha256:48f33c04a8ae86f6ff71b420374014f0e3a9e8d4131680e07b0585dd1869fe9c",
+        "fingerprint": "sha256:2aae3793e6cc4773765e1e0a651b9bc6c6fb70f57856f46b1215749413820fc6",
         "path": ".engine/contracts/eADR-0044-plan-coordinator-local-library.md"
       },
       "status": "accepted",
@@ -6114,7 +6114,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:8240016af3c99f2fc16bb107542fd5bdf4a37f1d56743a23e9252bca78b7ecd3",
+        "fingerprint": "sha256:ccc2b4feb91bc46eec398953c3f9a8c06a6eacadf80b06ab09092f5ddeccab6b",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6545,7 +6545,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:ca04603f7af5566d4e2f11362c9d9fa91bef8250b187e6446ca7f9c5baf51f60",
+        "fingerprint": "sha256:56656493df505ad5e26a377c7cc027a0543513b4943c724ff606639ec3c68fe0",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6605,7 +6605,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:0ded73e560eb9630b85810949320171c249cb1f3bab57a26d44a5cdf20dabbce",
+        "fingerprint": "sha256:90964994a22cd46a9795c765197679d6f797a12b16900dfda8e45fb1708f6160",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -7045,7 +7045,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:95bb961f5a9be1ee0877751c4570e7c1eccbec75e1c21132f7b67454625bd7c5",
+        "fingerprint": "sha256:33f3f607ddd5db17f42a52d7c0236da42df43d9f221060be0a5ce710f062ec9c",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -7145,7 +7145,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:f761aba85ca3a6512e3d4d9e34c8394ca8385f6a55361248ce51fe933a6d1d37",
+        "fingerprint": "sha256:3e7892d66d8c2e9ca9ddf3357f297dfe1e19bb54d0ff4734c000db346dcb2f87",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -7373,7 +7373,7 @@
       },
       "slug": "model-bindings",
       "source": {
-        "fingerprint": "sha256:72e796af1bdb7f7503285a24b0222d5d488bd0ec96d9b7b44febd37c5f059ac1",
+        "fingerprint": "sha256:7d4978d8ac68633dd1c7dbe7ac6e28cbdca1c1fd9fae79d7d2fdd201cd7012d9",
         "path": ".engine/policies/model-bindings.json"
       },
       "status": "active",
@@ -7414,7 +7414,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:3f65bb882b1226470c59ef43f07a4588bd42fcd4dc2f1da43aa97f64eb101b68",
+        "fingerprint": "sha256:be9be9d5aa167b9b0a45bfc7f53e3be3a540aa80da68a5ad305b29628d9346b5",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -7573,18 +7573,18 @@
       "type": "schema"
     },
     {
-      "id": "schema:build-handoff.v1",
-      "name": ".engine/schemas/build-handoff.v1.json",
+      "id": "schema:build-findings-batch.v1",
+      "name": ".engine/schemas/build-findings-batch.v1.json",
       "owner": "core",
       "predicates": {
         "provided_by": [
           "module:core"
         ]
       },
-      "slug": "build-handoff.v1",
+      "slug": "build-findings-batch.v1",
       "source": {
-        "fingerprint": "sha256:30fb6543701dff4f9ee222d4d3df9f56070fec80bd2e698ccce1b0860ac17f53",
-        "path": ".engine/schemas/build-handoff.v1.json"
+        "fingerprint": "sha256:a9143abc87df615d29fddcd89382da18fbf5b61489092465b542db503b71310e",
+        "path": ".engine/schemas/build-findings-batch.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7634,7 +7634,7 @@
       },
       "slug": "build-plan.imported",
       "source": {
-        "fingerprint": "sha256:32333807e5e0300a05f21697bdf51b8b2099e72eec9414ca0faf3a3c653c286d",
+        "fingerprint": "sha256:516da9a641041533c95f01572037f68fd973596db080a026b32f5c8531b1348e",
         "path": ".engine/schemas/build-plan.imported.json"
       },
       "status": "active",
@@ -7692,23 +7692,6 @@
       "type": "schema"
     },
     {
-      "id": "schema:build-state.v1",
-      "name": ".engine/schemas/build-state.v1.json",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "build-state.v1",
-      "source": {
-        "fingerprint": "sha256:53f578be774982f7629de17f5d99dad616989d3fb500e100b98c2b7117a3031b",
-        "path": ".engine/schemas/build-state.v1.json"
-      },
-      "status": "active",
-      "type": "schema"
-    },
-    {
       "id": "schema:build-state.v2",
       "name": ".engine/schemas/build-state.v2.json",
       "owner": "core",
@@ -7719,7 +7702,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:e9288f5723c50e5dbdf0e250cdc0f92bafeed8e84b72f7a45fafbf63aef2841f",
+        "fingerprint": "sha256:36e86679e1dc26f5f4abe2a9503750b6cd580646dd7189e060e3adbd955fe34b",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7906,7 +7889,7 @@
       },
       "slug": "engine-plan.v1",
       "source": {
-        "fingerprint": "sha256:5924cd76b297dfdee59fa52131ce3d424f12598f5098511626187cbeda7c5c60",
+        "fingerprint": "sha256:0e15b387e363f7cb53e60032c88c4eecb84b2133c1a8b4b6f6308b52d4cfc9a7",
         "path": ".engine/schemas/engine-plan.v1.json"
       },
       "status": "active",
@@ -8059,7 +8042,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:2d8bb51d7bf0b72e96e02dbed3b29c03565182e074ef1f74d841b3534aa3a27b",
+        "fingerprint": "sha256:2d6fe00dbd42935255d3c9aa6a572a35016879c26dbf5fb2cb0a75632d823e91",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -8110,7 +8093,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:a28f307887452da06f25951a0a21dde86a4bc14f9853648df594ce06b6c93221",
+        "fingerprint": "sha256:a692682670715de3b3ff0efb25d47057fded49c1a98f990aa2622553b24fdd4f",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9600,7 +9583,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:bffaea0c84c9b2ab9d91c8cc32ac6447e79819e271f05d9e888addac065bc3d9",
+        "fingerprint": "sha256:41dac0522cdb5fa9d09bb2dce8f3cc725dfb9d1eff71d8ab24e1165138deb749",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -10034,10 +10017,13 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
+          "tool:build_review_range",
+          "tool:build_state_store",
           "tool:ci_gatekeeper",
           "tool:derived_state",
           "tool:moment",
           "tool:plan_contract",
+          "tool:plan_lifecycle",
           "tool:plan_store",
           "tool:repo_identity",
           "tool:review_integrity",
@@ -10051,7 +10037,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:73afdc6e8e945543a0c78eadb0f3729a895ecbe13e93f02eb28b6dfe9a129c93",
+        "fingerprint": "sha256:397c4c3490bd63aca3e00e3eeed301c8c9537b928a267cfb8f0db2e873301d41",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10075,7 +10061,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:18a3d8dc6a302b29cce8eb44f50b572b992fe6e91316440f3c0085ae878280f0",
+        "fingerprint": "sha256:bcb2eb6c703d08d0bfa5c8d9fbbd3cd27b454ec64ef07eb0d478ec9b2101640f",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -10095,7 +10081,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:ad0bcd2ff463e76d6af9a197b9790ded66db98b884dad2cbe93080d640237601",
+        "fingerprint": "sha256:764f78b576365d93766dec7d8b95ab48d412d089a68b8add6e0ec6c49f519800",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -10118,7 +10104,7 @@
       },
       "slug": "build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:09c9d70fa4644863850b0f55e4b8c39ff1b95cf716a371e26b1e045dcad62062",
+        "fingerprint": "sha256:a8751d384daa04af8e97da417319fb031020344357d0df17d235bdc4d04883a0",
         "path": ".engine/tools/build_coordinator_dag.py"
       },
       "status": "active",
@@ -10141,7 +10127,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:65291cfd5701f53409bdaef8e71edff407360d7ef87da9af88fbfe7b6dffe3aa",
+        "fingerprint": "sha256:70855909cad33024b5937382fc7f27c0e4412a055658eac5b688936a00830950",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -10189,7 +10175,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:76592ea8a2f4c5a8c82d7787ce8d027f82c90283822736c61ee84cb681ec349d",
+        "fingerprint": "sha256:e7128f75904067001f5a11074e0ab93cfa286a5cc839511957440dc0bac260e9",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10214,7 +10200,7 @@
       },
       "slug": "build_coordinator_spec",
       "source": {
-        "fingerprint": "sha256:f0f2036206351ae0df1d859ef4dfef91a0cf552f5b0540fc75a6bf7e5da08a62",
+        "fingerprint": "sha256:093d9146c1650c71aa2553e36bd7e75bba6e90a3b5d283e9e5c6c2d714642824",
         "path": ".engine/tools/build_coordinator_spec.py"
       },
       "status": "active",
@@ -10263,6 +10249,55 @@
       },
       "status": "active",
       "summary": "Pre-phase build-readiness — is a build-order phase's spec settled enough to start building it?",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_review_range",
+      "name": ".engine/tools/build_review_range.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:derived_state"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_review_range",
+      "source": {
+        "fingerprint": "sha256:84cc10a159578d873cf7d0eb5c45835cc207594dc5b0e1d9242f17fabad6b7ed",
+        "path": ".engine/tools/build_review_range.py"
+      },
+      "status": "active",
+      "summary": "What a review lens actually READ, as a range of commits — and which of those commits a human wrote.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_state_store",
+      "name": ".engine/tools/build_state_store.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:moment",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_state_store",
+      "source": {
+        "fingerprint": "sha256:515412526033ad6f5264bb9977a5b0f88315bef974c4f008265ef2f239ecf0d3",
+        "path": ".engine/tools/build_state_store.py"
+      },
+      "status": "active",
+      "summary": "The durable Build snapshot: where a Build's evidence lives so a restart cannot take it.",
       "type": "tool"
     },
     {
@@ -11091,7 +11126,7 @@
       },
       "slug": "demo_959_finalize_ready_transition",
       "source": {
-        "fingerprint": "sha256:1761e1e5722a7b6904e1f009c2b4c767fa658e8b8cf1605ebcec6c879f41f831",
+        "fingerprint": "sha256:a890608c2f64c78ff00f2fa64514f0e6f3ffd2d72a1040f984668da05a383c55",
         "path": ".engine/tools/demo_959_finalize_ready_transition.py"
       },
       "status": "active",
@@ -11349,6 +11384,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_build_resumes_after_a_kill",
+      "name": ".engine/tools/demo_build_resumes_after_a_kill.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_state_store",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_build_resumes_after_a_kill",
+      "source": {
+        "fingerprint": "sha256:9e8170eac13676db7f4c1336a4593f0b9585f338c8a1e7afdbe0524db6f39392",
+        "path": ".engine/tools/demo_build_resumes_after_a_kill.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION that a Build survives being killed: its execution state is durable, and a cold",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_ci_author_exempt",
       "name": ".engine/tools/demo_ci_author_exempt.py",
       "owner": "core",
@@ -11419,6 +11479,30 @@
       },
       "status": "active",
       "summary": "Demo — first-run provisioning creates the COMPLETE set of labels the engine's guards depend on.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_cross_repo_spec_link",
+      "name": ".engine/tools/demo_cross_repo_spec_link.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_spec",
+          "tool:spec_referent"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_cross_repo_spec_link",
+      "source": {
+        "fingerprint": "sha256:a6ea0202f465657fd3fb8bc0929603609518ed87b249b20790f14fb92477d025",
+        "path": ".engine/tools/demo_cross_repo_spec_link.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for StarshipSuperjam/engine-template#990 — a Build whose Issue links a",
       "type": "tool"
     },
     {
@@ -11799,7 +11883,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:325705308deedc5fda69b0a428afd7ab6df08817758b7a748253831c8644d7e2",
+        "fingerprint": "sha256:0907b9f9f3102cd045d76552f2c866e5ec331c88816bf75f3eb33fc0969214e2",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -12144,6 +12228,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_v1_plan_sunset_refused",
+      "name": ".engine/tools/demo_v1_plan_sunset_refused.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_dag",
+          "tool:plan_contract"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_v1_plan_sunset_refused",
+      "source": {
+        "fingerprint": "sha256:af626cffcf429e1cd568fd8ec44d31b84e560971c6e550857fcb1912c41760ad",
+        "path": ".engine/tools/demo_v1_plan_sunset_refused.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION that the v1 plan generation is GONE, not merely discouraged.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_weakening_guard_narrowed_set",
       "name": ".engine/tools/demo_weakening_guard_narrowed_set.py",
       "owner": "core",
@@ -12162,6 +12271,26 @@
       },
       "status": "active",
       "summary": "Demo — the safety guard now asks for your deliberate OK only when a real safety gate changes (#250).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:demonstration_corpus",
+      "name": ".engine/tools/demonstration_corpus.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demonstration_corpus",
+      "source": {
+        "fingerprint": "sha256:810415890d7fdd1b7263fe2463897a07e69a8024a333d73ec8acc078c38c0c3e",
+        "path": ".engine/tools/demonstration_corpus.py"
+      },
+      "status": "active",
+      "summary": "Run every behavioral demonstration this engine ships, and report the result as structured data.",
       "type": "tool"
     },
     {
@@ -12819,7 +12948,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:ba78685222ca388e5bfe2b95c0890f04df5899b342522e6f19cd6673c4506c03",
+        "fingerprint": "sha256:d4226c439bf0f72c489936d2b7cb14a50ff3385e7e0d835315acdb12e4796318",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13618,7 +13747,7 @@
           "tool:checkout_health",
           "tool:hooks",
           "tool:issue_gate",
-          "tool:plan_coordinator",
+          "tool:project_manager",
           "tool:providers"
         ],
         "provided_by": [
@@ -13627,7 +13756,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:6c335ed177c84a879e882b4da83e7ff6dbab8abf3cf1115e1aa45e37b661b4de",
+        "fingerprint": "sha256:3cd2966eebc7e69218c85562cf3251f8f50ed0ce2718ad3d4591088475651c64",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13820,6 +13949,30 @@
       },
       "status": "active",
       "summary": "moment.py — the engine's one home for a moment in time.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:nightly_demo_report",
+      "name": ".engine/tools/nightly_demo_report.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:issue_author",
+          "tool:telemetry"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "nightly_demo_report",
+      "source": {
+        "fingerprint": "sha256:d3a955cbf6c38f7f4676c2f38a231927c1121f72d549f4ef61a909676ad8ce1b",
+        "path": ".engine/tools/nightly_demo_report.py"
+      },
+      "status": "active",
+      "summary": "Report the nightly demonstration run as AT MOST ONE open engine Issue.",
       "type": "tool"
     },
     {
@@ -14037,7 +14190,7 @@
       },
       "slug": "plan_contract",
       "source": {
-        "fingerprint": "sha256:e90e866ce97e2f063a4fa36ba962b0dc8ec32c2a2507c085dbcee0bd0913a132",
+        "fingerprint": "sha256:e9fd8071f9abffc4194ad560bddc66b44a1178b8734be61de05aa7b96074c3ee",
         "path": ".engine/tools/plan_contract.py"
       },
       "status": "active",
@@ -14045,32 +14198,26 @@
       "type": "tool"
     },
     {
-      "entrypoint": "cli",
+      "entrypoint": "library",
       "guarded": false,
-      "id": "tool:plan_coordinator",
-      "name": ".engine/tools/plan_coordinator.py",
+      "id": "tool:plan_lifecycle",
+      "name": ".engine/tools/plan_lifecycle.py",
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:agent_bindings",
-          "tool:build_coordinator_core",
-          "tool:moment",
-          "tool:plan_contract",
-          "tool:plan_program",
-          "tool:plan_projection",
-          "tool:plan_store"
+          "tool:build_coordinator_core"
         ],
         "provided_by": [
           "module:core"
         ]
       },
-      "slug": "plan_coordinator",
+      "slug": "plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:3a640e0d0330ca740fe7edce76dfb8bc7360f6ed866b1803a0d2cdd8e684d61d",
-        "path": ".engine/tools/plan_coordinator.py"
+        "fingerprint": "sha256:0a0a2c0a083204a485598ea85830c3c3c64530c4ac346d0142c1bab5e45d28e3",
+        "path": ".engine/tools/plan_lifecycle.py"
       },
       "status": "active",
-      "summary": "The Plan Coordinator: the Build Coordinator's upstream peer.",
+      "summary": "When a plan's recorded artifacts stop being correctable, and what the operator must attest to.",
       "type": "tool"
     },
     {
@@ -14091,7 +14238,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:4999cc5dc58705048bc90affd0a2abe19bd579e9d09cc6b36d092fa580b716b7",
+        "fingerprint": "sha256:6f2fb74b99c579412d72f62d265b2dbef99234d6a4c9bd41bb4edf6514d5e6e4",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -14239,6 +14386,36 @@
       },
       "status": "active",
       "summary": "The product-design module's tools — the read-only inspectors that validate the FORM of a project's",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:project_manager",
+      "name": ".engine/tools/project_manager.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:agent_bindings",
+          "tool:build_coordinator_core",
+          "tool:moment",
+          "tool:plan_contract",
+          "tool:plan_lifecycle",
+          "tool:plan_program",
+          "tool:plan_projection",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "project_manager",
+      "source": {
+        "fingerprint": "sha256:92f97b790e1bf3e7db8be7664b0943b569094397e6dd2901e068dbafef995350",
+        "path": ".engine/tools/project_manager.py"
+      },
+      "status": "active",
+      "summary": "The Project Manager: the Build Coordinator's upstream peer.",
       "type": "tool"
     },
     {
@@ -15300,7 +15477,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:github_client"
+          "tool:github_client",
+          "tool:repo_identity"
         ],
         "provided_by": [
           "module:core"
@@ -15308,7 +15486,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:9602f2c510d7e3647fcee4ae907fef7a3ba4b3b4bc71236b8753d1e7a92fe7aa",
+        "fingerprint": "sha256:da3526a52e979a334747487b7aecb899cbbee0a92447bd84722e53afaeacbb39",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",
@@ -15956,8 +16134,8 @@
           "tool:derived_state",
           "tool:module_coherence",
           "tool:plan_contract",
-          "tool:plan_coordinator",
           "tool:plan_store",
+          "tool:project_manager",
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
           "tool:test_plan_store"
@@ -15965,7 +16143,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:19b166cf68ffe657c42a9c521becd15fcc8536ff36fc28bc33d977ea43a47f3b",
+        "fingerprint": "sha256:fa6f9e255eaf9f10b6f1929f4e460dcd01a9d305eae6d418332f201b8dc8d2a4",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16068,7 +16246,7 @@
       },
       "slug": "test_build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:f58f9537ce1860db00d11dc31f4efcf1b9a6fa574fb70f1c9e63482113d91acd",
+        "fingerprint": "sha256:05880ddb0e63537b07724decc30376e9da9ad61b3d32544dad33c47f45de5962",
         "path": ".engine/tools/test_build_coordinator_github.py"
       },
       "status": "active",
@@ -16114,13 +16292,13 @@
           "tool:build_coordinator",
           "tool:build_coordinator_review",
           "tool:module_coherence",
-          "tool:plan_coordinator",
+          "tool:project_manager",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:f15160978f30277badd1906fa895690e77ef1e9bf982eadd96757755a96cb8e4",
+        "fingerprint": "sha256:205fdca8c874d4efcebc53b456074c83973a7435d27c0ccfcf2a14bb7692e5ec",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16147,7 +16325,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:f6db38aeaa3350ee3b60679bd337b65701177a1be928051cddce8edbb7d9dc86",
+        "fingerprint": "sha256:a8c08377a57290cda898612e40d636e89316f95fe7b5fad88832d2f3bb403259",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -16176,6 +16354,35 @@
       },
       "status": "active",
       "summary": "Self-tests for build_readiness.py — the core, read-only pre-phase build-readiness helper.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_state_store",
+      "name": ".engine/tools/test_build_state_store.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:build_coordinator_core",
+          "tool:build_state_store",
+          "tool:demo_build_resumes_after_a_kill",
+          "tool:plan_store",
+          "tool:quiet_call",
+          "tool:test_build_coordinator"
+        ]
+      },
+      "slug": "test_build_state_store",
+      "source": {
+        "fingerprint": "sha256:bc6be05f9f0d8e3ef15e0ceeef1cf2e724bbc076ea86e2afced1745b69413d6a",
+        "path": ".engine/tools/test_build_state_store.py"
+      },
+      "status": "active",
+      "summary": "Tests for build_state_store — the durable Build snapshot.",
       "type": "tool"
     },
     {
@@ -16634,6 +16841,29 @@
       },
       "status": "active",
       "summary": "Tests for the product-spec coverage inspector (.engine/tools/product_design/coverage.py).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_demonstration_corpus",
+      "name": ".engine/tools/test_demonstration_corpus.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:demonstration_corpus"
+        ]
+      },
+      "slug": "test_demonstration_corpus",
+      "source": {
+        "fingerprint": "sha256:f00179c98ce944497b88828166430566d6022f5f0d6698eb3a57352012333653",
+        "path": ".engine/tools/test_demonstration_corpus.py"
+      },
+      "status": "active",
+      "summary": "The demonstration corpus runner — the half of the nightly machinery that SHIPS.",
       "type": "tool"
     },
     {
@@ -17983,7 +18213,7 @@
           "tool:checkout_health",
           "tool:hooks",
           "tool:modes",
-          "tool:plan_coordinator",
+          "tool:project_manager",
           "tool:providers",
           "tool:quiet_call",
           "tool:validate"
@@ -17991,7 +18221,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:a6876d40e5b87880e53b8fef10e8868f494e9de5b59eaf4128077547a5b8371f",
+        "fingerprint": "sha256:836db27ee2ff2c89b9f51b97f952bbdf46794c37f6122a598d40d3cacbb453fa",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -18140,6 +18370,30 @@
       },
       "status": "active",
       "summary": "Self-tests for moment.py — the engine's one time seam.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_nightly_demos",
+      "name": ".engine/tools/test_nightly_demos.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:instantiator",
+          "tool:nightly_demo_report"
+        ]
+      },
+      "slug": "test_nightly_demos",
+      "source": {
+        "fingerprint": "sha256:5249a2f951675c2a0d13fc75181564ad6bdf3f7cdf73a56c8f74afecf435eb8f",
+        "path": ".engine/tools/test_nightly_demos.py"
+      },
+      "status": "active",
+      "summary": "The nightly demonstration run: one Issue at most, least privilege, and home-only.",
       "type": "tool"
     },
     {
@@ -18417,35 +18671,6 @@
     {
       "entrypoint": "test",
       "guarded": false,
-      "id": "tool:test_plan_coordinator",
-      "name": ".engine/tools/test_plan_coordinator.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:build_coordinator_review",
-          "tool:plan_contract",
-          "tool:plan_coordinator",
-          "tool:plan_program",
-          "tool:plan_projection",
-          "tool:plan_store",
-          "tool:test_plan_store"
-        ]
-      },
-      "slug": "test_plan_coordinator",
-      "source": {
-        "fingerprint": "sha256:15393a862ecf2821aa48268db6d1c7219e54102d363859da22708f0ee3cdf5a6",
-        "path": ".engine/tools/test_plan_coordinator.py"
-      },
-      "status": "active",
-      "summary": "Tests for plan_coordinator — the command surface over the plan library.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
       "id": "tool:test_plan_dogfood",
       "name": ".engine/tools/test_plan_dogfood.py",
       "owner": "core",
@@ -18455,19 +18680,48 @@
         ],
         "tests": [
           "tool:plan_contract",
-          "tool:plan_coordinator",
           "tool:plan_program",
           "tool:plan_projection",
-          "tool:plan_store"
+          "tool:plan_store",
+          "tool:project_manager"
         ]
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:73b29d79cff8a6448412c856404d941ccd305ff8f0a06c22e6ef7ea54c665ab7",
+        "fingerprint": "sha256:345393691aae9b1d613610dda29cff4ad5d264993fea0135c1a47c7bb88da404",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
       "summary": "The dogfood: the plan for THIS pull request, driven end to end through the coordinator it builds.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_lifecycle",
+      "name": ".engine/tools/test_plan_lifecycle.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:plan_contract",
+          "tool:plan_lifecycle",
+          "tool:plan_program",
+          "tool:plan_projection",
+          "tool:plan_store",
+          "tool:project_manager",
+          "tool:test_plan_store"
+        ]
+      },
+      "slug": "test_plan_lifecycle",
+      "source": {
+        "fingerprint": "sha256:0537772b60ad54dd19b7995c46a3520b7ff0b84b7d5f9b8810a9755f45c03d57",
+        "path": ".engine/tools/test_plan_lifecycle.py"
+      },
+      "status": "active",
+      "summary": "The plan ceremony's operability defects (issue 1062), each reproduced then answered.",
       "type": "tool"
     },
     {
@@ -18549,6 +18803,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_plan_to_ready_pr_demo",
+      "name": ".engine/tools/test_plan_to_ready_pr_demo.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:demo_plan_to_ready_pr",
+          "tool:quiet_call"
+        ]
+      },
+      "slug": "test_plan_to_ready_pr_demo",
+      "source": {
+        "fingerprint": "sha256:b6cf3bc08c2b948db900a822ef6b8f99ee0cad50a17da46721f9aa678ed0564b",
+        "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
+      },
+      "status": "active",
+      "summary": "The front-door demonstration actually walks: plan → seal → Build → ready pull request.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_policy",
       "name": ".engine/tools/test_policy.py",
       "owner": "core",
@@ -18615,6 +18893,38 @@
       },
       "status": "active",
       "summary": "Tests for pr_reconcile — the stranded-PR conflict detector + lossless-or-refuse recovery (#136).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_project_manager",
+      "name": ".engine/tools/test_project_manager.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator_review",
+          "tool:engine_fixture",
+          "tool:module_manager",
+          "tool:plan_contract",
+          "tool:plan_program",
+          "tool:plan_projection",
+          "tool:plan_store",
+          "tool:project_manager",
+          "tool:test_plan_store",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_project_manager",
+      "source": {
+        "fingerprint": "sha256:e10632dcb8420b3956b7635480f8aa32b325fd926bf1eb6540ad6e9e3b141218",
+        "path": ".engine/tools/test_project_manager.py"
+      },
+      "status": "active",
+      "summary": "Tests for project_manager — the command surface over the plan library.",
       "type": "tool"
     },
     {
@@ -19133,6 +19443,34 @@
       },
       "status": "active",
       "summary": "Regression tests for the dependency-review gate (.engine/tools/dependency_discipline/review.py).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_review_economy",
+      "name": ".engine/tools/test_review_economy.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:agent_bindings",
+          "tool:build_coordinator",
+          "tool:build_coordinator_review",
+          "tool:build_review_range",
+          "tool:demo_v1_plan_sunset_refused",
+          "tool:quiet_call"
+        ]
+      },
+      "slug": "test_review_economy",
+      "source": {
+        "fingerprint": "sha256:40a8e95f0123df4cc9c1b25efd3e60fc4d1bd33ca4ed961eab641ce0930cd36d",
+        "path": ".engine/tools/test_review_economy.py"
+      },
+      "status": "active",
+      "summary": "The review economy: receipts bound to what a lens read, and reviews spent only on unread work.",
       "type": "tool"
     },
     {
@@ -19852,12 +20190,15 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator_spec",
+          "tool:demo_cross_repo_spec_link",
+          "tool:quiet_call",
           "tool:spec_referent"
         ]
       },
       "slug": "test_spec_referent",
       "source": {
-        "fingerprint": "sha256:d01cb6ceabe5171a83d4f54425126231c4663afff362d522c1cf052042f76b98",
+        "fingerprint": "sha256:71c679f85d38b84b8779cb5ef4174e58f89e3b3beb7d00a2cd34e800f97683c8",
         "path": ".engine/tools/test_spec_referent.py"
       },
       "status": "active",

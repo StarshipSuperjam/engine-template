@@ -15,9 +15,23 @@ session `--effort` (which governs a subagent only when its frontmatter does not 
 Codex by spawning each cold reviewer as a non-full-history fork (`fork_turns="none"`) with `reasoning_effort`
 set from the resolved depth (so the un-pinned twin carries no `model_reasoning_effort` to override). So `render`
 stamps only `model:` for the reviewer roles and `check` expects no `effort:` line on them (model-drift is still
-caught; a stray reviewer effort line is flagged). A missing session `--effort` falls back to Claude Code's
-default effort (`high`), which equals the judgment-tier anchor — so an un-pinned reviewer never degrades below
-the anchor. Workers and the audit persona still carry BOTH stamps (their effort is not depth-scaled).
+caught; a stray reviewer effort line is flagged). Workers and the audit persona still carry BOTH stamps (their
+effort is not depth-scaled).
+
+WHAT THE DEPTH'S EFFORT ACTUALLY RIDES ON, AND WHY IT IS NOW CHECKED. This design used to lean on the
+assumption that a session defaults to `high`, so an un-pinned reviewer never degraded below the judgment-tier
+anchor. That assumption fails the moment an operator deliberately runs a build session at `medium` — an
+economically rational choice, since the effort dial barely engages on build-execution turns — and it failed in
+production: a build that sealed `thorough` spawned its whole panel from a `medium` session, and nothing
+recorded the delivered effort or compared it to the promise (StarshipSuperjam/engine-template#1067). So the
+depth's effort is no longer an assumption. The Build Coordinator asks the spawning session to state its effort
+at panel spawn and refuses a panel that would under-deliver the approved depth; each receipt records the effort
+its reviewer reports; and any shortfall is published in the pull-request body. Both halves are self-reported —
+nothing here can verify them, and commit-bound reviewer attestations
+(StarshipSuperjam/engine-template#916) are the named residual.
+
+For the same reason, a per-persona override may pin the MODEL alone: the three reviewer overrides do, because
+an effort on an effort-unpinned role asserted something this arm cannot deliver.
 """
 from __future__ import annotations
 import json
@@ -56,13 +70,25 @@ def load_bindings(root: str | None = None) -> dict:
 
 
 def resolve(name: str, model_tier: str, bindings: dict) -> dict:
-    """The {model, effort} for a persona: its override if one exists, else its tier default."""
+    """The {model, effort} for a persona: its override if one exists, else its tier default.
+
+    An override may pin the MODEL alone. The three reviewer overrides now do, because a reviewer persona
+    carries no effort frontmatter by design — the operator's review-depth choice scales reviewer effort
+    at launch — so the effort those overrides named had nothing to ride on and the bindings file was
+    asserting something the Claude arm could not deliver (StarshipSuperjam/engine-template#1067). An
+    override without an effort falls back to the TIER's effort rather than to None: None means
+    "deliberately un-pinned" to `_stamp`, and inferring that from a silent field would un-pin a worker
+    whose author only meant to retune its model."""
     override = (bindings.get("overrides") or {}).get(name)
-    if override:
-        return {"model": override["model"], "effort": override["effort"]}
     tier = (bindings.get("tiers") or {}).get(model_tier)
+    if override and "effort" in override:
+        return {"model": override["model"], "effort": override["effort"]}
     if not tier:
+        if override:
+            raise KeyError(f"override for {name!r} pins no effort and its tier {model_tier!r} has no binding")
         raise KeyError(f"no binding for capability tier {model_tier!r}")
+    if override:
+        return {"model": override["model"], "effort": tier["effort"]}
     return {"model": tier["model"], "effort": tier["effort"]}
 
 

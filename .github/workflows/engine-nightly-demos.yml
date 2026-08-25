@@ -1,0 +1,179 @@
+# engine-nightly-demos — run every shipped behavioral demonstration once a night, and keep AT MOST ONE
+# open engine Issue about it.
+#
+# WHY. Each demonstration is a fail-then-pass reproducer of a real past incident, so a change that quietly
+# reintroduces one goes red AT the incident. Individually they travel with their companion tests; the corpus
+# as a whole — including the ones that retire at first run and so have no companion — was exercised only
+# when somebody thought to. A guard nobody runs has already stopped guarding.
+#
+# NOT REQUIRED, AND DELIBERATELY SO. This is scheduled, never a pull-request gate, so it can never block a
+# merge. The operator declined a required per-pull-request leg; the proportional-requirement question is
+# StarshipSuperjam/engine-template#1068, not this workflow's business.
+#
+# HOME-ONLY, BY TWO MECHANISMS. This file retires at first run (the retirement census), so a generated
+# project never receives it. And every job gates on the repository being the engine's own home, so a copy
+# that arrives some other way — most plausibly re-installed by an upgrade before a census change lands —
+# exits cleanly instead of running the engine's own construction demos against somebody's product.
+#
+# WHAT IT COSTS, MEASURED ONCE RATHER THAN GUESSED. The first full run: 60 demonstrations in 947 seconds
+# (about 16 minutes) on a workstation, each in its own interpreter. That is the number to weigh against
+# making this more frequent, or against the per-pull-request leg the operator declined — and it is why the
+# job's timeout is 120 minutes rather than something tuned to the current figure: several demonstrations
+# drive real upgrades against throwaway clones, and the corpus only grows.
+#
+# THAT FIRST RUN ALSO FOUND SEVEN DEMONSTRATIONS ALREADY RED ON MAIN
+# (StarshipSuperjam/engine-template#1074). They were not broken by the change that added this workflow;
+# they had been failing with nothing watching, which is the gap this closes. So this goes red on its first
+# night, honestly, until that backlog is triaged.
+#
+# LEAST PRIVILEGE, IN TWO FENCED JOBS. `demonstrations` runs the corpus with read-only permissions and no
+# token: it executes code whose whole job is to be adversarial about the engine, and it must not be able to
+# write anything. `report` holds issues:write and nothing else, and its ONLY input is the previous job's
+# structured JSON result — never raw demonstration output. A job with a write token whose behaviour is
+# decided by unstructured text it was handed is a job that can be steered by its own input.
+name: engine-nightly-demos
+
+on:
+  schedule:
+    - cron: "17 6 * * *"   # nightly, off the hour: a shared runner pool is busiest exactly on it
+  workflow_dispatch:        # and runnable on demand, so a fix can be confirmed without waiting a day
+
+permissions: {}             # nothing by default; each job asks for exactly what it needs
+
+concurrency:
+  group: engine-nightly-demos
+  cancel-in-progress: false  # let a run in flight finish; never half-report
+
+jobs:
+  demonstrations:
+    name: run every demonstration
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read        # the checkout, and nothing else — this job runs adversarial code
+    outputs:
+      home: ${{ steps.home.outputs.home }}
+      ok: ${{ steps.corpus.outputs.ok }}
+      result: ${{ steps.corpus.outputs.result }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Am I the engine's own repository?
+        id: home
+        # The gate, and the reason it is not just the retirement census: an upgrade re-installs engine files,
+        # so a deployed project could receive this workflow between a release and a census change. Compared
+        # case-insensitively against the recorded home, the way every other home check in this engine folds
+        # it. Plain python3 (present on the runner) so the relative path resolves from the workspace root.
+        #
+        # WHY THIS DOES NOT DELEGATE TO repo_identity.is_home_repo, which is the obvious tidy-up: that
+        # predicate deliberately fails TOWARD home, because its callers are safety checks that must RUN
+        # when placement is uncertain. Here the safe direction is the exact opposite — an uncertain
+        # repository must NOT run the engine's own construction demonstrations or file Issues into
+        # somebody's product register. Same words, opposite failure direction; sharing one home would put
+        # a trap under whichever caller lost the argument. It also reads GITHUB_REPOSITORY rather than the
+        # on-disk origin, which is the independent context signal the release gate uses for the same
+        # reason.
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          home="$(python3 -c "import json; print(json.load(open('.engine/engine.json')).get('home_repository','').lower())")"
+          here="$(printf '%s' "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+          if [ "${here}" = "${home}" ] && [ -n "${home}" ]; then
+            echo "home=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "home=false" >> "${GITHUB_OUTPUT}"
+            echo "This is not the engine's own repository, so the engine's construction demonstrations do not run here. Nothing was changed." >> "${GITHUB_STEP_SUMMARY}"
+          fi
+      - name: Set up uv (pinned)
+        if: steps.home.outputs.home == 'true'
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.8"
+      - name: Materialize the engine tool-runtime
+        if: steps.home.outputs.home == 'true'
+        run: uv sync --directory .engine --frozen
+      - name: Run the demonstration corpus
+        id: corpus
+        if: steps.home.outputs.home == 'true'
+        # This step FAILS when the corpus is red, so a broken night is red in the actions list rather
+        # than green with an Issue somebody has to notice. The reporting job still runs — it is gated on
+        # `always()`, not on this step's success — because the Issue is needed most on exactly the nights
+        # this fails, and a red corpus with no report would be the silence this workflow exists to end.
+        run: |
+          set -uo pipefail
+          # `-e` IS ALREADY ON. The default shell for a `run:` block is `bash --noprofile --norc -eo
+          # pipefail`, and re-declaring `set -uo pipefail` does not clear it — so a corpus that CRASHED
+          # aborted the step right here, before the crash-detection below could say so and before the
+          # step summary was written. Everything after this line was unreachable on exactly the path it
+          # was written for. Disabled around the run, and the exit code is captured instead.
+          set +e
+          uv run --directory .engine --frozen -- python tools/demonstration_corpus.py --json-out "${RUNNER_TEMP}/demo-result.json" | tee "${RUNNER_TEMP}/demo-log.txt"
+          corpus_rc=${PIPESTATUS[0]}
+          set -e
+          # The log always exists (tee wrote it), so the summary is written FIRST — a crash is exactly
+          # when a reader needs it, and it used to be the run that produced none.
+          {
+            echo "### Demonstration corpus"
+            echo ""
+            cat "${RUNNER_TEMP}/demo-log.txt"
+          } >> "${GITHUB_STEP_SUMMARY}"
+          # A corpus that CRASHED wrote no result at all — a different thing from one that failed, and
+          # the more dangerous one: the reporting job would find nothing to report and the night would
+          # pass in silence with a stale Issue still open. Checked BEFORE the hand-off below, which
+          # reads that very file and would otherwise abort the step first.
+          if [ ! -s "${RUNNER_TEMP}/demo-result.json" ]; then
+            echo "::error::The demonstration corpus produced no result — it did not finish (exit ${corpus_rc}). Nothing can be reported for this run; any open nightly report is now stale."
+            exit 1
+          fi
+          ok="$(python3 -c "import json,os;p=os.environ['RUNNER_TEMP']+'/demo-result.json';print(str(json.load(open(p))['ok']).lower())" 2>/dev/null || echo missing)"
+          # The hand-off to the fenced reporting job, base64 on one line. Not an artifact — that would need
+          # two more third-party actions for a few kilobytes of JSON. Not raw JSON in a job output either:
+          # this string contains demonstration output, and encoding it removes every question about
+          # newlines, delimiters and quoting between here and the job that reads it.
+          {
+            echo "ok=${ok}"
+            echo "result=$(python3 -c "import base64;print(base64.b64encode(open('${RUNNER_TEMP}/demo-result.json','rb').read()).decode())")"
+          } >> "${GITHUB_OUTPUT}"
+          if [ "${ok}" != "true" ]; then
+            echo "::error::One or more shipped demonstrations are failing. The nightly report Issue carries the current set."
+            exit 1
+          fi
+
+  report:
+    name: keep one Issue, or none
+    needs: demonstrations
+    # `always()`, not success: the report is needed MOST on the nights the corpus step fails, and
+    # gating it on success would mean a red night files nothing and an open report is never closed.
+    if: always() && needs.demonstrations.outputs.home == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read        # the checkout, to materialize the tool-runtime
+      issues: write         # to file, update or close the ONE report — nothing else
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.8"
+      - name: Materialize the engine tool-runtime
+        run: uv sync --directory .engine --frozen
+      - name: File, update, or close the one nightly report
+        # The reporter reads ONLY the JSON result. Failing output is rendered into the body, never parsed,
+        # and the Issue it acts on is found by the marker the reporter itself mints — so this token cannot
+        # touch an Issue a person wrote, however similar its title.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # Through the ENVIRONMENT, never interpolated into the script: the value is base64 of a document
+          # containing demonstration output, and `${{ }}` in a `run:` block is textual substitution.
+          DEMO_RESULT_B64: ${{ needs.demonstrations.outputs.result }}
+        run: |
+          set -euo pipefail
+          python3 -c "import base64,os,sys;open(sys.argv[1],'wb').write(base64.b64decode(os.environ['DEMO_RESULT_B64']))" "${RUNNER_TEMP}/demo-result.json"
+          uv run --directory .engine --frozen -- python tools/nightly_demo_report.py \
+            --result "${RUNNER_TEMP}/demo-result.json" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            | tee -a "${GITHUB_STEP_SUMMARY}"

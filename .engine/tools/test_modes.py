@@ -646,7 +646,7 @@ class TestNativePlanIntake(unittest.TestCase):
     the session exactly where it was.
 
     The import itself is stubbed here so these tests say nothing about the operator's real plan library
-    and write nothing to it; the real end-to-end import is exercised in test_plan_coordinator.
+    and write nothing to it; the real end-to-end import is exercised in test_project_manager.
     """
 
     CLAUDE_ACCEPT = {"session_id": "s", "tool_name": "ExitPlanMode",
@@ -664,14 +664,14 @@ class TestNativePlanIntake(unittest.TestCase):
     @staticmethod
     @contextlib.contextmanager
     def _importer(arrival=None, raises=None):
-        """Stand in for plan_coordinator's import seam. modes imports the module lazily inside the
+        """Stand in for project_manager's import seam. modes imports the module lazily inside the
         handler, so patching the module's attribute is what the handler will actually reach."""
-        import plan_coordinator
+        import project_manager
         arrival = arrival or {"plan_id": "pln_0123456789ab", "revision": 1, "slug": "cache--0123ab",
                               "title": "Cache widgets", "folder": "/tmp/plans/cache--0123ab",
-                              "next_command": "python tools/plan_coordinator.py preview --plan pln_0123456789ab"}
+                              "next_command": "python tools/project_manager.py preview --plan pln_0123456789ab"}
         target = mock.Mock(side_effect=raises) if raises else mock.Mock(return_value=arrival)
-        with mock.patch.object(plan_coordinator, "import_native_plan", target):
+        with mock.patch.object(project_manager, "import_native_plan", target):
             yield target
 
     # -- the Claude adapter ----------------------------------------------------
@@ -790,8 +790,8 @@ class TestNativePlanIntake(unittest.TestCase):
         # modes spells the envelope out rather than importing it, because this handler runs on every
         # prompt and must not drag the plan library in to learn one string. This is what keeps the two
         # copies honest — the same shape the depth vocabulary uses across the two coordinators.
-        import plan_coordinator
-        self.assertEqual(modes._PLAN_ENVELOPE, plan_coordinator.NATIVE_PLAN_ENVELOPE)
+        import project_manager
+        self.assertEqual(modes._PLAN_ENVELOPE, project_manager.NATIVE_PLAN_ENVELOPE)
 
     # -- the stance-writer property --------------------------------------------
 

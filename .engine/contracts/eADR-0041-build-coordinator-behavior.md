@@ -87,18 +87,18 @@ close the residual that an honest session could still bypass the gate — a dura
 and adds a soft, recurring reminder (a bind-time `engine-coordinator-owned` PR label and a standing line in
 `status`/`checkpoint`) that a coordinator-staged PR must reach `ready` through the submit gate._
 
-_Amended 2026-08-23, deliberately narrowly, for the Plan Coordinator substrate (eADR-0044). A durable local
+_Amended 2026-08-23, deliberately narrowly, for the Project Manager substrate (eADR-0044). A durable local
 plan library and its lifecycle command surface now exist in the engine, and NOTHING in this contract changes:
 they are unconsumed. `plan bind` still takes the plan the session hands it and applies its own three-layer
 validation; BC-03, BC-04, BC-05, BC-11, BC-12, BC-18 and BC-19 hold exactly as written; the coordinator's
 snapshot remains machine-local, non-durable and authority-free. One implementation detail moved and is
 recorded here so the built code and this contract cannot drift: the three-layer plan validation BC-11 depends
 on — schema for the declared version, work-item-id uniqueness, and DAG closure — was extracted from the CLI
-into `build_coordinator_dag.validate_plan_document`, which the Plan Coordinator's contract also calls before a
+into `build_coordinator_dag.validate_plan_document`, which the Project Manager's contract also calls before a
 plan may be sealed. That is single-homing, not a change of authority: there is now one implementation of what
 makes a payload valid rather than two that could drift, and a plan that seals is a plan `plan bind` will
 accept. The plan-stage review machinery (`review packet --stage plan`, its receipts, and BC-12's waivable plan
-half) is expected to MOVE to the Plan Coordinator when the Build Coordinator is cut over to sealed-handoff
+half) is expected to MOVE to the Project Manager when the Build Coordinator is cut over to sealed-handoff
 entry; until that lands and amends this record again, every plan-stage assertion below governs unchanged._
 
 _In plain terms first, for a reader who does not track these assertions by number: a plan is now reviewed
@@ -109,7 +109,7 @@ moved, added, or weakened._
 _Amended 2026-08-24 — the cutover the paragraph above said was coming has landed, so its closing sentence no
 longer holds and is revised here by date: the plan-stage assertions do NOT all govern unchanged, and the five
 that moved are corrected in place below (BC-04, BC-05, BC-12, BC-18, BC-19). A plan now enters a Build only
-through a seal, the design panel and the depth choice belong to the Plan Coordinator, and the Build Coordinator
+through a seal, the design panel and the depth choice belong to the Project Manager, and the Build Coordinator
 runs exactly one review — the deliverable one. Two assertions are ADDED for what the cutover put in their place
 (BC-28, BC-29). One hard hold is ADDED with its evidence (below) — the second since the 2026-08-15 amendment
 declared that the v2 capability "introduced no new submission hard hold", a position revised by name above when
@@ -148,6 +148,22 @@ below — the coordinator previously never read CI status at all (`pr_state` did
 draft could be marked ready while the required check was red or still running, observed in the wild as the
 superseded-red-beside-newer-green rollup this repository produced on its own pull requests._
 
+_Amended 2026-08-25, for the Build's own execution state — the one thing every amendment above said had
+not changed. It has now. "Machine-local, non-durable and authority-free" was three claims, and the middle
+one was refuted by use: a Build killed mid-flight lost its approval, receipts, findings, dispositions and
+progress, and they were reconstructed by hand. The snapshot is therefore DURABLE, and the OS-temporary-
+directory refusal in `StateStore.__init__` that enforced the old claim in code is DELETED rather than
+relaxed in silence — a guarantee removed on purpose is named where the guarantee was made. One assertion is
+ADDED with its evidence (BC-30). The durable snapshot lives beside the sealed plan that bound it, inside the
+same local, gitignored, owner-only library, and it is written through the same lock, compare-and-swap and
+atomic durable write that library already uses rather than a second copy of them. The other two claims stand
+unchanged and are the ones this contract rests on: the snapshot is still machine-local, and it still carries
+NO AUTHORITY — the plan is the authority, and a snapshot that disagrees with the sealed plan still loses.
+Two costs, stated here rather than discovered later. Build evidence now persists for as long as its plan
+folder does, including reviewers' local-only private notes, under the workstation-only trust model of
+eADR-0044. And durability is not portability: the library is per-workstation, so a durable snapshot does not
+make a Build resumable on another machine._
+
 ### Classified assertions
 
 | ID | Class | Required behavior | Canonical or observed source | Failed implementation | Replacement response |
@@ -163,7 +179,7 @@ superseded-red-beside-newer-green rollup this repository produced on its own pul
 | BC-09 | advisory practice | Unexpected paths, assumptions, and nearby risks should be shown to the engineer. | Impact check and checkpoints | Path policing turned every surprise into an interlock. | Status and checkpoint highlight unexpected paths and nearby risks without forbidding progress; an assumption authored `unresolved` additionally holds the `ready` phase until the orchestrator resolves it — low-friction via `assumption dispose` (receipt-layer, review-preserving) or `plan revise` — a self-clearable judgment hold, never a mechanical hard hold. |
 | BC-10 | AI judgment | An implementation discovery revises the plan only when it changes intent, outcome, capability boundary, non-goals, settled criteria, authority, or agreed scope. | Plan settlement; historical cases 886 and 924 | Leaf changes invalidated approvals and reviews. | The orchestrator explicitly selects aligned, revision, or operator-decision posture. |
 | BC-11 | submission prerequisite | The authoritative plan must be reproducible and match the approved digest. | Both review gates | Event repair attempted to reconstruct authority. | Missing or mismatched plan is a hard hold; no transcript reconstruction. |
-| BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates; the 2026-08-24 panel move | Coverage was entangled with phase advancement. | A manifest names required lenses; absent receipts hold submission. The DELIVERABLE review is the only review this coordinator runs and it cannot be waived. The plan half moved with the panel: coverage of the approved depth is now a gate on the SEAL (plan_coordinator refuses a review that does not cover the approved depth's roster), and the retrospective plan-review waiver is DELETED rather than relocated — its precondition was a Build that started before its plan was reviewed, which sealed-handoff entry makes unreachable. |
+| BC-12 | submission prerequisite | Approved reviewer coverage cannot be silently omitted. | Build review gates; the 2026-08-24 panel move | Coverage was entangled with phase advancement. | A manifest names required lenses; absent receipts hold submission. The DELIVERABLE review is the only review this coordinator runs and it cannot be waived. The plan half moved with the panel: coverage of the approved depth is now a gate on the SEAL (project_manager refuses a review that does not cover the approved depth's roster), and the retrospective plan-review waiver is DELETED rather than relocated — its precondition was a Build that started before its plan was reviewed, which sealed-handoff entry makes unreachable. |
 | BC-13 | submission prerequisite | Deliverable review must run against a recorded commit. | Build step 6 | Multiple packet generations obscured the actual reviewed commit. | One reviewed commit, shared referent digest, and contract-specific lens-packet digest per receipt. |
 | BC-14 | submission prerequisite | Findings must be dispositioned, and only findings explicitly left blocking hold submission. | Finding policy and human merge gate | `blocking`/`serious` labels automatically drove more work. | Completeness is mechanical; correctness of rationale and `blocks_this_pr` is engineering judgment. |
 | BC-15 | submission prerequisite | Candidate evidence must be green for the final commit, the engine-ci proof for that exact head must be imported and verified, and required registered preflights must be green; advisory checks remain visible. | Build steps 6–7; the 2026-08-24 split amendment | Receipts could be current while the substantive commit changed, and the coordinator never read CI status at all, so a ready draft could carry a red or still-running required check. | Results bind to commit and PR-body digest as applicable; the live rollup is re-read at submission with distinct absent/pending/red refusals; advisory close-linkage evidence cannot masquerade as a merge wall. |
@@ -180,7 +196,8 @@ superseded-red-beside-newer-green rollup this repository produced on its own pul
 | BC-26 | mechanical fact | Every claim and result write compare-and-swaps against the current snapshot revision. | Work-verb `_work_mutate`; `test_build_coordinator_work.TestWorkClaims` | Without it, a concurrent or stale write could overwrite a sibling claim or lose a snapshot update. | Each work verb writes under an explicit from-revision guard and refuses a stale write. |
 | BC-27 | mechanical fact | A DAG node is complete only with a recorded integration commit on the PR branch and focused verification. | Work integrate; `test_build_coordinator_work.TestWorkDispositions`; `test_build_coordinator.TestV2CompletionGate` | Without it, a returned worker artifact could be treated as completion without the orchestrator integrating and verifying it. | Completion requires an integration commit proven on the PR branch plus recorded focused verification; worker commits are transport, never completion. Until 2026-08-24 the cited evidence covered only the work path, while `checkpoint --complete-item` wrote the same completion with no integration — so the assertion held of one writer and not of the coordinator as a whole. The second citation closes that gap by exercising the refusal itself. |
 | BC-28 | mechanical fact | A plan enters a Build only through a seal. | `plan bind`; `test_build_coordinator.TestSealedPlanEntry`; the 2026-08-24 cutover | The session handed the coordinator a plan document and the coordinator validated its SHAPE — so a plan that had never been presented whole, approved, or reviewed was indistinguishable at bind from one that had. Everything upstream of bind was convention. | `plan bind --plan <id>` resolves a plan in the local library, verifies its revision chain, requires a recorded seal, and refuses when the plan has moved since it was sealed or when the payload digest does not match the sealed one. There is no other entry: `--source issue` is retired, `plan promote` and `handoff export --publish` are gone, and a build-plan.v1 payload is refused at entry with its remedy named. |
-| BC-29 | mechanical fact | A plan cannot be sealed with less review than the approved depth demanded. | `plan_coordinator.seal_refusals`; `test_plan_coordinator`; the 2026-08-24 panel move | On the Build side this was BC-12's waivable half: coverage the operator approved could be omitted and then excused retrospectively, which made the depth choice advisory. | The seal refuses a recorded review whose lenses do not cover the approved depth's installed roster, and the review receipt is verified against the packet the approved revision actually renders. The demand is keyed on the ROSTER, not the depth name, so `quick` — whose roster is empty by the operator's own choice — seals with no cold review, and nothing else does. |
+| BC-29 | mechanical fact | A plan cannot be sealed with less review than the approved depth demanded. | `project_manager.seal_refusals`; `test_project_manager`; the 2026-08-24 panel move | On the Build side this was BC-12's waivable half: coverage the operator approved could be omitted and then excused retrospectively, which made the depth choice advisory. | The seal refuses a recorded review whose lenses do not cover the approved depth's installed roster, and the review receipt is verified against the packet the approved revision actually renders. The demand is keyed on the ROSTER, not the depth name, so `quick` — whose roster is empty by the operator's own choice — seals with no cold review, and nothing else does. |
+| BC-30 | recovery behavior | A Build's own execution evidence survives a forced restart of the workstation it runs on. | `build_state_store.DurableBuildStore`; `test_build_state_store`; the 2026-08-25 durable-state change | The snapshot lived in the OS temporary directory by construction, and `StateStore` REFUSED any other path. A Build killed mid-flight lost its approval, review receipts, findings, dispositions and progress; they were reconstructed by hand. | The snapshot is durable and lives beside the sealed plan that bound it, one per plan, written owner-only through the same lock, compare-and-swap and atomic durable write the plan library uses. A session resuming in the same worktree finds it with nothing remembered; a second Build of the same plan displaces the first only through an explicit `state supersede`, which keeps the displaced snapshot. Durability buys survival, not standing: the snapshot still carries no authority, and the library is per-workstation, so it is a restart of THIS machine that is survived, not a move to another. |
 
 ### Hard holds and demonstrated failures
 

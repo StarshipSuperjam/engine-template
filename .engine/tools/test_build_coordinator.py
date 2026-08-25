@@ -136,7 +136,7 @@ class CoordinatorCase(unittest.TestCase):
 
     def bind_args(self, **over):
         args = {"plan": PLAN_ID, "mode": "same-session", "repository": "owner/repo", "pr": 7,
-                "issue": None}
+                "issue": None, "operator_decision": "yes, start the Build"}
         args.update(over)
         return argparse.Namespace(**args)
 
@@ -188,7 +188,8 @@ class TestPlanAndSnapshot(CoordinatorCase):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
-        self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE, "mode": "same-session"})
+        self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
+                                                 "mode": "same-session", "worktree": str(bc.ROOT)})
 
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
@@ -314,11 +315,14 @@ class TestPlanAndSnapshot(CoordinatorCase):
             bc.StateStore(self.state_path, expected_revision=1).mutate(lambda s: None)
         self.assertTrue(Path(self.state_path).exists())
 
-    def test_snapshot_outside_os_temp_is_refused(self):
-        # The filesystem root is outside the OS temp dir in every environment. bc.ROOT is NOT: a projected
-        # deployment is itself created under the temp dir, where the refusal correctly does not fire.
-        with self.assertRaisesRegex(bc.CoordinatorError, "OS temporary"):
-            bc.StateStore(str(Path(os.sep) / "state.json"))
+    def test_a_snapshot_outside_os_temp_is_accepted_now_that_state_is_durable(self):
+        # The inverse of the assertion this replaces. Until 2026-08-25 a snapshot outside the OS
+        # temporary directory was REFUSED, and that refusal is exactly what made a killed Build lose
+        # its evidence. It is deleted with the eADR-0025 and eADR-0041 amendments, and durability has
+        # a proper home in build_state_store. Asserted here, where the old guarantee was made, so the
+        # deletion is visible at the class that carried it rather than only in the new module.
+        self.assertEqual(bc.StateStore(str(Path(os.sep) / "state.json")).path,
+                         Path(os.sep) / "state.json")
 
     def test_plan_revision_invalidates_approval_and_reviews_but_not_build_identity(self):
         self.seed(); self.approve()
@@ -366,12 +370,17 @@ class TestPlanAndSnapshot(CoordinatorCase):
 
     def test_trivial_plan_uses_the_reduced_document_shape(self):
         value = {
-            "schema_version": "build-plan.v1", "profile": "trivial",
+            "schema_version": "build-plan.v2", "profile": "trivial",
             "intent_source": {"kind": "direct"}, "raw_intent": "Correct one typo.",
             "objective": "Correct the typo.",
             "success_obligations": [{"outcome": "Text is correct.", "verification": "Read it."}],
+            "parallelism": {"mode": "serial", "max_concurrency": 1},
             "work_items": [{"id": "W1", "description": "Correct it", "paths": ["README.md"],
-                            "verification": ["Read the changed line"]}],
+                            "verification": ["Read the changed line"], "depends_on": [],
+                            "exclusive_resources": [], "executor_class": "integrator",
+                            "output_contract": {"deliverable": "the corrected line",
+                                                "artifact_kinds": ["integrated-commit"],
+                                                "required_evidence": ["changed_paths"]}}],
             "spec": {"posture": "none", "selection_basis": "Copy-only change.",
                      "disclosure": "No settled specification applies."},
         }
@@ -657,9 +666,9 @@ class TestNoPlanReachesGitHub(unittest.TestCase):
     def test_the_derived_next_step_for_a_sealed_plan_states_the_bind_command(self):
         # The in-tool guidance is shipped instruction too, and it was the loudest stale line of all:
         # it used to tell the operator that handing a sealed plan to a Build was not wired up.
-        import plan_coordinator
+        import project_manager
         record = {"plan_id": PLAN_ID, "current": {"revision": 1, "plan_digest": SEALED}}
-        step = plan_coordinator._next_step("sealed", record, [])
+        step = project_manager._next_step("sealed", record, [])
         self.assertIn(f"plan bind --plan {PLAN_ID}", step)
         self.assertNotIn("not wired up", step)
 
@@ -694,7 +703,7 @@ class TestReviewAndFindings(CoordinatorCase):
                           "technical-integrity", "security-governance"]
 
     def packet(self, stage="deliverable", head=HEAD_A, roster=None):
-        args = argparse.Namespace(stage=stage, plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage=stage, plan=str(self.plan_path), impact=None, session_effort="high")
         out = io.StringIO()
         lenses = roster if roster is not None else self.DELIVERABLE_LENSES
         with mock.patch.object(bc, "_installed", return_value=lenses), mock.patch.object(bc, "_head", return_value=head), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
@@ -706,7 +715,8 @@ class TestReviewAndFindings(CoordinatorCase):
         return argparse.Namespace(stage=packet["stage"], lens=lens,
                                   packet_digest=packet["packet_digest"],
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
-                                  code_execution="none")
+                                  findings_from_file=None, code_execution="none",
+                                  delivered_effort="high")
 
     def complete_panel(self):
         """Run the deliverable panel and receipt every lens, as a real Build does."""
@@ -719,7 +729,7 @@ class TestReviewAndFindings(CoordinatorCase):
     # --- the plan stage is gone from this side ----------------------------------------
 
     def test_a_plan_review_packet_is_refused_and_names_where_plan_review_lives(self):
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None, session_effort="high")
         with self.assertRaisesRegex(bc.CoordinatorError, "runs one review"):
             bc._packet(args, self.store)
 
@@ -814,8 +824,11 @@ class TestReviewAndFindings(CoordinatorCase):
 
     # --- the PR body's plan-review sentence, now read from the sealed plan record ------
 
-    def _with_plan_review(self, review):
-        return mock.patch.object(bc, "_sealed_plan_review", return_value=review)
+    def _with_plan_review(self, review, problem=None):
+        """The clause reads the whole RECORD now, not just the review, so that it can tell a plan it
+        could not read from a plan that was sealed without one."""
+        record = None if review is None else {"plan_review": review, "approval": {"depth": "standard"}}
+        return mock.patch.object(bc, "_sealed_plan_record", return_value=(record, problem))
 
     def test_the_pr_body_states_honestly_what_the_plan_review_was(self):
         state = self.state()
@@ -834,6 +847,17 @@ class TestReviewAndFindings(CoordinatorCase):
         with self._with_plan_review(None):
             self.assertIn("no cold plan review is recorded for either",
                           bc._plan_review_clause(diverged))
+
+    def test_a_plan_it_could_not_read_is_never_reported_as_a_plan_with_no_review(self):
+        """Two different facts that used to render as one sentence, in the flattering direction. And the
+        failure is NAMED, never quoted: the library's read errors carry sibling plan slugs, which are
+        private working titles for unrelated work and must not travel to a pull request."""
+        clause = None
+        with self._with_plan_review(None, problem="no plan matches 'pln_x'; the library holds: secret-slug"):
+            clause = bc._plan_review_clause(self.state())
+        self.assertIn("could NOT be established", clause)
+        self.assertNotIn("No cold plan review is recorded", clause)
+        self.assertNotIn("secret-slug", clause, "a private plan slug must never reach the merge surface")
 
     def test_the_body_cannot_claim_a_plan_was_both_reviewed_and_not_reviewed(self):
         # The contradiction is now impossible by construction rather than by a conditional: a seal is
@@ -883,7 +907,7 @@ class TestReviewAndFindings(CoordinatorCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 bc.cmd_finding_record(argparse.Namespace(
                     id="F-" + lens, stage="deliverable", lens=lens, severity="nit", summary="s",
-                    disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr=False,
+                    disposition="rejected", rationale="r", escalation_kind=None, blocks_this_pr_stated=False,
                     handoff_summary="s", operator_summary=None, private_reference=None), self.store)
         # Regenerate the deliverable packet against MOVED reviewer contracts, which is what supersedes
         # Build-side findings — the mechanism whose reach over plan findings is the subject here.
@@ -967,7 +991,7 @@ class TestReviewAndFindings(CoordinatorCase):
 
     def test_deliverable_packet_requires_green_validation(self):
         self.store.mutate(lambda s: s.update({"validation": None}))
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
         with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
@@ -1006,7 +1030,7 @@ class TestReviewAndFindings(CoordinatorCase):
         class ChangedAfter:
             def __enter__(self): return HEAD_A
             def __exit__(self, *unused): raise bc.CoordinatorError("changed after packet")
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high",
                                   output=None, json=True)
         with mock.patch.object(bc.core, "StableCommit", return_value=ChangedAfter()), \
                 mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), \
@@ -1027,7 +1051,7 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(packet["plan"]["spec"]["posture"], "none")
 
     def test_standalone_packet_needs_no_pr_or_snapshot(self):
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, standalone=True,
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high", standalone=True,
                                   repository="owner/repo", commit=HEAD_A, base=BASE, depth="thorough",
                                   output=None, json=False)
         output = io.StringIO()
@@ -1041,7 +1065,7 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertNotIn('"raw_intent"', output.getvalue())
 
     def test_default_packet_output_is_concise_and_json_is_explicit(self):
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high",
                                   standalone=False, output=None, json=False)
         pins = lambda: (mock.patch.object(bc, "_installed", return_value=[]),
                         mock.patch.object(bc, "_head", return_value=HEAD_A),
@@ -1066,7 +1090,7 @@ class TestReviewAndFindings(CoordinatorCase):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="nit", summary="Concern", disposition="rejected", rationale="Evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         before = self.state()
         retried = self.packet()
         after = self.state()
@@ -1104,14 +1128,14 @@ class TestReviewAndFindings(CoordinatorCase):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="divergence-hunter", severity="nit", summary="Different finding", disposition="rejected", rationale="Not the declared finding.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), ["PI-1"])
 
     def test_severity_does_not_choose_remedy_or_blocking_posture(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "spec-conformance", ["PI-1"]), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="PI-1", stage="deliverable", lens="spec-conformance", severity="blocking", summary="Reviewer concern", disposition="rejected", rationale="The evidence disproves it.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None, operator_summary="The concern was rejected because the cited evidence does not support it.", private_reference=None), self.store)
         finding = self.state()["findings"][0]
         self.assertEqual(finding["severity"], "blocking")
         self.assertEqual(finding["disposition"], "rejected")
@@ -1120,23 +1144,122 @@ class TestReviewAndFindings(CoordinatorCase):
     def test_partial_acceptance_keeps_bounded_remedy(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_finding_record(argparse.Namespace(id="A-1", stage="deliverable", lens="divergence-hunter", severity="serious", summary="Concern", disposition="partially-accepted", rationale="Accept the failure case, reject the proposed new subsystem.", escalation_kind=None, blocks_this_pr=False, handoff_summary="Bounded remedy chosen."), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="A-1", stage="deliverable", lens="divergence-hunter", severity="serious", summary="Concern", disposition="partially-accepted", rationale="Accept the failure case, reject the proposed new subsystem.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary="Bounded remedy chosen."), self.store)
         self.assertEqual(self.state()["findings"][0]["disposition"], "partially-accepted")
 
     def test_escalation_names_an_operator_owned_boundary(self):
         self.packet()
         args = argparse.Namespace(id="A-2", stage="deliverable", lens="divergence-hunter", severity="serious",
                                   summary="Boundary", disposition="escalated", rationale="Changes authority.",
-                                  escalation_kind=None, blocks_this_pr=True, handoff_summary=None)
+                                  escalation_kind=None, blocks_this_pr_stated=True, handoff_summary=None)
         with self.assertRaisesRegex(bc.CoordinatorError, "operator-owned"):
             bc.cmd_finding_record(args, self.store)
+
+    def _batch_file(self, findings, stage="deliverable"):
+        path = Path(tempfile.mkdtemp()) / "batch.json"
+        path.write_text(json.dumps({"schema_version": "build-findings-batch.v1", "stage": stage,
+                                    "findings": findings}), encoding="utf-8")
+        return str(path)
+
+    def test_one_file_records_the_receipt_ids_and_their_dispositions_together(self):
+        """The end of the failure that started this: the receipt's ids and the findings recorded against
+        them come from the same file, so they cannot disagree
+        (StarshipSuperjam/engine-template#1060)."""
+        packet = self.packet()
+        batch = self._batch_file([
+            {"id": "B-1", "lens": "usability", "severity": "nit", "summary": "wording",
+             "disposition": "accepted-fixed", "rationale": "fixed", "blocks_this_pr": False},
+            {"id": "B-2", "lens": "usability", "severity": "serious", "summary": "friction",
+             "disposition": "accepted-tracked", "rationale": "tracked", "blocks_this_pr": False}])
+        args = self.receipt_args(packet, "usability", None)
+        args.findings_from_file = batch
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_review_record(args, self.store)
+            bc.cmd_finding_record(argparse.Namespace(stage="deliverable", id=None, from_file=batch),
+                                  self.store)
+        receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
+                       if r["lens"] == "usability")
+        self.assertEqual(receipt["finding_ids"], ["B-1", "B-2"])
+        self.assertEqual(sorted(f["id"] for f in self.state()["findings"]), ["B-1", "B-2"])
+        self.assertEqual(bc._missing_findings(self.state()), [])
+
+    def test_a_batch_with_one_bad_entry_leaves_the_snapshot_untouched(self):
+        packet = self.packet()
+        good = {"id": "B-1", "lens": "usability", "severity": "nit", "summary": "wording",
+                "disposition": "accepted-fixed", "rationale": "fixed", "blocks_this_pr": False}
+        bad = {**good, "id": "B-2", "disposition": "accepted-fixed", "blocks_this_pr": True}
+        args = self.receipt_args(packet, "usability", ["B-1", "B-2"])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_review_record(args, self.store)
+        before = self.state()["findings"]
+        with self.assertRaises(bc.CoordinatorError):
+            bc.cmd_finding_record(argparse.Namespace(
+                stage="deliverable", id=None, from_file=self._batch_file([good, bad])), self.store)
+        self.assertEqual(self.state()["findings"], before,
+                         "a batch is validated whole before anything is written, so a bad entry at the "
+                         "end must not leave the good ones half-recorded")
+
+    def test_a_panel_that_would_under_deliver_the_approved_depth_is_refused_at_spawn(self):
+        """The B1 shape (StarshipSuperjam/engine-template#1067): a sealed `thorough` promises high-effort
+        reviewers, but on this runtime an un-pinned reviewer inherits the SESSION's effort — so a medium
+        session cannot deliver it. Refused here, where the session still holds both exits: raise its own
+        effort and re-cut, or take the depth back to the operator."""
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
+                                  session_effort="medium")
+        with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_base", return_value=BASE), \
+                self.assertRaises(bc.CoordinatorError) as caught:
+            bc._packet(args, self.store)
+        message = str(caught.exception)
+        self.assertIn("reports running at medium", message)
+        self.assertIn("re-approve at the depth", message)
+        self.assertIn("--accept-effort-shortfall", message)
+
+    def test_a_packet_that_does_not_state_its_effort_is_refused_rather_than_assumed(self):
+        """The assumption this replaces was that a session defaults to `high`. It stopped being true the
+        moment running a build at `medium` became a rational choice, and nothing noticed."""
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_base", return_value=BASE), \
+                self.assertRaises(bc.CoordinatorError) as caught:
+            bc._packet(args, self.store)
+        self.assertIn("--session-effort", str(caught.exception))
+
+    def test_proceeding_under_a_known_shortfall_is_recorded_for_the_merge_surface(self):
+        """The other exit. It is not free: the gap is kept on the stage and published as a hard line in
+        the pull-request body, where the operator meets it at merge."""
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
+                                  session_effort="medium", accept_effort_shortfall=True)
+        with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_base", return_value=BASE), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc._packet(args, self.store)
+        stage = self.state()["reviews"]["deliverable"]
+        self.assertEqual(stage["session_effort"], "medium")
+        self.assertTrue(stage["effort_shortfall_accepted"])
+
+    def test_a_receipt_records_what_its_lens_read_and_what_it_ran_at(self):
+        packet = self.packet()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            bc.cmd_review_record(self.receipt_args(packet, "usability", []), self.store)
+        receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
+                       if r["lens"] == "usability")
+        self.assertEqual(receipt["delivered_effort"], "high")
+        self.assertEqual(receipt["reviewed_range"], {"base": BASE, "tip": HEAD_A})
 
     def test_engineering_blocker_remains_orchestrator_work(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()):
+            # `partially-accepted`, not `accepted-fixed`: a finding that still BLOCKS cannot also be
+            # dispositioned as settled, and that contradiction is now refused at record time rather than
+            # interpreted at the gate (StarshipSuperjam/engine-template#1012). The property under test is
+            # unchanged — an engineering blocker is the orchestrator's work, never an operator decision.
             bc.cmd_finding_record(argparse.Namespace(id="A-3", stage="deliverable", lens="divergence-hunter", severity="blocking",
-                summary="Engineering repair", disposition="accepted-fixed", rationale="Repair stays in approved design.",
-                escalation_kind=None, blocks_this_pr=True, handoff_summary=None), self.store)
+                summary="Engineering repair", disposition="partially-accepted", rationale="Repair stays in approved design.",
+                escalation_kind=None, blocks_this_pr_stated=True, handoff_summary=None), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             status = bc._status(self.state())
         self.assertTrue(any("resolve" in item for item in status["engineering_judgment"]))
@@ -1475,7 +1598,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_repair_review_requires_validation_for_repaired_commit(self):
         self.store.mutate(lambda s: s.update({"repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []}}))
-        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None, session_effort="high")
         with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
@@ -1484,7 +1607,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             "validation": {"commit": HEAD_B, "results": [{"id": "ci", "commit": HEAD_B, "passed": True, "summary": "ok"}]},
             "repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []},
         }))
-        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None, session_effort="high")
         output = io.StringIO()
         with mock.patch.object(bc, "_installed", return_value=["usability"]), mock.patch.object(bc, "_head", return_value=HEAD_B), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(output):
             bc._packet(args, self.store)
@@ -1495,7 +1618,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
                                                     packet_digest=packet["packet_digest"],
                                                     lens_packet_digest=contract["lens_packet_digest"],
                                                     finding=["R-1"], code_execution="none"), self.store)
-            bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr=False, handoff_summary=None), self.store)
+            bc.cmd_finding_record(argparse.Namespace(id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern", disposition="accepted-fixed", rationale="Directly fixed.", escalation_kind=None, blocks_this_pr_stated=False, handoff_summary=None), self.store)
         self.assertEqual(bc._missing_findings(self.state()), [])
         self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_B)
         self.assertEqual(self.state()["reviews"]["deliverable"]["receipts"][0]["packet_digest"], packet["packet_digest"])
@@ -1522,7 +1645,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
                                "receipts": [{"lens": "usability", "packet_digest": "sha256:" + "3" * 64, "commit": HEAD_B, "finding_ids": []}]}
         self.store.mutate(completed_re_review)
         with mock.patch.object(bc, "_head", return_value=HEAD_C), mock.patch.object(bc, "_must_run", return_value="1 file changed, 1 insertion(+)"), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Direct verification covers the prescribed repair.", lens=None), self.store)
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Direct verification covers the prescribed repair.", lens=None, accept_receipt_loss=True), self.store)
         self.assertEqual(self.state()["repair"]["reviewed_commit"], HEAD_B)
 
     def test_none_after_completed_scoped_review_terminates_the_chain(self):
@@ -2189,13 +2312,13 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
 
     def test_handoff_schema_forbids_private_reference(self):
         # Defense in depth: the schema itself must REJECT a finding summary carrying private_reference,
-        # so a future re-introduction fails validation instead of silently leaking (v1 path).
+        # so a future re-introduction fails validation instead of silently leaking.
         self.seed(issue=11)
         self.store.mutate(lambda s: s["findings"].append(self._blocking_finding_with_private(None)))
         handoff = bc._handoff(self.state())
         handoff["finding_summaries"][0]["private_reference"] = "should be forbidden by the schema"
         with self.assertRaises(bc.CoordinatorError):
-            bc._validate(handoff, bc.HANDOFF_SCHEMA)
+            bc._validate(handoff, bc.HANDOFF_SCHEMA_V2)
 
     def test_v2_handoff_never_publishes_private_reference(self):
         # The v2 (execution-DAG) handoff path is symmetric to v1 but needs its own witness: the v2
@@ -2485,14 +2608,8 @@ status: locked
         # The message now names the field and the constraint rather than reporting the whole object
         # as "not valid under any of the given schemas": a `oneOf` error is descended into, so an
         # author reading this refusal is told which value to fix.
-        value["schema_version"] = "build-plan.v1"
-        for key in ("parallelism",):
-            value.pop(key, None)
-        value["work_items"] = [{k: v for k, v in item.items()
-                                if k in ("id", "description", "paths", "verification")}
-                               for item in value["work_items"]]
         with self.assertRaisesRegex(bc.CoordinatorError, r"criteria\.0\.reason: '' should be non-empty"):
-            bc._validate(value, bc.PLAN_SCHEMA)
+            bc._validate(value, bc.PLAN_SCHEMA_V2)
 
     def test_changed_criterion_invalidates_approval(self):
         root = Path(self.temp.name) / "repo"
@@ -2553,7 +2670,7 @@ status: locked
         self.seed(); self.approve("thorough")
         canonical = {"posture": "settled", "documents": [{"criteria": [{"text": "exact criterion"}]}],
                      "review_steps": [{"operator_steps": ["exact criterion"]}], "digest": "sha256:" + "1" * 64}
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
         out = io.StringIO()
         self.integrate_all()
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
@@ -2604,19 +2721,21 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             self.assertIn("no draft PR is", external)
 
     def test_runbook_stays_within_its_line_cap(self):
-        # A ratchet against bloat, kept with no slack: it sat at exactly 250 and moved to 251 when the v2
+        # A ratchet against bloat, kept with no slack: it sat at exactly 250, moved to 251 when the v2
         # completion path had to be taught (a Routine session following the old text would reach for a verb
-        # the coordinator now refuses), and to 253 when the candidate/final split's order of operations
-        # became a numbered list — a usability reviewer showed the prose form taught the sequence to
-        # nobody, and the push step is one a session cannot work without. Raise it only for instruction a
-        # session cannot work without, and only by what that instruction actually costs.
-        # 253 -> 255 for the delegation routing: step 4 says where reconnaissance goes, step 5 says how
-        # the suite is run. A session that follows the runbook without them does the mechanical work
-        # inline, which is exactly the cost this routing exists to remove — so the instruction is one
-        # the session cannot work without if the routing is to be a default rather than a hope. The
-        # raise is measured, not budgeted: the file moved from 253 lines to exactly 255.
+        # the coordinator now refuses), and to 261 for the correction and consent paths — a session that
+        # does not know `present-findings` exists meets a seal refusal it cannot resolve, and one that does
+        # not know `plan adopt` exists abandons a Build to correct a plan. 261 -> 265 for the review
+        # economy: `review packet` now REFUSES without `--session-effort`, so a session working from the
+        # old text cannot cut a panel at all. Raise it only for instruction a session cannot work without,
+        # and only by what that instruction actually costs.
+        # In parallel on main, 253 -> 255 for the delegation routing: step 4 says where reconnaissance
+        # goes and step 5 how the suite is run, and a session following the runbook without them does that
+        # work inline — the cost the routing exists to remove.
+        # 273 is those two independently justified raises meeting in a merge, not a new budget: the file
+        # measures exactly 273 lines, and neither side's additions were trimmed to fit the other's cap.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 255)
+        self.assertLessEqual(len(text.splitlines()), 273)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -2666,18 +2785,23 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_short_runbook_preserves_the_quality_and_authority_gates(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
-        # Same ratchet as the line cap: 3063 -> 3081 for the v2 completion path, -> 3147 for the
-        # candidate/final validation split (step 5 now teaches the cache, the imported merge proof and
-        # the rollup wall — verbs a session cannot work without; 3147 -> 3152 restoring the focused-tests
-        # anchor BO-21 binds; 3152 -> 3215 for the delegation routing in steps 4 and 5, the measured
-        # cost of naming where reconnaissance and suite runs go; 3215 -> 3233 when a deliverable
-        # reviewer showed the routing had been attached to the WRONG verb — the runner was named on
-        # the coordinator's evidence-minting validation, which binds its record to the live tree and
-        # so cannot accept anything a scout confined to a disposable copy produces. Saying which runs
-        # route to it and which do not costs those words and is not optional: the earlier, shorter
-        # wording actively taught the wrong thing). The preservation-source ratio
+        # Same ratchet as the line cap. On this branch: 3063 -> 3081 for the v2 completion path, then
+        # 3081 -> 3294, the measured cost of four things a session cannot work without — the snapshot is
+        # durable and no longer in OS temp, so the old instruction sends a session to the wrong place;
+        # approve, seal and bind refuse without the operator's recorded decision; the seal refuses until
+        # the panel's outcome was presented; and correcting a plan mid-Build no longer means abandoning
+        # it. Then 3294 -> 3504 for the review economy, three of them hard refusals the old text cannot
+        # get a session past: `review packet` without `--session-effort`, `review record` with a
+        # `--code-execution` value the old text does not list, and `repair assess --judgment none` when it
+        # would discard recorded receipts.
+        # In parallel on main: -> 3147 for the candidate/final validation split, -> 3152 restoring the
+        # focused-tests anchor BO-21 binds, -> 3215 for the delegation routing, -> 3233 when a reviewer
+        # showed that routing had been attached to the WRONG verb and the correction had to say which
+        # runs route to the runner and which do not.
+        # 3657 is those two ratchets meeting in a merge, not a new budget: the file measures exactly that,
+        # and neither side's instruction was trimmed to fit the other's cap. The preservation-source ratio
         # (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3233)
+        self.assertLessEqual(len(text.split()), 3657)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
@@ -2819,9 +2943,8 @@ class TestV2CompletionGate(CoordinatorCase):
         path.write_text(json.dumps(note), encoding="utf-8")
         return str(path)
 
-    def _checkpoint(self, complete_item=None, work_item="shared"):
-        args = argparse.Namespace(plan=str(self.plan_path), input=self._note(work_item),
-                                  complete_item=complete_item, json=False)
+    def _checkpoint(self, work_item="shared"):
+        args = argparse.Namespace(plan=str(self.plan_path), input=self._note(work_item), json=False)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_changed_paths", return_value=[]), \
                 mock.patch.object(bc, "_assert_spec_boundary", return_value={}), \
@@ -2832,12 +2955,14 @@ class TestV2CompletionGate(CoordinatorCase):
         """Write the completion the removed writer used to write: an id and a commit, no integration."""
         self.store.mutate(lambda s: s["progress"]["completed"].append({"id": node_id, "commit": HEAD_A}))
 
-    def test_complete_item_is_refused_on_a_v2_plan_and_names_the_work_verbs(self):
-        with self.assertRaises(bc.CoordinatorError) as caught:
-            self._checkpoint(complete_item="shared")
-        message = str(caught.exception)
-        self.assertIn("work result", message)
-        self.assertIn("work integrate", message)
+    def test_checkpoint_can_no_longer_be_asked_to_complete_anything(self):
+        # The refusal became a removal with the v1 sunset. `--complete-item` wrote a completion with
+        # no integration evidence and survived only for v1, which had no other completion path; with
+        # v1 gone its only remaining use would be to bypass the graph's own rule, so the flag is not
+        # there to pass. The CLI is the assertion: argparse rejects it outright.
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            bc.parser().parse_args(["checkpoint", "--plan", "p.json", "--input", "n.json",
+                                    "--complete-item", "shared"])
         self.assertEqual(self.state()["progress"]["completed"], [])
 
     def test_checkpoint_without_the_flag_still_records_the_note(self):
@@ -2846,9 +2971,9 @@ class TestV2CompletionGate(CoordinatorCase):
         self.assertEqual(state["checkpoint"]["work_item"], "shared")
         self.assertEqual(state["progress"]["completed"], [])
 
-    def test_a_v1_build_state_can_no_longer_come_into_existence(self):
-        # The v1 island is closed at the door rather than maintained: a bound Build is always a v2
-        # snapshot now, so `checkpoint --complete-item` has no surviving arm to complete anything on.
+    def test_a_bound_build_is_always_a_v2_snapshot(self):
+        # The v1 island is gone rather than maintained: a bound Build is always a v2 snapshot, which
+        # is what left `checkpoint --complete-item` with nothing to complete anything on.
         state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, plan_v1(), None)
         self.assertEqual(state["schema_version"], "build-state.v2")
         self.assertEqual(state["work"], {})
@@ -2962,16 +3087,19 @@ class TestV2CompletionGate(CoordinatorCase):
         self.assertIn("| A v2 work item is unintegrated, or is recorded complete without its integration commit |", text)
         self.assertIn("TestV2CompletionGate", text)
 
-    def test_no_runbook_instructs_the_refused_mechanic_for_v2(self):
+    def test_no_runbook_instructs_the_removed_mechanic(self):
         operations = bc.ROOT / ".engine" / "operations"
         routine = (operations / "routine-entry.md").read_text(encoding="utf-8")
         orchestration = (operations / "build-orchestration.md").read_text(encoding="utf-8")
-        # Every surviving mention of the flag is scoped: it appears only in a v1 sentence, or in a
-        # sentence saying it is refused. A bare instruction to run it would fail here.
+        # The flag was refused for v2 and kept for v1; with the v1 sunset it is REMOVED, so every
+        # surviving mention has to be a sentence saying so. A bare instruction to run it fails here,
+        # and so does a sentence that still describes it as merely refused — a runbook telling an
+        # operator a gone flag is "refused" sends them looking for a flag that is not there.
         for line in routine.splitlines() + orchestration.splitlines():
             if "--complete-item" in line:
-                self.assertTrue("v1" in line or "refused" in line,
-                                "unscoped --complete-item instruction: " + line.strip())
+                self.assertIn("removed", line,
+                              "a runbook still describes the removed flag as available or refused: "
+                              + line.strip())
         self.assertIn("work integrate", routine)
         self.assertIn("work integrate", orchestration)
 
@@ -3054,57 +3182,118 @@ class TestTheCanonSaysOneThing(unittest.TestCase):
         # and the operator's read of the PR is what stands behind a merge.
         self.assertIn("workstation-only", self.claim)
 
-    def test_never_a_durable_leg_is_separated_rather_than_deleted(self):
-        # It was one sentence about two things and only one of them changed. Deleting it would have
-        # discarded the claim about BUILD state, which is the claim eADR-0025 actually rests on.
-        self.assertIn("never a durable leg, never plan authority", self.claim)
-        self.assertIn("one claim about two things", self.claim)
+    def test_never_a_durable_leg_is_separated_and_then_narrowed_rather_than_deleted(self):
+        # One sentence about two things, taken apart one at a time rather than dropped. 2026-08-24
+        # separated them; 2026-08-25 dropped the durability half for the Build's own state, because
+        # a killed Build losing its evidence refuted it. What survives is the claim eADR-0025
+        # actually rests on, and it must still be there in those words.
+        self.assertIn("never plan authority", self.claim)
+        self.assertIn("one sentence about two different things", self.claim)
+        self.assertIn("carries no authority", self.claim)
+        # The BOLDED phrase is the live claim; the earlier amendments quote the old wording as
+        # history, which is the record working as intended and must not be rewritten.
+        self.assertNotIn("**never a durable leg, never plan authority**", self.claim,
+                         "eADR-0025 still claims the Build's own state is never durable")
+
+    def test_the_claim_record_states_what_durable_build_state_costs(self):
+        # Amending rather than deleting means the residuals are named: evidence now persists as long
+        # as its plan folder, and durability is not portability.
+        self.assertIn("Amended 2026-08-25", self.claim)
+        self.assertIn("private notes", self.claim)
+        self.assertIn("does not make a Build resumable on another machine", self.claim)
 
 
-class TestV1Migration(CoordinatorCase):
-    def _v1_two_items(self):
-        value = plan_v1()
-        value["work_items"] = [
-            {"id": "one", "description": "First", "paths": ["a/x.py"], "verification": ["run one"]},
-            {"id": "two", "description": "Second", "paths": ["a/y.py"], "verification": ["run two"]},
-        ]
-        return value
+class TestV1Sunset(unittest.TestCase):
+    """The v1 generation is gone, and this is the search that PROVES it — with its one exclusion.
 
-    def test_migrate_produces_a_linear_chain_with_a_new_digest(self):
-        v1 = self._v1_two_items()
-        v2 = bc._migrate_v1_to_v2(v1)
-        self.assertEqual(v2["schema_version"], "build-plan.v2")
-        self.assertEqual(v2["work_items"][0]["depends_on"], [])
-        self.assertEqual(v2["work_items"][1]["depends_on"], ["one"])
-        self.assertTrue(all(i["executor_class"] == "integrator" for i in v2["work_items"]))
-        self.assertEqual(v2["parallelism"], {"mode": "serial", "max_concurrency": 1})
-        self.assertNotEqual(bc._digest(v1), bc._digest(v2))
-        bc.dag.validate_dag(v2)  # the chain is acyclic
+    A removal is only as good as the evidence that nothing survived it, and a grep the author ran
+    once while deleting is not that evidence. This class is the completeness search, run every time
+    the suite runs, and its one exclusion is named on purpose: an exclusion nobody can find is
+    indistinguishable from an oversight.
 
-    def test_migrate_cli_emits_v2_and_requires_v1_input(self):
-        self.write_plan(self._v1_two_items())
-        args = argparse.Namespace(input=str(self.plan_path), output="-")
-        with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
-            bc.cmd_plan_migrate_v1(args, None)
-        emitted = json.loads(out.getvalue())
-        self.assertEqual(emitted["schema_version"], "build-plan.v2")
-        # a v2 input is refused
-        self.write_plan(plan_v2())
-        args = argparse.Namespace(input=str(self.plan_path), output="-")
-        with self.assertRaisesRegex(bc.CoordinatorError, "requires a build-plan.v1"):
-            bc.cmd_plan_migrate_v1(args, None)
+    What the search looks for is deliberately NOT the string "v1". A refusal has to name what it
+    refuses — `plan bind` says the words "build-plan.v1" precisely because a message that would not
+    name the version would leave an operator guessing — so banning the string would push the engine
+    toward vaguer refusals in the name of tidiness. What must not survive is v1 as a LOADABLE
+    SURFACE: a schema file, a path built to one, or a version key something dispatches on. Those are
+    the two structural forms below, and they are what a survival actually looks like.
+    """
 
-    def test_v1_reader_sunsets_at_the_removal_major(self):
-        # Fails closed once the Engine major reaches the sunset while the v1 reader still ships — the
-        # mechanical removal trigger. A no-op below the sunset (and at the 0.0.0 construction sentinel).
-        release = json.loads((bc.ROOT / ".engine" / "engine.json").read_text()).get("engine_release", "0.0.0")
-        if release == "0.0.0":
-            return
-        major = int(release.split(".")[0])
-        v1_reader_present = (bc.ROOT / ".engine" / "schemas" / "build-plan.v1.json").exists()
-        if major >= bc.PLAN_V1_REMOVE_AT_MAJOR and v1_reader_present:
-            self.fail(f"Engine major {major} has reached the v1 sunset ({bc.PLAN_V1_REMOVE_AT_MAJOR}) but the "
-                      f"build-plan.v1 reader still ships; remove the v1 reader and its ordered path.")
+    # A path built to a v1 schema file. That is what the FILE scan can identify without guessing:
+    # a version key is spelled the same in a dispatch map and in an `if version == ...` refusal, so
+    # dispatch is asserted directly against the real maps below instead of grepped for.
+    SCHEMA_PATHS = ('"build-state.v1.json"', '"build-handoff.v1.json"', '"build-plan.v1.json"')
+
+    # THE single exclusion, and the only one. `plan_contract` keeps a read-only build-plan.v1 payload
+    # map, with its schema file, by the operator's decision of 2026-08-25: a plan library may still
+    # hold a stored plan whose payload is v1, and a stored plan that cannot be READ is an operator's
+    # own deliberation made unreachable by an engine upgrade. It is refused at every door and its
+    # removal is tracked as issue 1070 in R05.
+    EXCLUDED_CODE = "plan_contract.py"
+    EXCLUDED_SCHEMA = "build-plan.v1.json"
+
+    # Not exclusions — prose that must MENTION what was removed to be honest about removing it: a
+    # decision record amends by dated paragraph and quotes what it corrected, a v2 schema says what
+    # it extended, and a test names the thing whose absence it asserts.
+    HISTORY = ("build-state.v2.json", "build-handoff.v2.json", "build-plan.v2.json")
+
+    def _shipped_code_and_schemas(self):
+        for directory in ("tools", "schemas"):
+            for path in sorted((bc.ROOT / ".engine" / directory).rglob("*")):
+                if not path.is_file() or path.suffix not in (".py", ".json"):
+                    continue
+                if path.name.startswith("test_") or path.name in self.HISTORY:
+                    continue
+                yield path
+
+    def test_the_v1_state_and_handoff_schemas_are_gone(self):
+        for gone in ("build-state.v1.json", "build-handoff.v1.json"):
+            self.assertFalse((bc.ROOT / ".engine" / "schemas" / gone).exists(),
+                             f"{gone} still ships after the v1 sunset")
+
+    def test_the_kept_payload_map_is_the_single_code_exclusion(self):
+        import plan_contract
+        self.assertTrue((bc.ROOT / ".engine" / "schemas" / self.EXCLUDED_SCHEMA).exists())
+        self.assertIn("build-plan.v1", plan_contract.BUILD_PLAN_SCHEMAS)
+        source = (bc.ROOT / ".engine" / "tools" / self.EXCLUDED_CODE).read_text(encoding="utf-8")
+        self.assertIn("issue 1070", source,
+                      "the kept v1 map does not name the issue that retires it")
+
+    def test_the_coordinator_dispatches_one_generation_only(self):
+        self.assertEqual(sorted(bc.PLAN_SCHEMAS), ["build-plan.v2"])
+        self.assertEqual(sorted(bc.STATE_SCHEMAS), ["build-state.v2"])
+        self.assertEqual(sorted(bc.HANDOFF_SCHEMAS), ["build-handoff.v2"])
+        for gone in ("PLAN_V1_REMOVE_AT_MAJOR", "cmd_plan_migrate_v1", "_migrate_v1_to_v2",
+                     "PLAN_BEGIN", "HANDOFF_BEGIN"):
+            self.assertFalse(hasattr(bc, gone), f"build_coordinator.{gone} survives the v1 sunset")
+
+    def test_the_plan_marker_readers_retired_with_their_schemas(self):
+        for gone in ("plan_block", "replace_plan_block", "durable_plan", "_plan_markers",
+                     "_version_tag", "PLAN_BEGIN", "HANDOFF_BEGIN"):
+            self.assertFalse(hasattr(bc.github, gone), f"github.{gone} survives the v1 sunset")
+
+    def test_an_absent_schema_version_is_refused_never_defaulted(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not state a schema_version"):
+            bc._state_schema_for({"revision": 1})
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not state a schema_version"):
+            bc.dag.plan_version({"work_items": []})
+
+    def test_the_migrate_verb_is_gone_and_the_refusal_names_the_path(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            bc.parser().parse_args(["plan", "migrate-v1", "--input", "p.json"])
+        source = (bc.ROOT / ".engine" / "tools" / "build_coordinator.py").read_text(encoding="utf-8")
+        self.assertIn("is no converter", source)
+        self.assertIn("Re-author this work as a fresh plan through the Project Manager", source)
+
+    def test_no_v1_schema_path_or_dispatch_key_survives_outside_the_one_exclusion(self):
+        strays = []
+        for path in self._shipped_code_and_schemas():
+            if path.name in (self.EXCLUDED_CODE, self.EXCLUDED_SCHEMA):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            strays += [f"{path.name}: {token}" for token in self.SCHEMA_PATHS if token in text]
+        self.assertEqual(strays, [], "the v1 sunset left a loadable v1 surface behind: "
+                         + ", ".join(strays))
 
 
 class TestDepthsVerb(unittest.TestCase):
@@ -3337,7 +3526,7 @@ class TestEvidenceDurability(CoordinatorCase):
         """Land a completed deliverable review at `head`, the way a real Build reaches repair. The roster is
         passed as bare lens names to `_installed` and coerced by `_packet`, mirroring the established helper
         -- a hand-built roster of `{"lens": x}` dicts is not a real reviewer contract and is rejected."""
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
         out = io.StringIO()
         self.store.mutate(lambda s: s.update({"validation": {
             "commit": head, "results": [{"id": "x", "commit": head, "passed": True, "summary": "ok"}]}}))
@@ -3357,14 +3546,15 @@ class TestEvidenceDurability(CoordinatorCase):
         return argparse.Namespace(stage=packet["stage"], lens=lens,
                                   packet_digest=packet["packet_digest"],
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
-                                  code_execution="none")
+                                  findings_from_file=None, code_execution="none",
+                                  delivered_effort="high")
 
     def _plan_reviewed(self):
         """Complete the deliverable panel so the phase driver can reach the later gates."""
         self.integrate_all()
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
             {"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
         out = io.StringIO()
         roster = ["spec-conformance", "divergence-hunter", "usability"]
         with mock.patch.object(bc, "_installed", return_value=roster), \
@@ -3383,7 +3573,7 @@ class TestEvidenceDurability(CoordinatorCase):
                        "packet_digest": None, "referent_digest": None, "reviewer_contracts": [],
                        "receipts": []},
             "validation": {"commit": final, "results": [{"id": "x", "commit": final, "passed": True, "summary": "ok"}]}}))
-        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None, session_effort="high")
         out = io.StringIO()
         with mock.patch.object(bc, "_installed", return_value=list(lenses)), \
                 mock.patch.object(bc, "_head", return_value=final), \
@@ -3413,7 +3603,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-1", stage="repair", lens="usability", severity="serious", summary="Repair concern",
                 disposition="accepted-fixed", rationale="Fixed directly.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Repair concern"), self.store)
+                blocks_this_pr_stated=False, handoff_summary="Repair concern"), self.store)
         self.assertEqual(bc.review.missing_findings(self.state()), [])
 
     def test_a_none_judgment_after_a_spliced_round_leaves_no_unrecordable_demand(self):
@@ -3427,13 +3617,13 @@ class TestEvidenceDurability(CoordinatorCase):
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified directly.",
-                                                    lens=None, guidance=None), self.store)
+                                                    lens=None, accept_receipt_loss=True, guidance=None), self.store)
         self.assertIsNone(self.state()["repair"]["packet_digest"])
         with contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-2", stage="repair", lens="usability", severity="nit", summary="Minor.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Minor."), self.store)
+                blocks_this_pr_stated=False, handoff_summary="Minor."), self.store)
         self.assertEqual(bc.review.missing_findings(self.state()), [])
 
     def test_a_deliverable_regeneration_never_orphans_a_repair_finding(self):
@@ -3448,7 +3638,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-3", stage="repair", lens="usability", severity="blocking", summary="Serious.",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Serious.",
+                blocks_this_pr_stated=False, handoff_summary="Serious.",
                 operator_summary="A repair-stage concern, fixed."), self.store)
         self.assertTrue(any(f["id"] == "R-3" for f in self.state()["findings"]))
         self.assertTrue(bc.review.required_disagreement_lines(self.state()))
@@ -3457,7 +3647,7 @@ class TestEvidenceDurability(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified.", lens=None,
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", accept_receipt_loss=True, rationale="Verified.", lens=None,
                                                     guidance=None), self.store)
         self._deliverable_reviewed(lenses=("technical-integrity",), head=HEAD_C)
         kept = [f for f in self.state()["findings"] if f["id"] == "R-3"]
@@ -3475,7 +3665,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-9", stage="repair", lens="usability", severity="nit", summary="x",
                 disposition="accepted-fixed", rationale="y", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="x"), self.store)
+                blocks_this_pr_stated=False, handoff_summary="x"), self.store)
 
     # --- #1000: reconcile ------------------------------------------------------------------
 
@@ -3697,6 +3887,62 @@ class TestEvidenceDurability(CoordinatorCase):
         # and it must NOT offer the activity that is a guaranteed refusal in this state
         self.assertFalse(any("proportional re-review" in a for a in status["available_activities"]))
 
+    def test_no_private_plan_title_or_local_path_reaches_the_composed_body(self):
+        """THE MERGE SURFACE, not one function at a time.
+
+        Three separate composers read the same plan library and render its failure into the same
+        pull-request body, and that body is pushed to a public repository. The library's own errors
+        enumerate sibling plan slugs — the operator's private working titles for unrelated work — and
+        absolute filesystem paths. Two of the three were fixed with per-function assertions, and the
+        third, written a round earlier, went on quoting the exception until a lens found it.
+
+        So this asserts on the RENDERED BODY: point the library at a real one holding plans with
+        recognisable names, name a plan that does not resolve, compose, and require that nothing
+        private survives anywhere in the output. A composer added later is covered without anyone
+        remembering to add it here."""
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim, _good_evidence
+        import plan_store
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            library = plan_store.PlanLibrary(root)
+            # Real slugs, in the library's OWN shape. With anything else `resolve` reports "the library
+            # is empty", carries no titles, and this test passes without ever exercising the leak —
+            # which is exactly what it did the first time it was written.
+            secrets = ["layoff-tooling-q3--aa11bb", "acquisition-terms-draft--cc22dd"]
+            for index, slug in enumerate(secrets):
+                folder = root / slug
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / "record.json").write_text(
+                    json.dumps({"plan_id": f"pln_{index:012d}", "current": {"revision": 1}}),
+                    encoding="utf-8")
+            self.assertEqual(library.slugs(), sorted(secrets),
+                             "the fixture must populate the library, or this test proves nothing")
+            state = json.loads(json.dumps(self.state()))
+            state["plan"]["plan_id"] = "pln_deadbeefdead"
+            claim = _good_claim()
+            claim["review"]["finding_summaries"] = []
+            # THE REAL COMPOSER, not a hand-picked list of functions. The previous version of this test
+            # called three composers by name and passed their output in as `consent_lines`, so it proved
+            # only that those three behave — which is the property the finding said was missing. Three
+            # further composers were leaking at the time it was green.
+            with mock.patch.object(bc, "_library", return_value=library), \
+                    mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                    mock.patch.object(bc, "_depth_effort", side_effect=OSError(f"{tmp}/policies/bindings.json")), \
+                    mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                        returncode=129, stdout="", stderr=f"fatal: not a git repository: '{tmp}/.git'")):
+                evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                                 {"body": "", "isDraft": True})
+            body = bcc.compose(claim, evidence)
+            self.assertNotIn(tmp, body, "an absolute local path reached the merge surface")
+        # Silence is the other way to get this wrong: the body must still SAY each thing failed.
+        for expected in ("could NOT be established", "could not be read", "could not be determined"):
+            self.assertIn(expected, body, f"a failure was hidden rather than named: {expected}")
+        for slug in secrets:
+            self.assertNotIn(slug, body, f"a private plan title reached the merge surface: {slug}")
+        self.assertNotIn("the library holds", body)
+        self.assertNotIn("not a git repository", body, "a git error reached the merge surface verbatim")
+
     def test_the_reconcile_disclosure_reaches_the_operator_in_the_composed_body(self):
         """Drives the REAL composer: state -> drift line -> rendered pull-request body. The two rules this
         sentence must never break are that it cannot claim no repair happened when one did, and that the
@@ -3857,7 +4103,7 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_finding_record(argparse.Namespace(
                 id="R-8", stage="repair", lens="usability", severity="blocking", summary="Earlier concern",
                 disposition="accepted-fixed", rationale="Fixed.", escalation_kind=None,
-                blocks_this_pr=False, handoff_summary="Earlier concern",
+                blocks_this_pr_stated=False, handoff_summary="Earlier concern",
                 operator_summary="An earlier concern, fixed."), self.store)
         self.assertTrue(bc.review.required_disagreement_lines(self.state()))
         # Close the round, then re-run a different lens at a newer commit: the repair slot's own receipt
@@ -3866,7 +4112,7 @@ class TestEvidenceDurability(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
                 contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified.", lens=None,
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", accept_receipt_loss=True, rationale="Verified.", lens=None,
                                                     guidance=None), self.store)
         self._deliverable_reviewed(lenses=("technical-integrity",), head=HEAD_C)
         kept = [f for f in self.state()["findings"] if f["id"] == "R-8"]
