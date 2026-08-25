@@ -112,24 +112,43 @@ def _guard_sets_at(weakening_guard, root: str, commit: str) -> tuple:
     this with the head sets, so a path guarded at EITHER end classifies guarded: the same fail-toward-the-
     serious-kind direction the precedence order takes.
 
-    Any read failure returns the fail-safe sentinel pair (None, empty instance) — None meaning "guard all of
-    `.engine/tools/`", `weakening_guard`'s own convention when a derivation cannot be trusted.
+    Returns `(scripts, instance_pair, complete)`. `scripts` is None on any failure — `weakening_guard`'s own
+    fail-safe convention, meaning "guard all of `.engine/tools/`". The instance half has NO safe substitute:
+    a declaration that cannot be read cannot be guessed at, and an empty pair silently understates the
+    guarded set. So the read's success is reported as `complete`, and a caller that could not read the
+    anchor's registrations tells the operator so rather than presenting a possibly-short answer as fact.
+
+    Every blob is read in ONE `git cat-file --batch` rather than a `git show` per rule: the engine ships
+    dozens of check rules, and a subprocess each was measured at four fifths of the whole classification.
     """
     try:
         listing = _run_git(["git", "ls-tree", "-z", "--name-only", commit, "--", ".engine/check/"], root)
     except DivergenceError:
-        return None, (set(), ())
+        return None, (set(), ()), False
+    names = [entry for entry in listing.split("\0") if entry.endswith(".json")]
+    try:
+        blobs = _cat_file_batch(root, commit, names + [weakening_guard.INSTANCE_DECL_REL])
+    except DivergenceError:
+        return None, (set(), ()), False
     scripts: set = set()
-    for name in [entry for entry in listing.split("\0") if entry.endswith(".json")]:
+    for name in names:
+        body = blobs.get(name)
+        if body is None:
+            return None, (set(), ()), False      # all-or-nothing, like _derive_check_scripts
         try:
-            data = json.loads(_run_git(["git", "show", f"{commit}:{name}"], root))
-        except (DivergenceError, ValueError):
-            return None, (frozenset(), ())   # all-or-nothing, like _derive_check_scripts
+            data = json.loads(body)
+        except ValueError:
+            return None, (set(), ()), False
         script = (data.get("params") or {}).get("script")
         if isinstance(script, str) and script.strip():
             scripts.add(script)
+    declared_body = blobs.get(weakening_guard.INSTANCE_DECL_REL)
+    if declared_body is None:
+        # ABSENT is the normal steady state (most deployments never declare one) and is not a degradation:
+        # nothing was declared, so the empty pair is the true answer rather than a short one.
+        return scripts, (set(), ()), True
     try:
-        declared = json.loads(_run_git(["git", "show", f"{commit}:{weakening_guard.INSTANCE_DECL_REL}"], root))
+        declared = json.loads(declared_body)
         if not isinstance(declared, dict):
             raise ValueError("not an object")
         # Mirrors weakening_guard._read_instance_guards' defensive parse. Read here rather than imported
@@ -138,9 +157,39 @@ def _guard_sets_at(weakening_guard, root: str, commit: str) -> tuple:
         exact = {p for p in declared.get("guarded_paths", []) if isinstance(p, str) and p.strip()}
         prefixes = tuple(p for p in declared.get("guarded_prefixes", [])
                          if isinstance(p, str) and p.strip() and p.strip() not in {".", "/", "./"})
-    except (DivergenceError, ValueError, AttributeError, TypeError):
-        return scripts, (set(), ())          # absent is the normal steady state, and silent by design
-    return scripts, (exact, prefixes)
+    except (ValueError, AttributeError, TypeError):
+        return scripts, (set(), ()), False       # PRESENT but unreadable: a real degradation, disclosed
+    return scripts, (exact, prefixes), True
+
+
+def _cat_file_batch(root: str, commit: str, paths: list) -> dict:
+    """`{path: blob text}` for the paths that exist at `commit`, in ONE git process. A path absent from the
+    tree is simply missing from the result — git answers it `missing` and the reader decides what that
+    means."""
+    if not paths:
+        return {}
+    request = "".join(f"{commit}:{path}\n" for path in paths)
+    try:
+        result = subprocess.run(["git", "cat-file", "--batch"], cwd=root, input=request.encode(),
+                                capture_output=True, check=False)
+    except OSError as exc:
+        raise DivergenceError(f"could not run git cat-file in {root}: {exc}") from exc
+    if result.returncode:
+        raise DivergenceError("git cat-file --batch failed: "
+                              + (result.stderr.decode("utf-8", "replace").strip() or "no diagnostic"))
+    out, offset, blobs = result.stdout, 0, {}
+    for path in paths:
+        end = out.find(b"\n", offset)
+        if end < 0:
+            raise DivergenceError("truncated git cat-file response")
+        header = out[offset:end].decode("utf-8", "replace").split()
+        offset = end + 1
+        if len(header) < 3:          # "<oid> missing" -- the path is not in this tree
+            continue
+        size = int(header[2])
+        blobs[path] = out[offset:offset + size].decode("utf-8", "replace")
+        offset += size + 1           # the newline git writes after each blob
+    return blobs
 
 
 def _dynamic_outputs(derived_state, root: str) -> set:
@@ -152,7 +201,7 @@ def _dynamic_outputs(derived_state, root: str) -> set:
 
 
 def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_guards=_DERIVE,
-             runner=None) -> dict:
+             guard_reference: str | None = None, runner=None) -> dict:
     """Sort one increment's changed files into the four kinds, with per-kind churn.
 
     `root` is explicit and governs everything read: the git command runs there, and the guard sets are
@@ -163,8 +212,15 @@ def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_gu
     The guard-script set and the instance pair are derived ONCE here and threaded through every
     `is_guardrail` call — the `flagged_changes` pattern, one disk scan per round rather than one per file.
 
-    Returns `{"anchor", "head", "files": {kind: [paths]}, "churn": {kind: int}, "total_churn": int}`.
-    Raises `DivergenceError` if the increment cannot be measured.
+    `guard_reference` is an optional third commit whose guard registrations are unioned in as a FLOOR —
+    the caller's "everything guarded since here stays guarded". A repair loop passes the commit the
+    deliverable review stood on, so a guard de-registered in round 2 cannot make round 5's churn on that
+    file read as ordinary authored work; without it the union reaches back exactly one round.
+
+    Returns `{"anchor", "head", "files": {kind: [paths]}, "churn": {kind: int}, "total_churn": int,
+    "guards_read": bool}`. `guards_read` is False when a guard registration that WAS present could not be
+    read, which means the guarded set may be understated and the caller owes the reader that caveat.
+    Raises `DivergenceError` if the increment cannot be measured at all.
     """
     root = str(root)
     try:
@@ -187,12 +243,16 @@ def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_gu
         if derive_instance:
             instance_guards = weakening_guard._read_instance_guards(
                 os.path.join(root, weakening_guard.INSTANCE_DECL_REL))
-        anchor_scripts, anchor_instance = derived_scripts, instance_guards
+        # One batched read per REFERENCED COMMIT, and only on the derive path. A caller that pinned both
+        # sets is describing one world, not several, and gets no extra reads behind its back.
+        extra, guards_read = [], True
         if derive_scripts or derive_instance:
-            # One extra read of the anchor tree per ROUND (not per file), and only on the derive path.
-            at_anchor = _guard_sets_at(weakening_guard, root, base)
-            anchor_scripts = at_anchor[0] if derive_scripts else anchor_scripts
-            anchor_instance = at_anchor[1] if derive_instance else anchor_instance
+            for commit in [base] + ([guard_reference] if guard_reference
+                                    and guard_reference != base else []):
+                scripts_at, instance_at, complete = _guard_sets_at(weakening_guard, root, commit)
+                extra.append((scripts_at if derive_scripts else derived_scripts,
+                              instance_at if derive_instance else instance_guards))
+                guards_read = guards_read and complete
         dynamic_files = _dynamic_outputs(derived_state, root)
     except DivergenceError:
         raise
@@ -200,11 +260,12 @@ def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_gu
         raise DivergenceError(f"could not derive the classification sets: {exc}") from exc
 
     def guarded(path: str) -> bool:
-        """Guarded at EITHER end of the increment. The head sets alone would let a round that
-        de-registered a guard hide the next round's churn on that file, and the anchor sets alone would
-        miss a guard added by this very round."""
-        return (weakening_guard.is_guardrail(path, derived_scripts, instance_guards)
-                or weakening_guard.is_guardrail(path, anchor_scripts, anchor_instance))
+        """Guarded at ANY of the commits consulted. The head sets alone would let a round that
+        de-registered a guard hide later churn on that file; the anchor sets alone would miss a guard added
+        by this very round; the optional reference floor carries the property back past one round."""
+        if weakening_guard.is_guardrail(path, derived_scripts, instance_guards):
+            return True
+        return any(weakening_guard.is_guardrail(path, scripts, instance) for scripts, instance in extra)
 
     files = {kind: [] for kind in KINDS}
     churn = {kind: 0 for kind in KINDS}
@@ -213,7 +274,8 @@ def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_gu
         if guarded(path) or (previous and guarded(previous)):
             kind = "guarded"
         elif (derived_state.owner_of(path) is not None or path in dynamic_files
-              or (previous and derived_state.owner_of(previous) is not None)):
+              or (previous and (derived_state.owner_of(previous) is not None
+                                or previous in dynamic_files))):
             kind = "derived"
         elif path.startswith(DOCS_PREFIXES):
             kind = "docs"
@@ -225,4 +287,4 @@ def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_gu
     for paths in files.values():
         paths.sort()
     return {"anchor": base, "head": head, "files": files, "churn": churn,
-            "total_churn": sum(churn.values())}
+            "total_churn": sum(churn.values()), "guards_read": guards_read}

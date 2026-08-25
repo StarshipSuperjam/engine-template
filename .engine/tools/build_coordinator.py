@@ -2762,7 +2762,15 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
     """
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     if not rounds:
-        return reviewed, ("reconcile" if state.get("reconciles") else None)
+        # Only a DIVERGENT reconcile that anchored THIS review leaves the first round spanning the rebase.
+        # A clean reconcile re-anchors the review onto the post-rebase head, so the round after it measures
+        # one fix; and an older reconcile that a later review cycle has superseded says nothing about this
+        # anchor at all. Marking on "any reconcile exists" told the operator their base had moved across a
+        # span that crossed no rebase -- the same false statement the reconcile/rewritten split exists to
+        # prevent.
+        spanning = any(not item["contribution_identical"] and item["anchored_to"] == reviewed
+                       for item in state.get("reconciles", []))
+        return reviewed, ("reconcile" if spanning else None)
     prior_final = rounds[-1]["final_commit"]
     if any(item["from_commit"] == prior_final for item in state.get("reconciles", [])):
         return reviewed, "reconcile"
@@ -2836,6 +2844,9 @@ def _round_line(index: int, entry: dict) -> str:
         moved = (", ".join(f"{part} file(s)" for part in parts) + f", {classification['total_churn']} lines"
                  ) if parts else "nothing"
     marked = _ANCHOR_NOTES.get(entry.get("anchor_note") or "", "")
+    if classification and classification.get("guards_read") is False:
+        marked += (" (a guard registration on this round's span could not be read, so the guarded count "
+                   "below may be short)")
     return (f"round {index}: {'counted' if _round_counted(entry) else 'uncounted'}, {what}{marked}; "
             f"the fix moved {moved}")
 
@@ -2850,7 +2861,10 @@ def _growth_note(rounds: list) -> str | None:
     if len(comparable) < 2:
         return None
     previous, latest = comparable[-2], comparable[-1]
-    if any(rounds[i].get("anchor_note") for i in range(previous + 1, latest + 1)):
+    # The window includes the EARLIER round itself: a round measured branch-wide (its own anchor_note set)
+    # carries a number that is not a fix's size, so comparing it against a normal round produces either a
+    # false alarm or a false silence. Both were reachable before this included `previous`.
+    if any(rounds[i].get("anchor_note") for i in range(previous, latest + 1)):
         # Said out loud rather than passed over in silence: a reader who sees no highlight is entitled to
         # know whether that means "it did not widen" or "we could not tell".
         return ("the last two counted rounds were measured from different starting points, so whether the "
@@ -2866,7 +2880,9 @@ def _growth_note(rounds: list) -> str | None:
             if (rounds[latest]["classification"]["churn"].get(kind, 0)
                 > rounds[previous]["classification"]["churn"].get(kind, 0))]
     moved = {"guarded": "guarded surface", "authored": "code"}
-    what = " and ".join(moved[kind] for kind in grew) or "code and guarded surface"
+    # `grew` cannot be empty here: `after > before` is the sum over exactly these kinds, so at least one
+    # of them rose. No fallback -- an unreachable branch reads as a case that is handled and is not.
+    what = " and ".join(moved[kind] for kind in grew)
     return (f"the last counted round moved more {what} than the one before it ({before} -> {after} lines). "
             f"The repairs are widening rather than settling, which usually means a fix broke something "
             f"past the finding it answered.")
@@ -2882,21 +2898,35 @@ def _round_guidance_lines(state: dict) -> list[str]:
     while the guidance itself is missing."""
     rounds = state.get("repair_rounds", [])
     return [f"repair round {index} of {len(rounds)} proceeded past the escalation point on recorded "
-            f"operator guidance: {item['guidance']}"
+            f"operator guidance: {_plain(item['guidance'])}"
             for index, item in enumerate(rounds, start=1) if item.get("guidance")]
 
 
+_MARKUP_SAFE = str.maketrans({"`": "'", "\n": " ", "\r": " ", "\t": " ", "\x00": ""})
+
+
+def _plain(text: str) -> str:
+    """Free text on its way to the operator's merge surface, reduced to something that cannot restructure
+    the page around it. Two things matter: a code span must not close early, and — the reason this exists
+    beyond tidiness — an unterminated HTML comment opener HIDES every line rendered after it on GitHub,
+    which would blank the rounds record, the growth highlight and the reviewed-vs-submitted line while a
+    presence-only preflight still found each of them in the source. Openers are neutralised, not stripped,
+    so the operator still reads what was written."""
+    return text.translate(_MARKUP_SAFE).replace("<!--", "<!- -").replace("-->", "- ->")
+
+
 def _fenced(path: str) -> str:
-    """A repository path inside a Markdown code span. Backticks are legal in POSIX filenames and would
-    close the span early, spilling the rest of the path into the operator's merge surface as markup."""
-    return "`" + path.replace("`", "'") + "`"
+    """A repository path inside a Markdown code span. Backticks are legal in POSIX filenames, and so are
+    newlines and tabs; any of them would close the span early and spill the rest of the path into the
+    operator's merge surface as markup."""
+    return "`" + _plain(path) + "`"
 
 
 def _repair_round_lines(state: dict) -> list[str]:
     """The rounds record as it appears at the operator's merge surface: one headline they cannot miss, then
-    a plain sub-bullet per round with a bounded sample of what it moved. The headline is what the
-    pr-contract preflight requires, so the disclosure and the gate cannot drift apart. Bounded on purpose —
-    a six-round Build must still fit inside the body budget."""
+    a plain sub-bullet per round with a bounded sample of what it moved. EVERY line here is required by the
+    pr-contract preflight, along with the recorded operator guidance, so the disclosure and the gate cannot
+    drift apart. Bounded on purpose — a six-round Build must still fit inside the body budget."""
     rounds = state.get("repair_rounds", [])
     if not rounds:
         return []
@@ -2905,7 +2935,8 @@ def _repair_round_lines(state: dict) -> list[str]:
              f"{counted} of which dispatched a review panel. A panel round is what spends the budget; the "
              f"budget is {_REPAIR_ROUND_ESCALATION} panel rounds, and {_REPAIR_ROUND_CEILING} rounds of any "
              f"kind is the absolute ceiling. Passing either stop needs recorded operator guidance, "
-             f"disclosed above."]
+             f"disclosed above. Whether the repairs are widening is judged on code and guarded surface "
+             f"only; regenerated and documentation churn is listed below but never compared."]
     for index, entry in enumerate(rounds, start=1):
         lines.append("  - " + _round_line(index, entry))
         classification = entry.get("classification")
@@ -3004,13 +3035,22 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # so this assess is the operator upgrading their judgment, not a second attempt. Once a packet exists
     # the lenses were dispatched and that round cost full price, so a further assess is a NEW round even at
     # the same commit pair -- otherwise an abandoned fan-out repeated forever would count once.
-    same = [] if fanned_out else [r for r in rounds if _same_episode(r)]
+    # ...and only the MOST RECENT round is replaceable. Matching any round with this commit pair let a
+    # branch reset back to an older round's head delete that round -- panel already dispatched, guidance
+    # and all -- and refund its counted slot, while both stops were skipped because the assess looked like
+    # a replacement. Re-recording an older pair is a NEW round; only the latest judgment is still open.
+    same = [] if fanned_out or not rounds else [r for r in rounds[-1:] if _same_episode(r)]
     kept = [r for r in rounds if r not in same]
     anchor, anchor_note = _classification_anchor(state, kept, head)
     sys.path.insert(0, str(ROOT / ".engine" / "tools"))
     import repair_divergence
     try:
-        classification = repair_divergence.classify(str(ROOT), anchor, head)
+        classification = repair_divergence.classify(
+            str(ROOT), anchor, head,
+            # The floor: everything guarded as of the commit the reviewers approved stays guarded for the
+            # whole repair loop, so a guard de-registered in an early round cannot make a late round's
+            # churn on that file read as ordinary authored work.
+            guard_reference=state["reviews"]["deliverable"]["reviewed_commit"])
     except repair_divergence.DivergenceError as exc:
         # Fail toward refusal, like the validator. A defaulted or empty classification would be published
         # to the operator as "this round touched nothing", which is a measurement nobody made.
@@ -3046,6 +3086,12 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # by the session that would benefit from declaring it.
     counted = len(lenses) >= _COUNTED_LENS_FLOOR
     guidance = getattr(args, "guidance", None)
+    # A replacement never ERASES a recorded consultation. Re-judging a round the operator was already
+    # consulted about (scoped -> full, say) carries their answer forward: dropping it would remove the
+    # escalation from the PR body and, with it, the preflight requirement that the body carry it -- while
+    # the rounds headline went on asserting that guidance had been disclosed.
+    if not guidance:
+        guidance = next((r["guidance"] for r in same if r.get("guidance")), None)
     # CARRY-FORWARD. A receipt is a fact about what a lens read, and that fact does not stop being true
     # because the binding moved. Every prior repair receipt whose recorded range already covers the new
     # divergence survives, byte-identical; the rest are named, with the delta they still owe, so the

@@ -38,7 +38,7 @@ def classification(guarded=(), derived=(), docs=(), authored=(), churn=None):
              "docs": list(docs), "authored": list(authored)}
     counts = dict(churn) if churn else {kind: len(paths) for kind, paths in files.items()}
     return {"anchor": HEAD_A, "head": HEAD_B, "files": files, "churn": counts,
-            "total_churn": sum(counts.values())}
+            "total_churn": sum(counts.values()), "guards_read": True}
 
 
 def plan_v1(objective="Ship a small instrument panel"):
@@ -1923,17 +1923,78 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         # ...and the suppressed comparison is SAID, not passed over in silence.
         self.assertIn("could not be judged", out.getvalue())
 
-    def test_a_first_round_after_a_reconcile_is_marked_as_spanning_the_rebase(self):
-        # The whole rebased branch must not be presented to the operator as the size of one fix.
+    def reconcile(self, identical, anchored_to=HEAD_A):
         def seed(s):
             s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A})
-            s["reconciles"] = [{"from_commit": HEAD_C, "to_commit": HEAD_A, "base_before": BASE,
-                                "base_after": HEAD_D, "contribution_identical": True,
-                                "divergent_paths": [], "anchored_to": HEAD_A}]
+            s["reconciles"] = [{"from_commit": HEAD_C, "to_commit": HEAD_D, "base_before": BASE,
+                                "base_after": anchored_to, "contribution_identical": identical,
+                                "divergent_paths": [] if identical else ["a.py"],
+                                "anchored_to": anchored_to}]
         self.store.mutate(seed)
+
+    def test_a_first_round_after_a_DIVERGENT_reconcile_is_marked_as_spanning_the_rebase(self):
+        # The divergent path anchors the review short of the branch tip, so the round after it spans the
+        # rebase. The whole rebased branch must not be presented as the size of one fix.
+        self.reconcile(identical=False)
         self.assess("scoped", HEAD_B, lens=list(self.PANEL))
         self.assertEqual(self.state()["repair_rounds"][0]["anchor_note"], "reconcile")
         self.assertIn("the base moved", "\n".join(bc._repair_round_lines(self.state())))
+
+    def test_a_first_round_after_a_CLEAN_reconcile_is_not_marked(self):
+        # A clean reconcile re-anchors the review onto the post-rebase head, so the round after it measures
+        # one fix. Marking it would tell the operator their base moved across a span that crossed no rebase.
+        self.reconcile(identical=True)
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL))
+        self.assertIsNone(self.state()["repair_rounds"][0]["anchor_note"])
+        self.assertNotIn("the base moved", "\n".join(bc._repair_round_lines(self.state())))
+
+    def test_a_reconcile_a_later_review_superseded_does_not_mark(self):
+        # The reconcile anchored an older review; a fresh deliverable review has since moved the anchor
+        # somewhere that reconcile says nothing about.
+        self.reconcile(identical=False, anchored_to=HEAD_F)
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL))
+        self.assertIsNone(self.state()["repair_rounds"][0]["anchor_note"])
+
+    def test_a_branch_reset_cannot_delete_a_dispatched_round_and_refund_its_slot(self):
+        # Matching ANY round with this commit pair let a reset back to an older round's head erase that
+        # round -- panel, guidance and all -- and hand its counted slot back with both stops skipped.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for head in (HEAD_B, HEAD_C, HEAD_D):
+            self.assess("scoped", head, lens=list(self.PANEL))
+        message = self.refused_assess("scoped", HEAD_B, lens=list(self.PANEL))   # reset back to round 1
+        self.assertIn("counted budget", message)
+        self.assertEqual(len(self.state()["repair_rounds"]), 3)
+
+    def test_re_judging_a_round_carries_the_operators_answer_forward(self):
+        # Dropping it would remove the escalation from the PR body -- and with it the preflight's
+        # requirement to carry it -- while the headline went on asserting guidance had been disclosed.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for head in (HEAD_B, HEAD_C, HEAD_D):
+            self.assess("scoped", head, lens=list(self.PANEL))
+        self.assess("scoped", HEAD_E, lens=list(self.PANEL), guidance="Operator: one more, then ship.")
+        self.assess("full", HEAD_E)
+        self.assertEqual(self.state()["repair_rounds"][-1]["guidance"], "Operator: one more, then ship.")
+        self.assertTrue(bc._round_guidance_lines(self.state()))
+
+    def test_recorded_guidance_cannot_hide_the_rest_of_the_pr_body(self):
+        # An unterminated comment opener blanks every line rendered after it on GitHub, while a
+        # presence-only preflight still finds each required string in the source.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("none", HEAD_B, guidance="operator says continue <!--")
+        line = bc._round_guidance_lines(self.state())[0]
+        self.assertNotIn("<!--", line)
+        self.assertIn("operator says continue", line)
+
+    def test_a_branch_wide_round_is_never_compared_against_a_fix_sized_one(self):
+        # The suppression window has to include the EARLIER round: its own number is the branch's, so
+        # comparing it either raises a false alarm or reports a false calm.
+        self.reconcile(identical=False)
+        big = classification(authored=["a.py"], churn={"authored": 400, "guarded": 0, "derived": 0, "docs": 0})
+        small = classification(authored=["a.py"], churn={"authored": 20, "guarded": 0, "derived": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=big)      # branch-wide: marked reconcile
+        out = self.assess("scoped", HEAD_C, lens=list(self.PANEL), classified=small)
+        self.assertIn("could not be judged", out)
+        self.assertNotIn("widening rather than settling", out)
 
     def test_the_growth_highlight_names_only_what_actually_grew(self):
         # Saying "code and guarded surface" when no guarded file moved tells the operator protected
