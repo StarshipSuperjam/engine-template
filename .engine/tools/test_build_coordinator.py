@@ -2088,6 +2088,12 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         headline = bc._repair_round_lines(self.state())[0]
         self.assertIn("judged on code and guarded surface only", headline)
         self.assertIn("protected at ANY point since the deliverable review", headline)
+        # ...and the budget half, which was unpinned: a trim could have removed the operator's only
+        # merge-surface statement of what the budget IS, and the preflight would not notice because it
+        # requires whatever this same function emits.
+        self.assertIn(f"the budget is {bc._REPAIR_ROUND_ESCALATION} panel rounds", headline)
+        self.assertIn(f"{bc._REPAIR_ROUND_CEILING} rounds of any kind is the absolute ceiling", headline)
+        self.assertIn("needs recorded operator guidance", headline)
 
     def test_free_text_cannot_restructure_the_page_it_is_rendered_into(self):
         # Every construct, not a two-string blacklist: an opener, a bidirectional override and a raw
@@ -2233,17 +2239,56 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assess("scoped", HEAD_C)
         self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["usability"])
 
+    def dispatched(self, head, lenses):
+        """Splice repair receipts for `lenses` at `head`, the way cmd_review_record does when a repair
+        panel actually runs. A clean lens gets a receipt with no finding ids -- which is the whole point:
+        it is the record that a review HAPPENED, independent of whether it found anything."""
+        digest = "sha256:" + "6" * 64
+        def change(s):
+            stage = s["reviews"]["deliverable"]
+            stage["receipts"] = [r for r in stage["receipts"] if r["lens"] not in lenses] + [
+                {"lens": lens, "packet_digest": digest, "referent_digest": digest,
+                 "lens_packet_digest": digest, "commit": head, "finding_ids": [],
+                 "code_execution": "none"} for lens in lenses]
+        self.store.mutate(change)
+
     def test_the_default_roster_skips_a_round_whose_review_never_ran(self):
         # Naming lenses is a judgment; dispatching them is an event. A round assessed and then re-judged
-        # before any reviewer ran has a roster but no findings, and looking there for blockers found a
-        # commit no review had ever reported against -- so the default refused for want of blockers that
-        # were never going to exist. Walk back to the last round that actually produced findings.
+        # before any reviewer ran carries a roster but no receipt, so the walk reaches past it -- to the
+        # round that WAS reviewed.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        self.dispatched(HEAD_B, ["usability"])
+        self.record_findings([("R1", "repair", HEAD_B, "security-governance", "blocking", True)])
+        self.assess("scoped", HEAD_C, lens=list(self.PANEL))   # a roster, but nothing ever reviewed it
+        self.assess("scoped", HEAD_D)                          # ...so the default reaches past it
+        self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["security-governance"])
+
+    def test_the_default_roster_reads_the_round_that_was_actually_reviewed(self):
+        # The positive direction, which nothing pinned: the walk must RETURN a repair round, not merely
+        # decline to. A degenerate implementation that always fell through to the deliverable review
+        # passed every test that existed.
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", True)])
-        self.assess("scoped", HEAD_B, lens=list(self.PANEL))   # a roster, but nothing ever reviewed it
-        self.assess("scoped", HEAD_C)                          # ...so the default reaches past it
-        self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["usability"])
-        self.assertEqual(self.state()["repair_rounds"][-1]["roster_provenance"], "blocker-union")
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        self.dispatched(HEAD_B, ["usability"])
+        self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", True),
+                              ("R1", "repair", HEAD_B, "technical-integrity", "blocking", True)])
+        self.assess("scoped", HEAD_C)
+        # The round that was reviewed named technical-integrity; the deliverable review named usability.
+        self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["technical-integrity"])
+
+    def test_a_panel_that_ran_and_found_nothing_ends_the_loop_rather_than_reviving_old_blockers(self):
+        # The obligation this restores: an empty union with no --lens REFUSES and says why. A clean panel
+        # is exactly an empty union, and treating it as "never ran" silently substituted a stale roster --
+        # publishing "the lenses that raised blockers last time" about a review that raised none.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", True)])
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        self.dispatched(HEAD_B, ["usability"])            # ran, and found nothing
+        message = self.refused_assess("scoped", HEAD_C)
+        self.assertIn("at least one --lens", message)
+        self.assertIn("no finding that was blocking", message)
 
     def test_scoped_repair_requires_named_lens(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
