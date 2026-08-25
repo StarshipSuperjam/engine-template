@@ -9899,7 +9899,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:717c2aa5c7d2c8606cd38c0af002620176518375b13f74cfb9e4ef9549030961",
+        "fingerprint": "sha256:148c229b45ca504188ae7eb968d1a54c9c32e262e218d7a18f78894642680c4f",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -13830,7 +13830,7 @@
       },
       "slug": "nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:fbfe7c5b3ed19d81787391057f71e5bd8103099ce6bebc76d1108bdf16ebe72a",
+        "fingerprint": "sha256:6241a0bd0a899944c6c12028f356e38a10419bfc882dc8f201b048db95e3b4a8",
         "path": ".engine/tools/nightly_demo_report.py"
       },
       "status": "active",
@@ -14273,7 +14273,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:093293c4a12f883a12a89247fe20bd346c3b18ee249a39e6aac7a8091f6d08ba",
+        "fingerprint": "sha256:182c3c3aa9564244d0bffa78a69f3daeeea5be7493c96a275df812994259e2db",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -18249,7 +18249,7 @@
       },
       "slug": "test_nightly_demos",
       "source": {
-        "fingerprint": "sha256:27d3200d886627f24645492c12aa8a66b8333e1f87845842e717f5c65f56bd46",
+        "fingerprint": "sha256:5249a2f951675c2a0d13fc75181564ad6bdf3f7cdf73a56c8f74afecf435eb8f",
         "path": ".engine/tools/test_nightly_demos.py"
       },
       "status": "active",
@@ -18548,7 +18548,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:f87ed9d0328982343a072b5af1c137cad9cb27149aa7eb1b1a1aa45f76180931",
+        "fingerprint": "sha256:345393691aae9b1d613610dda29cff4ad5d264993fea0135c1a47c7bb88da404",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -18577,7 +18577,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:72f73b2657e0cf343dd750a4931ca6dfb98d16b1b0cf56d3302625a08e1ec750",
+        "fingerprint": "sha256:71b5a1449ff45a4aa0bb8533c579efa334da26849de2e775a16d24d0e7131d16",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -18780,7 +18780,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:012af3c65db6aa68eed0c6d9ded44bf58449b02d5e6038fc6e7004dc8cb87d98",
+        "fingerprint": "sha256:e10632dcb8420b3956b7635480f8aa32b325fd926bf1eb6540ad6e9e3b141218",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -19326,7 +19326,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:91e9820377d0eeb81bd8a5b368edadbabbb2afa47a54966fcffef2bb0ba2192b",
+        "fingerprint": "sha256:5d458119f40c2b20ea9864cab0cec0303425cb9d6387e7f19fbcab73f3c70c9a",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
