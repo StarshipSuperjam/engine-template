@@ -6409,7 +6409,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:ac67081d00b8d863a86936cab30a30548f97d6149e1a803c63954eec10b99b9c",
+        "fingerprint": "sha256:b688ff5b0a3714ea93ecf5a6e34061c27225fd87edcc25336774b57f3a6494b6",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -15828,7 +15828,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:10034aeac58eaebbe9b667aac1dc5837c9aee05be59735e97efab587712d5f0f",
+        "fingerprint": "sha256:09456b7079224b2c7c062bcdc85cd4cfb54dbb6f6cbf0861ab2bfa5163410b35",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15956,7 +15956,7 @@
       },
       "slug": "test_build_coordinator_preservation",
       "source": {
-        "fingerprint": "sha256:87367f6e8e01ca812d4035d42b9993b91affab53b77e2f2573c04cb09d526ea1",
+        "fingerprint": "sha256:b7c10a02c251e8dd12a491796fff220d875486a1bc0869be962d67f6456891a4",
         "path": ".engine/tools/test_build_coordinator_preservation.py"
       },
       "status": "active",
