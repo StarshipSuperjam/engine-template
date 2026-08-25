@@ -130,7 +130,7 @@
       "role": "scout",
       "slug": "engine-grounding-scout",
       "source": {
-        "fingerprint": "sha256:f136991ffbf045a02b677df7a014a5a0f1a14fc23bce588d8c7413029beb1fc1",
+        "fingerprint": "sha256:b031cf83e046b2748ef3a79fbd1f8af76daf11df68de3ae52e74a3047c6ab894",
         "path": ".claude/agents/engine-grounding-scout.md"
       },
       "status": "active",
@@ -267,7 +267,7 @@
       "role": "scout",
       "slug": "engine-validation-runner",
       "source": {
-        "fingerprint": "sha256:e3a9ab6bb1d6cce65c7d00cc9eaba1b1b8d7d7d998059288e8b1f38e015d2cf7",
+        "fingerprint": "sha256:b23d03a166beb257a0cfbc2fc62215fc73b74b0d5883205f80e3408abdad7b74",
         "path": ".claude/agents/engine-validation-runner.md"
       },
       "status": "active",
@@ -7434,7 +7434,7 @@
       },
       "slug": "session-economy",
       "source": {
-        "fingerprint": "sha256:30f8fa3f2da8bdd74a4fc3c7fbf2b7167fac83e7d2ba2c530f4cdab77396d5d0",
+        "fingerprint": "sha256:0e9dbd4ad2e266c33894f741c92f3a43494c8f1bff929ad64ade295e88fc3c65",
         "path": ".engine/policies/session-economy.md"
       },
       "status": "active",
@@ -9623,7 +9623,7 @@
       },
       "slug": "agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:4477398a45afbfd6398795ee76acbf7f6abc798a815a120a0ac579486b1ee483",
+        "fingerprint": "sha256:67e15f36d5d1f9e216ca434c62e7f098965ac50c39e5056dbc99183343f177d9",
         "path": ".engine/tools/agent_coherence_check.py"
       },
       "status": "active",
@@ -10051,7 +10051,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:7b256084b99d18a86b5e570b54b37ebc3f18700313f6d4af16ff0de884814e86",
+        "fingerprint": "sha256:73afdc6e8e945543a0c78eadb0f3729a895ecbe13e93f02eb28b6dfe9a129c93",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -15561,12 +15561,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:agent_coherence_check",
           "tool:validate"
         ]
       },
       "slug": "test_agent",
       "source": {
-        "fingerprint": "sha256:7033018c355b96ef624e30b17f4d24d60cb0f2f7de2f86017345b9be1b87892c",
+        "fingerprint": "sha256:172bcedbb60f1db9a0c2359c0ed44e49c93e6d7039c479bcfdc1d447dde52154",
         "path": ".engine/tools/test_agent.py"
       },
       "status": "active",
@@ -15614,7 +15615,7 @@
       },
       "slug": "test_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:89b327c5496fa09d227660a340edbce4a0311b9424d8ab650596a3935a8253ce",
+        "fingerprint": "sha256:02452bcd253637d5d91b6810210a02595fd9e67bd6e5b3770b6e261a90bcc754",
         "path": ".engine/tools/test_agent_coherence_check.py"
       },
       "status": "active",
@@ -15964,7 +15965,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:8befffea01e7457cbb6ceff5c94f6586e834f452404d4f2cb83b3c5afa6f877b",
+        "fingerprint": "sha256:19b166cf68ffe657c42a9c521becd15fcc8536ff36fc28bc33d977ea43a47f3b",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16396,7 +16397,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:85d5080b50295c53e719b9c715ae1077269ffa7f02756749d537032fb55f176d",
+        "fingerprint": "sha256:701aef83504c2cc07b76b2b77e43fecbe884033bc7118f978500cf916a6e48ae",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -18110,7 +18111,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:5a14b4ead4bb21ba2ce4e6c1bbc89f6c229d44b055cc13689758d4dc8c547c03",
+        "fingerprint": "sha256:2d635c1c2b10d67878b37668d1f05b20a6a14b45e6e229f9d6ab06ecd17e8471",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
