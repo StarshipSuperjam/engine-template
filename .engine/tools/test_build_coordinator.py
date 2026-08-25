@@ -1976,6 +1976,83 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
+    def repair_packet(self, anchor=HEAD_A, classified=None):
+        self.store.mutate(lambda s: s.update({
+            "validation": {"commit": HEAD_B, "results": [{"id": "ci", "commit": HEAD_B, "passed": True, "summary": "ok"}]},
+            "repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file",
+                       "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"],
+                       "packet_digest": None, "receipts": [], "anchor": anchor,
+                       "classification": classified or classification(authored=["app/main.py"])},
+        }))
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
+        output = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=["usability"]), \
+             mock.patch.object(bc, "_head", return_value=HEAD_B), \
+             mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(output):
+            bc._packet(args, self.store)
+        return json.loads(output.getvalue())
+
+    def test_the_repair_packet_points_the_reviewer_at_the_repair_not_the_whole_pr(self):
+        # base_commit is the MERGE BASE -- the whole pull request. Without this a repair reviewer is
+        # handed the entire change again and left to work out which part of it is new.
+        packet = self.repair_packet(anchor=HEAD_C)
+        self.assertEqual(packet["repair_anchor"], HEAD_C)
+        self.assertEqual(packet["base_commit"], BASE)
+        self.assertIn(f"{HEAD_C[:12]}..{HEAD_B[:12]}", packet["review_subject"])
+        self.assertIn("Review the repair, not the whole pull request", packet["review_subject"])
+        self.assertEqual(packet["repair_classification"]["files"]["authored"], ["app/main.py"])
+
+    def test_a_deliverable_packet_carries_no_repair_anchor(self):
+        self.store.mutate(lambda s: s.update({
+            "validation": {"commit": HEAD_B, "results": [{"id": "ci", "commit": HEAD_B, "passed": True, "summary": "ok"}]}}))
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        output = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=["usability"]), \
+             mock.patch.object(bc, "_head", return_value=HEAD_B), \
+             mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(output):
+            bc._packet(args, self.store)
+        packet = json.loads(output.getvalue())
+        self.assertNotIn("repair_anchor", packet)
+        self.assertNotIn("review_subject", packet)
+
+    def test_the_rounds_disclosure_reads_plainly_and_samples_its_paths(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        many = classification(authored=[f"app/f{n}.py" for n in range(9)],
+                              derived=[".engine/knowledge/graph.json"],
+                              churn={"authored": 12, "derived": 900, "guarded": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=many)
+        lines = bc._repair_round_lines(self.state())
+        self.assertIn("**Repair rounds.**", lines[0])
+        self.assertIn("1 of which dispatched a review panel", lines[0])
+        self.assertTrue(lines[1].startswith("  - round 1: counted"))
+        sample = next(line for line in lines if line.strip().startswith("- authored:"))
+        self.assertEqual(sample.count("`app/f"), bc._ROUND_PATH_SAMPLE)
+        self.assertIn("and 5 more", sample)
+        self.assertTrue(any("derived: `.engine/knowledge/graph.json`" in line for line in lines))
+
+    def test_no_rounds_means_no_rounds_disclosure(self):
+        self.assertEqual(bc._repair_round_lines(self.state()), [])
+
+    def contract_leg(self, body):
+        with mock.patch.object(bc, "_pr_contract", return_value=(True, "all sections filled")), \
+             mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(returncode=0, stdout="ok", stderr="")), \
+             mock.patch.object(bc, "_hard_check_declarations", return_value=[]), \
+             mock.patch.object(bc, "_write_json_artifact", return_value=("/dev/null", "sha256:" + "0" * 64)):
+            legs = bc._compute_preflight_legs(self.state(), HEAD_B, {"baseRefOid": BASE}, body)
+        return next(r for r in legs["results"] if r["id"] == "pr-contract")
+
+    def test_the_pr_contract_leg_refuses_a_body_missing_the_rounds_disclosure(self):
+        # Disclosure and gate are wired together on purpose: an otherwise-complete body that has dropped
+        # what the repair loop cost must not reach the operator's merge surface.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B)
+        required = bc._repair_round_lines(self.state())[0]
+        without = self.contract_leg("## Review\n\n- everything else is here\n")
+        self.assertFalse(without["passed"])
+        self.assertIn("missing the repair-rounds disclosure", without["summary"])
+        with_it = self.contract_leg(f"## Review\n\n{required}\n")
+        self.assertTrue(with_it["passed"])
+
     def test_repair_findings_are_dispositioned_in_the_repair_stage(self):
         self.store.mutate(lambda s: s.update({
             "validation": {"commit": HEAD_B, "results": [{"id": "ci", "commit": HEAD_B, "passed": True, "summary": "ok"}]},

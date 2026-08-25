@@ -45,6 +45,9 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
   obligation_lines    [str]      the sealed plan's carried obligations — each with its state and, for a
                                  release, the reason — read from the plan record, never from Build state
   disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
+  repair_round_lines  [str]      the repair-rounds record: a required headline (what the loop spent) then
+                                 one indented sub-bullet per round with a bounded sample of the surfaces it
+                                 moved — pre-marked and pre-indented, placed here unchanged
   drift_line          str        the reviewed->submitted commit/divergence sentence, coordinator-computed
   close_linkage_lines [str]      advisory close-linkage lines to fold into Review (apply's fixed-point pass)
   composition_marker  str        the hidden marker carrying the claim digest and final commit
@@ -354,6 +357,11 @@ def compose(claim: dict, evidence: dict) -> str:
     # what lets the operator check that claim at the merge gate, where their consent actually lives.
     for ce in evidence.get("cadence_escalations", []):
         review_body.append(f"- **Escalation recorded.** {ce}")
+    # What the repair loop actually cost, and what each round moved. These lines arrive carrying their own
+    # bullet markers and indentation, because the shape IS the evidence: a headline the pr-contract
+    # preflight requires, then one sub-bullet per round with a bounded sample of the surfaces it touched.
+    for rl in evidence.get("repair_round_lines", []):
+        review_body.append(rl)
     if evidence.get("drift_line"):
         review_body.append(f"- **Reviewed vs submitted.** {evidence['drift_line']}")
     for cl in evidence.get("close_linkage_lines", []):

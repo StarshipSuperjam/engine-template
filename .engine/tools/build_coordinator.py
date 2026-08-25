@@ -1583,6 +1583,19 @@ def _packet(args, store: Snapshot | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
+    if stage == "repair":
+        # Point the re-review at the REPAIR, mechanically. `base_commit` is the merge base — the whole
+        # PR — so without this a repair reviewer is handed the entire change again and left to work out
+        # for itself which part of it is new. The anchor and the instruction line travel together: the
+        # field alone can be read past, but a sentence naming the subject of the review cannot.
+        anchor = state["repair"].get("anchor") or state["repair"]["reviewed_commit"]
+        referent["repair_anchor"] = anchor
+        referent["repair_classification"] = state["repair"].get("classification")
+        referent["review_subject"] = (
+            f"Review the repair, not the whole pull request. The subject of this review is the diff "
+            f"`{anchor[:12]}..{commit[:12]}` — what changed since the review you are following up. "
+            f"`base_commit` is the merge base and is context only. Read the wider change when you need it "
+            f"to judge the repair; report on the repair.")
     declarations = _hard_check_declarations()
     path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
     referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
@@ -2820,6 +2833,41 @@ def _growth_note(rounds: list) -> str | None:
             f"means a fix broke something past the finding it answered.")
 
 
+_ROUND_PATH_SAMPLE = 4   # paths named per kind before the rest are counted, so a long round stays readable
+
+
+def _repair_round_lines(state: dict) -> list[str]:
+    """The rounds record as it appears at the operator's merge surface: one headline they cannot miss, then
+    a plain sub-bullet per round with a bounded sample of what it moved. The headline is what the
+    pr-contract preflight requires, so the disclosure and the gate cannot drift apart. Bounded on purpose —
+    a six-round Build must still fit inside the body budget."""
+    rounds = state.get("repair_rounds", [])
+    if not rounds:
+        return []
+    counted = sum(1 for entry in rounds if _round_counted(entry))
+    lines = [f"- **Repair rounds.** {len(rounds)} round(s) ran after the deliverable review, "
+             f"{counted} of which dispatched a review panel. A panel round is what spends the budget "
+             f"({_REPAIR_ROUND_ESCALATION} of them); {_REPAIR_ROUND_CEILING} rounds of any kind is the "
+             f"absolute ceiling. Passing either stop needs recorded operator guidance, disclosed above."]
+    for index, entry in enumerate(rounds, start=1):
+        lines.append("  - " + _round_line(index, entry))
+        classification = entry.get("classification")
+        if not classification:
+            continue
+        for kind in _SUBSTANTIVE_KINDS + ("derived", "docs"):
+            paths = classification["files"].get(kind) or []
+            if not paths:
+                continue
+            shown = ", ".join(f"`{path}`" for path in paths[:_ROUND_PATH_SAMPLE])
+            more = (f" and {len(paths) - _ROUND_PATH_SAMPLE} more"
+                    if len(paths) > _ROUND_PATH_SAMPLE else "")
+            lines.append(f"    - {kind}: {shown}{more}")
+    note = _growth_note(rounds)
+    if note:
+        lines.append("  - **Worth a look before you merge.** " + note)
+    return lines
+
+
 def _trajectory(rounds: list) -> str:
     """The whole ledger as prose, plus the growth highlight when there is one. Printed at every assess, so
     the signal is in front of the orchestrator at the moment of judgment and not only at an escalation."""
@@ -3034,6 +3082,12 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
         contract_passed = False
         ids = [re.search(r"`([^`]+)`", line).group(1) for line in missing_disagreements]
         contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
+    # The rounds record is coordinator-derived and REQUIRED once any round has run: the same pattern as the
+    # disagreement lines, so what the operator is told about repair cost cannot quietly fall out of the body.
+    round_lines = _repair_round_lines(state)
+    if round_lines and round_lines[0] not in body:
+        contract_passed = False
+        contract_summary += "; missing the repair-rounds disclosure"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
     declarations = _hard_check_declarations()
@@ -4379,6 +4433,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "obligation_lines": _plan_obligation_lines(state),
         "assumption_resolutions": assumption_resolutions,
         "cadence_escalations": cadence_escalations,
+        "repair_round_lines": _repair_round_lines(state),
         "drift_line": drift_line,
         "composition_marker": marker,
         # preserved marker blocks are extracted from the live body at apply time, where the write happens.
