@@ -2782,10 +2782,16 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, s
 
 def _prior_review_target(state: dict, rounds: list) -> tuple[str, str]:
     """The (stage, commit) of the review this round is repairing — the most recent round that actually
-    dispatched lenses, or the deliverable review when none has. A `none` round raised no findings, so
-    walking back past it is what makes "the lenses that had blockers last time" mean anything."""
+    PRODUCED FINDINGS, or the deliverable review when none has.
+
+    Keyed on recorded findings rather than on a round having named lenses, because naming lenses is a
+    judgment and dispatching them is an event: a round can be assessed, and then re-judged before a single
+    reviewer runs. Walking back to the most recent round with a roster then landed on a commit no review
+    had ever reported against, and the default roster refused for want of blockers that were never going
+    to be there. A `none` round is skipped for the same reason it always was — it raised no findings."""
     for entry in reversed(rounds):
-        if entry["lenses"]:
+        if entry["lenses"] and any(f["stage"] == "repair" and f["commit"] == entry["final_commit"]
+                                   for f in state["findings"]):
             return "repair", entry["final_commit"]
     return "deliverable", state["reviews"]["deliverable"]["reviewed_commit"]
 

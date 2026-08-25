@@ -2233,6 +2233,18 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assess("scoped", HEAD_C)
         self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["usability"])
 
+    def test_the_default_roster_skips_a_round_whose_review_never_ran(self):
+        # Naming lenses is a judgment; dispatching them is an event. A round assessed and then re-judged
+        # before any reviewer ran has a roster but no findings, and looking there for blockers found a
+        # commit no review had ever reported against -- so the default refused for want of blockers that
+        # were never going to exist. Walk back to the last round that actually produced findings.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", True)])
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL))   # a roster, but nothing ever reviewed it
+        self.assess("scoped", HEAD_C)                          # ...so the default reaches past it
+        self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["usability"])
+        self.assertEqual(self.state()["repair_rounds"][-1]["roster_provenance"], "blocker-union")
+
     def test_scoped_repair_requires_named_lens(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         message = self.refused_assess("scoped", HEAD_B)
