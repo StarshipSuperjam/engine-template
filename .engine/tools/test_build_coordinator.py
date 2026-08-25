@@ -2536,9 +2536,10 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
         # Same ratchet as the line cap: 3063 -> 3081 for the v2 completion path, -> 3147 for the
         # candidate/final validation split (step 5 now teaches the cache, the imported merge proof and
-        # the rollup wall — verbs a session cannot work without). The preservation-source ratio
+        # the rollup wall — verbs a session cannot work without; 3147 -> 3152 restoring the focused-tests
+        # anchor BO-21 binds). The preservation-source ratio
         # (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3147)
+        self.assertLessEqual(len(text.split()), 3152)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges"):
             self.assertIn(phrase, text)
