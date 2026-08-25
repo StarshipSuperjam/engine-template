@@ -643,6 +643,35 @@ class Dispositions(_Governed):
         self.assertEqual(code, 2)
         self.assertIn("A1", err)
 
+    def test_a_review_cannot_be_recorded_onto_a_sealed_plan(self):
+        """The sibling hole to the one below: at a depth needing no lenses, a plan seals with no review
+        at all — so "a review already exists" guards nothing. Without the seal check a whole review,
+        findings and pre-set dispositions included, could be written onto a sealed plan and would reach
+        the merge surface looking like something read before the plan was locked."""
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick")[0], 0)
+        self.assertEqual(self.run_command("seal", slug)[0], 0)
+        self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
+        code, _, err = self.run_command("review", "record", slug, "--packet-digest",
+                                        self._packet_digest(slug), "--lens", "architecture")
+        self.assertEqual(code, 2)
+        self.assertIn("sealed", err)
+        self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
+
+    def test_a_reviewed_plan_cannot_be_re_approved_at_another_depth(self):
+        """Downgrading after review would leave the review attached while the seal asked a smaller
+        question of it: at quick the roster is empty, so a one-of-four-lens review sails through and the
+        pull request then tells the operator a cold panel read the plan. The review cannot be dropped to
+        make room either — exactly one per plan is what stops the re-review spiral — so depth holds."""
+        slug, _ = self._to_reviewed(depth="standard")
+        code, _, err = self.run_command("approve", slug, "--depth", "quick")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be re-approved", err)
+        self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "standard")
+        # Re-approving at the SAME depth stays legal: nothing about the question changed.
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard")[0], 0)
+
     def test_a_seal_freezes_the_dispositions_the_pull_request_will_publish(self):
         """The Build reads this review live from the record, so an editable record is an editable PR.
 

@@ -525,6 +525,20 @@ def cmd_approve(args) -> int:
     if args.depth not in DEPTHS:
         raise PlanCoordinatorError(f"unknown review depth {args.depth!r}; choose one of "
                                    + ", ".join(DEPTHS))
+    # Re-approving at a DIFFERENT depth once a review exists would leave that review in place while the
+    # seal's coverage check moved to the new depth's roster. Downgrade far enough and the roster empties,
+    # so a review that covered one lens of four sails through — and the pull request, which reads this
+    # review live, then tells the operator a cold panel read the plan. The review cannot be dropped to
+    # make room either: exactly one review per plan is what stops the re-review spiral. So the depth is
+    # what holds still.
+    reviewed = record.get("plan_review")
+    if reviewed and args.depth != record["approval"]["depth"]:
+        raise PlanCoordinatorError(
+            f"this plan was approved at {record['approval']['depth']} depth and has already been "
+            f"reviewed at it, so it cannot be re-approved at {args.depth}: the review that ran would "
+            "stay attached while the seal started asking a different question of it. A recorded review "
+            "cannot be unseen, and there is exactly one per plan. Seal at the depth you were reviewed "
+            "at, or clone the plan and choose the depth before the review.")
     roster = installed_lenses()
     if args.depth not in available_depths(roster):
         raise PlanCoordinatorError(
@@ -598,6 +612,15 @@ def cmd_review_record(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
+    # The seal freezes the review surface, not merely the plan text. At a depth that requires no cold
+    # lenses a plan seals with no review at all, so "a review already exists" does not stand in for this
+    # check: without it, a review — findings, dispositions and all — could be written onto a plan that
+    # was already sealed, and the Build would read it live at compose time as though it had been there.
+    if record.get("seal"):
+        raise PlanCoordinatorError(
+            "this plan is sealed, and its review is what the pull request publishes — a review recorded "
+            "now would appear at merge as though it had been read before the plan was locked. Reviews "
+            "belong before the seal. If this plan needs one, clone it and review the clone.")
     if record.get("plan_review"):
         existing = record["plan_review"]
         raise PlanCoordinatorError(
@@ -646,6 +669,10 @@ def cmd_review_record(args) -> int:
         # INSIDE the lock. Recording a review does not mint a revision, so the compare-and-swap on
         # `current.revision` cannot catch a concurrent second review — only re-checking here can, and
         # "exactly one review per plan" is worth exactly as much as this line.
+        if current.get("seal"):
+            raise PlanCoordinatorError(
+                "this plan was sealed while the review was being prepared; a seal is terminal and the "
+                "review it published is the one the pull request carries")
         if current.get("plan_review"):
             raise PlanCoordinatorError(
                 "another session recorded a plan review while this one was being prepared, and there "
