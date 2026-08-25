@@ -41,6 +41,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -68,6 +69,25 @@ _GIT_SAFETY_MESSAGE = (
     "so a remote change inside it repoints the real one), and never stash/checkout/switch/reset or "
     "change a remote in a checkout you did not create.")
 
+# The scout containment recipe. A scout that runs commands is usually pointed at work that is still
+# uncommitted, so its copy must include uncommitted changes — the tracked-file clone the review recipe
+# names would test a different tree than the one asked about. These substrings anchor that: the
+# property that matters (uncommitted changes carried), the disposability of the destination, and the
+# same worktree prohibition the review recipe carries.
+_SCOUT_CONTAINMENT_TOKENS = ("including uncommitted changes", "disposable copy", "git worktree add")
+_COLLAPSE_WS = re.compile(r"\s+")
+_SCOUT_CONTAINMENT_MESSAGE = (
+    "Scout persona '{name}' keeps the Bash shell but its body is missing the scout containment "
+    "recipe (missing: {missing}). A scout runs commands against work that is often still "
+    "uncommitted, so it must copy the WHOLE working tree — including uncommitted changes — into a "
+    "fresh disposable copy in a temporary directory and run only there; add that to "
+    ".claude/agents/{name}.md. Do not give a scout the review persona's tracked-file "
+    "engine_fixture.clone_engine() recipe: cloning only tracked files would run against a different "
+    "tree than the one it was asked about and report a green that means nothing. Never `git worktree "
+    "add` from an existing checkout (a worktree shares its .git/config, so a remote change inside it "
+    "repoints the real one), and never stash/checkout/switch/reset or change a remote in a checkout "
+    "you did not create.")
+
 
 def _keeps_bash(fm: dict) -> bool:
     """True when the platform would let this persona run the Bash shell: an explicit `tools` allowlist
@@ -86,11 +106,22 @@ def _keeps_bash(fm: dict) -> bool:
 
 
 def git_safety_findings(tier: str, root: str | None = None, agents_dir: str | None = None) -> list:
-    """One finding per shell-capable persona whose body omits the git-safety recipe
-    (StarshipSuperjam/engine-template#947). Unlike the pure frontmatter leg in validate, this reads the persona
-    FILE — frontmatter to decide Bash access, body to check the recipe — so it lives here in the
-    consumer. A Bash-locked persona (the design-review lenses, the audit persona) is exempt. Honours the
-    same ENGINE_AGENT_FIXTURE_DIR seam so the negative-fixture meta-check can witness it biting."""
+    """One finding per shell-capable persona whose body omits the containment recipe its ROLE
+    requires (StarshipSuperjam/engine-template#947). Unlike the pure frontmatter leg in validate, this reads the
+    persona FILE — frontmatter to decide Bash access and role, body to check the recipe — so it lives
+    here in the consumer. A Bash-locked persona (the design-review lenses, the audit persona) is exempt.
+    Honours the same ENGINE_AGENT_FIXTURE_DIR seam so the negative-fixture meta-check can witness it
+    biting.
+
+    Two recipes, because two roles run commands for structurally different reasons. A review or worker
+    persona tests COMMITTED work, so the tracked-file clone is exactly right and is what it must carry.
+    A scout is usually dispatched at a moment when the work is still uncommitted — that is the whole
+    point of asking it to run the suite — so cloning only what git tracks would run the suite against
+    the wrong tree and report a green that means nothing. The scout therefore owes a different
+    recipe: the whole working tree, uncommitted changes included, copied into a disposable directory.
+    The `git worktree add` prohibition is common to both, since it is a property of worktrees rather
+    than of what is being tested. Requiring the review recipe of a scout would be worse than useless —
+    it would push the persona toward the copy primitive that silently tests the wrong thing."""
     if agents_dir:
         paths = sorted(glob.glob(os.path.join(agents_dir, "*.md")))
     else:
@@ -103,10 +134,20 @@ def git_safety_findings(tier: str, root: str | None = None, agents_dir: str | No
         if not _keeps_bash(fm):
             continue
         body = validate._body_without_frontmatter(validate.read(path))
-        missing = [tok for tok in _GIT_SAFETY_TOKENS if tok not in body]
+        scout = fm.get("role") == "scout"
+        tokens = _SCOUT_CONTAINMENT_TOKENS if scout else _GIT_SAFETY_TOKENS
+        template = _SCOUT_CONTAINMENT_MESSAGE if scout else _GIT_SAFETY_MESSAGE
+        # The scout branch compares against whitespace-collapsed prose. Its tokens are English
+        # phrases rather than the review branch's code identifiers, and a phrase in a wrapped
+        # paragraph is one line break away from a finding that says the recipe is missing when it is
+        # sitting right there — which teaches an author to reflow prose to satisfy a substring test
+        # instead of to write the recipe. The review branch is deliberately left byte-exact: changing
+        # how a shipped guard matches is a separate decision from adding a new one.
+        haystack = _COLLAPSE_WS.sub(" ", body) if scout else body
+        missing = [tok for tok in tokens if tok not in haystack]
         if missing:
             findings.append(validate.finding(
-                tier, _GIT_SAFETY_MESSAGE.format(name=name, missing=", ".join(missing))))
+                tier, template.format(name=name, missing=", ".join(missing))))
     return findings
 
 

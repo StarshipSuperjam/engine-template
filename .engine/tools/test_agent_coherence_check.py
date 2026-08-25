@@ -41,6 +41,18 @@ _QA_HEAD = ("---\nname: qa-technical-integrity\ndescription: Reviews the build.\
 _QA_WITH_RECIPE = _QA_HEAD + "You may run it in a throwaway copy. " + _GIT_SAFETY_RECIPE + "\n"
 _QA_NO_RECIPE = _QA_HEAD + "You may run it in a throwaway copy and disclose that you did.\n"
 
+# A shell-capable SCOUT owes a different recipe: it is dispatched at moments when the work is still
+# uncommitted, so the tracked-file clone a reviewer carries would run against the wrong tree.
+_SCOUT_RECIPE = ("Copy the whole working tree, including uncommitted changes, into a fresh disposable "
+                 "copy in a temporary directory and run only there; never `git worktree add` from an "
+                 "existing checkout.")
+_SCOUT_HEAD = ("---\nname: validation-runner\ndescription: Runs the suites.\n"
+               "role: scout\nmodel-tier: mechanical\npermissions: read-only\n"
+               "output-contract: validation-digest.v1\n"
+               "disallowedTools: [Edit, Write, NotebookEdit, Agent, Task]\n---\n\n")
+_SCOUT_WITH_RECIPE = _SCOUT_HEAD + _SCOUT_RECIPE + "\n"
+_SCOUT_NO_RECIPE = _SCOUT_HEAD + "You run the suite and report a digest.\n"
+
 
 class TestEngineAgentsDiscovery(unittest.TestCase):
     def test_discovers_personas_and_parses_frontmatter(self):
@@ -144,6 +156,17 @@ class TestGitSafetyLeg(unittest.TestCase):
             findings = acc.git_safety_findings("hard", agents_dir=d)
             self.assertEqual(len(findings), 1)
 
+    def test_review_persona_is_not_satisfied_by_the_scout_recipe(self):
+        # The two recipes are not interchangeable in either direction: a reviewer that carried only
+        # the scout's working-tree copy would be testing uncommitted work it was never given.
+        with tempfile.TemporaryDirectory() as d:
+            body = _QA_HEAD + _SCOUT_RECIPE + "\n"
+            _write(os.path.join(d, ".claude/agents/qa-technical-integrity.md"), body)
+            findings = acc.git_safety_findings("hard", root=d)
+            self.assertEqual(len(findings), 1)
+            self.assertIn("clone_engine", findings[0]["message"])
+            self.assertIn("shell-capable review persona", findings[0]["message"])
+
     def test_main_includes_git_safety_leg_clean_on_real_repo(self):
         # main() concatenates both legs; the shipped personas carry the recipe, so it stays clean.
         buf = io.StringIO()
@@ -151,6 +174,72 @@ class TestGitSafetyLeg(unittest.TestCase):
             rc = acc.main([])
         self.assertEqual(rc, 0)
         self.assertEqual(json.loads(buf.getvalue()), [])
+
+
+class TestScoutContainmentLeg(unittest.TestCase):
+    """The scout branch of the same leg. A scout runs commands against work that is usually still
+    uncommitted, so it owes the working-tree copy recipe rather than the reviewer's tracked-file
+    clone — and being handed the wrong one is itself the defect these cases guard."""
+
+    def test_scout_with_containment_recipe_no_finding(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/agents/validation-runner.md"), _SCOUT_WITH_RECIPE)
+            self.assertEqual(acc.git_safety_findings("hard", root=d), [],
+                             "a shell-capable scout carrying the containment recipe is clean")
+
+    def test_scout_without_recipe_is_flagged_with_the_scout_message(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".claude/agents/validation-runner.md"), _SCOUT_NO_RECIPE)
+            findings = acc.git_safety_findings("hard", root=d)
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0]["severity"], "hard")
+            self.assertIn("Scout persona 'validation-runner'", findings[0]["message"])
+            for token in ("including uncommitted changes", "disposable copy", "git worktree add"):
+                self.assertIn(token, findings[0]["message"])
+
+    def test_scout_carrying_the_review_recipe_is_still_flagged(self):
+        # The load-bearing case: clone_engine() copies TRACKED files only, so a scout following the
+        # reviewer's recipe would run the suite against a tree without the changes it was asked
+        # about and report a green that means nothing. The right recipe is not optional for a scout.
+        with tempfile.TemporaryDirectory() as d:
+            body = _SCOUT_HEAD + _GIT_SAFETY_RECIPE + "\n"
+            _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
+            findings = acc.git_safety_findings("hard", root=d)
+            self.assertEqual(len(findings), 1)
+            self.assertIn("including uncommitted changes", findings[0]["message"])
+            self.assertIn("disposable copy", findings[0]["message"])
+            self.assertNotIn("missing: including uncommitted changes, disposable copy, git worktree add",
+                             findings[0]["message"],
+                             "the shared worktree prohibition is present, so it is not reported missing")
+
+    def test_partial_scout_recipe_names_only_what_is_missing(self):
+        with tempfile.TemporaryDirectory() as d:
+            body = _SCOUT_HEAD + ("Copy the whole working tree, including uncommitted changes, into a "
+                                  "disposable copy and run there.\n")
+            _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
+            findings = acc.git_safety_findings("hard", root=d)
+            self.assertEqual(len(findings), 1)
+            self.assertIn("missing: git worktree add", findings[0]["message"])
+
+    def test_bash_locked_scout_is_exempt(self):
+        # the grounding scout denies Bash outright, so it owes no containment recipe at all.
+        with tempfile.TemporaryDirectory() as d:
+            head = _SCOUT_HEAD.replace("[Edit, Write, NotebookEdit, Agent, Task]",
+                                       "[Edit, Write, NotebookEdit, Bash, Agent, Task]")
+            _write(os.path.join(d, ".claude/agents/grounding-scout.md"), head + "You search.\n")
+            self.assertEqual(acc.git_safety_findings("hard", root=d), [],
+                             "a Bash-locked scout owes no containment recipe")
+
+    def test_line_wrapped_recipe_is_not_a_finding(self):
+        # A persona body is wrapped prose. A phrase split across a line break is still the recipe,
+        # and failing it would teach authors to reflow paragraphs to satisfy a substring test.
+        with tempfile.TemporaryDirectory() as d:
+            body = _SCOUT_HEAD + ("Copy the whole working tree, including uncommitted\nchanges, into a "
+                                  "fresh disposable\ncopy in a temporary directory; never `git worktree\n"
+                                  "add` from an existing checkout.\n")
+            _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
+            self.assertEqual(acc.git_safety_findings("hard", root=d), [],
+                             "a wrapped but complete scout recipe is clean")
 
 
 class TestScriptModes(unittest.TestCase):
