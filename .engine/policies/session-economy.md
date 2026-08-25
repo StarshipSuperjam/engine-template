@@ -29,6 +29,45 @@ touch the engine's own review personas, whose models come from the bindings file
 `general-purpose`, which does judgment work; and it never modulates a review gate — which lenses must run
 and pass is untouched.
 
+### Delegation routing
+
+The gate says which model an unbound subagent may run on. It says nothing about *which* agent to reach
+for, and until now nothing did — so the choice was left to each session's judgment and the mechanical
+work stayed inline, in the orchestrator's own window, which is where the measured context pressure
+actually came from. This is the standing answer.
+
+- **`Explore`** — a mechanical search fan-out across many files or naming conventions, when you want the
+  conclusion and not the file dumps. Runs on a cheap model (the gate above enforces it) and cannot spawn
+  anything: the platform gives it no subagent tool, so a delegation to `Explore` is a leaf by construction.
+- **`Plan`** — drafting an implementation strategy, under the same cheap-model gate. The orchestrator
+  still judges what comes back; a plan agent's output is a draft, never a decision.
+- **`general-purpose`** — judgment work that needs tools, where a cheap tier would do badly. Not gated,
+  and leaf-only **by convention only** — see the residuals below.
+- **`engine-grounding-scout`** — the engine's own cheap scout for the ceremony sweeps: the memory-recall
+  fan-out and the knowledge-graph impact traversal. Returns a cited shortlist, never a conclusion. It
+  denies `Bash`, `Agent` and `Task` outright, so it is a mechanical leaf.
+- **`engine-validation-runner`** — runs the self-tests or the validation suite in a disposable copy of the
+  working tree and returns a digest of what failed and why, keeping thousands of lines of log out of the
+  orchestrating window. Denies `Agent` and `Task`.
+- **DAG workers (`engine-worker-bounded`, `engine-worker-builder`)** — implementation nodes of an approved
+  Build graph, dispatched with a bounded packet. Both now deny `Agent` and `Task` too.
+
+The engine's judgment personas — the review lenses and the audit persona — keep the ability to dispatch,
+but only downward: cheap reconnaissance (`engine-grounding-scout`, or `Explore` on a cheap model) and
+nothing else, never a judgment-tier or spawn-capable agent, and never ending a review on work deferred to
+another agent. Each of those personas carries that mandate in its own text.
+
+Three residuals, named rather than hidden:
+
+- **`general-purpose` is convention-only.** It inherits every tool, including the subagent tool, and the
+  platform exposes no per-agent configuration for it. Nothing mechanical stops it spawning; only the
+  prompt it is given.
+- **A user-level persona wrapper is out of reach.** An agent defined in an operator's own
+  `~/.claude/agents/` directory is not part of this repository and cannot be constrained from here. One
+  such wrapper runs engine personas by reading their files at runtime, which means it treats a persona's
+  denylist as prose rather than as a lock. Closing that is an operator-side change to their own file.
+- **The scouts are Claude-only.** They have no Codex twin; see `provider-exceptions.json` for why.
+
 **This is not a cost router and does not meter spend.** The engine cannot see its own token use and does not
 own the model-invocation loop; `model-routing.md` rejects that scaffolding and that rejection stands. This
 gate acts only at the seam the engine genuinely observes — the spawn itself. Being honest about what it
