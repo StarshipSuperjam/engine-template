@@ -3918,19 +3918,30 @@ class TestEvidenceDurability(CoordinatorCase):
                     encoding="utf-8")
             self.assertEqual(library.slugs(), sorted(secrets),
                              "the fixture must populate the library, or this test proves nothing")
-            state = {"plan": {"plan_id": "pln_deadbeefdead"}, "approval": {"depth": "thorough"},
-                     "reviews": {"deliverable": {"receipts": []}}}
-            with mock.patch.object(bc, "_library", return_value=library):
-                lines = (bc._plan_consent_lines(state) + bc._plan_effort_lines(state)
-                         + [bc._plan_review_clause(state)])
-            body = bcc.compose(_good_claim(), {**_good_evidence(), "consent_lines": lines})
+            state = json.loads(json.dumps(self.state()))
+            state["plan"]["plan_id"] = "pln_deadbeefdead"
+            claim = _good_claim()
+            claim["review"]["finding_summaries"] = []
+            # THE REAL COMPOSER, not a hand-picked list of functions. The previous version of this test
+            # called three composers by name and passed their output in as `consent_lines`, so it proved
+            # only that those three behave — which is the property the finding said was missing. Three
+            # further composers were leaking at the time it was green.
+            with mock.patch.object(bc, "_library", return_value=library), \
+                    mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                    mock.patch.object(bc, "_depth_effort", side_effect=OSError(f"{tmp}/policies/bindings.json")), \
+                    mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                        returncode=129, stdout="", stderr=f"fatal: not a git repository: '{tmp}/.git'")):
+                evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                                 {"body": "", "isDraft": True})
+            body = bcc.compose(claim, evidence)
             self.assertNotIn(tmp, body, "an absolute local path reached the merge surface")
-        self.assertTrue(any("could not be read" in line or "could NOT be established" in line
-                            for line in lines),
-                        "the failure must still be disclosed — silence is the other way to get this wrong")
+        # Silence is the other way to get this wrong: the body must still SAY each thing failed.
+        for expected in ("could NOT be established", "could not be read", "could not be determined"):
+            self.assertIn(expected, body, f"a failure was hidden rather than named: {expected}")
         for slug in secrets:
             self.assertNotIn(slug, body, f"a private plan title reached the merge surface: {slug}")
         self.assertNotIn("the library holds", body)
+        self.assertNotIn("not a git repository", body, "a git error reached the merge surface verbatim")
 
     def test_the_reconcile_disclosure_reaches_the_operator_in_the_composed_body(self):
         """Drives the REAL composer: state -> drift line -> rendered pull-request body. The two rules this

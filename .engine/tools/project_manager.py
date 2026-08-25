@@ -437,7 +437,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         return (f"run the one cold plan review against the approved revision:\n"
                 f"    project_manager.py review packet {plan} --output <packet.md>\n"
                 f"    project_manager.py review record {plan} --packet-digest <digest from the packet> "
-                f"--lens <lens> --findings <findings.json>")
+                f"--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
     if status == "awaiting-approval":
         return (f"present the full revision, then choose a depth and approve:\n"
                 f"    project_manager.py preview {plan}\n"
@@ -715,7 +715,7 @@ def cmd_approve(args) -> int:
     print(f"\nnext: cut the packet and run the one cold plan review against this revision:\n"
           f"    project_manager.py review packet {args.plan} --output <packet.md>\n"
           f"    project_manager.py review record {args.plan} --packet-digest <digest> "
-          f"--lens <lens> --findings <findings.json>")
+          f"--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
     return 0
 
 
@@ -842,6 +842,7 @@ def cmd_review_record(args) -> int:
               "until they are covered. This record is NOT spent — run the missing lenses and add them:\n"
               f"    project_manager.py review amend {args.plan} --lens <lens> "
               f"--packet-digest {args.packet_digest} --findings <findings.json> "
+              "--delivered-effort <low|medium|high> "
               "--reason \"<why this is being completed now>\"\n"
               "  Amendment is possible until the first finding is dispositioned.", file=sys.stderr)
     # The findings fail on their own terms, here, before any ceremony gate: a mistyped severity should
@@ -902,7 +903,7 @@ def cmd_review_amend(args) -> int:
         raise ProjectManagerError(
             f"no plan review is recorded, so there is nothing to amend. Record one first:\n"
             f"    project_manager.py review record {args.plan} --packet-digest <digest> "
-            "--lens <lens> --findings <findings.json>")
+            "--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
     frozen = plan_lifecycle.frozen_reason(record, "plan_review")
     if frozen:
         raise ProjectManagerError("this review can no longer be amended: " + frozen)

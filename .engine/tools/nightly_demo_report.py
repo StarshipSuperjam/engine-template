@@ -129,6 +129,11 @@ def render(result: dict, repository: str, run_url: str | None = None) -> str:
         "This Issue is the ONLY one this workflow keeps open. While it stays red, each night updates this "
         "body with the current failure set rather than filing another; the night it goes green, this closes "
         "itself.\n\n"
+        "**Please COMMENT rather than editing this body.** The workflow recognises its own report by an "
+        "invisible marker on the last line — the rule that stops anyone who merely quotes this report from "
+        "having their Issue closed by a green run. An edit that appends text below that marker makes the "
+        "workflow stop recognising this Issue, and the next red night files a second one. Comments are "
+        "untouched by the nightly update.\n\n"
         f"The failing output, as the demonstrations printed it:\n\n{tail}")
     references = [("the nightly run that reported this", run_url)] if run_url else None
     return (issue_author.render_engine_issue_body(

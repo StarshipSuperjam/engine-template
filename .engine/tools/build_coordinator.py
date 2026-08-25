@@ -491,8 +491,11 @@ def _effort_shortfall_lines(state: dict) -> list[str]:
         # NOT silence. This function is the sole source of the merge-surface disclosure as well as of the
         # status line, and a status render that degrades quietly is a different thing from a pull-request
         # body that quietly drops a line this engine calls hard.
+        # NAMED, NEVER QUOTED — the same rule the plan-record composers learned twice. The underlying
+        # error carries absolute paths from the operator's own filesystem, and this line is composed into
+        # a body pushed to a public repository.
         return lines + [f"the effort the approved `{depth}` depth promises could not be read, so nothing "
-                        f"here checked what the panel delivered against it: {exc}"]
+                        "here checked what the panel delivered against it"]
     if not promised:
         return lines
     silent, overclaim = [], []
@@ -1612,8 +1615,13 @@ def _packet(args, store: Snapshot | None) -> None:
         # only on each receipt: it is a fact about the fan-out, and it is the ceiling every un-pinned
         # reviewer in that fan-out inherits. `effort_shortfall_accepted` is the operator-facing half —
         # a session that proceeded under a known gap, kept so the disclosure cannot be forgotten.
+        # The flag ALONE is not an accepted gap. Recording it unconditionally made a panel that met its
+        # depth publish "the session proceeded knowing it", which cries a gap that is not there — the
+        # same trust cost as hiding one that is. The plan side already gated this on a real shortfall;
+        # the two halves of one mechanism now agree.
         spawn = {"session_effort": session_effort,
-                 "effort_shortfall_accepted": bool(getattr(args, "accept_effort_shortfall", False))}
+                 "effort_shortfall_accepted": bool(getattr(args, "accept_effort_shortfall", False)
+                                                   and effort_shortfall(session_effort, promised_effort))}
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
@@ -3710,9 +3718,8 @@ def _added_workflow_disclosure(base: str) -> str:
     listed = _run(["git", "diff", "--diff-filter=A", "--name-only", f"{base}...HEAD"])
     if listed.returncode != 0:
         return ("**Whether this change adds GitHub workflows could not be determined** — listing the "
-                f"files added since `{base}` failed ({(listed.stderr or '').strip() or 'no detail'}). "
-                "Nothing automatic reviews an added workflow's triggers or permissions, so read "
-                "`.github/workflows/` yourself before merging.")
+                f"files added since `{base}` failed. Nothing automatic reviews an added workflow's "
+                "triggers or permissions, so read `.github/workflows/` yourself before merging.")
     added = [p for p in listed.stdout.splitlines() if p.startswith(".github/workflows/")]
     if not added:
         return ""
@@ -3723,7 +3730,7 @@ def _added_workflow_disclosure(base: str) -> str:
             import yaml
             doc = yaml.safe_load((ROOT / rel).read_text(encoding="utf-8")) or {}
         except Exception as exc:                        # noqa: BLE001
-            lines.append(f"- `{rel}` — could not be read to disclose its triggers and permissions ({exc}); "
+            lines.append(f"- `{rel}` — could not be read to disclose its triggers and permissions; "
                          "read the file before merging.")
             continue
         triggers = doc.get(True, doc.get("on")) or {}
@@ -3984,7 +3991,16 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     plan_record, plan_problem = _sealed_plan_record(state)
     plan_review_ran = bool((plan_record or {}).get("plan_review"))
     cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
-    if cold_review_ran or plan_problem:
+    deliverable_ran = bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
+    if plan_problem and not deliverable_ran:
+        # THE UNKNOWN GETS ITS OWN BRANCH. Routing it into the branch above bought the honest plan
+        # clause at the price of a false second half — naming the installed lenses as having "ran
+        # after" when no receipt is recorded, which the comment above calls the defect this line must
+        # not commit. One false statement traded for another is not a fix.
+        plan_clause = _plan_review_clause(state)
+        review_coverage = (f"{depth} depth. {plan_clause}. No deliverable review receipt is recorded "
+                           "either, so this body can vouch for NEITHER panel.")
+    elif cold_review_ran:
         lenses = ", ".join(sorted(x["lens"] for x in _installed())) or "no installed deliverable lenses"
         plan_clause = _plan_review_clause(state)
         review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."

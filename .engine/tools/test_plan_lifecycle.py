@@ -273,15 +273,53 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         for text in stages:
             self.assertIn("project_manager.py ", text, text)
 
-    def test_the_dispose_command_it_prints_actually_runs(self):
-        """Grepping for `project_manager.py ` proved the guidance MENTIONED a tool, never that the
-        command it printed works. It did not: the blocking choice became required and the printed
-        command did not gain it, so a session following the guidance verbatim hit a refusal. Replaying
-        what is printed is the only assertion that could have caught that."""
+    def _replay(self, slug, printed):
+        """Substitute the placeholders a reader would, then run precisely what was printed."""
         import shlex
+        # Substituted in the RAW STRING first: a placeholder like `<digest from the packet>` carries
+        # spaces, and splitting before substituting turns one placeholder into four unknown tokens.
+        swap = {"<why>": "Not a real problem.", "<lens>": self.covering()[0],
+                "<packet.md>": str(Path(self.root) / "packet.md"),
+                "<digest from the packet>": self.packet_digest(slug),
+                "<digest>": self.packet_digest(slug),
+                "<findings.json>": self.findings_file(self.finding()),
+                "<low|medium|high>": "high",
+                "<accepted-fixed|accepted-tracked|partially-accepted|rejected|escalated>": "rejected",
+                "<--blocks-this-pr|--does-not-block-this-pr>": "--does-not-block-this-pr"}
+        for placeholder, value in swap.items():
+            printed = printed.replace(placeholder, value)
+        replayed = shlex.split(printed)[1:]
+        self.assertFalse([t for t in replayed if t.startswith("<")],
+                         f"the guidance printed a placeholder this test does not know: {replayed}")
+        return self.run_command(*replayed)
+
+    def test_every_command_the_guidance_prints_actually_runs(self):
+        """The CLASS, not one member of it.
+
+        The previous version of this test filtered printed lines to `finding dispose` and replayed that
+        one. It proved a single line runs and said nothing about the other three — and two of those three
+        were refused by their own verb at the time it was green, because `--delivered-effort` became
+        mandatory and no printed command gained it. A guard that covers one member of a class it names is
+        the same failure as grepping for the tool's name, one level up. Every `project_manager.py` line
+        the guidance prints at each stage is replayed here."""
         slug = self.plan()
         self.run_command("preview", slug)
         self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "Yes.")
+        # Stage one: awaiting-review. `review packet` is replayed, then the printed `review record`.
+        printed = [line.strip() for line in self.run_command("resume", slug)[1].splitlines()
+                   if line.strip().startswith("project_manager.py ")]
+        self.assertTrue(any("review record" in line for line in printed), printed)
+        for line in printed:
+            if "review record" in line:
+                # The single-lens form the guidance prints does not cover a standard roster, so the
+                # refusal it earns is the coverage one — never the effort one this test exists for.
+                code, _, err = self._replay(slug, line)
+                self.assertNotIn("has to say what they actually ran at", err,
+                                 f"the guidance printed a command its own verb refuses: {line}")
+            else:
+                code, _, err = self._replay(slug, line)
+                self.assertEqual(code, 0, f"{line}\n{err}")
+        # Stage two: review recorded, findings outstanding — the printed `finding dispose`.
         argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
                 "--delivered-effort", "high"]
         for lens in self.covering():
@@ -289,18 +327,11 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         argv += ["--findings", self.findings_file(self.finding())]
         self.run_command(*argv)
         printed = [line.strip() for line in self.run_command("resume", slug)[1].splitlines()
-                   if line.strip().startswith("project_manager.py finding dispose")]
-        self.assertEqual(len(printed), 1, "expected exactly one printed dispose command")
-        # Substitute the placeholders a reader would, and run precisely what was printed.
-        replayed = shlex.split(printed[0])[1:]
-        replayed = ["rejected" if t.startswith("<accepted-fixed|") else t for t in replayed]
-        replayed = ["Not a real problem." if t == "<why>" else t for t in replayed]
-        replayed = ["--does-not-block-this-pr" if t.startswith("<--blocks-this-pr|") else t
-                    for t in replayed]
-        self.assertFalse([t for t in replayed if t.startswith("<")],
-                         f"unsubstituted placeholder: {replayed}")
-        code, _, err = self.run_command(*replayed)
-        self.assertEqual(code, 0, err)
+                   if line.strip().startswith("project_manager.py ")]
+        self.assertTrue(any("finding dispose" in line for line in printed), printed)
+        for line in printed:
+            code, _, err = self._replay(slug, line)
+            self.assertEqual(code, 0, f"{line}\n{err}")
 
 
 class D7CarryForwardDecayIsRechecked(_Ceremony):

@@ -145,10 +145,23 @@ def missing_consent(record: dict, gate: str) -> str | None:
 
 
 def consent_trail(record: dict) -> list[str]:
-    """The consent trail, one operator-facing line per gate, for the pull request body."""
+    """The consent trail, one operator-facing line per gate, for the pull request body.
+
+    THE DECISION IS RENDERED, NEVER PARSED — and rendering it raw was not that. The operator's own
+    words go into a Markdown body that OTHER engine code reads for control markers, and a decision
+    carrying newlines used to break out of its bullet: a probe produced a fabricated second gate line
+    and an `engine-severity` marker that no attestation record contains. The same change neutralized
+    exactly this class one file over, for demonstration output, on exactly this reasoning — and then
+    left the program's headline governance control rendering free text into the same body.
+
+    Newlines collapse to a single line and comment openers are neutralized visibly, so a decision can
+    say anything a person means to say and still cannot manufacture a gate that was never crossed.
+    Forging the CONTENT of a decision remains the session's to do and is issue 914's residual; what
+    stops here is forging the trail's SHAPE."""
     lines = []
     for entry in record.get("consent", []):
-        lines.append(f"- **{entry['gate']}** ({entry['at']}) — “{entry['decision']}”")
+        decision = " ".join(str(entry["decision"]).split()).replace("<!--", "<!‑‑")
+        lines.append(f"- **{entry['gate']}** ({entry['at']}) — “{decision}”")
     return lines
 
 

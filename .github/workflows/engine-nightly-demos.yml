@@ -102,16 +102,17 @@ jobs:
         # this fails, and a red corpus with no report would be the silence this workflow exists to end.
         run: |
           set -uo pipefail
+          # `-e` IS ALREADY ON. The default shell for a `run:` block is `bash --noprofile --norc -eo
+          # pipefail`, and re-declaring `set -uo pipefail` does not clear it — so a corpus that CRASHED
+          # aborted the step right here, before the crash-detection below could say so and before the
+          # step summary was written. Everything after this line was unreachable on exactly the path it
+          # was written for. Disabled around the run, and the exit code is captured instead.
+          set +e
           uv run --directory .engine --frozen -- python tools/demonstration_corpus.py --json-out "${RUNNER_TEMP}/demo-result.json" | tee "${RUNNER_TEMP}/demo-log.txt"
-          ok="$(python3 -c "import json,os;p=os.environ['RUNNER_TEMP']+'/demo-result.json';print(str(json.load(open(p))['ok']).lower() if os.path.getsize(p) else 'missing')" 2>/dev/null || echo missing)"
-          # The hand-off to the fenced reporting job, base64 on one line. Not an artifact — that would need
-          # two more third-party actions for a few kilobytes of JSON. Not raw JSON in a job output either:
-          # this string contains demonstration output, and encoding it removes every question about
-          # newlines, delimiters and quoting between here and the job that reads it.
-          {
-            echo "ok=${ok}"
-            echo "result=$(python3 -c "import base64,sys;print(base64.b64encode(open('${RUNNER_TEMP}/demo-result.json','rb').read()).decode())")"
-          } >> "${GITHUB_OUTPUT}"
+          corpus_rc=${PIPESTATUS[0]}
+          set -e
+          # The log always exists (tee wrote it), so the summary is written FIRST — a crash is exactly
+          # when a reader needs it, and it used to be the run that produced none.
           {
             echo "### Demonstration corpus"
             echo ""
@@ -119,11 +120,21 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
           # A corpus that CRASHED wrote no result at all — a different thing from one that failed, and
           # the more dangerous one: the reporting job would find nothing to report and the night would
-          # pass in silence with a stale Issue still open. Say so, loudly, and fail.
+          # pass in silence with a stale Issue still open. Checked BEFORE the hand-off below, which
+          # reads that very file and would otherwise abort the step first.
           if [ ! -s "${RUNNER_TEMP}/demo-result.json" ]; then
-            echo "::error::The demonstration corpus produced no result — it did not finish. Nothing can be reported for this run; any open nightly report is now stale."
+            echo "::error::The demonstration corpus produced no result — it did not finish (exit ${corpus_rc}). Nothing can be reported for this run; any open nightly report is now stale."
             exit 1
           fi
+          ok="$(python3 -c "import json,os;p=os.environ['RUNNER_TEMP']+'/demo-result.json';print(str(json.load(open(p))['ok']).lower())" 2>/dev/null || echo missing)"
+          # The hand-off to the fenced reporting job, base64 on one line. Not an artifact — that would need
+          # two more third-party actions for a few kilobytes of JSON. Not raw JSON in a job output either:
+          # this string contains demonstration output, and encoding it removes every question about
+          # newlines, delimiters and quoting between here and the job that reads it.
+          {
+            echo "ok=${ok}"
+            echo "result=$(python3 -c "import base64;print(base64.b64encode(open('${RUNNER_TEMP}/demo-result.json','rb').read()).decode())")"
+          } >> "${GITHUB_OUTPUT}"
           if [ "${ok}" != "true" ]; then
             echo "::error::One or more shipped demonstrations are failing. The nightly report Issue carries the current set."
             exit 1
