@@ -408,12 +408,22 @@ def _plan_effort_lines(state: dict) -> list[str]:
     The depth is the plan record's own, not the Build's: the two are normally the same value through the
     sealed handoff, but the claim being qualified here is the plan panel's, and it is answerable to the
     approval the plan panel actually ran under."""
-    record = _sealed_plan_record(state)
+    record, problem = _sealed_plan_record(state)
+    if problem:
+        # The disclosure this function carries is a hard one, so its own failure is a hard line too.
+        # Silence here would publish nothing while `_plan_review_clause` publishes something false.
+        #
+        # WITHOUT the underlying message. The plans are local and private — the library's own read
+        # errors name sibling plan slugs, which are the operator's working titles for unrelated work.
+        # This line is composed into a body that gets pushed to a pull request, so it says WHAT failed
+        # and never quotes the failure.
+        return ["the sealed plan could not be read while composing this body, so nothing here can say "
+                "what effort its review panel ran at — check the plan's own record before merging"]
     review = (record or {}).get("plan_review") or {}
-    delivered = review.get("delivered_efforts") or {}
     depth = ((record or {}).get("approval") or {}).get("depth")
-    if not depth or not delivered:
+    if not depth or not review:
         return []
+    delivered = review.get("delivered_efforts") or {}
     try:
         promised = _depth_effort(depth)
     except Exception:                                   # noqa: BLE001
@@ -421,18 +431,28 @@ def _plan_effort_lines(state: dict) -> list[str]:
                 "here checked what its panel delivered against it"]
     if not promised:
         return []
+    # A plan sealed before this field existed carries no map at all, and the seal deliberately permits
+    # that — its own comment says the pull-request body "carries that honestly". It did not: an absent
+    # map returned nothing, so the body claimed the approved depth with no qualification for a panel
+    # that never stated what it ran at. Every plan sealed before this change is in that state, so this
+    # is the common case on the day it merges, not a corner. Mirrors the Build side's `silent` line.
+    unrecorded = sorted(lens for lens in review.get("lenses", []) if lens not in delivered)
+    lines = []
+    if unrecorded:
+        lines.append(f"these plan reviewers recorded no delivered effort, so the `{depth}` depth's "
+                     f"promise of {promised} is unverified for them: " + ", ".join(unrecorded))
     under = sorted(f"{lens} ({effort})" for lens, effort in delivered.items()
                    if effort_shortfall(effort, promised))
     if not under:
-        return []
+        return lines
     # An unacknowledged shortfall should be unreachable — the gate refuses one — but `review amend` can
     # bypass the refusal without setting the flag, so the two cases are told apart rather than assumed.
     acknowledged = ("and the session recorded that it proceeded knowing it"
                     if review.get("effort_shortfall_accepted")
                     else "and NO acknowledgement of that gap is recorded against the plan")
-    return [f"the PLAN panel came in under the `{depth}` depth it was approved at, which promises "
-            f"{promised}, {acknowledged}: " + ", ".join(under)
-            + " (self-reported, and nothing here verifies it)"]
+    return lines + [f"the PLAN panel came in under the `{depth}` depth it was approved at, which promises "
+                    f"{promised}, {acknowledged}: " + ", ".join(under)
+                    + " (self-reported, and nothing here verifies it)"]
 
 
 def _effort_shortfall_lines(state: dict) -> list[str]:
@@ -475,9 +495,12 @@ def _effort_shortfall_lines(state: dict) -> list[str]:
     silent, overclaim = [], []
     session = stage.get("session_effort")
     repair_session = repair.get("session_effort")
-    # A repair receipt lives in BOTH lists — spliced into the deliverable stage, and kept on the repair
-    # stage that spawned it. That second list is what makes the attribution readable without stamping a
-    # new field onto every receipt.
+    # Attribution comes off the receipt itself, stamped when it was recorded. Inferring it from the
+    # repair stage's own receipt list read correctly but could go stale in both directions — a dropped
+    # repair receipt still spliced in the deliverable stage produced a FALSE "reviewed above its
+    # session" line, and a re-cut deliverable receipt for the same lens could hide a real one. A
+    # disclosure the operator is asked to trust must not be built on a list that can drift. The list is
+    # still the fallback for receipts written before the field existed.
     repair_lenses = {receipt["lens"] for receipt in repair.get("receipts", [])}
     for label, panel_session, panel in (("this panel", session, stage),
                                         ("the repair panel", repair_session, repair)):
@@ -488,7 +511,9 @@ def _effort_shortfall_lines(state: dict) -> list[str]:
                 "knowing it (self-reported, and nothing here verifies it)")
     for receipt in receipts:
         delivered = receipt.get("delivered_effort")
-        spawning = repair_session if receipt["lens"] in repair_lenses else session
+        spawning = receipt.get("spawn_session_effort")
+        if spawning is None:
+            spawning = repair_session if receipt["lens"] in repair_lenses else session
         if delivered is None:
             silent.append(receipt["lens"])
         elif effort_shortfall(delivered, promised):
@@ -1709,7 +1734,11 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        # What this lens actually READ, so a later re-bind can ask whether anything in the
                        # new range is new to it instead of assuming everything is.
                        "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]},
-                       "delivered_effort": delivered_effort}
+                       "delivered_effort": delivered_effort,
+                       # Which panel this receipt came from, stamped rather than inferred: it is about
+                       # to be spliced into the deliverable stage, where the stage it sits in stops
+                       # answering that question.
+                       "spawn_session_effort": target.get("session_effort")}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
@@ -1745,7 +1774,8 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution,
                        "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]},
-                       "delivered_effort": delivered_effort}
+                       "delivered_effort": delivered_effort,
+                       "spawn_session_effort": target.get("session_effort")}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
     store.mutate(change)
     shortfall = _effort_shortfall_lines(store.read())
@@ -3258,21 +3288,27 @@ def _assert_claim_findings(state: dict, claim: dict) -> None:
             + " (re-run `contract template` against current state, or reconcile the finding ids)")
 
 
-def _sealed_plan_record(state: dict) -> dict | None:
-    """The whole record of the SEALED PLAN this Build was bound to, read from the library at compose time.
+def _sealed_plan_record(state: dict) -> tuple[dict | None, str | None]:
+    """The whole record of the SEALED PLAN this Build was bound to, and why it could not be read.
 
     Its own seam because more than one disclosure needs more than one field off it — the review and its
     findings, the carried obligations, and the depth the plan panel was approved at, which is the plan
     record's own and not the Build's.
+
+    IT RETURNS THE FAILURE, not just the absence. An unreadable library must not block composing the
+    body, but it must not look like a Build with no plan review either: hard disclosures now hang off
+    this read, and on a failure the caller that says nothing publishes nothing while the caller that
+    describes the situation asserts something false. "No plan is bound" and "the plan could not be read"
+    are different facts and are told apart here, once, rather than by each caller's `or {}`.
     """
     plan_id = state.get("plan", {}).get("plan_id")
     if not plan_id:
-        return None
+        return None, None
     try:
         library = _library()
-        return library.read_record(library.resolve(plan_id))
-    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
-        return None
+        return library.read_record(library.resolve(plan_id)), None
+    except Exception as exc:  # noqa: BLE001 — never blocks the body; always names itself
+        return None, str(exc) or exc.__class__.__name__
 
 
 def _sealed_plan_review(state: dict) -> dict | None:
@@ -3283,7 +3319,8 @@ def _sealed_plan_review(state: dict) -> dict | None:
     Build receipt demands loses its weight in `surviving_findings`, and a plan finding has no Build
     receipt at all. Structural immunity rather than a flag to remember to set.
     """
-    return (_sealed_plan_record(state) or {}).get("plan_review")
+    record, _ = _sealed_plan_record(state)
+    return (record or {}).get("plan_review")
 
 
 def _plan_obligation_lines(state: dict) -> list[str]:
@@ -3410,9 +3447,19 @@ def _plan_review_clause(state: dict) -> str:
 
     Its own named seam because distinct situations reach it and each needs a different true sentence.
     """
-    plan_review = _sealed_plan_review(state)
+    record, problem = _sealed_plan_record(state)
+    plan_review = (record or {}).get("plan_review")
     diverged = state.get("plan", {}).get("diverged_from_seal")
     depth = (state.get("approval") or {}).get("depth", "the approved")
+    if problem:
+        # Never the no-review sentence on a failed read. That sentence is an assertion about how the
+        # plan was sealed, and asserting it because the library would not open is a false statement in
+        # the flattering direction — the same class the added-workflow disclosure just stopped making.
+        # The failure is named, never quoted: the library's read errors carry sibling plan slugs, and
+        # those are private working titles for unrelated work that must not travel to a pull request.
+        return ("Whether the sealed plan was reviewed could NOT be established while composing this "
+                "body — the plan this Build names could not be read from the local plan library. Read "
+                "the plan's own record before merging")
     if plan_review and diverged:
         return (f"The sealed plan was reviewed at {depth} depth by "
                 + ", ".join(plan_review.get("lenses", [])) +

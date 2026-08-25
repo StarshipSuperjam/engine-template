@@ -824,8 +824,11 @@ class TestReviewAndFindings(CoordinatorCase):
 
     # --- the PR body's plan-review sentence, now read from the sealed plan record ------
 
-    def _with_plan_review(self, review):
-        return mock.patch.object(bc, "_sealed_plan_review", return_value=review)
+    def _with_plan_review(self, review, problem=None):
+        """The clause reads the whole RECORD now, not just the review, so that it can tell a plan it
+        could not read from a plan that was sealed without one."""
+        record = None if review is None else {"plan_review": review, "approval": {"depth": "standard"}}
+        return mock.patch.object(bc, "_sealed_plan_record", return_value=(record, problem))
 
     def test_the_pr_body_states_honestly_what_the_plan_review_was(self):
         state = self.state()
@@ -844,6 +847,17 @@ class TestReviewAndFindings(CoordinatorCase):
         with self._with_plan_review(None):
             self.assertIn("no cold plan review is recorded for either",
                           bc._plan_review_clause(diverged))
+
+    def test_a_plan_it_could_not_read_is_never_reported_as_a_plan_with_no_review(self):
+        """Two different facts that used to render as one sentence, in the flattering direction. And the
+        failure is NAMED, never quoted: the library's read errors carry sibling plan slugs, which are
+        private working titles for unrelated work and must not travel to a pull request."""
+        clause = None
+        with self._with_plan_review(None, problem="no plan matches 'pln_x'; the library holds: secret-slug"):
+            clause = bc._plan_review_clause(self.state())
+        self.assertIn("could NOT be established", clause)
+        self.assertNotIn("No cold plan review is recorded", clause)
+        self.assertNotIn("secret-slug", clause, "a private plan slug must never reach the merge surface")
 
     def test_the_body_cannot_claim_a_plan_was_both_reviewed_and_not_reviewed(self):
         # The contradiction is now impossible by construction rather than by a conditional: a seal is

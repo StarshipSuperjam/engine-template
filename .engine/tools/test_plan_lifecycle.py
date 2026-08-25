@@ -273,6 +273,35 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         for text in stages:
             self.assertIn("project_manager.py ", text, text)
 
+    def test_the_dispose_command_it_prints_actually_runs(self):
+        """Grepping for `project_manager.py ` proved the guidance MENTIONED a tool, never that the
+        command it printed works. It did not: the blocking choice became required and the printed
+        command did not gain it, so a session following the guidance verbatim hit a refusal. Replaying
+        what is printed is the only assertion that could have caught that."""
+        import shlex
+        slug = self.plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "Yes.")
+        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
+                "--delivered-effort", "high"]
+        for lens in self.covering():
+            argv += ["--lens", lens]
+        argv += ["--findings", self.findings_file(self.finding())]
+        self.run_command(*argv)
+        printed = [line.strip() for line in self.run_command("resume", slug)[1].splitlines()
+                   if line.strip().startswith("project_manager.py finding dispose")]
+        self.assertEqual(len(printed), 1, "expected exactly one printed dispose command")
+        # Substitute the placeholders a reader would, and run precisely what was printed.
+        replayed = shlex.split(printed[0])[1:]
+        replayed = ["rejected" if t.startswith("<accepted-fixed|") else t for t in replayed]
+        replayed = ["Not a real problem." if t == "<why>" else t for t in replayed]
+        replayed = ["--does-not-block-this-pr" if t.startswith("<--blocks-this-pr|") else t
+                    for t in replayed]
+        self.assertFalse([t for t in replayed if t.startswith("<")],
+                         f"unsubstituted placeholder: {replayed}")
+        code, _, err = self.run_command(*replayed)
+        self.assertEqual(code, 0, err)
+
 
 class D7CarryForwardDecayIsRechecked(_Ceremony):
     """The B2 shape: a predecessor mints obligations AFTER its successor has joined."""
@@ -476,6 +505,42 @@ class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
         efforts = self.lib.read_record(slug)["plan_review"]["delivered_efforts"]
         self.assertEqual(sorted(efforts), sorted(self.covering()))
         self.assertEqual(set(efforts.values()), {"high"})
+
+    def test_the_honest_exit_records_the_acknowledgement_it_bypassed_the_refusal_with(self):
+        slug = self.approved("standard")
+        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
+                "--delivered-effort", "low", "--accept-effort-shortfall"]
+        for lens in self.covering():
+            argv += ["--lens", lens]
+        code, _, err = self.run_command(*argv)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self.lib.read_record(slug)["plan_review"]["effort_shortfall_accepted"])
+
+    def test_an_amendment_that_uses_the_escape_records_it_too(self):
+        """The half of the fix with no test anywhere: `review amend` passed the accept flag to the
+        refusal to get past it and never wrote the acknowledgement down, leaving a gap on the record
+        with nothing saying anyone accepted it — the one state the disclosure cannot describe."""
+        slug = self.approved("standard")
+        first, second = self.covering()[0], self.covering()[1]
+        self.assertEqual(self.run_command(
+            "review", "record", slug, "--packet-digest", self.packet_digest(slug),
+            "--lens", first, "--delivered-effort", "high")[0], 0)
+        record = self.lib.read_record(slug)["plan_review"]
+        self.assertFalse(record.get("effort_shortfall_accepted"))
+        code, _, err = self.run_command(
+            "review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
+            "--lens", second, "--delivered-effort", "low", "--reason", "A late lens, run cheaper.")
+        self.assertEqual(code, 2, "an under-depth amendment must refuse before it records")
+        self.assertIn("came in under the depth", err)
+        code, _, err = self.run_command(
+            "review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
+            "--lens", second, "--delivered-effort", "low", "--accept-effort-shortfall",
+            "--reason", "A late lens, run cheaper.")
+        self.assertEqual(code, 0, err)
+        amended = self.lib.read_record(slug)["plan_review"]
+        self.assertEqual(amended["delivered_efforts"][second], "low")
+        self.assertTrue(amended["effort_shortfall_accepted"],
+                        "the escape was used, so the acknowledgement has to be on the record")
 
     def test_a_per_lens_form_names_one_lens_and_a_bare_level_names_them_all(self):
         lenses = ["architecture", "feasibility"]

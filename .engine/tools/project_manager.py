@@ -422,7 +422,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                     + ", ".join(f["id"] for f in outstanding) + f":\n"
                     f"    project_manager.py finding dispose {plan} --id {first} "
                     "--disposition <accepted-fixed|accepted-tracked|partially-accepted|rejected|escalated> "
-                    "--rationale \"<why>\"")
+                    "--rationale \"<why>\" <--blocks-this-pr|--does-not-block-this-pr>")
         if blockers:
             return (f"revise to clear what still blocks the seal, then seal:\n"
                     f"    project_manager.py revise {plan} --document <revision.json> "

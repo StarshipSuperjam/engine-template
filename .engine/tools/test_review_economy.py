@@ -400,6 +400,20 @@ class TheB1EffortShortfall(unittest.TestCase):
         self.assertIn("the repair panel", lines[0])
         self.assertIn("medium", lines[0])
 
+    def test_the_spawning_session_is_read_off_the_receipt_not_inferred_from_a_list(self):
+        """Inferring it from the repair stage's receipt list read correctly but could go stale: a repair
+        receipt dropped there while its spliced copy survived in the deliverable stage produced a FALSE
+        'reviewed above its session' line. The stamp is what the disclosure trusts; the list is only the
+        fallback for receipts written before the field existed."""
+        stale = {"lens": "security-governance", "delivered_effort": "high",
+                 "spawn_session_effort": "high"}
+        state = {"approval": {"depth": "thorough"},
+                 "reviews": {"deliverable": {"session_effort": "medium", "receipts": [stale]}},
+                 "repair": {"session_effort": "medium", "receipts": []}}
+        self.assertEqual([line for line in bc._effort_shortfall_lines(state)
+                          if "ABOVE the session" in line], [],
+                         "a receipt that names its own session must not be measured against another's")
+
     def test_a_spliced_repair_receipt_answers_to_the_session_that_spawned_it(self):
         """A repair receipt is spliced into the deliverable stage, so comparing it against the
         DELIVERABLE session's effort measured it against a number it never ran under. The repair stage
@@ -421,9 +435,9 @@ class ThePlanPanelSEffortReachesTheMergeSurface(unittest.TestCase):
     `effort_shortfall_accepted` went onto the plan record and the only reader in the tree was the seal's
     completeness check, which asserts the map is filled in and never that the level was met."""
 
-    def _with_record(self, record):
+    def _with_record(self, record, problem=None):
         original = bc._sealed_plan_record
-        bc._sealed_plan_record = lambda state: record
+        bc._sealed_plan_record = lambda state: (record, problem)
         self.addCleanup(lambda: setattr(bc, "_sealed_plan_record", original))
 
     def test_a_plan_panel_under_its_approved_depth_is_named(self):
@@ -449,6 +463,33 @@ class ThePlanPanelSEffortReachesTheMergeSurface(unittest.TestCase):
         self._with_record({"approval": {"depth": "thorough"},
                            "plan_review": {"delivered_efforts": {"architecture": "high"}}})
         self.assertEqual(bc._plan_effort_lines({}), [])
+
+    def test_a_panel_that_never_said_what_it_ran_at_is_named_as_unverified(self):
+        """The seal deliberately permits a review with no effort map — its own comment says the Build's
+        pull-request body "carries that honestly". It did not: an absent map returned nothing, so the
+        body claimed the approved depth with no qualification for a panel that never stated anything.
+        Every plan sealed before this field existed is in exactly that state."""
+        self._with_record({"approval": {"depth": "thorough"},
+                           "plan_review": {"lenses": ["architecture", "feasibility"]}})
+        lines = bc._plan_effort_lines({})
+        self.assertEqual(len(lines), 1)
+        self.assertIn("unverified", lines[0])
+        self.assertIn("architecture", lines[0])
+        self.assertIn("feasibility", lines[0])
+
+    def test_a_library_that_cannot_be_read_says_so_rather_than_publishing_nothing(self):
+        """A hard disclosure hung off a read that swallowed every exception: an unreadable library made
+        the accepted gap vanish, and `_plan_review_clause` then asserted no review had run at all — a
+        false statement in the flattering direction."""
+        self._with_record(None, problem="permission denied opening /private/plans/somebody-elses-plan")
+        lines = bc._plan_effort_lines({})
+        self.assertEqual(len(lines), 1)
+        self.assertIn("could not be read", lines[0])
+        self.assertNotIn("somebody-elses-plan", lines[0],
+                         "the failure is named on the merge surface, never quoted — plans are private")
+        clause = bc._plan_review_clause({"plan": {"plan_id": "pln_x"}, "approval": {"depth": "thorough"}})
+        self.assertIn("could NOT be established", clause)
+        self.assertNotIn("No cold plan review is recorded", clause)
 
     def test_it_rides_the_same_list_the_build_side_uses(self):
         self._with_record({"approval": {"depth": "thorough"},
