@@ -11661,7 +11661,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:894b624dfabbbba18257d13e07da1de5d3766202690ce2dbd5f89478e5986523",
+        "fingerprint": "sha256:786e2be62cf5206428537b3186761ea3756b479a6c9941317ecea5f4a42d3327",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -13928,7 +13928,7 @@
       },
       "slug": "plan_coordinator",
       "source": {
-        "fingerprint": "sha256:de68549ddbb1d965449c5261b51f9508d66976dfffb58b35d8c3cb77a4efa9b9",
+        "fingerprint": "sha256:3a640e0d0330ca740fe7edce76dfb8bc7360f6ed866b1803a0d2cdd8e684d61d",
         "path": ".engine/tools/plan_coordinator.py"
       },
       "status": "active",
@@ -18296,7 +18296,7 @@
       },
       "slug": "test_plan_coordinator",
       "source": {
-        "fingerprint": "sha256:c3b35e4b04e765bb88238f93bb6866fd84903453cf9770419ebe611821ac11ac",
+        "fingerprint": "sha256:15393a862ecf2821aa48268db6d1c7219e54102d363859da22708f0ee3cdf5a6",
         "path": ".engine/tools/test_plan_coordinator.py"
       },
       "status": "active",
