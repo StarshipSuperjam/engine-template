@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import time
+import unicodedata
 from typing import Any
 
 import build_coordinator_contract as composer  # aliased 'composer', not 'contract': this file uses the bare
@@ -2844,7 +2845,7 @@ def _round_line(index: int, entry: dict) -> str:
         moved = (", ".join(f"{part} file(s)" for part in parts) + f", {classification['total_churn']} lines"
                  ) if parts else "nothing"
     marked = _ANCHOR_NOTES.get(entry.get("anchor_note") or "", "")
-    if classification and classification.get("guards_read") is False:
+    if classification and classification.get("guards_read") is not True:
         marked += (" (a guard registration on this round's span could not be read, so the guarded count "
                    "below may be short)")
     return (f"round {index}: {'counted' if _round_counted(entry) else 'uncounted'}, {what}{marked}; "
@@ -2902,17 +2903,22 @@ def _round_guidance_lines(state: dict) -> list[str]:
             for index, item in enumerate(rounds, start=1) if item.get("guidance")]
 
 
-_MARKUP_SAFE = str.maketrans({"`": "'", "\n": " ", "\r": " ", "\t": " ", "\x00": ""})
-
-
 def _plain(text: str) -> str:
     """Free text on its way to the operator's merge surface, reduced to something that cannot restructure
     the page around it. Two things matter: a code span must not close early, and — the reason this exists
     beyond tidiness — an unterminated HTML comment opener HIDES every line rendered after it on GitHub,
     which would blank the rounds record, the growth highlight and the reviewed-vs-submitted line while a
-    presence-only preflight still found each of them in the source. Openers are neutralised, not stripped,
-    so the operator still reads what was written."""
-    return text.translate(_MARKUP_SAFE).replace("<!--", "<!- -").replace("-->", "- ->")
+    presence-only preflight still found each of them in the source.
+
+    `<` is neutralised outright rather than a list of openers being blacklisted. A blacklist has to be
+    complete to be worth anything, and `<!--` is only one of several constructs that open a raw HTML block;
+    neither a repository path nor a recorded sentence from the operator has a legitimate need for the
+    character. Control and formatting characters go too — including the bidirectional overrides and
+    zero-width joiners this project already scrubs from its boot pack — because text that reorders itself
+    on screen is not text the operator can be said to have read. Nothing is deleted silently: `<` becomes a
+    visible marker, so the operator still reads what was written."""
+    scrubbed = "".join(" " if unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} else ch for ch in text)
+    return scrubbed.replace("`", "'").replace("<", "‹")
 
 
 def _fenced(path: str) -> str:
@@ -2936,7 +2942,9 @@ def _repair_round_lines(state: dict) -> list[str]:
              f"budget is {_REPAIR_ROUND_ESCALATION} panel rounds, and {_REPAIR_ROUND_CEILING} rounds of any "
              f"kind is the absolute ceiling. Passing either stop needs recorded operator guidance, "
              f"disclosed above. Whether the repairs are widening is judged on code and guarded surface "
-             f"only; regenerated and documentation churn is listed below but never compared."]
+             f"only; regenerated and documentation churn is listed below but never compared. A file counts "
+             f"as guarded if it was protected at ANY point since the deliverable review, so a guard retired "
+             f"mid-build still reads as guarded rather than quietly becoming ordinary work."]
     for index, entry in enumerate(rounds, start=1):
         lines.append("  - " + _round_line(index, entry))
         classification = entry.get("classification")
@@ -3040,7 +3048,10 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # and all -- and refund its counted slot, while both stops were skipped because the assess looked like
     # a replacement. Re-recording an older pair is a NEW round; only the latest judgment is still open.
     same = [] if fanned_out or not rounds else [r for r in rounds[-1:] if _same_episode(r)]
-    kept = [r for r in rounds if r not in same]
+    # By POSITION, never by value: two dict-identical rounds (the same commit pair assessed twice with a
+    # packet cut between, so each appended rather than replaced) would both be dropped by an equality
+    # filter, silently erasing a round from the ledger and refunding its counted slot.
+    kept = rounds[:-1] if same else list(rounds)
     anchor, anchor_note = _classification_anchor(state, kept, head)
     sys.path.insert(0, str(ROOT / ".engine" / "tools"))
     import repair_divergence
@@ -3086,10 +3097,15 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # by the session that would benefit from declaring it.
     counted = len(lenses) >= _COUNTED_LENS_FLOOR
     guidance = getattr(args, "guidance", None)
-    # A replacement never ERASES a recorded consultation. Re-judging a round the operator was already
-    # consulted about (scoped -> full, say) carries their answer forward: dropping it would remove the
-    # escalation from the PR body and, with it, the preflight requirement that the body carry it -- while
-    # the rounds headline went on asserting that guidance had been disclosed.
+    # A replacement never ERASES a recorded consultation: dropping the answer would remove the escalation
+    # from the PR body and, with it, the preflight requirement that the body carry it, while the rounds
+    # headline went on asserting that guidance had been disclosed. But a carried answer is a RECORD, never
+    # a key: it satisfies no stop it was not given for. An answer recorded at the absolute ceiling ("one
+    # cheap check, then ship") would otherwise be inherited by a re-judgment that turns that cheap check
+    # into a panel, spending a counted round the operator was never asked about -- the same bypass
+    # `already_counted` closes, re-opened through the consultation record itself. Only the answer supplied
+    # to THIS assess can pass a stop.
+    fresh_guidance = guidance
     if not guidance:
         guidance = next((r["guidance"] for r in same if r.get("guidance")), None)
     # CARRY-FORWARD. A receipt is a fact about what a lens read, and that fact does not stop being true
@@ -3125,7 +3141,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
              "classification": classification}
     rounds = kept + [entry]
     prior_counted = sum(1 for r in kept if _round_counted(r))
-    if not guidance:
+    if not fresh_guidance:
         stop = None
         # The counted cap is checked even when this assess REPLACES an existing entry, because a
         # replacement can still spend: recording a cheap single-lens round and then re-assessing the same
@@ -4338,8 +4354,8 @@ def _drift_line(state: dict, head: str) -> str:
     for item in reconciles:
         detail = ("the branch's own contribution was verified unchanged on exact tree entries"
                   if item["contribution_identical"] else
-                  (item["unmeasurable"] or "the contribution differs at: "
-                   + ", ".join(item["divergent_paths"])))
+                  (_plain(item["unmeasurable"] or "") or "the contribution differs at: "
+                   + ", ".join(_fenced(path) for path in item["divergent_paths"])))
         events.append(f"history was rewritten and the review bindings were re-anchored from "
                       f"`{item['from_commit'][:12]}` to `{item['anchored_to'][:12]}` "
                       f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
@@ -4503,7 +4519,8 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # disclosed so a self-attested post-hoc resolution can never vanish before the operator sees it.
     authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
     assumption_resolutions = [
-        f"{d['claim']} -> {d['resolved_as']} (self-attested, not re-reviewed) — basis: {d['basis']}"
+        f"{_plain(d['claim'])} -> {d['resolved_as']} (self-attested, not re-reviewed) — "
+        f"basis: {_plain(d['basis'])}"
         for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
 
     # The two cost-cadence escalations, published because an escalation the operator cannot see at merge is
@@ -4521,7 +4538,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         # to re-review a sealed plan.
         cadence_escalations.append(
             f"the executed plan differs from the sealed plan its panel read, on recorded operator "
-            f"authority and without re-review: {item['operator_change']}")
+            f"authority and without re-review: {_plain(item['operator_change'])}")
     cadence_escalations += _round_guidance_lines(state)
 
     return {

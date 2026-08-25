@@ -2029,6 +2029,91 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assess("scoped", HEAD_C, lens=["usability"])
         self.assertIn("lenses named deliberately", "\n".join(bc._repair_round_lines(self.state())))
 
+    def test_a_carried_answer_never_satisfies_a_stop_it_was_not_given_for(self):
+        # The regression this closes: carrying a replaced round's guidance forward put it in front of the
+        # stop check, so an answer recorded at the ceiling was inherited by a re-judgment that turned a
+        # cheap round into a panel -- spending a counted round the operator was never asked about.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for head in (HEAD_B, HEAD_C, HEAD_D):
+            self.assess("scoped", head, lens=list(self.PANEL))
+        for head in (HEAD_E, HEAD_F, "1" * 40):
+            self.assess("scoped", head, lens=["usability"])
+        self.assess("scoped", "2" * 40, lens=["usability"],
+                    guidance="Operator: one cheap check, then ship.")   # answers the CEILING
+        message = self.refused_assess("scoped", "2" * 40, lens=list(self.PANEL))
+        self.assertIn("counted budget", message)
+        # ...and the answer is still on the record, because it was really given.
+        self.assertEqual(self.state()["repair_rounds"][-1]["guidance"],
+                         "Operator: one cheap check, then ship.")
+
+    def test_two_identical_rounds_are_never_collapsed_into_one(self):
+        # Removing the replaced round by VALUE would drop both of a dict-identical pair, erasing a round
+        # from the ledger and refunding its counted slot.
+        # Three assesses at the SAME pair, a packet cut between each so every one appends rather than
+        # replaces. Rounds 2 and 3 then share every field -- same commits, same anchor (round 1's final
+        # commit IS this pair's head), same roster, same classification -- and are dict-identical.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for _ in range(3):
+            self.assess("scoped", HEAD_B, lens=list(self.PANEL))
+            self.store.mutate(lambda s: s["repair"].update({"packet_digest": "sha256:" + "5" * 64}))
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 3)
+        self.assertEqual(rounds[1], rounds[2], "the fixture no longer builds an identical pair")
+        self.store.mutate(lambda s: s["repair"].update({"packet_digest": None}))
+        self.assess("full", HEAD_B)                                     # replaces only the LAST
+        self.assertEqual(len(self.state()["repair_rounds"]), 3)
+
+    def test_the_operator_is_told_when_a_guard_registration_could_not_be_read(self):
+        # The one operator-facing consequence of the whole guards_read mechanism, and it survived deletion
+        # with the suite green.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        degraded = classification(authored=["a.py"])
+        degraded["guards_read"] = False
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL), classified=degraded)
+        self.assertIn("could not be read", "\n".join(bc._repair_round_lines(self.state())))
+
+    def test_a_classification_with_no_honesty_flag_reads_as_unknown_not_as_clean(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        silent = classification(authored=["a.py"])
+        del silent["guards_read"]
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL), classified=silent)
+        self.assertIn("could not be read", "\n".join(bc._repair_round_lines(self.state())))
+
+    def test_the_rounds_headline_says_what_widening_is_judged_on(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B)
+        headline = bc._repair_round_lines(self.state())[0]
+        self.assertIn("judged on code and guarded surface only", headline)
+        self.assertIn("protected at ANY point since the deliverable review", headline)
+
+    def test_free_text_cannot_restructure_the_page_it_is_rendered_into(self):
+        # Every construct, not a two-string blacklist: an opener, a bidirectional override and a raw
+        # newline all have to come out neutralised.
+        hostile = "before <!-- <![CDATA[ \u202e after\nnext line"
+        rendered = bc._plain(hostile)
+        self.assertNotIn("<", rendered)
+        self.assertNotIn("\u202e", rendered)
+        self.assertNotIn("\n", rendered)
+        self.assertIn("before", rendered)
+        self.assertIn("after", rendered)
+
+    def test_a_hostile_path_cannot_break_out_of_its_code_span(self):
+        self.assertNotIn("<", bc._fenced("app/<!--evil.py"))
+        self.assertNotIn("\n", bc._fenced("app/two\nlines.py"))
+
+    def test_a_plan_change_escalation_cannot_hide_the_rounds_record_below_it(self):
+        # It renders one bullet ABOVE the rounds record in the same section, so leaving it raw left the
+        # attack open one line away from where it was defended.
+        self.store.mutate(lambda s: s.update({"plan_change_escalations": [
+            {"reviewed_plan_digest": "sha256:" + "7" * 64, "plan_digest": "sha256:" + "8" * 64,
+             "operator_change": "operator said go <!--"}]}))
+        rendered = "\n".join(
+            f"the executed plan differs from the sealed plan its panel read, on recorded operator "
+            f"authority and without re-review: {bc._plain(item['operator_change'])}"
+            for item in self.state()["plan_change_escalations"])
+        self.assertNotIn("<!--", rendered)
+        self.assertIn("operator said go", rendered)
+
     def test_recorded_guidance_allows_the_next_round_and_is_kept(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.panel_round(HEAD_B); self.panel_round(HEAD_C); self.panel_round(HEAD_D)

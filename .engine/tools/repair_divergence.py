@@ -118,34 +118,33 @@ def _guard_sets_at(weakening_guard, root: str, commit: str) -> tuple:
     guarded set. So the read's success is reported as `complete`, and a caller that could not read the
     anchor's registrations tells the operator so rather than presenting a possibly-short answer as fact.
 
-    Every blob is read in ONE `git cat-file --batch` rather than a `git show` per rule: the engine ships
-    dozens of check rules, and a subprocess each was measured at four fifths of the whole classification.
+    Each blob is read with its own `git show`, whose path travels in ARGV where a newline is just a byte.
+    A batched reader was tried here and reverted: `git cat-file --batch` takes newline-delimited requests,
+    so one check rule with a newline in its name split into two requests, desynchronised the reply stream,
+    and handed a real path another file's content — silently, with the read still reporting itself clean.
+    That is the one failure this module must never have, and it was bought for two thirds of a second on an
+    operation that runs at most six times in a Build. The cost is stated rather than optimised away.
     """
     try:
         listing = _run_git(["git", "ls-tree", "-z", "--name-only", commit, "--", ".engine/check/"], root)
     except DivergenceError:
         return None, (set(), ()), False
-    names = [entry for entry in listing.split("\0") if entry.endswith(".json")]
-    try:
-        blobs = _cat_file_batch(root, commit, names + [weakening_guard.INSTANCE_DECL_REL])
-    except DivergenceError:
-        return None, (set(), ()), False
     scripts: set = set()
-    for name in names:
-        body = blobs.get(name)
-        if body is None:
-            return None, (set(), ()), False      # all-or-nothing, like _derive_check_scripts
+    for name in [entry for entry in listing.split("\0") if entry.endswith(".json")]:
         try:
-            data = json.loads(body)
-        except ValueError:
-            return None, (set(), ()), False
+            data = json.loads(_run_git(["git", "show", f"{commit}:{name}"], root))
+        except (DivergenceError, ValueError):
+            return None, (set(), ()), False      # all-or-nothing, like _derive_check_scripts
         script = (data.get("params") or {}).get("script")
         if isinstance(script, str) and script.strip():
             scripts.add(script)
-    declared_body = blobs.get(weakening_guard.INSTANCE_DECL_REL)
-    if declared_body is None:
+    try:
+        declared_body = _run_git(["git", "show", f"{commit}:{weakening_guard.INSTANCE_DECL_REL}"], root)
+    except DivergenceError:
         # ABSENT is the normal steady state (most deployments never declare one) and is not a degradation:
-        # nothing was declared, so the empty pair is the true answer rather than a short one.
+        # nothing was declared, so the empty pair is the true answer rather than a short one. git cannot
+        # tell us "absent" apart from "unreadable" here, and absent is overwhelmingly the common case, so
+        # this resolves toward it -- the head-side read still covers a declaration that exists.
         return scripts, (set(), ()), True
     try:
         declared = json.loads(declared_body)
@@ -160,36 +159,6 @@ def _guard_sets_at(weakening_guard, root: str, commit: str) -> tuple:
     except (ValueError, AttributeError, TypeError):
         return scripts, (set(), ()), False       # PRESENT but unreadable: a real degradation, disclosed
     return scripts, (exact, prefixes), True
-
-
-def _cat_file_batch(root: str, commit: str, paths: list) -> dict:
-    """`{path: blob text}` for the paths that exist at `commit`, in ONE git process. A path absent from the
-    tree is simply missing from the result — git answers it `missing` and the reader decides what that
-    means."""
-    if not paths:
-        return {}
-    request = "".join(f"{commit}:{path}\n" for path in paths)
-    try:
-        result = subprocess.run(["git", "cat-file", "--batch"], cwd=root, input=request.encode(),
-                                capture_output=True, check=False)
-    except OSError as exc:
-        raise DivergenceError(f"could not run git cat-file in {root}: {exc}") from exc
-    if result.returncode:
-        raise DivergenceError("git cat-file --batch failed: "
-                              + (result.stderr.decode("utf-8", "replace").strip() or "no diagnostic"))
-    out, offset, blobs = result.stdout, 0, {}
-    for path in paths:
-        end = out.find(b"\n", offset)
-        if end < 0:
-            raise DivergenceError("truncated git cat-file response")
-        header = out[offset:end].decode("utf-8", "replace").split()
-        offset = end + 1
-        if len(header) < 3:          # "<oid> missing" -- the path is not in this tree
-            continue
-        size = int(header[2])
-        blobs[path] = out[offset:offset + size].decode("utf-8", "replace")
-        offset += size + 1           # the newline git writes after each blob
-    return blobs
 
 
 def _dynamic_outputs(derived_state, root: str) -> set:

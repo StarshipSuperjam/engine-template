@@ -394,9 +394,21 @@ class TestSchemaAgreement(unittest.TestCase):
         shapes together instead of trusting them to stay in step."""
         import json
         here = os.path.dirname(os.path.abspath(__file__))
-        schema = json.load(open(os.path.join(here, "..", "schemas", "build-state.v2.json"),
-                                encoding="utf-8"))
-        declared = set(schema["$defs"]["divergence_classification"]["properties"])
+
+        def shape(name):
+            """The classification shape each schema declares — by $ref where the file has $defs, and
+            inline in the handoff schemas, which have none. All four are bound: a Build restored from a
+            legacy v1 snapshot hits the same unknown-property refusal, and only checking v2 left three
+            files free to drift."""
+            doc = json.load(open(os.path.join(here, "..", "schemas", f"{name}.json"), encoding="utf-8"))
+            if "$defs" in doc and "divergence_classification" in doc["$defs"]:
+                return doc["$defs"]["divergence_classification"]
+            entry = doc["properties"]["repair_rounds"]["items"]["properties"]["classification"]
+            return entry
+
+        schemas = {name: shape(name) for name in ("build-state.v1", "build-state.v2",
+                                                  "build-handoff.v1", "build-handoff.v2")}
+        declared = set.intersection(*(set(sc["properties"]) for sc in schemas.values()))
         with tempfile.TemporaryDirectory() as root:
             _git(root, "init", "-q")
             _git(root, "config", "user.email", "e@x")
@@ -411,10 +423,11 @@ class TestSchemaAgreement(unittest.TestCase):
             head = _git(root, "rev-parse", "HEAD").stdout.strip()
             produced = repair_divergence.classify(root, base, head,
                                                   derived_scripts=NO_SCRIPTS, instance_guards=NO_GUARDS)
-        self.assertEqual(set(produced) - declared, set(),
-                         "classify() returns a key the Build state schema would reject")
-        required = set(schema["$defs"]["divergence_classification"]["required"])
-        self.assertEqual(required - set(produced), set())
+        for name, sc in schemas.items():
+            self.assertEqual(set(produced) - set(sc["properties"]), set(),
+                             f"classify() returns a key {name} would reject")
+            self.assertEqual(set(sc["required"]) - set(produced), set(), name)
+        self.assertEqual(set(produced) - declared, set())
 
 
 if __name__ == "__main__":
