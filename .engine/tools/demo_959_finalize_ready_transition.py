@@ -180,7 +180,7 @@ def _ready_state(head: str) -> dict:
                  "spec_digest": None, "authorizing_issue": None, "profile": "trivial",
                  "bound_head": head},
         "approval": {"plan_digest": bc._digest(FIXTURE_PLAN), "spec_digest": None, "depth": "quick"},
-        # One review stage. The plan stage moved to the Plan Coordinator with the panel, and
+        # One review stage. The plan stage moved to the Project Manager with the panel, and
         # build-state.v2 forbids the key outright — this fixture still carried `plan` after that move
         # and was refused at seeding the moment it ran, which is how the demonstration found the break.
         "reviews": {"deliverable": bc._empty_review()},

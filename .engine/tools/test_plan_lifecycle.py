@@ -17,7 +17,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-import plan_coordinator
+import project_manager
 import plan_lifecycle
 import plan_store
 from test_plan_store import _document
@@ -36,7 +36,7 @@ class _Ceremony(unittest.TestCase):
     def run_command(self, *argv):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = plan_coordinator.main(["--library", str(self.root), *argv])
+            code = project_manager.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()
 
     def plan(self, **over):
@@ -45,7 +45,7 @@ class _Ceremony(unittest.TestCase):
     def packet_digest(self, slug):
         """The digest `review record` will verify against — re-rendered exactly as the verb does."""
         import plan_projection
-        return plan_coordinator.core.digest(
+        return project_manager.core.digest(
             plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
 
     def recorded_packet_digest(self, slug):
@@ -67,7 +67,7 @@ class _Ceremony(unittest.TestCase):
         return slug
 
     def covering(self, depth="standard"):
-        return plan_coordinator.required_lenses(depth, plan_coordinator.installed_lenses())
+        return project_manager.required_lenses(depth, project_manager.installed_lenses())
 
     def reviewed(self, *findings, depth="standard", lenses=None):
         slug = self.approved(depth)
@@ -141,7 +141,7 @@ class D2UnderCoverageWarnsInExactTerms(_Ceremony):
 
     def test_the_seal_remains_the_single_hard_coverage_gate(self):
         slug = self.reviewed(lenses=[self.covering()[0]])
-        refusals = plan_coordinator.seal_refusals(self.lib, slug)
+        refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertTrue(any("missing" in r for r in refusals), refusals)
 
 
@@ -269,7 +269,7 @@ class D6NextStepsNameTheirCommand(_Ceremony):
                          "--disposition", "rejected", "--rationale", "No.")
         stages.append(self.run_command("resume", slug)[1])
         for text in stages:
-            self.assertIn("plan_coordinator.py ", text, text)
+            self.assertIn("project_manager.py ", text, text)
 
 
 class D7CarryForwardDecayIsRechecked(_Ceremony):
@@ -305,7 +305,7 @@ class D7CarryForwardDecayIsRechecked(_Ceremony):
     def test_the_successor_cannot_seal_while_it_does_not_answer_for_the_obligation(self):
         _, _, first, second = self._program_with_two_children()
         self._mint_obligation_on(first, self.lib.head(first))
-        refusals = plan_coordinator.seal_refusals(self.lib, second)
+        refusals = project_manager.seal_refusals(self.lib, second)
         self.assertTrue(any("OB-LATE" in r for r in refusals), refusals)
 
 
@@ -329,7 +329,7 @@ class D8ApproveRefusesToOrphanAReview(_Ceremony):
 class D9ShowAndSealDeriveFromOneRefusalSet(_Ceremony):
     def test_show_prints_exactly_what_seal_refuses(self):
         slug = self.reviewed(lenses=[self.covering()[0]])
-        refusals = plan_coordinator.seal_refusals(self.lib, slug)
+        refusals = project_manager.seal_refusals(self.lib, slug)
         shown = self.run_command("show", slug)[1]
         self.assertIn("not sealable yet", shown)
         for refusal in refusals:
@@ -338,7 +338,7 @@ class D9ShowAndSealDeriveFromOneRefusalSet(_Ceremony):
     def test_a_plan_with_nothing_in_the_way_reads_as_ready(self):
         slug = self.reviewed()
         self.run_command("present-findings", slug, "--operator-decision", "Nothing was found.")
-        self.assertEqual(plan_coordinator.seal_refusals(self.lib, slug), [])
+        self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         self.assertIn("ready to seal", self.run_command("show", slug)[1])
 
 
@@ -348,7 +348,7 @@ class D10TheOrphanedApprovalWedgeHasAnInCliRepair(_Ceremony):
     def test_the_whole_wedge_is_now_walked_out_of_with_shipped_verbs(self):
         # 1. A panel is recorded partially — one lens of the depth's roster.
         slug = self.reviewed(self.finding(), lenses=[self.covering()[0]])
-        self.assertTrue(any("missing" in r for r in plan_coordinator.seal_refusals(self.lib, slug)))
+        self.assertTrue(any("missing" in r for r in project_manager.seal_refusals(self.lib, slug)))
         # 2. The missing lenses are run and folded in by amendment, which used to be impossible.
         argv = ["review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug)]
         for lens in self.covering()[1:]:
@@ -375,7 +375,7 @@ class ConsentGates(_Ceremony):
         slug = self.plan()
         self.run_command("preview", slug)
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-            plan_coordinator.build_parser().parse_args(["approve", slug, "--depth", "standard"])
+            project_manager.build_parser().parse_args(["approve", slug, "--depth", "standard"])
 
     def test_an_empty_decision_is_refused_as_firmly_as_a_missing_one(self):
         slug = self.plan()
@@ -416,7 +416,7 @@ class ConsentGates(_Ceremony):
 
     def test_a_depth_with_no_cold_lenses_is_not_asked_to_present_a_panel_that_never_ran(self):
         slug = self.approved("quick")
-        self.assertEqual(plan_coordinator.seal_refusals(self.lib, slug), [])
+        self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal it.")[0], 0)
 
     def test_the_gate_states_plainly_that_it_records_rather_than_proves(self):
@@ -474,9 +474,9 @@ class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
 
     def test_a_per_lens_form_names_one_lens_and_a_bare_level_names_them_all(self):
         lenses = ["architecture", "feasibility"]
-        self.assertEqual(plan_coordinator.parse_delivered_efforts(["high"], lenses),
+        self.assertEqual(project_manager.parse_delivered_efforts(["high"], lenses),
                          {"architecture": "high", "feasibility": "high"})
-        self.assertEqual(plan_coordinator.parse_delivered_efforts(["high", "feasibility=medium"], lenses),
+        self.assertEqual(project_manager.parse_delivered_efforts(["high", "feasibility=medium"], lenses),
                          {"architecture": "high", "feasibility": "medium"})
 
     def test_a_half_filled_map_refuses_the_seal_as_incoherent(self):
@@ -487,7 +487,7 @@ class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
         def drop_one(current):
             current["plan_review"]["delivered_efforts"].pop(self.covering()[0])
         self.lib.update_record(slug, drop_one)
-        refusals = plan_coordinator.seal_refusals(self.lib, slug)
+        refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertTrue(any("never said what they ran at" in r for r in refusals), refusals)
         self.assertTrue(any(self.covering()[0] in r for r in refusals), refusals)
 
@@ -498,7 +498,7 @@ class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
         def drop_all(current):
             current["plan_review"].pop("delivered_efforts")
         self.lib.update_record(slug, drop_all)
-        refusals = plan_coordinator.seal_refusals(self.lib, slug)
+        refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertFalse(any("ran at" in r for r in refusals), refusals)
 
 

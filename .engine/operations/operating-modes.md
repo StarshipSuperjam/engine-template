@@ -62,7 +62,7 @@ The stance lifecycle:
    the payload is empty, and the things an import cannot know — what this is asking for, the problem, the
    case against, the decomposition — are recorded as open decisions the plan cannot be sealed with.
    Where a hook cannot run (a Codex hook trust the operator has not re-approved, or an acceptance line the
-   platform has since reworded), `python tools/plan_coordinator.py import-native --input - --provenance
+   platform has since reworded), `python tools/project_manager.py import-native --input - --provenance
    "..."` performs the identical import from the plan text on stdin.
 5. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
    Claude Desktop routine runs the routine command, which enters

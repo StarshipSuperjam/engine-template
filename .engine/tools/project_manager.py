@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
-"""The Plan Coordinator: the Build Coordinator's upstream peer.
+"""The Project Manager: the Build Coordinator's upstream peer.
 
 The Build Coordinator owns execution and becomes authoritative at `plan bind`. Everything upstream of
 that — grounding, deliberation, authoring the graph, presenting it, deciding it is good enough — was
 convention a session was trusted to remember. This tool owns that half.
+
+WHY THIS NAME. It shipped as the Plan Coordinator, and that named one duty out of several. The
+component also manages task completion, owns the continuous-improvement workflows, and organizes work
+across build phases through the program object — so the operator retitled it on 2026-08-24 to the job
+it actually does. The retitle is of the COMPONENT, deliberately not of the data: the schema ids
+(`engine-plan.v1`, `plan-record.v1`, `engine-program.v1`) and the `plan` verb namespace name the
+artifacts rather than the component, and renaming a schema id would invalidate every record already
+stored in every deployed project. Stored records and history — merged pull-request titles, the
+decision record's own filename — keep the name they were written under, because that is what they
+were written under. eADR-0044 carries the reasoning.
 
 Its shape mirrors the Build side deliberately, because an operator should not have to learn two
 vocabularies: read verbs derive and never write, governance verbs record evidence, and status is
@@ -39,7 +49,7 @@ import plan_program
 import plan_projection
 import plan_store
 
-PlanCoordinatorError = plan_store.PlanStoreError
+ProjectManagerError = plan_store.PlanStoreError
 
 # Review depths, offered only after a full render. ONE vocabulary across both coordinators: the depth
 # chosen here is the depth the Build's deliverable review runs at, so the operator consents once, at
@@ -98,7 +108,7 @@ def installed_lenses(root: Path | None = None) -> list[dict]:
         if fields.get("role") == "plan-review" and fields.get("lens"):
             lens = fields["lens"]
             if lens in found:
-                raise PlanCoordinatorError(f"more than one installed reviewer declares lens {lens}")
+                raise ProjectManagerError(f"more than one installed reviewer declares lens {lens}")
             found[lens] = {"lens": lens, "path": str(path.relative_to(base)),
                            "digest": core.digest(path.read_bytes()),
                            "effort": fields.get("effort")}
@@ -113,7 +123,7 @@ def required_lenses(depth: str, roster: list[dict], protocol: dict | None = None
     """
     table = protocol or PLAN_REVIEW_LENSES
     if depth not in table:
-        raise PlanCoordinatorError(f"unknown review depth {depth!r}")
+        raise ProjectManagerError(f"unknown review depth {depth!r}")
     allowed = {item["lens"] for item in roster} if depth == "thorough" else set(table[depth])
     return [item["lens"] for item in roster if item["lens"] in allowed]
 
@@ -155,7 +165,7 @@ def parse_delivered_efforts(values: list[str] | None, lenses: list[str]) -> dict
             lens, _, effort = raw.partition("=")
             lens, effort = lens.strip(), effort.strip()
             if lens not in lenses:
-                raise PlanCoordinatorError(
+                raise ProjectManagerError(
                     f"--delivered-effort names {lens}, which is not a lens in this record "
                     f"({', '.join(lenses)})")
             out[lens] = effort
@@ -164,7 +174,7 @@ def parse_delivered_efforts(values: list[str] | None, lenses: list[str]) -> dict
                 out.setdefault(lens, raw.strip())
     bad = sorted({effort for effort in out.values() if effort not in _EFFORT_RANK})
     if bad:
-        raise PlanCoordinatorError("not a reasoning-effort level: " + ", ".join(bad)
+        raise ProjectManagerError("not a reasoning-effort level: " + ", ".join(bad)
                                    + " (expected low, medium or high)")
     return out
 
@@ -196,7 +206,7 @@ def require_delivered_effort(depth: str, lenses: list[str], delivered: dict,
         return
     silent = [lens for lens in lenses if lens not in delivered]
     if silent:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"the approved {depth} depth runs its reviewers at {promised} effort, so this record has to "
             f"say what they actually ran at. Missing for: {', '.join(silent)}. Add "
             f"`--delivered-effort {promised}` (it applies to every lens in the record) or "
@@ -204,7 +214,7 @@ def require_delivered_effort(depth: str, lenses: list[str], delivered: dict,
             "claim is on the record, not that anything here can check it.")
     shortfalls = effort_shortfalls(depth, delivered, root)
     if shortfalls:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "this panel came in under the depth the operator approved: " + "; ".join(shortfalls)
             + ". This refuses here rather than at the seal because here is where the exits still exist: "
             "the approval freezes the moment a review is recorded. Either re-run those lenses at "
@@ -267,7 +277,7 @@ def status_of(library: plan_store.PlanLibrary, slug: str) -> tuple[str, dict, di
     record = library.read_record(slug)
     try:
         document = library.head(slug)
-    except PlanCoordinatorError:
+    except ProjectManagerError:
         return plan_store.derived_status(record), record, None, []
     blockers = plan_contract.seal_blockers(document)
     return plan_store.derived_status(record, head_blockers=blockers), record, document, blockers
@@ -392,7 +402,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                 f"    build_coordinator.py plan bind --plan {plan} "
                 f"--repository <owner/repo> --pr <number> --operator-decision \"<what they said>\"\n"
                 f"  To keep working on the idea instead:\n"
-                f"    plan_coordinator.py clone {plan} --reason \"<why a new plan>\"")
+                f"    project_manager.py clone {plan} --reason \"<why a new plan>\"")
     if status == "review-recorded":
         outstanding = [f for f in (record["plan_review"] or {}).get("findings", [])
                        if not f.get("disposition")]
@@ -400,32 +410,32 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
             first = outstanding[0]["id"]
             return (f"disposition {len(outstanding)} outstanding finding(s) — "
                     + ", ".join(f["id"] for f in outstanding) + f":\n"
-                    f"    plan_coordinator.py finding dispose {plan} --id {first} "
+                    f"    project_manager.py finding dispose {plan} --id {first} "
                     "--disposition <accepted-fixed|accepted-tracked|partially-accepted|rejected|escalated> "
                     "--rationale \"<why>\"")
         if blockers:
             return (f"revise to clear what still blocks the seal, then seal:\n"
-                    f"    plan_coordinator.py revise {plan} --document <revision.json> "
+                    f"    project_manager.py revise {plan} --document <revision.json> "
                     f"--expect-revision {record['current']['revision']}")
         if not plan_lifecycle.consent_for(record, "findings-presented"):
             return (f"show the operator what the panel found and what was done about each, then record "
-                    f"that you did:\n    plan_coordinator.py present-findings {plan} "
+                    f"that you did:\n    project_manager.py present-findings {plan} "
                     "--operator-decision \"<what they said>\"")
         return (f"seal the plan — it is reviewed and nothing outstanding blocks it:\n"
-                f"    plan_coordinator.py seal {plan} --operator-decision \"<what they said>\"")
+                f"    project_manager.py seal {plan} --operator-decision \"<what they said>\"")
     if status == "awaiting-review":
         return (f"run the one cold plan review against the approved revision:\n"
-                f"    plan_coordinator.py review packet {plan} --output <packet.md>\n"
-                f"    plan_coordinator.py review record {plan} --packet-digest <digest from the packet> "
+                f"    project_manager.py review packet {plan} --output <packet.md>\n"
+                f"    project_manager.py review record {plan} --packet-digest <digest from the packet> "
                 f"--lens <lens> --findings <findings.json>")
     if status == "awaiting-approval":
         return (f"present the full revision, then choose a depth and approve:\n"
-                f"    plan_coordinator.py preview {plan}\n"
-                f"    plan_coordinator.py depths {plan}\n"
-                f"    plan_coordinator.py approve {plan} --depth <quick|standard|thorough> "
+                f"    project_manager.py preview {plan}\n"
+                f"    project_manager.py depths {plan}\n"
+                f"    project_manager.py approve {plan} --depth <quick|standard|thorough> "
                 "--operator-decision \"<what the operator said>\"")
     lead = ("revise to clear: " + "; ".join(blockers)) if blockers else "revise, then preview and approve"
-    return (f"{lead}:\n    plan_coordinator.py revise {plan} --document <revision.json> "
+    return (f"{lead}:\n    project_manager.py revise {plan} --document <revision.json> "
             f"--expect-revision {record['current']['revision']}")
 
 
@@ -467,7 +477,7 @@ def cmd_depths(args) -> int:
     record = library.read_record(slug)
     digest = record["current"]["plan_digest"]
     if not was_previewed(library, slug, digest):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "the full plan has not been presented at this revision, so there is nothing to choose a "
             f"review depth FOR. Run `preview {args.plan}` first. (Approving a depth for a plan nobody "
             "has read is the failure this refusal exists to prevent.)")
@@ -630,14 +640,14 @@ def cmd_approve(args) -> int:
     slug = _select(library, args.plan)
     record = library.read_record(slug)
     if record.get("seal"):
-        raise PlanCoordinatorError("this plan is sealed; a seal is terminal and nothing about it changes")
+        raise ProjectManagerError("this plan is sealed; a seal is terminal and nothing about it changes")
     digest = record["current"]["plan_digest"]
     if not was_previewed(library, slug, digest):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"the full plan has not been presented at this revision. Run `preview {args.plan}` first — "
             "approving a plan nobody has read is what this refusal exists to prevent.")
     if args.depth not in DEPTHS:
-        raise PlanCoordinatorError(f"unknown review depth {args.depth!r}; choose one of "
+        raise ProjectManagerError(f"unknown review depth {args.depth!r}; choose one of "
                                    + ", ".join(DEPTHS))
     # Re-approving at a DIFFERENT depth once a review exists would leave that review in place while the
     # seal's coverage check moved to the new depth's roster. Downgrade far enough and the roster empties,
@@ -648,7 +658,7 @@ def cmd_approve(args) -> int:
     reviewed = record.get("plan_review")
     frozen = plan_lifecycle.frozen_reason(record, "approval")
     if reviewed and args.depth != record["approval"]["depth"]:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"this plan was approved at {record['approval']['depth']} depth and has already been "
             f"reviewed at it, so it cannot be re-approved at {args.depth}: {frozen}")
     # An approval that would ORPHAN a recorded review. Re-approving the same depth at a NEW revision
@@ -657,18 +667,18 @@ def cmd_approve(args) -> int:
     # refused too ("the review covers revision N but the approval covers M"). It is refused at the
     # door now, and the refusal names the two ways out rather than leaving the operator between them.
     if reviewed and reviewed["revision"] != revision_of(record):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"a cold review is recorded against revision {reviewed['revision']}, and approving revision "
             f"{revision_of(record)} would orphan it: the review would point at a revision nothing "
             "approves, which no verb can then resolve. The plan changed after it was reviewed, and "
             "that is the expected shape — do not re-approve. Seal it and let the delta judgment cover "
-            f"the change:\n    plan_coordinator.py seal {args.plan} --delta-judgment scoped "
+            f"the change:\n    project_manager.py seal {args.plan} --delta-judgment scoped "
             "--delta-rationale \"<what changed and why it is still the reviewed plan>\" "
             "--operator-decision \"<what the operator said>\"\n"
             f"  If the change is too large for that, clone: `clone {args.plan} --reason \"<why>\"`.")
     roster = installed_lenses()
     if args.depth not in available_depths(roster):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"{args.depth} is not offered here: with this repository's installed reviewers it would run "
             "exactly what a lighter depth runs, so choosing it would spend consent on nothing. Run "
             f"`depths {args.plan}` to see what is actually on offer.")
@@ -677,7 +687,7 @@ def cmd_approve(args) -> int:
 
     def approve(current):
         if current.get("seal"):          # re-asserted inside the lock, not from the copy above
-            raise PlanCoordinatorError("this plan was sealed while you were reading it; a seal is terminal")
+            raise ProjectManagerError("this plan was sealed while you were reading it; a seal is terminal")
         current["approval"] = {"revision": revision, "plan_digest": digest,
                                "depth": args.depth, "at": _now()}
         current.setdefault("consent", []).append(consent)
@@ -693,8 +703,8 @@ def cmd_approve(args) -> int:
     print("  the Build's deliverable review runs at this same depth; consent is given once, here")
     print(f"  bound to {digest}")
     print(f"\nnext: cut the packet and run the one cold plan review against this revision:\n"
-          f"    plan_coordinator.py review packet {args.plan} --output <packet.md>\n"
-          f"    plan_coordinator.py review record {args.plan} --packet-digest <digest> "
+          f"    project_manager.py review packet {args.plan} --output <packet.md>\n"
+          f"    project_manager.py review record {args.plan} --packet-digest <digest> "
           f"--lens <lens> --findings <findings.json>")
     return 0
 
@@ -715,7 +725,7 @@ def _require_consent(record: dict, gate: str, args) -> dict:
     """
     decision = getattr(args, "operator_decision", None)
     if not decision or not decision.strip():
-        raise PlanCoordinatorError(plan_lifecycle.missing_consent({}, gate))
+        raise ProjectManagerError(plan_lifecycle.missing_consent({}, gate))
     return plan_lifecycle.attestation(gate, decision, at=_now())
 
 
@@ -730,9 +740,9 @@ def cmd_review_packet(args) -> int:
     record = library.read_record(slug)
     approval = record.get("approval")
     if not approval:
-        raise PlanCoordinatorError("approve the plan and choose a review depth before building a packet")
+        raise ProjectManagerError("approve the plan and choose a review depth before building a packet")
     if plan_store.approval_is_stale(record):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"the approval covers revision {approval['revision']}, but the plan has been revised since "
             f"and never reviewed. Re-preview and re-approve at revision {record['current']['revision']} "
             "so the review reads what the operator actually approved.")
@@ -770,13 +780,13 @@ def cmd_review_record(args) -> int:
     # check: without it, a review — findings, dispositions and all — could be written onto a plan that
     # was already sealed, and the Build would read it live at compose time as though it had been there.
     if record.get("seal"):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "this plan is sealed, and its review is what the pull request publishes — a review recorded "
             "now would appear at merge as though it had been read before the plan was locked. Reviews "
             "belong before the seal. If this plan needs one, clone it and review the clone.")
     if record.get("plan_review"):
         existing = record["plan_review"]
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"a plan review is already recorded for revision {existing['revision']} of this plan, and "
             "there is exactly one per plan. Fold the fixes in as revisions and let the seal's delta "
             "judgment cover them; re-running the panel on a churning plan is the loop this refuses to "
@@ -784,13 +794,13 @@ def cmd_review_record(args) -> int:
             "operator, not another review.")
     approval = record.get("approval")
     if not approval:
-        raise PlanCoordinatorError("a review records findings against an APPROVED revision; approve first")
+        raise ProjectManagerError("a review records findings against an APPROVED revision; approve first")
     if plan_store.approval_is_stale(record):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"the approval covers revision {approval['revision']} but the head is revision "
             f"{record['current']['revision']}; re-approve before recording a review")
     if not args.lens:
-        raise PlanCoordinatorError("name at least one lens the review was run through")
+        raise ProjectManagerError("name at least one lens the review was run through")
     # Either shape the ceremony actually produces. The four personas emit plan-review-finding.v1,
     # which carries no id and no lens; mapping it here is what stopped a panel's whole output from
     # dying on a schema refusal at the end of the run that produced it.
@@ -803,7 +813,7 @@ def cmd_review_record(args) -> int:
     rendered = plan_projection.render_plan(library.head(slug), record)
     expected = core.digest(rendered.encode("utf-8"))
     if args.packet_digest != expected:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"this receipt names packet digest {args.packet_digest}, but the packet for the approved "
             f"revision {approval['revision']} renders to {expected}. Either the receipt came from a "
             "different packet than the one approved, or the packet was edited after it was cut — "
@@ -820,7 +830,7 @@ def cmd_review_record(args) -> int:
               f"{', '.join(required_lenses(approval['depth'], installed_lenses()))}, and this record "
               f"covers only {', '.join(args.lens)}. Missing: {', '.join(gap)}. The seal will refuse "
               "until they are covered. This record is NOT spent — run the missing lenses and add them:\n"
-              f"    plan_coordinator.py review amend {args.plan} --lens <lens> "
+              f"    project_manager.py review amend {args.plan} --lens <lens> "
               f"--packet-digest {args.packet_digest} --findings <findings.json> "
               "--reason \"<why this is being completed now>\"\n"
               "  Amendment is possible until the first finding is dispositioned.", file=sys.stderr)
@@ -844,11 +854,11 @@ def cmd_review_record(args) -> int:
         # `current.revision` cannot catch a concurrent second review — only re-checking here can, and
         # "exactly one review per plan" is worth exactly as much as this line.
         if current.get("seal"):
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 "this plan was sealed while the review was being prepared; a seal is terminal and the "
                 "review it published is the one the pull request carries")
         if current.get("plan_review"):
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 "another session recorded a plan review while this one was being prepared, and there "
                 "is exactly one per plan. Re-read the plan before deciding what to do next.")
         current["plan_review"] = review
@@ -877,15 +887,15 @@ def cmd_review_amend(args) -> int:
     record = library.read_record(slug)
     review = record.get("plan_review")
     if not review:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"no plan review is recorded, so there is nothing to amend. Record one first:\n"
-            f"    plan_coordinator.py review record {args.plan} --packet-digest <digest> "
+            f"    project_manager.py review record {args.plan} --packet-digest <digest> "
             "--lens <lens> --findings <findings.json>")
     frozen = plan_lifecycle.frozen_reason(record, "plan_review")
     if frozen:
-        raise PlanCoordinatorError("this review can no longer be amended: " + frozen)
+        raise ProjectManagerError("this review can no longer be amended: " + frozen)
     if args.packet_digest != review["packet_digest"]:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"this amendment names packet digest {args.packet_digest}, but the recorded review read "
             f"{review['packet_digest']}. A lens that read a different packet did not review the same "
             "plan, and folding it in here would put two referents behind one receipt. Re-run it "
@@ -903,7 +913,7 @@ def cmd_review_amend(args) -> int:
     existing_ids = {f["id"] for f in review.get("findings", [])}
     collisions = sorted({f["id"] for f in added} & existing_ids)
     if collisions:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "these finding ids are already in the review: " + ", ".join(collisions)
             + ". An amendment ADDS to a review; it never rewrites a finding already recorded, because "
             "the record would then show a review that was never run in that form. Give the new "
@@ -912,7 +922,7 @@ def cmd_review_amend(args) -> int:
 
     def amend(current):
         if plan_lifecycle.frozen_reason(current, "plan_review"):   # re-asserted inside the lock
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 "this review was sealed or began being dispositioned while the amendment was being "
                 "prepared; re-read it before deciding what to do next")
         current["plan_review"]["lenses"] = current["plan_review"]["lenses"] + added_lenses
@@ -940,20 +950,20 @@ def cmd_finding_amend(args) -> int:
     slug = _select(library, args.plan)
     record = library.read_record(slug)
     if not record.get("plan_review"):
-        raise PlanCoordinatorError("no plan review is recorded, so there is no finding to amend")
+        raise ProjectManagerError("no plan review is recorded, so there is no finding to amend")
     frozen = plan_lifecycle.frozen_reason(record, "finding", finding_id=args.id)
     if frozen:
-        raise PlanCoordinatorError(f"{args.id} can no longer be amended: " + frozen)
+        raise ProjectManagerError(f"{args.id} can no longer be amended: " + frozen)
     changes = {key: getattr(args, key) for key in ("severity", "summary", "lens", "location")
                if getattr(args, key, None)}
     if not changes:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "name what to correct: --severity, --summary, --lens, or --location")
     amendment = {"artifact": f"finding {args.id}", "at": _now(), "reason": args.reason}
 
     def amend(current):
         if plan_lifecycle.frozen_reason(current, "finding", finding_id=args.id):
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 f"{args.id} was sealed or dispositioned while the amendment was being prepared")
         for finding in current["plan_review"]["findings"]:
             if finding["id"] == args.id:
@@ -978,12 +988,12 @@ def cmd_present_findings(args) -> int:
     record = library.read_record(slug)
     review = record.get("plan_review")
     if not review:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "no plan review is recorded, so there is no panel outcome to present. At a depth that runs "
             "no cold lenses there is nothing to attest here and the seal does not ask for it.")
     outstanding = [f["id"] for f in review.get("findings", []) if not f.get("disposition")]
     if outstanding:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "present the panel's outcome once its findings have dispositions, not before — the "
             "operator is being shown what was found AND what was done about each. Outstanding: "
             + ", ".join(outstanding))
@@ -991,7 +1001,7 @@ def cmd_present_findings(args) -> int:
 
     def attest(current):
         if current.get("seal"):
-            raise PlanCoordinatorError("this plan was sealed while the presentation was being recorded")
+            raise ProjectManagerError("this plan was sealed while the presentation was being recorded")
         current.setdefault("consent", []).append(consent)
 
     library.update_record(slug, attest)
@@ -999,7 +1009,7 @@ def cmd_present_findings(args) -> int:
     print(f"recorded that the operator was shown the panel's outcome: {len(review.get('findings', []))} "
           f"finding(s), {len(blocking)} blocking, all dispositioned")
     print(f"  their words: “{consent['decision']}”")
-    print(f"\nnext: seal it:\n    plan_coordinator.py seal {args.plan} "
+    print(f"\nnext: seal it:\n    project_manager.py seal {args.plan} "
           "--operator-decision \"<what the operator said>\"")
     return 0
 
@@ -1015,32 +1025,32 @@ def cmd_finding_dispose(args) -> int:
     # be turned into "rejected, no issue" any time before compose, and the operator would meet the edited
     # version at merge with nothing showing it had changed.
     if record.get("seal"):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "this plan is sealed, and a seal freezes its review dispositions as well as its text — the "
             "pull request publishes them as they stood when you sealed. If a disposition is genuinely "
             "wrong, clone this plan into a new one and disposition it there rather than editing a "
             "sealed record.")
     review = record.get("plan_review")
     if not review:
-        raise PlanCoordinatorError("no plan review is recorded, so there is nothing to disposition")
+        raise ProjectManagerError("no plan review is recorded, so there is nothing to disposition")
     match = [f for f in review.get("findings", []) if f["id"] == args.id]
     if not match:
         known = ", ".join(f["id"] for f in review.get("findings", [])) or "none"
-        raise PlanCoordinatorError(f"no finding {args.id!r} in this review; it holds: {known}")
+        raise ProjectManagerError(f"no finding {args.id!r} in this review; it holds: {known}")
     blocks = bool(args.blocks_this_pr)
     # The disclosure rule the Build side already enforced, arriving with the panel: a BLOCKING finding
     # that the orchestrator decides should not block needs an operator-safe sentence, because that
     # decision is a disagreement the operator meets at merge. Without one there is nothing honest to
     # publish, and "no summary recorded" on the merge surface is how a real objection disappears.
     if match[0]["severity"] == "blocking" and not blocks and not args.operator_summary:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"{args.id} is a BLOCKING finding you are not leaving blocking. That is a disagreement the "
             "operator has to be able to read at merge, so it needs a safe, operator-facing sentence: "
             "pass --operator-summary.")
 
     def change(current):
         if current.get("seal"):          # re-asserted inside the lock, not from the copy above
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 "this plan was sealed while you were dispositioning; a seal is terminal and freezes the "
                 "dispositions the pull request will publish")
         for finding in current["plan_review"]["findings"]:
@@ -1075,7 +1085,7 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
     refusals.extend(library.verify_chain(slug))
     try:
         document = library.head(slug)
-    except PlanCoordinatorError as exc:
+    except ProjectManagerError as exc:
         return refusals + [str(exc)]
     # Unresolved decisions, unresolved assumptions, and a payload the Build Coordinator would refuse
     # all arrive from the contract — delegated, not re-expressed here.
@@ -1138,7 +1148,7 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
                 f"the panel's outcome has not been presented to the operator. {len(review.get('findings', []))} "
                 "finding(s) were recorded and dispositioned, and a seal is the last moment anyone can "
                 "act on them. Show the operator what was found and what was done about each, then:\n"
-                "      plan_coordinator.py present-findings <plan> --operator-decision \"<what they said>\"")
+                "      project_manager.py present-findings <plan> --operator-decision \"<what they said>\"")
     # The carry-forward decay, re-derived from CURRENT heads rather than trusted from join time. A
     # successor that joined a program before its predecessor minted an obligation has been claiming
     # to answer for a set that grew underneath it, and the seal is the last moment that can be fixed
@@ -1188,14 +1198,14 @@ def cmd_seal(args) -> int:
     sealed_digest = record["current"]["plan_digest"]
     changed = reviewed_digest != sealed_digest
     if changed and not args.delta_judgment:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"the plan changed after it was read (read at revision {(review or record['approval'])['revision']}, "
             f"sealing revision {record['current']['revision']}). That is the expected shape — fixes fold "
             "in as revisions — but the delta needs one proportional judgment before it locks. Read it "
             f"with `diff {args.plan} --from {(review or record['approval'])['revision']} --to "
             f"{record['current']['revision']}`, then seal with --delta-judgment none or scoped.")
     if args.delta_judgment == "scoped" and not args.delta_rationale:
-        raise PlanCoordinatorError("a scoped delta judgment needs a rationale saying what changed and "
+        raise ProjectManagerError("a scoped delta judgment needs a rationale saying what changed and "
                                    "why it is still the reviewed plan")
     judgment = args.delta_judgment or "none"
     consent = _require_consent(record, "seal", args)
@@ -1212,7 +1222,7 @@ def cmd_seal(args) -> int:
         seal["delta_rationale"] = args.delta_rationale
     def mint_seal(current):
         if current.get("seal"):          # re-asserted inside the lock; a seal is minted once
-            raise PlanCoordinatorError("another session sealed this plan while this one was reading it")
+            raise ProjectManagerError("another session sealed this plan while this one was reading it")
         current["seal"] = seal
         current.setdefault("consent", []).append(consent)
 
@@ -1235,11 +1245,11 @@ def cmd_close(args) -> int:
     slug = _select(library, args.plan)
     record = library.read_record(slug)
     if record.get("closure"):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"this plan is already {record['closure']['state']}; reopen it before closing it differently")
     def close(current):
         if current.get("closure"):       # re-asserted inside the lock
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 f"another session closed this plan as {current['closure']['state']} while this one was "
                 "reading it; reopen it before closing it differently")
         current["closure"] = {"state": args.state, "at": _now(), "reason": args.reason}
@@ -1263,9 +1273,9 @@ def cmd_reopen(args) -> int:
     slug = _select(library, args.plan)
     record = library.read_record(slug)
     if not record.get("closure"):
-        raise PlanCoordinatorError("this plan is not closed, so there is nothing to reopen")
+        raise ProjectManagerError("this plan is not closed, so there is nothing to reopen")
     if record.get("seal"):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
             "a digest a Build already trusted. Clone it into a new plan instead.")
     previous = {}
@@ -1273,9 +1283,9 @@ def cmd_reopen(args) -> int:
     def reopen(current):
         previous["state"] = current["closure"]["state"]   # read under the lock, not before it
         if not current.get("closure"):   # re-asserted inside the lock
-            raise PlanCoordinatorError("another session reopened this plan already")
+            raise ProjectManagerError("another session reopened this plan already")
         if current.get("seal"):
-            raise PlanCoordinatorError("this plan is sealed, and a seal is terminal")
+            raise ProjectManagerError("this plan is sealed, and a seal is terminal")
         current["closure"] = None
 
     library.update_record(slug, reopen)
@@ -1298,7 +1308,7 @@ def cmd_revise(args) -> int:
     document = json.loads(core.input_text(args.document))
     record = library.read_record(slug)
     if record.get("seal"):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             "this plan is sealed and a seal is terminal; `clone` it into a new plan to keep working")
     expected = args.expect_revision if args.expect_revision is not None else record["current"]["revision"]
     updated = library.append_revision(slug, document, expected_revision=expected)
@@ -1395,13 +1405,13 @@ def import_native_plan(text: str, *, provenance: str,
                        library: plan_store.PlanLibrary | None = None) -> dict:
     """Import an accepted native plan as an unapproved draft. Returns the arrival facts.
 
-    Raises PlanCoordinatorError when there is nothing to import. Callers running inside a hook treat
+    Raises ProjectManagerError when there is nothing to import. Callers running inside a hook treat
     that as no-import-and-carry-on: an acceptance that imports nothing must never cost the operator
     their turn, and a session that cannot reach its plan library is still a session that can talk.
     """
     text = text if isinstance(text, str) else ""
     if not text.strip():
-        raise PlanCoordinatorError("there is no plan text to import")
+        raise ProjectManagerError("there is no plan text to import")
     library = library or plan_store.PlanLibrary()
     now = _now()
     document = {
@@ -1432,7 +1442,7 @@ def import_native_plan(text: str, *, provenance: str,
         "slug": slug,
         "title": document["title"],
         "folder": str(library.plan_dir(slug)),
-        "next_command": f"python tools/plan_coordinator.py preview --plan {document['plan_id']}",
+        "next_command": f"python tools/project_manager.py preview --plan {document['plan_id']}",
     }
 
 
@@ -1445,7 +1455,7 @@ def arrival_report(arrival: dict) -> str:
     job is to reach the operator.
     """
     return (
-        f"The plan you just accepted was imported into the Plan Coordinator as {arrival['plan_id']}, "
+        f"The plan you just accepted was imported into the Project Manager as {arrival['plan_id']}, "
         f"revision {arrival['revision']} — an unapproved draft titled \"{arrival['title']}\". "
         "Your stance did not change and nothing was built: an imported draft carries no approval, no "
         "review, no seal and no Build authority. Tell the operator this in your own words now, "
@@ -1531,7 +1541,7 @@ def cmd_import(args) -> int:
     library = _library(args)
     bundle = json.loads(core.input_text(args.bundle))
     if bundle.get("schema_version") != "plan-bundle.v1":
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"not a plan bundle (schema_version {bundle.get('schema_version')!r})")
     record, revisions = bundle["record"], bundle["revisions"]
     # Shape first. The record's own schema pattern-constrains `slug` and every `snapshot`, so this one
@@ -1539,7 +1549,7 @@ def cmd_import(args) -> int:
     core.validate(record, plan_store.RECORD_SCHEMA)
     recomputed = core.digest({"record": record, "revisions": revisions})
     if recomputed != bundle.get("bundle_digest"):
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"the bundle does not match its own digest (recorded {bundle.get('bundle_digest')}, found "
             f"{recomputed}); it was altered after export and is not trustworthy")
     for entry in record["ledger"]:
@@ -1547,11 +1557,11 @@ def cmd_import(args) -> int:
             continue
         body = revisions.get(str(entry["revision"]))
         if body is None:
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 f"the bundle's ledger claims revision {entry['revision']} but carries no body for it")
         actual = core.digest(body)
         if actual != entry["plan_digest"]:
-            raise PlanCoordinatorError(
+            raise ProjectManagerError(
                 f"revision {entry['revision']} does not match its recorded digest (recorded "
                 f"{entry['plan_digest']}, found {actual})")
         plan_contract.validate_document(body)
@@ -1562,7 +1572,7 @@ def cmd_import(args) -> int:
             if library.read_record(candidate)["plan_id"] == record["plan_id"]:
                 existing = candidate
                 break
-        except PlanCoordinatorError:
+        except ProjectManagerError:
             # A bit-rotted neighbour must not block an import that has nothing to do with it. But the
             # collision check is now incomplete, so say so instead of quietly proceeding as though it
             # had passed.
@@ -1577,7 +1587,7 @@ def cmd_import(args) -> int:
         if build_bundle(library, existing)["bundle_digest"] == bundle["bundle_digest"]:
             print(f"{record['plan_id']} is already here and identical; nothing to do.")
             return 0
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"a DIFFERENT plan with id {record['plan_id']} is already in this library ({existing}). "
             "Importing would leave two plans sharing an id and make every later reference to it "
             "ambiguous. Clone the incoming plan under a new id, or remove the local one first.")
@@ -1590,7 +1600,7 @@ def cmd_import(args) -> int:
     # first version of this function reimplemented directory creation instead of reusing it and lost
     # the check along the way, which is the whole reason the write path now goes through the store.
     if slug in library.slugs() and library.read_record(slug)["plan_id"] != record["plan_id"]:
-        raise PlanCoordinatorError(
+        raise ProjectManagerError(
             f"a different plan already occupies {library.plan_dir(slug)}: "
             f"{library.read_record(slug)['plan_id']}, not {record['plan_id']}. Importing would "
             "destroy it. Move or remove the local plan first if you meant to replace it.")
@@ -1612,7 +1622,7 @@ def cmd_import(args) -> int:
     # lock is the thing serialising them, and an unlocked writer silently opts out of it.
     with plan_store.exclusive_lock_for(library, slug):
         if slug in library.slugs() and library.read_record(slug)["plan_id"] != record["plan_id"]:
-            raise PlanCoordinatorError(          # re-asserted inside the lock, not from the read above
+            raise ProjectManagerError(          # re-asserted inside the lock, not from the read above
                 f"another session created a different plan at {plan_dir} while this import was being "
                 "verified; nothing was written.")
         for path, entry in targets:
@@ -1625,7 +1635,7 @@ def cmd_import(args) -> int:
                           durable=True, mode=plan_store.FILE_MODE)
     problems = library.verify_chain(slug)
     if problems:
-        raise PlanCoordinatorError("the imported plan does not verify after writing: "
+        raise ProjectManagerError("the imported plan does not verify after writing: "
                                    + "; ".join(problems))
     plan_projection.project_library(library)
     print(f"imported {record['plan_id']} as {slug} "
@@ -1670,7 +1680,7 @@ def cmd_recover(args) -> int:
         print(f"  - {problem}")
     try:
         revision, skipped = library.recover_head(slug)
-    except PlanCoordinatorError:
+    except ProjectManagerError:
         # Total loss. This is the case `recover` most exists for, and the guidance below used to be
         # unreachable here — the refusal propagated to the generic handler and the operator got a
         # bare exception instead of the advice the command promises.
@@ -1794,7 +1804,7 @@ def _consent_argument(command, gate: str) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="plan_coordinator.py",
+        prog="project_manager.py",
         description="The planning half of the coordinator pair: durable, local, and nothing auto-selects.")
     parser.add_argument("--library", help="path to the plan library (defaults to this instance's own)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2008,8 +2018,8 @@ def main(argv: list | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)
-    except PlanCoordinatorError as exc:
-        print(f"plan-coordinator: {exc}", file=sys.stderr)
+    except ProjectManagerError as exc:
+        print(f"project-manager: {exc}", file=sys.stderr)
         return 2
 
 

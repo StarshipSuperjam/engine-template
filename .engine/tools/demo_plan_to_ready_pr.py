@@ -3,7 +3,7 @@
 
 This is the new front door, run end to end for the first time. Two arcs:
 
-  ARC 1 — the ordinary one. A plan is written into the Plan Coordinator, read whole, approved with a
+  ARC 1 — the ordinary one. A plan is written into the Project Manager, read whole, approved with a
   care level, sealed, and only then handed to a Build. The Build binds to that seal, does the work,
   integrates it, and turns its draft pull request ready. The thing worth seeing is that every one of
   those steps refuses to be skipped: a plan nobody approved cannot be sealed, and a plan nobody sealed
@@ -167,7 +167,7 @@ def _tool(copy, name, env, *args):
 
 
 def _plan_cmd(copy, env, *args):
-    return _tool(copy, "plan_coordinator.py", env, *args)
+    return _tool(copy, "project_manager.py", env, *args)
 
 
 def _build_cmd(copy, env, state_path, *args):

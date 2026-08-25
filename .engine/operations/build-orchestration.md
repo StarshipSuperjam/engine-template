@@ -35,7 +35,7 @@ be one session. An Issue is never created merely because a Build exists — not 
 Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold recovers its
 plan from the local plan library (see "Where the plan lives").
 
-The plan is not authored here. It is authored, reviewed and SEALED through the Plan Coordinator first, and a
+The plan is not authored here. It is authored, reviewed and SEALED through the Project Manager first, and a
 Build binds that sealed plan's `build-plan.v2` payload. The discipline below is what that lifecycle enforces
 on the way to a seal. Present a readable projection generated from that exact document; it is a view, not a
 second authority, and must never be edited or translated back into JSON after approval. Keep raw intent
@@ -95,7 +95,7 @@ reconstruct an approved plan from a summary, transcript fragments, or implementa
 ### 2. Assess risk and approve the Build gate
 
 **Risk and depth are settled on the plan side, before the seal.** Run the knowledge impact check, then
-`plan_coordinator.py depths <plan>`: it lists only the depths worth offering for this repository's installed
+`project_manager.py depths <plan>`: it lists only the depths worth offering for this repository's installed
 reviewers, dropping any that would run what a lighter one does (only Quick when no reviewers,
 StarshipSuperjam/engine-template#763), with each depth's resolved reviewer EFFORT.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
@@ -103,7 +103,7 @@ Fill `.engine/templates/risk-assessment.md` in plain language: headline, affecte
 `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review
 record.
 
-The operator approves plan and depth together with `plan_coordinator.py approve <plan> --depth
+The operator approves plan and depth together with `project_manager.py approve <plan> --depth
 quick|standard|thorough --operator-decision "<their words>"`, which refuses without their recorded decision. **That one choice covers both gates**: it names the lenses the seal will require, and
 it is the depth the Build's deliverable review runs at. Consent is given once, here. On the Build side,
 `approve --plan <plan.json> --depth …` records the same depth against the bound payload; changing approved

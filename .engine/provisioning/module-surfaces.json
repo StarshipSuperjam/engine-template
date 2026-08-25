@@ -1110,6 +1110,9 @@
   ".engine/schemas/audit-finding.v1.json": [
    "core"
   ],
+  ".engine/schemas/build-findings-batch.v1.json": [
+   "core"
+  ],
   ".engine/schemas/build-handoff.v2.json": [
    "core"
   ],
@@ -1369,6 +1372,9 @@
    "core"
   ],
   ".engine/tools/build_readiness.py": [
+   "core"
+  ],
+  ".engine/tools/build_review_range.py": [
    "core"
   ],
   ".engine/tools/build_state_store.py": [
@@ -1959,7 +1965,7 @@
   ".engine/tools/plan_contract.py": [
    "core"
   ],
-  ".engine/tools/plan_coordinator.py": [
+  ".engine/tools/plan_lifecycle.py": [
    "core"
   ],
   ".engine/tools/plan_program.py": [
@@ -2021,6 +2027,9 @@
   ],
   ".engine/tools/product_design/test_spec_form.py": [
    "product-design"
+  ],
+  ".engine/tools/project_manager.py": [
+   "core"
   ],
   ".engine/tools/projects_sync/__init__.py": [
    "github-projects-sync"
@@ -2424,10 +2433,10 @@
   ".engine/tools/test_plan_contract.py": [
    "core"
   ],
-  ".engine/tools/test_plan_coordinator.py": [
+  ".engine/tools/test_plan_dogfood.py": [
    "core"
   ],
-  ".engine/tools/test_plan_dogfood.py": [
+  ".engine/tools/test_plan_lifecycle.py": [
    "core"
   ],
   ".engine/tools/test_plan_program.py": [
@@ -2446,6 +2455,9 @@
    "core"
   ],
   ".engine/tools/test_pr_reconcile.py": [
+   "core"
+  ],
+  ".engine/tools/test_project_manager.py": [
    "core"
   ],
   ".engine/tools/test_protection_guard.py": [
@@ -2488,6 +2500,9 @@
    "core"
   ],
   ".engine/tools/test_retired_settings.py": [
+   "core"
+  ],
+  ".engine/tools/test_review_economy.py": [
    "core"
   ],
   ".engine/tools/test_review_integrity.py": [

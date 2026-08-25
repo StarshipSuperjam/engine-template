@@ -150,8 +150,8 @@ class TestStandardPlanRow(unittest.TestCase):
         return json.load(open(os.path.join(here, "..", "build-protocol.json"), encoding="utf-8"))
 
     def test_standard_plan_review_runs_all_four_lenses(self):
-        import plan_coordinator
-        self.assertEqual(set(plan_coordinator.PLAN_REVIEW_LENSES["standard"]),
+        import project_manager
+        self.assertEqual(set(project_manager.PLAN_REVIEW_LENSES["standard"]),
                          {"product-intent", "architecture", "feasibility", "risk-governance"})
         self.assertNotIn("plan_review", self._protocol())
 
@@ -159,17 +159,17 @@ class TestStandardPlanRow(unittest.TestCase):
         # The shared file that used to guarantee this is gone, so the guarantee is pinned instead. A depth
         # approved on the plan side IS the depth the Build's deliverable review runs at, and a vocabulary
         # that drifted would silently break that single consent.
-        import plan_coordinator
-        self.assertEqual(set(plan_coordinator.PLAN_REVIEW_LENSES), set(review.DEPTH_ORDER))
-        self.assertEqual(plan_coordinator.DEPTH_ORDER, review.DEPTH_ORDER)
-        self.assertEqual(set(plan_coordinator.DEPTHS), set(self._protocol()["deliverable_review"]))
-        self.assertEqual(set(plan_coordinator.PLAN_REVIEW_LENSES),
+        import project_manager
+        self.assertEqual(set(project_manager.PLAN_REVIEW_LENSES), set(review.DEPTH_ORDER))
+        self.assertEqual(project_manager.DEPTH_ORDER, review.DEPTH_ORDER)
+        self.assertEqual(set(project_manager.DEPTHS), set(self._protocol()["deliverable_review"]))
+        self.assertEqual(set(project_manager.PLAN_REVIEW_LENSES),
                          set(self._protocol()["deliverable_review"]))
         # `quick` is the floor on both sides: it runs nobody.
-        self.assertEqual(plan_coordinator.PLAN_REVIEW_LENSES["quick"], [])
+        self.assertEqual(project_manager.PLAN_REVIEW_LENSES["quick"], [])
         self.assertEqual(self._protocol()["deliverable_review"]["quick"], [])
         roster = [{"lens": l} for l in ("product-intent", "architecture", "feasibility", "risk-governance")]
-        self.assertEqual(len(plan_coordinator.required_lenses("standard", roster)), 4)
+        self.assertEqual(len(project_manager.required_lenses("standard", roster)), 4)
 
 
 class TestAvailableDepths(unittest.TestCase):

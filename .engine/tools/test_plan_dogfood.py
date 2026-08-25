@@ -93,9 +93,9 @@ class _Dogfood(unittest.TestCase):
 
     def _packet_digest(self, slug):
         """The digest of the packet the coordinator would really cut for this plan's head."""
-        import plan_coordinator
+        import project_manager
         import plan_projection
-        return plan_coordinator.core.digest(
+        return project_manager.core.digest(
             plan_projection.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
 
 
@@ -198,15 +198,15 @@ class TheFullDistance(_Dogfood):
               "--operator-decision", "I read all four lenses and every disposition."])
 
     def test_a_blocking_finding_leaves_an_editable_draft_and_no_seal(self):
-        import plan_coordinator
+        import project_manager
         slug, _ = self._walk()
-        refusals = plan_coordinator.seal_refusals(self.lib, slug)
+        refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertTrue(any("no disposition" in r for r in refusals), refusals)
         self.assertIsNone(self.lib.read_record(slug)["seal"])
         self.assertEqual(plan_store.derived_status(self.lib.read_record(slug)), "review-recorded")
 
     def test_the_walk_reaches_a_seal_and_records_the_delta(self):
-        import plan_coordinator
+        import project_manager
         slug, document = self._walk()
         self._dispose_all(slug)
 
@@ -218,7 +218,7 @@ class TheFullDistance(_Dogfood):
         self.assertFalse(plan_store.approval_is_stale(record))
 
         # The delta needs one proportional judgment, and then the plan seals.
-        self.assertEqual(plan_coordinator.seal_refusals(self.lib, slug), [])
+        self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         out, err = _run(["--library", str(self.root), "seal", slug, "--operator-decision", "Seal it.",
                          "--delta-judgment", "scoped",
                          "--delta-rationale", "One failure mode added; the authorization argument was "
@@ -232,13 +232,13 @@ class TheFullDistance(_Dogfood):
         self.assertEqual(plan_store.derived_status(self.lib.read_record(slug)), "sealed")
 
     def test_the_seal_is_terminal_for_this_plan_too(self):
-        import plan_coordinator
+        import project_manager
         slug, document = self._walk()
         self._dispose_all(slug)
         self.lib.append_revision(slug, _fold_in_the_review_fix(document), expected_revision=1)
         _run(["--library", str(self.root), "seal", slug, "--operator-decision", "Seal it.", "--delta-judgment", "scoped",
               "--delta-rationale", "As above."])
-        refusals = plan_coordinator.seal_refusals(self.lib, slug)
+        refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertTrue(any("already sealed" in r for r in refusals), refusals)
 
     def test_the_sealed_plan_exports_and_imports_with_every_digest_verified(self):
@@ -341,10 +341,10 @@ class ThisBuildsOwnProgram(_Dogfood):
 def _run(argv):
     import contextlib
     import io
-    import plan_coordinator
+    import project_manager
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = plan_coordinator.main(argv)
+        code = project_manager.main(argv)
     if code != 0:
         raise AssertionError(f"{argv} exited {code}: {err.getvalue() or out.getvalue()}")
     return out.getvalue(), err.getvalue()
@@ -706,8 +706,8 @@ PLAN_JSON = r"""{
           ]
         },
         "paths": [
-          ".engine/tools/plan_coordinator.py",
-          ".engine/tools/test_plan_coordinator.py",
+          ".engine/tools/project_manager.py",
+          ".engine/tools/test_project_manager.py",
           ".engine/schemas/surface-catalog.json"
         ],
         "verification": [
@@ -737,8 +737,8 @@ PLAN_JSON = r"""{
           ]
         },
         "paths": [
-          ".engine/tools/plan_coordinator.py",
-          ".engine/tools/test_plan_coordinator.py"
+          ".engine/tools/project_manager.py",
+          ".engine/tools/test_project_manager.py"
         ],
         "verification": [
           "Sealing is refused with an unresolved decision or assumption, a missing review, an undispositioned finding, a stale approval, or a payload the Build Coordinator would refuse.",
@@ -768,8 +768,8 @@ PLAN_JSON = r"""{
           ]
         },
         "paths": [
-          ".engine/tools/plan_coordinator.py",
-          ".engine/tools/test_plan_coordinator.py"
+          ".engine/tools/project_manager.py",
+          ".engine/tools/test_project_manager.py"
         ],
         "verification": [
           "Every mutating command takes and enforces the expected head; a stale writer is refused.",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for plan_coordinator — the command surface over the plan library.
+"""Tests for project_manager — the command surface over the plan library.
 
 Two invariants get most of the attention because both are the kind that quietly stop holding.
 
@@ -23,7 +23,7 @@ import unittest
 from unittest import mock
 
 import plan_contract
-import plan_coordinator
+import project_manager
 import plan_projection
 import plan_store
 
@@ -40,7 +40,7 @@ class _Surface(unittest.TestCase):
     def run_command(self, *argv) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = plan_coordinator.main(["--library", str(self.root), *argv])
+            code = project_manager.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()
 
     def _plan(self, **over):
@@ -108,7 +108,7 @@ class DepthGate(_Surface):
         self.run_command("preview", slug)
         record = self.lib.read_record(slug)
         self.assertNotIn("_previewed", record)
-        self.assertTrue((self.root / slug / plan_coordinator._PREVIEW_FILENAME).exists())
+        self.assertTrue((self.root / slug / project_manager._PREVIEW_FILENAME).exists())
 
     def test_depths_warn_when_the_plan_is_not_sealable(self):
         document = _document()
@@ -263,7 +263,7 @@ class Doctor(_Surface):
         synced.mkdir(parents=True)
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = plan_coordinator.main(["--library", str(synced), "doctor"])
+            code = project_manager.main(["--library", str(synced), "doctor"])
         self.assertEqual(code, 1)
         self.assertIn("sync", out.getvalue().lower())
 
@@ -354,12 +354,12 @@ class _Governed(_Surface):
         The two were interchangeable while nothing verified the receipt; now that `review record`
         re-renders and compares, a receipt has to name the packet it really read."""
         import plan_projection as _pp
-        return plan_coordinator.core.digest(
+        return project_manager.core.digest(
             _pp.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
 
     def _covering_lenses(self, depth="standard"):
         """Every lens the approved depth requires — the seal refuses anything short of it."""
-        return plan_coordinator.required_lenses(depth, plan_coordinator.installed_lenses())
+        return project_manager.required_lenses(depth, project_manager.installed_lenses())
 
     def _to_reviewed(self, findings=(), depth="standard", lenses=None, **over):
         slug, document = self._plan(**over)
@@ -851,7 +851,7 @@ class Transport(_Governed):
     def _import_into(self, root: Path, bundle: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = plan_coordinator.main(["--library", str(root), "import", "--bundle", bundle])
+            code = project_manager.main(["--library", str(root), "import", "--bundle", bundle])
         return code, out.getvalue(), err.getvalue()
 
     def test_a_plan_round_trips_with_every_digest_verified(self):
@@ -898,7 +898,7 @@ class Transport(_Governed):
         self.run_command("export", slug, "--output", path)
         bundle = json.loads(Path(path).read_text(encoding="utf-8"))
         bundle["revisions"]["1"]["title"] = "Swapped"
-        bundle["bundle_digest"] = plan_coordinator.core.digest(
+        bundle["bundle_digest"] = project_manager.core.digest(
             {"record": bundle["record"], "revisions": bundle["revisions"]})
         Path(path).write_text(json.dumps(bundle), encoding="utf-8")
         root, _ = self._other_library()
@@ -962,7 +962,7 @@ class HostileBundles(_Governed):
         bundle = json.loads(Path(path).read_text(encoding="utf-8"))
         mutate(bundle)
         # Re-stamp the outer digest so content verification cannot be what catches this.
-        bundle["bundle_digest"] = plan_coordinator.core.digest(
+        bundle["bundle_digest"] = project_manager.core.digest(
             {"record": bundle["record"], "revisions": bundle["revisions"]})
         Path(path).write_text(json.dumps(bundle), encoding="utf-8")
         return path
@@ -971,7 +971,7 @@ class HostileBundles(_Governed):
         root = Path(self._tmp.name) / "target"
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = plan_coordinator.main(["--library", str(root), "import", "--bundle", path])
+            code = project_manager.main(["--library", str(root), "import", "--bundle", path])
         return code, out.getvalue(), err.getvalue()
 
     def test_an_absolute_snapshot_path_cannot_write_outside_the_library(self):
@@ -1094,7 +1094,7 @@ class DurabilityIsReported(_Governed):
         # A silent degrade would make a full or failing disk indistinguishable from a durable write.
         slug, document = self._plan()
         before = (self.root / slug / "record.json").read_bytes()
-        with mock.patch.object(plan_coordinator.core, "durable_fsync", return_value=False):
+        with mock.patch.object(project_manager.core, "durable_fsync", return_value=False):
             with self.assertRaisesRegex(plan_store.PlanStoreError, "flush it to stable storage"):
                 self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
         self.assertEqual((self.root / slug / "record.json").read_bytes(), before,
@@ -1102,7 +1102,7 @@ class DurabilityIsReported(_Governed):
 
     def test_a_declined_directory_flush_is_not_fatal(self):
         # Some filesystems legitimately refuse to fsync a directory fd; the file is already durable.
-        with mock.patch.object(plan_coordinator.core, "fsync_dir", return_value=False):
+        with mock.patch.object(project_manager.core, "fsync_dir", return_value=False):
             slug, document = self._plan()
         self.assertEqual(self.lib.head(slug), document)
 
@@ -1335,11 +1335,11 @@ class ImportCannotOverwriteANeighbour(_Governed):
         bundle = str(Path(self._tmp.name) / "b.json")
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            plan_coordinator.main(["--library", str(attacker_root), "export",
+            project_manager.main(["--library", str(attacker_root), "export",
                                    attacker.slugs()[0], "--output", bundle])
         payload = json.loads(Path(bundle).read_text(encoding="utf-8"))
         payload["record"]["slug"] = victim_slug          # the only edit
-        payload["bundle_digest"] = plan_coordinator.core.digest(
+        payload["bundle_digest"] = project_manager.core.digest(
             {"record": payload["record"], "revisions": payload["revisions"]})
         Path(bundle).write_text(json.dumps(payload), encoding="utf-8")
 
@@ -1361,7 +1361,7 @@ class ImportCannotOverwriteANeighbour(_Governed):
 
     def test_import_takes_the_plans_own_lock(self):
         import ast
-        source = Path(plan_coordinator.__file__).read_text(encoding="utf-8")
+        source = Path(project_manager.__file__).read_text(encoding="utf-8")
         tree = ast.parse(source)
         importer = next(node for node in ast.walk(tree)
                         if isinstance(node, ast.FunctionDef) and node.name == "cmd_import")
@@ -1501,7 +1501,7 @@ class ReadyToSealReadsCleanly(_Governed):
         out = self.run_command("show", slug)[1]
         self.assertIn("not sealable yet", out)
         self.assertIn("has not been approved at any revision", out)
-        self.assertIn("plan_coordinator.py preview", out)
+        self.assertIn("project_manager.py preview", out)
 
 
 class SchemaErrorsNameTheRealProblem(_Governed):
@@ -1617,7 +1617,7 @@ class ImportToleratesADamagedNeighbour(_Governed):
         source.create(_document(plan_id="pln_bbbbbbbbbbbb", title="Incoming plan"))
         bundle = str(Path(self._tmp.name) / "b.json")
         with contextlib.redirect_stdout(io.StringIO()):
-            plan_coordinator.main(["--library", str(source_root), "export",
+            project_manager.main(["--library", str(source_root), "export",
                                    source.slugs()[0], "--output", bundle])
 
         code, out, err = self.run_command("import", "--bundle", bundle)
@@ -1633,7 +1633,7 @@ class ImportToleratesADamagedNeighbour(_Governed):
         source.create(_document(plan_id="pln_bbbbbbbbbbbb", title="Incoming plan"))
         bundle = str(Path(self._tmp.name) / "b.json")
         with contextlib.redirect_stdout(io.StringIO()):
-            plan_coordinator.main(["--library", str(source_root), "export",
+            project_manager.main(["--library", str(source_root), "export",
                                    source.slugs()[0], "--output", bundle])
         code, _, err = self.run_command("import", "--bundle", bundle)
         self.assertEqual(code, 0)
@@ -1682,21 +1682,21 @@ class ThePanelMovedHere(_Governed):
         roster = [{"lens": "architecture"}, {"lens": "feasibility"},
                   {"lens": "product-intent"}, {"lens": "risk-governance"}]
         efforts = {"quick": None, "standard": "medium", "thorough": "high"}
-        self.assertEqual(plan_coordinator.available_depths(roster, efforts=efforts),
+        self.assertEqual(project_manager.available_depths(roster, efforts=efforts),
                          ["quick", "standard", "thorough"])
         # A depth that buys nothing is suppressed: with no reviewers every heavier depth runs what quick
         # runs, so only the floor is offered (the 763/677 protection, moved with the consent surface).
-        self.assertEqual(plan_coordinator.available_depths([], efforts=efforts), ["quick"])
+        self.assertEqual(project_manager.available_depths([], efforts=efforts), ["quick"])
         # ...and with equal lens-sets AND equal effort, the heavier depth collapses too.
         flat = {"quick": None, "standard": "medium", "thorough": "medium"}
-        self.assertEqual(plan_coordinator.available_depths(roster, efforts=flat), ["quick", "standard"])
+        self.assertEqual(project_manager.available_depths(roster, efforts=flat), ["quick", "standard"])
 
     def test_a_depth_that_buys_nothing_cannot_be_approved_either(self):
         # Suppressing it from the offer is not enough if it can still be typed: consent spent on nothing
         # is the failure, wherever it is spent.
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        with mock.patch.object(plan_coordinator, "installed_lenses", return_value=[]):
+        with mock.patch.object(project_manager, "installed_lenses", return_value=[]):
             code, _, err = self.run_command("approve", slug, "--depth", "thorough", "--operator-decision", "yes, at that depth")
         self.assertEqual(code, 2)
         self.assertIn("not offered here", err)
@@ -1748,7 +1748,7 @@ class ImportingANativePlan(_Surface):
     NATIVE = "# Cache the widgets\n\nThey are slow, so cache them.\n"
 
     def _import(self, text=None, provenance="Accepted Claude Code plan, imported at plan-exit."):
-        return plan_coordinator.import_native_plan(text if text is not None else self.NATIVE,
+        return project_manager.import_native_plan(text if text is not None else self.NATIVE,
                                                    provenance=provenance, library=self.lib)
 
     def test_the_native_text_is_kept_verbatim_as_the_raw_intent(self):
@@ -1786,7 +1786,7 @@ class ImportingANativePlan(_Surface):
 
     def test_an_empty_document_is_refused_rather_than_imported_as_a_blank_plan(self):
         for text in ("", "   \n\t\n", None):
-            with self.assertRaises(plan_coordinator.PlanCoordinatorError):
+            with self.assertRaises(project_manager.ProjectManagerError):
                 self._import(text if text is not None else "")
 
     def test_every_import_mints_its_own_identity(self):
@@ -1804,7 +1804,7 @@ class ImportingANativePlan(_Surface):
         self.assertNotIn("## Execution graph", rendered)
 
     def test_the_arrival_report_names_the_plan_the_revision_and_the_next_command(self):
-        report = plan_coordinator.arrival_report(self._import())
+        report = project_manager.arrival_report(self._import())
         self.assertIn(self.lib.read_record(self.lib.slugs()[0])["plan_id"], report)
         self.assertIn("revision 1", report)
         self.assertIn("preview --plan", report)
@@ -1851,14 +1851,14 @@ class DepthSelectsReviewersAndNothingElse(_Surface):
     """
 
     def _approved_at(self, depth):
-        slug, document = self._plan(plan_id=f"pln_{'0' * 11}{plan_coordinator.DEPTH_ORDER.index(depth)}")
+        slug, document = self._plan(plan_id=f"pln_{'0' * 11}{project_manager.DEPTH_ORDER.index(depth)}")
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decision", "yes, at that depth")[0], 0)
         return slug, self.lib.head(slug), self.lib.read_record(slug)
 
     def test_the_document_and_its_payload_are_byte_identical_at_every_depth(self):
         shapes = {}
-        for depth in plan_coordinator.DEPTH_ORDER:
+        for depth in project_manager.DEPTH_ORDER:
             _, document, record = self._approved_at(depth)
             payload = document["build_plan"]
             shapes[depth] = {
@@ -1869,14 +1869,14 @@ class DepthSelectsReviewersAndNothingElse(_Surface):
                                    for item in payload["work_items"]),
                 "parallelism": payload["parallelism"],
             }
-        reference = shapes[plan_coordinator.DEPTH_ORDER[0]]
+        reference = shapes[project_manager.DEPTH_ORDER[0]]
         for depth, shape in shapes.items():
             self.assertEqual(shape, reference, f"{depth} changed the plan itself, not just its review")
 
     def test_the_approved_depth_is_the_only_thing_the_depth_choice_writes(self):
         # Stated as the complement of the test above: approval records the depth against the digest
         # being approved, and touches nothing else on the record.
-        for depth in plan_coordinator.DEPTH_ORDER:
+        for depth in project_manager.DEPTH_ORDER:
             slug, _, record = self._approved_at(depth)
             self.assertEqual(record["approval"]["depth"], depth)
             self.assertEqual(record["approval"]["plan_digest"], record["current"]["plan_digest"])
@@ -1884,23 +1884,159 @@ class DepthSelectsReviewersAndNothingElse(_Surface):
             self.assertIsNone(record["seal"])
 
     def test_a_deeper_depth_adds_reviewers_and_only_reviewers(self):
-        roster = plan_coordinator.installed_lenses()
-        lighter = set(plan_coordinator.required_lenses("quick", roster))
-        deeper = set(plan_coordinator.required_lenses("thorough", roster))
+        roster = project_manager.installed_lenses()
+        lighter = set(project_manager.required_lenses("quick", roster))
+        deeper = set(project_manager.required_lenses("thorough", roster))
         self.assertTrue(lighter <= deeper, "a deeper depth must never drop a reviewer a lighter one ran")
 
 
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
-        self.assertEqual(set(plan_coordinator.DEPTHS), {"quick", "standard", "thorough"})
+        self.assertEqual(set(project_manager.DEPTHS), {"quick", "standard", "thorough"})
         # ONE vocabulary across both coordinators, which is what lets a single consent cover both gates.
         import build_coordinator_review as bcr
-        self.assertEqual(set(plan_coordinator.DEPTHS), set(bcr.DEPTH_ORDER))
+        self.assertEqual(set(project_manager.DEPTHS), set(bcr.DEPTH_ORDER))
 
     def test_every_status_the_surface_can_report_is_in_the_enumeration(self):
         for status in ("draft", "awaiting-approval", "awaiting-review", "review-recorded",
                        "sealed", "active", "complete", "retired", "abandoned"):
             self.assertIn(status, plan_store.STATUSES)
+
+
+class TheRetitle(unittest.TestCase):
+    """The component is the Project Manager, and the old name survives only where it is HISTORY.
+
+    A rename is only finished when you can prove where it stopped. This walks the whole repository for
+    the three written forms of the old name and holds the survivors to a list that says, per entry, why
+    that one is not a miss. The list is the point: without it a sweep is a claim, and a claim is what
+    leaves a live component half-renamed."""
+
+    ROOT = Path(__file__).resolve().parents[2]
+    FORMS = ("Plan Coordinator", "plan_coordinator", "plan-coordinator")
+
+    # path -> why the old name belongs there. Each of these is history, data, or generated.
+    ALLOWED = {
+        ".engine/contracts/eADR-0044-plan-coordinator-local-library.md":
+            "the decision record's own FILENAME is history and is kept; its 2026-08-25 amendment is the "
+            "one place the old name is spoken in this repository, and it speaks of it as the past",
+        ".engine/schemas/engine-plan.v1.json":
+            "a schema. The data boundary is held whole: this node changes nothing under .engine/schemas/, "
+            "because a schema id names the artifact and renaming one would invalidate every stored record",
+        ".engine/schemas/build-plan.imported.json":
+            "the same, for the imported-plan payload schema",
+        ".engine/provisioning/module-surfaces.json":
+            "generated, and what it carries is the eADR FILENAME above — it is correct because that file "
+            "is correctly named",
+        ".engine/policies/provider-exceptions.json":
+            "OUT OF THIS NODE'S DECLARED PATHS. `.engine/policies/` is not among them, so this node could "
+            "not touch it; the entry's reason string still names the old component in the present tense "
+            "and is a residue to fix in a follow-up, disclosed here rather than left invisible",
+        ".engine/tools/test_plan_dogfood.py":
+            "the historical plan document itself — the real PR A plan's title, raw intent and decisions. "
+            "History keeps the name it was written under",
+        ".engine/tools/test_plan_program.py":
+            "a program fixture named for the real program, same reason",
+        ".engine/tools/test_plan_store.py":
+            "a stored plan record's own title, same reason",
+        ".engine/tools/test_plan_contract.py":
+            "a plan_id fixture exercising the id validator, not a reference to the component",
+        ".engine/tools/test_project_manager.py":
+            "this exclusion list",
+        ".engine/tools/project_manager.py":
+            "the module docstring's WHY THIS NAME paragraph, which names the old title as the past and "
+            "says where the retitle deliberately stops",
+    }
+
+    # Searched AROUND, not excused. These two are generated: their contents are whatever the last
+    # regeneration wrote, so a hit in them is evidence about when a generator last ran and nothing about
+    # the rename. Keeping them in the ALLOWED map above made the list itself unstable — a full suite run
+    # regenerates ci-assurance.md, and the entry went stale mid-run.
+    GENERATED = (".engine/docs/ci-assurance.md", ".engine/knowledge/graph.json")
+
+    def _hits(self) -> set:
+        import subprocess
+        found = set()
+        for form in self.FORMS:
+            out = subprocess.run(["git", "grep", "-lI", "--", form, ":(exclude).engine/docs/ci-assurance.md",
+                                  ":(exclude).engine/knowledge/graph.json"],
+                                 cwd=self.ROOT, capture_output=True, text=True)
+            found.update(line for line in out.stdout.splitlines() if line)
+        return found
+
+    def test_the_old_name_survives_only_on_the_stated_exclusion_list(self):
+        unexplained = sorted(self._hits() - set(self.ALLOWED))
+        self.assertEqual(unexplained, [],
+                         "these still carry the old name and nothing says why: " + ", ".join(unexplained))
+
+    def test_the_exclusion_list_carries_no_entry_that_is_already_clean(self):
+        """A stale exclusion is how a list stops meaning anything — it accumulates permissions for
+        things that no longer need them, and the next real miss hides among them."""
+        stale = sorted(set(self.ALLOWED) - self._hits())
+        self.assertEqual(stale, [], "these are on the exclusion list but are already clean: "
+                         + ", ".join(stale))
+
+    def test_the_tool_ships_under_its_new_name_and_the_old_module_is_gone(self):
+        self.assertTrue((self.ROOT / ".engine/tools/project_manager.py").exists())
+        self.assertFalse((self.ROOT / ".engine/tools/plan_coordinator.py").exists())
+        self.assertFalse((self.ROOT / ".engine/tools/test_plan_coordinator.py").exists())
+
+    def test_the_data_boundary_is_untouched(self):
+        """The line the retitle deliberately stops at. Asserted against the SCHEMAS as they stand, not
+        against a diff, so it keeps holding after this node's commit is history."""
+        for name in ("engine-plan.v1", "plan-record.v1", "engine-program.v1"):
+            self.assertTrue((self.ROOT / f".engine/schemas/{name}.json").exists(),
+                            f"{name} must keep its id — renaming it would make every stored record in "
+                            "every deployed project unreadable")
+        import project_manager
+        self.assertIn('prog="project_manager.py"',
+                      (self.ROOT / ".engine/tools/project_manager.py").read_text(encoding="utf-8"))
+        self.assertIn('add_parser("plan")',
+                      (self.ROOT / ".engine/tools/build_coordinator.py").read_text(encoding="utf-8"),
+                      "the Build's `plan` verb namespace names the artifact a Build binds, not the "
+                      "component that authored it, and stays")
+        self.assertTrue(hasattr(project_manager, "ProjectManagerError"))
+
+
+class ARealProjectCrossesTheRenameWhole(unittest.TestCase):
+    """The rename is of a DELIVERED file, so proving the prose is consistent proves nothing about the
+    thing an operator ends up running.
+
+    An already-deployed project has `plan_coordinator.py` sitting in its own tools directory. An update
+    that only DELIVERS would leave it there beside the new module: still importable, still runnable,
+    still offering a `plan` shelf, and now the second answer to a question that should have one. This
+    drives the REAL upgrade against a throwaway clone and asserts the deployed tree ends with exactly
+    one of them.
+
+    Note the manifest shape this rests on. Core provides its tools as the glob `.engine/tools/*.py`, so
+    the new file is delivered without a manifest edit — and the OLD file is owned by that same glob in
+    the deployed tree, which is what puts it in the reconcile's delete set. That is a different path
+    from the literal-`provides` rename orphan the #599 demo covers, so it is worth its own proof rather
+    than an argument by analogy."""
+
+    def test_the_deployed_tree_ends_with_project_manager_and_no_runnable_predecessor(self):
+        import shutil
+        import tempfile
+        import engine_fixture
+        import module_manager as mm
+        import validate
+        real_root = validate.ROOT
+        with tempfile.TemporaryDirectory() as d:
+            live = engine_fixture.clone_engine(real_root, os.path.join(d, "live"))
+            release = engine_fixture.clone_engine(real_root, os.path.join(d, "release"))
+            # The deployed project as it stands BEFORE this release: the predecessor is on disk under its
+            # old name. Copied from the real module so it is a genuinely runnable file, not a stub.
+            stale = os.path.join(live, ".engine", "tools", "plan_coordinator.py")
+            shutil.copyfile(os.path.join(live, ".engine", "tools", "project_manager.py"), stale)
+            self.assertTrue(os.path.exists(stale))
+            with mm._redirect_root(live):
+                mm.upgrade(ref="v-retitle", release_tree=release)
+            self.assertTrue(os.path.exists(os.path.join(live, ".engine", "tools", "project_manager.py")),
+                            "the retitled module must be delivered")
+            self.assertFalse(os.path.exists(stale),
+                             "the predecessor must be REMOVED, not left runnable beside its successor — "
+                             "two modules answering the same question is the failure a rename creates")
+            self.assertFalse(os.path.exists(os.path.join(live, ".engine", "tools",
+                                                         "test_plan_coordinator.py")))
 
 
 if __name__ == "__main__":

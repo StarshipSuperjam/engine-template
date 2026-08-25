@@ -666,9 +666,9 @@ class TestNoPlanReachesGitHub(unittest.TestCase):
     def test_the_derived_next_step_for_a_sealed_plan_states_the_bind_command(self):
         # The in-tool guidance is shipped instruction too, and it was the loudest stale line of all:
         # it used to tell the operator that handing a sealed plan to a Build was not wired up.
-        import plan_coordinator
+        import project_manager
         record = {"plan_id": PLAN_ID, "current": {"revision": 1, "plan_digest": SEALED}}
-        step = plan_coordinator._next_step("sealed", record, [])
+        step = project_manager._next_step("sealed", record, [])
         self.assertIn(f"plan bind --plan {PLAN_ID}", step)
         self.assertNotIn("not wired up", step)
 

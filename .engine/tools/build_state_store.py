@@ -164,7 +164,7 @@ def resolve_for_worktree(worktree: Path | str, schema, expected_revision: int | 
         raise BuildStateError(
             f"no Build snapshot is bound to this worktree ({Path(worktree).resolve()}). Start the "
             "Build with 'plan bind', or name an explicit snapshot with --state. If a Build did run "
-            "here, its snapshot lives with its plan — 'plan_coordinator.py list' shows the library.")
+            "here, its snapshot lives with its plan — 'project_manager.py list' shows the library.")
     raise BuildStateError(
         f"{len(found)} Build snapshots name this worktree ({Path(worktree).resolve()}): "
         + ", ".join(slug for slug, _ in found)

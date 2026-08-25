@@ -64,7 +64,7 @@ _digest = core.digest
 
 
 # The plan document's schema version. Re-exported from the pure layer so the version rule has one
-# home now that the Plan Coordinator reads it too.
+# home now that the Project Manager reads it too.
 _plan_version = dag.plan_version
 
 # `checkpoint --complete-item` is GONE with the v1 sunset. A node's completion is earned at `work
@@ -714,7 +714,7 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
         raise CoordinatorError(
             f"{record['plan_id']} is not sealed, and only a sealed plan enters a Build. Finish its "
             "lifecycle first — preview, approve with a depth, record the one cold plan review, "
-            f"disposition its findings, then `plan_coordinator.py seal {record['plan_id']}`.")
+            f"disposition its findings, then `project_manager.py seal {record['plan_id']}`.")
     document = library.head(slug)
     if record["current"]["plan_digest"] != seal["sealed_digest"]:
         raise CoordinatorError(
@@ -1028,7 +1028,7 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
         raise CoordinatorError(
             f"{successor_id} does not name {bound_id} among its predecessors, so nothing shows it is a "
             f"correction of the plan this Build is executing rather than an unrelated plan. Adopt only a "
-            f"clone of the bound plan:\n    plan_coordinator.py clone {bound_id} "
+            f"clone of the bound plan:\n    project_manager.py clone {bound_id} "
             "--reason \"<what the Build discovered>\"\n  then approve, review and seal that clone.")
     bound_plan = _plan(args.input)
     if _digest(bound_plan) != state["plan"]["digest"]:
@@ -1288,7 +1288,7 @@ def _packet(args, store: Snapshot | None) -> None:
     if stage == "plan":
         raise CoordinatorError(
             "the Build Coordinator runs one review, and it is the deliverable review. Plan review "
-            "happens on the plan side before the seal — `plan_coordinator.py review packet` — and a "
+            "happens on the plan side before the seal — `project_manager.py review packet` — and a "
             "Build cannot start on a plan that has not been through it.")
     installed = [item if isinstance(item, dict) else {
         "lens": item, "path": f"test-reviewer/{item}.md", "digest": _digest(item.encode())
