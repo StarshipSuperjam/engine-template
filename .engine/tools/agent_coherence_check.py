@@ -71,22 +71,33 @@ _GIT_SAFETY_MESSAGE = (
 
 # The scout containment recipe. A scout that runs commands is usually pointed at work that is still
 # uncommitted, so its copy must include uncommitted changes — the tracked-file clone the review recipe
-# names would test a different tree than the one asked about. These substrings anchor that: the
-# property that matters (uncommitted changes carried), the disposability of the destination, and the
-# same worktree prohibition the review recipe carries.
-_SCOUT_CONTAINMENT_TOKENS = ("including uncommitted changes", "disposable copy", "git worktree add")
+# names would test a different tree than the one asked about.
+#
+# The tokens carry their NEGATIONS where the recipe is a prohibition, and that is deliberate. A
+# presence check over prose scores a body by what it mentions, so a bare "git worktree add" token is
+# satisfied just as well by a body RECOMMENDING the operation as by one banning it — a reviewer
+# demonstrated exactly that against an earlier form of this list, rewriting the runner to work in the
+# live checkout and make its copy with `git worktree add` plus a remote repoint, and getting a clean
+# result. Requiring "never `git worktree add`" and "never in the live checkout" closes that particular
+# hole. Be honest about what it does NOT do: this is still a presence check over prose, not a
+# semantic one. A body could carry every token and then contradict itself in the next sentence. The
+# tokens make the recipe's SHAPE mechanical; that the surrounding prose means it is the reviewer's
+# judgment and the merge gate's, exactly as for the review recipe beside it.
+_SCOUT_CONTAINMENT_TOKENS = ("including uncommitted changes", "disposable copy",
+                             "never in the live checkout", "Never `git worktree add`")
 _COLLAPSE_WS = re.compile(r"\s+")
 _SCOUT_CONTAINMENT_MESSAGE = (
     "Scout persona '{name}' keeps the Bash shell but its body is missing the scout containment "
     "recipe (missing: {missing}). A scout runs commands against work that is often still "
     "uncommitted, so it must copy the WHOLE working tree — including uncommitted changes — into a "
-    "fresh disposable copy in a temporary directory and run only there; add that to "
-    ".claude/agents/{name}.md. Do not give a scout the review persona's tracked-file "
-    "engine_fixture.clone_engine() recipe: cloning only tracked files would run against a different "
-    "tree than the one it was asked about and report a green that means nothing. Never `git worktree "
-    "add` from an existing checkout (a worktree shares its .git/config, so a remote change inside it "
-    "repoints the real one), and never stash/checkout/switch/reset or change a remote in a checkout "
-    "you did not create.")
+    "fresh disposable copy in a temporary directory and run only there, never in the live checkout; "
+    "add that to .claude/agents/{name}.md, and state the prohibitions as prohibitions — the wording "
+    "is checked, so 'Never `git worktree add`' is what satisfies this, not a passing mention of the "
+    "command. Do not give a scout the review persona's tracked-file engine_fixture.clone_engine() "
+    "recipe: cloning only tracked files would run against a different tree than the one it was asked "
+    "about and report a green that means nothing. Never `git worktree add` from an existing checkout "
+    "(a worktree shares its .git/config, so a remote change inside it repoints the real one), and "
+    "never stash/checkout/switch/reset or change a remote in a checkout you did not create.")
 
 
 def _keeps_bash(fm: dict) -> bool:

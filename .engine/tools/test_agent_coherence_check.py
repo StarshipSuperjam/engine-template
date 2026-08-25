@@ -43,9 +43,10 @@ _QA_NO_RECIPE = _QA_HEAD + "You may run it in a throwaway copy and disclose that
 
 # A shell-capable SCOUT owes a different recipe: it is dispatched at moments when the work is still
 # uncommitted, so the tracked-file clone a reviewer carries would run against the wrong tree.
-_SCOUT_RECIPE = ("Copy the whole working tree, including uncommitted changes, into a fresh disposable "
-                 "copy in a temporary directory and run only there; never `git worktree add` from an "
-                 "existing checkout.")
+_SCOUT_RECIPE = ("Run in a copy you make yourself and never in the live checkout. Copy the whole working "
+                 "tree, including uncommitted changes, into a fresh disposable copy in a private "
+                 "temporary directory and run only there. Never `git worktree add` from an existing "
+                 "checkout. Delete the copy when the run is done.")
 _SCOUT_HEAD = ("---\nname: validation-runner\ndescription: Runs the suites.\n"
                "role: scout\nmodel-tier: mechanical\npermissions: read-only\n"
                "output-contract: validation-digest.v1\n"
@@ -194,7 +195,8 @@ class TestScoutContainmentLeg(unittest.TestCase):
             self.assertEqual(len(findings), 1)
             self.assertEqual(findings[0]["severity"], "hard")
             self.assertIn("Scout persona 'validation-runner'", findings[0]["message"])
-            for token in ("including uncommitted changes", "disposable copy", "git worktree add"):
+            for token in ("including uncommitted changes", "disposable copy",
+                          "never in the live checkout", "Never `git worktree add`"):
                 self.assertIn(token, findings[0]["message"])
 
     def test_scout_carrying_the_review_recipe_is_still_flagged(self):
@@ -208,18 +210,32 @@ class TestScoutContainmentLeg(unittest.TestCase):
             self.assertEqual(len(findings), 1)
             self.assertIn("including uncommitted changes", findings[0]["message"])
             self.assertIn("disposable copy", findings[0]["message"])
-            self.assertNotIn("missing: including uncommitted changes, disposable copy, git worktree add",
-                             findings[0]["message"],
-                             "the shared worktree prohibition is present, so it is not reported missing")
-
     def test_partial_scout_recipe_names_only_what_is_missing(self):
         with tempfile.TemporaryDirectory() as d:
-            body = _SCOUT_HEAD + ("Copy the whole working tree, including uncommitted changes, into a "
-                                  "disposable copy and run there.\n")
+            body = _SCOUT_HEAD + ("Run never in the live checkout. Copy the whole working tree, including "
+                                  "uncommitted changes, into a disposable copy and run there.\n")
             _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
             findings = acc.git_safety_findings("hard", root=d)
             self.assertEqual(len(findings), 1)
-            self.assertIn("missing: git worktree add", findings[0]["message"])
+            self.assertIn("missing: Never `git worktree add`", findings[0]["message"])
+
+    def test_a_body_recommending_the_forbidden_operation_is_flagged(self):
+        # The bypass this token set exists to close, reproduced. A presence check scores a body by what
+        # it MENTIONS, so an earlier form of this list — which required a bare "git worktree add" —
+        # was satisfied just as well by a body telling the scout to work in the live checkout and make
+        # its copy with `git worktree add` plus a remote repoint: the exact pair behind the two recorded
+        # incidents. That body returned no finding. Requiring the negated forms is what makes the
+        # difference between recommending and prohibiting visible to the check.
+        with tempfile.TemporaryDirectory() as d:
+            body = _SCOUT_HEAD + ("Work directly in the live checkout you were given, including "
+                                  "uncommitted changes. Make your disposable copy with `git worktree "
+                                  "add` and repoint its remote.\n")
+            _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
+            findings = acc.git_safety_findings("hard", root=d)
+            self.assertEqual(len(findings), 1,
+                             "a body RECOMMENDING the prohibited operation must not satisfy the recipe")
+            self.assertIn("never in the live checkout", findings[0]["message"])
+            self.assertIn("Never `git worktree add`", findings[0]["message"])
 
     def test_bash_locked_scout_is_exempt(self):
         # the grounding scout denies Bash outright, so it owes no containment recipe at all.
@@ -234,9 +250,9 @@ class TestScoutContainmentLeg(unittest.TestCase):
         # A persona body is wrapped prose. A phrase split across a line break is still the recipe,
         # and failing it would teach authors to reflow paragraphs to satisfy a substring test.
         with tempfile.TemporaryDirectory() as d:
-            body = _SCOUT_HEAD + ("Copy the whole working tree, including uncommitted\nchanges, into a "
-                                  "fresh disposable\ncopy in a temporary directory; never `git worktree\n"
-                                  "add` from an existing checkout.\n")
+            body = _SCOUT_HEAD + ("Run never in the live\ncheckout. Copy the whole working tree, including "
+                                  "uncommitted\nchanges, into a fresh disposable\ncopy in a temporary "
+                                  "directory. Never `git worktree\nadd` from an existing checkout.\n")
             _write(os.path.join(d, ".claude/agents/validation-runner.md"), body)
             self.assertEqual(acc.git_safety_findings("hard", root=d), [],
                              "a wrapped but complete scout recipe is clean")

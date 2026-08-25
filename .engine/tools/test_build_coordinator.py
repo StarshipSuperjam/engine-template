@@ -1551,6 +1551,30 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertIsNone(status["suggested_next"])
         self.assertIn("continue implementation", status["available_activities"])
 
+    def test_implementation_status_routes_delegation_to_the_scouts(self):
+        """The runtime projection names both scouts — and names the runner on FOCUSED verification only.
+
+        The routing's whole claim is that a session meets it at the moment it acts rather than in a
+        runbook it may never open, so the runbook's phrase list is not enough on its own: it guards the
+        prose, not this output. The second half matters as much as the first. Both coordinator
+        validation classes bind evidence to the live tree, and the runner is confined by its own
+        containment recipe to a disposable copy, so routing final validation through it would yield a
+        readable summary and no admissible evidence. A later edit that moves the runner onto the final
+        line would reintroduce exactly that, and this is what catches it.
+        """
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        activities = status["available_activities"]
+        grounding = [a for a in activities if "engine-grounding-scout" in a]
+        self.assertEqual(len(grounding), 1, "the grounding scout is named exactly once")
+        runner = [a for a in activities if "engine-validation-runner" in a]
+        self.assertEqual(len(runner), 1, "the validation runner is named exactly once")
+        self.assertIn("focused verification", runner[0],
+                      "the runner belongs to focused verification, never to a validation class whose "
+                      "evidence binds to the live tree")
+        self.assertNotIn("engine-validation-runner",
+                         next(a for a in activities if a.startswith("run final validation")))
+
     def test_status_surfaces_unresolved_and_accepted_plan_assumptions(self):
         value = plan()
         value["assumptions"] = [
@@ -2646,9 +2670,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # candidate/final validation split (step 5 now teaches the cache, the imported merge proof and
         # the rollup wall — verbs a session cannot work without; 3147 -> 3152 restoring the focused-tests
         # anchor BO-21 binds; 3152 -> 3215 for the delegation routing in steps 4 and 5, the measured
-        # cost of naming where reconnaissance and suite runs go). The preservation-source ratio
+        # cost of naming where reconnaissance and suite runs go; 3215 -> 3233 when a deliverable
+        # reviewer showed the routing had been attached to the WRONG verb — the runner was named on
+        # the coordinator's evidence-minting validation, which binds its record to the live tree and
+        # so cannot accept anything a scout confined to a disposable copy produces. Saying which runs
+        # route to it and which do not costs those words and is not optional: the earlier, shorter
+        # wording actively taught the wrong thing). The preservation-source ratio
         # (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3215)
+        self.assertLessEqual(len(text.split()), 3233)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that

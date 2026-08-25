@@ -11,6 +11,7 @@ real repository as coherent. The deliverable-gate cold review attests each test'
 matches its name; CI runs them as a step in engine-ci.
 """
 from __future__ import annotations
+import glob
 import json
 import os
 import shutil
@@ -481,6 +482,25 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                             f"core claims {claim}, which does not exist — a claim resolving to nothing "
                             f"ships nothing, the exact failure this group was added to fix")
         self.assertIn(".claude/skills/engine-parts/SKILL.md", provides.get("skill", []))
+
+    def test_every_shipped_persona_is_claimed_by_some_module(self):
+        """A persona file reaches a deployment ONLY if a module manifest claims it. Nothing else checks
+        this: module coherence walks `.engine/`, so an unclaimed file under `.claude/agents/` is not a
+        finding anywhere — it simply never ships, silently, and the repository looks fine.
+
+        That is not hypothetical. Both dispatched workers sat unclaimed by any module for their whole
+        life and were absent from every install until the claims beside this test were added. The
+        obvious guard — walk the claims and check each names a real file — is vacuous against exactly
+        the failure that actually happened: delete the group and there is nothing left to walk, so it
+        passes. This walks the other way, from the shipped personas to the claims, so a persona that
+        no module carries is a failure rather than a silence.
+        """
+        claims = module_coherence.provides_claims(module_coherence.discover_manifests())
+        for path in sorted(glob.glob(os.path.join(validate.ROOT, ".claude", "agents", "*.md"))):
+            rel = os.path.relpath(path, validate.ROOT)
+            self.assertTrue(claims.get(rel),
+                            f"{rel} is claimed by no module, so it ships to no deployment — add it to "
+                            f"the provides `agent` group of the module that owns it")
 
     def test_check_corpus_split_core_two_guards_validators_core_owns_the_rest(self):
         # The locked engine/corpus boundary:

@@ -62,10 +62,11 @@ Three residuals, named rather than hidden:
 - **`general-purpose` is convention-only.** It inherits every tool, including the subagent tool, and the
   platform exposes no per-agent configuration for it. Nothing mechanical stops it spawning; only the
   prompt it is given.
-- **A user-level persona wrapper is out of reach.** An agent defined in an operator's own
-  `~/.claude/agents/` directory is not part of this repository and cannot be constrained from here. One
-  such wrapper runs engine personas by reading their files at runtime, which means it treats a persona's
-  denylist as prose rather than as a lock. Closing that is an operator-side change to their own file.
+- **A user-level persona wrapper would be out of reach.** An agent defined in an operator's own
+  `~/.claude/agents/` directory is not part of this repository and cannot be constrained from here. If one
+  of yours runs engine personas by reading their files at runtime, it treats a persona's denylist as prose
+  rather than as a lock, and the leaf-lock above does not bind it. Whether such a wrapper exists is a
+  property of your machine, not of this project; closing it is a change to your own file.
 - **The scouts are Claude-only.** They have no Codex twin; see `provider-exceptions.json` for why.
 
 **This is not a cost router and does not meter spend.** The engine cannot see its own token use and does not

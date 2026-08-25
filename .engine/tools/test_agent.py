@@ -504,11 +504,18 @@ class TestShippedRosterDelegationPosture(unittest.TestCase):
         # The bounded-delegation decision was deliberate: the lenses KEEP the ability to dispatch a
         # cheap scout, under a mandate. If a later edit hard-locked them, the mandate above would be
         # dead prose and the reconnaissance the policy routes to them would silently stop happening.
+        #
+        # This is a decision checkpoint, not a prohibition. Hard-locking the fleet is a perfectly
+        # reasonable future call — it is the stricter direction — and this case exists so that making
+        # it is a decision someone records rather than a line someone changes in passing. If that is
+        # the call, change this case and say why in the same edit.
         for name in self.JUDGMENT:
             deny = self._fm(name).get("disallowedTools") or []
             for tool in self.SUBAGENT_TOOLS:
                 self.assertNotIn(tool, deny,
-                                 f"{name} is hard-locked; bounded delegation expects a mandate, not a lock")
+                                 f"{name} is hard-locked, reversing the operator's bounded-delegation "
+                                 f"decision. If that reversal is intended, change this test and record "
+                                 f"the reason; if it is not, restore the mandate instead of the lock")
 
     def test_the_validation_runner_keeps_its_containment_and_raw_log_clauses(self):
         body = self._body("engine-validation-runner")

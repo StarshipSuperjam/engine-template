@@ -507,11 +507,18 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         # about to do the work — not only in the runbook, which it may have read hours ago or not at all.
         # Naming them at the point of action is what makes the routing a default rather than a rule
         # someone has to remember (see .engine/policies/session-economy.md).
+        #
+        # The runner is attached to FOCUSED verification and deliberately NOT to final validation. Both
+        # coordinator validation classes bind their evidence to the live tree — `validate` mints a run
+        # record naming this repository's current tree and refuses a dirty one, and Final imports a CI
+        # receipt and is never run locally at all. A scout confined to a disposable copy can produce
+        # neither: the record, the log and the state update all vanish with the copy. Routing either
+        # class through it would return a readable summary and no admissible evidence.
         phase, next_one, available = "implementation", None, [
             "continue implementation",
             "send a wide recall or impact sweep to `engine-grounding-scout` rather than running it inline",
-            "run focused verification",
-            "run final validation when the change is cohesive, through `engine-validation-runner` unless you need the raw log"]
+            "run focused verification through `engine-validation-runner` unless you need the raw log",
+            "run final validation when the change is cohesive"]
     elif not delivery_ready:
         phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
     elif not repair_ready:
