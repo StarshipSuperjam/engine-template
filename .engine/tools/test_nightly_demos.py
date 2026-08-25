@@ -19,11 +19,15 @@ Three properties, each with a way it could plausibly go wrong:
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import nightly_demo_report as reporter   # noqa: E402
@@ -150,6 +154,39 @@ class ItActsOnlyOnTheIssueItMinted(unittest.TestCase):
         api = _Issues([renamed])
         outcome = reporter.report(_green(), api, "o/r")
         self.assertEqual(outcome, {"action": "closed", "issue": 7})
+
+
+class AnAmbiguousReportRefusesLegibly(unittest.TestCase):
+    """Two candidate reports is the state the marker rule exists to prevent, so it stays a REFUSAL —
+    picking one would be the very thing being guarded against. But it was raised out of `main` as an
+    unhandled traceback, which threw away the operator remedy the message carries and bypassed this
+    tool's own exit convention. Reaching it needs the engine label and a marker as the last line, so
+    this is a fail-closed nuisance rather than an attack — the guidance should still reach the log."""
+
+    def test_two_candidates_refuse_rather_than_pick_one(self):
+        marked = lambda n: {"number": n, "state": "open", "title": f"t{n}",
+                            "body": "…\n" + reporter.MARKER + "\n"}
+        api = _Issues([marked(1), marked(2)])
+        with self.assertRaises(reporter.ReportAmbiguous):
+            reporter.report(_green(), api, "o/r")
+        self.assertEqual(api.closed, [])
+        self.assertEqual(api.updated, [])
+
+    def test_the_refusal_reaches_the_log_as_guidance_not_as_a_traceback(self):
+        """Driven through `main` itself, because the whole finding is that the exception escaped it."""
+        marked = lambda n: {"number": n, "state": "open", "title": f"t{n}",
+                            "body": "…\n" + reporter.MARKER + "\n"}
+        api = _Issues([marked(1), marked(2)])
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Path(tmp) / "result.json"
+            result.write_text(json.dumps(_green()), encoding="utf-8")
+            with unittest.mock.patch.object(reporter.telemetry, "GitHubIssues", lambda *a, **k: api), \
+                    unittest.mock.patch.dict(os.environ, {"GITHUB_TOKEN": "x"}), \
+                    contextlib.redirect_stderr(io.StringIO()) as err:
+                code = reporter.main(["--result", str(result), "--repository", "o/r"])
+        self.assertEqual(code, 2, "the tool's own exit convention, not a traceback")
+        self.assertIn("more than one", err.getvalue().lower())
+        self.assertEqual(api.closed, [])
 
 
 class TheReportIsAConformantEngineIssue(unittest.TestCase):

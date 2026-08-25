@@ -919,6 +919,12 @@ def cmd_review_amend(args) -> int:
     if added_lenses:
         require_delivered_effort(record["approval"]["depth"], added_lenses, added_efforts,
                                  accepted=bool(getattr(args, "accept_effort_shortfall", False)))
+    # An amendment that USED the shortfall escape has to leave the same acknowledgement the record verb
+    # leaves. Passing the flag to the refusal and not writing it down produced the one state the
+    # disclosure cannot describe: a gap on the record with nothing saying anyone accepted it.
+    amended_shortfall = bool(added_lenses
+                             and getattr(args, "accept_effort_shortfall", False)
+                             and effort_shortfalls(record["approval"]["depth"], added_efforts))
     added = plan_lifecycle.translate_findings(
         json.loads(core.input_text(args.findings)) if args.findings else [],
         lenses=list(args.lens or review["lenses"]))
@@ -941,6 +947,8 @@ def cmd_review_amend(args) -> int:
         current["plan_review"]["lenses"] = current["plan_review"]["lenses"] + added_lenses
         current["plan_review"].setdefault("findings", []).extend(added)
         current["plan_review"].setdefault("delivered_efforts", {}).update(added_efforts)
+        if amended_shortfall:
+            current["plan_review"]["effort_shortfall_accepted"] = True
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
@@ -1050,7 +1058,14 @@ def cmd_finding_dispose(args) -> int:
     if not match:
         known = ", ".join(f["id"] for f in review.get("findings", [])) or "none"
         raise ProjectManagerError(f"no finding {args.id!r} in this review; it holds: {known}")
-    blocks = bool(args.blocks_this_pr)
+    stated = getattr(args, "blocks_this_pr_stated", None)
+    if stated is None:
+        raise ProjectManagerError(
+            f"say whether {args.id} still holds the pull request this plan authorizes: "
+            "`--blocks-this-pr` or `--does-not-block-this-pr`. There is no default — a gate that "
+            "reads silence as 'not blocking' fails toward permitting, and the whole value of the "
+            "answer is that someone gave it.")
+    blocks = stated
     # The disclosure rule the Build side already enforced, arriving with the panel: a BLOCKING finding
     # that the orchestrator decides should not block needs an operator-safe sentence, because that
     # decision is a disagreement the operator meets at merge. Without one there is nothing honest to
@@ -1910,11 +1925,16 @@ def build_parser() -> argparse.ArgumentParser:
                          choices=["accepted-fixed", "accepted-tracked", "partially-accepted",
                                   "rejected", "escalated"])
     dispose.add_argument("--rationale", required=True)
+    # A stated choice, never a default. An omitted flag used to resolve to False, so a session that
+    # simply forgot recorded the finding as not holding the pull request — a submission gate failing
+    # toward permitting, which is exactly what the Build side's own `finding record` rejects. The
+    # consts make "said nothing" distinguishable from "said no".
     blocking = dispose.add_mutually_exclusive_group()
-    blocking.add_argument("--blocks-this-pr", action="store_true",
+    blocking.add_argument("--blocks-this-pr", action="store_const", const=True, dest="blocks_this_pr_stated",
                           help="this finding still blocks the pull request the plan authorizes")
-    blocking.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr",
-                          help="the default: dispositioned and not blocking")
+    blocking.add_argument("--does-not-block-this-pr", action="store_const", const=False,
+                          dest="blocks_this_pr_stated",
+                          help="dispositioned and not blocking")
     dispose.add_argument("--operator-summary",
                          help="The operator-safe sentence published on the merge surface. Required when a "
                               "BLOCKING finding is not left blocking.")

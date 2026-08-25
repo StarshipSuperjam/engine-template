@@ -182,7 +182,15 @@ def main(argv: list | None = None) -> int:
     if not token:
         print("nightly-demo-report: no token, so nothing was reported", file=sys.stderr)
         return 2
-    outcome = report(result, telemetry.GitHubIssues(args.repository, token), args.repository, args.run_url)
+    try:
+        outcome = report(result, telemetry.GitHubIssues(args.repository, token), args.repository, args.run_url)
+    except ReportAmbiguous as exc:
+        # The refusal already carries the operator's remedy; letting it out as a traceback threw that
+        # remedy away and bypassed this tool's own exit convention. It stays a refusal — picking one of
+        # two candidate reports is the failure mode the marker rule exists to prevent — but it refuses
+        # legibly, in a nightly log that is the only place anyone would see it.
+        print(f"nightly-demo-report: {exc}", file=sys.stderr)
+        return 2
     print(json.dumps(outcome, indent=2, sort_keys=True))
     return 0
 

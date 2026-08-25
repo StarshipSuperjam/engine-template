@@ -184,7 +184,9 @@ class TheFullDistance(_Dogfood):
         for finding in self.lib.read_record(slug)["plan_review"]["findings"]:
             disposition, rationale = DISPOSITIONS[finding["id"]]
             argv = ["--library", str(self.root), "finding", "dispose", slug,
-                    "--id", finding["id"], "--disposition", disposition, "--rationale", rationale]
+                    "--id", finding["id"], "--disposition", disposition, "--rationale", rationale,
+                    # Stated, never defaulted: the verb refuses silence, so the dogfood states it too.
+                    "--does-not-block-this-pr"]
             # A BLOCKING finding that is not left blocking owes the operator a sentence they can read at
             # merge — the disclosure rule that arrived with the panel. The dogfood walks the real path, so
             # it pays the same price a real session does.

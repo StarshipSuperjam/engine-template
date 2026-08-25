@@ -202,7 +202,7 @@ class D4FreezeMoments(_Ceremony):
         slug = self.reviewed(self.finding(), lenses=[self.covering()[0]])
         self.assertEqual(self.run_command(
             "finding", "dispose", slug, "--id", "ARCH-1", "--disposition", "rejected",
-            "--rationale", "Not a real problem.")[0], 0)
+            "--rationale", "Not a real problem.", "--does-not-block-this-pr")[0], 0)
         code, _, err = self.run_command(
             "review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
             "--lens", self.covering()[1], "--reason", "Late lens.")
@@ -220,7 +220,8 @@ class D4FreezeMoments(_Ceremony):
     def test_nothing_is_correctable_once_the_plan_is_sealed(self):
         slug = self.reviewed(self.finding())
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
-                         "--disposition", "rejected", "--rationale", "No.")
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
         self.run_command("present-findings", slug, "--operator-decision", "I read it.")
         self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal it.")[0], 0)
         for argv in (("review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
@@ -266,7 +267,8 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         self.run_command(*argv)
         stages.append(self.run_command("resume", slug)[1])
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
-                         "--disposition", "rejected", "--rationale", "No.")
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
         stages.append(self.run_command("resume", slug)[1])
         for text in stages:
             self.assertIn("project_manager.py ", text, text)
@@ -361,7 +363,8 @@ class D10TheOrphanedApprovalWedgeHasAnInCliRepair(_Ceremony):
         for finding_id in ("ARCH-1", "FEAS-1"):
             self.assertEqual(self.run_command(
                 "finding", "dispose", slug, "--id", finding_id, "--disposition", "rejected",
-                "--rationale", "Answered in the deliberation.")[0], 0)
+                "--rationale", "Answered in the deliberation.",
+                "--does-not-block-this-pr")[0], 0)
         self.assertEqual(self.run_command(
             "present-findings", slug, "--operator-decision", "Read both.")[0], 0)
         self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal it.")[0], 0)
@@ -389,7 +392,8 @@ class ConsentGates(_Ceremony):
     def test_seal_refuses_until_the_panel_s_outcome_was_presented(self):
         slug = self.reviewed(self.finding())
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
-                         "--disposition", "rejected", "--rationale", "No.")
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
         code, _, err = self.run_command("seal", slug, "--operator-decision", "Seal it.")
         self.assertEqual(code, 1)
         self.assertIn("has not been presented to the operator", err)
@@ -404,7 +408,8 @@ class ConsentGates(_Ceremony):
     def test_the_whole_trail_is_recorded_in_the_operator_s_own_words(self):
         slug = self.reviewed(self.finding())
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
-                         "--disposition", "rejected", "--rationale", "No.")
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
         self.run_command("present-findings", slug, "--operator-decision", "I read the one finding.")
         self.run_command("seal", slug, "--operator-decision", "Ship it.")
         record = self.lib.read_record(slug)

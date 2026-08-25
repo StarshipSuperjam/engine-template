@@ -638,14 +638,36 @@ class Dispositions(_Governed):
             {"id": "A2", "lens": "architecture", "severity": "nit", "summary": "Two."}))
         code, out, _ = self.run_command("finding", "dispose", slug, "--id", "A1",
                                         "--disposition", "accepted-fixed",
-                                        "--rationale", "Folded into revision 2.")
+                                        "--rationale", "Folded into revision 2.",
+                                        "--does-not-block-this-pr")
         self.assertEqual(code, 0)
         self.assertIn("outstanding: A2", out)
         self.run_command("finding", "dispose", slug, "--id", "A2",
-                         "--disposition", "rejected", "--rationale", "Style preference.")
+                         "--disposition", "rejected", "--rationale", "Style preference.",
+                         "--does-not-block-this-pr")
         self.assertIn("outstanding: none", self.run_command(
             "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-fixed",
-            "--rationale", "Folded into revision 2.")[1])
+            "--rationale", "Folded into revision 2.", "--does-not-block-this-pr")[1])
+
+    def test_the_blocking_choice_has_no_default_and_must_be_stated(self):
+        """Driven through the real parser, both arms. The Build side's `finding record` learned this the
+        expensive way: an omitted flag resolving to False is a submission gate failing toward permitting,
+        and the falsiness check written to replace it then broke `--does-not-block-this-pr`, whose const
+        is itself falsy. Same shape, same two arms, tested here before it could repeat."""
+        slug, _ = self._to_reviewed(findings=(
+            {"id": "A1", "lens": "architecture", "severity": "serious", "summary": "One."},))
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "A1",
+                                        "--disposition", "accepted-fixed", "--rationale", "Fixed.")
+        self.assertEqual(code, 2)
+        self.assertIn("--does-not-block-this-pr", err)
+        self.assertEqual(self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-fixed",
+            "--rationale", "Fixed.", "--does-not-block-this-pr")[0], 0)
+        self.assertFalse(self.lib.read_record(slug)["plan_review"]["findings"][0]["blocks_this_pr"])
+        self.assertEqual(self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-tracked",
+            "--rationale", "Still open.", "--blocks-this-pr")[0], 0)
+        self.assertTrue(self.lib.read_record(slug)["plan_review"]["findings"][0]["blocks_this_pr"])
 
     def test_an_unknown_finding_id_lists_the_real_ones(self):
         slug, _ = self._to_reviewed(findings=({"id": "A1", "lens": "architecture",
@@ -1714,11 +1736,13 @@ class ThePanelMovedHere(_Governed):
                                                "severity": "blocking",
                                                "summary": "internal reviewer detail"},))
         code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-1",
-                                        "--disposition", "accepted-tracked", "--rationale", "tracked")
+                                        "--disposition", "accepted-tracked", "--rationale", "tracked",
+                                        "--does-not-block-this-pr")
         self.assertEqual(code, 2)
         self.assertIn("--operator-summary", err)
         code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-1",
                                         "--disposition", "accepted-tracked", "--rationale", "tracked",
+                                        "--does-not-block-this-pr",
                                         "--operator-summary", "A residual the operator must weigh.")
         self.assertEqual(code, 0, err)
         finding = self.lib.read_record(slug)["plan_review"]["findings"][0]

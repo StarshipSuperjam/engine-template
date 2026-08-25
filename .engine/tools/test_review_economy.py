@@ -387,6 +387,88 @@ class TheB1EffortShortfall(unittest.TestCase):
                  "reviews": {"deliverable": {"receipts": [{"lens": "usability"}]}}}
         self.assertEqual(bc._effort_shortfall_lines(state), [])
 
+    def test_a_repair_panel_s_accepted_gap_is_disclosed_too(self):
+        """The disclosure read `reviews.deliverable` alone, so a REPAIR round spawned under an accepted
+        shortfall published nothing at all — the accepted gap and the session it was accepted against
+        both lived on the repair stage."""
+        state = {"approval": {"depth": "thorough"},
+                 "reviews": {"deliverable": {"session_effort": "high", "receipts": []}},
+                 "repair": {"session_effort": "medium", "effort_shortfall_accepted": True,
+                            "receipts": []}}
+        lines = bc._effort_shortfall_lines(state)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("the repair panel", lines[0])
+        self.assertIn("medium", lines[0])
+
+    def test_a_spliced_repair_receipt_answers_to_the_session_that_spawned_it(self):
+        """A repair receipt is spliced into the deliverable stage, so comparing it against the
+        DELIVERABLE session's effort measured it against a number it never ran under. The repair stage
+        keeps its own copy of the receipt, and that is what makes the attribution readable."""
+        receipt = {"lens": "security-governance", "delivered_effort": "high"}
+        state = {"approval": {"depth": "thorough"},
+                 "reviews": {"deliverable": {"session_effort": "high", "receipts": [receipt]}},
+                 "repair": {"session_effort": "medium", "receipts": [receipt]}}
+        lines = bc._effort_shortfall_lines(state)
+        overclaim = [line for line in lines if "ABOVE the session" in line]
+        self.assertEqual(len(overclaim), 1, lines)
+        self.assertIn("security-governance (high)", overclaim[0])
+        self.assertIn("a session reporting medium", overclaim[0])
+
+
+class ThePlanPanelSEffortReachesTheMergeSurface(unittest.TestCase):
+    """The plan side's own `--accept-effort-shortfall` promised, in its refusal text, that the gap it
+    accepts is published in the pull request. Nothing read it: `delivered_efforts` and
+    `effort_shortfall_accepted` went onto the plan record and the only reader in the tree was the seal's
+    completeness check, which asserts the map is filled in and never that the level was met."""
+
+    def _with_record(self, record):
+        original = bc._sealed_plan_record
+        bc._sealed_plan_record = lambda state: record
+        self.addCleanup(lambda: setattr(bc, "_sealed_plan_record", original))
+
+    def test_a_plan_panel_under_its_approved_depth_is_named(self):
+        self._with_record({"approval": {"depth": "thorough"},
+                           "plan_review": {"delivered_efforts": {"architecture": "medium",
+                                                                 "feasibility": "high"},
+                                           "effort_shortfall_accepted": True}})
+        lines = bc._plan_effort_lines({})
+        self.assertEqual(len(lines), 1)
+        self.assertIn("PLAN panel", lines[0])
+        self.assertIn("architecture (medium)", lines[0])
+        self.assertNotIn("feasibility", lines[0])
+        self.assertIn("self-reported", lines[0])
+
+    def test_a_gap_nobody_acknowledged_says_so_rather_than_implying_consent(self):
+        """`review amend` could pass the accept flag to the refusal without writing it down, which left a
+        gap on the record with nothing saying anyone accepted it. That state is described, not smoothed."""
+        self._with_record({"approval": {"depth": "thorough"},
+                           "plan_review": {"delivered_efforts": {"architecture": "low"}}})
+        self.assertIn("NO acknowledgement", bc._plan_effort_lines({})[0])
+
+    def test_a_plan_panel_that_met_its_depth_claims_nothing(self):
+        self._with_record({"approval": {"depth": "thorough"},
+                           "plan_review": {"delivered_efforts": {"architecture": "high"}}})
+        self.assertEqual(bc._plan_effort_lines({}), [])
+
+    def test_it_rides_the_same_list_the_build_side_uses(self):
+        self._with_record({"approval": {"depth": "thorough"},
+                           "plan_review": {"delivered_efforts": {"architecture": "medium"},
+                                           "effort_shortfall_accepted": True}})
+        state = {"approval": {"depth": "thorough"},
+                 "reviews": {"deliverable": {"session_effort": "high", "receipts": []}}}
+        self.assertTrue(any("PLAN panel" in line for line in bc._effort_shortfall_lines(state)))
+
+
+class AnAddedWorkflowDisclosureNeverFailsQuietly(unittest.TestCase):
+    """This function is the only review an added workflow's triggers and token get. A git failure and
+    "this change adds no workflows" produced the same empty string, at the one surface where the
+    difference is the whole point."""
+
+    def test_an_unresolvable_base_says_so_instead_of_claiming_nothing_was_added(self):
+        text = bc._added_workflow_disclosure("no-such-ref-0000000000000000000000000000000000000000")
+        self.assertIn("could not be determined", text)
+        self.assertIn(".github/workflows/", text)
+
 
 class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
     """The three per-lens overrides took the operator's branch: effort assertions removed, model pins

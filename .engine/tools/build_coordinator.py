@@ -394,8 +394,49 @@ def _depth_effort_or_none(state: dict) -> str | None:
         return None
 
 
+def _plan_effort_lines(state: dict) -> list[str]:
+    """What to say about the PLAN panel's effort, read from the sealed plan record.
+
+    The plan side's `--accept-effort-shortfall` tells the session, in its own refusal text, that the gap
+    it is accepting "publishes the gap in the pull request". Nothing published it. `delivered_efforts`
+    and `effort_shortfall_accepted` were written onto the plan record and the only reader in the tree
+    was the seal's own completeness check, which asserts the map is filled in and never that the level
+    was met. So the honest exit built FOR the plan panel produced a body claiming the approved depth
+    without qualification — the same failure the Build side closed, re-opened one component over by the
+    escape valve added to close it.
+
+    The depth is the plan record's own, not the Build's: the two are normally the same value through the
+    sealed handoff, but the claim being qualified here is the plan panel's, and it is answerable to the
+    approval the plan panel actually ran under."""
+    record = _sealed_plan_record(state)
+    review = (record or {}).get("plan_review") or {}
+    delivered = review.get("delivered_efforts") or {}
+    depth = ((record or {}).get("approval") or {}).get("depth")
+    if not depth or not delivered:
+        return []
+    try:
+        promised = _depth_effort(depth)
+    except Exception:                                   # noqa: BLE001
+        return [f"the effort the plan's approved `{depth}` depth promises could not be read, so nothing "
+                "here checked what its panel delivered against it"]
+    if not promised:
+        return []
+    under = sorted(f"{lens} ({effort})" for lens, effort in delivered.items()
+                   if effort_shortfall(effort, promised))
+    if not under:
+        return []
+    # An unacknowledged shortfall should be unreachable — the gate refuses one — but `review amend` can
+    # bypass the refusal without setting the flag, so the two cases are told apart rather than assumed.
+    acknowledged = ("and the session recorded that it proceeded knowing it"
+                    if review.get("effort_shortfall_accepted")
+                    else "and NO acknowledgement of that gap is recorded against the plan")
+    return [f"the PLAN panel came in under the `{depth}` depth it was approved at, which promises "
+            f"{promised}, {acknowledged}: " + ", ".join(under)
+            + " (self-reported, and nothing here verifies it)"]
+
+
 def _effort_shortfall_lines(state: dict) -> list[str]:
-    """What to say about reviewer effort, from the stage AND the receipts.
+    """What to say about reviewer effort, from every panel this Build paid for.
 
     Reading only the receipts was a hole big enough to swallow the whole mechanism. A session can accept a
     known shortfall at panel spawn — the operator's own recorded choice — and every reviewer can then
@@ -406,12 +447,20 @@ def _effort_shortfall_lines(state: dict) -> list[str]:
     The two claims can also disagree, and one of them must be wrong: on this runtime a reviewer inherits
     the spawning session's effort and cannot exceed it. Resolving that silently in the reviewer's favour
     is the more flattering reading, so it is the one not taken — the disagreement is stated and the
-    operator decides what it is worth (StarshipSuperjam/engine-template#1067)."""
+    operator decides what it is worth (StarshipSuperjam/engine-template#1067).
+
+    EVERY PANEL, NOT JUST THE FIRST. A repair round is spawned with its own session effort onto the
+    repair stage, and its receipts are then SPLICED into the deliverable stage — so reading the session
+    from `reviews.deliverable` alone dropped the repair panel's accepted gap entirely and compared each
+    spliced repair receipt against the wrong session's number. Each receipt is attributed to the panel
+    that actually spawned it, which the repair stage's own receipt list still records."""
+    lines = _plan_effort_lines(state)
     approval = state.get("approval") or {}
     depth = approval.get("depth")
     if not depth:
-        return []
+        return lines
     stage = state.get("reviews", {}).get("deliverable", {})
+    repair = state.get("repair") or {}
     receipts = stage.get("receipts", [])
     try:
         promised = _depth_effort(depth)
@@ -419,34 +468,44 @@ def _effort_shortfall_lines(state: dict) -> list[str]:
         # NOT silence. This function is the sole source of the merge-surface disclosure as well as of the
         # status line, and a status render that degrades quietly is a different thing from a pull-request
         # body that quietly drops a line this engine calls hard.
-        return [f"the effort the approved `{depth}` depth promises could not be read, so nothing here "
-                f"checked what the panel delivered against it: {exc}"]
+        return lines + [f"the effort the approved `{depth}` depth promises could not be read, so nothing "
+                        f"here checked what the panel delivered against it: {exc}"]
     if not promised:
-        return []
-    lines, silent, overclaim = [], [], []
+        return lines
+    silent, overclaim = [], []
     session = stage.get("session_effort")
-    if stage.get("effort_shortfall_accepted") or effort_shortfall(session, promised):
-        lines.append(
-            f"this panel was spawned from a session reporting {session or 'an unrecorded'} effort against an "
-            f"approved `{depth}` depth that promises {promised}, and the session proceeded knowing it "
-            "(self-reported, and nothing here verifies it)")
+    repair_session = repair.get("session_effort")
+    # A repair receipt lives in BOTH lists — spliced into the deliverable stage, and kept on the repair
+    # stage that spawned it. That second list is what makes the attribution readable without stamping a
+    # new field onto every receipt.
+    repair_lenses = {receipt["lens"] for receipt in repair.get("receipts", [])}
+    for label, panel_session, panel in (("this panel", session, stage),
+                                        ("the repair panel", repair_session, repair)):
+        if panel.get("effort_shortfall_accepted") or effort_shortfall(panel_session, promised):
+            lines.append(
+                f"{label} was spawned from a session reporting {panel_session or 'an unrecorded'} effort "
+                f"against an approved `{depth}` depth that promises {promised}, and the session proceeded "
+                "knowing it (self-reported, and nothing here verifies it)")
     for receipt in receipts:
         delivered = receipt.get("delivered_effort")
+        spawning = repair_session if receipt["lens"] in repair_lenses else session
         if delivered is None:
             silent.append(receipt["lens"])
         elif effort_shortfall(delivered, promised):
             lines.append(f"reviewer effort below the approved depth (self-reported): {receipt['lens']} ran at "
                          f"{delivered}, and `{depth}` promises {promised}")
-        elif session and effort_shortfall(session, delivered):
+        elif spawning and effort_shortfall(spawning, delivered):
             # Collected, not repeated per lens: five near-identical sentences in a pull-request body is
-            # how a real disclosure gets skimmed past.
-            overclaim.append(f"{receipt['lens']} ({delivered})")
-    if overclaim:
+            # how a real disclosure gets skimmed past. Grouped by the session each answers to, because a
+            # repair round and the deliverable panel can report different ones.
+            overclaim.append((spawning, f"{receipt['lens']} ({delivered})"))
+    for spawning in sorted({entry[0] for entry in overclaim}):
+        named = sorted(entry[1] for entry in overclaim if entry[0] == spawning)
         lines.append(
             "these reviewers report running ABOVE the session that spawned them, which is not possible "
-            f"here — a reviewer inherits the session's effort and cannot exceed it, so one of the two "
-            f"self-reports is wrong and neither is verified: " + ", ".join(sorted(overclaim))
-            + f" against a session reporting {session}")
+            "here — a reviewer inherits the session's effort and cannot exceed it, so one of the two "
+            "self-reports is wrong and neither is verified: " + ", ".join(named)
+            + f" against a session reporting {spawning}")
     if silent:
         lines.append("these review receipts recorded no delivered effort, so the approved "
                      f"`{depth}` depth's promise of {promised} is unverified for them: " + ", ".join(sorted(silent)))
@@ -3199,6 +3258,23 @@ def _assert_claim_findings(state: dict, claim: dict) -> None:
             + " (re-run `contract template` against current state, or reconcile the finding ids)")
 
 
+def _sealed_plan_record(state: dict) -> dict | None:
+    """The whole record of the SEALED PLAN this Build was bound to, read from the library at compose time.
+
+    Its own seam because more than one disclosure needs more than one field off it — the review and its
+    findings, the carried obligations, and the depth the plan panel was approved at, which is the plan
+    record's own and not the Build's.
+    """
+    plan_id = state.get("plan", {}).get("plan_id")
+    if not plan_id:
+        return None
+    try:
+        library = _library()
+        return library.read_record(library.resolve(plan_id))
+    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
+        return None
+
+
 def _sealed_plan_review(state: dict) -> dict | None:
     """The plan review recorded on the SEALED PLAN, read from the library at compose time.
 
@@ -3207,15 +3283,7 @@ def _sealed_plan_review(state: dict) -> dict | None:
     Build receipt demands loses its weight in `surviving_findings`, and a plan finding has no Build
     receipt at all. Structural immunity rather than a flag to remember to set.
     """
-    plan_id = state.get("plan", {}).get("plan_id")
-    if not plan_id:
-        return None
-    try:
-        library = _library()
-        record = library.read_record(library.resolve(plan_id))
-    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
-        return None
-    return record.get("plan_review")
+    return (_sealed_plan_record(state) or {}).get("plan_review")
 
 
 def _plan_obligation_lines(state: dict) -> list[str]:
@@ -3256,9 +3324,19 @@ def _added_workflow_disclosure(base: str) -> str:
     guard, which inspects modifications to files that already exist — so nothing mechanical reviews the
     triggers or the token of a workflow that arrives whole. This is the disclosure that stands in for
     that missing review, and a disclosure a session has to remember to write is one that will eventually
-    not be written."""
-    added = [p for p in _run(["git", "diff", "--diff-filter=A", "--name-only", f"{base}...HEAD"]
-                             ).stdout.splitlines() if p.startswith(".github/workflows/")]
+    not be written.
+
+    A FAILED DIFF IS NOT AN EMPTY ONE. `_run` does not raise, so an unresolvable base — a
+    garbage-collected anchor, a shallow clone, a branch rewritten under us — used to produce no output,
+    an empty `added`, and a body that read as "this change adds no workflows". At the one surface where
+    an added workflow gets any review at all, a git failure and a genuine absence must not look alike."""
+    listed = _run(["git", "diff", "--diff-filter=A", "--name-only", f"{base}...HEAD"])
+    if listed.returncode != 0:
+        return ("**Whether this change adds GitHub workflows could not be determined** — listing the "
+                f"files added since `{base}` failed ({(listed.stderr or '').strip() or 'no detail'}). "
+                "Nothing automatic reviews an added workflow's triggers or permissions, so read "
+                "`.github/workflows/` yourself before merging.")
+    added = [p for p in listed.stdout.splitlines() if p.startswith(".github/workflows/")]
     if not added:
         return ""
     lines = ["**This change adds GitHub workflows.** Nothing automatic reviews an added workflow's "
