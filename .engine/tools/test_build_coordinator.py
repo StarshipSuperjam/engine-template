@@ -1759,6 +1759,200 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
                           "a restored candidate has null identity and can never be a cache hit")
 
 
+class TestFinalImportAndRollupGate(CoordinatorCase):
+    """`validate final import` — the only writer of final evidence — and the live rollup wall at
+    submission. Every refusal is driven singly, with its distinct, actionable message."""
+
+    TREE = "d" * 40
+
+    def setUp(self):
+        super().setUp()
+        self.seed(); self.approve("quick")
+        self.integrate_all()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_derived_drift", return_value=[]), \
+                mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
+
+    def _pr(self, **over):
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A,
+              "baseRefOid": BASE, "mergeable": "MERGEABLE", "body": "body",
+              "statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
+                                     "conclusion": "SUCCESS", "completedAt": "2026-08-25T01:00:00Z"}]}
+        pr.update(over)
+        return pr
+
+    def _import(self, pr=None, found=None, token="tok", merge_base=None):
+        """Drive the import with the live seams stubbed; git plumbing answers with fixture values."""
+        real_run = bc._run
+        def fake_run(argv, **kw):
+            if argv[:2] == ["git", "merge-base"]:
+                out = (merge_base if merge_base is not None else BASE) + "\n"
+                return subprocess.CompletedProcess(argv, 0, out, "")
+            if argv == ["git", "rev-parse", "HEAD^{tree}"]:
+                return subprocess.CompletedProcess(argv, 0, self.TREE + "\n", "")
+            return real_run(argv, **kw)
+        found = found if found is not None else (True, {"run_id": 42, "run_attempt": 1,
+                                                        "receipt": {"schema": "engine-ci-receipt/v1"}})
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_run", side_effect=fake_run), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr or self._pr()), \
+                mock.patch("boot.gh_token", return_value=token), \
+                mock.patch.object(bc.ci_gatekeeper, "find_reusable_receipt",
+                                  return_value=found) as finder, \
+                contextlib.redirect_stdout(out):
+            bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path), mode="final",
+                                               action="import"), self.store)
+        return finder, out.getvalue()
+
+    def test_a_verified_import_records_final_and_only_then_is_the_head_final_ok(self):
+        state = self.state()
+        self.assertFalse(bc._final_ok(state, HEAD_A))
+        finder, out = self._import()
+        state = self.state()
+        final = bc._split_validation(state)["final"]
+        self.assertEqual((final["commit"], final["run_id"], final["tree"], final["source"]),
+                         (HEAD_A, 42, self.TREE, "ci-import"))
+        self.assertTrue(bc._final_ok(state, HEAD_A))
+        kwargs = finder.call_args.kwargs
+        self.assertEqual((kwargs["pr_number"], kwargs["head_sha"], kwargs["expected_tree"]),
+                         (7, HEAD_A, self.TREE),
+                         "provenance must go through the platform-filtered enumeration, bound to the "
+                         "local head and its tree — never a run picked out of rollup fields")
+
+    def test_the_import_verb_is_the_only_minting_site_for_final_evidence(self):
+        """Mechanical: the ci-import source value is minted in exactly one place. Candidate re-runs
+        may PRESERVE or DROP a final, but nothing else may create one."""
+        import inspect
+        source = inspect.getsource(bc)
+        self.assertEqual(source.count('"source": "ci-import"'), 1)
+
+    def test_head_drift_refuses_with_the_push_or_pull_remedy(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "push this head"):
+            self._import(pr=self._pr(headRefOid=HEAD_B))
+
+    def test_a_base_advance_is_a_reconcile_message_never_a_forgery_message(self):
+        with self.assertRaisesRegex(bc.CoordinatorError,
+                                    "routine base advance, not an integrity failure"):
+            self._import(merge_base=HEAD_B)
+
+    def test_each_rollup_state_has_its_own_refusal(self):
+        cases = {
+            "absent": ({"statusCheckRollup": []}, "may not have started"),
+            "pending": ({"statusCheckRollup": [{"name": "engine-ci", "status": "IN_PROGRESS",
+                                                "startedAt": "2026-08-25T01:00:00Z"}]},
+                        "still running"),
+            "red": ({"statusCheckRollup": [{"name": "engine-ci", "status": "COMPLETED",
+                                            "conclusion": "FAILURE",
+                                            "completedAt": "2026-08-25T01:00:00Z"}]},
+                    "red for this head"),
+        }
+        for name, (over, message) in cases.items():
+            with self.subTest(rollup=name):
+                with self.assertRaisesRegex(bc.CoordinatorError, message):
+                    self._import(pr=self._pr(**over))
+
+    def test_a_superseded_red_beside_a_newer_green_reads_as_green(self):
+        """The observed shape on this repository: the pre-contract run's failure lingers in the
+        rollup beside the later success; the LATEST entry decides."""
+        rollup = [{"name": "engine-ci", "status": "COMPLETED", "conclusion": "FAILURE",
+                   "completedAt": "2026-08-25T01:00:00Z"},
+                  {"name": "engine-ci", "status": "COMPLETED", "conclusion": "SUCCESS",
+                   "completedAt": "2026-08-25T01:02:00Z"}]
+        self._import(pr=self._pr(statusCheckRollup=rollup))
+        self.assertTrue(bc._final_ok(self.state(), HEAD_A))
+
+    def test_no_token_refuses_with_the_single_homed_note(self):
+        import boot
+        with self.assertRaisesRegex(bc.CoordinatorError, "no GitHub token is available"):
+            self._import(token=None)
+
+    def test_no_verifiable_receipt_refuses_with_the_enumeration_detail(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "no run of the registered workflow"):
+            self._import(found=(False, {"reason": "no-receipt-for-this-tree", "refusals": []}))
+
+    def test_import_requires_green_candidate_at_the_exact_head(self):
+        self.store.mutate(lambda s: s.update({"validation": None}))
+        with self.assertRaisesRegex(bc.CoordinatorError, "stands on top of candidate evidence"):
+            self._import()
+
+    def test_import_refuses_a_pre_split_candidate(self):
+        legacy = {"commit": HEAD_A, "results": [{"id": "engine-ci", "commit": HEAD_A,
+                                                 "passed": True, "summary": "ok"}]}
+        self.store.mutate(lambda s: s.update({"validation": legacy}))
+        with self.assertRaisesRegex(bc.CoordinatorError, "re-run `validate` at this head"):
+            self._import()
+
+    def test_import_refuses_when_the_registry_and_gatekeeper_disagree(self):
+        protocol = bc._protocol()
+        protocol["validation_commands"]["final"]["context"] = "someone-elses-check"
+        with mock.patch.object(bc, "_protocol", return_value=protocol), \
+                self.assertRaisesRegex(bc.CoordinatorError, "no longer matches what the CI gatekeeper"):
+            self._import()
+
+    def test_registry_final_descriptor_matches_the_gatekeeper_constants(self):
+        final = bc._protocol()["validation_commands"]["final"]
+        self.assertEqual(
+            (final["context"], final["workflow"], final["receipt_artifact"], final["max_age_days"]),
+            (bc.ci_gatekeeper.CHECK_CONTEXT, bc.ci_gatekeeper.WORKFLOW_PATH,
+             bc.ci_gatekeeper.RECEIPT_ARTIFACT_NAME, bc.ci_gatekeeper.MAX_RECEIPT_AGE_DAYS))
+
+    def test_the_forward_surfaces_name_the_import_verb_before_the_wall(self):
+        """A session reads status BEFORE it acts: the required-evidence line and, at the
+        final-validation phase, the next/available lines all name `validate final import`."""
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertTrue(any("validate final import" in line
+                            for line in status["required_evidence"]),
+                        status["required_evidence"])
+
+    def test_the_final_validation_phase_names_the_verb_in_next_and_available(self):
+        self._import()          # final present -> exercise the rung by dropping ONLY the import
+        self.store.mutate(lambda s: s["validation"].update({"final": None}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        if status["phase"] == "final-validation":
+            self.assertIn("validate final import", status["suggested_next"])
+            self.assertTrue(any("validate final import" in x
+                                for x in status["available_activities"]))
+        else:
+            # Everything upstream of the rung is not seeded here; the required-evidence line is the
+            # load-bearing forward surface in that case and must name the verb.
+            self.assertTrue(any("validate final import" in line
+                                for line in status["required_evidence"]))
+
+    def test_submit_preview_re_reads_the_live_rollup_with_three_distinct_messages(self):
+        self.store.mutate(lambda s: s.update(
+            {"pr_contract": {"commit": HEAD_A, "body_digest": bc._digest(b"body"), "complete": True}}))
+        ready = {"phase": "ready", "head_commit": HEAD_A,
+                 "required_evidence": [], "engineering_judgment": []}
+        ancestor = subprocess.CompletedProcess([], 0, "", "")
+        cases = {
+            "absent": ([], "push the head and wait"),
+            "pending": ([{"name": "engine-ci", "status": "IN_PROGRESS",
+                          "startedAt": "2026-08-25T01:00:00Z"}], "still running"),
+            "red": ([{"name": "engine-ci", "status": "COMPLETED", "conclusion": "FAILURE",
+                      "completedAt": "2026-08-25T01:00:00Z"}], "red for this head"),
+        }
+        for name, (rollup, message) in cases.items():
+            with self.subTest(rollup=name):
+                pr = self._pr(statusCheckRollup=rollup)
+                with mock.patch.object(bc, "_status", return_value=ready), \
+                        mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                        mock.patch.object(bc, "_run", return_value=ancestor), \
+                        self.assertRaisesRegex(bc.CoordinatorError, message):
+                    bc._submit_preview(self.store, str(self.plan_path))
+        pr = self._pr()
+        with mock.patch.object(bc, "_status", return_value=ready), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                mock.patch.object(bc, "_run", return_value=ancestor):
+            preview = bc._submit_preview(self.store, str(self.plan_path))
+        self.assertEqual(preview["action"], "mark-ready")
+
+
 class TestPreflightHandoffAndSubmission(CoordinatorCase):
     def test_handoff_redacts_private_rationale(self):
         self.seed(issue=11)

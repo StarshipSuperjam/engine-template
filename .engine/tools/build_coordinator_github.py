@@ -71,7 +71,37 @@ def verify_draft(root: Path, repo: str, pr: int) -> dict:
 
 def pr_state(root: Path, repo: str, pr: int) -> dict:
     return gh_json(root, ["pr", "view", str(pr), "--repo", repo,
-                          "--json", "number,state,isDraft,headRefOid,baseRefOid,mergeable,body"])
+                          "--json", "number,state,isDraft,headRefOid,baseRefOid,mergeable,body,statusCheckRollup"])
+
+
+def required_check(data: dict, context: str) -> tuple:
+    """`(state, entry)` for one named check in the PR's live statusCheckRollup — `state` is one of
+    "absent", "pending", "success", "failure".
+
+    Both rollup shapes are read: a CheckRun carries name/status/conclusion, a StatusContext carries
+    context/state. Several entries can share the name — a superseded run's red lingers in the rollup
+    beside the newer green (observed on this repository) — so when they do, the LATEST entry by its
+    own timestamps decides, which is how the platform itself resolves the required check. An entry
+    still running has no completion time and sorts by its start, so a fresh in-progress run correctly
+    reads as pending even while an older completed entry sits beside it."""
+    entries = [x for x in (data.get("statusCheckRollup") or [])
+               if x.get("name") == context or x.get("context") == context]
+    if not entries:
+        return "absent", None
+
+    def stamp(entry):
+        return entry.get("completedAt") or entry.get("startedAt") or entry.get("createdAt") or ""
+
+    latest = max(entries, key=stamp)
+    if "state" in latest:                          # StatusContext shape
+        state = (latest.get("state") or "").upper()
+        if state in ("EXPECTED", "PENDING"):
+            return "pending", latest
+        return ("success" if state == "SUCCESS" else "failure"), latest
+    if (latest.get("status") or "").upper() != "COMPLETED":
+        return "pending", latest
+    conclusion = (latest.get("conclusion") or "").upper()
+    return ("success" if conclusion == "SUCCESS" else "failure"), latest
 
 
 def set_ready(root: Path, repo: str, pr: int) -> None:

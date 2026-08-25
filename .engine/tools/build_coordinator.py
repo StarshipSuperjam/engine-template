@@ -26,6 +26,7 @@ import build_coordinator_review as review
 import build_coordinator_spec as spec_service
 import build_coordinator_work as work
 import ci_gatekeeper
+import moment
 import repo_identity
 import review_integrity
 
@@ -397,6 +398,8 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         judgments.append(state["checkpoint"]["judgment"])
     if not _candidate_ok(state, head):
         required_evidence.append("green candidate validation for the final commit")
+    if not _final_ok(state, head):
+        required_evidence.append("imported engine-ci proof for the final commit — `validate final import`")
     if delivery["packet_digest"] is None and not fast_path:
         required_evidence.append("deliverable-review packet")
     else:
@@ -490,6 +493,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         not [x for x in state["repair"]["lenses"] if x not in {r["lens"] for r in state["repair"]["receipts"]}]))
     preflight_ready = not [x for x in required_preflights if x["id"] not in passed]
     contract_ready = bool(state["pr_contract"] and state["pr_contract"]["commit"] == head and state["pr_contract"]["complete"])
+    final_ready = _final_ok(state, head)
 
     if not approval_ready:
         phase, next_one, available = "planning", "approve the plan and review depth", []
@@ -512,6 +516,13 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                        ["record the proportional re-review judgment"])
     elif not preflight_ready or not contract_ready:
         phase, next_one, available = "submission-preflight", "run submission preflights", []
+    elif not final_ready:
+        # A session reads this list BEFORE it acts (the same principle as the repair rung above): the
+        # brand-new mandatory verb is named here and in the refusals, never only at the wall.
+        phase, next_one, available = ("final-validation",
+                                       "import the merge proof with `validate final import`",
+                                       ["push the head and wait for engine-ci, then import the proof "
+                                        "with `validate final import`"])
     else:
         phase, next_one, available = "ready", "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
@@ -1463,7 +1474,107 @@ def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) 
     return problems
 
 
+def _final_import(args, store: StateStore) -> None:
+    """`validate final import` — the ONLY writer of final evidence, and it mints nothing locally.
+
+    The rollup is the green gate; provenance comes exclusively from ci_gatekeeper's platform-filtered
+    run enumeration (`find_reusable_receipt`), never from a run selected out of rollup fields — a
+    receipt artifact uploaded by a foreign workflow can never vouch, and the newest run at this head
+    is normally a reuse run that uploaded nothing, which enumeration walks past by design.
+
+    The receipt attests the tree of the pull-request MERGE checkout, so the import REQUIRES the head
+    to be up to date with its base — the same condition the strict merge policy imposes at the merge
+    boundary — under which the merge tree provably equals the head's own tree. A base advance gets
+    its own reconcile refusal, never a forgery message."""
+    state = store.read()
+    revision = state["revision"]
+    protocol_final = _protocol()["validation_commands"]["final"]
+    # The registry declares what the gatekeeper enforces; if the two ever disagree, refusing here is
+    # honest and cheap, and a test pins them equal so this refusal should never fire in a shipped tree.
+    declared = {"context": protocol_final["context"], "workflow": protocol_final["workflow"],
+                "receipt_artifact": protocol_final["receipt_artifact"],
+                "max_age_days": protocol_final["max_age_days"]}
+    enforced = {"context": ci_gatekeeper.CHECK_CONTEXT, "workflow": ci_gatekeeper.WORKFLOW_PATH,
+                "receipt_artifact": ci_gatekeeper.RECEIPT_ARTIFACT_NAME,
+                "max_age_days": ci_gatekeeper.MAX_RECEIPT_AGE_DAYS}
+    if declared != enforced:
+        raise CoordinatorError(
+            "the protocol's final descriptor no longer matches what the CI gatekeeper enforces: "
+            f"declared {declared}, enforced {enforced} — reconcile the registry before importing")
+    raw_validation = state.get("validation")
+    if raw_validation is not None and "candidate" not in raw_validation and "final" not in raw_validation:
+        raise CoordinatorError(
+            "the recorded candidate evidence predates the candidate/final split (or was restored from "
+            "a handoff) and carries no identity — re-run `validate` at this head first")
+    with core.StableCommit(ROOT, "final validation import") as head:
+        if not _candidate_ok(state, head):
+            raise CoordinatorError(
+                "green candidate validation for this exact head is required before the proof is "
+                "imported — the imported run stands on top of candidate evidence, not instead of it")
+        repo, pr_number = state["build"]["repository"], state["build"]["pr"]
+        pr = github.pr_state(ROOT, repo, pr_number)
+        if pr.get("headRefOid") != head:
+            raise CoordinatorError(
+                f"the live PR head {str(pr.get('headRefOid'))[:12]} is not the local head "
+                f"{head[:12]} — push this head (or pull the newer one) before importing")
+        base_oid = pr.get("baseRefOid") or ""
+        base_check = _run(["git", "merge-base", head, base_oid]) if base_oid else None
+        if base_check is None or base_check.returncode != 0:
+            raise CoordinatorError(
+                "the live base commit is not known locally — fetch the target branch, then re-import")
+        if base_check.stdout.strip() != base_oid:
+            raise CoordinatorError(
+                "the target branch advanced past this head's base, so the CI proof attests a merge "
+                "tree this head cannot reproduce — reconcile with the base (the merge policy will "
+                "require exactly that), re-validate, and re-import. This is a routine base advance, "
+                "not an integrity failure")
+        rollup_state, _entry = github.required_check(pr, protocol_final["context"])
+        if rollup_state == "absent":
+            raise CoordinatorError(
+                f"no {protocol_final['context']} check is reported for this head yet — the run may "
+                "not have started; wait for the required check to appear, then re-import")
+        if rollup_state == "pending":
+            raise CoordinatorError(
+                f"{protocol_final['context']} is still running for this head — wait for the required "
+                "check to complete, then re-import")
+        if rollup_state != "success":
+            raise CoordinatorError(
+                f"{protocol_final['context']} is red for this head — the required check must pass "
+                "before its proof can be imported; fix the failure or re-run the check")
+        import boot
+        token = boot.gh_token()
+        if not token:
+            raise CoordinatorError(
+                "no GitHub token is available for the receipt fetch — " + boot.gh_unreachable_note())
+        head_tree = _run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
+        ok, detail = ci_gatekeeper.find_reusable_receipt(
+            repo=repo, token=token, pr_number=pr_number, head_sha=head,
+            expected_tree=head_tree, root=str(ROOT))
+        if not ok:
+            raise CoordinatorError(
+                "no run of the registered workflow yields a verifiable receipt for this head: "
+                + json.dumps(detail, sort_keys=True))
+        final = {"commit": head, "source": "ci-import", "run_id": detail["run_id"],
+                 "run_attempt": detail.get("run_attempt"), "context": protocol_final["context"],
+                 "tree": head_tree, "receipt_digest": _digest(detail["receipt"]),
+                 "imported_at": moment.utc_now()}
+
+    def record(current):
+        raw = current.get("validation")
+        if raw is None or "candidate" not in raw:
+            raise CoordinatorError("candidate evidence disappeared while importing; re-run `validate`")
+        raw["final"] = final
+
+    store.mutate(record, from_revision=revision)
+    print(json.dumps({"imported": final}, indent=2, sort_keys=True))
+
+
 def cmd_validate(args, store: StateStore) -> None:
+    if getattr(args, "mode", None) == "final":
+        if getattr(args, "action", None) != "import":
+            raise CoordinatorError("the final proof is imported, never run locally: `validate final import`")
+        _final_import(args, store)
+        return
     state = store.read()
     revision = state["revision"]
     unearned = _unearned_completions(state)
@@ -2348,6 +2459,19 @@ def _submit_preview(store: StateStore, plan_path: str) -> dict:
         raise CoordinatorError("the final commit does not contain the live target-branch base; reconcile, validate, and assess review proportionally")
     if status["phase"] != "ready":
         raise CoordinatorError("submission evidence is incomplete: " + "; ".join(status["required_evidence"] + status["engineering_judgment"]))
+    # The live rollup, re-read at the moment of submission: importing the proof once does not excuse
+    # presenting a head whose required check is no longer green. Three distinct states, three messages.
+    rollup_state, _rollup_entry = github.required_check(
+        pr, _protocol()["validation_commands"]["final"]["context"])
+    if rollup_state == "absent":
+        raise CoordinatorError("no engine-ci check is reported for this head — push the head and wait "
+                               "for the required check before submission")
+    if rollup_state == "pending":
+        raise CoordinatorError("engine-ci is still running for this head — wait for the required check "
+                               "to complete before submission")
+    if rollup_state != "success":
+        raise CoordinatorError("engine-ci is red for this head — the required check must pass before "
+                               "submission; fix the failure or re-run the check, then re-import the proof")
     action = "mark-ready" if pr.get("isDraft") else "record-ready"
     if stable_head != status["head_commit"]:
         raise CoordinatorError("submission status was not derived from the stable final commit")
@@ -3276,7 +3400,7 @@ def parser() -> argparse.ArgumentParser:
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
-    validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate"], help="bare `validate` and `validate candidate` are the same run; the merge proof is imported by `validate final import`, a separate verb"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
+    validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
     assess = repair.add_parser("assess"); assess.add_argument("--judgment", choices=["none", "scoped", "full"], required=True); assess.add_argument("--rationale", required=True); assess.add_argument("--guidance", help="The operator's answer when a third or later repair round is proposed; published in the PR body."); assess.add_argument("--lens", action="append"); assess.set_defaults(func=cmd_repair_assess)
