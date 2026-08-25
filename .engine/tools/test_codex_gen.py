@@ -7,6 +7,7 @@ witnesses: a hand-edited render, a stale render, and an orphaned render must eac
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 """
 from __future__ import annotations
+import glob
 import os
 import shutil
 import sys
@@ -376,6 +377,43 @@ class TestCommittedRendersInSync(unittest.TestCase):
     def test_the_committed_tree_is_render_clean(self):
         """The live drift gate over the REAL repo: every committed render matches its source."""
         self.assertEqual(codex_gen.check(), [])
+
+
+class TestScoutRoleIsNotRendered(unittest.TestCase):
+    """The scout skip in `_agent_sources`, pinned directly.
+
+    A scout has no Codex twin on purpose: a non-worker render pins no model, so the twin would inherit
+    the frontier model and cost more than the inline work it replaces, and the coherence floor's
+    read-only sandbox would forbid a shell-capable scout the scratch copy its containment recipe
+    requires. Such a twin would be silently expensive or silently unable to run.
+
+    Nothing else catches the skip's removal. A reviewer deleted it and regenerated: two scout twins
+    appeared, the Codex coherence check returned clean, and the parity ledger produced only SOFT
+    'stale exception' findings — nothing that blocks a merge. The guarantee rested on a comment.
+    """
+
+    def _installed(self):
+        return glob.glob(os.path.join(validate.ROOT, ".claude", "agents", "*.md"))
+
+    def _role(self, path):
+        return dict(validate.frontmatter(path)).get("role")
+
+    def test_no_scout_persona_is_offered_to_the_renderer(self):
+        offered = {os.path.basename(p) for p in codex_gen._agent_sources(validate.ROOT)}
+        scouts = {os.path.basename(p) for p in self._installed() if self._role(p) == "scout"}
+        self.assertTrue(scouts, "vacuous if no scout persona is installed")
+        self.assertEqual(offered & scouts, set(),
+                         "a scout reached the Codex renderer; it would produce a twin the parity ledger "
+                         "declares absent, and that twin could not do its job on that runtime")
+
+    def test_every_non_scout_persona_still_reaches_the_renderer(self):
+        # The skip must remove scouts and NOTHING else. A filter that quietly dropped a reviewer would
+        # freeze its twin at the last render, where it would drift from its source in silence — the
+        # drift gate only compares renders that are still offered.
+        offered = {os.path.basename(p) for p in codex_gen._agent_sources(validate.ROOT)}
+        for path in self._installed():
+            if self._role(path) != "scout":
+                self.assertIn(os.path.basename(path), offered)
 
 
 if __name__ == "__main__":

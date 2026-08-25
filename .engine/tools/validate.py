@@ -1403,14 +1403,18 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     interface resolution (interface_resolution_findings). Given the present personas' parsed
     frontmatter [{name, role, lens?, model-tier, ...}, ...], return a finding for:
 
-      - a `role` outside the closed set {plan-review, worker, pre-submission-review, audit} (an
-        'unknown role' is impossible by construction once caught),
+      - a `role` outside the closed set {plan-review, worker, pre-submission-review, audit, scout}
+        (an 'unknown role' is impossible by construction once caught),
       - a `model-tier` outside the closed demand set {judgment, mechanical},
-      - a `lens` declared by a `worker` or `audit` role — the symmetric guard to the closed-role
-        check: those two roles carry no lens ("a worker or audit instance that
-        declares one is a coherence finding"). Scoped to the two KNOWN lensless roles, not "any
-        non-review role", so an unknown role carrying a lens yields only the role finding (no
-        redundant second finding), and a review role's lens is valid.
+      - a `lens` declared by a `worker`, `audit` or `scout` role — the symmetric guard to the
+        closed-role check: those three roles carry no lens ("a worker or audit instance that
+        declares one is a coherence finding"). A scout joins them because a scout is dispatched by
+        NAME for one mechanical sweep and never as a perspective within a review; giving it a lens
+        would also put it in reach of `dangling_lens_findings`, which is scoped to the review roles
+        and would therefore leave a scout's lens unpoliced — a lens nothing consumes and nothing
+        checks. Scoped to the KNOWN lensless roles, not "any non-review role", so an unknown role
+        carrying a lens yields only the role finding (no redundant second finding), and a review
+        role's lens is valid.
       - a `permissions: read-only` persona that does not actually BLOCK the authoritative-write
         tools (Edit, Write, NotebookEdit) — the realization of the design's "permissions maps to the
         Claude Code tool/permission restrictions the platform enforces" (agent.v1 `permissions` /
@@ -1443,8 +1447,8 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     consumer (`agent_coherence_check.engine_agents`) and passed in, so this stays filesystem-free.
     The review/audit persona instances now ship, so this leg's role/model-tier/lens/permissions
     rules fire live every CI through the agent-coherence check."""
-    roles = {"plan-review", "worker", "pre-submission-review", "audit"}
-    lensless_roles = {"worker", "audit"}   # the recognized roles that carry no lens
+    roles = {"plan-review", "worker", "pre-submission-review", "audit", "scout"}
+    lensless_roles = {"worker", "audit", "scout"}   # the recognized roles that carry no lens
     tiers = {"judgment", "mechanical"}
     impl_classes = {"builder", "bounded"}   # the dispatched worker classes (integrator is never a persona)
     write_tools = ("Edit", "Write", "NotebookEdit")   # the authoritative-write tools a read-only persona must block

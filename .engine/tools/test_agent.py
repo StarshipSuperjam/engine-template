@@ -30,6 +30,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
+import agent_coherence_check as acc          # noqa: E402  (single source for the containment tokens)
 
 AGENT_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "agent.v1.json"))
 TEMPLATE_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "template.v1.json"))
@@ -59,6 +60,13 @@ VALID_AUDIT = {"name": "self-audit",
                "role": "audit", "model-tier": "judgment",
                "permissions": "read-only", "output-contract": "audit-finding.v1",
                "disallowedTools": ["Edit", "Write", "NotebookEdit"]}
+# A scout resolves through model-tier like a reviewer (it is not a dispatched worker), carries no
+# lens, and denies the subagent tools under both platform names so it is a leaf by construction.
+VALID_SCOUT = {"name": "grounding-scout",
+               "description": "Runs the memory-recall sweep and hands back a cited shortlist.",
+               "role": "scout", "model-tier": "mechanical",
+               "permissions": "read-only", "output-contract": "grounding-brief.v1",
+               "disallowedTools": ["Edit", "Write", "NotebookEdit", "Bash", "Agent", "Task"]}
 
 # A well-formed persona BODY (the shape kind reads the body, never the frontmatter).
 VALID_BODY = (
@@ -305,8 +313,26 @@ class TestAgentCoherenceLeg(unittest.TestCase):
     build-orchestration's. The mechanical correlate of the slice's operator demo."""
 
     def test_clean_roster_no_findings(self):
-        f = validate.agent_coherence_findings([VALID_REVIEWER, VALID_WORKER, VALID_AUDIT], "hard", "m")
+        f = validate.agent_coherence_findings(
+            [VALID_REVIEWER, VALID_WORKER, VALID_AUDIT, VALID_SCOUT], "hard", "m")
         self.assertEqual(f, [])
+
+    def test_scout_resolves_through_model_tier_not_implementation_class(self):
+        # A scout is not a dispatched worker, so it takes the non-worker branch: model-tier is
+        # required and a bad one is a finding, exactly as for a reviewer.
+        f = validate.agent_coherence_findings([{**VALID_SCOUT, "model-tier": "heroic"}], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "demand level" in x["message"] for x in f))
+        missing = dict(VALID_SCOUT)
+        del missing["model-tier"]
+        f = validate.agent_coherence_findings([missing], "hard", "m")
+        self.assertTrue(any("demand level" in x["message"] for x in f),
+                        "a scout with no model-tier is a finding, not a silent pass")
+
+    def test_lens_on_a_scout_is_a_symmetric_finding(self):
+        # The load-bearing reason: dangling_lens_findings covers only the review roles, so a lens on
+        # a scout would be a lens nothing consumes and nothing checks. It is refused here instead.
+        f = validate.agent_coherence_findings([{**VALID_SCOUT, "lens": "grounding"}], "hard", "m")
+        self.assertTrue(any(x["severity"] == "hard" and "carries no lens" in x["message"] for x in f))
 
     def test_role_outside_the_closed_set_is_a_finding(self):
         f = validate.agent_coherence_findings([{**VALID_REVIEWER, "role": "reviewer"}], "hard", "m")
@@ -428,6 +454,117 @@ class TestDanglingLensLeg(unittest.TestCase):
         agents = [{"name": "w", "role": "worker", "lens": "orphaned-review"},
                   {"name": "a", "role": "audit", "lens": "orphaned-review"}]
         self.assertEqual(validate.dangling_lens_findings(agents, self.CONSUMED, "hard", "m"), [])
+
+
+class TestShippedRosterDelegationPosture(unittest.TestCase):
+    """Properties of the INSTALLED roster, not of a fixture. The fixture tests above prove the leg
+    would catch a malformed persona; these prove the personas this engine actually ships carry the
+    delegation posture the session-economy policy promises. A regression here is a persona that
+    quietly regained the ability to spawn, or a mandate silently dropped in an unrelated edit."""
+
+    LEAF_LOCKED = ("engine-grounding-scout", "engine-validation-runner",
+                   "engine-worker-bounded", "engine-worker-builder")
+    JUDGMENT = ("engine-audit",
+                "engine-design-review-architecture", "engine-design-review-feasibility",
+                "engine-design-review-product-intent", "engine-design-review-risk-governance",
+                "engine-qa-review-divergence-hunter", "engine-qa-review-security-governance",
+                "engine-qa-review-spec-conformance", "engine-qa-review-technical-integrity",
+                "engine-qa-review-usability")
+    # Both platform names for the subagent tool. The tool has been called Task and Agent at
+    # different times, and a denylist naming only one is a lock with a rename-shaped hole in it.
+    SUBAGENT_TOOLS = ("Agent", "Task")
+
+    def _fm(self, name):
+        return dict(validate.frontmatter(os.path.join(AGENTS_DIR, f"{name}.md")))
+
+    def _body(self, name):
+        # Whitespace-collapsed: these are prose personas, and a phrase that happens to fall across a
+        # line break is still the phrase. Matching the raw text would make every assertion here
+        # depend on where a paragraph currently wraps, which is not the property being guarded.
+        path = os.path.join(AGENTS_DIR, f"{name}.md")
+        return " ".join(validate._body_without_frontmatter(validate.read(path)).split())
+
+    # The memory server's three MUTATING operations. A persona that only blocks Edit/Write/NotebookEdit
+    # is certified "read-only" by the coherence leg while still holding these, and `withhold` drops a
+    # note from every read path including the session briefing — so a scout could rewrite the project's
+    # memory of record. Named here rather than derived, deliberately: hardcoding the correct strings is
+    # what catches a typo in a persona's denylist, which would deny nothing while looking right.
+    MEMORY_WRITES = ("mcp__engine-memory__pin", "mcp__engine-memory__withhold",
+                     "mcp__engine-memory__restore")
+
+    def _cannot_use(self, name, tool):
+        """True when the platform cannot give this persona `tool`, under EITHER lock form.
+
+        A denylist blocks what it names; an allowlist blocks everything it omits. Both are valid and
+        both are in use here — the grounding scout carries an allowlist because its reading tools are
+        genuinely enumerable, which is the only form that also bounds a server nobody has connected yet.
+        A test that assumed one form would pass vacuously against the other.
+        """
+        fm = self._fm(name)
+        allow = fm.get("tools")
+        if isinstance(allow, list):
+            return tool not in allow
+        deny = fm.get("disallowedTools")
+        return isinstance(deny, list) and tool in deny
+
+    def test_every_worker_and_scout_denies_both_subagent_tool_names(self):
+        for name in self.LEAF_LOCKED:
+            fm = self._fm(name)
+            self.assertTrue(isinstance(fm.get("tools"), list) or isinstance(fm.get("disallowedTools"), list),
+                            f"{name} carries neither a list-form allowlist nor denylist, so it locks nothing")
+            for tool in self.SUBAGENT_TOOLS:
+                self.assertTrue(self._cannot_use(name, tool), f"{name} can still spawn via {tool}")
+
+    def test_no_scout_can_write_the_projects_memory(self):
+        """The control that closed a blocking review finding, pinned so it cannot be dropped in passing.
+
+        Both scouts' bodies now tell the reader this guarantee is mechanical. If the frontmatter loses
+        it, that shipped prose becomes a false assurance — which is worse than never having claimed it.
+        """
+        for name in ("engine-grounding-scout", "engine-validation-runner"):
+            for tool in self.MEMORY_WRITES:
+                self.assertTrue(self._cannot_use(name, tool),
+                                f"{name} can call {tool}; a scout must never change what the project "
+                                f"remembers, and its own body says it cannot")
+
+    def test_every_judgment_persona_carries_the_bounded_delegation_mandate(self):
+        for name in self.JUDGMENT:
+            body = self._body(name)
+            self.assertIn("engine-grounding-scout", body,
+                          f"{name} does not name the scout it is allowed to dispatch")
+            self.assertIn("the delegation stops at the scout", body,
+                          f"{name} does not state that its delegation is a leaf")
+            self.assertIn("never end on work handed to someone else", body,
+                          f"{name} does not carry the no-deferral rule")
+
+    def test_the_judgment_fleet_is_not_leaf_locked(self):
+        # The bounded-delegation decision was deliberate: the lenses KEEP the ability to dispatch a
+        # cheap scout, under a mandate. If a later edit hard-locked them, the mandate above would be
+        # dead prose and the reconnaissance the policy routes to them would silently stop happening.
+        #
+        # This is a decision checkpoint, not a prohibition. Hard-locking the fleet is a perfectly
+        # reasonable future call — it is the stricter direction — and this case exists so that making
+        # it is a decision someone records rather than a line someone changes in passing. If that is
+        # the call, change this case and say why in the same edit.
+        for name in self.JUDGMENT:
+            deny = self._fm(name).get("disallowedTools") or []
+            for tool in self.SUBAGENT_TOOLS:
+                self.assertNotIn(tool, deny,
+                                 f"{name} is hard-locked, reversing the operator's bounded-delegation "
+                                 f"decision. If that reversal is intended, change this test and record "
+                                 f"the reason; if it is not, restore the mandate instead of the lock")
+
+    def test_the_validation_runner_keeps_its_containment_and_raw_log_clauses(self):
+        # Mirrors agent_coherence_check._SCOUT_CONTAINMENT_TOKENS deliberately, and must be kept equal
+        # to it: this is the roster-level copy, and an earlier version of this case drifted from the
+        # check's list, so a runner body that merely MENTIONED the command and said nothing about the
+        # live checkout passed here while failing there.
+        body = self._body("engine-validation-runner").lower()
+        for token in acc._SCOUT_CONTAINMENT_TOKENS:
+            self.assertIn(token, body,
+                          "the runner lost part of its scout containment recipe")
+        self.assertIn("raw log never goes in your reply", body,
+                      "the runner lost the clause that keeps suite output out of the parent context")
 
 
 if __name__ == "__main__":

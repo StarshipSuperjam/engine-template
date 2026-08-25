@@ -228,6 +228,16 @@
     ],
     "migration": [
       ".engine/modules/core/migrations/*.py"
+    ],
+    "agent": [
+      ".claude/agents/engine-grounding-scout.md",
+      ".claude/agents/engine-validation-runner.md",
+      ".claude/agents/engine-worker-bounded.md",
+      ".claude/agents/engine-worker-builder.md"
+    ],
+    "codex-agent": [
+      ".codex/agents/engine-worker-bounded.toml",
+      ".codex/agents/engine-worker-builder.toml"
     ]
   },
   "wires": [

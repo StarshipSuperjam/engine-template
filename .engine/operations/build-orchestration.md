@@ -136,7 +136,9 @@ divergence disclosed too, with the review stated as not covering the delta.
 Choose an implementation strategy proportionate to the work: orchestrator-inline for small or coupled work,
 isolated workers for cleanly separable work when context pressure justifies them, or the durable routine path
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
-writer and judges cohesion.
+writer and judges cohesion. Reconnaissance is not implementation: send a wide recall or impact sweep to
+`engine-grounding-scout` and a broad file search to a native `Explore`. Both are cheap, neither can spawn,
+and the judgment stays here.
 
 Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
 items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
@@ -163,7 +165,7 @@ This reconcile is no longer the sole guarantee: the floor now requires freshness
 
 ### 5. Validate, review the deliverable, and repair proportionately
 
-Validation is now two evidence classes, earned in this order once the implementation is cohesive (use focused tests while building):
+Validation is now two evidence classes, earned in this order once the implementation is cohesive. While building, use focused tests — and run those through `engine-validation-runner`, which works in a disposable copy and returns a digest instead of thousands of log lines. It is the wrong tool for the two classes below: both bind evidence to the live tree, which a scout confined to a throwaway copy cannot produce.
 
 1. **Candidate** — run `validate` (its preamble says so itself): the structural CI suite plus the self-tests selected as affected against the merge base, each bound to the current commit, with a run record the coordinator verifies against its own derivations (the committed tree, a clean working tree, a re-derived inventory) rather than believing. v2 adds `--plan` and refuses while any node is unintegrated. A repeat at the same content-addressed identity is a cache hit that re-runs nothing and mutates nothing; `--force` re-runs. Candidate evidence backs the build loop, the deliverable packet, and the repair gate — a disclosed narrowing from the full inventory, bounded by the imported proof below.
 2. **Push the head and let `engine-ci` run.** Code events run the complete inventory; a metadata-only event (a body edit, or a label such as `guardrail-ack`) instead verifies a receipt an earlier full run left for the IDENTICAL tree, disclosing the reuse and its source run; any doubt resolves to a full run.

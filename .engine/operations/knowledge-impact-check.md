@@ -35,7 +35,9 @@ told you against the live files before acting on it.
    on it, what checks it — are the ones a change can break, so they are what the impact check is really
    after. For a tool, the inbound side now answers **what imports it** and **what tests exercise it** — the
    set that breaks if you change its behaviour; a widely-used file names many, so weigh the change by that
-   real fan-out. Widen the look a hop or two only when a change reaches further.
+   real fan-out. Widen the look a hop or two only when a change reaches further. For a wide traversal —
+   several hops, or a part with a large fan-out — send the walk to `engine-grounding-scout` and read the
+   cited shortlist it returns; confirming each reported connection against the live files stays your call.
 4. **Trace a connection.** To learn whether two parts are wired together and through what, ask for the path
    between them (`relate`). An empty answer means they are not connected in the map.
 5. **Confirm against the live files before you assert.** The map is built from the committed files and is

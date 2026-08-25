@@ -11,6 +11,7 @@ real repository as coherent. The deliverable-gate cold review attests each test'
 matches its name; CI runs them as a step in engine-ci.
 """
 from __future__ import annotations
+import glob
 import json
 import os
 import shutil
@@ -459,19 +460,54 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         self.assertIn(parts, knowledge_gen.surface_instance_inventory(catalog, claims),
                       "engine-parts must now be a tracked surface instance in the claim-driven inventory")
 
-    def test_core_provides_no_gitkeep_placeholders_and_no_agent_group(self):
+    def test_core_provides_no_placeholder_claims(self):
         # #411: core once carried .claude/skills/.gitkeep and a .claude/agents/.gitkeep-only `agent`
-        # group as empty-dir placeholders. Both directories are now populated in every deployed repo (core
-        # provides the engine-* skills; required audit-library provides .claude/agents/engine-audit.md), so the
-        # placeholders are obsolete and a literal provides-kind read must be coherent: no .gitkeep in any
-        # group, and core declares no `agent` group (it provides no persona).
+        # group as empty-dir placeholders. Both directories are now populated in every deployed repo, so
+        # the placeholders are obsolete and a literal provides-kind read must be coherent.
+        #
+        # This case also used to assert core declared NO agent group at all. That was never the property
+        # worth guarding — it restated the then-current fact that core's only agent entry had been a
+        # placeholder. Core now legitimately provides personas (the two scouts, plus the two dispatched
+        # workers and their Codex twins, which no module claimed before and were therefore absent from
+        # every install), so the old assertion would forbid that fix rather than guard anything. What
+        # actually matters is unchanged and is now asserted directly: every persona claim names a real
+        # file, never a placeholder standing in for an empty directory.
         core = next(m for _p, m in module_coherence.discover_manifests() if m.get("id") == "core")
         provides = core.get("provides") or {}
         flat = [f for group in provides.values() for f in group]
-        self.assertFalse(any(f.endswith("/.gitkeep") or f.endswith(".gitkeep") for f in flat),
+        self.assertFalse(any(f.endswith(".gitkeep") for f in flat),
                          "no .gitkeep placeholder remains in core's provides")
-        self.assertNotIn("agent", provides, "core provides no persona, so it declares no agent group")
+        for claim in provides.get("agent", []) + provides.get("codex-agent", []):
+            self.assertTrue(os.path.exists(os.path.join(validate.ROOT, claim)),
+                            f"core claims {claim}, which does not exist — a claim resolving to nothing "
+                            f"ships nothing, the exact failure this group was added to fix")
         self.assertIn(".claude/skills/engine-parts/SKILL.md", provides.get("skill", []))
+
+    def test_every_shipped_persona_is_claimed_by_some_module(self):
+        """A persona file reaches a deployment ONLY if a module manifest claims it. Nothing else checks
+        this: module coherence walks `.engine/`, so an unclaimed file under `.claude/agents/` is not a
+        finding anywhere — it simply never ships, silently, and the repository looks fine.
+
+        That is not hypothetical. Both dispatched workers sat unclaimed by any module for their whole
+        life and were absent from every install until the claims beside this test were added. The
+        obvious guard — walk the claims and check each names a real file — is vacuous against exactly
+        the failure that actually happened: delete the group and there is nothing left to walk, so it
+        passes. This walks the other way, from the shipped personas to the claims, so a persona that
+        no module carries is a failure rather than a silence.
+
+        BOTH arms, because the hole is identical on each and the workers' claims were missing from each.
+        A first version of this case walked only `.claude/agents/`, and a reviewer showed that dropping
+        a claim on a `.codex/agents/*.toml` twin — or adding a new unclaimed one — left every module
+        test green. A guard that covers one runtime of a two-runtime surface is the shape of the bug.
+        """
+        BOTH_ARMS = ((".claude/agents", "*.md", "agent"), (".codex/agents", "*.toml", "codex-agent"))
+        claims = module_coherence.provides_claims(module_coherence.discover_manifests())
+        for directory, pattern, group in BOTH_ARMS:
+            for path in sorted(glob.glob(os.path.join(validate.ROOT, directory, pattern))):
+                rel = os.path.relpath(path, validate.ROOT)
+                self.assertTrue(claims.get(rel),
+                                f"{rel} is claimed by no module, so it ships to no deployment — add it "
+                                f"to the provides `{group}` group of the module that owns it")
 
     def test_check_corpus_split_core_two_guards_validators_core_owns_the_rest(self):
         # The locked engine/corpus boundary:

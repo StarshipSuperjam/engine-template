@@ -41,6 +41,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -68,6 +69,52 @@ _GIT_SAFETY_MESSAGE = (
     "so a remote change inside it repoints the real one), and never stash/checkout/switch/reset or "
     "change a remote in a checkout you did not create.")
 
+# The scout containment recipe. A scout that runs commands is usually pointed at work that is still
+# uncommitted, so its copy must include uncommitted changes — the tracked-file clone the review recipe
+# names would test a different tree than the one asked about.
+#
+# The tokens carry their NEGATIONS where the recipe is a prohibition. A presence check scores a body by
+# what it mentions, so a bare "git worktree add" token was satisfied just as well by a body RECOMMENDING
+# the operation as by one banning it — a reviewer demonstrated that against an earlier form of this list,
+# rewriting the runner to work in the live checkout and make its copy with `git worktree add` plus a
+# remote repoint, and getting a clean result.
+#
+# READ THIS BEFORE TRUSTING THE LIST. Requiring the negations raises the COST of that bypass. It does not
+# close it, and saying otherwise here would be the same over-trust that let the first bypass ship. A
+# second reviewer defeated the negated form too, with a body that SCOPES each prohibition rather than
+# contradicting it: "never in the live checkout OF ANOTHER REPOSITORY. This checkout is yours, so run the
+# suite right here in it… Never `git worktree add` FROM A CHECKOUT YOU DO NOT OWN. From this one it is
+# fine… and then repoint its remote." That body carries every token and returns no finding, while
+# directing exactly the pair behind the two recorded incidents. One qualifying clause per token is all it
+# takes, and no token list fixes that — the defeat is in the grammar, not the vocabulary.
+#
+# So what this leg actually guarantees is narrow, and it is the whole guarantee: a persona body that is
+# SILENT about containment cannot ship. Whether the prose that is there means what it says is the
+# reviewer's judgment and the merge gate's, exactly as for the review recipe beside it. Do not add a
+# fifth token expecting it to close the class; a fifth clause defeats it.
+#
+# Matching is case-insensitive as well as whitespace-collapsed. The whitespace collapse exists so an
+# author is not taught to reflow paragraphs to satisfy a substring test; case sensitivity taught the same
+# lesson in another dimension — a correct mid-sentence "…and never `git worktree add` from an existing
+# checkout", the exact phrasing this module's own message uses, was reported as missing over a capital N.
+_SCOUT_CONTAINMENT_TOKENS = ("including uncommitted changes", "disposable copy",
+                             "never in the live checkout", "never `git worktree add`",
+                             "delete the copy when the run is done")
+_COLLAPSE_WS = re.compile(r"\s+")
+_SCOUT_CONTAINMENT_MESSAGE = (
+    "Scout persona '{name}' keeps the Bash shell but its body is missing the scout containment "
+    "recipe (missing: {missing}). A scout runs commands against work that is often still "
+    "uncommitted, so it must copy the WHOLE working tree — including uncommitted changes — into a "
+    "fresh disposable copy in a temporary directory and run only there, never in the live checkout, and "
+    "delete the copy when the run is done — it carries whatever secrets the tree held. Add that to "
+    ".claude/agents/{name}.md, and state the prohibitions as prohibitions: the wording is checked, so "
+    "'never `git worktree add`' is what satisfies this, not a passing mention of the command. Do not "
+    "give a scout the review persona's tracked-file engine_fixture.clone_engine() "
+    "recipe: cloning only tracked files would run against a different tree than the one it was asked "
+    "about and report a green that means nothing. Never `git worktree add` from an existing checkout "
+    "(a worktree shares its .git/config, so a remote change inside it repoints the real one), and "
+    "never stash/checkout/switch/reset or change a remote in a checkout you did not create.")
+
 
 def _keeps_bash(fm: dict) -> bool:
     """True when the platform would let this persona run the Bash shell: an explicit `tools` allowlist
@@ -86,11 +133,22 @@ def _keeps_bash(fm: dict) -> bool:
 
 
 def git_safety_findings(tier: str, root: str | None = None, agents_dir: str | None = None) -> list:
-    """One finding per shell-capable persona whose body omits the git-safety recipe
-    (StarshipSuperjam/engine-template#947). Unlike the pure frontmatter leg in validate, this reads the persona
-    FILE — frontmatter to decide Bash access, body to check the recipe — so it lives here in the
-    consumer. A Bash-locked persona (the design-review lenses, the audit persona) is exempt. Honours the
-    same ENGINE_AGENT_FIXTURE_DIR seam so the negative-fixture meta-check can witness it biting."""
+    """One finding per shell-capable persona whose body omits the containment recipe its ROLE
+    requires (StarshipSuperjam/engine-template#947). Unlike the pure frontmatter leg in validate, this reads the
+    persona FILE — frontmatter to decide Bash access and role, body to check the recipe — so it lives
+    here in the consumer. A Bash-locked persona (the design-review lenses, the audit persona) is exempt.
+    Honours the same ENGINE_AGENT_FIXTURE_DIR seam so the negative-fixture meta-check can witness it
+    biting.
+
+    Two recipes, because two roles run commands for structurally different reasons. A review or worker
+    persona tests COMMITTED work, so the tracked-file clone is exactly right and is what it must carry.
+    A scout is usually dispatched at a moment when the work is still uncommitted — that is the whole
+    point of asking it to run the suite — so cloning only what git tracks would run the suite against
+    the wrong tree and report a green that means nothing. The scout therefore owes a different
+    recipe: the whole working tree, uncommitted changes included, copied into a disposable directory.
+    The `git worktree add` prohibition is common to both, since it is a property of worktrees rather
+    than of what is being tested. Requiring the review recipe of a scout would be worse than useless —
+    it would push the persona toward the copy primitive that silently tests the wrong thing."""
     if agents_dir:
         paths = sorted(glob.glob(os.path.join(agents_dir, "*.md")))
     else:
@@ -103,10 +161,20 @@ def git_safety_findings(tier: str, root: str | None = None, agents_dir: str | No
         if not _keeps_bash(fm):
             continue
         body = validate._body_without_frontmatter(validate.read(path))
-        missing = [tok for tok in _GIT_SAFETY_TOKENS if tok not in body]
+        scout = fm.get("role") == "scout"
+        tokens = _SCOUT_CONTAINMENT_TOKENS if scout else _GIT_SAFETY_TOKENS
+        template = _SCOUT_CONTAINMENT_MESSAGE if scout else _GIT_SAFETY_MESSAGE
+        # The scout branch compares against whitespace-collapsed prose. Its tokens are English
+        # phrases rather than the review branch's code identifiers, and a phrase in a wrapped
+        # paragraph is one line break away from a finding that says the recipe is missing when it is
+        # sitting right there — which teaches an author to reflow prose to satisfy a substring test
+        # instead of to write the recipe. The review branch is deliberately left byte-exact: changing
+        # how a shipped guard matches is a separate decision from adding a new one.
+        haystack = _COLLAPSE_WS.sub(" ", body).lower() if scout else body
+        missing = [tok for tok in tokens if tok not in haystack]
         if missing:
             findings.append(validate.finding(
-                tier, _GIT_SAFETY_MESSAGE.format(name=name, missing=", ".join(missing))))
+                tier, template.format(name=name, missing=", ".join(missing))))
     return findings
 
 
@@ -152,13 +220,25 @@ def _demo() -> int:
     for a in present:
         if a.get("permissions") != "read-only":
             continue
-        deny = a.get("disallowedTools")
-        locked = isinstance(deny, list) and all(t in deny for t in ("Edit", "Write", "NotebookEdit"))
-        no_bash = locked and "Bash" in deny
+        # Read BOTH lock forms, exactly as the enforcement leg does. Reading only the denylist made this
+        # readout print "NOT locked" for the most tightly locked persona on the roster — an allowlisted
+        # one, which withholds every tool it does not name — and then print "all clear" four lines
+        # later, because the leg it reports on had judged the same persona correctly. A readout that
+        # contradicts its own verdict is worse than no readout: it invites someone to "fix" the persona
+        # by reattaching a denylist, which is the weaker form.
+        allow, deny = a.get("tools"), a.get("disallowedTools")
+        write_tools = ("Edit", "Write", "NotebookEdit")
+        if isinstance(allow, list):
+            locked, no_bash = all(t not in allow for t in write_tools), "Bash" not in allow
+            form = " (it names the tools it may use, so everything else is withheld)"
+        else:
+            locked = isinstance(deny, list) and all(t in deny for t in write_tools)
+            no_bash = locked and "Bash" in deny
+            form = ""
         if not locked:
             note = "read-only but NOT locked — it would inherit the file-writing tools"
         elif no_bash:
-            note = "read-only — carries the lock on the file-writing tools, and can't run commands"
+            note = ("read-only — carries the lock on the file-writing tools, and can't run commands" + form)
         else:
             note = "read-only — carries the lock on the file-writing tools (keeps Bash to run checks)"
         print(f"  {str(a.get('name')):34} {note}")
