@@ -220,13 +220,25 @@ def _demo() -> int:
     for a in present:
         if a.get("permissions") != "read-only":
             continue
-        deny = a.get("disallowedTools")
-        locked = isinstance(deny, list) and all(t in deny for t in ("Edit", "Write", "NotebookEdit"))
-        no_bash = locked and "Bash" in deny
+        # Read BOTH lock forms, exactly as the enforcement leg does. Reading only the denylist made this
+        # readout print "NOT locked" for the most tightly locked persona on the roster — an allowlisted
+        # one, which withholds every tool it does not name — and then print "all clear" four lines
+        # later, because the leg it reports on had judged the same persona correctly. A readout that
+        # contradicts its own verdict is worse than no readout: it invites someone to "fix" the persona
+        # by reattaching a denylist, which is the weaker form.
+        allow, deny = a.get("tools"), a.get("disallowedTools")
+        write_tools = ("Edit", "Write", "NotebookEdit")
+        if isinstance(allow, list):
+            locked, no_bash = all(t not in allow for t in write_tools), "Bash" not in allow
+            form = " (it names the tools it may use, so everything else is withheld)"
+        else:
+            locked = isinstance(deny, list) and all(t in deny for t in write_tools)
+            no_bash = locked and "Bash" in deny
+            form = ""
         if not locked:
             note = "read-only but NOT locked — it would inherit the file-writing tools"
         elif no_bash:
-            note = "read-only — carries the lock on the file-writing tools, and can't run commands"
+            note = ("read-only — carries the lock on the file-writing tools, and can't run commands" + form)
         else:
             note = "read-only — carries the lock on the file-writing tools (keeps Bash to run checks)"
         print(f"  {str(a.get('name')):34} {note}")

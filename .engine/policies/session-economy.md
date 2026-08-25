@@ -44,8 +44,9 @@ actually came from. This is the standing answer.
 - **`general-purpose`** — judgment work that needs tools, where a cheap tier would do badly. Not gated,
   and leaf-only **by convention only** — see the residuals below.
 - **`engine-grounding-scout`** — the engine's own cheap scout for the ceremony sweeps: the memory-recall
-  fan-out and the knowledge-graph impact traversal. Returns a cited shortlist, never a conclusion. It
-  denies `Bash`, `Agent` and `Task` outright, so it is a mechanical leaf.
+  fan-out and the knowledge-graph impact traversal. Returns a cited shortlist, never a conclusion. Alone
+  on the roster it carries an **allowlist**: it names the reading tools it may use and holds nothing else,
+  so it has no shell, no editor, no subagent tool, and no way to write.
 - **`engine-validation-runner`** — the focused verification you run *while building*: the self-tests, the
   structural checks, or a named subset, in a disposable copy of the working tree, returning a digest of
   what failed and why instead of thousands of log lines. Not the Build coordinator's own validation —
@@ -59,7 +60,7 @@ but only downward: cheap reconnaissance (`engine-grounding-scout`, or `Explore` 
 nothing else, never a judgment-tier or spawn-capable agent, and never ending a review on work deferred to
 another agent. Each of those personas carries that mandate in its own text.
 
-Three residuals, named rather than hidden:
+Four residuals, named rather than hidden:
 
 - **`general-purpose` is convention-only.** It inherits every tool, including the subagent tool, and the
   platform exposes no per-agent configuration for it. Nothing mechanical stops it spawning; only the
@@ -77,6 +78,14 @@ Three residuals, named rather than hidden:
   so a newly connected server adds nothing to it. Every other persona, the validation runner included,
   denies by name, because a reviewer's or a shell-capable scout's reach cannot honestly be enumerated in
   advance. For those, what bounds the surface is which servers you connect.
+
+  One honest limit inside that. The platform documents the allowlist *model* and whole-server grants
+  (`mcp__<server>`), but not granting one tool from a server while withholding its others — which is what
+  the scout does to read the memory server without reaching its three write operations. That is exactly
+  why it is on an allowlist: if the per-tool form is not honored the scout gets *less* than intended and
+  loses those reads, which shows the first time it runs, where the same unsettled form in a denylist would
+  fail the other way and leave the writes reachable. The graph server is granted whole, by the documented
+  server-level form, because every tool on it is a read.
 
 **This is not a cost router and does not meter spend.** The engine cannot see its own token use and does not
 own the model-invocation loop; `model-routing.md` rejects that scaffolding and that rejection stands. This
