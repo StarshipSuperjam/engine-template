@@ -10037,7 +10037,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:3b31b4fe922f0bd005403fd7b3b1260cfeb2a0feb10d4e1c4fc21a8ed312eaa8",
+        "fingerprint": "sha256:397c4c3490bd63aca3e00e3eeed301c8c9537b928a267cfb8f0db2e873301d41",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -13968,7 +13968,7 @@
       },
       "slug": "nightly_demo_report",
       "source": {
-        "fingerprint": "sha256:6241a0bd0a899944c6c12028f356e38a10419bfc882dc8f201b048db95e3b4a8",
+        "fingerprint": "sha256:d3a955cbf6c38f7f4676c2f38a231927c1121f72d549f4ef61a909676ad8ce1b",
         "path": ".engine/tools/nightly_demo_report.py"
       },
       "status": "active",
@@ -14213,7 +14213,7 @@
       },
       "slug": "plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:91f588520b1dc8c338d251523d5faac37542d77d0d552cff9af57ee0e6655164",
+        "fingerprint": "sha256:0a0a2c0a083204a485598ea85830c3c3c64530c4ac346d0142c1bab5e45d28e3",
         "path": ".engine/tools/plan_lifecycle.py"
       },
       "status": "active",
@@ -14411,7 +14411,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:17126e8ca5edea602bce7dba9c2fb1337d306d819b88f0a07373fe23bd80c126",
+        "fingerprint": "sha256:92f97b790e1bf3e7db8be7664b0943b569094397e6dd2901e068dbafef995350",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16143,7 +16143,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:33d4a6826c836b041de485303e1574804114079174245d43789e5013e8ce1d1f",
+        "fingerprint": "sha256:fa6f9e255eaf9f10b6f1929f4e460dcd01a9d305eae6d418332f201b8dc8d2a4",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -18717,7 +18717,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:f70011df0a45a763eefc5101ae176138ea36ad265c1146feb66aee9260937170",
+        "fingerprint": "sha256:0537772b60ad54dd19b7995c46a3520b7ff0b84b7d5f9b8810a9755f45c03d57",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
