@@ -9899,7 +9899,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c37a99be9372222cf081d1c0a725817d5bea476c884a8e2f56c38959afb1e12c",
+        "fingerprint": "sha256:a79189e3dcd8b3424f149719737675b5daa1573fca20e30ad0c6d0f0a4aaada1",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -16003,7 +16003,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:9b1420dc7f39257e9d85292cd90c8061694fa0f75b7c9d4a4ac02f7e8b7cf51a",
+        "fingerprint": "sha256:5a2ad5d8b0c09f58e1ef91796f0cabc1a0dcfea73dc372c068e627278bf3b84a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -19326,7 +19326,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:60b859132a85af3b0402ef47402f9cc85586c8c1e4f33bbb1c6da4360ab0f07b",
+        "fingerprint": "sha256:cce400013f6a945aa2d464a1861be2a945f102c8979874dada27affb90809749",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
