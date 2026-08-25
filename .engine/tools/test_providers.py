@@ -296,15 +296,45 @@ class TestCodexRegistrationDrift(unittest.TestCase):
         self.assertGreater(all_installed, core_only, "optional modules contribute codex-hook wires")
         self.assertGreater(core_only, 0, "core itself ships codex-hook wires — the total can never be empty")
 
-    def test_the_modes_accept_hook_is_deliberately_absent_on_codex(self):
-        """Codex Build entry is the typed verb ONLY (eADR-0034): the plan-acceptance hook must not
-        be registered, and a future mirror-everything cleanup must trip here, not ship it."""
+    @staticmethod
+    def _codex_commands():
         import validate
         data = validate.load_json(os.path.join(validate.ROOT, ".codex", "hooks.json"))
-        commands = [h["command"] for groups in data["hooks"].values()
-                    for g in groups for h in g["hooks"]]
-        self.assertFalse(any("modes.py" in c and "accept-hook" in c for c in commands),
-                         "the plan-acceptance adapter has no Codex registration by design")
+        return [h["command"] for groups in data["hooks"].values() for g in groups for h in g["hooks"]]
+
+    def test_the_modes_accept_hook_is_deliberately_absent_on_codex(self):
+        """Codex has no plan-exit completion to key on, so this hook cannot be registered there, and a
+        future mirror-everything cleanup must trip here rather than ship it. The capability is NOT
+        absent on Codex — the same import runs through the acceptance envelope on UserPromptSubmit
+        (below) — so this asymmetry is one of signal, not of function. Build entry stays the typed
+        verb on both runtimes either way (eADR-0034)."""
+        self.assertFalse(any("modes.py" in c and "accept-hook" in c for c in self._codex_commands()),
+                         "the plan-exit adapter has no Codex registration by design")
+
+    def test_the_codex_envelope_adapter_is_registered_and_its_claude_counterpart_is_not(self):
+        """The mirror of the rule above, pinned in both directions so neither side can quietly grow a
+        second importer of the same accepted document."""
+        import validate
+        self.assertTrue(any("modes.py" in c and "plan-import-hook" in c for c in self._codex_commands()),
+                        "Codex must carry the envelope adapter — it is how a plan is imported there")
+        claude = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
+        claude_commands = [h["command"] for groups in claude.get("hooks", {}).values()
+                           for g in groups for h in g.get("hooks", [])]
+        self.assertFalse(any("plan-import-hook" in c for c in claude_commands),
+                         "Claude imports at plan-exit; a second importer would mint a second plan id")
+
+    def test_the_intake_asymmetries_are_each_recorded_once_in_the_ledger(self):
+        """Revised in place, not duplicated (eADR-0034). Two entries — one per direction — and no
+        third entry restating either: a ledger that accumulates near-copies of one exception stops
+        being readable as a list of the differences that exist."""
+        import validate
+        ledger = validate.load_json(
+            os.path.join(validate.ROOT, ".engine", "policies", "provider-exceptions.json"))["exceptions"]
+        for identity in (".engine/tools/modes.py accept-hook", ".engine/tools/modes.py plan-import-hook"):
+            matching = [e for e in ledger if e.get("kind") == "hook" and e.get("id") == identity]
+            self.assertEqual(len(matching), 1, f"{identity} must appear exactly once")
+            self.assertIn("import", matching[0]["reason"].lower(),
+                          f"{identity}'s reason must describe what the hook now does — import a draft")
 
     def test_wire_apply_leaves_the_claude_files_byte_identical(self):
         """The Claude byte-stability regression the PR body cites: applying EVERY manifest wire is

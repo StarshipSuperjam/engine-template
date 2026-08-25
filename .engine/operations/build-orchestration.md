@@ -32,13 +32,14 @@ Reviewer severity is advice. It never selects a remedy and never makes a finding
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
 be one session. An Issue is never created merely because a Build exists — not even to track the work; an
-Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold promotes its
-plan instead (see "Where the plan lives").
+Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold recovers its
+plan from the local plan library (see "Where the plan lives").
 
-Turn the initiating request or Issue into a structured JSON `build-plan.v1` document. Present a readable
-harness projection generated directly from that exact document; it is a view, not a second authority, and
-must never be independently edited or translated back into JSON after approval. Keep raw intent distinct from
-the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
+The plan is not authored here. It is authored, reviewed and SEALED through the Plan Coordinator first, and a
+Build binds that sealed plan's `build-plan.v2` payload. The discipline below is what that lifecycle enforces
+on the way to a seal. Present a readable projection generated from that exact document; it is a view, not a
+second authority, and must never be edited or translated back into JSON after approval. Keep raw intent
+distinct from the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
 verified, accepted risk, or unresolved, and state the objective, checkable success obligations, scope,
 non-goals, important risks, implementation outline, and review strategy. Include settled-spec mapping when
 one exists. Otherwise disclose that there is no settled spec; the plan's success obligations still govern
@@ -59,8 +60,12 @@ Bind the plan once:
 
 ```text
 build_coordinator.py --state <OS-temp-path> plan bind \
-  --source session --input <plan.json> --repository <owner/repo> --pr <number>
+  --plan <plan-id> --repository <owner/repo> --pr <number>
 ```
+
+`--plan` names a SEALED plan in the local library, and nothing else enters a Build: an unsealed plan is
+refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
+For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
 The snapshot must live in the OS temporary directory. It is one atomically replaced, lock-protected document
 of current evidence, not an append-only event ledger and not repository state. There is no editable phase;
@@ -68,72 +73,63 @@ of current evidence, not an append-only event ledger and not repository state. T
 
 ### Where the plan lives
 
-For an interactive Build expected to finish in this harness session, the harness is the content store. The
-snapshot keeps only the canonical digest and source facts. Every checkpoint, review packet, and submission
-preview receives the plan again and refuses a mismatch. This works whether or not the runtime has a formal
-Plan feature: the orchestrator may author and present the same `build-plan.v1` JSON conversationally and pass
-that exact document by file or stdin. The JSON document is the harness plan, not a second plan authority.
+In the local plan library, on this workstation. The snapshot keeps the plan's id, the digest its seal
+minted, and the payload digest — never the plan's content. Every checkpoint, review packet, and submission
+preview receives the payload again and refuses a mismatch.
 
-A Build begun from a suitable Issue keeps that Issue as the intent record; it need not duplicate the plan.
+No plan is published to GitHub: no promotion step, no plan block in an Issue or PR body. An Issue may still
+AUTHORIZE a Build, which is what `--issue` records, but authorization and plan authority are two artifacts and
+neither stands in for the other.
 
-Before intentional cold-session or unattended continuation, promote the exact plan to a suitable writable
-Issue. Promotion appends or replaces one bounded machine block in the Issue body while preserving the
-human-authored text and GitHub's edit history. It requires an explicit visibility acknowledgement, compares
-the Issue body again immediately before writing, aborts on concurrent edits, and verifies the written bytes.
-Reuse an originating Issue that represents exactly this Build. When none is suitable, `plan promote --create-issue
-<title>` uses `.engine/tools/issue_author.py`, applies the `engine` label, states ordered scope and recovery purpose, then publishes the bounded plan. A broad epic,
-read-only external Issue, or Issue spanning independent PRs is not suitable authority.
+Cold continuation is anchored on the sealed plan RECORD. `handoff export --output <file>` writes the Build's
+own evidence, redacted, to a file; `handoff restore --input <file>` reads it back and re-verifies the plan in
+the library — same id, same sealed digest, same payload. Gone, unsealed or changed, and continuation is
+blocked rather than guessed at. A Build whose executed plan was revised away from its seal cannot hand off
+cold at all, since a cold session would recover the sealed payload rather than the one being built: finish it
+in the session that holds it, or re-plan into a new plan.
 
-No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. A
-deleted durable plan blocks only cold continuation; never reconstruct an approved plan from a summary,
-transcript fragments, or implementation. `handoff export --publish --ack-visibility` places one bounded,
-redacted snapshot block in the PR contract with an optimistic-concurrency check; it never creates a comment.
-`handoff restore --repository <owner/repo> --pr <number>` reads that block and verifies the promoted plan carried on the Issue.
-File/stdin export and restore remain available for a harness that transports the same bytes itself.
+No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. Never
+reconstruct an approved plan from a summary, transcript fragments, or implementation.
 
 ### 2. Assess risk and approve the Build gate
 
-**Assess risk; offer only depths that add something.** Run the knowledge impact check, inspect installed review
-personas, and run `build_coordinator.py depths` — it lists the depths worth offering, dropping any that would run
-what a lighter one does (only Quick when no reviewers, StarshipSuperjam/engine-template#763), and prints each depth's resolved
-reviewer EFFORT. Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what
-review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no
-time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review record.
-
-The operator iterates the plan to solid and approves the plan and review depth together via `approve --plan <plan.json>
---depth quick|standard|thorough`. Changing plan content clears approval and applicable review evidence; changing approved
-depth clears review coverage; progress prose does neither. An ordinary implementation leaf does not revise the plan —
-revision is warranted only when intent, outcome, capability boundary, non-goals, settled criteria, authority, or scope change.
-
-The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success
-obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one
-commit keep one headline plus plan/depth approval as its only operator ceremony; validation and merge remain. A guarded-enforcement change,
-guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to
-`normal` and renewed approval.
-
-### 3. Run one cold plan review
-
-`review packet --stage plan` constructs one exact packet containing raw initiating intent, the approved
-plan, cited evidence supplied as impact input, settled criteria when present, installed and required lenses,
-protocol digest, and each required reviewer's source path and content digest. The approved depth determines
-required coverage; Thorough runs every installed lens. A changed reviewer contract invalidates only that lens's receipt; unchanged lenses remain current against the same referent.
+**Risk and depth are settled on the plan side, before the seal.** Run the knowledge impact check, then
+`plan_coordinator.py depths <plan>`: it lists only the depths worth offering for this repository's installed
+reviewers, dropping any that would run what a lighter one does (only Quick when no reviewers,
+StarshipSuperjam/engine-template#763), with each depth's resolved reviewer EFFORT.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
+Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see
+`model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review
+record.
 
-Cold reviewers judge product intent, architecture, feasibility, and risk/governance within their independent
-mandates. Record each receipt and its finding IDs. Then critically adjudicate every finding under the finding
-policy. Accepting a concern does not mean accepting its remedy. A finding may be accepted and fixed, accepted
-and tracked, partly accepted with a bounded remedy, rejected with rationale, or escalated for a genuine
-operator decision. Record separately whether it still blocks this PR. Severity alone never blocks.
-Before involving the operator, synthesize the plan-review findings into one recommended call and state its
-tradeoff; never relay a stack of raw reviewer outputs as the decision surface.
-Return to the operator only if the review changes design, law, authority, the agreed capability boundary, or
-leaves a genuine operator decision unresolved. Engineering leaves are the orchestrator's responsibility.
-Normal and Routine implementation checkpoints remain closed until this review's required receipts and
-finding dispositions are complete and no plan finding remains explicitly blocking.
-When a completed implementation is adopted after this before-code gate, the operator may explicitly waive the
-now-retrospective plan review only for a same-session normal Build bound to that already-implemented commit;
-record the commit and reason, disclose the waiver, and never fabricate receipts. Routine and prospective work
-cannot use the waiver.
+The operator approves plan and depth together with `plan_coordinator.py approve <plan> --depth
+quick|standard|thorough`. **That one choice covers both gates**: it names the lenses the seal will require, and
+it is the depth the Build's deliverable review runs at. Consent is given once, here. On the Build side,
+`approve --plan <plan.json> --depth …` records the same depth against the bound payload; changing approved
+depth clears review coverage, and progress prose does not. A sealed plan's revision is always the operator's
+call, recorded with `--operator-change` and disclosed at merge.
+
+The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one commit keep one headline plus plan/depth approval as its only operator ceremony; validation and merge remain. A guarded-enforcement change, guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to `normal` and renewed approval.
+
+### 3. The plan review already happened
+
+There is no plan review on this side. There is exactly one cold plan review per plan, run on the plan side
+against the approved revision before the seal — `review packet` cuts it, `review record` files the one receipt
+(re-rendering the packet and refusing a mismatched digest), `finding dispose` answers each finding, and `seal`
+refuses while the recorded lenses do not cover the approved depth's roster. A bound plan is a reviewed plan by
+construction, which is why this side has no plan-review gate and no waiver for one.
+
+Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
+be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
+escalated — with whether it still blocks recorded separately. Severity alone never blocks. Before involving the
+operator, synthesize the findings into one recommended call and state its tradeoff; never relay raw reviewer
+outputs as the decision surface. Return to the operator only when the review changes design, law, authority, or
+the agreed capability boundary, or leaves a genuine operator decision unresolved.
+
+What the Build still owes is DISCLOSURE. The composed PR contract renders the sealed plan review's findings,
+their dispositions, and a disagreement line for any blocking finding decided not to block — read from the plan
+record, so the Build's own receipt bookkeeping cannot strip them. A plan revised away from its seal has that
+divergence disclosed too, with the review stated as not covering the delta.
 
 ### 4. Implement and reground
 
@@ -142,9 +138,9 @@ isolated workers for cleanly separable work when context pressure justifies them
 for unattended bulk work. Delegation returns work product to the orchestrator, which remains the single
 writer and judges cohesion.
 
-Routine follows [Routine entry](routine-entry.md): the immutable promoted Issue plan supplies ordered work items; the
-snapshot, handoff, and git record completed commits and `N of M` progress, counted from `work integrate` on a v2 plan,
-where `checkpoint --complete-item` (v1's path) is refused. Owned product work
+Routine follows [Routine entry](routine-entry.md): the sealed plan in the local library supplies ordered work
+items and the Issue supplies the authorization; the snapshot, handoff, and git record completed commits and
+`N of M` progress, counted from `work integrate`, where `checkpoint --complete-item` is refused. Owned product work
 follows [Owned-product Build](owned-product-build.md), and work for a repository the operator does not own
 follows [external contribution submission](external-contribution-submit.md). A v2 DAG Build's node lifecycle
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair

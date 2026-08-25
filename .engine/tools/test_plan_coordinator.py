@@ -22,6 +22,7 @@ import unittest
 
 from unittest import mock
 
+import plan_contract
 import plan_coordinator
 import plan_projection
 import plan_store
@@ -347,13 +348,26 @@ class _Governed(_Surface):
         path.write_text(json.dumps(list(findings)), encoding="utf-8")
         return str(path)
 
-    def _to_reviewed(self, findings=(), **over):
+    def _packet_digest(self, slug):
+        """The digest of the packet the coordinator would actually cut — never the plan digest.
+
+        The two were interchangeable while nothing verified the receipt; now that `review record`
+        re-renders and compares, a receipt has to name the packet it really read."""
+        import plan_projection as _pp
+        return plan_coordinator.core.digest(
+            _pp.render_plan(self.lib.head(slug), self.lib.read_record(slug)).encode("utf-8"))
+
+    def _covering_lenses(self, depth="standard"):
+        """Every lens the approved depth requires — the seal refuses anything short of it."""
+        return plan_coordinator.required_lenses(depth, plan_coordinator.installed_lenses())
+
+    def _to_reviewed(self, findings=(), depth="standard", lenses=None, **over):
         slug, document = self._plan(**over)
         self.run_command("preview", slug)
-        self.assertEqual(self.run_command("approve", slug, "--depth", "standard")[0], 0)
-        digest = self.lib.read_record(slug)["current"]["plan_digest"]
-        argv = ["review", "record", slug, "--lens", "architecture", "--lens", "risk-governance",
-                "--packet-digest", digest]
+        self.assertEqual(self.run_command("approve", slug, "--depth", depth)[0], 0)
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
+        for lens in (lenses if lenses is not None else self._covering_lenses(depth)):
+            argv += ["--lens", lens]
         if findings:
             argv += ["--findings", self._findings(*findings)]
         self.assertEqual(self.run_command(*argv)[0], 0)
@@ -514,7 +528,16 @@ class SealRefusals(_Governed):
         code, _, err = self.run_command("seal", slug)
         self.assertEqual(code, 1)
         self.assertIn("has not been approved", err)
-        self.assertIn("no cold plan review", err)
+        # With no approval there is no depth, so no roster to demand — the review refusal is keyed on
+        # the approved depth's roster now, and reporting a coverage gap for a depth nobody chose would
+        # be noise. Approve, and the missing review is named alongside everything else still in the way.
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("no cold plan review has been recorded", err)
+        for lens in self._covering_lenses():
+            self.assertIn(lens, err)
 
 
 class SealIsTerminal(_Governed):
@@ -543,7 +566,7 @@ class SealIsTerminal(_Governed):
         slug, _ = self._to_reviewed()
         self.run_command("seal", slug)
         self.run_command("preview", slug)
-        code, _, err = self.run_command("approve", slug, "--depth", "light")
+        code, _, err = self.run_command("approve", slug, "--depth", "quick")
         self.assertEqual(code, 2)
         self.assertIn("terminal", err)
 
@@ -619,6 +642,58 @@ class Dispositions(_Governed):
                                         "--disposition", "rejected", "--rationale", "n/a")
         self.assertEqual(code, 2)
         self.assertIn("A1", err)
+
+    def test_a_review_cannot_be_recorded_onto_a_sealed_plan(self):
+        """The sibling hole to the one below: at a depth needing no lenses, a plan seals with no review
+        at all — so "a review already exists" guards nothing. Without the seal check a whole review,
+        findings and pre-set dispositions included, could be written onto a sealed plan and would reach
+        the merge surface looking like something read before the plan was locked."""
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick")[0], 0)
+        self.assertEqual(self.run_command("seal", slug)[0], 0)
+        self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
+        code, _, err = self.run_command("review", "record", slug, "--packet-digest",
+                                        self._packet_digest(slug), "--lens", "architecture")
+        self.assertEqual(code, 2)
+        self.assertIn("sealed", err)
+        self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
+
+    def test_a_reviewed_plan_cannot_be_re_approved_at_another_depth(self):
+        """Downgrading after review would leave the review attached while the seal asked a smaller
+        question of it: at quick the roster is empty, so a one-of-four-lens review sails through and the
+        pull request then tells the operator a cold panel read the plan. The review cannot be dropped to
+        make room either — exactly one per plan is what stops the re-review spiral — so depth holds."""
+        slug, _ = self._to_reviewed(depth="standard")
+        code, _, err = self.run_command("approve", slug, "--depth", "quick")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be re-approved", err)
+        self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "standard")
+        # Re-approving at the SAME depth stays legal: nothing about the question changed.
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard")[0], 0)
+
+    def test_a_seal_freezes_the_dispositions_the_pull_request_will_publish(self):
+        """The Build reads this review live from the record, so an editable record is an editable PR.
+
+        A blocking finding left honestly blocking at seal is a disagreement the operator meets at merge.
+        If it could be turned into "rejected, no issue" afterwards, reading live would relocate the
+        silent drop rather than close it — the immunity the panel move claims would be worth nothing.
+        """
+        slug, _ = self._to_reviewed(findings=({"id": "A1", "lens": "architecture",
+                                               "severity": "blocking", "summary": "One."},))
+        self.assertEqual(self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-tracked",
+            "--rationale", "Carried to the successor plan.", "--blocks-this-pr")[0], 0)
+        self.assertEqual(self.run_command("seal", slug)[0], 0)
+        code, _, err = self.run_command(
+            "finding", "dispose", slug, "--id", "A1", "--disposition", "rejected",
+            "--rationale", "On reflection, no.", "--does-not-block-this-pr",
+            "--operator-summary", "No real issue here.")
+        self.assertEqual(code, 2)
+        self.assertIn("sealed", err)
+        frozen = self.lib.read_record(slug)["plan_review"]["findings"][0]
+        self.assertEqual(frozen["disposition"], "accepted-tracked")
+        self.assertTrue(frozen["blocks_this_pr"])
 
     def test_disposing_without_a_review_is_refused(self):
         slug, _ = self._plan()
@@ -950,7 +1025,7 @@ class SingleMintedGatesUnderConcurrency(_Governed):
         slug, _ = self._plan()
         self.run_command("preview", slug)
         self.run_command("approve", slug, "--depth", "standard")
-        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        digest = self._packet_digest(slug)
         # Both sessions read a record with no review; A records first, B must still be refused.
         self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
                                           "--packet-digest", digest)[0], 0)
@@ -1181,7 +1256,7 @@ class ErrorLegibility(_Governed):
         findings.write_text(json.dumps([{"id": "A1", "lens": "architecture",
                                          "severity": "major", "summary": "s"}]), encoding="utf-8")
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
-                                        "--packet-digest", self.lib.read_record(slug)["current"]["plan_digest"],
+                                        "--packet-digest", self._packet_digest(slug),
                                         "--findings", str(findings))
         self.assertEqual(code, 2)
         self.assertIn("severity", err)
@@ -1195,7 +1270,10 @@ class ErrorLegibility(_Governed):
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
                                         "--packet-digest", "sha256:abc")
         self.assertEqual(code, 2)
-        self.assertIn("packet_digest", err)
+        # The receipt no longer has to be malformed to be caught: it has to be WRONG. The refusal names
+        # the digest given and the digest the approved revision actually renders to.
+        self.assertIn("sha256:abc", err)
+        self.assertIn(self._packet_digest(slug), err)
 
     def test_validate_reports_one_problem_once(self):
         slug, _ = self._plan()
@@ -1216,12 +1294,16 @@ class ErrorLegibility(_Governed):
         out = self.run_command("show", slug)[1]
         self.assertIn("but the gates do", out)
 
-    def test_resume_does_not_promise_a_handoff_this_pr_does_not_ship(self):
-        slug, _ = self._to_reviewed()
+    def test_resume_on_a_sealed_plan_states_the_bind_command(self):
+        # The counterpart of the honesty this case used to enforce: the handoff DOES ship now, so the
+        # next step names the exact command rather than steering the operator to clone.
+        slug, document = self._to_reviewed()
         self.run_command("seal", slug)
         out = self.run_command("resume", slug)[1]
-        self.assertIn("not wired up yet", out)
-        self.assertIn("clone", out)
+        self.assertIn("plan bind --plan " + document["plan_id"], out)
+        self.assertIn("--repository <owner/repo> --pr <number>", out)
+        self.assertNotIn("not wired up yet", out)
+        self.assertIn("clone", out)   # still the only way past a terminal seal
 
 class ImportCannotOverwriteANeighbour(_Governed):
     """Constraining the slug's SHAPE stops a bundle escaping the library. It does nothing to stop one
@@ -1539,9 +1621,263 @@ class ImportToleratesADamagedNeighbour(_Governed):
         self.assertEqual(code, 0)
         self.assertNotIn("incomplete", err)
 
+class ThePanelMovedHere(_Governed):
+    """The enforcement that came across with the panel, not just the panel."""
+
+    def test_a_one_lens_review_at_thorough_is_refused_at_seal_naming_the_missing_lenses(self):
+        # The hole this closes: "a sealed plan is reviewed by definition" was an assumption. A single lens
+        # could seal a plan approved at thorough, and nothing said otherwise.
+        slug, _ = self._to_reviewed(depth="thorough", lenses=["architecture"])
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 1)
+        self.assertIn("missing", err)
+        for lens in self._covering_lenses("thorough"):
+            if lens != "architecture":
+                self.assertIn(lens, err)
+
+    def test_a_covering_review_seals(self):
+        slug, _ = self._to_reviewed(depth="thorough")
+        code, out, err = self.run_command("seal", slug)
+        self.assertEqual(code, 0, err)
+        self.assertIn("sealed", out)
+
+    def test_quick_needs_no_cold_lenses_and_still_seals(self):
+        # At quick the operator's own read IS the review, by their choice at approval. Demanding a recorded
+        # review anyway would make the depth unusable; the demand is keyed on the roster the depth requires.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick")[0], 0)
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 0, err)
+
+    def test_a_receipt_naming_a_packet_nobody_cut_is_refused(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.run_command("approve", slug, "--depth", "standard")
+        code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
+                                        "--packet-digest", "sha256:" + "4" * 64)
+        self.assertEqual(code, 2)
+        self.assertIn("renders to", err)
+        self.assertIn(self._packet_digest(slug), err)
+
+    def test_the_depth_offer_is_computed_from_the_installed_roster_with_resolved_effort(self):
+        roster = [{"lens": "architecture"}, {"lens": "feasibility"},
+                  {"lens": "product-intent"}, {"lens": "risk-governance"}]
+        efforts = {"quick": None, "standard": "medium", "thorough": "high"}
+        self.assertEqual(plan_coordinator.available_depths(roster, efforts=efforts),
+                         ["quick", "standard", "thorough"])
+        # A depth that buys nothing is suppressed: with no reviewers every heavier depth runs what quick
+        # runs, so only the floor is offered (the 763/677 protection, moved with the consent surface).
+        self.assertEqual(plan_coordinator.available_depths([], efforts=efforts), ["quick"])
+        # ...and with equal lens-sets AND equal effort, the heavier depth collapses too.
+        flat = {"quick": None, "standard": "medium", "thorough": "medium"}
+        self.assertEqual(plan_coordinator.available_depths(roster, efforts=flat), ["quick", "standard"])
+
+    def test_a_depth_that_buys_nothing_cannot_be_approved_either(self):
+        # Suppressing it from the offer is not enough if it can still be typed: consent spent on nothing
+        # is the failure, wherever it is spent.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        with mock.patch.object(plan_coordinator, "installed_lenses", return_value=[]):
+            code, _, err = self.run_command("approve", slug, "--depth", "thorough")
+        self.assertEqual(code, 2)
+        self.assertIn("not offered here", err)
+
+    def test_the_depths_verb_names_the_lenses_the_seal_will_require(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        out = self.run_command("depths", slug)[1]
+        for lens in self._covering_lenses("standard"):
+            self.assertIn(lens, out)
+        self.assertIn("only those that add coverage or effort", out)
+
+    def test_a_blocking_finding_left_unblocking_owes_an_operator_summary(self):
+        slug, _ = self._to_reviewed(findings=({"id": "RISK-1", "lens": "risk-governance",
+                                               "severity": "blocking",
+                                               "summary": "internal reviewer detail"},))
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-1",
+                                        "--disposition", "accepted-tracked", "--rationale", "tracked")
+        self.assertEqual(code, 2)
+        self.assertIn("--operator-summary", err)
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-1",
+                                        "--disposition", "accepted-tracked", "--rationale", "tracked",
+                                        "--operator-summary", "A residual the operator must weigh.")
+        self.assertEqual(code, 0, err)
+        finding = self.lib.read_record(slug)["plan_review"]["findings"][0]
+        self.assertEqual(finding["operator_summary"], "A residual the operator must weigh.")
+        self.assertFalse(finding["blocks_this_pr"])
+
+    def test_a_finding_left_blocking_is_recorded_as_blocking_and_holds_the_seal(self):
+        slug, _ = self._to_reviewed(findings=({"id": "RISK-2", "lens": "risk-governance",
+                                               "severity": "blocking", "summary": "s"},))
+        code, _, err = self.run_command("finding", "dispose", slug, "--id", "RISK-2",
+                                        "--disposition", "escalated", "--rationale", "operator's call",
+                                        "--blocks-this-pr", "--operator-summary", "Still blocking.")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(self.lib.read_record(slug)["plan_review"]["findings"][0]["blocks_this_pr"])
+
+
+class ImportingANativePlan(_Surface):
+    """Native-plan intake: groundwork, not bypass and not restart.
+
+    An accepted Claude or Codex plan lands as an unapproved draft revision 1 carrying the text
+    verbatim. Nothing interprets it, decomposes it, or writes deliberation prose on its behalf — the
+    four things an import cannot know are recorded as unresolved decisions, which the seal refuses
+    while any remain. So the import moves a plan onto the shelf and moves nobody closer to building
+    it, which is what makes it safe to run from a hook on an operator's ordinary keystroke.
+    """
+
+    NATIVE = "# Cache the widgets\n\nThey are slow, so cache them.\n"
+
+    def _import(self, text=None, provenance="Accepted Claude Code plan, imported at plan-exit."):
+        return plan_coordinator.import_native_plan(text if text is not None else self.NATIVE,
+                                                   provenance=provenance, library=self.lib)
+
+    def test_the_native_text_is_kept_verbatim_as_the_raw_intent(self):
+        # The gap between what was said and what anyone made of it is the thing a reviewer needs, so
+        # the text is never tidied on the way in.
+        document = self.lib.head(self._import()["slug"])
+        self.assertEqual(document["intent"]["raw"], self.NATIVE)
+
+    def test_nothing_is_interpreted_decomposed_or_deliberated(self):
+        document = self.lib.head(self._import()["slug"])
+        self.assertEqual(document["build_plan"],
+                         {"schema_version": "build-plan.imported", "work_items": []})
+        self.assertEqual(document["deliberation"]["problem_frame"], "")
+        self.assertEqual(document["deliberation"]["case_against"], "")
+        self.assertGreaterEqual(len(document["deliberation"]["unresolved_decisions"]), 4)
+
+    def test_an_import_lands_unapproved_unreviewed_and_unsealed(self):
+        record = self.lib.read_record(self._import()["slug"])
+        self.assertIsNone(record["approval"])
+        self.assertIsNone(record["plan_review"])
+        self.assertIsNone(record["seal"])
+        self.assertIsNone(record["build_binding"])
+
+    def test_the_gaps_are_what_stands_between_an_import_and_a_seal(self):
+        document = self.lib.head(self._import()["slug"])
+        blockers = plan_contract.seal_blockers(document)
+        self.assertTrue(any("unresolved" in b for b in blockers), blockers)
+        self.assertTrue(any("imported native plan" in b for b in blockers), blockers)
+
+    def test_the_title_is_lifted_from_the_text_never_invented(self):
+        self.assertEqual(self._import()["title"], "Cache the widgets")
+        self.assertEqual(self._import("no heading here, just prose\n")["title"],
+                         "no heading here, just prose")
+        self.assertEqual(self._import("   \n\n   \n.")["title"], ".")
+
+    def test_an_empty_document_is_refused_rather_than_imported_as_a_blank_plan(self):
+        for text in ("", "   \n\t\n", None):
+            with self.assertRaises(plan_coordinator.PlanCoordinatorError):
+                self._import(text if text is not None else "")
+
+    def test_every_import_mints_its_own_identity(self):
+        first, second = self._import(), self._import()
+        self.assertNotEqual(first["plan_id"], second["plan_id"])
+        self.assertNotEqual(first["slug"], second["slug"])
+
+    def test_the_readable_projection_renders_and_says_there_is_no_build_half(self):
+        # The arrival report points the operator at `preview`, which renders through this same
+        # function — so an import that cannot be rendered would hand them a crash as their next step.
+        rendered = (self.lib.plan_dir(self._import()["slug"]) / plan_projection.PLAN_MD).read_text()
+        self.assertIn("## The Build half", rendered)
+        self.assertIn("an import decomposes nothing", rendered)
+        self.assertIn("Not stated", rendered)                 # the deliberation gaps read AS gaps
+        self.assertNotIn("## Execution graph", rendered)
+
+    def test_the_arrival_report_names_the_plan_the_revision_and_the_next_command(self):
+        report = plan_coordinator.arrival_report(self._import())
+        self.assertIn(self.lib.read_record(self.lib.slugs()[0])["plan_id"], report)
+        self.assertIn("revision 1", report)
+        self.assertIn("preview --plan", report)
+        self.assertIn("no Build authority", report)
+        self.assertIn("tell the operator", report.lower())     # unlike the directive it replaces
+
+    def test_the_typed_verb_performs_the_identical_import(self):
+        # The recovery path for envelope drift or a declined hook trust: an extra command, never a
+        # lesser import. Same document shape, same status, same gaps.
+        path = Path(self._tmp.name) / "native.md"
+        path.write_text(self.NATIVE, encoding="utf-8")
+        code, out, err = self.run_command("import-native", "--input", str(path),
+                                          "--provenance", "Typed recovery path.")
+        self.assertEqual(code, 0, err)
+        self.assertIn("revision 1", out)
+        self.assertIn("preview --plan", out)
+        document = self.lib.head(self.lib.slugs()[0])
+        self.assertEqual(document["intent"]["raw"], self.NATIVE)
+        self.assertEqual(document["build_plan"]["schema_version"], "build-plan.imported")
+
+    def test_an_import_records_where_it_came_from_on_the_document_and_the_record(self):
+        arrival = self._import(provenance="Accepted Codex plan, imported from the typed envelope.")
+        self.assertIn("Codex", self.lib.head(arrival["slug"])["intake"]["provenance"])
+        self.assertIn("Codex", self.lib.read_record(arrival["slug"])["intake"]["provenance"])
+
+    def test_an_imported_draft_can_be_revised_into_a_real_plan(self):
+        # The whole point of importing rather than restarting: the coordinator continues from here.
+        arrival = self._import()
+        real = _document(plan_id=arrival["plan_id"], revision=2)
+        self.lib.append_revision(arrival["slug"], real, expected_revision=1)
+        head = self.lib.head(arrival["slug"])
+        self.assertEqual(head["build_plan"]["schema_version"], "build-plan.v2")
+        self.assertEqual(len(self.lib.read_record(arrival["slug"])["ledger"]), 2)
+
+
+class DepthSelectsReviewersAndNothingElse(_Surface):
+    """Depth never selects the plan's FORMAT and never selects its GRAPH TOPOLOGY.
+
+    It sounds too obvious to test, which is why it is worth testing: the shortcut it forbids is real
+    and would be quiet. Letting `quick` accept a thinner document, or fold a graph into a chain
+    "since nobody is reviewing it anyway", would make how carefully a plan is read decide what the
+    plan IS — and the plan is the thing a Build executes long after the reviewing is over. Depth is
+    how much scrutiny the operator asked for; it is never a discount on the artifact.
+    """
+
+    def _approved_at(self, depth):
+        slug, document = self._plan(plan_id=f"pln_{'0' * 11}{plan_coordinator.DEPTH_ORDER.index(depth)}")
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", depth)[0], 0)
+        return slug, self.lib.head(slug), self.lib.read_record(slug)
+
+    def test_the_document_and_its_payload_are_byte_identical_at_every_depth(self):
+        shapes = {}
+        for depth in plan_coordinator.DEPTH_ORDER:
+            _, document, record = self._approved_at(depth)
+            payload = document["build_plan"]
+            shapes[depth] = {
+                "document_version": document["schema_version"],
+                "payload_version": payload["schema_version"],
+                "payload_digest": record["current"]["build_plan_digest"],
+                "topology": sorted((item["id"], tuple(sorted(item.get("depends_on", []))))
+                                   for item in payload["work_items"]),
+                "parallelism": payload["parallelism"],
+            }
+        reference = shapes[plan_coordinator.DEPTH_ORDER[0]]
+        for depth, shape in shapes.items():
+            self.assertEqual(shape, reference, f"{depth} changed the plan itself, not just its review")
+
+    def test_the_approved_depth_is_the_only_thing_the_depth_choice_writes(self):
+        # Stated as the complement of the test above: approval records the depth against the digest
+        # being approved, and touches nothing else on the record.
+        for depth in plan_coordinator.DEPTH_ORDER:
+            slug, _, record = self._approved_at(depth)
+            self.assertEqual(record["approval"]["depth"], depth)
+            self.assertEqual(record["approval"]["plan_digest"], record["current"]["plan_digest"])
+            self.assertIsNone(record["plan_review"])
+            self.assertIsNone(record["seal"])
+
+    def test_a_deeper_depth_adds_reviewers_and_only_reviewers(self):
+        roster = plan_coordinator.installed_lenses()
+        lighter = set(plan_coordinator.required_lenses("quick", roster))
+        deeper = set(plan_coordinator.required_lenses("thorough", roster))
+        self.assertTrue(lighter <= deeper, "a deeper depth must never drop a reviewer a lighter one ran")
+
+
 class Enumeration(unittest.TestCase):
     def test_the_depths_offered_match_the_documented_set(self):
-        self.assertEqual(set(plan_coordinator.DEPTHS), {"light", "standard", "thorough"})
+        self.assertEqual(set(plan_coordinator.DEPTHS), {"quick", "standard", "thorough"})
+        # ONE vocabulary across both coordinators, which is what lets a single consent cover both gates.
+        import build_coordinator_review as bcr
+        self.assertEqual(set(plan_coordinator.DEPTHS), set(bcr.DEPTH_ORDER))
 
     def test_every_status_the_surface_can_report_is_in_the_enumeration(self):
         for status in ("draft", "awaiting-approval", "awaiting-review", "review-recorded",

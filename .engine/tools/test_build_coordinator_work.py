@@ -16,7 +16,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
 import build_coordinator_work as work  # noqa: E402
-from test_build_coordinator import plan as plan_v1, plan_v2, _work_item_v2, HEAD_A, BASE  # noqa: E402
+from test_build_coordinator import plan_v1, plan_v2, _work_item_v2, HEAD_A, BASE, PLAN_ID, SEALED  # noqa: E402
 import build_coordinator_dag as dag  # noqa: E402
 import build_coordinator_github as ghub  # noqa: E402
 
@@ -33,7 +33,7 @@ class WorkCase(unittest.TestCase):
         self.plan_value = plan_v2()
         self.plan_path = Path(self.temp.name) / "plan.json"
         self.write_plan(self.plan_value)
-        state = bc._initial_state("owner/repo", 7, BASE, "session", self.plan_value, None)
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, self.plan_value, None)
         state["approval"] = {"plan_digest": bc._digest(self.plan_value), "spec_digest": None, "depth": "thorough"}
         self.store.create(state)
 
@@ -75,7 +75,7 @@ class TestWorkClaims(WorkCase):
 
     def test_serial_policy_refuses_a_second_concurrent_claim(self):
         self.write_plan(plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])]))
-        state = bc._initial_state("owner/repo", 7, BASE, "session", self.plan_value, None)
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, self.plan_value, None)
         state["approval"] = {"plan_digest": bc._digest(self.plan_value), "spec_digest": None, "depth": "thorough"}
         os.remove(self.state_path)
         self.store.create(state)
@@ -169,16 +169,14 @@ class TestWorkClaims(WorkCase):
                 with mock.patch.object(bc, "_commit_on_branch", return_value=True):
                     invoke(stale)
 
-    def test_work_verbs_on_a_v1_build_name_the_actual_cause(self):
-        # A v1 snapshot has no work map: the verbs without a --plan argument refuse with the same
-        # actionable message their packet/claim/result siblings give, not "no recorded work".
-        v1 = plan_v1()
-        state = bc._initial_state("owner/repo", 7, BASE, "session", v1, None)
-        os.remove(self.state_path)
-        self.store.create(state)
+    def test_a_snapshot_without_a_work_map_names_the_actual_cause(self):
+        # The v1 arm of this case is gone with v1 entry itself — no snapshot without a work map can be
+        # WRITTEN any more. The guard still earns its place as the reader-side floor, and is pinned
+        # directly rather than through a snapshot the schemas now refuse to hold.
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, plan_v2(), None)
+        state.pop("work")
         with self.assertRaisesRegex(bc.CoordinatorError, "require a build-plan.v2 Build"):
-            bc.cmd_work_reject(argparse.Namespace(item="W1", attempt="0" * 32,
-                                                  rejection_class="worker", reason="x"), self.store)
+            bc._node_work(state, "W1")
 
     def test_each_work_verb_guards_with_compare_and_swap(self):
         self.claim("shared")  # revision advances to 2
@@ -233,7 +231,7 @@ class TestFrontierProjection(WorkCase):
         self.write_plan(plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])]))
         os.remove(self.state_path)
         self.store = bc.StateStore(self.state_path)
-        state = bc._initial_state("owner/repo", 7, BASE, "session", self.plan_value, None)
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, self.plan_value, None)
         state["approval"] = {"plan_digest": bc._digest(self.plan_value), "spec_digest": None, "depth": "thorough"}
         self.store.create(state)
         projection = self.frontier()
@@ -255,7 +253,7 @@ class TestFrontierProjection(WorkCase):
         self.write_plan(plan_v2(items=[_work_item_v2("a", []), _work_item_v2("b", [])]))
         os.remove(self.state_path)
         self.store = bc.StateStore(self.state_path)
-        state = bc._initial_state("owner/repo", 7, BASE, "session", self.plan_value, None)
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, self.plan_value, None)
         state["approval"] = {"plan_digest": bc._digest(self.plan_value), "spec_digest": None, "depth": "thorough"}
         self.store.create(state)
         self.assertEqual(dag.claimable_set(self.plan_value, self.state()), ["a", "b"])
@@ -497,11 +495,13 @@ class TestStatusV2(WorkCase):
         self.assertEqual(bc._status(self.plan_value and state, self.plan_value)["progress"]["next"],
                          bc._next_incomplete(self.plan_value, state))
 
-    def test_v1_status_has_no_work_section(self):
-        v1 = plan_v1()
-        state = bc._initial_state("owner/repo", 7, BASE, "session", v1, None)
-        state["approval"] = {"plan_digest": bc._digest(v1), "spec_digest": None, "depth": "thorough"}
-        result = bc._status(state, v1)
+    def test_a_snapshot_without_a_work_map_has_no_work_section(self):
+        value = plan_v2()
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, None)
+        state["approval"] = {"plan_digest": bc._digest(value), "spec_digest": None, "depth": "thorough"}
+        state["schema_version"] = "build-state.v1"
+        state.pop("work")
+        result = bc._status(state, value)
         self.assertNotIn("work", result)
 
     def test_status_surfaces_the_failure_reason(self):
@@ -522,10 +522,8 @@ class TestStatusV2(WorkCase):
         value["profile"] = "routine"
         value["intent_source"] = {"kind": "issue", "issue": 11}
         self.write_plan(value)
-        state = bc._initial_state("owner/repo", 7, BASE, "issue", value, 11, "unattended")
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, 11, "unattended")
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
-        state["reviews"]["plan"].update({"packet_digest": "sha256:" + "1" * 64,
-                                         "referent_digest": "sha256:" + "2" * 64})
         os.remove(self.state_path)
         self.store.create(state)
         note = {"objective": "x", "current_work": "later item", "work_item": "adapter", "assumptions": [],
@@ -589,8 +587,7 @@ class TestHandoffV2(WorkCase):
     def test_v2_handoff_carries_the_work_projection_and_validates(self):
         self.claim("shared")
         state = self.state()
-        state["plan"]["source"] = "issue"
-        state["plan"]["durable_issue"] = 11
+        state["plan"]["authorizing_issue"] = 11
         value = bc._handoff(state)
         self.assertEqual(value["schema_version"], "build-handoff.v2")
         self.assertIn("shared", value["work"])
@@ -605,8 +602,7 @@ class TestHandoffV2(WorkCase):
                                   "verification_results": ["ran the suite: 3 passed"],
                                   "assumptions": ["assumed the flag stays default"]}})
         state = self.state()
-        state["plan"]["source"] = "issue"
-        state["plan"]["durable_issue"] = 11
+        state["plan"]["authorizing_issue"] = 11
         value = bc._handoff(state)
         nw = value["work"]["shared"]
         self.assertEqual(nw["claim"]["worktree"], "redacted from durable handoff")

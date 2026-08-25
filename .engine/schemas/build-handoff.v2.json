@@ -7,19 +7,23 @@
   "required": ["schema_version", "build", "plan", "approval", "reviews", "finding_summaries", "progress", "work", "validation", "repair", "preflights", "pr_contract"],
   "properties": {
     "plan_change_escalations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_plan_digest", "plan_digest", "operator_change"], "properties": {"reviewed_plan_digest": {"type": "string"}, "plan_digest": {"type": "string"}, "operator_change": {"type": "string"}}}},
-    "plan_panels": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["plan_digest", "depth", "lenses", "finding_ids", "complete"], "properties": {"plan_digest": {"type": "string"}, "depth": {"type": "string"}, "lenses": {"type": "array", "items": {"type": "string"}}, "finding_ids": {"type": "array", "items": {"type": "string"}}, "complete": {"type": "boolean"}}}},
     "reconciles": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["from_commit", "to_commit", "base_before", "base_after", "contribution_identical", "divergent_paths", "anchored_to"], "properties": {"from_commit": {"type": "string"}, "to_commit": {"type": "string"}, "base_before": {"type": ["string", "null"]}, "base_after": {"type": "string"}, "contribution_identical": {"type": "boolean"}, "divergent_paths": {"type": "array", "items": {"type": "string"}}, "unmeasurable": {"type": ["string", "null"]}, "anchored_to": {"type": "string"}}}},
     "repair_rounds": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reviewed_commit", "final_commit", "judgment", "lenses"], "properties": {"reviewed_commit": {"type": "string"}, "final_commit": {"type": "string"}, "judgment": {"enum": ["none", "scoped", "full"]}, "lenses": {"type": "array", "items": {"type": "string"}}, "guidance": {"type": ["string", "null"]}}}},
     "schema_version": {"const": "build-handoff.v2"},
     "build": {"type": "object"},
     "plan": {
       "type": "object", "additionalProperties": false,
-      "required": ["source", "digest", "intent_digest", "spec_digest", "durable_issue", "profile", "bound_head", "promotion_nonce"],
+      "required": ["plan_id", "sealed_digest", "diverged_from_seal", "digest", "intent_digest",
+                   "spec_digest", "authorizing_issue", "profile", "bound_head"],
       "properties": {
-        "source": {"const": "issue"}, "digest": {"type": "string"}, "intent_digest": {"type": "string"},
-        "spec_digest": {"type": ["string", "null"]}, "durable_issue": {"type": "integer", "minimum": 1},
-        "profile": {"enum": ["normal", "routine"]}, "bound_head": {"type": "string"},
-        "promotion_nonce": {"type": ["string", "null"]}
+        "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+        "sealed_digest": {"type": "string"},
+        "diverged_from_seal": {"const": false,
+                               "description": "A handoff is only exportable while the executed plan still equals the sealed one: a cold session recovers the SEALED payload from the library, so a diverged Build would resume against a plan nobody is building."},
+        "digest": {"type": "string"}, "intent_digest": {"type": "string"},
+        "spec_digest": {"type": ["string", "null"]},
+        "authorizing_issue": {"type": ["integer", "null"], "minimum": 1},
+        "profile": {"enum": ["normal", "routine"]}, "bound_head": {"type": "string"}
       }
     },
     "approval": {"type": ["object", "null"]},

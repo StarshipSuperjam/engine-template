@@ -48,7 +48,7 @@
   "allOf": [
     {"if": {"properties": {"profile": {"const": "trivial"}}}, "then": {"properties": {"work_items": {"maxItems": 1}, "spec": {"properties": {"posture": {"const": "none"}}}, "parallelism": {"properties": {"mode": {"const": "serial"}}}}}},
     {"if": {"properties": {"profile": {"enum": ["normal", "routine"]}}}, "then": {"required": ["interpretation", "evidence", "assumptions", "scope_boundary", "non_goals", "risks", "review_strategy"]}},
-    {"if": {"properties": {"profile": {"const": "routine"}}}, "then": {"properties": {"intent_source": {"properties": {"kind": {"const": "issue"}}}}}},
+    {"description": "A routine plan's intent must have come from an Issue. This is a SHAPE rule, and no longer the authority itself. When the durable Issue CARRIED the plan, an Issue-derived intent was how an unattended Build proved it held the right plan, and the check at bind was digest equality. The plan lives locally now, so the Issue and the plan are two separate artifacts and the real work is done by the correspondence check in build_coordinator._check_authorization: the Issue supplied at bind must be the one the sealed plan's intent_source names. What this rule still guarantees is that there IS such a reference to correspond to — a routine plan can never be sealed in a shape that leaves an unattended bind with nothing to check against.", "if": {"properties": {"profile": {"const": "routine"}}}, "then": {"properties": {"intent_source": {"properties": {"kind": {"const": "issue"}}}}}},
     {"if": {"properties": {"parallelism": {"properties": {"mode": {"const": "serial"}}}}}, "then": {"properties": {"parallelism": {"properties": {"max_concurrency": {"const": 1}}}}}}
   ],
   "$defs": {

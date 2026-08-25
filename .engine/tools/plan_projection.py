@@ -62,93 +62,23 @@ def _quote(text: str) -> str:
     return "\n".join("> " + line if line else ">" for line in text.split("\n"))
 
 
-def render_plan(document: dict, record: dict) -> str:
-    """PLAN.md for one plan. Pure: same inputs, same bytes, always."""
-    payload = document["build_plan"]
-    items = payload["work_items"]
-    chains = critical_path(items)
+def _prose_or_gap(text: str) -> str:
+    """Deliberation prose, or a plain statement that it is missing. Only an imported draft can reach
+    the second branch — everywhere else the schema requires the prose — and it renders the absence as
+    an absence rather than as a blank stretch of page a reader could mistake for a formatting fault."""
+    return text if text.strip() else (
+        "_Not stated. This plan was imported from an accepted native plan and has not been "
+        "deliberated here; the gap is recorded as an open decision below._")
+
+
+def _build_half(payload: dict, items: list, chains: dict) -> list:
+    """The Build half of PLAN.md: what success requires, the evidence, the graph, and the work
+    node by node. Extracted from render_plan so the ONE case that has no Build half — an imported
+    native plan, whose payload is empty by construction — can be answered by not calling it,
+    rather than by a second renderer that would drift from this one.
+    """
     out: list = []
     add = out.append
-
-    add(f"# {document['title']}")
-    add("")
-    add(_GENERATED_NOTE)
-    add("")
-    add(f"- **Plan**: `{document['plan_id']}` · revision {document['revision']}")
-    add(f"- **Status**: {plan_store.derived_status(record, head_blockers=plan_contract.seal_blockers(document))}"
-        " — derived from evidence, never stored")
-    add(f"- **Last revised**: {document['revised_at']}")
-    add(f"- **Plan digest**: `{record['current']['plan_digest']}`")
-    add(f"- **Build payload digest**: `{record['current']['build_plan_digest']}`")
-    add(f"- **Profile**: {payload['profile']} · **Execution**: {payload['parallelism']['mode']}, "
-        f"at most {payload['parallelism']['max_concurrency']} node(s) at once")
-    add("")
-
-    add("## Intent")
-    add("")
-    add("**As the operator put it:**")
-    add("")
-    add(_quote(document["intent"]["raw"]))
-    add("")
-    add(f"**As interpreted:** {document['intent']['interpretation']}")
-    add("")
-
-    add("## Objective")
-    add("")
-    add(payload["objective"])
-    add("")
-
-    deliberation = document["deliberation"]
-    add("## Deliberation")
-    add("")
-    add("### The problem")
-    add("")
-    add(deliberation["problem_frame"])
-    add("")
-    add("### The strongest case against doing this")
-    add("")
-    add(deliberation["case_against"])
-    add("")
-    if deliberation["alternatives"]:
-        add("### Alternatives considered")
-        add("")
-        for alternative in deliberation["alternatives"]:
-            add(f"- **{alternative['option']}** — _{alternative['disposition']}_: {alternative['reason']}")
-        add("")
-    if deliberation["failure_modes"]:
-        add("### How this could fail")
-        add("")
-        for mode in deliberation["failure_modes"]:
-            add(f"- {mode}")
-        add("")
-    add("### Open decisions")
-    add("")
-    if deliberation["unresolved_decisions"]:
-        for question in deliberation["unresolved_decisions"]:
-            add(f"- {question}")
-        add("")
-        add("_The plan cannot be sealed while any of these is unanswered._")
-    else:
-        add("_None outstanding._")
-    add("")
-
-    if document.get("operator_decisions"):
-        add("## Decisions the operator made")
-        add("")
-        for decision in document["operator_decisions"]:
-            add(f"- {decision['decision']} _({decision['recorded']})_")
-        add("")
-
-    if document.get("intake"):
-        add("## Where this plan came from")
-        add("")
-        add(document["intake"]["provenance"])
-        add("")
-        for predecessor in document["intake"].get("predecessors", []):
-            add(f"- {predecessor}")
-        if document["intake"].get("predecessors"):
-            add("")
-
     add("## What success requires")
     add("")
     for number, obligation in enumerate(payload["success_obligations"], 1):
@@ -248,6 +178,120 @@ def render_plan(document: dict, record: dict) -> str:
             add(f"  - {check}")
         add("")
 
+    return out
+
+
+def render_plan(document: dict, record: dict) -> str:
+    """PLAN.md for one plan. Pure: same inputs, same bytes, always.
+
+    Two shapes, one document. A plan with a real Build payload renders whole. A plan that arrived as
+    an imported native plan has no Build half yet — it carries `build-plan.imported`, which is empty
+    by construction — so the payload sections are replaced by one section saying so. The deliberation
+    half, the intent and the ledger render identically either way, because they are rendered by the
+    same code either way: a second renderer for imported plans would drift, and a stale view of a
+    plan is the one failure a generated projection must not have.
+    """
+    payload = document["build_plan"]
+    imported = payload.get("schema_version") == plan_contract.IMPORTED_BUILD_PLAN_VERSION
+    items = payload["work_items"]
+    chains = critical_path(items)
+    out: list = []
+    add = out.append
+
+    add(f"# {document['title']}")
+    add("")
+    add(_GENERATED_NOTE)
+    add("")
+    add(f"- **Plan**: `{document['plan_id']}` · revision {document['revision']}")
+    add(f"- **Status**: {plan_store.derived_status(record, head_blockers=plan_contract.seal_blockers(document))}"
+        " — derived from evidence, never stored")
+    add(f"- **Last revised**: {document['revised_at']}")
+    add(f"- **Plan digest**: `{record['current']['plan_digest']}`")
+    add(f"- **Build payload digest**: `{record['current']['build_plan_digest']}`")
+    if imported:
+        add("- **Build payload**: none yet — imported verbatim and not decomposed")
+    else:
+        add(f"- **Profile**: {payload['profile']} · **Execution**: {payload['parallelism']['mode']}, "
+            f"at most {payload['parallelism']['max_concurrency']} node(s) at once")
+    add("")
+
+    add("## Intent")
+    add("")
+    add("**As the operator put it:**")
+    add("")
+    add(_quote(document["intent"]["raw"]))
+    add("")
+    add(f"**As interpreted:** {document['intent']['interpretation']}")
+    add("")
+
+    if not imported:
+        add("## Objective")
+        add("")
+        add(payload["objective"])
+        add("")
+
+    deliberation = document["deliberation"]
+    add("## Deliberation")
+    add("")
+    add("### The problem")
+    add("")
+    add(_prose_or_gap(deliberation["problem_frame"]))
+    add("")
+    add("### The strongest case against doing this")
+    add("")
+    add(_prose_or_gap(deliberation["case_against"]))
+    add("")
+    if deliberation["alternatives"]:
+        add("### Alternatives considered")
+        add("")
+        for alternative in deliberation["alternatives"]:
+            add(f"- **{alternative['option']}** — _{alternative['disposition']}_: {alternative['reason']}")
+        add("")
+    if deliberation["failure_modes"]:
+        add("### How this could fail")
+        add("")
+        for mode in deliberation["failure_modes"]:
+            add(f"- {mode}")
+        add("")
+    add("### Open decisions")
+    add("")
+    if deliberation["unresolved_decisions"]:
+        for question in deliberation["unresolved_decisions"]:
+            add(f"- {question}")
+        add("")
+        add("_The plan cannot be sealed while any of these is unanswered._")
+    else:
+        add("_None outstanding._")
+    add("")
+
+    if document.get("operator_decisions"):
+        add("## Decisions the operator made")
+        add("")
+        for decision in document["operator_decisions"]:
+            add(f"- {decision['decision']} _({decision['recorded']})_")
+        add("")
+
+    if document.get("intake"):
+        add("## Where this plan came from")
+        add("")
+        add(document["intake"]["provenance"])
+        add("")
+        for predecessor in document["intake"].get("predecessors", []):
+            add(f"- {predecessor}")
+        if document["intake"].get("predecessors"):
+            add("")
+
+    if imported:
+        add("## The Build half")
+        add("")
+        add("There is none yet. This plan was imported verbatim from an accepted native plan, and "
+            "an import decomposes nothing: the payload it carries is empty by construction, and "
+            "nothing here inferred work items from the text above. Authoring a real "
+            "`build-plan.v2` payload and minting it with `revise` is the work between this plan and "
+            "a seal.")
+        add("")
+    else:
+        out.extend(_build_half(payload, items, chains))
     add("## Revision history")
     add("")
     add("| Revision | Revised | Note |")

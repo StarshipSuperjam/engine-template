@@ -55,11 +55,18 @@ import validate  # noqa: E402
 #   blocks  — may this event HARD-BLOCK? Only PreToolUse and Stop (the block-budget law).
 #   injects — may this event inject `additionalContext`?
 #   owners  — the system(s) that own the behavior on this event. PostToolUse has THREE owners
-#             (validation's local nudge + telemetry's ambient capture + modes' plan-acceptance
-#             Build-entry trigger coexist on one event); it MAY inject — modes' acceptance
-#             trigger injects an assistant-internal stance directive (additionalContext) on Build entry
-#             still non-blocking; SessionEnd is hooks-owned
-#             (cleanup/flush, cannot block); UserPromptSubmit is boot/orientation's per-prompt scent.
+#             (validation's local nudge + telemetry's ambient capture + modes' Claude native-plan
+#             intake adapter coexist on one event); it MAY inject — modes' adapter injects the
+#             arrival report (additionalContext) after importing an accepted plan — while staying
+#             non-blocking; SessionEnd is hooks-owned (cleanup/flush, cannot block).
+#             UserPromptSubmit has TWO owners in a DEFINED ORDER: boot's per-prompt scent, then
+#             modes' Codex native-plan intake adapter. That second owner is a deliberate amendment of
+#             this table, and it is a REGISTERED owner, not a drifting writer: eADR-0042 refuses
+#             writers of undefined order, and PostToolUse has carried three owners in defined order
+#             since it was written. The two cannot contend — boot injects orientation without reading
+#             the prompt's content, modes reads the prompt and acts only on an acceptance envelope at
+#             byte zero, and modes writes no stance signal and no file the scent touches. The adapter
+#             lives on this event only on Codex, which has no plan-exit signal to key on.
 #             SessionStart has THREE owners: boot's orientation pack + memory's own session-start work
 #             (the cross-session erasure observer and the backup push)
 #             + the optional github-projects-sync board refresh, which coexist on one event by keyed
@@ -72,7 +79,7 @@ EVENT_INVENTORY = {
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},
     "Stop":             {"owners": ("close",),                   "blocks": True,  "injects": False},
     "SessionEnd":       {"owners": ("hooks",),                   "blocks": False, "injects": False},
-    "UserPromptSubmit": {"owners": ("boot",),                    "blocks": False, "injects": True},
+    "UserPromptSubmit": {"owners": ("boot", "modes"),            "blocks": False, "injects": True},
 }
 EVENTS = frozenset(EVENT_INVENTORY)
 # The block budget: the closed set of events that MAY hard-block. The platform would let PreCompact,

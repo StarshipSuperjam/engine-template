@@ -19,7 +19,6 @@ PLAN_BEGIN_V2 = "<!-- engine-build-plan:v2 "
 PLAN_END_V2 = "<!-- /engine-build-plan:v2 -->"
 HANDOFF_BEGIN_V2 = "<!-- engine-build-handoff:v2 "
 HANDOFF_END_V2 = "<!-- /engine-build-handoff:v2 -->"
-BUILD_MARKER = "<!-- engine-build-id:v1 nonce={nonce} repo={repo} pr={pr} plan={plan_digest} -->"
 GITHUB_BODY_BUDGET_BYTES = 60_000
 
 # The single home for the coordinator-ownership label. A coordinator-staged PR carries it as a durable,
@@ -157,106 +156,18 @@ def durable_plan(body: str, *, plan_schema) -> dict:
     return plan
 
 
-def publish_issue(root: Path, repo: str, issue: int, plan: dict, *, plan_schema: Path) -> None:
-    before = issue_body(root, repo, issue)
-    after = replace_plan_block(before, plan)
-    if issue_body(root, repo, issue) != before:
-        raise core.CoordinatorError("Issue changed while preparing the plan; no write was made")
-    core.must_run(["gh", "issue", "edit", str(issue), "--repo", repo, "--body-file", "-"],
-                  root=root, input_value=after)
-    confirmed = issue_body(root, repo, issue)
-    if confirmed != after or core.digest(durable_plan(confirmed, plan_schema=plan_schema)) != core.digest(plan):
-        raise core.CoordinatorError("GitHub did not preserve the exact durable plan; cold handoff is not safe")
-
-
-def _current_login(root: Path) -> str:
-    return core.must_run(["gh", "api", "user", "--jq", ".login"], root=root).strip()
-
-
-def _marked_issue(root: Path, repo: str, marker: str, expected_login: str) -> int | None:
-    rows = gh_json(root, ["issue", "list", "--repo", repo, "--state", "open", "--label", "engine",
-                          "--limit", "100", "--json", "number,body,author"])
-    matches = [row for row in rows if marker in (row.get("body") or "")]
-    if len(matches) > 1:
-        raise core.CoordinatorError("more than one open Issue carries this Build creation nonce; resolve it manually")
-    if not matches:
-        return None
-    author = (matches[0].get("author") or {}).get("login")
-    if author != expected_login:
-        raise core.CoordinatorError("the matching Build marker was not created by the authenticated GitHub identity")
-    return int(matches[0]["number"])
-
-
-def create_or_resume_build_issue(
-    root: Path,
-    repo: str,
-    pr: int,
-    title: str,
-    plan: dict,
-    nonce: str,
-    *,
-    plan_schema: Path,
-) -> int:
-    sys.path.insert(0, str(root / ".engine" / "tools"))
-    import issue_author
-
-    marker = BUILD_MARKER.format(nonce=nonce, repo=repo, pr=pr, plan_digest=core.digest(plan))
-    login = _current_login(root)
-    issue = _marked_issue(root, repo, marker, login)
-    if issue is None:
-        ordered = "\n".join(f"- {index + 1}. `{item['id']}` — {item['description']}"
-                             for index, item in enumerate(plan["work_items"]))
-        body = issue_author.render_engine_issue_body(
-            what_this_is=(f"This is the durable coordination surface for one Build: {plan['objective']}\n\n"
-                          f"**Approved ordered scope**\n{ordered}"),
-            whats_next=("The Build follows the exact machine-marked plan below. Progress stays in git and the "
-                        "pull-request handoff; this Issue preserves authority for a cold or unattended session."),
-        ).rstrip() + "\n\n" + marker + "\n"
-        require_body_budget(replace_plan_block(body, plan), "new durable Build Issue body")
-        created = core.must_run(["gh", "issue", "create", "--repo", repo, "--title", title,
-                                 "--label", "engine", "--body-file", "-"], root=root, input_value=body).strip()
-        match = re.search(r"/issues/([0-9]+)(?:\s*)$", created)
-        if not match:
-            # The response may have been lost after creation. Rediscovery is the recovery path.
-            issue = _marked_issue(root, repo, marker, login)
-            if issue is None:
-                raise core.CoordinatorError("GitHub returned no Issue identity and the nonce could not be rediscovered")
-        else:
-            issue = int(match.group(1))
-    current = issue_body(root, repo, issue)
-    if marker not in current:
-        raise core.CoordinatorError("the recovered Issue does not match the persisted Build creation identity")
-    publish_issue(root, repo, issue, plan, plan_schema=plan_schema)
-    return issue
-
-
-def ensure_pr_closes_issue(root: Path, repo: str, pr: int, issue: int) -> None:
-    before = verify_draft(root, repo, pr).get("body") or ""
-    line = f"Closes #{issue}"
-    if re.search(rf"(?im)^\s*closes\s+#{issue}\s*$", before):
-        return
-    after = before.rstrip() + ("\n\n" if before.strip() else "") + line + "\n"
-    require_body_budget(after, "pull-request body")
-    if (verify_draft(root, repo, pr).get("body") or "") != before:
-        raise core.CoordinatorError("PR contract changed while linking the durable Build Issue; no write was made")
-    core.must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], root=root, input_value=after)
-    if (verify_draft(root, repo, pr).get("body") or "") != after:
-        raise core.CoordinatorError("GitHub did not preserve the durable Build Issue closing link")
+# Everything that WROTE a plan to GitHub is gone: publishing a plan into an Issue body, authoring or
+# resuming the dedicated Build Issue behind a creation nonce, and linking that Issue to close with the PR.
+# A plan enters a Build from the local sealed library now, so there is no plan on GitHub to write, and a
+# write path with no caller is a liability rather than a spare part. The READERS below and above stay:
+# they are what still lets an old body be recognised and refused by name, and they retire with the v1
+# schemas in the successor plan's sunset.
 
 
 def handoff_block(value: dict) -> str:
     begin, end = _handoff_markers(_version_tag(value.get("schema_version", "build-handoff.v1")))
     rendered = json.dumps(value, indent=2, sort_keys=True)
     return f"{begin}{core.digest(value)} -->\n```json\n{rendered}\n```\n{end}"
-
-
-def replace_handoff_block(body: str, value: dict) -> str:
-    begin, end = _handoff_markers(_version_tag(value.get("schema_version", "build-handoff.v1")))
-    block = handoff_block(value)
-    pattern = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
-    after = pattern.sub(block, body) if pattern.search(body) else body.rstrip() + "\n\n" + block + "\n"
-    require_body_budget(after, "pull-request handoff body")
-    return after
 
 
 def find_handoff_block(body: str, tag: str) -> tuple[str, str] | None:

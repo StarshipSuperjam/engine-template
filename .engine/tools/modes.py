@@ -4,7 +4,7 @@
 The session's operating STANCE is what it may do, and whether a human is present to answer for it.
 Three stances on two axes:
   - explore (default, interactive, writes gated OFF) — every session boots here;
-  - build   (interactive, writes on) — entered by a typed verb OR by accepting a plan;
+  - build   (interactive, writes on) — entered by the operator's typed verb, and only that;
   - routine (unattended, scope-locked, writes on) — entered by an operator-authored scheduled fire.
 
 This module ships THREE things (the operator-typed Build and Routine stance-entry verbs — set-build and
@@ -27,12 +27,15 @@ set-routine — are the deliberate in-session entries, run by the operator-typed
      is_plan_artifact, recognized by the platform's own marker, never a path). There is NO default-deny:
      an action it cannot classify resolves to ALLOW.
 
-  3. THE PLAN-ACCEPTANCE BUILD-ENTRY TRIGGER — a PostToolUse hook (accept_handler) that flips the stance
-     to Build when the operator accepts a plan (the plan-exit `ExitPlanMode` completion). The second
-     interactive entry path alongside the typed verb; it sets the Build signal AND injects a terse
-     assistant-internal stance directive that triggers build-orchestration's kickoff (the operator
-     announcement stays the kickoff's, exactly once; the signal is the sole durable record); never blocks;
-     fails safe to explore.
+  3. THE NATIVE-PLAN INTAKE ADAPTERS — two hooks that import an accepted native plan into the Plan
+     Coordinator as an unapproved DRAFT: accept_handler on Claude's plan-exit completion
+     (`ExitPlanMode`, PostToolUse) and prompt_import_handler on Codex's typed acceptance envelope
+     (UserPromptSubmit). Accepting a plan used to flip the stance straight to Build; it no longer does,
+     on either runtime. An import grants no Build authority — no approval, no review, no seal — so the
+     plan-side gates it would have skipped all still stand, and the typed verb is the only way in.
+     Neither hook writes the stance signal. Both inject an arrival report naming the plan, the revision
+     and the next command, because an operator who accepts a plan and then meets a write refusal has
+     been told the engine is broken. Never block; fail safe to no-import.
 
 THE GATE IS A NUDGE, NOT A WALL — stated honestly, never overstated (the gate is a
 strong default, and its enforcement is fallible). The gate emits its deny in the form the platform
@@ -52,7 +55,8 @@ coherence leg stays green over it.
 
 CLI (the operator-runnable demo; the live gates are what the wired hooks invoke):
   python tools/modes.py                              # hook mode: run the PreToolUse gate over stdin
-  python tools/modes.py accept-hook                  # PostToolUse mode: set Build on plan-acceptance
+  python tools/modes.py accept-hook                  # PostToolUse mode: import an accepted Claude plan
+  python tools/modes.py plan-import-hook             # UserPromptSubmit mode: import an accepted Codex plan
   python tools/modes.py classify <Tool> [cmd] [--session S] [--pm MODE] [--plan-file]  # gate decision
   python tools/modes.py stance --session S           # the session's current stance
   python tools/modes.py set-build [--session S]       # enter Build (what the /engine-start verb runs; --session falls back to the session env var)
@@ -156,8 +160,10 @@ class StanceWriteResult:
 
 
 def set_stance(session_id: str | None, stance: str) -> StanceWriteResult:
-    """Set the session's stance signal. Callers: the plan-acceptance trigger (accept_handler, this module),
-    the operator-typed Build verb, and the demo/tests. Setting EXPLORE clears the marker
+    """Set the session's stance signal. Callers: the operator-typed stance verbs (set-build and
+    set-routine) and the demo/tests — and nothing else. NO HOOK writes this signal: the plan-acceptance
+    adapters import a draft and leave the stance exactly where they found it, which is what makes the
+    typed verb the only entry into Build on both runtimes. Setting EXPLORE clears the marker
     (explore is the absence of a signal). Returns a truth-testable structured result: hook callers keep
     their old success/failure behavior, while operator-typed CLI callers can distinguish no session,
     sandbox denial, and another filesystem failure. Never raises."""
@@ -609,64 +615,99 @@ def handler(payload: dict) -> dict:
     return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
 
 
-# ---- the plan-acceptance Build-entry trigger ----------------------------------
-# The SECOND interactive way into Build (the first is the operator-typed verb): when the
-# operator ACCEPTS a plan, Claude Code's plan-exit completion — the `ExitPlanMode` tool call — fires a
-# PostToolUse hook, and the engine flips the stance signal to Build. "Approving a plan is 'build it'",
-# with no verb to type. Keyed on the completion EVENT itself
-# (tool_name == "ExitPlanMode"), NOT a permission_mode value — acceptance offers several target modes,
-# so the durable discriminator is that the completion fired. A REJECTED plan fires no PostToolUse, so it
-# never enters Build; the model cannot accept its own plan, so this is not self-electable.
+# ---- the native-plan intake adapters ------------------------------------------
+# Accepting a plan is GROUNDWORK, not a Build entry. It used to be the second interactive way into
+# Build: the plan-exit completion fired a PostToolUse hook and the engine flipped the stance signal to
+# Build, so approving a plan WAS "build it" with no verb to type. That is gone. What a plan-acceptance
+# now does is import the accepted document into the Plan Coordinator as an unapproved draft — no
+# approval, no review, no seal, and no Build authority of any kind — and report where it landed.
 #
-# It SETS THE SIGNAL AND INJECTS A TERSE ASSISTANT-INTERNAL STANCE DIRECTIVE: current Claude Code delivers a
-# PostToolUse hook's additionalContext to the model (correcting the earlier, falsified "a PostToolUse
-# hook cannot inject conversational text" claim), so the entry PUSHES a directive that names the new stance
-# and triggers build-orchestration's kickoff ("opening a draft pull request and planning the work") — rather
-# than relying on the model to override its stale start-of-session Explore briefing from memory. The OPERATOR
-# announcement stays build-orchestration's, exactly once: the injected line is do-not-relay machine context,
-# never an operator announcement. The SIGNAL is the sole durable record and the line is strictly advisory
-# (the inject is gated on the flip succeeding), so there is no partial-failure split-brain, and a line
-# replayed over a SessionStart-cleared signal on resume is inert (the live-signal re-read guard returns it to
-# Explore). It ALWAYS proceeds — PostToolUse is non-block-eligible (the harness fails open on a block/decide
-# there), so it declares no BLOCK_INVARIANT and the block budget is untouched. FAIL-SAFE: if the hook errors
-# or never fires — including accept-with-clear-context, which does not fire (claude-code#20397) — the signal
-# stays absent → Explore, never Build (the safe floor; the operator-typed verb is the recovery path).
+# Why the change. A plan the operator accepts has not been through the one thing the plan side exists
+# for: a full presentation, a depth choice made with the risk assessment in view, one cold review, and
+# a seal. Entering Build on acceptance skipped all four and started building against a document nobody
+# had put in front of the operator whole. Importing instead keeps the acceptance meaningful (the plan
+# is on the shelf and nothing was lost) while leaving every gate ahead of it standing.
+#
+# TWO ADAPTERS, ONE IMPORT. Claude Code signals acceptance with the plan-exit completion — the
+# `ExitPlanMode` tool call — keyed on the completion EVENT itself, not a permission_mode value, because
+# acceptance offers several target modes. Codex has no equivalent signal, so its adapter reads the
+# acceptance ENVELOPE the operator types (issue 1024's observed prefix), anchored at byte zero. Both
+# call plan_coordinator.import_native_plan and both inject the same arrival report.
+#
+# NEITHER WRITES THE STANCE SIGNAL. After this change the signal has exactly two writers, both typed
+# operator verbs (set-build and set-routine); no hook writes it at all. `$engine-start` is the only
+# Build entry on both runtimes, which is the property the Codex side already had and the Claude side
+# now shares. FAIL-SAFE in every direction: a rejected plan fires no PostToolUse; an acceptance with
+# no plan text imports nothing; a prompt that is not the envelope imports nothing; a handler crash
+# fails open through the harness. Nothing here can block — PostToolUse and UserPromptSubmit are both
+# outside the block budget — so this declares no BLOCK_INVARIANT.
 _PLAN_EXIT_TOOL = "ExitPlanMode"
+# The Codex acceptance envelope, spelled out here rather than imported, because the handler that reads
+# it runs on EVERY prompt and must not drag the plan library into that path to learn one string. It is
+# the same string plan_coordinator declares, and a test pins the two together — the cheap way to keep
+# one constant in two places honest, and the same shape the depth vocabulary already uses.
+_PLAN_ENVELOPE = "PLEASE IMPLEMENT THIS PLAN:"
 
 
-def _build_entry_directive() -> str:
-    """The ASSISTANT-FACING stance directive injected on plan-acceptance. It NAMES the new Build
-    stance and directs THIS turn into build-orchestration's kickoff — a push, so the session stops acting on
-    its stale start-of-session Explore briefing. It is a TURN-LOCAL directive, never a durable stance record:
-    the stance SIGNAL is the sole durable record (cleared to Explore at every SessionStart), so a copy of this
-    line replayed on a resumed session is inert — the live-signal re-read guard sends a cleared-stance session
-    back to Explore. It carries NO operator-facing copy, is self-labelled do-not-relay, and carries no
-    imperative relay marker — the operator meets Build-entry once, through the kickoff, never through this note.
-    A fidelity test (test_modes) pins it to _STANCE_LINES[BUILD] and to the do-not-relay / no-marker laws."""
-    return (
-        "Your stance just changed to Build — the operator accepted a plan. "
-        f"{_STANCE_LINES[BUILD]} "
-        "This note is for you, not the operator: don't relay it. The operator meets this entry once, through "
-        "your build-orchestration kickoff (opening a draft pull request and planning the work) — and, before "
-        "you change anything, that kickoff shows the operator the risk assessment and gets their how-careful "
-        "depth choice. Go do that now. Before you act, confirm your live stance still reads Build — run "
-        "`python tools/modes.py stance`. "
-        "If it reads Explore instead, ignore this note and stay in Explore: do not open the kickoff. The live "
-        "stance governs, never this note."
-    )
+def _import_native(text: str, provenance: str) -> dict:
+    """Import an accepted native plan and return the hook decision — the shared tail of both adapters.
+
+    plan_coordinator is imported HERE rather than at module scope on purpose. This module is also the
+    PreToolUse gate, which runs on every tool call, and the Codex adapter runs on every prompt; pulling
+    the plan library, its contract, its projections and the Build Coordinator's core into that path for
+    the rare turn that actually imports something would be a real cost on every turn that does not.
+    """
+    try:
+        import plan_coordinator
+        arrival = plan_coordinator.import_native_plan(text, provenance=provenance)
+    except Exception as exc:      # noqa: BLE001 — an import that fails must not cost the operator their turn
+        # Deliberately not silent. The operator has just accepted a plan and is entitled to know it did
+        # not land; saying so is strictly better than letting them discover it later from an empty
+        # shelf. It still proceeds, and it still changes no stance.
+        return hooks.inject(
+            "The plan you just accepted could NOT be imported into the Plan Coordinator: "
+            f"{exc}. Nothing was saved and nothing was built. Tell the operator plainly, and offer the "
+            "typed recovery path — `python tools/plan_coordinator.py import-native --input - "
+            "--provenance ...` with the plan text on stdin.")
+    return hooks.inject(plan_coordinator.arrival_report(arrival))
 
 
 def accept_handler(payload: dict) -> dict:
-    """The plan-acceptance Build-entry trigger, run on PostToolUse. On the plan-exit completion
-    (`ExitPlanMode`), set the session's stance to Build AND inject a terse assistant-internal stance directive
-    that triggers build-orchestration's kickoff; on anything else, no-op. The inject is GATED on
-    the durable flip succeeding — the SIGNAL is the sole durable record, the injected line strictly advisory —
-    so a bad/sessionless payload (set_stance returns False) proceeds with no inject and no split-brain. ALWAYS
-    proceeds — never blocks. A rejected plan fires no PostToolUse → the stance stays Explore (the safe floor)."""
-    if isinstance(payload, dict) and payload.get("tool_name") == _PLAN_EXIT_TOOL:
-        if set_stance(payload.get("session_id"), BUILD):
-            return hooks.inject(_build_entry_directive())
-    return hooks.proceed()
+    """The Claude plan-acceptance adapter, run on PostToolUse. On the plan-exit completion
+    (`ExitPlanMode`), import the accepted plan as an unapproved draft and inject the arrival report;
+    on anything else, no-op. It writes no stance: accepting a plan no longer enters Build, on either
+    runtime. An acceptance carrying no plan text imports nothing and proceeds silently — there is
+    nothing to import and nothing to say. ALWAYS proceeds; never blocks."""
+    if not isinstance(payload, dict) or payload.get("tool_name") != _PLAN_EXIT_TOOL:
+        return hooks.proceed()
+    tool_input = payload.get("tool_input")
+    text = tool_input.get("plan") if isinstance(tool_input, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        return hooks.proceed()
+    return _import_native(text, "Accepted Claude Code plan, imported at plan-exit (ExitPlanMode).")
+
+
+def prompt_import_handler(payload: dict) -> dict:
+    """The Codex plan-acceptance adapter, run on UserPromptSubmit.
+
+    Codex exposes no plan-exit signal, so acceptance arrives as a typed ENVELOPE and this handler
+    recognizes it: the prefix must sit at byte zero of the prompt. Anchoring it there is the whole
+    fail-safe — a prompt that merely mentions the phrase, quotes it, or discusses it imports nothing,
+    because it is not the first thing in the prompt. An envelope with nothing after it imports nothing
+    either. Everything else proceeds untouched, which is every prompt anyone will ever type.
+
+    It writes no stance signal. Importing a draft grants no Build authority on Codex any more than it
+    does on Claude, and `$engine-start` remains the only way in.
+    """
+    if not isinstance(payload, dict):
+        return hooks.proceed()
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.startswith(_PLAN_ENVELOPE):
+        return hooks.proceed()
+    text = prompt[len(_PLAN_ENVELOPE):]
+    if not text.strip():
+        return hooks.proceed()
+    return _import_native(text, "Accepted Codex plan, imported from the typed acceptance envelope.")
 
 
 # ---- the CLI (the operator-runnable demo; the live gate is the wired hook) -------------------
@@ -733,7 +774,7 @@ def _classify(argv: list) -> int:
 
 def _demo(_argv: list) -> int:
     """A scripted fail-then-pass demonstration over the REAL handlers (only the session id is a fixture):
-    the Explore write-gate, the plan-mode carve-out (StarshipSuperjam/engine-template#64), and the plan-acceptance Build-entry (StarshipSuperjam/engine-template#67)."""
+    the Explore write-gate, the plan-mode carve-out (StarshipSuperjam/engine-template#64), and the native-plan intake adapters."""
     sid = "engine-demo-session"
     clear_stance(sid)
 
@@ -761,44 +802,54 @@ def _demo(_argv: list) -> int:
             ("a NON-plan write to ~/.claude/settings.json",   "default", {"file_path": "~/.claude/settings.json"})]:
         print(f"  {label:49} Write -> {_decision_line(gate('Write', pm=pm, tool_input=ti))}")
 
-    print("\nAccepting a plan enters Build AND pushes you a stance directive (#67) — real trigger:")
+    print("\nAccepting a plan does NOT start building it (real handler, no plan text so nothing is "
+          "imported and nothing is written anywhere):")
     print(f"  before:                                  stance={current_stance(sid)}")
     d_other = accept_handler({"session_id": sid, "tool_name": "SomeOtherTool"})
+    d_accept = accept_handler({"session_id": sid, "tool_name": _PLAN_EXIT_TOOL, "tool_input": {}})
+    after_accept = current_stance(sid)
+    e_after = _decision_line(gate('Edit'))
     print(f"  some other action finishes ->            stance={current_stance(sid)} "
-          f"(unchanged; hook action={d_other.get('action')} — only accepting a plan enters Build)")
-    d_accept = accept_handler({"session_id": sid, "tool_name": _PLAN_EXIT_TOOL})
-    built = current_stance(sid)
-    directive = d_accept.get("context", "")
-    print(f"  accepting a plan ->                      stance={built} (hook action={d_accept.get('action')})")
-    print("  the directive it injected to YOU (do-not-relay, names Build, triggers the kickoff):")
-    print(f"    {directive[:92]}…")
-    e_build = _decision_line(gate('Edit'))
-    print(f"  the SAME edit denied above is now ->     {e_build} (the real capability, not just the label)")
+          f"(hook action={d_other.get('action')})")
+    print(f"  accepting a plan ->                      stance={after_accept} "
+          f"(hook action={d_accept.get('action')} — unchanged; acceptance imports, it does not enter Build)")
+    print(f"  the SAME edit denied above is still ->   {e_after} (the real capability, not just the label)")
+    print("  to start building, the operator types the entry verb. Nothing the model does can enter Build.")
 
-    # Resume inertness: SessionStart clears the signal; a replayed directive is then inert — the LIVE signal
-    # reads Explore, so the gate denies and the assistant reports Explore (never the replayed line).
+    print("\nThe Codex acceptance envelope — what the per-prompt handler will and will not act on "
+          "(real handler; none of these import, which is the point):")
+    for label, prompt in [
+            ("an ordinary prompt",                      "please fix the failing test"),
+            ("the phrase, but not at byte zero",        "as I was saying, PLEASE IMPLEMENT THIS PLAN: ..."),
+            ("the phrase quoted mid-sentence",          'he typed "PLEASE IMPLEMENT THIS PLAN:" at me'),
+            ("the envelope with nothing after it",      _PLAN_ENVELOPE + "   ")]:
+        action = prompt_import_handler({"session_id": sid, "prompt": prompt}).get("action")
+        print(f"  {label:40} -> {action} (no import)")
+    print(f"  only a prompt STARTING with '{_PLAN_ENVELOPE}' and carrying text imports a draft.")
+
     cleared = clear_stance(sid)
-    print(f"\nResume — SessionStart clears the signal (the directive may be replayed, but is NOT re-run): "
-          f"clear_stance -> {cleared}")
+    print(f"\nResume — SessionStart clears the signal: clear_stance -> {cleared}")
     stance_after_clear = current_stance(sid)
     e_explore = _decision_line(gate('Edit'))
-    print(f"  live stance now ->                       {stance_after_clear} (you report THIS, not the line)")
-    print(f"  a replayed 'you are in Build' directive is inert: the same Edit is ->  {e_explore}")
+    print(f"  live stance now ->                       {stance_after_clear} (you report THIS, always)")
+    print(f"  and the same Edit is ->                  {e_explore}")
     print("\nThe gate is a nudge, not a wall — a disguised verb slips it, a crash fails it open; the "
-          "merge wall is the guarantee. Accepting a plan enters Build (human-gated, not a stronger gate) and "
-          "pushes you a do-not-relay stance directive; the OPERATOR announcement stays the build-orchestration "
-          "kickoff, exactly once. (The platform delivering that directive on PostToolUse is the inductive "
-          "ceiling a fixture can't discharge — verified against current Claude Code.)")
-    # Self-check: accept SETS Build AND injects a directive that names Build and is do-not-relay; a non-accept
-    # completion proceeds with no inject; clearing the signal returns to Explore (the replayed line is inert —
-    # the live signal, not the line, governs).
-    ok = ("build" in str(built).lower() and "explore" in str(stance_after_clear).lower()
-          and "allow" in e_build.lower() and ("den" in e_explore.lower())
-          and d_accept.get("action") == "inject" and _STANCE_LINES[BUILD] in directive
-          and "don't relay" in directive.lower() and d_other.get("action") == "proceed")
+          "merge wall is the guarantee. Accepting a plan is groundwork: the plan lands in the Plan "
+          "Coordinator as an unapproved draft with the arrival report naming it and the next command, "
+          "and every gate ahead of it — full presentation, the depth choice, one cold review, the seal "
+          "— still stands.")
+    # Self-check: accepting a plan changes NO stance and denies the same edit; the three non-envelope
+    # prompt shapes and the empty envelope all proceed without importing; clearing leaves Explore.
+    envelope_quiet = all(
+        prompt_import_handler({"session_id": sid, "prompt": p}).get("action") == "proceed"
+        for p in ("please fix the failing test", "later: " + _PLAN_ENVELOPE + " x", _PLAN_ENVELOPE + "  "))
+    ok = ("explore" in str(after_accept).lower() and "explore" in str(stance_after_clear).lower()
+          and "den" in e_after.lower() and "den" in e_explore.lower() and envelope_quiet
+          and d_accept.get("action") == "proceed" and d_other.get("action") == "proceed")
     if not ok:
-        print("\nDEMO UNEXPECTED: the Explore->Build->Explore transitions, the injected stance directive, or "
-              "the Edit-gate decisions did not behave as expected.", file=sys.stderr)
+        print("\nDEMO UNEXPECTED: accepting a plan changed the stance, an envelope-shaped prompt was "
+              "acted on when it should not have been, or the Edit-gate decisions did not behave as "
+              "expected.", file=sys.stderr)
         return 1
     return 0
 
@@ -810,9 +861,13 @@ def main(argv: list) -> int:
         # runs the gate, and translates decide(deny) -> structured stdout, fail-open on any error.
         return hooks.run_hook("PreToolUse", handler)
     if cmd == "accept-hook":
-        # Hook mode: what the wired PostToolUse hook invokes. On a plan-exit completion it sets Build;
-        # otherwise a no-op. Always proceeds (PostToolUse never blocks); fail-open on any error.
+        # Hook mode: what the wired PostToolUse hook invokes. On a plan-exit completion it imports the
+        # accepted plan as a draft; otherwise a no-op. Always proceeds; fail-open on any error.
         return hooks.run_hook("PostToolUse", accept_handler)
+    if cmd == "plan-import-hook":
+        # Hook mode: what the wired Codex UserPromptSubmit hook invokes. On the acceptance envelope at
+        # byte zero it imports the plan as a draft; on every other prompt a no-op.
+        return hooks.run_hook("UserPromptSubmit", prompt_import_handler)
     if cmd == "classify":
         return _classify(argv[1:])
     if cmd == "stance":

@@ -62,6 +62,21 @@ def carried_forward(document: dict) -> dict:
     return {o["id"]: o for o in program.get("carried_obligations", []) if o["state"] == "carried"}
 
 
+def unexplained_releases(document: dict) -> list:
+    """Every obligation this plan RELEASES without saying why.
+
+    The carry-forward guarantee has exactly one escape hatch — release it, and state a reason — so an
+    unexplained release is the guarantee failing in the only way it can. `released` is also the state
+    a plan reaches for when an obligation is inconvenient, which is precisely when the reason matters
+    most and is likeliest to be skipped, and the projection used to print `(no reason given)` and
+    carry on. The schema refuses this shape too; this is the same rule where the program can see it,
+    so a release that never went through validation still cannot enter the chain at add_child.
+    """
+    program = document.get("program") or {}
+    return [o for o in program.get("carried_obligations", [])
+            if o["state"] == "released" and not (o.get("reason") or "").strip()]
+
+
 def dropped_obligations(predecessor: dict, successor: dict) -> list:
     """Obligations the predecessor was carrying that the successor does not mention at all.
 
@@ -164,6 +179,19 @@ class ProgramLibrary:
             plan_id = self.plans.read_record(plan_slug)["plan_id"]
             if any(child["plan_id"] == plan_id for child in record["children"]):
                 raise ProgramError(f"{plan_id} is already a child of this program")
+
+            # Checked for EVERY child, including the first, and before the carry-forward comparison.
+            # A release is a decision to stop answering for something, and it costs a reason wherever
+            # it is made — the first plan in a program can release an obligation it inherited from
+            # outside the program just as a later one can, and there is no predecessor to catch it.
+            unexplained = unexplained_releases(self.plans.head(plan_slug))
+            if unexplained:
+                raise ProgramError(
+                    f"{plan_id} releases {len(unexplained)} obligation(s) without saying why:\n"
+                    + "\n".join(f"  - {o['id']}: {o['statement']}" for o in unexplained)
+                    + "\nReleasing is allowed and sometimes right, but the stated reason is its whole "
+                      "price: it is what lets a later reader tell a decision from an omission. Record "
+                      "why each was let go, or carry it.")
 
             predecessor_id = None
             if record["children"]:
@@ -301,7 +329,11 @@ def render(library: ProgramLibrary, record: dict) -> str:
         out += ["", "## Obligations released along the way", ""]
         for obligation, plan_id in released:
             out.append(f"- **{obligation['id']}** — {obligation['statement']}")
-            out.append(f"  - Released in `{plan_id}`: {obligation.get('reason', '(no reason given)')}")
+            # No fallback string. There used to be a "(no reason given)" here, and printing it was the
+            # projection quietly accepting the one shape the guarantee forbids. A release now carries
+            # its reason by schema and by add_child, so a missing one is a corrupt record, and the
+            # KeyError that follows is the honest report of that — not a hole to paper over.
+            out.append(f"  - Released in `{plan_id}`: {obligation['reason']}")
     return "\n".join(out).rstrip() + "\n"
 
 

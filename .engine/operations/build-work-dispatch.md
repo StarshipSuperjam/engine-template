@@ -21,6 +21,37 @@ each node's derived state — `blocked`, `ready`, `claimed`, `returned`, `failed
 is a stored status you can edit. A serial plan exposes one claimable node at a time; a conditional plan exposes
 up to its approved limit.
 
+### Ask what the scheduler would do, before spending a claim
+
+`work frontier --plan <plan>` (add `--json` for the machine shape) is a read-only projection of the admission
+decision. It writes nothing — no snapshot mutation, no GitHub call — so you can ask what the scheduler would
+choose, and why it passed something over, without spending a claim to find out.
+
+It answers three questions that are easy to run together and should not be:
+
+- **Ready** — the graph says this node's dependencies are integrated.
+- **Admitted** — the scheduler would hand this node out right now, in the printed order.
+- **Deferred** — this node was considered in this pass and passed over, with a typed reason.
+
+**Eligibility is not selection.** A node the scheduler defers may still be perfectly claimable by name: the
+frontier reports what the scheduler would CHOOSE, not the limit of what you may claim. `capacity` in
+particular means "nothing was wrong with it, there was simply no free slot in this pass". Reading a deferral
+as a refusal is the misreading this section exists to prevent. `work claim` remains the authority on what is
+admissible — it re-derives the frontier under the state lock and refuses an out-of-frontier claim there.
+
+The four deferral kinds, each recorded per node rather than left to be inferred:
+
+| Kind | What it means |
+| --- | --- |
+| `dependency` | A predecessor is not integrated yet. The graph is holding it, not the scheduler. |
+| `held-resource` | An exclusive resource or declared path is held by a node already running. |
+| `selected-node-conflict` | It conflicts with another node admitted in this same pass, not with a running one. |
+| `capacity` | Nothing is wrong with it; every worker slot was already taken. |
+
+**Admission order is critical-path descending** — longest remaining chain first, with a lexical tie-break so
+two runs of the same graph admit in the same order. Array order in the plan document is presentation only and
+never priority.
+
 ### Preview and claim a node
 
 `work packet --item <id> --provider claude|codex --plan <plan>` previews the bounded packet a worker would

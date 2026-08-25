@@ -272,5 +272,70 @@ class LoadFromDisk(unittest.TestCase):
                              plan_contract.document_digest(_document()))
 
 
+def _imported(**over) -> dict:
+    """A plan as an import leaves it: the honestly-empty payload, no deliberation prose, the gaps
+    recorded as unresolved decisions, and intake saying where the text came from."""
+    doc = _document(
+        build_plan={"schema_version": "build-plan.imported", "work_items": []},
+        deliberation={"problem_frame": "", "case_against": "", "alternatives": [],
+                      "failure_modes": [], "unresolved_decisions": ["What is this asking for?"]},
+        intake={"provenance": "Accepted Claude Code plan, imported at plan-exit."})
+    doc.update(over)
+    return doc
+
+
+class ImportedDraftAllowance(unittest.TestCase):
+    """The one case where the deliberation floor would produce the opposite of what it is for.
+
+    Everywhere else a plan must frame its problem and state the case against itself. An imported
+    native plan has done neither, and the only way to satisfy that floor at import time is placeholder
+    prose — which `case_against`'s own description calls worse than an empty field, because it
+    launders the absence of thought. So the floor is stated as a conditional keyed on the imported
+    payload, and the exception is fenced: intake required, at least one gap recorded, and no seal.
+    """
+
+    def test_an_imported_draft_validates_with_no_deliberation_prose(self):
+        self.assertEqual(plan_contract.validate_document(_imported()), "build-plan.imported")
+
+    def test_the_deliberation_floor_still_holds_for_every_other_plan(self):
+        for field in ("problem_frame", "case_against"):
+            doc = _document()
+            doc["deliberation"][field] = ""
+            with self.assertRaises(plan_contract.PlanContractError, msg=field):
+                plan_contract.validate_document(doc)
+
+    def test_an_imported_draft_must_say_where_it_came_from(self):
+        doc = _imported()
+        doc.pop("intake")
+        with self.assertRaises(plan_contract.PlanContractError):
+            plan_contract.validate_document(doc)
+
+    def test_an_imported_draft_must_record_at_least_one_gap(self):
+        # The allowance is not a hole: what it excuses from the prose it demands as a named gap, and
+        # the seal already refuses while any gap remains.
+        doc = _imported()
+        doc["deliberation"]["unresolved_decisions"] = []
+        with self.assertRaises(plan_contract.PlanContractError):
+            plan_contract.validate_document(doc)
+
+    def test_the_imported_payload_cannot_carry_work_items(self):
+        # maxItems 0 — the schema does not merely permit an empty decomposition, it forbids a
+        # non-empty one, so an import can never quietly write work items nobody authored.
+        doc = _imported()
+        doc["build_plan"]["work_items"] = [{"id": "n01"}]
+        with self.assertRaises(plan_contract.PlanContractError):
+            plan_contract.validate_document(doc)
+
+    def test_an_imported_draft_can_never_be_sealed_and_the_refusal_names_the_work(self):
+        blockers = plan_contract.seal_blockers(_imported())
+        self.assertTrue(any("imported native plan" in b for b in blockers), blockers)
+        remedy = next(b for b in blockers if "imported native plan" in b)
+        self.assertIn("build-plan.v2", remedy)
+        self.assertIn("revise", remedy)
+        # And it is not the generic old-version refusal, which would send the operator looking for a
+        # migration that does not exist for a plan nobody has decomposed.
+        self.assertFalse(any("only build-plan.v2 can be sealed" in b for b in blockers), blockers)
+
+
 if __name__ == "__main__":
     unittest.main()

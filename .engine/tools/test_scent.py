@@ -312,6 +312,26 @@ class FailOpenTests(unittest.TestCase):
         self.assertIn(scent._OPERATION, out.getvalue())
 
 
+class SharingTheEventTests(unittest.TestCase):
+    """`UserPromptSubmit` stopped being single-owner when the Codex native-plan intake adapter landed.
+
+    The scent's EVERY PROMPT law is exactly what a co-owner could quietly break: a per-prompt cue that
+    fires only sometimes teaches the model that silence means "no memory". So this pins that the cue is
+    unchanged by the second owner, including on the one prompt shape that owner acts on — an acceptance
+    envelope is still a prompt, and it still gets the identical cue.
+    """
+
+    def test_the_cue_is_identical_on_a_prompt_the_other_owner_acts_on(self):
+        import modes
+        ordinary = scent.handler({"prompt": _PROMPT_A, "session_id": "s"})
+        envelope = scent.handler({"prompt": modes._PLAN_ENVELOPE + " # A plan", "session_id": "s"})
+        self.assertEqual(ordinary.get("action"), "inject")
+        self.assertEqual(envelope, ordinary)
+
+    def test_the_two_owners_are_registered_in_a_defined_order(self):
+        self.assertEqual(scent.hooks.EVENT_INVENTORY["UserPromptSubmit"]["owners"], ("boot", "modes"))
+
+
 class DemoTests(unittest.TestCase):
     def test_demo_passes(self):
         from quiet_call import run as quiet_run

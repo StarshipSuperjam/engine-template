@@ -5598,7 +5598,7 @@
       },
       "slug": "eADR-0025-draft-pr-is-the-claim",
       "source": {
-        "fingerprint": "sha256:b2ed32c618b32926922f81b837052a4ebed6e9d7bbdfc838e68d843697b4f5db",
+        "fingerprint": "sha256:e308899ffdedb029693e067591a4a61eeeb1247c9d87ef37630202be1e7f7f07",
         "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
       },
       "status": "accepted",
@@ -5778,7 +5778,7 @@
       },
       "slug": "eADR-0034-dual-provider-adapter-core",
       "source": {
-        "fingerprint": "sha256:fd79a107dae05670a88946ecc1b5dcc1097a6bcb5983b22bba8e5f49d86cf4d1",
+        "fingerprint": "sha256:801be2fe12611f0b1e3c6c5e2e2cb0600c69c8058aca1df752e5242cdb58ab13",
         "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
       },
       "status": "accepted",
@@ -5898,7 +5898,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:973c22f4233a6a4e71c2e3ac4dc61afb43b9a028d3f8aaa5032266a74aa5aa8c",
+        "fingerprint": "sha256:a4a36263d18b1ed49e17b811774c5a8e8278add155598f77bded5133d9f18a98",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6158,7 +6158,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:7921585e685bec61db059a7982f6cfd6714641d9d7f2caf27b436fd328396cc8",
+        "fingerprint": "sha256:8471a2efdc2029b36a02152efd8e4bc239ca23b91a09dc30443b0ad03dfebf16",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6409,7 +6409,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:116798af792cd2c379d5725356aaf699d745d148179fae7b9d2d97441ea9223a",
+        "fingerprint": "sha256:39559feefa3e0ff1d0e849b54e06a35061c8c4f0c1f0a44db32b1e61704cac88",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6449,7 +6449,7 @@
       },
       "slug": "build-submission-evidence",
       "source": {
-        "fingerprint": "sha256:10560db4255302dc180ac528d5af6fddb79d9c5b3c4d9dc82bced5f9d099a268",
+        "fingerprint": "sha256:f71519b19aa24c66b7ebc1437996da3a71c3447c916522b29a25aa9a1d78282a",
         "path": ".engine/operations/build-submission-evidence.md"
       },
       "status": "active",
@@ -6469,7 +6469,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:1a4c6c78de9cf396d4528edefa3effe87f7b0846427bcdd314f11197d62e2ef1",
+        "fingerprint": "sha256:c779f66e68a64d17c3933ba3ee1b65ec4fcfc7cbf4af90cb6544d19aef6de0cc",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -6909,7 +6909,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:726aa47bd491469ceb421d7922bf200da3c5d108dd045e4b0f1ea89f10965fc5",
+        "fingerprint": "sha256:95bb961f5a9be1ee0877751c4570e7c1eccbec75e1c21132f7b67454625bd7c5",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -7009,7 +7009,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:458ab946820ac1eac9193627a0266b932ba9704d52e4b1e0736c0d64923b3cdb",
+        "fingerprint": "sha256:f761aba85ca3a6512e3d4d9e34c8394ca8385f6a55361248ce51fe933a6d1d37",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -7278,7 +7278,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:ab9cca45c34f18828fcfa71634c57f4f0a9d4adba267c387b1419a7a97e2c672",
+        "fingerprint": "sha256:5f8a389dee9790f958b26494f182b722e930dc49b5c7becdc651e7a505c547c4",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -7464,7 +7464,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:afaed5c659298e417034fee7fb13162f7c5dd37be45471b6dd34a16cad4f312e",
+        "fingerprint": "sha256:fb5b841bbdfbeb3c3b2876b102fb0ca827a73bd0b25b7042a6d2568d15e30690",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7483,6 +7483,23 @@
       "source": {
         "fingerprint": "sha256:c18f83558f37e055427cd4c902aae7e8f362dbbb79599b973ea70eb01a7352fe",
         "path": ".engine/schemas/build-orchestration-obligations.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:build-plan.imported",
+      "name": ".engine/schemas/build-plan.imported.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-plan.imported",
+      "source": {
+        "fingerprint": "sha256:32333807e5e0300a05f21697bdf51b8b2099e72eec9414ca0faf3a3c653c286d",
+        "path": ".engine/schemas/build-plan.imported.json"
       },
       "status": "active",
       "type": "schema"
@@ -7515,7 +7532,7 @@
       },
       "slug": "build-plan.v2",
       "source": {
-        "fingerprint": "sha256:179db290d0c687dd146f4b6b2059d46469fb7d4ce9bddfde2b319a655fba5036",
+        "fingerprint": "sha256:d7720fc1b0d2b7dad0116da89411ff556ba4f424830150e14f1524112fcbe2a2",
         "path": ".engine/schemas/build-plan.v2.json"
       },
       "status": "active",
@@ -7532,7 +7549,7 @@
       },
       "slug": "build-protocol.v1",
       "source": {
-        "fingerprint": "sha256:ca30eae4584c459e8ab9e5c605d5f22fe649917ddd18b539cf1c20e0d587f0c5",
+        "fingerprint": "sha256:f2ab0b0c275bacf1a0c0b335d1ebfd2f6ab51f4af130f000845f67c71851e585",
         "path": ".engine/schemas/build-protocol.v1.json"
       },
       "status": "active",
@@ -7566,7 +7583,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:8f8a4aaff29b226a1c15ed2fc0260ea24002bc9b766a638349763f7f481fbb01",
+        "fingerprint": "sha256:c753ee561392958163c97bc090520e853ab4495e99c0077b78974ebcb6a51270",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7753,7 +7770,7 @@
       },
       "slug": "engine-plan.v1",
       "source": {
-        "fingerprint": "sha256:18a333408d47855b81a3e978236d588f57cc0a38082591163ad40130fff2f29a",
+        "fingerprint": "sha256:5924cd76b297dfdee59fa52131ce3d424f12598f5098511626187cbeda7c5c60",
         "path": ".engine/schemas/engine-plan.v1.json"
       },
       "status": "active",
@@ -7957,7 +7974,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:246f15daad1e646aef56d00a1f9397027dba9ed331d027d5e7a46d80abcfc1e7",
+        "fingerprint": "sha256:a28f307887452da06f25951a0a21dde86a4bc14f9853648df594ce06b6c93221",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9881,6 +9898,9 @@
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
           "tool:derived_state",
+          "tool:moment",
+          "tool:plan_contract",
+          "tool:plan_store",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:spec_referent",
@@ -9893,7 +9913,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:946c4b1608ad111837cf9e79c1b4f9f58e256a17b9daf77304d8eaecf41e0d36",
+        "fingerprint": "sha256:9eea6e9b2b225438b2967f09ae58b642153e13e268ceb1a704df0d0283600d76",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9917,7 +9937,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:c31b13516334b53ff97655a08b4850faae450e995b4d20d5cfae96173604d4e0",
+        "fingerprint": "sha256:18a3d8dc6a302b29cce8eb44f50b572b992fe6e91316440f3c0085ae878280f0",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -9975,8 +9995,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:build_coordinator_core",
-          "tool:issue_author"
+          "tool:build_coordinator_core"
         ],
         "provided_by": [
           "module:core"
@@ -9984,7 +10003,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:e61bc1c0890367077d46045be14aea5c06e67c8769afafed46098d6aebdbcd24",
+        "fingerprint": "sha256:5d766c5e24bdf9e9c087eed257b6ed90eef157585da2aacdf6283d5a4d04fa61",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -10032,7 +10051,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:8c2cef6fae523f1b328c56487edc631a3030f989452cb498d8f437147555fee9",
+        "fingerprint": "sha256:76592ea8a2f4c5a8c82d7787ce8d027f82c90283822736c61ee84cb681ec349d",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10934,7 +10953,7 @@
       },
       "slug": "demo_959_finalize_ready_transition",
       "source": {
-        "fingerprint": "sha256:68f95ad5e2400c28eb3cdad99f31e34e94567dbdb290cd64e873688cb40547bc",
+        "fingerprint": "sha256:fe48bf24c5cc6f3e7e657f4d4c994153961789cd62541ae6a6c96e090c8dd85b",
         "path": ".engine/tools/demo_959_finalize_ready_transition.py"
       },
       "status": "active",
@@ -11182,11 +11201,11 @@
       },
       "slug": "demo_build_entry_depth_gate",
       "source": {
-        "fingerprint": "sha256:2dcf31f43072650ac17fb8e712de4f41a0f0413fc6ab0be2baaa54c5ea47b63f",
+        "fingerprint": "sha256:beb411ed441221ee1a8976bfab43e35afe70c8e84e345aa9d1d733d3514dafb1",
         "path": ".engine/tools/demo_build_entry_depth_gate.py"
       },
       "status": "active",
-      "summary": "Operator-runnable demo: entering Build now names the depth-choice consent gate.",
+      "summary": "Operator-runnable demo: accepting a plan does not start building it.",
       "type": "tool"
     },
     {
@@ -11262,6 +11281,30 @@
       },
       "status": "active",
       "summary": "Demo — first-run provisioning creates the COMPLETE set of labels the engine's guards depend on.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_dag_admission",
+      "name": ".engine/tools/demo_dag_admission.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_dag_admission",
+      "source": {
+        "fingerprint": "sha256:b30076b7fbea77b6917e1130d6e27ac3b61b4f4b325474cd1d6c975ed8a88a8b",
+        "path": ".engine/tools/demo_dag_admission.py"
+      },
+      "status": "active",
+      "summary": "Demo — the scheduler refuses work that is not ready, and advances the item that unblocks the most.",
       "type": "tool"
     },
     {
@@ -11599,6 +11642,30 @@
       },
       "status": "active",
       "summary": "Behavioral demo — the upgrade-overwrite disclosure, end to end.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_plan_to_ready_pr",
+      "name": ".engine/tools/demo_plan_to_ready_pr.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_plan_to_ready_pr",
+      "source": {
+        "fingerprint": "sha256:786e2be62cf5206428537b3186761ea3756b479a6c9941317ecea5f4a42d3327",
+        "path": ".engine/tools/demo_plan_to_ready_pr.py"
+      },
+      "status": "active",
+      "summary": "Demo — a plan goes from written, to sealed, to built, to a pull request ready for you to merge.",
       "type": "tool"
     },
     {
@@ -12506,7 +12573,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:c758aa5a1bac35b8fb7dc8034ca3888de945b1dfff2a8ccb17201a3871abdead",
+        "fingerprint": "sha256:fc8d60538ba9745250b81377f67941616c874bf021b479b8c17c913733e1494e",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -12614,7 +12681,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:75e683e81c41b4d6ef300fd21e6934f0aa21942649ac80c18b560c9c4e73577f",
+        "fingerprint": "sha256:ba78685222ca388e5bfe2b95c0890f04df5899b342522e6f19cd6673c4506c03",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13413,6 +13480,7 @@
           "tool:checkout_health",
           "tool:hooks",
           "tool:issue_gate",
+          "tool:plan_coordinator",
           "tool:providers"
         ],
         "provided_by": [
@@ -13421,7 +13489,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:4d3727372ada2ef6386be6cf64b0714650cc1100425c223cb207ea72d5981b9d",
+        "fingerprint": "sha256:6c335ed177c84a879e882b4da83e7ff6dbab8abf3cf1115e1aa45e37b661b4de",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13831,7 +13899,7 @@
       },
       "slug": "plan_contract",
       "source": {
-        "fingerprint": "sha256:ba11751cfb2dbc49a08c9f854757eaf19e9b00b31d58056698f450fe4aff4e24",
+        "fingerprint": "sha256:e90e866ce97e2f063a4fa36ba962b0dc8ec32c2a2507c085dbcee0bd0913a132",
         "path": ".engine/tools/plan_contract.py"
       },
       "status": "active",
@@ -13846,6 +13914,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:agent_bindings",
           "tool:build_coordinator_core",
           "tool:moment",
           "tool:plan_contract",
@@ -13859,7 +13928,7 @@
       },
       "slug": "plan_coordinator",
       "source": {
-        "fingerprint": "sha256:4f8a3b0e1fbfa9acb0b1ee34180192f7e469c7a12b7e0a7d5ef70e599ff719e3",
+        "fingerprint": "sha256:3a640e0d0330ca740fe7edce76dfb8bc7360f6ed866b1803a0d2cdd8e684d61d",
         "path": ".engine/tools/plan_coordinator.py"
       },
       "status": "active",
@@ -13884,7 +13953,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:adc18c4aaa42e021e4c728083b990a35d4150df7964fdb0bdec141240f6803e0",
+        "fingerprint": "sha256:4999cc5dc58705048bc90affd0a2abe19bd579e9d09cc6b36d092fa580b716b7",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13909,7 +13978,7 @@
       },
       "slug": "plan_projection",
       "source": {
-        "fingerprint": "sha256:5369b159800e3997e23cc7e743697ea1ae7084c6c9dfa61d551c8642e9d0271b",
+        "fingerprint": "sha256:80d5e1d913d4156b62d5715f5617f62dab8567390138f92ebcbdca2501dd6969",
         "path": ".engine/tools/plan_projection.py"
       },
       "status": "active",
@@ -14681,7 +14750,7 @@
       },
       "slug": "scent",
       "source": {
-        "fingerprint": "sha256:4a2b1709ce5117810363c516851d12a0df8af57f52a37f1634fdf44f499a4296",
+        "fingerprint": "sha256:b9d430ffda5e37950b824d210bab663b693d726715270917103cf357037b3ab3",
         "path": ".engine/tools/scent.py"
       },
       "status": "active",
@@ -15743,16 +15812,20 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_contract",
-          "tool:build_coordinator_github",
+          "tool:checkout_health",
           "tool:derived_state",
           "tool:module_coherence",
+          "tool:plan_contract",
+          "tool:plan_coordinator",
+          "tool:plan_store",
           "tool:spec_referent",
-          "tool:test_build_coordinator_contract"
+          "tool:test_build_coordinator_contract",
+          "tool:test_plan_store"
         ]
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:58adc328df0b2564708331d17e5069dba1ddcc8189c8c5b251c3919dc99ec9d1",
+        "fingerprint": "sha256:470f64aa9f4655a36a1e755fd114e679bf94b7cdde315e60164c00aa50de3a2a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15782,7 +15855,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:0093f9c9f6e89beddab2997edc37f64fbdba4ba26bbe626f039664f7b01ad489",
+        "fingerprint": "sha256:956feb733d13b8d818cff461d4eb0cc12175f5f20846aae76f77825bb9ce5148",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -15823,12 +15896,14 @@
           "module:core"
         ],
         "tests": [
-          "tool:build_coordinator_dag"
+          "tool:build_coordinator",
+          "tool:build_coordinator_dag",
+          "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_dag",
       "source": {
-        "fingerprint": "sha256:af803fd9403115828e351022b2742f4921273e6aaa3f33ad587ac5216f0af6c2",
+        "fingerprint": "sha256:81d1c8b67dfb2ca95c741a141b7a836d594a7859045f64f6084f3ebe6c4fedab",
         "path": ".engine/tools/test_build_coordinator_dag.py"
       },
       "status": "active",
@@ -15853,7 +15928,7 @@
       },
       "slug": "test_build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:551c58a86aa37bc13ad06c8d5600b6dfb5634d0a17c2cb545999f8d5a20d56d4",
+        "fingerprint": "sha256:f58f9537ce1860db00d11dc31f4efcf1b9a6fa574fb70f1c9e63482113d91acd",
         "path": ".engine/tools/test_build_coordinator_github.py"
       },
       "status": "active",
@@ -15899,12 +15974,13 @@
           "tool:build_coordinator",
           "tool:build_coordinator_review",
           "tool:module_coherence",
+          "tool:plan_coordinator",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:b3cc26ff5e2dbf47abbb73fe0afc5ba994e97ce353f627c6d2e46551db643f0e",
+        "fingerprint": "sha256:f15160978f30277badd1906fa895690e77ef1e9bf982eadd96757755a96cb8e4",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -15931,7 +16007,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:cdea72a0a5f0d6eb807b86ef4b2c4e02f8a420763e7802b09d8d8676ee43e5b2",
+        "fingerprint": "sha256:f6db38aeaa3350ee3b60679bd337b65701177a1be928051cddce8edbb7d9dc86",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -16969,7 +17045,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:504641971fcf129c9be96670773f5db677b104ef4bc1987a27f66180b0eee3ef",
+        "fingerprint": "sha256:173acf0c2c1d97eef0a371d325529e0ccbc10b93d5de0c2815e7c67a22a5c87a",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17767,6 +17843,7 @@
           "tool:checkout_health",
           "tool:hooks",
           "tool:modes",
+          "tool:plan_coordinator",
           "tool:providers",
           "tool:quiet_call",
           "tool:validate"
@@ -17774,7 +17851,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:ac3a800460b054db263ca0d98f20e1fdc1c041f19f45d2c0c4757e1690a92506",
+        "fingerprint": "sha256:a6876d40e5b87880e53b8fef10e8868f494e9de5b59eaf4128077547a5b8371f",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -18190,7 +18267,7 @@
       },
       "slug": "test_plan_contract",
       "source": {
-        "fingerprint": "sha256:fe1f4c3d1fb2c11da23ed3d02b5a5e0c784c922d367e2e20426001428242b19c",
+        "fingerprint": "sha256:327abb1700a79de0fb771820184861c88240fc2652d78a5979da9dc74a8ee585",
         "path": ".engine/tools/test_plan_contract.py"
       },
       "status": "active",
@@ -18208,6 +18285,8 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator_review",
+          "tool:plan_contract",
           "tool:plan_coordinator",
           "tool:plan_program",
           "tool:plan_projection",
@@ -18217,7 +18296,7 @@
       },
       "slug": "test_plan_coordinator",
       "source": {
-        "fingerprint": "sha256:635f13ba7ce025d0f74f724d64966cde4f6e1ace8bda7615a4454063a4b69bb0",
+        "fingerprint": "sha256:15393a862ecf2821aa48268db6d1c7219e54102d363859da22708f0ee3cdf5a6",
         "path": ".engine/tools/test_plan_coordinator.py"
       },
       "status": "active",
@@ -18244,7 +18323,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:61f4c6bf53165294ac62bafd28419e2bd793d7011b1dcf5b90df907e959409ba",
+        "fingerprint": "sha256:73b29d79cff8a6448412c856404d941ccd305ff8f0a06c22e6ef7ea54c665ab7",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -18269,7 +18348,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:31f8d8c2f9f6664527e0d87ee1442d75d6fbee63be9189bc80970afc12562a9d",
+        "fingerprint": "sha256:1dff2b49543bffde45f8f78db938a87cde6a7588a5cd1e9eddfb204a81c0f842",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -18294,7 +18373,7 @@
       },
       "slug": "test_plan_projection",
       "source": {
-        "fingerprint": "sha256:5743849bc8d70c63f3248aaf389275d162dd8da61756e0dd4249117267aee7c2",
+        "fingerprint": "sha256:254aec2534cb257a5e8b1b02b6602d5b12a443acb802a81909e9e472d5a7001a",
         "path": ".engine/tools/test_plan_projection.py"
       },
       "status": "active",
@@ -18471,7 +18550,7 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:294c826eeadddff304bbb4e113c0b30ea4024f9b02b39b2312a0b65ab7fa83aa",
+        "fingerprint": "sha256:5629ab700d38bc63bdee5a2b3be9e1d4540add4d2775cd5b22b4473499b61785",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
@@ -19073,6 +19152,7 @@
         "tests": [
           "tool:index",
           "tool:ledger",
+          "tool:modes",
           "tool:quiet_call",
           "tool:records",
           "tool:scent",
@@ -19081,7 +19161,7 @@
       },
       "slug": "test_scent",
       "source": {
-        "fingerprint": "sha256:080410ea3f1c2fc499f1ed47deb898709fc922e5767ea97ff5313a42535f1f9a",
+        "fingerprint": "sha256:616afa572f74799eb721e9933877a7a192f09aaa873b4b50fd5093f2d6f47f22",
         "path": ".engine/tools/test_scent.py"
       },
       "status": "active",

@@ -66,14 +66,14 @@ class TestEventInventory(unittest.TestCase):
                              f"{ev} block-eligibility")
 
     def test_posttooluse_enumerates_its_three_owners(self):
-        # validation's touched-file run + telemetry's ambient capture + modes' plan-acceptance
-        # Build-entry trigger coexist on one event (the owner inventory).
+        # validation's touched-file run + telemetry's ambient capture + modes' Claude native-plan
+        # intake adapter coexist on one event (the owner inventory).
         self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"],
                          ("validation", "telemetry", "modes"))
 
     def test_posttooluse_may_inject_and_stays_non_blocking(self):
-        # modes' acceptance trigger injects an assistant-internal stance directive
-        # (additionalContext) on Build entry, so PostToolUse may inject — but it never blocks.
+        # modes' intake adapter injects the arrival report (additionalContext) after importing an
+        # accepted plan, so PostToolUse may inject — but it never blocks.
         self.assertTrue(hooks.EVENT_INVENTORY["PostToolUse"]["injects"])
         self.assertFalse(hooks.EVENT_INVENTORY["PostToolUse"]["blocks"])
 
@@ -81,9 +81,26 @@ class TestEventInventory(unittest.TestCase):
         self.assertEqual(hooks.EVENT_INVENTORY["SessionEnd"]["owners"], ("hooks",))
         self.assertFalse(hooks.EVENT_INVENTORY["SessionEnd"]["blocks"])
 
-    def test_userpromptsubmit_is_boot_owned_injection(self):
-        self.assertEqual(hooks.EVENT_INVENTORY["UserPromptSubmit"]["owners"], ("boot",))
+    def test_userpromptsubmit_carries_boot_then_modes_in_a_defined_order(self):
+        """AMENDED, deliberately, when the Codex native-plan intake adapter landed. This event was
+        single-owner (`("boot",)`) from the day the table was written until then.
+
+        What makes a second owner admissible here, and why the amendment is not the drift the table
+        exists to catch. eADR-0042 refuses writers of UNDEFINED order — writers that race, whose
+        relative sequence nothing states — not registered owners; PostToolUse has carried three owners
+        in a stated order since it was written, and this is that shape, not a new one. The two owners
+        cannot contend: boot's per-prompt scent injects a constant orientation cue without reading the
+        prompt's content, while modes reads the prompt's opening bytes and acts only on an acceptance
+        envelope at byte zero. They share no file and no signal — modes writes no stance — so neither
+        can overwrite the other's work, and the order below is stated so it can never become
+        incidental. The adapter is registered on this event only on Codex, which has no plan-exit
+        completion to key on; on Claude the same import rides PostToolUse. The order is pinned in the
+        Codex registration itself by test_modes, and this pins the table that authorizes it.
+        """
+        self.assertEqual(hooks.EVENT_INVENTORY["UserPromptSubmit"]["owners"], ("boot", "modes"))
         self.assertTrue(hooks.EVENT_INVENTORY["UserPromptSubmit"]["injects"])
+        self.assertFalse(hooks.EVENT_INVENTORY["UserPromptSubmit"]["blocks"],
+                         "the second owner must not have made this event block-eligible")
 
     def test_block_eligible_invariant_set_starts_empty(self):
         self.assertEqual(hooks.BLOCK_ELIGIBLE_INVARIANTS, ())

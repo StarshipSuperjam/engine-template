@@ -14,8 +14,9 @@ refused in any stance, or what changes when a session starts building.
 ## Steps
 
 The mechanism is `.engine/tools/modes.py` — the ephemeral, session-keyed stance signal, the `PreToolUse`
-write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as hooks in
-`.claude/settings.json`. The stance lifecycle:
+write-gate, and the two native-plan intake adapters (Claude's `PostToolUse` plan-exit adapter, Codex's
+`UserPromptSubmit` envelope adapter), wired as hooks in `.claude/settings.json` and `.codex/hooks.json`.
+The stance lifecycle:
 
 1. **Every session boots in explore.** At session start, boot clears the stance signal first
    (`modes.clear_stance`), so a resumed session does not inherit a prior build stance. When the signal is
@@ -44,19 +45,26 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
    to the operator's own `~/.claude/` config carries no marker and matches no anchor and stays denied. An
    action it cannot classify is allowed: there is no default-deny, because exploring must stay the
    comfortable place to work.
-3. **To start building, the operator either types `/engine-start` or accepts a plan.** `/engine-start` is
-   an operator-only command the model cannot invoke itself (it carries the platform's operator-only flag,
-   and the skill-coherence check holds that flag in place); accepting a plan the model proposed also enters
-   build (the model cannot accept its own plan). Either way the stance flips to build and the gate permits
-   the writes. On plan-acceptance the `PostToolUse` hook sets the build signal **and** injects a terse
-   assistant-internal stance directive — do-not-relay machine context that re-grounds the session (which
-   still holds its start-of-session explore briefing) and sends it into the build-orchestration kickoff. The
-   **operator** meets build-entry exactly once, through that kickoff ("opening a draft pull request and
-   planning the work") — never through the hook. The signal is the **sole durable record**: it is cleared to
-   explore at every SessionStart, so a copy of that directive replayed on a resumed session is inert — the
-   session reports its stance from the live signal (explore), and the kickoff proceeds only if the live
-   signal still reads build. Neither path is silent or self-elected — the model never flips its own stance.
-4. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
+3. **To start building, the operator types `/engine-start` — and only that.** It is an operator-only
+   command the model cannot invoke itself (it carries the platform's operator-only flag, and the
+   skill-coherence check holds that flag in place). The stance flips to build, the gate permits the writes,
+   and the operator meets build-entry exactly once, through the build-orchestration kickoff ("opening a
+   draft pull request and planning the work"). The stance signal has exactly two writers — this verb and
+   `set-routine` — and **no hook writes it**, so the model can never flip its own stance.
+
+4. **Accepting a plan imports it; it does not start building it.** This changed: accepting a plan used to
+   flip the stance straight to build, which skipped every gate the plan side exists to run. Now the
+   acceptance is caught by an intake adapter — Claude's plan-exit completion, or on Codex a message whose
+   very first characters are `PLEASE IMPLEMENT THIS PLAN:` — and the accepted document lands in the Plan
+   Coordinator as an **unapproved draft**: no approval, no review, no seal, no build authority. The session
+   then reports the plan's id, the revision it created, and the exact next command, so an acceptance is
+   never followed by an unexplained refusal. Nothing is invented on the way in: the text is kept verbatim,
+   the payload is empty, and the things an import cannot know — what this is asking for, the problem, the
+   case against, the decomposition — are recorded as open decisions the plan cannot be sealed with.
+   Where a hook cannot run (a Codex hook trust the operator has not re-approved, or an acceptance line the
+   platform has since reworded), `python tools/plan_coordinator.py import-native --input - --provenance
+   "..."` performs the identical import from the plan text on stdin.
+5. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
    Claude Desktop routine runs the routine command, which enters
    the Routine write-stance through `set-routine` — a **mechanical** gate that grants the stance only in a
    proven-isolated worktree, never the operator's checkout — and which the run additionally declines to enter
@@ -66,8 +74,8 @@ write-gate, and the `PostToolUse` plan-acceptance Build-entry trigger, wired as 
 To check the live stance, `python tools/modes.py stance` — it resolves the session from `--session` or
 `$CLAUDE_CODE_SESSION_ID`, and says `unknown` (non-zero) rather than a misleading `explore` when it cannot
 resolve one. To see what the gate decides for any action without Claude Desktop (the operator demo): `python
-tools/modes.py demo` (which also shows the plan-file carve-out and plan-acceptance setting build + injecting
-the stance directive), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
+tools/modes.py demo` (which also shows the plan-file carve-out, and that accepting a plan leaves the
+session where it was), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
 
 ## Done when
 
@@ -91,6 +99,9 @@ operator's **informed consent**, not a review of the code — in solo it clears 
 (team adds a code-owner review) — and the session never performs it in any stance (a best-effort nudge
 refuses a session `gh pr merge`; the wall is the merge itself). Never dress the local gate as the wall.
 
-Entering build is fail-safe too: if the plan-acceptance hook never fires — including accepting a plan with
-the context cleared, which does not fire it (claude-code#20397) — the signal stays absent → explore, and
-`/engine-start` is the recovery. A miss can only leave the session in explore, never falsely in build.
+Intake is fail-safe too, in every direction. If an intake adapter never fires — including accepting a plan
+with the context cleared, which does not fire it (claude-code#20397) — nothing is imported and the typed
+`import-native` verb is the recovery. A message that merely mentions or quotes the Codex acceptance line is
+not an acceptance, because the line only counts at the very start of the message. And none of it can reach
+the stance: no hook writes the signal, so a miss, a misfire, or a failed import all leave the session in
+explore, never falsely in build.

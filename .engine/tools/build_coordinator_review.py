@@ -6,8 +6,10 @@ from pathlib import Path
 import build_coordinator_core as core
 
 
-def installed(root: Path, stage: str) -> list[dict]:
-    role = "plan-review" if stage == "plan" else "pre-submission-review"
+def installed(root: Path) -> list[dict]:
+    """The deliverable reviewers installed here. There is no stage parameter any more: the Build
+    Coordinator runs exactly one review, and the plan panel lives on the plan side with the plan."""
+    role = "pre-submission-review"
     found: dict[str, dict] = {}
     for path in sorted((root / ".claude" / "agents").glob("*.md")):
         text = path.read_text(encoding="utf-8")
@@ -31,8 +33,8 @@ def installed(root: Path, stage: str) -> list[dict]:
     return [found[lens] for lens in sorted(found)]
 
 
-def required(protocol: dict, stage: str, depth: str, roster: list[dict]) -> list[dict]:
-    table = protocol["plan_review" if stage == "plan" else "deliverable_review"]
+def required(protocol: dict, depth: str, roster: list[dict]) -> list[dict]:
+    table = protocol["deliverable_review"]
     allowed = {item["lens"] for item in roster} if depth == "thorough" else set(table[depth])
     return [item for item in roster if item["lens"] in allowed]
 
@@ -41,8 +43,7 @@ DEPTH_ORDER = ("quick", "standard", "thorough")
 _EFFORT_RANK = {None: -1, "low": 0, "medium": 1, "high": 2}
 
 
-def available_depths(protocol: dict, plan_roster: list[dict], deliverable_roster: list[dict],
-                     efforts: dict) -> list[str]:
+def available_depths(protocol: dict, deliverable_roster: list[dict], efforts: dict) -> list[str]:
     """Which review depths the consent surface should OFFER, so the operator is never asked to choose a depth
     that buys nothing (StarshipSuperjam/engine-template#763, generalized under StarshipSuperjam/engine-template#677). A depth is offered when,
     versus the last offered lighter depth, it runs AT LEAST ONE lens the lighter one does not, OR the SAME
@@ -57,8 +58,7 @@ def available_depths(protocol: dict, plan_roster: list[dict], deliverable_roster
     offered: list[str] = []
     last: tuple[frozenset, str | None] | None = None
     for depth in DEPTH_ORDER:
-        lenses = (frozenset(i["lens"] for i in required(protocol, "plan", depth, plan_roster))
-                  | frozenset(i["lens"] for i in required(protocol, "deliverable", depth, deliverable_roster)))
+        lenses = frozenset(i["lens"] for i in required(protocol, depth, deliverable_roster))
         effort = efforts.get(depth)
         if last is None:
             offered.append(depth)
@@ -115,11 +115,10 @@ def live_receipts(state: dict) -> list[tuple[str, dict]]:
     from this one function is what keeps them from drifting apart
     (StarshipSuperjam/engine-template#1051)."""
     found = []
-    for stage_name, stage in state["reviews"].items():
-        for receipt in stage["receipts"]:
-            produced_by = ("repair" if stage_name == "deliverable"
-                           and receipt["packet_digest"] != stage["packet_digest"] else stage_name)
-            found.append((produced_by, receipt))
+    stage = state["reviews"]["deliverable"]
+    for receipt in stage["receipts"]:
+        produced_by = "repair" if receipt["packet_digest"] != stage["packet_digest"] else "deliverable"
+        found.append((produced_by, receipt))
     if state["repair"]:
         for receipt in state["repair"]["receipts"]:
             found.append(("repair", receipt))
@@ -205,31 +204,10 @@ def plan_change_escalation(state: dict) -> dict | None:
     return None
 
 
-def plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
-    if plan["profile"] == "trivial" and (state.get("approval") or {}).get("depth") == "quick":
-        return True, []
-    stage = state["reviews"]["plan"]
-    waiver = stage.get("waiver")
-    if waiver and state.get("approval") and waiver["plan_digest"] == state["plan"]["digest"] \
-            and waiver["depth"] == state["approval"]["depth"]:
-        return True, []
-    if plan_change_escalation(state):
-        return True, []
-    missing = []
-    if not stage.get("referent_digest") and not stage.get("packet_digest"):
-        missing.append("plan-review packet")
-    missing.extend(f"plan-review receipt: {lens}" for lens in missing_receipts(stage))
-    plan_receipts = {receipt["lens"]: receipt for receipt in stage["receipts"]}
-    for receipt in plan_receipts.values():
-        for finding_id in receipt["finding_ids"]:
-            if not any(f["id"] == finding_id and f["stage"] == "plan" and f["lens"] == receipt["lens"]
-                       and f["packet_digest"] == receipt["packet_digest"]
-                       and f.get("lens_packet_digest") == receipt.get("lens_packet_digest")
-                       for f in state["findings"]):
-                missing.append(f"finding disposition: {finding_id}")
-    blocking = [f["id"] for f in state["findings"] if f["stage"] == "plan" and f["blocks_this_pr"]]
-    missing.extend(f"plan finding still blocks: {finding_id}" for finding_id in blocking)
-    return not missing, missing
+# `plan_review_ready` is gone with the panel it gated, and so is the retrospective waiver it honoured.
+# The Build no longer asks whether a plan was reviewed, because a Build cannot start on an unreviewed
+# plan at all: the seal is what a plan bind requires, and the seal itself refuses a review that does not
+# cover its approved depth. A precondition that cannot fail needs no gate — and needs no waiver either.
 
 
 def disagreement_line(finding: dict) -> str:

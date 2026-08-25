@@ -287,7 +287,7 @@ class TestPreviewEvidence(unittest.TestCase):
     def _state(self, findings=None):
         return {
             "build": {"repository": "owner/repo", "pr": 977, "base_at_bind": "b" * 40},
-            "plan": {"durable_issue": None},
+            "plan": {"authorizing_issue": None},
             "approval": {"depth": "thorough"},
             "validation": {"commit": "a" * 40,
                            "results": [{"id": "engine-ci", "commit": "a" * 40, "passed": True,
@@ -375,11 +375,11 @@ class TestPreviewEvidence(unittest.TestCase):
             ev = bc._assemble_evidence(state, plan, claim, "c" * 40, pr_data)
         self.assertEqual(ev["assumption_resolutions"], [])
 
-    def test_durable_issue_added_to_closes(self):
+    def test_authorizing_issue_added_to_closes(self):
         import build_coordinator as bc
         from unittest import mock
         state = self._state()
-        state["plan"]["durable_issue"] = 500
+        state["plan"]["authorizing_issue"] = 500
         claim = _good_claim()
         pr_data = {"body": "", "baseRefOid": "b" * 40}
         with mock.patch.object(bc, "_run", return_value=mock.Mock(stdout="p", returncode=0)), \
@@ -536,7 +536,7 @@ class TestContractApply(unittest.TestCase):
         import contextlib, io
         pr, verify_draft, must_run = self._env(source_body)
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 977, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         digest = bc._digest(source_body.encode())
         args = self._args(digest, ack=ack)
         patches = self._patches(bc, verify_draft, must_run, close_result)
@@ -560,7 +560,7 @@ class TestContractApply(unittest.TestCase):
         from unittest import mock
         pr, verify_draft, must_run = self._env("live body")
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"a DIFFERENT body"))            # stale digest
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
@@ -591,7 +591,7 @@ class TestContractApply(unittest.TestCase):
         import build_coordinator as bc
         pr, verify_draft, must_run = self._env("orig")
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"orig"))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run,
@@ -615,7 +615,7 @@ class TestContractApply(unittest.TestCase):
                 edits.append(input_text); pr["body"] = input_text
             return ""
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(composed.encode()))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
@@ -635,7 +635,7 @@ class TestContractApply(unittest.TestCase):
             def __init__(self):
                 self.reads = 0
                 self.s = {"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                          "plan": {"durable_issue": None}}
+                          "plan": {"authorizing_issue": None}}
             def read(self):
                 self.reads += 1
                 snap = dict(self.s)
@@ -666,7 +666,7 @@ class TestContractApply(unittest.TestCase):
                 pr["body"] = "orig" if input_text == "orig" else input_text + " [MANGLED BY GITHUB]"
             return ""
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"orig"))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, lambda *a, **k: {"lines": [], "defang": None}):
@@ -686,7 +686,7 @@ class TestContractApply(unittest.TestCase):
             return {"lines": ["x"], "defang": None}
 
         store = self._Store({"revision": 1, "build": {"repository": "o/r", "pr": 1, "base_at_bind": "b" * 40},
-                             "plan": {"durable_issue": None}})
+                             "plan": {"authorizing_issue": None}})
         args = self._args(bc._digest(b"orig"))
         with contextlib.ExitStack() as stack:
             for p in self._patches(bc, verify_draft, must_run, close_result):
@@ -718,6 +718,60 @@ class TestReleaseImpactMarker(unittest.TestCase):
         claim["release_impact"] = None
         with self.assertRaises(bcc.ContractError):
             bcc.validate_claim(claim)
+
+
+class TestCarriedObligationsReachTheMergeSurface(unittest.TestCase):
+    """A program's carry-forward guarantee is enforced where plans are WRITTEN. This puts the same
+    record where the operator approving the merge can read it.
+
+    The guarantee — satisfied, re-carried, or released with a stated reason, never dropped silently —
+    is only as good as somebody meeting it. Until now the only reader was whoever opened the program
+    projection, which the person clicking merge does not. A release in particular spends the
+    operator's trust, so its reason belongs in the operator's own view.
+    """
+
+    OBLIGATIONS = [
+        "- **OB-CANON** — _carried_. Amend eADR-0025 and eADR-0041 on plan authority.",
+        "- **OB-SPEC-REACCEPT** — _released_. Obtain operator re-acceptance of the settled documents. "
+        "The corpus is stale, so re-accepting it would record assent to text that no longer describes "
+        "the engine.",
+        "- **OB-V1-SUNSET** — _carried_. Delete the v1 schemas and the migrate-v1 verb. Carried to the "
+        "successor C.",
+    ]
+
+    def _body(self, lines=None):
+        return bcc.compose(_good_claim(),
+                           {**_good_evidence(),
+                            "obligation_lines": self.OBLIGATIONS if lines is None else lines})
+
+    def test_every_obligation_reaches_the_body_verbatim(self):
+        body = self._body()
+        for line in self.OBLIGATIONS:
+            self.assertIn(line, body)
+
+    def test_a_release_carries_its_reason_to_the_merge_surface(self):
+        # The whole point. A release without its reason on the operator's screen is a release they
+        # cannot judge, which is the same as one nobody explained.
+        self.assertIn("re-accepting it would record assent to text that no longer describes the engine",
+                      self._body())
+
+    def test_the_obligations_are_labelled_where_they_land(self):
+        body = self._body()
+        heading = body.index("- **Obligations carried from the predecessor plan.**")
+        self.assertLess(body.index("## Review"), heading)
+        self.assertLess(heading, body.index("- **OB-CANON**"))
+
+    def test_a_standalone_plan_renders_no_obligation_section(self):
+        # Most plans belong to no program, and a bare heading over nothing reads like a fault.
+        body = self._body([])
+        self.assertNotIn("Obligations carried from the predecessor plan", body)
+
+    def test_the_composed_body_still_passes_the_real_gate_with_obligations(self):
+        rule_path = os.path.join(ROOT, ".engine", "check", "pr-body-completeness.json")
+        with open(rule_path, encoding="utf-8") as fh:
+            rule = json.load(fh)
+        verdict, findings = validate.kind_presence(rule, {"pr_body": self._body()})
+        self.assertTrue(verdict, msg=f"gate rejected composed body: {[f['message'] for f in findings]}")
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
 import build_coordinator_review as review  # noqa: E402
-from test_build_coordinator import BASE, HEAD_A, CoordinatorCase, plan  # noqa: E402
+from test_build_coordinator import BASE, HEAD_A, CoordinatorCase, plan, PLAN_ID, SEALED  # noqa: E402
 
 
 def _needs_design_review(case) -> None:
@@ -30,7 +30,16 @@ def _needs_design_review(case) -> None:
                       "case reads is legitimately absent here")
 
 
-class TestPlanReviewOrdering(CoordinatorCase):
+class TestThePlanGateIsGoneFromThisSide(CoordinatorCase):
+    """The whole plan-review ordering suite retires with the gate it protected.
+
+    Its subject was: a Build must not proceed until its plan review is complete and its reviewer
+    contracts are fresh. That precondition now holds by construction — a Build binds only a SEALED plan,
+    and a seal refuses a review that does not cover its approved depth — so there is nothing left to
+    order, refresh, or waive on this side. What is worth pinning is that the gate really is unreachable
+    rather than merely unused.
+    """
+
     def setUp(self):
         super().setUp()
         self.seed()
@@ -42,61 +51,26 @@ class TestPlanReviewOrdering(CoordinatorCase):
             "remaining_verification": [], "judgment": "aligned",
         }), encoding="utf-8")
 
-    def test_checkpoint_requires_completed_plan_review(self):
-        with self.assertRaisesRegex(bc.CoordinatorError, "before plan review"):
-            bc.cmd_checkpoint(argparse.Namespace(plan=str(self.plan_path), input=str(self.note_path),
-                                                 complete_item=None, json=False), self.store)
-
-    def test_final_validation_cannot_precede_plan_review(self):
-        with self.assertRaisesRegex(bc.CoordinatorError, "before plan review"):
-            bc.cmd_validate(argparse.Namespace(), self.store)
-
-    def test_changed_installed_plan_contract_blocks_checkpoint_until_refreshed(self):
-        self.approve("standard")
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None,
-                                  standalone=False, output=None, json=True)
-        reviewer = {"lens": "product-intent", "path": "reviewer.md",
-                    "digest": "sha256:" + "1" * 64}
-        with mock.patch.object(bc, "_installed", return_value=[reviewer]), \
-                contextlib.redirect_stdout(io.StringIO()):
-            bc._packet(args, self.store)
-        packet = self.state()["reviews"]["plan"]["packet_digest"]
-        contract = self.state()["reviews"]["plan"]["reviewer_contracts"][0]
-        with contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_review_record(argparse.Namespace(stage="plan", lens="product-intent",
-                                                    packet_digest=packet,
-                                                    lens_packet_digest=contract["lens_packet_digest"],
-                                                    finding=[], code_execution="none"), self.store)
-        changed = {**reviewer, "digest": "sha256:" + "2" * 64}
-        with mock.patch.object(bc, "_installed", return_value=[changed]), \
-                self.assertRaisesRegex(bc.CoordinatorError, "refresh plan-review contract"):
-            bc.cmd_checkpoint(argparse.Namespace(plan=str(self.plan_path), input=str(self.note_path),
-                                                 complete_item=None, json=False), self.store)
-
-    def test_routine_cannot_use_retrospective_plan_review_waiver(self):
-        value = plan()
-        value["profile"] = "routine"
-        value["intent_source"] = {"kind": "issue", "issue": 7}
-        self.write_plan(value)
-        state = bc._initial_state("owner/repo", 7, BASE, "issue", value, 7, "unattended")
-        state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": None, "depth": "quick"}
-        routine = bc.StateStore(str(Path(self.temp.name) / "routine.json"))
-        routine.create(state)
-        with self.assertRaisesRegex(bc.CoordinatorError, "same-session normal"):
-            bc.cmd_review_waive(argparse.Namespace(stage="plan", reason="not eligible",
-                                                   adopted_commit=state["plan"]["bound_head"]), routine)
-
-    def test_operator_approved_normal_quick_still_uses_zero_cold_lenses(self):
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None,
-                                  standalone=False, output=None, json=True)
-        with mock.patch.object(bc, "_installed", return_value=[]), contextlib.redirect_stdout(io.StringIO()):
-            bc._packet(args, self.store)
+    def test_checkpoint_no_longer_waits_on_a_plan_review(self):
         with mock.patch.object(bc, "_assert_spec_boundary", return_value={}), \
                 mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_changed_paths", return_value=[]), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_checkpoint(argparse.Namespace(plan=str(self.plan_path), input=str(self.note_path),
                                                  complete_item=None, json=False), self.store)
+        self.assertEqual(self.state()["checkpoint"]["work_item"], "W1")
+
+    def test_the_plan_gate_and_its_waiver_are_both_unreachable(self):
+        for gone in ("_plan_review_ready", "cmd_review_waive", "_record_plan_panel"):
+            self.assertFalse(hasattr(bc, gone), gone)
+        self.assertFalse(hasattr(review, "plan_review_ready"))
+
+    def test_the_review_module_no_longer_threads_a_stage(self):
+        # `installed` and `required` answered for two stages; one of them is gone, and a parameter that
+        # can take only one value is an invitation to reintroduce the other.
+        import inspect
+        self.assertNotIn("stage", inspect.signature(review.installed).parameters)
+        self.assertNotIn("stage", inspect.signature(review.required).parameters)
 
 
 class TestReviewerContractFreshness(unittest.TestCase):
@@ -168,18 +142,34 @@ class TestDisagreementPreflight(CoordinatorCase):
 
 
 class TestStandardPlanRow(unittest.TestCase):
-    """#677 decision 2: the committed protocol runs all four plan lenses at standard depth (coverage over
-    per-lens depth at the plan gate — plan-stage misses are unrecoverable downstream)."""
+    """#677 decision 2 survives the panel move: standard depth still runs all four plan lenses (coverage
+    over per-lens depth at the plan gate — plan-stage misses are unrecoverable downstream). It is now
+    declared where the panel lives, and the Build protocol no longer mentions plan review at all."""
     def _protocol(self):
         here = os.path.dirname(os.path.abspath(__file__))
         return json.load(open(os.path.join(here, "..", "build-protocol.json"), encoding="utf-8"))
 
     def test_standard_plan_review_runs_all_four_lenses(self):
-        proto = self._protocol()
-        self.assertEqual(set(proto["plan_review"]["standard"]),
+        import plan_coordinator
+        self.assertEqual(set(plan_coordinator.PLAN_REVIEW_LENSES["standard"]),
                          {"product-intent", "architecture", "feasibility", "risk-governance"})
+        self.assertNotIn("plan_review", self._protocol())
+
+    def test_both_coordinators_speak_one_depth_vocabulary(self):
+        # The shared file that used to guarantee this is gone, so the guarantee is pinned instead. A depth
+        # approved on the plan side IS the depth the Build's deliverable review runs at, and a vocabulary
+        # that drifted would silently break that single consent.
+        import plan_coordinator
+        self.assertEqual(set(plan_coordinator.PLAN_REVIEW_LENSES), set(review.DEPTH_ORDER))
+        self.assertEqual(plan_coordinator.DEPTH_ORDER, review.DEPTH_ORDER)
+        self.assertEqual(set(plan_coordinator.DEPTHS), set(self._protocol()["deliverable_review"]))
+        self.assertEqual(set(plan_coordinator.PLAN_REVIEW_LENSES),
+                         set(self._protocol()["deliverable_review"]))
+        # `quick` is the floor on both sides: it runs nobody.
+        self.assertEqual(plan_coordinator.PLAN_REVIEW_LENSES["quick"], [])
+        self.assertEqual(self._protocol()["deliverable_review"]["quick"], [])
         roster = [{"lens": l} for l in ("product-intent", "architecture", "feasibility", "risk-governance")]
-        self.assertEqual(len(review.required(proto, "plan", "standard", roster)), 4)
+        self.assertEqual(len(plan_coordinator.required_lenses("standard", roster)), 4)
 
 
 class TestAvailableDepths(unittest.TestCase):
@@ -194,45 +184,40 @@ class TestAvailableDepths(unittest.TestCase):
         return [{"lens": l} for l in lenses]
 
     def test_zero_lenses_collapses_to_quick_only(self):
-        got = review.available_depths(self._protocol(), self._roster(), self._roster(), self._EFFORTS)
+        got = review.available_depths(self._protocol(), self._roster(), self._EFFORTS)
         self.assertEqual(got, ["quick"])
 
     def test_full_roster_offers_all_three(self):
-        plan = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
         deliverable = self._roster("spec-conformance", "divergence-hunter", "usability",
                                    "technical-integrity", "security-governance")
-        got = review.available_depths(self._protocol(), plan, deliverable, self._EFFORTS)
+        got = review.available_depths(self._protocol(), deliverable, self._EFFORTS)
         self.assertEqual(got, ["quick", "standard", "thorough"])
 
     def test_effort_only_difference_still_offers_the_heavier_depth(self):
-        # Partial roster where standard's and thorough's lens-sets COINCIDE (full plan lenses + only the
-        # standard-subset deliverable lenses): the depths differ ONLY by effort, and the heavier depth is
-        # still offered because effort distinguishes them (architecture F1's genuine effort-only case).
-        plan = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
+        # A roster where standard's and thorough's lens-sets COINCIDE (only the standard-subset lenses are
+        # installed): the depths differ ONLY by effort, and the heavier one is still offered because effort
+        # distinguishes them (architecture F1's genuine effort-only case).
         deliverable = self._roster("spec-conformance", "divergence-hunter", "usability")
-        got = review.available_depths(self._protocol(), plan, deliverable, self._EFFORTS)
+        got = review.available_depths(self._protocol(), deliverable, self._EFFORTS)
         self.assertEqual(got, ["quick", "standard", "thorough"])
 
     def test_equal_effort_and_equal_lenses_collapses(self):
         flat = {"quick": None, "standard": "medium", "thorough": "medium"}
-        plan = self._roster("product-intent", "architecture", "feasibility", "risk-governance")
         deliverable = self._roster("spec-conformance", "divergence-hunter", "usability")
-        got = review.available_depths(self._protocol(), plan, deliverable, flat)
+        got = review.available_depths(self._protocol(), deliverable, flat)
         self.assertEqual(got, ["quick", "standard"])   # thorough adds neither lenses nor effort -> collapsed
 
     def test_one_standard_table_lens_offers_all_three(self):
         # A single installed reviewer whose lens IS in the standard table: standard adds that lens over quick,
         # and thorough adds effort over standard (same lens-set, higher effort) -> all three are distinct.
-        got = review.available_depths(self._protocol(), self._roster(),
-                                      self._roster("spec-conformance"), self._EFFORTS)
+        got = review.available_depths(self._protocol(), self._roster("spec-conformance"), self._EFFORTS)
         self.assertEqual(got, ["quick", "standard", "thorough"])
 
     def test_one_thorough_only_lens_skips_standard(self):
         # A single installed reviewer whose lens runs ONLY at thorough (security-governance is not in the
         # standard deliverable table): standard would run nothing the quick floor doesn't, so it collapses,
         # yet thorough still adds that lens -> the offer skips the middle depth entirely.
-        got = review.available_depths(self._protocol(), self._roster(),
-                                      self._roster("security-governance"), self._EFFORTS)
+        got = review.available_depths(self._protocol(), self._roster("security-governance"), self._EFFORTS)
         self.assertEqual(got, ["quick", "thorough"])
 
     def test_non_monotonic_tables_still_offer_a_depth_with_unique_coverage(self):
@@ -240,10 +225,10 @@ class TestAvailableDepths(unittest.TestCase):
         # non-monotonic — a lighter depth naming a lens a heavier depth's table omits — a depth that runs
         # genuinely unique coverage must still be OFFERED, never silently hidden (which would invert the
         # feature's purpose). Inert with the shipped monotonic tables; this guards a future table edit.
-        protocol = {"plan_review": {"quick": ["risk-governance"], "standard": ["product-intent"], "thorough": []},
-                    "deliverable_review": {"quick": [], "standard": [], "thorough": []}}
+        protocol = {"deliverable_review": {"quick": ["risk-governance"], "standard": ["product-intent"],
+                                          "thorough": []}}
         roster = self._roster("risk-governance", "product-intent")
-        got = review.available_depths(protocol, roster, self._roster(), self._EFFORTS)
+        got = review.available_depths(protocol, roster, self._EFFORTS)
         # standard runs product-intent, which quick (risk-governance) does not -> it must be offered, not hidden.
         self.assertIn("standard", got)
         self.assertEqual(got[0], "quick")   # quick is always the floor

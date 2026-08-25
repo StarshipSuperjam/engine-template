@@ -21,7 +21,13 @@ write a flattering story about the change.
    operator-runnable demonstration (or the real reason no observable demonstration exists).
 4. The Review record names the approved depth and checks performed in operator language. Disclose whether a
    reviewer executed code and that execution was confined to a discarded copy. Include reviewed and final
-   commits, measured divergence, the proportional re-review judgment, and any focused result.
+   commits, measured divergence, the proportional re-review judgment, and any focused result. When the plan
+   belongs to a multi-PR program, the record also carries what that plan owed its predecessor and what it did
+   about each obligation — satisfied, still carried, or released with the reason it was let go. That guarantee
+   is enforced where plans are written, which is a place the operator approving the merge never looks, so the
+   same record is rendered here; a release in particular spends the operator's trust and its reason belongs in
+   the operator's own view. The coordinator composes these lines from the sealed plan record, never from Build
+   state, so nothing in the Build's receipt bookkeeping can drop one.
 5. Report each applicable conditional lane exactly (the unresolved-conversation guidance is no longer folded
    into every pull request — it is surfaced only when a merge is actually blocked; see the blocked-merge
    recovery path in [boot-session-start.md](boot-session-start.md)):

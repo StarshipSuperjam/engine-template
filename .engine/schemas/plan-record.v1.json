@@ -113,7 +113,11 @@
         "severity": {"enum": ["blocking", "serious", "nit"]},
         "summary": {"type": "string", "minLength": 1},
         "disposition": {"enum": ["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]},
-        "rationale": {"type": "string", "minLength": 1}
+        "rationale": {"type": "string", "minLength": 1},
+        "operator_summary": {"type": "string", "minLength": 1,
+                             "description": "The operator-safe sentence published on the merge surface. Required by `finding dispose` when a BLOCKING finding is not left blocking, because that is the disagreement an operator must meet at merge rather than discover afterwards."},
+        "blocks_this_pr": {"type": "boolean",
+                           "description": "Whether this plan finding still blocks the pull request it authorized. Recorded here rather than mirrored into Build state, so the disclosure cannot be stripped by the Build's own receipt bookkeeping."}
       }
     },
     "seal": {

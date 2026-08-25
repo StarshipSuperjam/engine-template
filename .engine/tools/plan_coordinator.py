@@ -40,17 +40,136 @@ import plan_store
 
 PlanCoordinatorError = plan_store.PlanStoreError
 
-# Review depths, offered only after a full render. The names match the Build side's own vocabulary so
-# an operator meets one set of words across both coordinators.
+# Review depths, offered only after a full render. ONE vocabulary across both coordinators: the depth
+# chosen here is the depth the Build's deliverable review runs at, so the operator consents once, at
+# plan approval, and that consent covers both gates.
+#
+# DEPTH SELECTS REVIEWERS AND NOTHING ELSE. It never selects the plan's FORMAT and never selects its
+# GRAPH TOPOLOGY: the document is engine-plan.v1 and the payload build-plan.v2 at every depth, the
+# nodes and their dependencies are whatever was authored, and both digests are byte-identical across
+# depths. Stated here and pinned by test rather than left as an obvious-sounding property, because the
+# tempting shortcut is real and would be quiet — letting `quick` accept a thinner document, or fold a
+# graph into a chain "since nobody is reviewing it anyway", would make how carefully a plan is read
+# decide what the plan IS. Depth is how much scrutiny the operator asked for; it is never a discount
+# on the artifact.
 DEPTHS = {
-    "light": "One architecture lens. For a plan whose shape is already settled and whose risk is low.",
-    "standard": "Architecture, feasibility, product intent, risk and governance — the four-lens panel.",
-    "thorough": "The four-lens panel, with security-governance and technical-integrity added at the "
-                "deliverable stage. For a plan that touches secrets, data durability, or a guardrail.",
+    "quick": "No cold reviewers on either side — your own read of the plan plus the automatic checks.",
+    "standard": "Architecture, feasibility, product intent, risk and governance — the four-lens panel "
+                "before the seal, and three deliverable lenses after the build.",
+    "thorough": "The same four-lens panel at higher effort, and five deliverable lenses after the "
+                "build. For a plan that touches secrets, data durability, or a guardrail.",
+}
+DEPTH_ORDER = ("quick", "standard", "thorough")
+
+# Which lenses each depth requires, homed HERE because the panel is here. It left `.engine/build-protocol.json`
+# with the panel itself: a Build protocol declaring a review the Build does not run is a table nobody reads
+# and everybody can misread. The two coordinators must still speak one depth vocabulary, and that is pinned
+# by test rather than by sharing a file — `quick` is the floor on both sides, and `thorough` widens to the
+# whole installed roster on both sides.
+PLAN_REVIEW_LENSES = {
+    "quick": [],
+    "standard": ["product-intent", "architecture", "feasibility", "risk-governance"],
+    "thorough": ["product-intent", "architecture", "feasibility", "risk-governance"],
 }
 
 
 _now = moment.utc_now
+
+
+def installed_lenses(root: Path | None = None) -> list[dict]:
+    """The plan-review reviewers actually installed here, by lens.
+
+    Moved from the Build side with the panel. What matters is that the roster is DISCOVERED — a depth
+    cannot require a lens nobody installed, and the coverage gate below cannot demand one either.
+    """
+    base = Path(root) if root is not None else Path(__file__).resolve().parents[2]
+    found: dict[str, dict] = {}
+    for path in sorted((base / ".claude" / "agents").glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            continue
+        front = text.split("---\n", 2)[1]
+        fields = {}
+        for line in front.splitlines():
+            if ":" in line:
+                key, value = line.split(":", 1)
+                fields[key.strip()] = value.strip()
+        if fields.get("role") == "plan-review" and fields.get("lens"):
+            lens = fields["lens"]
+            if lens in found:
+                raise PlanCoordinatorError(f"more than one installed reviewer declares lens {lens}")
+            found[lens] = {"lens": lens, "path": str(path.relative_to(base)),
+                           "digest": core.digest(path.read_bytes()),
+                           "effort": fields.get("effort")}
+    return [found[lens] for lens in sorted(found)]
+
+
+def required_lenses(depth: str, roster: list[dict], protocol: dict | None = None) -> list[str]:
+    """The lenses a review at this depth must cover. Intersected with what is installed, never invented.
+
+    This is the rule BC-12 protected on the Build side — approved reviewer coverage cannot be silently
+    omitted — and it comes across with the panel as a SEAL gate rather than a submission gate.
+    """
+    table = protocol or PLAN_REVIEW_LENSES
+    if depth not in table:
+        raise PlanCoordinatorError(f"unknown review depth {depth!r}")
+    allowed = {item["lens"] for item in roster} if depth == "thorough" else set(table[depth])
+    return [item["lens"] for item in roster if item["lens"] in allowed]
+
+
+_EFFORT_RANK = {None: -1, "low": 0, "medium": 1, "high": 2}
+BINDINGS_PATH = Path(__file__).resolve().parents[2] / ".engine" / "policies" / "model-bindings.json"
+
+
+def resolved_efforts(root: Path | None = None) -> dict:
+    """Each depth's RESOLVED reviewer effort — the deployment's override over the shipped default.
+
+    Not a second table. This is the same single depth dial the Build side reads, so an operator asked
+    to choose a depth here is told the effort they will actually get.
+    """
+    import agent_bindings
+    base = str(Path(root) if root is not None else Path(__file__).resolve().parents[2])
+    bindings = core.json_file(Path(base) / ".engine" / "policies" / "model-bindings.json")
+    return {depth: agent_bindings.depth_effort(depth, bindings, root=base) for depth in DEPTH_ORDER}
+
+
+def available_depths(roster: list[dict], protocol: dict | None = None,
+                     efforts: dict | None = None) -> list[str]:
+    """Which depths to OFFER, so the operator is never asked to choose one that buys nothing.
+
+    The 763/677 protection, moved with the consent surface. A depth is offered when, against the last
+    offered lighter one, it covers at least one lens the lighter one does not, OR the same non-empty
+    lens set at higher reviewer effort. Empty-versus-empty never distinguishes, so with no reviewers
+    installed only `quick` is offered. `quick` is always offered: it is the floor.
+    """
+    protocol = protocol or PLAN_REVIEW_LENSES
+    efforts = resolved_efforts() if efforts is None else efforts
+    offered: list[str] = []
+    last: tuple[frozenset, str | None] | None = None
+    for depth in DEPTH_ORDER:
+        lenses = frozenset(required_lenses(depth, roster, protocol))
+        effort = efforts.get(depth)
+        if last is None:
+            offered.append(depth)
+            last = (lenses, effort)
+            continue
+        last_lenses, last_effort = last
+        if (lenses - last_lenses) or (lenses == last_lenses and lenses
+                                      and _EFFORT_RANK.get(effort, -1) > _EFFORT_RANK.get(last_effort, -1)):
+            offered.append(depth)
+            last = (lenses, effort)
+    return offered
+
+
+def coverage_gap(depth: str, recorded_lenses: list[str], roster: list[dict] | None = None,
+                 protocol: dict | None = None) -> list[str]:
+    """Lenses the approved depth requires that the recorded review did not run.
+
+    A non-empty answer is what makes "a sealed plan is a reviewed one" TRUE rather than assumed. The
+    one-lens-seals-at-thorough hole is exactly what this closes.
+    """
+    roster = installed_lenses() if roster is None else roster
+    return [lens for lens in required_lenses(depth, roster, protocol) if lens not in set(recorded_lenses)]
 
 
 def _library(args) -> plan_store.PlanLibrary:
@@ -175,10 +294,11 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
     if status == "active":
         return "nothing here — the Build this plan authorized is running."
     if status == "sealed":
-        return ("this plan is sealed and read-only. Handing a sealed plan to a Build is not wired up "
-                "yet — the Build Coordinator still takes whatever plan a session hands it — so for now the "
-                "seal is the record that this plan was reviewed and settled. To keep working on the "
-                "idea, `clone` it into a new plan.")
+        return (f"this plan is sealed and read-only, and a sealed plan is now the only thing a Build "
+                f"runs on. Open a draft pull request for the work, then hand this plan to it:\n"
+                f"    build_coordinator.py --state <snapshot> plan bind --plan {record['plan_id']} "
+                f"--repository <owner/repo> --pr <number>\n"
+                f"  To keep working on the idea instead, `clone` it into a new plan — a seal is terminal.")
     if status == "review-recorded":
         outstanding = [f for f in (record["plan_review"] or {}).get("findings", [])
                        if not f.get("disposition")]
@@ -238,9 +358,26 @@ def cmd_depths(args) -> int:
             f"review depth FOR. Run `preview {args.plan}` first. (Approving a depth for a plan nobody "
             "has read is the failure this refusal exists to prevent.)")
     blockers = plan_contract.seal_blockers(library.head(slug))
-    print(f"review depths for {record['plan_id']} at revision {record['current']['revision']}:\n")
-    for name, description in DEPTHS.items():
-        print(f"  {name:<10} {description}")
+    roster = installed_lenses()
+    efforts = resolved_efforts()
+    offered = available_depths(roster, efforts=efforts)
+    print(f"review depths for {record['plan_id']} at revision {record['current']['revision']}")
+    print("(only those that add coverage or effort over a lighter one):\n")
+    for name in offered:
+        lenses = required_lenses(name, roster)
+        print(f"  {name:<10} {DEPTHS[name]}")
+        effort = efforts.get(name)
+        if lenses:
+            print(f"             lenses: {', '.join(lenses)}"
+                  + (f" — reviewer effort {effort}" if effort else ""))
+        else:
+            print("             no cold plan reviewers; your own read is the review")
+    suppressed = [d for d in DEPTH_ORDER if d not in offered]
+    if suppressed:
+        print("\nnot offered, because it would run what a lighter depth already runs: "
+              + ", ".join(suppressed))
+    if not roster:
+        print("no plan-review reviewers are installed here, so only your own read is available")
     if blockers:
         print("\nnote: this plan is not sealable yet, so a review now would review a moving target:")
         for blocker in blockers:
@@ -388,6 +525,26 @@ def cmd_approve(args) -> int:
     if args.depth not in DEPTHS:
         raise PlanCoordinatorError(f"unknown review depth {args.depth!r}; choose one of "
                                    + ", ".join(DEPTHS))
+    # Re-approving at a DIFFERENT depth once a review exists would leave that review in place while the
+    # seal's coverage check moved to the new depth's roster. Downgrade far enough and the roster empties,
+    # so a review that covered one lens of four sails through — and the pull request, which reads this
+    # review live, then tells the operator a cold panel read the plan. The review cannot be dropped to
+    # make room either: exactly one review per plan is what stops the re-review spiral. So the depth is
+    # what holds still.
+    reviewed = record.get("plan_review")
+    if reviewed and args.depth != record["approval"]["depth"]:
+        raise PlanCoordinatorError(
+            f"this plan was approved at {record['approval']['depth']} depth and has already been "
+            f"reviewed at it, so it cannot be re-approved at {args.depth}: the review that ran would "
+            "stay attached while the seal started asking a different question of it. A recorded review "
+            "cannot be unseen, and there is exactly one per plan. Seal at the depth you were reviewed "
+            "at, or clone the plan and choose the depth before the review.")
+    roster = installed_lenses()
+    if args.depth not in available_depths(roster):
+        raise PlanCoordinatorError(
+            f"{args.depth} is not offered here: with this repository's installed reviewers it would run "
+            "exactly what a lighter depth runs, so choosing it would spend consent on nothing. Run "
+            f"`depths {args.plan}` to see what is actually on offer.")
     revision = record["current"]["revision"]
 
     def approve(current):
@@ -397,7 +554,13 @@ def cmd_approve(args) -> int:
                                "depth": args.depth, "at": _now()}
 
     library.update_record(slug, approve, expected_revision=revision)
+    covering = required_lenses(args.depth, roster)
     print(f"approved revision {revision} of {record['plan_id']} at {args.depth} depth")
+    if covering:
+        print(f"  the seal will require these lenses: {', '.join(covering)}")
+    else:
+        print("  no cold plan reviewers at this depth — your own read is the review")
+    print("  the Build's deliverable review runs at this same depth; consent is given once, here")
     print(f"  bound to {digest}")
     print("\nnext: run the one cold plan review against this revision.")
     return 0
@@ -423,9 +586,11 @@ def cmd_review_packet(args) -> int:
     document = library.head(slug)
     packet = plan_projection.render_plan(document, record)
     packet_digest = core.digest(packet.encode("utf-8"))
+    covering = required_lenses(approval["depth"], installed_lenses())
     header = (f"Plan review packet — {record['plan_id']} revision {record['current']['revision']}\n"
               f"Plan digest: {record['current']['plan_digest']}\n"
               f"Packet digest: {packet_digest}\n"
+              f"Required lenses: {', '.join(covering) or 'none at this depth'}\n"
               f"Depth: {approval['depth']} — {DEPTHS[approval['depth']]}\n"
               + "=" * 78 + "\n\n")
     if args.output:
@@ -447,6 +612,15 @@ def cmd_review_record(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
+    # The seal freezes the review surface, not merely the plan text. At a depth that requires no cold
+    # lenses a plan seals with no review at all, so "a review already exists" does not stand in for this
+    # check: without it, a review — findings, dispositions and all — could be written onto a plan that
+    # was already sealed, and the Build would read it live at compose time as though it had been there.
+    if record.get("seal"):
+        raise PlanCoordinatorError(
+            "this plan is sealed, and its review is what the pull request publishes — a review recorded "
+            "now would appear at merge as though it had been read before the plan was locked. Reviews "
+            "belong before the seal. If this plan needs one, clone it and review the clone.")
     if record.get("plan_review"):
         existing = record["plan_review"]
         raise PlanCoordinatorError(
@@ -465,6 +639,24 @@ def cmd_review_record(args) -> int:
     findings = json.loads(core.input_text(args.findings)) if args.findings else []
     if not args.lens:
         raise PlanCoordinatorError("name at least one lens the review was run through")
+    # Record-time verification of the packet digest, moved from the Build side with the panel. A receipt
+    # that names a digest nobody can reproduce vouches for nothing; this re-renders the packet for the
+    # APPROVED revision and refuses a receipt that does not match it, so the digest in the record is a
+    # fact rather than a claim.
+    rendered = plan_projection.render_plan(library.head(slug), record)
+    expected = core.digest(rendered.encode("utf-8"))
+    if args.packet_digest != expected:
+        raise PlanCoordinatorError(
+            f"this receipt names packet digest {args.packet_digest}, but the packet for the approved "
+            f"revision {approval['revision']} renders to {expected}. Either the receipt came from a "
+            "different packet than the one approved, or the packet was edited after it was cut — "
+            "re-cut it with `review packet` and re-run the lenses against what it actually says.")
+    # The coverage the approved depth demands is checked here too, not only at the seal, so the gap is
+    # surfaced while the reviewers are still warm rather than at the terminal act.
+    gap = coverage_gap(approval["depth"], list(args.lens))
+    if gap:
+        print(f"note: the approved {approval['depth']} depth also requires {', '.join(gap)}; the seal "
+              "will refuse until those lenses are covered.", file=sys.stderr)
     review = {
         "revision": approval["revision"],
         "plan_digest": approval["plan_digest"],
@@ -477,6 +669,10 @@ def cmd_review_record(args) -> int:
         # INSIDE the lock. Recording a review does not mint a revision, so the compare-and-swap on
         # `current.revision` cannot catch a concurrent second review — only re-checking here can, and
         # "exactly one review per plan" is worth exactly as much as this line.
+        if current.get("seal"):
+            raise PlanCoordinatorError(
+                "this plan was sealed while the review was being prepared; a seal is terminal and the "
+                "review it published is the one the pull request carries")
         if current.get("plan_review"):
             raise PlanCoordinatorError(
                 "another session recorded a plan review while this one was being prepared, and there "
@@ -496,6 +692,18 @@ def cmd_finding_dispose(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
+    # A seal freezes the dispositions too, not merely the plan text. The Build reads this review LIVE from
+    # the record when it composes the pull request, which is what makes a plan-review disagreement immune
+    # to the Build's own receipt-supersession rule — but reading live from a record that stayed editable
+    # would relocate the silent drop rather than close it: a finding left honestly blocking at seal could
+    # be turned into "rejected, no issue" any time before compose, and the operator would meet the edited
+    # version at merge with nothing showing it had changed.
+    if record.get("seal"):
+        raise PlanCoordinatorError(
+            "this plan is sealed, and a seal freezes its review dispositions as well as its text — the "
+            "pull request publishes them as they stood when you sealed. If a disposition is genuinely "
+            "wrong, clone this plan into a new one and disposition it there rather than editing a "
+            "sealed record.")
     review = record.get("plan_review")
     if not review:
         raise PlanCoordinatorError("no plan review is recorded, so there is nothing to disposition")
@@ -503,12 +711,29 @@ def cmd_finding_dispose(args) -> int:
     if not match:
         known = ", ".join(f["id"] for f in review.get("findings", [])) or "none"
         raise PlanCoordinatorError(f"no finding {args.id!r} in this review; it holds: {known}")
+    blocks = bool(args.blocks_this_pr)
+    # The disclosure rule the Build side already enforced, arriving with the panel: a BLOCKING finding
+    # that the orchestrator decides should not block needs an operator-safe sentence, because that
+    # decision is a disagreement the operator meets at merge. Without one there is nothing honest to
+    # publish, and "no summary recorded" on the merge surface is how a real objection disappears.
+    if match[0]["severity"] == "blocking" and not blocks and not args.operator_summary:
+        raise PlanCoordinatorError(
+            f"{args.id} is a BLOCKING finding you are not leaving blocking. That is a disagreement the "
+            "operator has to be able to read at merge, so it needs a safe, operator-facing sentence: "
+            "pass --operator-summary.")
 
     def change(current):
+        if current.get("seal"):          # re-asserted inside the lock, not from the copy above
+            raise PlanCoordinatorError(
+                "this plan was sealed while you were dispositioning; a seal is terminal and freezes the "
+                "dispositions the pull request will publish")
         for finding in current["plan_review"]["findings"]:
             if finding["id"] == args.id:
                 finding["disposition"] = args.disposition
                 finding["rationale"] = args.rationale
+                finding["blocks_this_pr"] = blocks
+                if args.operator_summary:
+                    finding["operator_summary"] = args.operator_summary
     library.update_record(slug, change)
     outstanding = [f["id"] for f in library.read_record(slug)["plan_review"]["findings"]
                    if not f.get("disposition")]
@@ -547,12 +772,28 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
             f"the approval covers revision {approval['revision']} but the plan changed before it was "
             "ever reviewed, so nothing reviewed reflects what was approved; re-preview and re-approve")
     review = record.get("plan_review")
+    depth = (approval or {}).get("depth")
+    # The coverage rule moves here WITH the panel. On the Build side this was BC-12's "approved reviewer
+    # coverage cannot be silently omitted", enforced at submission; here it is a seal gate, which is what
+    # makes "a sealed plan is by definition a reviewed one" true rather than assumed. At `quick` the
+    # roster is empty by the operator's own choice at approval, and their read IS the review — so the
+    # demand for a recorded review is keyed on the roster, not asserted regardless of the depth chosen.
+    required = required_lenses(depth, installed_lenses()) if depth in DEPTHS else []
     if not review:
-        refusals.append("no cold plan review has been recorded; a sealed plan is by definition a "
-                        "reviewed one")
+        if required:
+            refusals.append("no cold plan review has been recorded, and the approved depth requires "
+                            + ", ".join(required))
     elif approval and review["revision"] != approval["revision"]:
         refusals.append(f"the review covers revision {review['revision']} but the approval covers "
                         f"revision {approval['revision']}")
+    if review and required:
+        gap = coverage_gap(depth, review.get("lenses", []))
+        if gap:
+            refusals.append(
+                f"the review covers {', '.join(review.get('lenses', [])) or 'no lenses'}, but the "
+                f"approved {depth} depth requires {', '.join(required)}: missing {', '.join(gap)}. "
+                "Run the missing lenses and record them, or re-approve at a depth that matches what "
+                "you actually intend to run.")
     if review:
         outstanding = [f["id"] for f in review.get("findings", []) if not f.get("disposition")]
         if outstanding:
@@ -579,15 +820,18 @@ def cmd_seal(args) -> int:
 
     record = library.read_record(slug)
     document = library.head(slug)
-    reviewed_digest = record["plan_review"]["plan_digest"]
+    # At a depth that requires no cold lenses there is no review record, and the reviewed digest IS the
+    # approved one — the operator's own read at approval is what the seal records having covered.
+    review = record.get("plan_review")
+    reviewed_digest = review["plan_digest"] if review else record["approval"]["plan_digest"]
     sealed_digest = record["current"]["plan_digest"]
     changed = reviewed_digest != sealed_digest
     if changed and not args.delta_judgment:
         raise PlanCoordinatorError(
-            f"the plan changed after its review (reviewed revision {record['plan_review']['revision']}, "
+            f"the plan changed after it was read (read at revision {(review or record['approval'])['revision']}, "
             f"sealing revision {record['current']['revision']}). That is the expected shape — fixes fold "
             "in as revisions — but the delta needs one proportional judgment before it locks. Read it "
-            f"with `diff {args.plan} --from {record['plan_review']['revision']} --to "
+            f"with `diff {args.plan} --from {(review or record['approval'])['revision']} --to "
             f"{record['current']['revision']}`, then seal with --delta-judgment none or scoped.")
     if args.delta_judgment == "scoped" and not args.delta_rationale:
         raise PlanCoordinatorError("a scoped delta judgment needs a rationale saying what changed and "
@@ -730,6 +974,137 @@ def cmd_clone(args) -> int:
     plan_projection.project_library(library)
     print(f"cloned {source_id} into {document['plan_id']} at {library.plan_dir(new_slug)}")
     print("It carries no approval, no review and no seal — none of that was granted for this document.")
+    return 0
+
+
+# --- importing an accepted native plan --------------------------------------
+#
+# Both runtimes end up here. On Claude the operator accepts a plan and the plan-exit PostToolUse hook
+# calls this with the accepted document; on Codex the operator prefixes a prompt with the acceptance
+# envelope and the UserPromptSubmit hook calls this with the rest of the prompt. One import, one
+# result, one arrival report — the adapters differ only in where the text came from.
+#
+# GROUNDWORK, NOT BYPASS AND NOT RESTART. What lands is an unapproved draft revision 1: no approval,
+# no review, no seal, and no Build authority of any kind. The native text is kept verbatim as the raw
+# intent, because the gap between what was said and what anyone made of it is the thing a reviewer
+# needs; nothing here interprets it, decomposes it, or writes deliberation prose on its behalf. The
+# payload is `build-plan.imported`, whose schema forbids a non-empty decomposition, and the four
+# things an import cannot know are written down as unresolved decisions, which the seal refuses while
+# any remain. So an import moves a plan onto the shelf and moves nobody any closer to building it —
+# which is the honest position, and the reason this is safe to run from a hook.
+
+NATIVE_PLAN_ENVELOPE = "PLEASE IMPLEMENT THIS PLAN:"
+
+_IMPORTED_INTERPRETATION = (
+    "Not interpreted. This plan arrived as an accepted native plan and was imported verbatim; no one "
+    "has yet restated what it is asking for, and this sentence is a placeholder for that work, not a "
+    "summary of it.")
+
+_IMPORTED_GAPS = (
+    "What is this plan actually asking for? The imported text is the raw intent; nothing has restated "
+    "it as an interpretation the operator can confirm or correct.",
+    "What problem does it solve, and for whom? The import wrote no problem frame.",
+    "What is the strongest honest case AGAINST doing this? The import wrote none, and a placeholder "
+    "would be worse than the gap.",
+    "How does it decompose into work? The imported payload is empty by construction; a real "
+    "build-plan.v2 payload has to be authored before this plan can be sealed.",
+)
+
+
+def _imported_title(text: str) -> str:
+    """A title lifted from the imported text, never invented. The first markdown heading if there is
+    one, else the first non-blank line; a document with neither gets a plainly generic name rather
+    than a guess dressed up as a title."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            line = line.lstrip("#").strip()
+        if not line:
+            continue
+        return line[:120].rstrip() if len(line) > 120 else line
+    return "Imported plan"
+
+
+def import_native_plan(text: str, *, provenance: str,
+                       library: plan_store.PlanLibrary | None = None) -> dict:
+    """Import an accepted native plan as an unapproved draft. Returns the arrival facts.
+
+    Raises PlanCoordinatorError when there is nothing to import. Callers running inside a hook treat
+    that as no-import-and-carry-on: an acceptance that imports nothing must never cost the operator
+    their turn, and a session that cannot reach its plan library is still a session that can talk.
+    """
+    text = text if isinstance(text, str) else ""
+    if not text.strip():
+        raise PlanCoordinatorError("there is no plan text to import")
+    library = library or plan_store.PlanLibrary()
+    now = _now()
+    document = {
+        "schema_version": "engine-plan.v1",
+        "plan_id": plan_store.mint_plan_id(),
+        "title": _imported_title(text),
+        "revision": 1,
+        "created_at": now,
+        "revised_at": now,
+        "revision_note": "Imported verbatim from an accepted native plan. Nothing interpreted, "
+                         "nothing decomposed, nothing deliberated.",
+        "intent": {"raw": text, "interpretation": _IMPORTED_INTERPRETATION, "source": {"kind": "direct"}},
+        "deliberation": {
+            "problem_frame": "",
+            "case_against": "",
+            "alternatives": [],
+            "failure_modes": [],
+            "unresolved_decisions": list(_IMPORTED_GAPS),
+        },
+        "intake": {"provenance": provenance},
+        "build_plan": {"schema_version": plan_contract.IMPORTED_BUILD_PLAN_VERSION, "work_items": []},
+    }
+    slug = library.create(document, intake={"provenance": provenance})
+    plan_projection.project_library(library)
+    return {
+        "plan_id": document["plan_id"],
+        "revision": 1,
+        "slug": slug,
+        "title": document["title"],
+        "folder": str(library.plan_dir(slug)),
+        "next_command": f"python tools/plan_coordinator.py preview --plan {document['plan_id']}",
+    }
+
+
+def arrival_report(arrival: dict) -> str:
+    """What the session says after an import — the whole point of grading arrival, not just departure.
+
+    An operator who accepts a plan and is then handed a write refusal has been told the engine is
+    broken. So this names what happened, what did NOT happen, and the one command that moves it
+    forward, and it is explicitly for relaying: unlike the stance directive it replaces, its whole
+    job is to reach the operator.
+    """
+    return (
+        f"The plan you just accepted was imported into the Plan Coordinator as {arrival['plan_id']}, "
+        f"revision {arrival['revision']} — an unapproved draft titled \"{arrival['title']}\". "
+        "Your stance did not change and nothing was built: an imported draft carries no approval, no "
+        "review, no seal and no Build authority. Tell the operator this in your own words now, "
+        "including the next command, so they are not left guessing why nothing happened. "
+        f"The next command is: {arrival['next_command']} — reading the plan whole is what unlocks the "
+        "depth choice (`depths`, then `approve --depth ...`), which is where the operator sees the "
+        "risk assessment and says how careful the reviews should be. The imported payload is empty "
+        "by construction, so a real build-plan.v2 payload still has to be authored before this plan "
+        "can be sealed and handed to a Build.")
+
+
+def cmd_import_native(args) -> int:
+    """The typed recovery path. The hooks are the ordinary door; this exists for the two ways a hook
+    can be unavailable — an acceptance envelope the handler no longer recognizes, and a Codex
+    registration the operator has not re-trusted — so a drifted platform costs an extra command
+    rather than the whole capability."""
+    library = _library(args)
+    arrival = import_native_plan(core.input_text(args.input),
+                                 provenance=args.provenance, library=library)
+    print(f"imported {arrival['plan_id']} revision {arrival['revision']} at {arrival['folder']}")
+    print(f"  title       {arrival['title']}")
+    print("  status      draft — unapproved, unreviewed, unsealed, and carrying an empty payload")
+    print(f"  next        {arrival['next_command']}")
     return 0
 
 
@@ -1083,6 +1458,14 @@ def build_parser() -> argparse.ArgumentParser:
                          choices=["accepted-fixed", "accepted-tracked", "partially-accepted",
                                   "rejected", "escalated"])
     dispose.add_argument("--rationale", required=True)
+    blocking = dispose.add_mutually_exclusive_group()
+    blocking.add_argument("--blocks-this-pr", action="store_true",
+                          help="this finding still blocks the pull request the plan authorizes")
+    blocking.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr",
+                          help="the default: dispositioned and not blocking")
+    dispose.add_argument("--operator-summary",
+                         help="The operator-safe sentence published on the merge surface. Required when a "
+                              "BLOCKING finding is not left blocking.")
     dispose.set_defaults(func=cmd_finding_dispose)
 
     seal = sub.add_parser("seal", help="the terminal act — nothing locks before it")
@@ -1126,6 +1509,15 @@ def build_parser() -> argparse.ArgumentParser:
     importer = sub.add_parser("import", help="read a bundle back, verifying every digest first")
     importer.add_argument("--bundle", required=True)
     importer.set_defaults(func=cmd_import)
+
+    import_native = sub.add_parser(
+        "import-native",
+        help="import an accepted native plan as an unapproved draft — the recovery path when a hook cannot")
+    import_native.add_argument("--input", required=True, help="the native plan text, or - for stdin")
+    import_native.add_argument("--provenance", required=True,
+                               help="where this text came from, in plain words — an import with no "
+                                    "provenance is a plan nobody can trace")
+    import_native.set_defaults(func=cmd_import_native)
 
     redact = sub.add_parser("redact", help="excise one revision's body, keeping the chain honest")
     redact.add_argument("plan")

@@ -213,8 +213,7 @@ class StateStore(core.StateStore):
 
 def _empty_review() -> dict:
     return {"packet_digest": None, "referent_digest": None, "required_lenses": [], "installed_lenses": [],
-            "reviewer_contracts": [], "receipts": [], "reviewed_commit": None, "base_commit": None,
-            "waiver": None}
+            "reviewer_contracts": [], "receipts": [], "reviewed_commit": None, "base_commit": None}
 
 
 # After this many repair rounds on one deliverable, the next round stops for operator guidance. Two is
@@ -223,26 +222,32 @@ def _empty_review() -> dict:
 _REPAIR_ROUND_ESCALATION = 2
 
 
-def _initial_state(repo: str, pr: int, base: str, source: str, plan: dict, issue: int | None,
-                   mode: str = "same-session") -> dict:
+def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: str, plan: dict,
+                   issue: int | None, mode: str = "same-session") -> dict:
     state = {
         "schema_version": "build-state.v1", "revision": 1,
         "build": {"repository": repo, "pr": pr, "base_at_bind": base, "mode": mode},
-        "plan": {"source": source, "digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
-                 "spec_digest": None, "durable_issue": issue, "profile": plan["profile"],
-                 "bound_head": _head(), "promotion_nonce": None},
-        "approval": None, "reviews": {"plan": _empty_review(), "deliverable": _empty_review()},
+        # The plan of record is the sealed library plan, named by id and by the digest its seal minted.
+        # `digest` remains the executed build payload's digest: equal to the sealed payload at bind, and
+        # the thing every later `--plan` assertion is checked against.
+        "plan": {"plan_id": plan_id, "sealed_digest": sealed_digest, "diverged_from_seal": False,
+                 "digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
+                 "spec_digest": None, "authorizing_issue": issue, "profile": plan["profile"],
+                 "bound_head": _head()},
+        "approval": None, "reviews": {"deliverable": _empty_review()},
         "findings": [], "checkpoint": None, "progress": {"current_item": None, "completed": []},
         "validation": None, "repair": None,
         # Cost-cadence ledgers. Both are cross-revision by design and are carried through handoff:
         # a cap a cold resume silently zeroes is a cap with a published bypass.
-        "plan_panels": [], "repair_rounds": [], "plan_change_escalations": [], "reconciles": [],
+        "repair_rounds": [], "plan_change_escalations": [], "reconciles": [],
         "preflights": [], "pr_contract": None, "submission": "draft",
         "checkout_snapshot": None
     }
-    if _plan_version(plan) == "build-plan.v2":
-        state["schema_version"] = "build-state.v2"
-        state["work"] = {}
+    # Always v2. A build-state.v1 snapshot can no longer come into existence, because a v1 plan can no
+    # longer enter a Build; the v1 snapshot schema and its dispatch stay only so an old file still reads
+    # cleanly enough to be refused by name, and the v1 sunset in the successor plan removes them.
+    state["schema_version"] = "build-state.v2"
+    state["work"] = {}
     return state
 
 
@@ -256,38 +261,18 @@ def _issue_body(repo: str, issue: int) -> str:
     return github.issue_body(ROOT, repo, issue)
 
 
-def _plan_block(plan: dict) -> str:
-    return github.plan_block(plan)
+# The Issue-body plan block and its publication helpers are gone from this coordinator's surface: a plan
+# now enters a Build only through a sealed plan in the local library, so nothing here writes a plan to
+# GitHub or reads one back. The marker helpers themselves still live in build_coordinator_github, where
+# the v1 sunset in the successor plan removes them together with the v1 schemas they serve.
 
 
-def _replace_plan_block(body: str, plan: dict) -> str:
-    return github.replace_plan_block(body, plan)
+def _installed() -> list[dict]:
+    return review.installed(ROOT)
 
 
-def _durable_plan(body: str) -> dict:
-    return github.durable_plan(body, plan_schema=PLAN_SCHEMAS)
-
-
-def _publish_issue(repo: str, issue: int, plan: dict) -> None:
-    github.publish_issue(ROOT, repo, issue, plan, plan_schema=PLAN_SCHEMAS)
-
-
-def _create_build_issue(repo: str, pr: int, title: str, plan: dict, nonce: str) -> int:
-    return github.create_or_resume_build_issue(
-        ROOT, repo, pr, title, plan, nonce, plan_schema=PLAN_SCHEMAS,
-    )
-
-
-def _ensure_pr_closes_issue(repo: str, pr: int, issue: int) -> None:
-    github.ensure_pr_closes_issue(ROOT, repo, pr, issue)
-
-
-def _installed(stage: str) -> list[dict]:
-    return review.installed(ROOT, stage)
-
-
-def _required(protocol: dict, stage: str, depth: str, installed: list[dict]) -> list[dict]:
-    return review.required(protocol, stage, depth, installed)
+def _required(protocol: dict, depth: str, installed: list[dict]) -> list[dict]:
+    return review.required(protocol, depth, installed)
 
 
 def _missing_findings(state: dict) -> list[str]:
@@ -298,32 +283,18 @@ def _missing_receipts(stage: dict) -> list[str]:
     return review.missing_receipts(stage)
 
 
-def _plan_review_ready(state: dict, plan: dict) -> tuple[bool, list[str]]:
-    ready, missing = review.plan_review_ready(state, plan)
-    stage = state["reviews"]["plan"]
-    waiver = stage.get("waiver")
-    trivial = plan["profile"] == "trivial" and (state.get("approval") or {}).get("depth") == "quick"
-    # The escalation belongs in this bypass too: a revision empties reviewer_contracts, so the freshness
-    # comparison below can never be satisfied afterwards and would wall the Build permanently. It carries no
-    # depth binding (unlike a waiver) because it is recorded at the moment a revision CLEARS approval, so
-    # there is no depth to bind -- the operator re-approves depth immediately after, as their own act.
-    if waiver or trivial or not state.get("approval") or review.plan_change_escalation(state):
-        return ready, missing
-    current = _required(_protocol(), "plan", state["approval"]["depth"], _installed("plan"))
-    recorded = {item["lens"]: (item["path"], item["digest"])
-                for item in stage.get("reviewer_contracts", [])}
-    changed = [item["lens"] for item in current
-               if recorded.get(item["lens"]) != (item["path"], item["digest"])]
-    missing.extend(f"refresh plan-review contract: {lens}" for lens in changed)
-    return not missing, missing
+# `_plan_review_ready` is gone, and with it the checkpoint and validate gates that called it. A Build
+# can no longer begin against an unreviewed plan, because it can no longer BEGIN against an unsealed one:
+# `plan bind` refuses anything without a seal, and a seal refuses a review that does not cover its
+# approved depth. The gate did not weaken; it moved upstream of the Build entirely.
 
 
 def _trivial_violations(state: dict, plan: dict) -> list[str]:
     if plan["profile"] != "trivial":
         return []
     violations = []
-    if state["build"]["mode"] != "same-session" or state["plan"]["source"] != "session":
-        violations.append("the Build is no longer same-session and session-local")
+    if state["build"]["mode"] != "same-session":
+        violations.append("the Build is no longer same-session")
     if len(plan["work_items"]) != 1:
         violations.append("the Build no longer has exactly one work item")
     paths = _changed_paths(state["build"]["base_at_bind"])
@@ -402,7 +373,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     head = _head()
     required_evidence, judgments, warnings = [], [], []
     unresolved_assumptions: list[str] = []
-    plan_stage, delivery = state["reviews"]["plan"], state["reviews"]["deliverable"]
+    delivery = state["reviews"]["deliverable"]
     missing_findings = _missing_findings(state)
     blocking = [f["id"] for f in review.live_findings(state) if f["blocks_this_pr"]]
 
@@ -412,21 +383,12 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     trivial_violations = _trivial_violations(state, plan) if plan else []
     if plan and state["approval"]:
         _assert_spec_current(state, plan)
-    plan_waived = bool(plan_stage.get("waiver") and state.get("approval")
-                        and plan_stage["waiver"]["plan_digest"] == state["plan"]["digest"]
-                        and plan_stage["waiver"]["depth"] == state["approval"]["depth"])
-    # An operator-authorized mid-flight plan change stands in for plan-review of the NEW digest -- and for
-    # nothing else. FOUR readers decide whether plan review is satisfied -- this evidence line, the plan-
-    # coverage refresh line, the plan_ready phase driver, and the _plan_review_ready wrapper the
-    # checkpoint/validate gate calls -- and every one of them must consult the same predicate. Two earlier
-    # attempts at this fixed a subset and left the Build wedged into a forced re-panel of a settled plan,
-    # each time behind a green test that stopped at a helper instead of the derived phase. It is kept OUT of
-    # plan_waived deliberately: folding it in also suppressed plan-review coverage refresh.
+    # Plan review is no longer a Build-side gate at all. It happened before this Build existed, on the plan
+    # side, and the seal is the receipt: a Build cannot bind an unsealed plan, and a seal refuses a review
+    # that does not cover its approved depth. What survives here is the DISCLOSURE of an operator-authorized
+    # mid-flight divergence from that seal, because that is the one case where the sealed record no longer
+    # describes what is being built.
     plan_escalation = review.plan_change_escalation(state)
-    if plan_stage["packet_digest"] is None and not fast_path and not plan_waived and not plan_escalation:
-        required_evidence.append("plan-review packet")
-    elif not plan_waived and not plan_escalation:
-        required_evidence.extend(f"plan-review receipt: {x}" for x in _missing_receipts(plan_stage))
     required_evidence.extend(f"finding disposition: {x}" for x in missing_findings)
     if blocking:
         judgments.append("resolve or deliberately re-disposition findings blocking this PR: " + ", ".join(blocking))
@@ -452,29 +414,24 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     protocol = _protocol()
     if state["approval"]:
         depth = state["approval"]["depth"]
-        current_plan = _required(protocol, "plan", depth, _installed("plan"))
-        current_delivery = _required(protocol, "deliverable", depth, _installed("deliverable"))
+        current_delivery = _required(protocol, depth, _installed())
         def contracts_current(current, recorded):
             actual = {item["lens"]: (item["path"], item["digest"])
                       for item in recorded.get("reviewer_contracts", [])}
             return all(actual.get(item["lens"]) == (item["path"], item["digest"]) for item in current)
-        plan_coverage_current = contracts_current(current_plan, plan_stage)
         delivery_coverage_current = contracts_current(current_delivery, delivery)
-        if not plan_coverage_current and not plan_waived and not plan_escalation:
-            required_evidence.append("refresh plan-review coverage for the currently installed reviewers")
         if delivery["packet_digest"] and not delivery_coverage_current:
             required_evidence.append("refresh deliverable-review coverage for the currently installed reviewers")
     else:
-        plan_coverage_current = delivery_coverage_current = True
+        delivery_coverage_current = True
     passed = {x["id"] for x in state["preflights"] if x["commit"] == head and x["passed"]}
     required_preflights = [x for x in protocol["preflights"] if x["required"]]
     required_evidence.extend(f"green preflight: {x['id']}" for x in required_preflights if x["id"] not in passed)
     if not state["pr_contract"] or state["pr_contract"]["commit"] != head or not state["pr_contract"]["complete"]:
         required_evidence.append("complete PR contract for the final commit")
-    if state["plan"]["source"] == "session":
-        warnings.append("plan is session-local; promote it before intentional cold-session handoff")
-    if plan_stage.get("waiver"):
-        warnings.append("plan review explicitly waived by the operator: " + plan_stage["waiver"]["reason"])
+    if state["plan"].get("diverged_from_seal"):
+        warnings.append(f"the executed plan differs from the sealed plan {state['plan']['plan_id']}; the "
+                        "seal records what was reviewed, not what is being built")
     if plan_escalation:
         warnings.append("plan changed after review (operator-authorized, not re-reviewed): "
                         + plan_escalation["operator_change"])
@@ -507,7 +464,7 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         warnings.extend("accepted plan risk: " + value for value in accepted)
         warnings.extend(resolved_notes)
     if trivial_violations:
-        judgments.append("promote the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
+        judgments.append("raise the trivial Build to the normal profile and renew approval: " + "; ".join(trivial_violations))
     # Surfaced rather than refused: `status` is what a session runs to find out WHY it is stuck, so the
     # snapshot that the two gates will refuse must still be readable and must name its own remedy here.
     unearned = _unearned_completions(state)
@@ -523,9 +480,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                         + ", but HEAD has since moved — run `sync-artifacts` again if sources changed")
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
-    plan_ready = fast_path or plan_waived or bool(plan_escalation) or (
-        (plan_stage.get("referent_digest") or plan_stage["packet_digest"])
-        is not None and not _missing_receipts(plan_stage) and plan_coverage_current)
     dispositions_ready = not missing_findings and not blocking
     valid = state["validation"] is not None and state["validation"]["commit"] == head and all(x["passed"] for x in state["validation"]["results"])
     delivery_ready = fast_path or (delivery["packet_digest"] is not None and not _missing_receipts(delivery) and delivery_coverage_current)
@@ -538,8 +492,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
 
     if not approval_ready:
         phase, next_one, available = "planning", "approve the plan and review depth", []
-    elif not plan_ready:
-        phase, next_one, available = "plan-review", "prepare or complete the plan review", []
     elif not dispositions_ready:
         phase, next_one, available = "finding-disposition", None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
@@ -574,73 +526,175 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     return result
 
 
-def _confidently_home() -> bool:
-    """True only when this checkout can be CONFIDENTLY placed as the Engine's own home repo.
+def _library() -> "plan_store.PlanLibrary":
+    """The plan library for THIS Build's product checkout.
 
-    is_home_repo fails TOWARD home when the origin or manifest cannot be read — the safe direction for
-    a check that RUNS, but the wrong direction for a governance carve-out whose quiet verdict SKIPS a
-    refusal. So this requires both the on-disk origin and the recorded home to be readable AND equal;
-    an unreadable or malformed either side is NOT confidently home, so the v1-bind refusal fails toward
-    enforcing rather than being silently bypassed in a deployed repo.
+    The two-root resolution is not re-derived here. `plan_store.library_root` already resolves it
+    through `checkout_health.resolve_product_checkout` and fails closed on both ambiguous cases, so a
+    Build planned in a mechanic session against the owned product finds its plans in the product's own
+    canonical checkout. Deliberately unrelated to any write-authorization gate: where a plan LIVES is a
+    topology question, and answering it with a permission check is how a resolution silently picks the
+    wrong root.
     """
-    own = repo_identity.origin_slug(str(ROOT))
+    import plan_store
+    return plan_store.PlanLibrary()
+
+
+def _sealed_plan(selector: str) -> tuple[str, str, dict]:
+    """Resolve a sealed plan in the local library: (plan_id, sealed_digest, build payload).
+
+    This is the ONLY door a plan comes through. Anything unsealed is refused here rather than at some
+    later gate, because a Build that has already started against an unreviewed plan is exactly the
+    failure the seal exists to prevent.
+    """
+    import plan_contract
+    library = _library()
     try:
-        home = repo_identity.home_repository(str(ROOT))
-    except Exception:  # noqa: BLE001 — a malformed manifest cannot confirm home; not confidently home
-        home = None
-    return own is not None and home is not None and repo_identity.slug_eq(own, home)
+        slug = library.resolve(selector)
+    except Exception as exc:  # noqa: BLE001 — the library speaks its own error language
+        raise CoordinatorError(f"no plan in the local library matches {selector!r}: {exc}") from exc
+    problems = library.verify_chain(slug)
+    if problems:
+        raise CoordinatorError(
+            f"the plan record for {selector!r} does not verify, so it cannot authorize a Build: "
+            + "; ".join(problems))
+    record = library.read_record(slug)
+    seal = record.get("seal")
+    if not seal:
+        raise CoordinatorError(
+            f"{record['plan_id']} is not sealed, and only a sealed plan enters a Build. Finish its "
+            "lifecycle first — preview, approve with a depth, record the one cold plan review, "
+            f"disposition its findings, then `plan_coordinator.py seal {record['plan_id']}`.")
+    document = library.head(slug)
+    if record["current"]["plan_digest"] != seal["sealed_digest"]:
+        raise CoordinatorError(
+            f"{record['plan_id']} has moved since it was sealed (sealed {seal['sealed_digest']}, "
+            f"current {record['current']['plan_digest']}); a seal is terminal, so clone it into a new "
+            "plan rather than binding a changed one")
+    payload = document.get("build_plan")
+    if not isinstance(payload, dict):
+        raise CoordinatorError(f"{record['plan_id']} carries no build payload to execute")
+    if plan_contract.build_plan_digest(document) != seal["build_plan_digest"]:
+        raise CoordinatorError(
+            f"the build payload inside {record['plan_id']} does not match the digest its seal recorded")
+    return record["plan_id"], seal["sealed_digest"], payload
+
+
+def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest: str,
+                          build_plan_digest: str) -> None:
+    """Mark the sealed plan as the one now driving a Build. Best-effort and non-fatal.
+
+    The binding is a record, not a lock: the plan library is the plan's home and the Build snapshot is
+    the Build's, and a library that cannot be written must not strand a Build that is otherwise sound.
+    """
+    import moment
+    library = _library()
+    try:
+        slug = library.resolve(plan_id)
+        record = library.read_record(slug)
+        binding = {"sealed_digest": sealed_digest, "build_plan_digest": build_plan_digest,
+                   "at": moment.utc_now(), "pull_request": pr, "repository": repository}
+
+        def mark(current):
+            current["build_binding"] = binding
+
+        library.update_record(slug, mark, expected_revision=record["current"]["revision"])
+    except Exception as exc:  # noqa: BLE001 — disclosed, never fatal
+        print(f"build-coordinator: could not record the Build binding on {plan_id} ({exc}); the Build "
+              "proceeds and the plan's record simply does not name this PR.", file=sys.stderr)
+
+
+def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
+    """Two artifacts, two authorities, and a check that they are about the same work.
+
+    Until the plan moved into the local library these were one thing: the durable Issue CARRIED the
+    plan, so an unattended Build that had the Issue necessarily had the plan, and `plan bind` proved it
+    by comparing digests. That equality is what the split removes, and deleting it without replacing it
+    would have quietly widened unattended authority — any open Issue plus any sealed plan would have
+    started a Build on work nobody connected the two to.
+
+    So the guarantee is rebuilt rather than dropped, in the only form two separate artifacts can carry
+    it: CORRESPONDENCE. The Issue remains the AUTHORIZATION — the durable, operator-visible record that
+    this work may run unattended — and the sealed plan remains the PLAN AUTHORITY, the reviewed document
+    that says what the work is. Neither substitutes for the other, and an unattended bind must show that
+    the one names the other. A stale Issue, an unrelated Issue, or an Issue the plan has never heard of
+    authorizes nothing.
+
+    The plan's own `intent_source` is the reference, because it was fixed when the plan was sealed: the
+    Issue number in it was reviewed and then locked, so it cannot be chosen at bind time to match
+    whatever Issue is convenient. Only the `--issue` argument is free to vary, and this is what pins it.
+
+    Interactive Builds keep their shape — `--issue` stays optional there, since a same-session Build is
+    authorized by the operator being present — but an Issue supplied in ANY mode must still correspond,
+    because a mismatch is a mistake worth catching wherever it happens.
+    """
+    intent = plan["intent_source"]
+    reference = intent["issue"] if intent["kind"] == "issue" else None
+    if mode == "unattended":
+        if issue is None:
+            raise CoordinatorError(
+                "unattended Builds require a durable Issue for authorization. The sealed plan is the "
+                "PLAN — what the work is — and it does not authorize its own unattended execution; the "
+                "Issue is the durable, operator-visible record that this work may run with nobody "
+                "watching. Pass it with --issue.")
+        if reference is None:
+            raise CoordinatorError(
+                "this sealed plan names no authorizing Issue, so there is nothing for --issue to "
+                f"correspond to and no way to show that Issue #{issue} is about this work. An "
+                "unattended Build needs both halves: a plan whose recorded intent came from an Issue, "
+                "and that same Issue supplied here. Bind it same-session instead, or plan the "
+                "unattended work from the Issue that authorizes it.")
+    elif issue is not None and reference is None:
+        # Same-session, --issue supplied, and the plan names no Issue at all. The Build is authorized
+        # either way — the operator is present — but the number does not vanish: it is stored as the
+        # authorizing Issue and composed into the pull request as a Closes link. An unverified Closes is
+        # a false claim on the merge surface, so the correspondence rule holds in EVERY mode, which is
+        # what this function's contract says and what this arm makes true.
+        raise CoordinatorError(
+            f"this sealed plan names no Issue, so there is nothing for --issue {issue} to correspond to "
+            "and no way to show that the two are about the same work. The pull request would claim to "
+            f"close #{issue} on nothing but your say-so at bind time. Bind without --issue, or bind a "
+            "plan whose recorded intent came from that Issue.")
+    if issue is not None and reference is not None and issue != reference:
+        raise CoordinatorError(
+            f"Issue #{issue} does not authorize this plan: the plan was sealed against Issue "
+            f"#{reference}, and an Issue that is not the one the plan was written from cannot vouch "
+            "for it. This is the check that replaced the old Issue-carries-the-plan equality — with "
+            "the plan held locally the two are separate artifacts, so bind proves they are about the "
+            "same work rather than assuming it. Supply the Issue the plan names, or bind a plan "
+            "written from the Issue you meant.")
 
 
 def cmd_plan_bind(args, store: StateStore) -> None:
-    plan = _plan(args.input)
     mode = getattr(args, "mode", "same-session")
-    # Once build-plan.v2 exists, a deployed Engine refuses a NEW session-sourced v1 bind and directs
-    # the operator to migrate. An issue-sourced bind is the exempt path: it resumes an in-flight v1
-    # Build from its durable Issue plan. The refusal no-ops ONLY in the Engine's own home repo, where
-    # v1 is still dogfooded to build v2; an uncertain checkout fails toward enforcing the refusal.
-    if _plan_version(plan) == "build-plan.v1" and args.source == "session" and not _confidently_home():
+    plan_id, sealed_digest, plan = _sealed_plan(args.plan)
+    # v1 is unreachable at entry from here on. The schemas, the dispatch and `plan migrate-v1` still
+    # exist — their removal is the successor plan's v1 sunset — but no new Build starts on one, and the
+    # refusal names the two ways forward rather than leaving the operator at a dead end.
+    if _plan_version(plan) == "build-plan.v1":
         raise CoordinatorError(
-            "new session-sourced build-plan.v1 binds are refused now that build-plan.v2 is available; "
-            "migrate this plan with 'plan migrate-v1' or resume an existing v1 Build from its durable "
-            "Issue with --source issue")
-    if mode == "unattended" and args.source != "issue":
-        raise CoordinatorError("unattended Builds require an exact durable Issue plan")
-    if plan["profile"] == "trivial" and (mode != "same-session" or args.source != "session"):
-        raise CoordinatorError("trivial Builds are same-session and session-local only")
-    if plan["profile"] == "routine" and (mode != "unattended" or args.source != "issue"):
+            "this sealed plan carries a build-plan.v1 payload, and v1 no longer enters a Build. If a "
+            "v1 Build is already in flight, finish it on the engine it started on; otherwise wait for "
+            "the v1 migration decision rather than migrating a sealed plan, whose seal a migration "
+            "would invalidate.")
+    issue = args.issue
+    # Profile first, then authorization. Both can be true of one bad bind — a trivial plan handed an
+    # Issue and unattended mode breaks two rules at once — and the profile rule is the root cause: it
+    # says this plan may not run in this mode AT ALL, so no Issue could have fixed it. Reporting the
+    # authorization failure there would send the operator hunting for the right Issue number for a
+    # Build that was never going to be unattended.
+    if plan["profile"] == "trivial" and mode != "same-session":
+        raise CoordinatorError("trivial Builds are same-session only")
+    if plan["profile"] == "routine" and mode != "unattended":
         raise CoordinatorError("routine plans require unattended mode and durable Issue authority")
+    _check_authorization(plan, issue, mode)
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
-    issue = args.issue if args.source == "issue" else None
-    if args.source == "issue":
-        if issue is None:
-            raise CoordinatorError("--issue is required for an Issue plan")
-        durable = _durable_plan(_issue_body(args.repository, issue))
-        if _digest(durable) != _digest(plan):
-            raise CoordinatorError("supplied plan does not match the durable Issue plan")
-        # The v1 Issue carve-out resumes an IN-FLIGHT Build, so it demands pre-existing continuation
-        # evidence, not just marker text: a freshly authored Issue can carry a v1 plan block, but only
-        # a Build that actually ran has published its v1 handoff into the PR contract. The evidence
-        # must be a WELL-FORMED handoff block whose digest matches its content (the same bar restore
-        # holds it to) — a quoted marker fragment in prose is not evidence. Without it, a deployed
-        # Engine treats the bind as a new v1 Build and refuses toward migration.
-        if _plan_version(plan) == "build-plan.v1" and not _confidently_home():
-            block = github.find_handoff_block(pr.get("body") or "", "v1")
-            valid = False
-            if block:
-                digest, rendered = block
-                try:
-                    valid = _digest(json.loads(rendered)) == digest
-                except ValueError:
-                    valid = False
-            if not valid:
-                raise CoordinatorError(
-                    "a v1 Issue re-bind resumes an in-flight Build, so the draft PR must already carry "
-                    "published v1 handoff evidence; new Builds use build-plan.v2 — migrate this plan "
-                    "with 'plan migrate-v1'")
-    state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), args.source, plan, issue, mode)
+    state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
+                           sealed_digest, plan, issue, mode)
     store.create(state)
+    _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"])
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -697,38 +751,16 @@ def cmd_plan_migrate_v1(args, store: StateStore | None) -> None:
           f"operator approval and affected review before it can be bound", file=sys.stderr)
 
 
-def cmd_plan_promote(args, store: StateStore) -> None:
-    if not args.ack_visibility:
-        raise CoordinatorError("promotion publishes the exact plan in an Issue body; pass --ack-visibility")
-    plan = _plan(args.input)
-    state = store.read()
-    _assert_plan(state, plan)
-    if plan["profile"] == "trivial":
-        raise CoordinatorError("revise a trivial Build to the normal profile and renew approval before durable continuation")
-    issue = args.issue
-    if issue is None:
-        if not state["plan"].get("promotion_nonce"):
-            nonce = secrets.token_hex(16)
-            store.mutate(lambda s: s["plan"].update({"promotion_nonce": nonce}),
-                         from_revision=state["revision"])
-            state = store.read()
-        issue = _create_build_issue(state["build"]["repository"], state["build"]["pr"],
-                                    args.create_issue, plan, state["plan"]["promotion_nonce"])
-    else:
-        _publish_issue(state["build"]["repository"], issue, plan)
-    _ensure_pr_closes_issue(state["build"]["repository"], state["build"]["pr"], issue)
-    store.mutate(lambda s: s["plan"].update({"source": "issue", "durable_issue": issue,
-                                              "promotion_nonce": None}),
-                 from_revision=state["revision"])
-    print(f"promoted exact plan {state['plan']['digest']} to Issue #{issue}")
-
-
 def _reset_after_revision(state: dict, plan: dict) -> None:
+    # `plan_id` and `sealed_digest` deliberately survive a revision: the sealed plan is still the plan of
+    # record and the authority this Build entered on. What changes is that the EXECUTED payload no longer
+    # equals the sealed one, and that is recorded rather than inferred — a seal whose divergence is only
+    # visible in prose is a seal whose meaning leaks. The composed PR contract reads this flag.
     state["plan"].update({"digest": _digest(plan), "intent_digest": _digest(plan["raw_intent"].encode()),
                           "spec_digest": None, "profile": plan["profile"], "bound_head": _head(),
-                          "promotion_nonce": None})
+                          "diverged_from_seal": True})
     state["approval"] = None
-    state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
+    state["reviews"] = {"deliverable": _empty_review()}
     state["findings"] = []
     # Assumption dispositions are cycle-bound evidence, like findings and review receipts: a plan revision
     # re-authors the premises and re-reviews from scratch, so a stale disposition must not survive to silently
@@ -757,45 +789,41 @@ def cmd_plan_revise(args, store: StateStore) -> None:
     # Build spend and is never the right answer. Panel findings are dispositioned and fixed during
     # implementation; a plan the panel reveals as not-ready is scrapped and re-planned, not re-reviewed.
     # Iterating the plan freely BEFORE the first packet is the intended path and is untouched by this.
-    panels = _completed_plan_panels(state)
     escalation = getattr(args, "operator_change", None)
-    if panels and not escalation:
+    # Every Build now enters on a SEALED plan, which means every Build's plan has already been reviewed
+    # before a single line was written. So revising it here is never a free edit and never a re-review:
+    # it is the operator authorizing execution of a plan that differs from the one the panel read. The
+    # old condition keyed this on a completed Build-side plan panel; with the panel on the plan side
+    # that ledger is always empty, and keying on it would have quietly retired the wall.
+    if not escalation:
         raise CoordinatorError(
-            "this plan has already been reviewed by a completed panel, and re-reviewing it is not one of the "
-            "ways forward. If you believe the PLAN itself is wrong, that is the operator's call, not yours: "
-            "stop now, put the change and its consequences to them in plain words, and record their decision "
-            "with --operator-change. If the plan is wrong at its root, abandon this Build and start fresh "
-            "from a re-planned intent. Only if what the panel found is an implementation matter -- the plan "
-            "still stands and the fix belongs in the code -- disposition the finding and carry on. Do not "
-            "take that last path to avoid the first: never keep building against a plan you believe is "
-            "flawed.")
-    durable = state["plan"]["source"] == "issue"
-    if durable:
-        if not args.ack_visibility:
-            raise CoordinatorError("revising a durable plan updates the Issue body; pass --ack-visibility")
+            "this Build entered on a sealed plan, so the plan you are revising has already been reviewed "
+            "and settled. Re-reviewing it here is not one of the ways forward. If you believe the PLAN "
+            "itself is wrong, that is the operator's call, not yours: stop now, put the change and its "
+            "consequences to them in plain words, and record their decision with --operator-change. If "
+            "the plan is wrong at its root, abandon this Build and re-plan from intent — a seal is "
+            "terminal, so that means a new plan, not an edited one. Only if the discovery is an "
+            "implementation matter — the plan still stands and the fix belongs in the code — carry on "
+            "without touching the plan. Do not take that last path to avoid the first: never keep "
+            "building against a plan you believe is flawed.")
+
     def change(current):
-        if durable:
-            _publish_issue(current["build"]["repository"], current["plan"]["durable_issue"], plan)
         reviewed_digest = current["plan"]["digest"]
         _reset_after_revision(current, plan)
-        if escalation and panels:
-            # The receipt-layer escalation record, following the assumption-disposition precedent
-            # (StarshipSuperjam/engine-template#1014): a legitimate mid-flight correction must not be
-            # payable only by nuking the review chain, because that manufactures an incentive to carry on
-            # against a plan the session already doubts. The revision CLEARS the plan receipts; they are
-            # neither carried forward nor re-pointed at the new digest, which would forge review of a delta
-            # nobody read. The completed panel stays on record in plan_panels against the digest it actually
-            # read. What this records is that the operator authorized shipping a CHANGED plan without
-            # re-review; that gap is disclosed in status AND published in the PR body, where consent lives.
-            current.setdefault("plan_change_escalations", []).append(
-                {"reviewed_plan_digest": reviewed_digest, "plan_digest": _digest(plan),
-                 "operator_change": escalation})
+        # The receipt-layer escalation record, following the assumption-disposition precedent
+        # (StarshipSuperjam/engine-template#1014): a legitimate mid-flight correction must not be
+        # payable only by nuking the review chain, because that manufactures an incentive to carry on
+        # against a plan the session already doubts. The revision CLEARS the Build's own receipts; they
+        # are neither carried forward nor re-pointed at the new digest, which would forge review of a
+        # delta nobody read. The sealed plan stays on record in the library against the digest its panel
+        # actually read. What this records is that the operator authorized executing a CHANGED plan
+        # without re-review; that gap is disclosed in status AND published in the PR body.
+        current.setdefault("plan_change_escalations", []).append(
+            {"reviewed_plan_digest": reviewed_digest, "plan_digest": _digest(plan),
+             "operator_change": escalation})
     store.mutate(change, from_revision=state["revision"])
-    if escalation and panels:
-        print(f"revised plan to {_digest(plan)} on recorded operator authority; the completed panel is NOT "
-              "re-run and the un-reviewed delta is disclosed at merge")
-    else:
-        print(f"revised plan to {_digest(plan)}; approval and review evidence were cleared")
+    print(f"revised plan to {_digest(plan)} on recorded operator authority; the sealed plan is unchanged "
+          "and the divergence is disclosed at merge")
 
 
 def cmd_approve(args, store: StateStore) -> None:
@@ -808,7 +836,7 @@ def cmd_approve(args, store: StateStore) -> None:
     def change(state):
         _assert_plan(state, plan)
         if state["approval"] and state["approval"]["depth"] != args.depth:
-            state["reviews"] = {"plan": _empty_review(), "deliverable": _empty_review()}
+            state["reviews"] = {"deliverable": _empty_review()}
             state["findings"] = []
             state["validation"] = state["repair"] = state["pr_contract"] = None
             state["preflights"] = []
@@ -902,19 +930,17 @@ def cmd_depths(args, store: "StateStore | None") -> None:
     Needs no Build state (it reads the protocol, the installed personas, and the shipped/operator effort)."""
     import agent_bindings  # lazy: keep the coordinator's common path import-light, as cmd_validate does
     protocol = _protocol()
-    plan_roster = _installed("plan")
-    deliverable_roster = _installed("deliverable")
+    deliverable_roster = _installed()
     bindings = _bindings()
     efforts = {depth: agent_bindings.depth_effort(depth, bindings, root=str(ROOT))
                for depth in review.DEPTH_ORDER}
-    offered = review.available_depths(protocol, plan_roster, deliverable_roster, efforts)
+    offered = review.available_depths(protocol, deliverable_roster, efforts)
     detail = {}
     for depth in review.DEPTH_ORDER:
         detail[depth] = {
             "offered": depth in offered,
             "effort": efforts[depth],
-            "plan_lenses": [item["lens"] for item in _required(protocol, "plan", depth, plan_roster)],
-            "deliverable_lenses": [item["lens"] for item in _required(protocol, "deliverable", depth, deliverable_roster)],
+            "deliverable_lenses": [item["lens"] for item in _required(protocol, depth, deliverable_roster)],
         }
     if args.json:
         print(json.dumps({"available": offered, "depths": detail}, indent=2, sort_keys=True))
@@ -922,13 +948,12 @@ def cmd_depths(args, store: "StateStore | None") -> None:
     print("Available review depths (only those that add coverage or effort over a lighter one):")
     for depth in offered:
         d = detail[depth]
-        if not d["plan_lenses"] and not d["deliverable_lenses"]:
+        if not d["deliverable_lenses"]:
             print(f"  {depth}: no cold reviewers — your own read plus the automatic checks")
         else:
             effort = d["effort"] or "session default"
             # Name the lenses, not just their count, so the operator can see WHICH reviewer a heavier depth adds.
             print(f"  {depth}: reviewer effort {effort}")
-            print(f"      plan lenses: {', '.join(d['plan_lenses']) or 'none'}")
             print(f"      deliverable lenses: {', '.join(d['deliverable_lenses']) or 'none'}")
     collapsed = [depth for depth in review.DEPTH_ORDER if depth not in offered]
     if collapsed:
@@ -957,19 +982,23 @@ def _packet(args, store: StateStore | None) -> None:
     impact = json.loads(_input(args.impact)) if args.impact else {}
     protocol = _protocol()
     stage = args.stage
-    roster_stage = "plan" if stage == "plan" else "deliverable"
+    if stage == "plan":
+        raise CoordinatorError(
+            "the Build Coordinator runs one review, and it is the deliverable review. Plan review "
+            "happens on the plan side before the seal — `plan_coordinator.py review packet` — and a "
+            "Build cannot start on a plan that has not been through it.")
     installed = [item if isinstance(item, dict) else {
         "lens": item, "path": f"test-reviewer/{item}.md", "digest": _digest(item.encode())
-    } for item in _installed(roster_stage)]
+    } for item in _installed()]
     installed_names = [item["lens"] for item in installed]
     if getattr(args, "standalone", False):
         if stage == "repair":
-            raise CoordinatorError("standalone packets support plan or deliverable review, not repair state")
+            raise CoordinatorError("standalone packets support deliverable review, not repair state")
         canonical_spec = _canonical_spec(plan, repository=args.repository, check_issue=True)
-        required_contracts = _required(protocol, stage, args.depth, installed)
+        required_contracts = _required(protocol, args.depth, installed)
         required = [item["lens"] for item in required_contracts]
-        commit = None if stage == "plan" else args.commit
-        if stage == "deliverable" and (not commit or not args.base):
+        commit = args.commit
+        if not commit or not args.base:
             raise CoordinatorError("standalone deliverable packets require --commit and --base")
         packet_root = Path.cwd().resolve()
         stable = core.StableCommit(packet_root, "standalone deliverable review-packet construction") if commit else None
@@ -1022,10 +1051,10 @@ def _packet(args, store: StateStore | None) -> None:
         if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
             raise CoordinatorError("green validation for the repaired commit is required before re-review")
     else:
-        required_contracts = _required(protocol, stage, state["approval"]["depth"], installed)
+        required_contracts = _required(protocol, state["approval"]["depth"], installed)
         required = [item["lens"] for item in required_contracts]
-        commit = None if stage == "plan" else _head()
-        if stage == "deliverable" and (not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"])):
+        commit = _head()
+        if not state["validation"] or state["validation"]["commit"] != commit or not all(x["passed"] for x in state["validation"]["results"]):
             raise CoordinatorError("green validation for the current commit is required before deliverable review")
     stable = core.StableCommit(ROOT, f"{stage} review-packet construction") if commit else None
     if stable:
@@ -1040,17 +1069,15 @@ def _packet(args, store: StateStore | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
-    if stage != "plan":
-        declarations = _hard_check_declarations()
-        path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
-        referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
-                                                "for_lens": "spec-conformance"}
+    declarations = _hard_check_declarations()
+    path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
+    referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
+                                            "for_lens": "spec-conformance"}
     referent_digest = _digest(referent)
     contracts = review.lens_packets(referent_digest, required_contracts)
     packet = {**referent, "referent_digest": referent_digest, "reviewer_contracts": contracts}
     packet["packet_digest"] = _digest(packet)
-    if stage != "plan":
-        packet["artifacts"] = {"hard_check_declarations": {"path": path}}
+    packet["artifacts"] = {"hard_check_declarations": {"path": path}}
     current = state["repair"] if stage == "repair" else state["reviews"][stage]
     unchanged = bool(current and current.get("packet_digest") == packet["packet_digest"])
     # NOT gated here, by operator decision after a packet-level cap wedged the Build twice: it refused the
@@ -1060,9 +1087,8 @@ def _packet(args, store: StateStore | None) -> None:
     # followed a plan revision invalidating its receipts. A session voluntarily re-cutting an unchanged
     # packet was never the failure mode, and the operator's merge remains the wall.
     # Capture the checkout's git state as the review fan-out begins, so the submission preflight can
-    # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947). Plan review runs before
-    # implementation and drives no throwaway-copy execution, so it needs no baseline.
-    checkout_baseline = review_integrity.snapshot(str(ROOT)) if stage != "plan" else None
+    # verify the deliverable/repair review did not mutate it (StarshipSuperjam/engine-template#947).
+    checkout_baseline = review_integrity.snapshot(str(ROOT))
     def change(s):
         old = s["repair"] if stage == "repair" else s["reviews"][stage]
         expected = {item["lens"]: item["lens_packet_digest"] for item in contracts}
@@ -1080,7 +1106,7 @@ def _packet(args, store: StateStore | None) -> None:
             target.update({"packet_digest": packet["packet_digest"], "referent_digest": referent_digest,
                            "required_lenses": required, "installed_lenses": installed_names,
                            "reviewer_contracts": contracts, "receipts": preserved_receipts, "reviewed_commit": commit,
-                           "base_commit": packet["base_commit"], "waiver": None})
+                           "base_commit": packet["base_commit"]})
         # A finding lives exactly as long as a receipt still demands it -- derived, for BOTH branches, from
         # the single home in `review` rather than from a per-branch stage filter. The two old filters keyed
         # on `f["stage"] != stage`, which cut both ways: a repair regeneration deleted findings whose
@@ -1104,55 +1130,12 @@ def _packet(args, store: StateStore | None) -> None:
     _emit_packet(packet, args)
 
 
-def cmd_review_waive(args, store: StateStore) -> None:
-    if args.stage != "plan":
-        raise CoordinatorError("only retrospective plan review may be waived; deliverable review remains required")
-    def change(state):
-        if not state["approval"]:
-            raise CoordinatorError("approve the Build gate before recording an operator review waiver")
-        stage = state["reviews"]["plan"]
-        if stage["packet_digest"] or stage["receipts"] or any(f["stage"] == "plan" for f in state["findings"]):
-            raise CoordinatorError("plan review already started; disposition its findings instead of erasing evidence with a waiver")
-        if state["build"]["mode"] != "same-session" or state["plan"].get("profile") != "normal":
-            raise CoordinatorError("retrospective plan-review waiver is limited to same-session normal adoption")
-        if args.adopted_commit != state["plan"].get("bound_head") or args.adopted_commit != _head():
-            raise CoordinatorError("the waiver must bind the plan-bound adopted commit at current HEAD")
-        if state["progress"]["completed"] or state["checkpoint"]:
-            raise CoordinatorError("the Build has prospective coordinator progress; retrospective waiver is not applicable")
-        adoption_diff = _run(["git", "diff", "--quiet", f"{state['build']['base_at_bind']}..{args.adopted_commit}"])
-        if adoption_diff.returncode == 0:
-            raise CoordinatorError("retrospective waiver requires already-existing implementation to adopt")
-        if adoption_diff.returncode != 1:
-            raise CoordinatorError("could not verify the retrospective adoption diff")
-        stage.update({"packet_digest": None, "referent_digest": None,
-                      "required_lenses": [], "installed_lenses": [], "reviewer_contracts": [],
-                      "receipts": [], "reviewed_commit": None, "base_commit": None,
-                      "waiver": {"plan_digest": state["plan"]["digest"],
-                                 "depth": state["approval"]["depth"], "reason": args.reason,
-                                 "adopted_commit": args.adopted_commit}})
-        state["findings"] = [f for f in state["findings"] if f["stage"] != "plan"]
-    store.mutate(change)
-    print("recorded explicit operator waiver of retrospective plan review; no review receipt was synthesized")
-
-
-def _record_plan_panel(state: dict, stage: dict) -> None:
-    """Upsert this plan digest's panel entry as its receipts land. Keyed BY PLAN DIGEST, so a single
-    lens re-run forced by a changed reviewer contract re-completes the SAME entry rather than reading as
-    a second panel. Carries the lenses and finding ids so a later reader knows what the panel actually
-    found, not merely that one occurred."""
-    digest = state["plan"]["digest"]
-    entry = next((e for e in state.setdefault("plan_panels", []) if e["plan_digest"] == digest), None)
-    if entry is None:
-        entry = {"plan_digest": digest, "depth": state["approval"]["depth"], "lenses": [],
-                 "finding_ids": [], "complete": False}
-        state["plan_panels"].append(entry)
-    entry["lenses"] = sorted({r["lens"] for r in stage["receipts"]})
-    entry["finding_ids"] = sorted({fid for r in stage["receipts"] for fid in r.get("finding_ids", [])})
-    entry["complete"] = bool(stage.get("reviewer_contracts")) and not review.missing_receipts(stage)
-
-
-def _completed_plan_panels(state: dict) -> list:
-    return [e for e in state.get("plan_panels", []) if e.get("complete")]
+# `review waive` is gone. Its precondition — a Build that started before its plan was reviewed — became
+# unreachable when the seal became the only door: a sealed plan HAS been reviewed to its approved depth,
+# and an unsealed one cannot bind at all. A waiver for a gate that cannot fail is not a safety valve; it
+# is a bypass looking for a reason, so it leaves with the gate. Deliverable review was never waivable and
+# still is not. `_record_plan_panel` and the `plan_panels` ledger go with it: a Build-side panel ledger
+# that can never gain an entry is a field nobody can read anything true out of.
 
 
 def cmd_review_record(args, store: StateStore) -> None:
@@ -1189,7 +1172,11 @@ def cmd_review_record(args, store: StateStore) -> None:
                 if target.get("base_commit"):
                     delivery["base_commit"] = target["base_commit"]
         else:
-            target = state["reviews"][args.stage]
+            if args.stage != "deliverable":
+                raise CoordinatorError(
+                    "the Build Coordinator records one review, and it is the deliverable review; plan "
+                    "review is recorded on the plan side, before the seal")
+            target = state["reviews"]["deliverable"]
             if target["packet_digest"] != args.packet_digest:
                 raise CoordinatorError("receipt does not match the current review packet")
             if args.lens not in target["required_lenses"]:
@@ -1205,8 +1192,6 @@ def cmd_review_record(args, store: StateStore) -> None:
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
-            if args.stage == "plan":
-                _record_plan_panel(state, target)
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
 
@@ -1241,8 +1226,7 @@ def cmd_finding_record(args, store: StateStore) -> None:
         if live_offers:
             packet = live["packet_digest"]
             lens_packet_digest = contract["lens_packet_digest"]
-            commit = None if args.stage == "plan" else (
-                live["final_commit"] if args.stage == "repair" else live["reviewed_commit"])
+            commit = live["final_commit"] if args.stage == "repair" else live["reviewed_commit"]
         elif by_receipt:
             receipt = by_receipt[1]
             packet = receipt["packet_digest"]
@@ -1327,9 +1311,6 @@ def cmd_checkpoint(args, store: StateStore) -> None:
         _assert_spec_boundary(state, plan, allow_same_session_offline=True)
         if not state["approval"]:
             raise CoordinatorError("the Build gate is not approved")
-        plan_ready, missing_review = _plan_review_ready(state, plan)
-        if not plan_ready:
-            raise CoordinatorError("implementation cannot begin before plan review: " + "; ".join(missing_review))
         unearned = _unearned_completions(state)
         if unearned:
             raise CoordinatorError(
@@ -1385,9 +1366,6 @@ def _derived_drift() -> list:
 def cmd_validate(args, store: StateStore) -> None:
     state = store.read()
     revision = state["revision"]
-    plan_ready, missing_review = _plan_review_ready(state, {"profile": state["plan"]["profile"]})
-    if not plan_ready:
-        raise CoordinatorError("final validation cannot become evidence before plan review: " + "; ".join(missing_review))
     unearned = _unearned_completions(state)
     if unearned:
         raise CoordinatorError(
@@ -1801,7 +1779,7 @@ def cmd_repair_assess(args, store: StateStore) -> None:
     if args.judgment == "scoped" and not lenses:
         raise CoordinatorError("a scoped judgment must name at least one --lens")
     if args.judgment == "full":
-        lenses = [item["lens"] for item in _required(_protocol(), "deliverable", "thorough", _installed("deliverable"))]
+        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
     # A round is counted when it STARTS, and counted irrespective of judgment. Counting only completed
     # scoped/full rounds would leave two holes: an abandoned fan-out costs full price yet would count
     # zero, and gating only the reviewed path would make `none` -- "no re-review needed" -- the
@@ -1975,8 +1953,9 @@ def _bounded_work(work_map: dict) -> dict:
 
 
 def _handoff(state: dict) -> dict:
-    if state["plan"]["source"] != "issue" or not state["plan"]["durable_issue"]:
-        raise CoordinatorError("promote the exact plan to a suitable Issue before cold-session handoff")
+    # No precondition about promotion any more. The plan a cold session must recover is durable by
+    # construction — it is sealed in the local plan library — so the handoff's job narrows to carrying
+    # the Build's own evidence, and its plan reference is a name plus the digest the seal minted.
     summaries = []
     for finding in state["findings"]:
         if not finding["handoff_summary"]:
@@ -2008,7 +1987,7 @@ def _handoff(state: dict) -> dict:
              # Cadence ledgers cross the handoff boundary: a cold resume that zeroed them would hand the
              # continuing session a fresh free panel and fresh repair rounds. They carry digests, lens
              # names, finding ids and counts only -- nothing the redaction discipline above applies to.
-             "plan_panels": state.get("plan_panels", []), "repair_rounds": state.get("repair_rounds", []),
+             "repair_rounds": state.get("repair_rounds", []),
              "plan_change_escalations": state.get("plan_change_escalations", []),
              "reconciles": state.get("reconciles", [])}
     if is_v2:
@@ -2018,38 +1997,27 @@ def _handoff(state: dict) -> dict:
 
 
 def cmd_handoff_export(args, store: StateStore) -> None:
+    """Write the Build's own evidence out for a cold resume. Nothing is published to GitHub.
+
+    The plan half of a handoff is gone: the plan is not re-derived from an Issue body, because it is
+    not IN an Issue body — it is sealed in the local library, and the handoff names it. What travels is
+    the Build's evidence, which is why this writes a file (or stdout) and never a PR contract.
+    """
     state = store.read()
-    revision = state["revision"]
-    if state["plan"]["source"] != "issue" or not state["plan"]["durable_issue"]:
-        raise CoordinatorError("promote the exact plan to a suitable Issue before cold-session handoff")
-    durable = _durable_plan(_issue_body(state["build"]["repository"], state["plan"]["durable_issue"]))
-    _assert_plan(state, durable)
-    _assert_spec_boundary(state, durable)
+    if state["plan"].get("diverged_from_seal"):
+        # Fail closed, and say why. A cold session recovers the plan from the library, where the SEALED
+        # payload lives; a Build whose executed payload no longer equals it would resume against a plan
+        # nobody is building. Better to refuse than to hand a continuation the wrong authority.
+        raise CoordinatorError(
+            f"the executed plan diverged from sealed plan {state['plan']['plan_id']} on recorded "
+            "operator authority, and a cold resume would recover the SEALED payload rather than the "
+            "one being built. Finish this Build in the session that holds the revised plan, or re-plan "
+            "from intent into a new plan and start a fresh Build.")
+    _, _, sealed = _sealed_plan(state["plan"]["plan_id"])
+    _assert_plan(state, sealed)
+    _assert_spec_boundary(state, sealed)
     value = _handoff(state)
     rendered = json.dumps(value, indent=2, sort_keys=True) + "\n"
-    if args.publish:
-        if not args.ack_visibility:
-            raise CoordinatorError("handoff publication places redacted evidence in the PR contract; pass --ack-visibility")
-        repo, pr = value["build"]["repository"], value["build"]["pr"]
-        before = _verify_draft(repo, pr).get("body") or ""
-        after = github.replace_handoff_block(before, value)
-        if store.read()["revision"] != revision:
-            raise CoordinatorError("Build evidence changed while preparing handoff; rerun export")
-        if (_verify_draft(repo, pr).get("body") or "") != before:
-            raise CoordinatorError("PR contract changed while preparing handoff; no write was made")
-        _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=after)
-        confirmed = _verify_draft(repo, pr).get("body") or ""
-        if confirmed != after:
-            raise CoordinatorError("GitHub did not preserve the exact handoff block")
-        if store.read()["revision"] != revision:
-            latest = _verify_draft(repo, pr).get("body") or ""
-            if latest == after:
-                _must_run(["gh", "pr", "edit", str(pr), "--repo", repo, "--body-file", "-"], input_text=before)
-                if (_verify_draft(repo, pr).get("body") or "") != before:
-                    raise CoordinatorError("Build evidence changed during handoff publication and the stale block could not be rolled back")
-            raise CoordinatorError("Build evidence changed during handoff publication; the stale block was rolled back")
-        print(f"published bounded handoff snapshot in {repo}#{pr}")
-        return
     if args.output == "-":
         print(rendered, end="")
     else:
@@ -2086,7 +2054,7 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
-            "plan_panels": value.get("plan_panels", []), "repair_rounds": value.get("repair_rounds", []),
+            "repair_rounds": value.get("repair_rounds", []),
             "plan_change_escalations": value.get("plan_change_escalations", []),
             "reconciles": value.get("reconciles", [])}
 
@@ -2117,25 +2085,19 @@ def _restore_work(work_map: dict) -> dict:
 
 
 def cmd_handoff_restore(args, store: StateStore) -> None:
-    if args.input:
-        rendered = _input(args.input)
-        value = json.loads(rendered)
-    else:
-        if not args.repository or not args.pr:
-            raise CoordinatorError("restore needs --input or both --repository and --pr")
-        body = _gh_json(["pr", "view", str(args.pr), "--repo", args.repository, "--json", "body"]).get("body") or ""
-        present = [(block, sv) for block, sv in
-                   ((github.find_handoff_block(body, "v1"), "build-handoff.v1"),
-                    (github.find_handoff_block(body, "v2"), "build-handoff.v2")) if block]
-        if len(present) != 1:
-            raise CoordinatorError("PR contract has no unique engine-build-handoff block")
-        (digest, rendered), _sv = present[0]
-        if _digest(json.loads(rendered)) != digest:
-            raise CoordinatorError("PR handoff content does not match its marker digest")
-        value = json.loads(rendered)
+    if not args.input:
+        raise CoordinatorError(
+            "restore reads an exported handoff file: pass --input. Handoffs are no longer published "
+            "into the PR contract, because the plan they continue is sealed in the local plan library "
+            "rather than in a GitHub body.")
+    rendered = _input(args.input)
+    value = json.loads(rendered)
     version = value.get("schema_version")
-    if version not in ("build-handoff.v1", "build-handoff.v2"):
-        raise CoordinatorError("legacy Build handoff is unsupported; verify the PR and start with a fresh plan bind")
+    if version != "build-handoff.v2":
+        raise CoordinatorError(
+            "this handoff predates the sealed-plan cutover, so its plan authority is an Issue body that "
+            "is no longer read. Finish that Build on the engine it started on; a new Build starts from "
+            "a sealed plan with 'plan bind'.")
     # A handoff exported by an older engine carried `private_reference` in its finding summaries; the
     # field is no longer published and the schema now forbids it (StarshipSuperjam/engine-template#981),
     # so drop any stray copy before validation — an old block still restores cleanly instead of failing
@@ -2147,12 +2109,12 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
         # with the tool's clean CoordinatorError, not an AttributeError from an unconditional .pop().
         if isinstance(_summary, dict) and _summary.pop("private_reference", None) is not None:
             stripped_private = True
-    _validate(value, HANDOFF_SCHEMA_V2 if version == "build-handoff.v2" else HANDOFF_SCHEMA)
+    _validate(value, HANDOFF_SCHEMA_V2)
     if stripped_private:
         # Match the codebase's visible-redaction convention (repair rationale, bounded work): say
         # plainly that a legacy private note was dropped rather than stripping it silently.
         print("dropped a legacy private_reference from the restored handoff (no longer published)")
-    repo, issue = value["build"]["repository"], value["plan"]["durable_issue"]
+    repo = value["build"]["repository"]
     if getattr(args, "repository", None) and not repo_identity.slug_eq(args.repository, repo):
         raise CoordinatorError("handoff repository does not match the selected repository")
     if getattr(args, "pr", None) and args.pr != value["build"]["pr"]:
@@ -2168,16 +2130,32 @@ def cmd_handoff_restore(args, store: StateStore) -> None:
                 or _run(["git", "cat-file", "-e", f"{commit}^{{commit}}"]).returncode
                 or _run(["git", "merge-base", "--is-ancestor", commit, pr["headRefOid"]]).returncode):
             raise CoordinatorError(f"handoff progress commit for {completed.get('id', 'unknown item')} is not contained by the live PR head")
-    plan = _durable_plan(_issue_body(repo, issue))
+    # The replacement anchor for cold continuation: the sealed plan RECORD, not an Issue body. The plan
+    # must still be in the library, still sealed, still sealed to the same digest, and still carrying
+    # the payload this Build was bound to. Any of those missing or changed and continuation is blocked —
+    # this is BC-19's amended form, and it fails closed in every direction.
+    plan_id = value["plan"]["plan_id"]
+    try:
+        recorded_id, sealed_digest, plan = _sealed_plan(plan_id)
+    except CoordinatorError as exc:
+        raise CoordinatorError(f"the sealed plan this Build was bound to is unusable, so cold "
+                               f"continuation is blocked: {exc}") from exc
+    if recorded_id != plan_id or sealed_digest != value["plan"]["sealed_digest"]:
+        raise CoordinatorError(
+            "the sealed plan changed since this Build was bound, so cold continuation is blocked: this "
+            "snapshot names a seal the library no longer holds. A seal is terminal, so nothing re-seals "
+            "it — bind a fresh Build to the plan that is sealed now, or restore the plan revision this "
+            "Build was bound to and continue against that.")
     if _digest(plan) != value["plan"]["digest"]:
-        raise CoordinatorError("durable plan is missing or changed; cold continuation is blocked")
-    if version == "build-handoff.v2":
-        state = _restore_base_state(value, "build-state.v2")
-        state["work"] = _restore_work(value.get("work", {}))
-    else:
-        state = _restore_base_state(value, "build-state.v1")
+        raise CoordinatorError(
+            "the sealed plan's build payload no longer matches this Build, so cold continuation is "
+            "blocked: the seal is the one this snapshot names, but the work it describes is not. Export "
+            "the handoff again from the session that owns this Build, or bind a fresh Build to the "
+            "sealed plan rather than continuing against a payload this snapshot was never built from.")
+    state = _restore_base_state(value, "build-state.v2")
+    state["work"] = _restore_work(value.get("work", {}))
     store.create(state)
-    print(f"restored Build snapshot from durable Issue #{issue}")
+    print(f"restored Build snapshot against sealed plan {plan_id}")
 
 
 def _submit_preview(store: StateStore, plan_path: str) -> dict:
@@ -2618,19 +2596,106 @@ def _assert_claim_findings(state: dict, claim: dict) -> None:
             + " (re-run `contract template` against current state, or reconcile the finding ids)")
 
 
+def _sealed_plan_review(state: dict) -> dict | None:
+    """The plan review recorded on the SEALED PLAN, read from the library at compose time.
+
+    This is where plan-review evidence lives now, and reading it here rather than mirroring it into
+    build-state is what makes the disclosure immune to the supersession rule: a finding that no live
+    Build receipt demands loses its weight in `surviving_findings`, and a plan finding has no Build
+    receipt at all. Structural immunity rather than a flag to remember to set.
+    """
+    plan_id = state.get("plan", {}).get("plan_id")
+    if not plan_id:
+        return None
+    try:
+        library = _library()
+        record = library.read_record(library.resolve(plan_id))
+    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
+        return None
+    return record.get("plan_review")
+
+
+def _plan_obligation_lines(state: dict) -> list[str]:
+    """What this plan owed a predecessor, and what it did about each — for the merge surface.
+
+    A program's carry-forward guarantee is that an obligation can be satisfied, re-carried, or
+    released with a reason, but never dropped silently. That guarantee is enforced where plans are
+    written, which is a place the operator approving the merge never looks. So the same record is
+    rendered here, at the one surface they do read: a release states its reason in the operator's
+    view, and an obligation carried to a successor names where it went.
+
+    Read from the sealed plan RECORD at compose time, like the plan review above and for the same
+    reason — it cannot be edited by the Build, mirrored stale into build-state, or stripped by the
+    Build's own receipt bookkeeping.
+    """
+    plan_id = state.get("plan", {}).get("plan_id")
+    if not plan_id:
+        return []
+    try:
+        library = _library()
+        slug = library.resolve(plan_id)
+        document = library.head(slug)
+    except Exception:  # noqa: BLE001 — an unreadable library must not block composing the PR body
+        return []
+    lines = []
+    for obligation in ((document.get("program") or {}).get("carried_obligations") or []):
+        reason = (obligation.get("reason") or "").strip()
+        tail = f" {reason}" if reason else ""
+        lines.append(f"- **{obligation['id']}** — _{obligation['state']}_. "
+                     f"{obligation['statement']}{tail}")
+    return lines
+
+
 def _plan_review_clause(state: dict) -> str:
-    """The PR body's one sentence about whether the SHIPPED plan was reviewed. Its own named seam because
-    four distinct situations reach it and each needs a different true sentence -- keying on receipt-
-    emptiness alone told a waived Build that its panel had read an earlier plan and pointed it at an
-    escalation line that did not exist, swapping one false statement for another."""
-    if state.get("reviews", {}).get("plan", {}).get("receipts"):
-        return "Plan review ran before any code"
-    if state.get("reviews", {}).get("plan", {}).get("waiver"):
-        return "No plan review ran — the operator explicitly waived it for this Build"
-    if review.plan_change_escalation(state):
-        return ("The shipped plan was NOT reviewed — its panel read an earlier version and the change was "
-                "authorized without re-review (see the escalation above)")
-    return "No plan review is recorded for the shipped plan"
+    """The PR body's one sentence about whether the SHIPPED plan was reviewed.
+
+    Its own named seam because distinct situations reach it and each needs a different true sentence.
+    """
+    plan_review = _sealed_plan_review(state)
+    diverged = state.get("plan", {}).get("diverged_from_seal")
+    depth = (state.get("approval") or {}).get("depth", "the approved")
+    if plan_review and diverged:
+        return (f"The sealed plan was reviewed at {depth} depth by "
+                + ", ".join(plan_review.get("lenses", [])) +
+                ", but what was BUILT differs from it on recorded operator authority (see the "
+                "escalation above), so the review does not cover the delta")
+    if plan_review:
+        return ("Plan review ran before any code, on the plan side: "
+                + ", ".join(plan_review.get("lenses", [])) + " read the sealed plan")
+    if diverged:
+        return ("The shipped plan differs from the sealed plan on recorded operator authority, and no "
+                "cold plan review is recorded for either")
+    return ("No cold plan review is recorded — the plan was sealed at a depth that runs no plan lenses, "
+            "so the operator's own read is its review")
+
+
+def _plan_finding_lines(state: dict) -> list[str]:
+    """The sealed plan review's findings and their dispositions, for the merge surface.
+
+    A plan review that found blocking problems must be VISIBLE at merge, whatever was decided about
+    them. Rendered from the plan record, so nothing in the Build's own receipt bookkeeping can strip
+    them.
+    """
+    plan_review = _sealed_plan_review(state)
+    lines = []
+    for finding in (plan_review or {}).get("findings", []):
+        disposition = finding.get("disposition") or "undispositioned"
+        summary = finding.get("operator_summary") or finding["summary"]
+        blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
+        lines.append(f"- **Plan finding `{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
+                     f"{disposition}){blocks}. {summary}")
+    return lines
+
+
+def _plan_disagreement_lines(state: dict) -> list[str]:
+    """A blocking plan finding that was NOT left blocking is a disagreement the operator must meet."""
+    plan_review = _sealed_plan_review(state)
+    lines = []
+    for finding in (plan_review or {}).get("findings", []):
+        if finding["severity"] == "blocking" and not finding.get("blocks_this_pr"):
+            summary = finding.get("operator_summary") or "[no operator-safe summary recorded]"
+            lines.append(f"- Plan-review disagreement `{finding['id']}`: {summary}")
+    return lines
 
 
 def _drift_line(state: dict, head: str) -> str:
@@ -2695,12 +2760,12 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     repo = state["build"]["repository"]
     base = pr_data.get("baseRefOid") or state["build"]["base_at_bind"]
 
-    # Closing linkage: the claim's closes plus the durable Build Issue promotion linked (mechanically added,
+    # Closing linkage: the claim's closes plus the Issue that AUTHORIZED this Build (mechanically added,
     # never inferred). Part-of comes straight from the claim inside the composer.
     closes = list(claim["linkage"]["closes"])
-    durable = state["plan"].get("durable_issue")
-    if durable and durable not in closes and durable not in claim["linkage"]["part_of"]:
-        closes.append(durable)
+    authorizing = state["plan"].get("authorizing_issue")
+    if authorizing and authorizing not in closes and authorizing not in claim["linkage"]["part_of"]:
+        closes.append(authorizing)
 
     # Report-only change profile, over the live base — the same invocation the preflight records.
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
@@ -2734,10 +2799,10 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # recorded no cold-review receipts) no lens ran, so naming the installed lenses as having "ran after"
     # would be a false claim in the PR body — the honesty defect this line must not commit. Key the sentence
     # on the recorded receipts, not on the installed set.
-    plan_review_ran = bool(state.get("reviews", {}).get("plan", {}).get("receipts", []))
+    plan_review_ran = bool(_sealed_plan_review(state))
     cold_review_ran = plan_review_ran or bool(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     if cold_review_ran:
-        lenses = ", ".join(sorted(x["lens"] for x in _installed("deliverable"))) or "no installed deliverable lenses"
+        lenses = ", ".join(sorted(x["lens"] for x in _installed())) or "no installed deliverable lenses"
         plan_clause = _plan_review_clause(state)
         review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
     else:
@@ -2747,8 +2812,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # Code-execution disclosure (BO-41): every current review receipt must carry it. An older snapshot whose
     # receipts predate the field cannot be composed until they are re-recorded — a precise remediation, never a
     # fabricated "no code ran". The disclosure's PRESENCE is mechanical; its truth stays the reviewer's report.
-    receipts = [r for stage in ("plan", "deliverable")
-                for r in state.get("reviews", {}).get(stage, {}).get("receipts", [])]
+    receipts = list(state.get("reviews", {}).get("deliverable", {}).get("receipts", []))
     missing = sorted({r["lens"] for r in receipts if "code_execution" not in r})
     if missing:
         raise CoordinatorError(
@@ -2793,16 +2857,13 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # packet level was removed, a session could escalate and then cut a fresh panel on the new plan, which
     # made the body assert both "Plan review ran before any code" and "was NOT re-reviewed" about the same
     # plan. The authorization is disclosed either way; only the claim about review is conditional.
-    re_reviewed = bool(state.get("reviews", {}).get("plan", {}).get("receipts"))
     for item in state.get("plan_change_escalations", []):
-        if re_reviewed:
-            cadence_escalations.append(
-                f"the plan changed after its review panel, on recorded operator authority, and was "
-                f"subsequently re-reviewed: {item['operator_change']}")
-        else:
-            cadence_escalations.append(
-                f"the plan changed after its review panel and was NOT re-reviewed, on recorded operator "
-                f"authority: {item['operator_change']}")
+        # A plan is sealed before a Build starts and a seal is terminal, so a mid-Build change is ALWAYS
+        # a change the panel did not read. There is no re-reviewed arm any more, because there is no way
+        # to re-review a sealed plan.
+        cadence_escalations.append(
+            f"the executed plan differs from the sealed plan its panel read, on recorded operator "
+            f"authority and without re-review: {item['operator_change']}")
     rounds = state.get("repair_rounds", [])
     for index, item in enumerate(rounds, start=1):
         if item.get("guidance"):
@@ -2818,7 +2879,9 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "spec_steps": spec_steps,
         "review_coverage": review_coverage,
         "code_execution_line": code_execution_line,
-        "disagreement_lines": review.required_disagreement_lines(state),
+        "disagreement_lines": _plan_disagreement_lines(state) + review.required_disagreement_lines(state),
+        "plan_finding_lines": _plan_finding_lines(state),
+        "obligation_lines": _plan_obligation_lines(state),
         "assumption_resolutions": assumption_resolutions,
         "cadence_escalations": cadence_escalations,
         "drift_line": drift_line,
@@ -3022,19 +3085,17 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
-    bind = plan.add_parser("bind"); bind.add_argument("--input", required=True); bind.add_argument("--source", choices=["session", "issue"], required=True); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int); bind.set_defaults(func=cmd_plan_bind)
-    promote = plan.add_parser("promote"); promote.add_argument("--input", required=True); destination = promote.add_mutually_exclusive_group(required=True); destination.add_argument("--issue", type=int); destination.add_argument("--create-issue"); promote.add_argument("--ack-visibility", action="store_true"); promote.set_defaults(func=cmd_plan_promote)
-    revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing a mid-flight plan change. The completed panel is not re-run; the un-reviewed delta is disclosed at merge."); revise.add_argument("--ack-visibility", action="store_true"); revise.set_defaults(func=cmd_plan_revise)
+    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.set_defaults(func=cmd_plan_bind)
+    revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     migrate = plan.add_parser("migrate-v1"); migrate.add_argument("--input", required=True); migrate.add_argument("--output", default="-"); migrate.set_defaults(func=cmd_plan_migrate_v1)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
-    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
-    waive = review.add_parser("waive"); waive.add_argument("--stage", choices=["plan"], required=True); waive.add_argument("--reason", required=True); waive.add_argument("--adopted-commit", required=True); waive.set_defaults(func=cmd_review_waive)
+    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--code-execution", choices=["none", "discarded-copy"], required=True); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
-    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["plan", "deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
+    frecord = finding.add_parser("record"); frecord.add_argument("--id", required=True); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens", required=True); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"], required=True); frecord.add_argument("--summary", required=True); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"], required=True); frecord.add_argument("--rationale", required=True); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(required=True); block.add_argument("--blocks-this-pr", action="store_true"); block.add_argument("--does-not-block-this-pr", action="store_false", dest="blocks_this_pr"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)
     adispose = assumption.add_parser("dispose"); adispose.add_argument("--plan", required=True); adispose.add_argument("--claim", required=True); adispose.add_argument("--as", dest="resolved_as", choices=["verified", "accepted-risk"], required=True); adispose.add_argument("--basis", required=True); adispose.set_defaults(func=cmd_assumption_dispose)
     checkpoint = sub.add_parser("checkpoint"); checkpoint.add_argument("--plan", required=True); checkpoint.add_argument("--input", required=True); checkpoint.add_argument("--complete-item"); checkpoint.add_argument("--json", action="store_true"); checkpoint.set_defaults(func=cmd_checkpoint)
@@ -3045,7 +3106,7 @@ def parser() -> argparse.ArgumentParser:
     reconcile = sub.add_parser("reconcile"); reconcile.add_argument("--plan", required=True); reconcile.set_defaults(func=cmd_reconcile)
     preflight = sub.add_parser("preflight"); preflight.add_argument("--pr-body"); preflight.add_argument("--json", action="store_true"); preflight.set_defaults(func=cmd_preflight)
     handoff = sub.add_parser("handoff").add_subparsers(dest="handoff_command", required=True)
-    export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.add_argument("--publish", action="store_true"); export.add_argument("--ack-visibility", action="store_true"); export.set_defaults(func=cmd_handoff_export)
+    export = handoff.add_parser("export"); export.add_argument("--output", default="-"); export.set_defaults(func=cmd_handoff_export)
     restore = handoff.add_parser("restore"); restore.add_argument("--input"); restore.add_argument("--repository"); restore.add_argument("--pr", type=int); restore.set_defaults(func=cmd_handoff_restore)
     submit = sub.add_parser("submit").add_subparsers(dest="submit_command", required=True)
     preview = submit.add_parser("preview"); preview.add_argument("--plan", required=True); preview.set_defaults(func=cmd_submit_preview)
