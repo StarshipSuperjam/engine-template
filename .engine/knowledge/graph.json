@@ -5978,7 +5978,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:07b4b4c4b1e5933713d8c396b5c8a007ba8062f21d957762e2389de0e6c207cd",
+        "fingerprint": "sha256:ccc2b4feb91bc46eec398953c3f9a8c06a6eacadf80b06ab09092f5ddeccab6b",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -12810,7 +12810,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:5675e950f5bd31e5669a3bd9fb89ebbeceb711450974ff939c5dd6df35651cfc",
+        "fingerprint": "sha256:d4226c439bf0f72c489936d2b7cb14a50ff3385e7e0d835315acdb12e4796318",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -18539,18 +18539,16 @@
           "module:core"
         ],
         "tests": [
-          "tool:demo_plan_to_ready_pr",
           "tool:plan_contract",
           "tool:plan_program",
           "tool:plan_projection",
           "tool:plan_store",
-          "tool:project_manager",
-          "tool:quiet_call"
+          "tool:project_manager"
         ]
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:ac6664960ee97cc685baf4525eb079c2318c3ba72faa68ca4715dbc31d7ca14b",
+        "fingerprint": "sha256:f87ed9d0328982343a072b5af1c137cad9cb27149aa7eb1b1a1aa45f76180931",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -18660,6 +18658,30 @@
       },
       "status": "active",
       "summary": "Tests for plan_store — the durable local plan library.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_plan_to_ready_pr_demo",
+      "name": ".engine/tools/test_plan_to_ready_pr_demo.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:demo_plan_to_ready_pr",
+          "tool:quiet_call"
+        ]
+      },
+      "slug": "test_plan_to_ready_pr_demo",
+      "source": {
+        "fingerprint": "sha256:b6cf3bc08c2b948db900a822ef6b8f99ee0cad50a17da46721f9aa678ed0564b",
+        "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
+      },
+      "status": "active",
+      "summary": "The front-door demonstration actually walks: plan → seal → Build → ready pull request.",
       "type": "tool"
     },
     {

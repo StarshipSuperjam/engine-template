@@ -2469,6 +2469,9 @@
   ".engine/tools/test_plan_store.py": [
    "core"
   ],
+  ".engine/tools/test_plan_to_ready_pr_demo.py": [
+   "core"
+  ],
   ".engine/tools/test_policy.py": [
    "core"
   ],
