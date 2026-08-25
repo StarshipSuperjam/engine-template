@@ -6409,7 +6409,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:b688ff5b0a3714ea93ecf5a6e34061c27225fd87edcc25336774b57f3a6494b6",
+        "fingerprint": "sha256:32500657dd7b3888b39768688e95a27c1d1acf09932aca66acc83921e8cdbd53",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7549,7 +7549,7 @@
       },
       "slug": "build-protocol.v1",
       "source": {
-        "fingerprint": "sha256:8ec2eff8e8e98094bebe823315426de10018fce551a3e8375a82ecdca66b58d0",
+        "fingerprint": "sha256:d05156983cc1de87856397d1b7fc76d3e89389a68ba0dc448336b7ebd682ac52",
         "path": ".engine/schemas/build-protocol.v1.json"
       },
       "status": "active",
@@ -9915,7 +9915,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c4d1c21e07cf347d6ec63fb283fb3602c89912a9222b85f800e3e6511b3a11d3",
+        "fingerprint": "sha256:5b7be808249979a5ea6d59b56ba7897a47d284182879d7c1113500f3c635cc66",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10005,7 +10005,7 @@
       },
       "slug": "build_coordinator_github",
       "source": {
-        "fingerprint": "sha256:5a162883de70358a4678f61bca75a005cf62cbe6faa6d3bd0c3bd6bfeb64dcb0",
+        "fingerprint": "sha256:7f24063d15c75ce9c6ca795dd92e77f30b2afe81738fe091cd4d4b94eda39132",
         "path": ".engine/tools/build_coordinator_github.py"
       },
       "status": "active",
@@ -10955,7 +10955,7 @@
       },
       "slug": "demo_959_finalize_ready_transition",
       "source": {
-        "fingerprint": "sha256:fe48bf24c5cc6f3e7e657f4d4c994153961789cd62541ae6a6c96e090c8dd85b",
+        "fingerprint": "sha256:1761e1e5722a7b6904e1f009c2b4c767fa658e8b8cf1605ebcec6c879f41f831",
         "path": ".engine/tools/demo_959_finalize_ready_transition.py"
       },
       "status": "active",
@@ -11663,7 +11663,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:786e2be62cf5206428537b3186761ea3756b479a6c9941317ecea5f4a42d3327",
+        "fingerprint": "sha256:325705308deedc5fda69b0a428afd7ab6df08817758b7a748253831c8644d7e2",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -15828,7 +15828,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:09456b7079224b2c7c062bcdc85cd4cfb54dbb6f6cbf0861ab2bfa5163410b35",
+        "fingerprint": "sha256:c8ba957a0affa09f302885742f68135123b3185f4c6ddf12484b114219afc9c9",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -19478,7 +19478,7 @@
       },
       "slug": "test_selftest_select",
       "source": {
-        "fingerprint": "sha256:4b2badf8672b0b4f5c43ee866930e7159c3d24e770b99fc9f1185f3d546b3a6d",
+        "fingerprint": "sha256:f57c24295a89ebb30a13f47a8d65af5b7295c822103caedc2de083f8d1cfbe7c",
         "path": ".engine/tools/test_selftest_select.py"
       },
       "status": "active",
