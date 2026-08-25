@@ -198,10 +198,12 @@ class TheRoundCounter(_RealRepo):
     def test_a_generated_commit_cannot_absorb_a_fan_out_that_never_came_back(self):
         """StarshipSuperjam/engine-template#1065, on the path the spend-counting rewrite reopened.
 
-        A round whose panel was dispatched and never returned is PAID FOR. #1071 recorded that on the
+        A round whose panel was dispatched and never returned is PAID FOR. StarshipSuperjam/engine-template#1071 recorded that
+        on the
         ledger entry so no later assess could absorb it; the spend-counting rewrite dropped that flag and
         read the fact live off the open repair record instead -- but keyed the live read on the commit
-        pair, which is exactly the identity keying #1065 named as the defect. One `sync-artifacts` commit
+        pair, which is exactly the identity keying
+        StarshipSuperjam/engine-template#1065 named as the defect. One `sync-artifacts` commit
         then moved the head, `_same_episode` read the generated commit as `nothing authored landed`, and
         the abandoned round was re-pointed instead of counted. Repeated, the ledger never grew: ten
         dispatched panels, one entry, and BOTH bounds silent -- the counted budget refunded every time and

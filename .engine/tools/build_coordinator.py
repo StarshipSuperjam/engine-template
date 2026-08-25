@@ -3461,7 +3461,8 @@ def _restore_base_state(value: dict, schema_version: str) -> dict:
             "checkpoint": None, "progress": value["progress"], "validation": _restore_result_set(value["validation"]),
             "repair": _restore_repair(value["repair"]), "preflights": _restore_results(value["preflights"]),
             "pr_contract": value["pr_contract"], "submission": "draft", "checkout_snapshot": None,
-            # Through the same forward migration the stores apply: a handoff exported under #1071
+            # Through the same forward migration the stores apply: a handoff exported under
+            # StarshipSuperjam/engine-template#1071
             # carries `spent`, and passing it through verbatim would mint a snapshot that fails
             # validation on its very next touch.
             "repair_rounds": core.forward_migrate({"repair_rounds": value.get("repair_rounds", [])})["repair_rounds"],
