@@ -530,28 +530,74 @@ class RealManifestMatchesItsSchema(unittest.TestCase):
         self.assertEqual(S.SELECTION_REASONS, published_sel)
 
 
-class ProtocolCannotReachTheNarrowingFlags(unittest.TestCase):
-    """The governance claim, made mechanical instead of stated.
+class TheProtocolDeclaresExactlyWhatCandidateRuns(unittest.TestCase):
+    """The successor to the bare-argv pin, superseded deliberately by the candidate/final split.
 
-    'A focused run cannot become merge evidence' rested entirely on the Build protocol registering the
-    runner with no arguments — an unguarded file, with a schema that accepts any argv, and no test
-    asserting the absence. Adding one flag there would have made the coordinator record a subset run as
-    a passed full one, and every check in this repository would have stayed green."""
+    The old claim — 'a focused run cannot become merge evidence because the protocol registers the
+    runner bare' — moved house: merge evidence is now the IMPORTED engine-ci proof (the protocol's
+    `final` descriptor), and the registered candidate command legitimately narrows. What still needs
+    a mechanical hold is the same shape as before: the registered argv is EXACTLY what the registry
+    declares — an allowlist, never a denylist of flag names, because `--changed-from=origin/main` is
+    one token and `--pattern` narrows too. Any addition, removal or respelling, fails here."""
 
-    def test_the_registered_self_test_command_carries_no_narrowing_flag(self):
+    def _protocol(self):
         with open(os.path.join(validate.ENGINE_DIR, "build-protocol.json"), encoding="utf-8") as fh:
-            protocol = json.load(fh)
-        commands = protocol.get("validation_commands", protocol.get("validation", []))
-        argv = [c for c in commands if c.get("id") == "engine-selftest"]
+            return json.load(fh)
+
+    def test_the_registered_candidate_self_test_argv_is_exact(self):
+        candidates = self._protocol()["validation_commands"]["candidate"]
+        argv = [c for c in candidates if c.get("id") == "engine-selftest"]
         self.assertEqual(len(argv), 1, "the self-test command must be registered exactly once")
         self.assertEqual(
             argv[0]["command"],
-            ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py"],
-            "the registered command must be EXACTLY the bare runner. This is an allowlist, not a "
-            "denylist of flag names, because a denylist cannot hold this claim: the first version "
-            "listed three flags and a reviewer defeated it two ways — `--changed-from=origin/main` is "
-            "a single token, so a name check never fires, and `--pattern` narrows discovery just as "
-            "effectively and was not on the list at all. Any addition, in any spelling, fails here.")
+            ["uv", "run", "--directory", ".engine", "--frozen", "--", "python", "tools/selftest.py",
+             "--changed-from", "{merge_base}", "--run-record-path", "{run_record_path}"],
+            "the registered candidate command must be EXACTLY this argv: the affected-selection flag "
+            "against the coordinator-substituted merge base, and the run-record path the coordinator "
+            "mints. Anything else — one more narrowing flag, one changed spelling — fails here.")
+
+    def test_the_run_record_attests_the_registered_candidate_command_id(self):
+        """The coupling a reviewer asked to be pinned: `attests` is the single field that stops a
+        record for one registered command standing for another, and it is a const in both the schema
+        and the runner — so if the registered id ever moves, this fails rather than the binding
+        silently becoming a constant that matches nothing the coordinator ran."""
+        import selftest
+        candidates = self._protocol()["validation_commands"]["candidate"]
+        self_test_ids = [c["id"] for c in candidates if "selftest.py" in " ".join(c["command"])]
+        self.assertEqual(self_test_ids, [selftest.RECORD_ATTESTS])
+        with open(os.path.join(validate.ENGINE_DIR, "schemas",
+                               "selftest-run-record.v1.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        self.assertEqual(schema["properties"]["attests"]["const"], selftest.RECORD_ATTESTS)
+
+    def test_candidate_ids_are_unique(self):
+        """The schema cannot express cross-item uniqueness, so the registry's own test holds it."""
+        ids = [c["id"] for c in self._protocol()["validation_commands"]["candidate"]]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_the_schema_rejects_an_unknown_placeholder(self):
+        """A placeholder can never be invented in the registry and silently substituted downstream:
+        the only tokens a command may carry are the two coordinator-owned ones."""
+        import jsonschema
+        with open(os.path.join(validate.ENGINE_DIR, "schemas",
+                               "build-protocol.v1.json"), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        protocol = self._protocol()
+        forged = json.loads(json.dumps(protocol))
+        forged["validation_commands"]["candidate"][1]["command"].append("{arbitrary_token}")
+        jsonschema.validate(protocol, schema)     # the shipped registry is valid
+        with self.assertRaises(jsonschema.ValidationError):
+            jsonschema.validate(forged, schema)
+
+    def test_the_final_descriptor_names_the_imported_proof(self):
+        """`final` is a descriptor of the CI proof to import, not a command to run — a command here
+        would be a local path to merge evidence, which is the exact thing the split removes."""
+        final = self._protocol()["validation_commands"]["final"]
+        self.assertEqual(final["mode"], "ci-import")
+        self.assertEqual(final["context"], "engine-ci")
+        self.assertEqual(final["workflow"], ".github/workflows/engine-ci.yml")
+        self.assertEqual(final["receipt_artifact"], "engine-ci-receipt")
+        self.assertNotIn("command", final)
 
 
 class Determinism(unittest.TestCase):
