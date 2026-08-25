@@ -25,12 +25,12 @@
       "minLength": 1
     },
     "role": {
-      "description": "The trigger this persona runs for, which fixes whether it is a build-gate persona or the audit persona. The recognized values are plan-review, worker, pre-submission-review, and audit; a value outside that set is a coherence finding ('unknown role' is impossible by construction), NOT a schema rejection — so this field is a well-formed string here and its membership is confirmed by the coherence kind. The role implies the trigger, so there is no separate trigger field.",
+      "description": "The trigger this persona runs for, which fixes whether it is a build-gate persona, the audit persona, or a dispatched scout. The recognized values are plan-review, worker, pre-submission-review, audit, and scout; a value outside that set is a coherence finding ('unknown role' is impossible by construction), NOT a schema rejection — so this field is a well-formed string here and its membership is confirmed by the coherence kind. A scout is the cheap reconnaissance tier: dispatched by name for one mechanical sweep (a memory-recall fan-out, a graph traversal, a suite run), it returns gathered material rather than a judgment, and it is never a review gate. The role implies the trigger, so there is no separate trigger field.",
       "type": "string",
       "minLength": 1
     },
     "lens": {
-      "description": "The specific perspective within a review role (an open, additive vocabulary — a module may ship a new lens). Present ONLY on the review roles (plan-review, pre-submission-review); the worker and audit roles carry no lens and are recognized by role. That a lens appears only on a review role is a coherence finding (the symmetric guard to the closed-role check), not a schema conditional — so this field is simply an optional string here.",
+      "description": "The specific perspective within a review role (an open, additive vocabulary — a module may ship a new lens). Present ONLY on the review roles (plan-review, pre-submission-review); the worker, audit and scout roles carry no lens and are recognized by role. A scout is lensless because it is dispatched by name for one sweep rather than as a perspective within a review, and because the dangling-lens leg that polices whether a lens is actually consumed covers only the review roles. That a lens appears only on a review role is a coherence finding (the symmetric guard to the closed-role check), not a schema conditional — so this field is simply an optional string here.",
       "type": "string",
       "minLength": 1
     },

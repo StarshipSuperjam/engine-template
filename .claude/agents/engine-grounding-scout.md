@@ -3,6 +3,8 @@ name: engine-grounding-scout
 description: Use when you are about to run the memory-recall sweep or a knowledge-graph impact traversal and the sweep will take several searches — it does the fan-out and hands back a short cited shortlist instead of filling your window with raw results. It gathers; you draw the conclusion.
 role: scout
 model-tier: mechanical
+model: haiku
+effort: low
 permissions: read-only
 output-contract: grounding-brief.v1
 disallowedTools: [Edit, Write, NotebookEdit, Bash, Agent, Task]

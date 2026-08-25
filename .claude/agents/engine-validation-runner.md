@@ -3,6 +3,8 @@ name: engine-validation-runner
 description: Use to run the project's self-tests or its validation suite and get back a short verdict — pass or fail, and for each failure what broke and where — instead of the whole log. It runs the suite in a throwaway copy and keeps the raw output out of your window.
 role: scout
 model-tier: mechanical
+model: sonnet
+effort: low
 permissions: read-only
 output-contract: validation-digest.v1
 disallowedTools: [Edit, Write, NotebookEdit, Agent, Task]
