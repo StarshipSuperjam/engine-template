@@ -1787,9 +1787,12 @@ class TestValidationRepairAndStatus(CoordinatorCase):
                           classified=classification(authored=["a.py", "b.py"],
                                                     churn={"authored": 400, "guarded": 0, "derived": 0, "docs": 0}))
         latest = self.state()["repair_rounds"][-1]
-        self.assertTrue(latest["reconciled"])
+        self.assertEqual(latest["anchor_note"], "reconcile")
         self.assertEqual(latest["anchor"], HEAD_A)
-        self.assertNotIn("HIGHLIGHT", out)
+        # The widening claim is suppressed -- but the suppression is SAID, not silent, so a reader who
+        # sees no widening warning knows whether that means "it did not" or "we could not tell".
+        self.assertNotIn("widening rather than settling", out)
+        self.assertIn("could not be judged", out)
 
     def test_a_widening_repair_is_highlighted_at_every_assess(self):
         # A highlight, never a stop: the round is recorded and the Build continues. The operator asked for
@@ -1848,6 +1851,123 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertEqual(latest["lenses"], [])
         self.assertEqual(latest["classification"]["files"]["guarded"], [".github/workflows/engine-ci.yml"])
 
+    def test_upgrading_a_free_round_to_a_panel_cannot_slip_past_the_counted_budget(self):
+        # The bypass this closes: the replacement path skipped BOTH stops, so a session with its budget
+        # spent could record a cheap single-lens round and immediately re-assess the same commit pair as
+        # a panel -- a fourth counted round with no operator guidance anywhere.
+        # The rounds are deliberately left un-receipted: that keeps the effective reviewed commit stable,
+        # which is what makes the same-commit-pair replacement path reachable at all.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for head in (HEAD_B, HEAD_C, HEAD_D):
+            self.assess("scoped", head, lens=list(self.PANEL))
+        self.assess("scoped", HEAD_E, lens=["usability"])            # free, and legal
+        message = self.refused_assess("scoped", HEAD_E, lens=list(self.PANEL))
+        self.assertIn("counted budget", message)
+        self.assertEqual(sum(1 for r in self.state()["repair_rounds"] if r["counted"]), 3)
+
+    def test_re_judging_a_round_that_already_spent_is_still_free(self):
+        # ...but a replacement that was ALREADY counted is the same spend judged again, not a new one.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for head in (HEAD_B, HEAD_C, HEAD_D):
+            self.assess("scoped", head, lens=list(self.PANEL))
+        self.assess("full", HEAD_D)
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 3)
+        self.assertEqual(rounds[-1]["judgment"], "full")
+
+    def test_a_legacy_round_written_before_spend_counting_counts(self):
+        # Fail toward "already spent": an upgrade may hand a Build a stop it did not need, never a budget
+        # it already used. Nothing else pins this default.
+        legacy = {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "judgment": "scoped",
+                  "lenses": ["usability"], "guidance": None}
+        def seed(s):
+            s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A})
+            s["repair_rounds"] = [dict(legacy), dict(legacy), dict(legacy)]
+        self.store.mutate(seed)
+        self.assertTrue(all(bc._round_counted(r) for r in self.state()["repair_rounds"]))
+        message = self.refused_assess("scoped", HEAD_C, lens=list(self.PANEL))
+        self.assertIn("counted budget", message)
+
+    def test_the_absolute_ceiling_counts_rounds_of_every_kind_together(self):
+        # A genuinely MIXED run: panels, a cheap check, and none-judgments reaching the ceiling together.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B); self.panel_round(HEAD_C)
+        self.assess("scoped", HEAD_D, lens=["usability"]); self.receipt_round(HEAD_D)
+        self.assess("none", HEAD_E)
+        self.assess("none", HEAD_F)
+        self.assess("none", "1" * 40)
+        self.assertEqual(len(self.state()["repair_rounds"]), 6)
+        self.assertEqual(sum(1 for r in self.state()["repair_rounds"] if r["counted"]), 2)
+        message = self.refused_assess("none", "2" * 40)
+        self.assertIn("absolute ceiling", message)
+
+    def test_an_amended_commit_is_not_reported_to_the_operator_as_a_base_change(self):
+        # Telling an operator "the base moved" when a session merely amended a commit is a false statement
+        # about their branch -- and the two facts suppress the growth comparison for different reasons.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B)
+        args = argparse.Namespace(judgment="scoped", rationale="r", lens=list(self.PANEL), guidance=None)
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_C), \
+             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+             mock.patch.object(bc, "_commit_present", return_value=True), \
+             mock.patch.object(bc, "_is_ancestor", return_value=False), \
+             mock.patch.object(repair_divergence, "classify",
+                               return_value=classification(authored=["a.py"])), \
+             contextlib.redirect_stdout(out):
+            bc.cmd_repair_assess(args, self.store)
+        latest = self.state()["repair_rounds"][-1]
+        self.assertEqual(latest["anchor_note"], "rewritten")
+        self.assertIn("no longer on this branch", out.getvalue())
+        self.assertNotIn("the base moved", out.getvalue())
+        # ...and the suppressed comparison is SAID, not passed over in silence.
+        self.assertIn("could not be judged", out.getvalue())
+
+    def test_a_first_round_after_a_reconcile_is_marked_as_spanning_the_rebase(self):
+        # The whole rebased branch must not be presented to the operator as the size of one fix.
+        def seed(s):
+            s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A})
+            s["reconciles"] = [{"from_commit": HEAD_C, "to_commit": HEAD_A, "base_before": BASE,
+                                "base_after": HEAD_D, "contribution_identical": True,
+                                "divergent_paths": [], "anchored_to": HEAD_A}]
+        self.store.mutate(seed)
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL))
+        self.assertEqual(self.state()["repair_rounds"][0]["anchor_note"], "reconcile")
+        self.assertIn("the base moved", "\n".join(bc._repair_round_lines(self.state())))
+
+    def test_the_growth_highlight_names_only_what_actually_grew(self):
+        # Saying "code and guarded surface" when no guarded file moved tells the operator protected
+        # surface was touched when it was not -- in the one sentence written to catch their eye.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        small = classification(authored=["a.py"], churn={"authored": 6, "guarded": 0, "derived": 0, "docs": 0})
+        bigger = classification(authored=["a.py", "b.py"],
+                                churn={"authored": 60, "guarded": 0, "derived": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=small)
+        out = self.assess("scoped", HEAD_C, lens=list(self.PANEL), classified=bigger)
+        self.assertIn("moved more code than", out)
+        self.assertNotIn("guarded surface", out)
+
+    def test_the_growth_highlight_names_guarded_surface_when_that_is_what_grew(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        small = classification(guarded=[".github/workflows/engine-ci.yml"],
+                               churn={"authored": 6, "guarded": 1, "derived": 0, "docs": 0})
+        bigger = classification(guarded=[".github/workflows/engine-ci.yml"],
+                                churn={"authored": 6, "guarded": 90, "derived": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=small)
+        out = self.assess("scoped", HEAD_C, lens=list(self.PANEL), classified=bigger)
+        self.assertIn("moved more guarded surface than", out)
+
+    def test_the_rounds_record_says_where_the_lens_roster_came_from(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", False),
+                              ("F2", "deliverable", HEAD_A, "technical-integrity", "serious", True)])
+        self.assess("scoped", HEAD_B)
+        self.assertIn("defaulted to the lenses that raised blockers last time",
+                      "\n".join(bc._repair_round_lines(self.state())))
+        self.receipt_round(HEAD_B)
+        self.assess("scoped", HEAD_C, lens=["usability"])
+        self.assertIn("lenses named deliberately", "\n".join(bc._repair_round_lines(self.state())))
+
     def test_recorded_guidance_allows_the_next_round_and_is_kept(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.panel_round(HEAD_B); self.panel_round(HEAD_C); self.panel_round(HEAD_D)
@@ -1873,7 +1993,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         # non-goal, so it needs its own coverage in both directions.
         rounds = [{"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "judgment": "scoped",
                    "lenses": ["usability", "technical-integrity"], "guidance": None, "counted": True,
-                   "anchor": HEAD_A, "reconciled": False, "roster_provenance": "blocker-union",
+                   "anchor": HEAD_A, "anchor_note": None, "roster_provenance": "blocker-union",
                    "classification": classification(authored=["app/main.py"])}]
         escalations = [{"reviewed_plan_digest": "sha256:" + "7" * 64,
                         "plan_digest": "sha256:" + "8" * 64, "operator_change": "Operator: proceed."}]
@@ -2046,12 +2166,42 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         # what the repair loop cost must not reach the operator's merge surface.
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.panel_round(HEAD_B)
-        required = bc._repair_round_lines(self.state())[0]
+        lines = bc._repair_round_lines(self.state())
         without = self.contract_leg("## Review\n\n- everything else is here\n")
         self.assertFalse(without["passed"])
-        self.assertIn("missing the repair-rounds disclosure", without["summary"])
-        with_it = self.contract_leg(f"## Review\n\n{required}\n")
+        self.assertIn("repair-rounds disclosure", without["summary"])
+        # The HEADLINE alone is not enough: the per-round detail is the part a reader acts on, so a body
+        # that keeps the summary sentence while dropping the rounds beneath it must still be refused.
+        headline_only = self.contract_leg(f"## Review\n\n{lines[0]}\n")
+        self.assertFalse(headline_only["passed"])
+        with_it = self.contract_leg("## Review\n\n" + "\n".join(lines) + "\n")
         self.assertTrue(with_it["passed"])
+
+    def test_the_pr_contract_leg_refuses_a_body_missing_the_growth_highlight(self):
+        # The one sentence saying "this repair is not converging" is exactly what a partial recompose
+        # would drop, and exactly what the operator most needs at the merge gate.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        small = classification(authored=["a.py"], churn={"authored": 6, "guarded": 0, "derived": 0, "docs": 0})
+        big = classification(authored=["a.py"], churn={"authored": 60, "guarded": 0, "derived": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=small)
+        self.panel_round(HEAD_C, classified=big)
+        lines = bc._repair_round_lines(self.state())
+        highlight = next(line for line in lines if "Worth a look" in line)
+        stripped = self.contract_leg("## Review\n\n" + "\n".join(l for l in lines if l != highlight))
+        self.assertFalse(stripped["passed"])
+        self.assertTrue(self.contract_leg("## Review\n\n" + "\n".join(lines))["passed"])
+
+    def test_the_pr_contract_leg_requires_the_recorded_operator_guidance(self):
+        # The rounds headline asserts that guidance was disclosed; the assertion and the thing it asserts
+        # have to be gated together, or the body can claim a disclosure it does not carry.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B); self.panel_round(HEAD_C); self.panel_round(HEAD_D)
+        self.assess("scoped", HEAD_E, lens=list(self.PANEL), guidance="Operator: one more pass, then ship.")
+        lines = bc._repair_round_lines(self.state())
+        without = self.contract_leg("## Review\n\n" + "\n".join(lines))
+        self.assertFalse(without["passed"])
+        full = lines + [f"- **Escalation recorded.** {g}" for g in bc._round_guidance_lines(self.state())]
+        self.assertTrue(self.contract_leg("## Review\n\n" + "\n".join(full))["passed"])
 
     def test_repair_findings_are_dispositioned_in_the_repair_stage(self):
         self.store.mutate(lambda s: s.update({
@@ -3258,7 +3408,10 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # default and the minimal-cold-check convention, and that each round is measured from the
         # previous round's end. Honesty first: thinning this passage to hold the old number would leave
         # the weakening -- two flat rounds to three counted -- disclosed nowhere a session reads.
-        self.assertLessEqual(len(text.split()), 3850)
+        # 3850 -> 3877: the last 27 of those words are the honest worst case the two bounds allow, added
+        # because a reviewer showed the passage otherwise left an impression of cheapness it could not
+        # back. The preservation-source ratio (448/6296) is unchanged.
+        self.assertLessEqual(len(text.split()), 3877)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that

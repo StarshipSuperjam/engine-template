@@ -124,6 +124,17 @@ class TestClassification(unittest.TestCase):
         result = _classify(_rename_row(0, 0, "scratch/ci.yml", ".github/workflows/engine-ci.yml"))
         self.assertEqual(result["files"]["guarded"], [".github/workflows/engine-ci.yml"])
 
+    def test_a_rename_AWAY_from_a_guarded_path_is_still_reported_as_guarded(self):
+        # Classifying only the destination would report a guarded file renamed to an ordinary name as
+        # ordinary authored work -- renaming a guard away is at least as serious as regenerating one.
+        result = _classify(_rename_row(0, 0, ".github/workflows/engine-ci.yml", "scratch/ci.yml"))
+        self.assertEqual(result["files"]["guarded"], ["scratch/ci.yml"])
+        self.assertEqual(result["files"]["authored"], [])
+
+    def test_a_rename_away_from_a_derived_path_is_still_reported_as_derived(self):
+        result = _classify(_rename_row(0, 0, ".engine/knowledge/graph.json", "notes/graph.json"))
+        self.assertEqual(result["files"]["derived"], ["notes/graph.json"])
+
     def test_an_empty_increment_reports_four_empty_kinds(self):
         result = _classify("")
         self.assertEqual(result["files"], {kind: [] for kind in repair_divergence.KINDS})
@@ -236,6 +247,82 @@ class TestExplicitRoot(unittest.TestCase):
                                                 derived_scripts=NO_SCRIPTS, instance_guards=NO_GUARDS)
         self.assertEqual(result["files"]["authored"], ["later.py"])
         self.assertNotEqual(anchor, root_commit)
+
+
+class TestGuardSetsAcrossTheIncrement(unittest.TestCase):
+    """The two halves of a classification come from different points in time: the file list is the
+    anchor..head diff, but the guard sets would otherwise be read only at head. A round that de-registers a
+    guard must not be able to make the NEXT round's churn on that file look like ordinary authored work."""
+
+    def repo(self, stack, anchor_rule, head_rule):
+        root = stack.enter_context(tempfile.TemporaryDirectory())
+        _git(root, "init", "-q")
+        _git(root, "config", "user.email", "e@x")
+        _git(root, "config", "user.name", "n")
+        os.makedirs(os.path.join(root, ".engine/check"))
+        os.makedirs(os.path.join(root, ".engine/tools"))
+        for rel, body in ((".engine/check/rule.json", anchor_rule),
+                          (".engine/tools/enforcer.py", "one\n")):
+            with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
+                fh.write(body)
+        _git(root, "add", "-A"); _git(root, "commit", "-q", "-m", "first")
+        anchor = _git(root, "rev-parse", "HEAD").stdout.strip()
+        with open(os.path.join(root, ".engine/check/rule.json"), "w", encoding="utf-8") as fh:
+            fh.write(head_rule)
+        with open(os.path.join(root, ".engine/tools/enforcer.py"), "w", encoding="utf-8") as fh:
+            fh.write("one\ntwo\nthree\n")
+        _git(root, "add", "-A"); _git(root, "commit", "-q", "-m", "second")
+        return root, anchor, _git(root, "rev-parse", "HEAD").stdout.strip()
+
+    def test_a_round_that_de_registers_a_guard_still_reports_the_guarded_file(self):
+        import contextlib
+        registered = '{"params": {"script": ".engine/tools/enforcer.py"}}'
+        with contextlib.ExitStack() as stack:
+            root, anchor, head = self.repo(stack, registered, '{"params": {}}')
+            result = repair_divergence.classify(root, anchor, head)
+        self.assertIn(".engine/tools/enforcer.py", result["files"]["guarded"])
+        self.assertEqual(result["files"]["authored"], [])
+
+    def test_a_guard_added_by_this_very_round_is_reported_too(self):
+        import contextlib
+        registered = '{"params": {"script": ".engine/tools/enforcer.py"}}'
+        with contextlib.ExitStack() as stack:
+            root, anchor, head = self.repo(stack, '{"params": {}}', registered)
+            result = repair_divergence.classify(root, anchor, head)
+        self.assertIn(".engine/tools/enforcer.py", result["files"]["guarded"])
+
+
+class TestTwoDotAcrossAMerge(unittest.TestCase):
+    def test_a_merge_parent_is_not_re_counted_into_the_increment(self):
+        # The guarantee only has teeth on a history that actually HAS a second parent: on a linear branch
+        # two-dot and three-dot are identical by definition, so a linear fixture cannot fail if someone
+        # later changes `base..head` to `base...head`.
+        with tempfile.TemporaryDirectory() as root:
+            _git(root, "init", "-q", "-b", "main")
+            _git(root, "config", "user.email", "e@x")
+            _git(root, "config", "user.name", "n")
+            for rel, body in (("app.py", "one\n"),):
+                with open(os.path.join(root, rel), "w", encoding="utf-8") as fh:
+                    fh.write(body)
+            _git(root, "add", "-A"); _git(root, "commit", "-q", "-m", "root")
+            _git(root, "checkout", "-q", "-b", "upstream")
+            with open(os.path.join(root, "upstream.py"), "w", encoding="utf-8") as fh:
+                fh.write("upstream\nwork\nhere\n")
+            _git(root, "add", "-A"); _git(root, "commit", "-q", "-m", "upstream work")
+            _git(root, "checkout", "-q", "main")
+            with open(os.path.join(root, "fix.py"), "w", encoding="utf-8") as fh:
+                fh.write("the fix\n")
+            _git(root, "add", "-A"); _git(root, "commit", "-q", "-m", "round one")
+            anchor = _git(root, "rev-parse", "HEAD").stdout.strip()
+            _git(root, "merge", "-q", "--no-ff", "-m", "merge upstream", "upstream")
+            head = _git(root, "rev-parse", "HEAD").stdout.strip()
+            result = repair_divergence.classify(root, anchor, head,
+                                                derived_scripts=NO_SCRIPTS, instance_guards=NO_GUARDS)
+        # Two-dot sees what the merge BROUGHT IN as part of this increment, and does not re-count the fix
+        # that was already at the anchor. Three-dot would diff against the merge base and report `fix.py`
+        # all over again.
+        self.assertEqual(result["files"]["authored"], ["upstream.py"])
+        self.assertNotIn("fix.py", result["files"]["authored"])
 
 
 if __name__ == "__main__":

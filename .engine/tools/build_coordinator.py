@@ -2734,8 +2734,8 @@ def _round_counted(entry: dict) -> bool:
     return bool(entry.get("counted", True))
 
 
-def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, bool]:
-    """(the commit THIS round's increment is measured from, whether a base change forced the fallback).
+def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, str | None]:
+    """(the commit THIS round's increment is measured from, why the previous round's end could not be used).
 
     The previous round's final commit, or the deliverable's reviewed commit when this is the first round.
 
@@ -2745,17 +2745,30 @@ def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, b
     than by the work. A round that happened is a round to measure from, whatever it concluded.
 
     A rewrite can leave a recorded final commit superseded or unreadable. There is nothing honest to measure
-    from there, so the anchor falls back to the reviewed commit and the round is MARKED, which suppresses
-    the growth comparison across it — a rebase must never be able to masquerade as a fix that grew.
+    from there, so the anchor falls back to the reviewed commit. The round is MARKED with WHICH of the two
+    things happened, and either marking suppresses the growth comparison across it — measured from a
+    different starting point, the two rounds are not comparable, and a rebase must never be able to
+    masquerade as a fix that grew. The two markings are kept apart because they are different facts, and
+    telling an operator "after a base change" when a session merely amended a commit is a false statement
+    about their branch:
+
+      `reconcile`  a recorded reconcile re-anchored the review; the base really did move.
+      `rewritten`  the previous round's commit is no longer reachable, with no reconcile recorded — an
+                   amend or a local rebase. Routine, and NOT a base change.
+
+    The first round is marked too when a reconcile is on record: a reconcile re-anchors the deliverable
+    review onto a new base, so the first round measured after one spans that rebase and its size is the
+    branch's, not one fix's.
     """
     reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
     if not rounds:
-        return reviewed, False
+        return reviewed, ("reconcile" if state.get("reconciles") else None)
     prior_final = rounds[-1]["final_commit"]
-    superseded = any(item["from_commit"] == prior_final for item in state.get("reconciles", []))
-    if superseded or not _commit_present(prior_final) or not _is_ancestor(prior_final, head):
-        return reviewed, True
-    return prior_final, False
+    if any(item["from_commit"] == prior_final for item in state.get("reconciles", [])):
+        return reviewed, "reconcile"
+    if not _commit_present(prior_final) or not _is_ancestor(prior_final, head):
+        return reviewed, "rewritten"
+    return prior_final, None
 
 
 def _prior_review_target(state: dict, rounds: list) -> tuple[str, str]:
@@ -2792,6 +2805,14 @@ def _substantive_churn(entry: dict) -> int | None:
     return sum(classification["churn"].get(kind, 0) for kind in _SUBSTANTIVE_KINDS)
 
 
+_ANCHOR_NOTES = {
+    "reconcile": (" (the base moved, so this round is measured from the deliverable review and its size is "
+                  "the branch's, not one fix's)"),
+    "rewritten": (" (the previous round's commit is no longer on this branch, so this round is measured "
+                  "from the deliverable review and cannot be compared with the round before it)"),
+}
+
+
 def _round_line(index: int, entry: dict) -> str:
     """One plain sentence describing a recorded round, for the operator rather than for a parser."""
     lenses = entry["lenses"]
@@ -2801,14 +2822,20 @@ def _round_line(index: int, entry: dict) -> str:
         what = f"one cold check ({lenses[0]})"
     else:
         what = f"{entry['judgment']} re-review across {len(lenses)} lenses"
+    # Whether a human judgment picked the coverage or a default did is the distinction the roster
+    # provenance was recorded FOR, so it is said here rather than left in the ledger for nobody to read.
+    if entry.get("roster_provenance") == "blocker-union":
+        what += ", defaulted to the lenses that raised blockers last time"
+    elif entry.get("roster_provenance") == "explicit":
+        what += ", lenses named deliberately"
     classification = entry.get("classification")
     if not classification:
         moved = "surfaces not recorded"
     else:
         parts = [f"{len(paths)} {kind}" for kind, paths in sorted(classification["files"].items()) if paths]
-        moved = (", ".join(parts) + f", {classification['total_churn']} lines"
-                 ) if parts else "nothing changed"
-    marked = " (measured from the deliverable review after a base change)" if entry.get("reconciled") else ""
+        moved = (", ".join(f"{part} file(s)" for part in parts) + f", {classification['total_churn']} lines"
+                 ) if parts else "nothing"
+    marked = _ANCHOR_NOTES.get(entry.get("anchor_note") or "", "")
     return (f"round {index}: {'counted' if _round_counted(entry) else 'uncounted'}, {what}{marked}; "
             f"the fix moved {moved}")
 
@@ -2823,17 +2850,46 @@ def _growth_note(rounds: list) -> str | None:
     if len(comparable) < 2:
         return None
     previous, latest = comparable[-2], comparable[-1]
-    if any(rounds[i].get("reconciled") for i in range(previous + 1, latest + 1)):
-        return None
+    if any(rounds[i].get("anchor_note") for i in range(previous + 1, latest + 1)):
+        # Said out loud rather than passed over in silence: a reader who sees no highlight is entitled to
+        # know whether that means "it did not widen" or "we could not tell".
+        return ("the last two counted rounds were measured from different starting points, so whether the "
+                "repairs are widening could not be judged. Read their sizes above as separate facts, not "
+                "as a trend.")
     before, after = _substantive_churn(rounds[previous]), _substantive_churn(rounds[latest])
     if after <= before:
         return None
-    return (f"the last counted round moved more code and guarded surface than the one before it "
-            f"({before} -> {after} lines). The repairs are widening rather than settling, which usually "
-            f"means a fix broke something past the finding it answered.")
+    # Name what actually grew. Saying "code and guarded surface" when no guarded file moved tells the
+    # operator protected surface was touched when it was not -- in the one sentence written to catch
+    # their eye, which is the worst possible place to be loose.
+    grew = [kind for kind in _SUBSTANTIVE_KINDS
+            if (rounds[latest]["classification"]["churn"].get(kind, 0)
+                > rounds[previous]["classification"]["churn"].get(kind, 0))]
+    moved = {"guarded": "guarded surface", "authored": "code"}
+    what = " and ".join(moved[kind] for kind in grew) or "code and guarded surface"
+    return (f"the last counted round moved more {what} than the one before it ({before} -> {after} lines). "
+            f"The repairs are widening rather than settling, which usually means a fix broke something "
+            f"past the finding it answered.")
 
 
 _ROUND_PATH_SAMPLE = 4   # paths named per kind before the rest are counted, so a long round stays readable
+
+
+def _round_guidance_lines(state: dict) -> list[str]:
+    """The operator's recorded answer at each round that passed a stop. Single-homed because two readers
+    need the exact same strings: the PR body composes them as cadence escalations, and the pr-contract
+    preflight REQUIRES them — a body may not keep the rounds headline's claim that guidance was disclosed
+    while the guidance itself is missing."""
+    rounds = state.get("repair_rounds", [])
+    return [f"repair round {index} of {len(rounds)} proceeded past the escalation point on recorded "
+            f"operator guidance: {item['guidance']}"
+            for index, item in enumerate(rounds, start=1) if item.get("guidance")]
+
+
+def _fenced(path: str) -> str:
+    """A repository path inside a Markdown code span. Backticks are legal in POSIX filenames and would
+    close the span early, spilling the rest of the path into the operator's merge surface as markup."""
+    return "`" + path.replace("`", "'") + "`"
 
 
 def _repair_round_lines(state: dict) -> list[str]:
@@ -2859,7 +2915,7 @@ def _repair_round_lines(state: dict) -> list[str]:
             paths = classification["files"].get(kind) or []
             if not paths:
                 continue
-            shown = ", ".join(f"`{path}`" for path in paths[:_ROUND_PATH_SAMPLE])
+            shown = ", ".join(_fenced(path) for path in paths[:_ROUND_PATH_SAMPLE])
             more = (f" and {len(paths) - _ROUND_PATH_SAMPLE} more"
                     if len(paths) > _ROUND_PATH_SAMPLE else "")
             lines.append(f"    - {kind}: {shown}{more}")
@@ -2950,7 +3006,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # the same commit pair -- otherwise an abandoned fan-out repeated forever would count once.
     same = [] if fanned_out else [r for r in rounds if _same_episode(r)]
     kept = [r for r in rounds if r not in same]
-    anchor, reconciled = _classification_anchor(state, kept, head)
+    anchor, anchor_note = _classification_anchor(state, kept, head)
     sys.path.insert(0, str(ROOT / ".engine" / "tools"))
     import repair_divergence
     try:
@@ -3019,16 +3075,23 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
               f"dropped: {detail}." + also + " Those lenses owe a read of the new range.", file=sys.stderr)
     entry = {"reviewed_commit": reviewed, "final_commit": head, "judgment": args.judgment,
              "lenses": lenses, "guidance": guidance, "counted": counted, "anchor": anchor,
-             "reconciled": reconciled, "roster_provenance": roster_provenance,
+             "anchor_note": anchor_note, "roster_provenance": roster_provenance,
              "classification": classification}
     rounds = kept + [entry]
     prior_counted = sum(1 for r in kept if _round_counted(r))
-    if not same and not guidance:
+    if not guidance:
         stop = None
-        if counted and prior_counted >= _REPAIR_ROUND_ESCALATION:
+        # The counted cap is checked even when this assess REPLACES an existing entry, because a
+        # replacement can still spend: recording a cheap single-lens round and then re-assessing the same
+        # commit pair as a panel turns a free round into a counted one, and skipping the check on the
+        # replacement path made that a way past the budget. Only a replacement that was ALREADY counted
+        # is free -- it is the same spend, judged again.
+        already_counted = any(_round_counted(r) for r in same)
+        if counted and not already_counted and prior_counted >= _REPAIR_ROUND_ESCALATION:
             stop = (f"{prior_counted} repair rounds have already dispatched a review panel on this "
                     f"deliverable, which is the whole counted budget. This one would spend past it.")
-        elif len(kept) >= _REPAIR_ROUND_CEILING:
+        # The ceiling counts ROUNDS, so a replacement -- which adds none -- never trips it.
+        elif not same and len(kept) >= _REPAIR_ROUND_CEILING:
             stop = (f"{len(kept)} repair rounds of every kind have already run on this deliverable — the "
                     f"absolute ceiling, whatever each one spent.")
         if stop:
@@ -3044,7 +3107,8 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "session_effort": (prior or {}).get("session_effort"),
               "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted")),
-              "anchor": anchor, "counted": counted, "classification": classification}
+              "anchor": anchor, "counted": counted, "classification": classification,
+              "roster_provenance": roster_provenance}
     store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
     print("\nHow the rounds have gone:\n" + _trajectory(rounds))
@@ -3085,10 +3149,16 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
         contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
     # The rounds record is coordinator-derived and REQUIRED once any round has run: the same pattern as the
     # disagreement lines, so what the operator is told about repair cost cannot quietly fall out of the body.
-    round_lines = _repair_round_lines(state)
-    if round_lines and round_lines[0] not in body:
+    # EVERY line, not just the headline -- the per-round detail and the growth highlight are the parts a
+    # reader acts on, and requiring only the summary sentence would let a body keep the headline's claim
+    # while dropping the "worth a look before you merge" line the headline is standing in front of. The
+    # recorded operator guidance is required with them: the headline asserts that guidance was disclosed,
+    # so the assertion and the thing it asserts have to be gated together.
+    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state)
+                      if line not in body]
+    if missing_rounds:
         contract_passed = False
-        contract_summary += "; missing the repair-rounds disclosure"
+        contract_summary += f"; missing {len(missing_rounds)} line(s) of the repair-rounds disclosure"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
     declarations = _hard_check_declarations()
@@ -4406,12 +4476,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         cadence_escalations.append(
             f"the executed plan differs from the sealed plan its panel read, on recorded operator "
             f"authority and without re-review: {item['operator_change']}")
-    rounds = state.get("repair_rounds", [])
-    for index, item in enumerate(rounds, start=1):
-        if item.get("guidance"):
-            cadence_escalations.append(
-                f"repair round {index} of {len(rounds)} proceeded past the escalation point on recorded "
-                f"operator guidance: {item['guidance']}")
+    cadence_escalations += _round_guidance_lines(state)
 
     return {
         "closes": closes,

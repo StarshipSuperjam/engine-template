@@ -29,6 +29,7 @@ caller can never mistake a git failure for a quiet, empty diff.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 
@@ -57,7 +58,7 @@ def _run_git(argv: list, root: str) -> str:
 
 
 def numstat_rows(root, base: str, head: str, runner=None) -> list:
-    """`(added, deleted, path)` for every file in the TWO-DOT diff `base..head`, run in `root`.
+    """`(added, deleted, path, previous_path)` for every file in the TWO-DOT diff `base..head`, in `root`.
 
     Two-dot, not three: a repair round's increment is the movement between two commits on the same branch,
     and a merge-base-relative diff would re-count everything the round did not touch.
@@ -65,7 +66,10 @@ def numstat_rows(root, base: str, head: str, runner=None) -> list:
     `-z` keeps paths with newlines or non-ASCII bytes intact. Its record shape differs for renames: an
     ordinary record is one NUL-terminated `added\\tdeleted\\tpath`, while a rename emits
     `added\\tdeleted\\t` followed by the old path and the new path as two further NUL-terminated fields. A
-    rename is attributed to its NEW path — that is the file the reader will open.
+    rename is attributed to its NEW path — that is the file the reader will open — but the OLD path is
+    carried alongside it, because a rename AWAY from a serious surface is as serious as a rename into one
+    and classifying only the destination would report a guarded file renamed to an ordinary name as
+    ordinary authored work. `previous_path` is `""` for everything that is not a rename.
 
     A binary file's counts render as `-`, which counts as churn 0 (scope_profile's convention: line churn is
     not defined for bytes, and inventing a number would put a fictional figure in front of the operator).
@@ -84,15 +88,59 @@ def numstat_rows(root, base: str, head: str, runner=None) -> list:
             raise DivergenceError(f"unparseable git numstat record: {fields[index]!r}")
         added, deleted, path = parts
         index += 1
+        previous = ""
         if path == "":                       # a rename: the old and new paths follow as separate fields
             if index + 1 >= len(fields):
                 raise DivergenceError("truncated git numstat rename record")
-            path = fields[index + 1]         # the NEW path — fields[index] is the old one
+            previous, path = fields[index], fields[index + 1]
             index += 2
         rows.append((int(added) if added.isdigit() else 0,
                      int(deleted) if deleted.isdigit() else 0,
-                     path))
+                     path, previous))
     return rows
+
+
+def _guard_sets_at(weakening_guard, root: str, commit: str) -> tuple:
+    """The check-script set and instance pair as they stood AT `commit`, read out of git rather than off
+    disk.
+
+    Needed because the two halves of a classification come from different points in time: the file list is
+    the `anchor..head` diff, while the guard sets would otherwise be read from the working tree at head. A
+    round that de-registers a guard — deleting a check rule's `params.script`, or dropping a path from the
+    instance declaration — would then make every later round's churn on that file classify as ordinary
+    authored work, exactly when a reader most needs to be told enforcement logic moved. The caller unions
+    this with the head sets, so a path guarded at EITHER end classifies guarded: the same fail-toward-the-
+    serious-kind direction the precedence order takes.
+
+    Any read failure returns the fail-safe sentinel pair (None, empty instance) — None meaning "guard all of
+    `.engine/tools/`", `weakening_guard`'s own convention when a derivation cannot be trusted.
+    """
+    try:
+        listing = _run_git(["git", "ls-tree", "-z", "--name-only", commit, "--", ".engine/check/"], root)
+    except DivergenceError:
+        return None, (set(), ())
+    scripts: set = set()
+    for name in [entry for entry in listing.split("\0") if entry.endswith(".json")]:
+        try:
+            data = json.loads(_run_git(["git", "show", f"{commit}:{name}"], root))
+        except (DivergenceError, ValueError):
+            return None, (frozenset(), ())   # all-or-nothing, like _derive_check_scripts
+        script = (data.get("params") or {}).get("script")
+        if isinstance(script, str) and script.strip():
+            scripts.add(script)
+    try:
+        declared = json.loads(_run_git(["git", "show", f"{commit}:{weakening_guard.INSTANCE_DECL_REL}"], root))
+        if not isinstance(declared, dict):
+            raise ValueError("not an object")
+        # Mirrors weakening_guard._read_instance_guards' defensive parse. Read here rather than imported
+        # because that reader takes a filesystem path and this one reads a git object; weakening_guard is a
+        # hard-floor guarded file, so a sibling reaches for its shape rather than editing it.
+        exact = {p for p in declared.get("guarded_paths", []) if isinstance(p, str) and p.strip()}
+        prefixes = tuple(p for p in declared.get("guarded_prefixes", [])
+                         if isinstance(p, str) and p.strip() and p.strip() not in {".", "/", "./"})
+    except (DivergenceError, ValueError, AttributeError, TypeError):
+        return scripts, (set(), ())          # absent is the normal steady state, and silent by design
+    return scripts, (exact, prefixes)
 
 
 def _dynamic_outputs(derived_state, root: str) -> set:
@@ -128,24 +176,44 @@ def classify(root, base: str, head: str, *, derived_scripts=_DERIVE, instance_gu
     rows = numstat_rows(root, base, head, runner=runner)
 
     try:
-        if derived_scripts is _DERIVE:
+        # Explicitly supplied sets govern BOTH ends: a caller that names the guard sets is describing one
+        # world, not two, and a test that pinned head-side membership should not have an anchor-side read
+        # appear behind it.
+        derive_scripts = derived_scripts is _DERIVE
+        derive_instance = instance_guards is _DERIVE
+        if derive_scripts:
             derived_scripts = weakening_guard._derive_check_scripts(
                 os.path.join(root, ".engine", "check"))
-        if instance_guards is _DERIVE:
+        if derive_instance:
             instance_guards = weakening_guard._read_instance_guards(
                 os.path.join(root, weakening_guard.INSTANCE_DECL_REL))
+        anchor_scripts, anchor_instance = derived_scripts, instance_guards
+        if derive_scripts or derive_instance:
+            # One extra read of the anchor tree per ROUND (not per file), and only on the derive path.
+            at_anchor = _guard_sets_at(weakening_guard, root, base)
+            anchor_scripts = at_anchor[0] if derive_scripts else anchor_scripts
+            anchor_instance = at_anchor[1] if derive_instance else anchor_instance
         dynamic_files = _dynamic_outputs(derived_state, root)
     except DivergenceError:
         raise
     except Exception as exc:  # noqa: BLE001 — same rule: refuse legibly rather than measure against a guess
         raise DivergenceError(f"could not derive the classification sets: {exc}") from exc
 
+    def guarded(path: str) -> bool:
+        """Guarded at EITHER end of the increment. The head sets alone would let a round that
+        de-registered a guard hide the next round's churn on that file, and the anchor sets alone would
+        miss a guard added by this very round."""
+        return (weakening_guard.is_guardrail(path, derived_scripts, instance_guards)
+                or weakening_guard.is_guardrail(path, anchor_scripts, anchor_instance))
+
     files = {kind: [] for kind in KINDS}
     churn = {kind: 0 for kind in KINDS}
-    for added, deleted, path in rows:
-        if weakening_guard.is_guardrail(path, derived_scripts, instance_guards):
+    for added, deleted, path, previous in rows:
+        # A rename is judged on BOTH names: renaming a guarded file to an ordinary one is a guarded event.
+        if guarded(path) or (previous and guarded(previous)):
             kind = "guarded"
-        elif derived_state.owner_of(path) is not None or path in dynamic_files:
+        elif (derived_state.owner_of(path) is not None or path in dynamic_files
+              or (previous and derived_state.owner_of(previous) is not None)):
             kind = "derived"
         elif path.startswith(DOCS_PREFIXES):
             kind = "docs"
