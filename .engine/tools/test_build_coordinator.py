@@ -2077,7 +2077,10 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         silent = classification(authored=["a.py"])
         del silent["guards_read"]
         self.assess("scoped", HEAD_B, lens=list(self.PANEL), classified=silent)
-        self.assertIn("could not be read", "\n".join(bc._repair_round_lines(self.state())))
+        rendered = "\n".join(bc._repair_round_lines(self.state()))
+        self.assertIn("whether its guarded count is complete is unknown", rendered)
+        # ...and NOT the stronger claim that a read failed, which did not happen.
+        self.assertNotIn("could not be read", rendered)
 
     def test_the_rounds_headline_says_what_widening_is_judged_on(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))

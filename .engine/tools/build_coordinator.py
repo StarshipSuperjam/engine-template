@@ -2845,7 +2845,12 @@ def _round_line(index: int, entry: dict) -> str:
         moved = (", ".join(f"{part} file(s)" for part in parts) + f", {classification['total_churn']} lines"
                  ) if parts else "nothing"
     marked = _ANCHOR_NOTES.get(entry.get("anchor_note") or "", "")
-    if classification and classification.get("guards_read") is not True:
+    if classification and "guards_read" not in classification:
+        # A round recorded before the honesty flag existed. "Unknown" is the right reading -- but saying a
+        # read FAILED would be a different, false claim about what happened.
+        marked += (" (this round was recorded before guard reads were checked, so whether its guarded "
+                   "count is complete is unknown)")
+    elif classification and not classification["guards_read"]:
         marked += (" (a guard registration on this round's span could not be read, so the guarded count "
                    "below may be short)")
     return (f"round {index}: {'counted' if _round_counted(entry) else 'uncounted'}, {what}{marked}; "
