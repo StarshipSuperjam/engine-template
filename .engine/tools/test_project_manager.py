@@ -1927,10 +1927,6 @@ class TheRetitle(unittest.TestCase):
         ".engine/provisioning/module-surfaces.json":
             "generated, and what it carries is the eADR FILENAME above — it is correct because that file "
             "is correctly named",
-        ".engine/policies/provider-exceptions.json":
-            "OUT OF THIS NODE'S DECLARED PATHS. `.engine/policies/` is not among them, so this node could "
-            "not touch it; the entry's reason string still names the old component in the present tense "
-            "and is a residue to fix in a follow-up, disclosed here rather than left invisible",
         ".engine/tools/test_plan_dogfood.py":
             "the historical plan document itself — the real PR A plan's title, raw intent and decisions. "
             "History keeps the name it was written under",
