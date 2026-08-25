@@ -7566,7 +7566,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:8c70eeccc2ea297150ed4aeeb0dac9babf116485742cf6254018ec3deecba51e",
+        "fingerprint": "sha256:b1668011b0c9d94f612258142f19afceb3cb75d15b3d3c185bbeb68b0f4905bd",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -9899,7 +9899,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:148c229b45ca504188ae7eb968d1a54c9c32e262e218d7a18f78894642680c4f",
+        "fingerprint": "sha256:c37a99be9372222cf081d1c0a725817d5bea476c884a8e2f56c38959afb1e12c",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -14273,7 +14273,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:182c3c3aa9564244d0bffa78a69f3daeeea5be7493c96a275df812994259e2db",
+        "fingerprint": "sha256:17126e8ca5edea602bce7dba9c2fb1337d306d819b88f0a07373fe23bd80c126",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16003,7 +16003,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:dd8cead5fb86d6d43df25c3e7659036765f963e99356fc867202b742962b83f5",
+        "fingerprint": "sha256:9b1420dc7f39257e9d85292cd90c8061694fa0f75b7c9d4a4ac02f7e8b7cf51a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -18577,7 +18577,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:71b5a1449ff45a4aa0bb8533c579efa334da26849de2e775a16d24d0e7131d16",
+        "fingerprint": "sha256:f70011df0a45a763eefc5101ae176138ea36ad265c1146feb66aee9260937170",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19326,7 +19326,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:5d458119f40c2b20ea9864cab0cec0303425cb9d6387e7f19fbcab73f3c70c9a",
+        "fingerprint": "sha256:60b859132a85af3b0402ef47402f9cc85586c8c1e4f33bbb1c6da4360ab0f07b",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
