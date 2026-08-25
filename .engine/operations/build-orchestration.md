@@ -197,17 +197,17 @@ Record the reviewed commit and critically adjudicate findings. After accepted re
 reviewed-to-final divergence with `repair assess` and make one engineering judgment:
 
 - `none`: direct verification is sufficient and another independent pass would be disproportionate.
-- `scoped`: rerun only lenses materially affected by the repair.
+- `scoped`: rerun only lenses materially affected by the repair. With no `--lens` the coordinator defaults to the lenses that raised a blocking or blocking-this-PR finding at the review being repaired; naming lenses overrides it either way.
 - `full`: rerun all applicable deliverable lenses because architecture, authority, or broad behavior changed.
 
-Diff size informs but never chooses. A focused re-review's prescribed repair receives another proportional
+Diff size and the surfaces a repair touched inform but never choose. The repair packet names `anchor..commit` as the review's subject, so a re-review reads the repair rather than the whole pull request. A focused re-review's prescribed repair receives another proportional
 judgment; `none` is valid and terminates the loop — and because it also clears the repair packet, it refuses when recorded receipts would go with it, until `--accept-receipt-loss`. A receipt binds to the commit RANGE its lens read, so a re-bind keeps every receipt still covering the new divergence and asks only the lenses that owe a read, naming the commits. A commit carrying only regenerated artifacts invalidates no binding and opens no round. There is no automatic audit recursion. A scoped or full
 repair packet requires validation for the repaired commit. If target-branch reconciliation happens after
 review, validate it and make the same nature-based judgment.
 
 **A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
 review then a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large divergence —
-leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Depth stays the orchestrator's judgment, never a mechanical threshold (eADR-0041); continuing is bounded — rounds count whatever the judgment, and after two `repair assess` stops until `--guidance` records the operator's answer. That narrows eADR-0041's "never an escalation" to a count-based stop for cost; coverage and lens count stay uncapped. One design panel per Build: a completed panel freezes the plan, and `plan revise` names the ways on.
+leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Depth stays the orchestrator's judgment, never a mechanical threshold (eADR-0041); continuing is bounded by what rounds SPEND. A round that dispatches two or more cold lenses is counted; three counted rounds is the budget, and six rounds of any kind is the absolute ceiling. Either stop refuses until `--guidance` records the operator's answer, and prints the trajectory — including a highlight when a round moved more code and guarded surface than the one before it, the sign a fix broke something past the finding it answered. A `none` judgment and a single cold check on a low-yield change are recorded and disclosed but spend no counted budget; by convention that cheap check is one lens on a minimal model, because its whole value is the cold context. Each round is classified from the previous round's end, not from the reviewed commit, and the rounds record reaches the operator at merge. That narrows eADR-0041's "never an escalation" to spend-based stops for cost; coverage and lens count stay uncapped. One design panel per Build: a completed panel freezes the plan, and `plan revise` names the ways on.
 
 ### 6. Preflight and submit
 
@@ -249,7 +249,7 @@ omitted approved reviewer coverage; absent deliverable review; validation stale 
 change without a proportional judgment; a finding explicitly left blocking this PR; missing or failed
 registered preflight; incomplete PR contract; wrong/non-draft PR during construction; and any operation that
 would merge. Each is tied to a demonstrated failure in `.engine/contracts/eADR-0041-build-coordinator-behavior.md`.
-Unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or judgment inputs; an
+Unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or judgment inputs, as does a repair's surface classification — round accounting bounds how many rounds run, never which lenses run or how deep; an
 `unresolved` assumption instead holds the `ready` phase until cleared by `assumption dispose` or `plan revise`.
 
 ## Done when

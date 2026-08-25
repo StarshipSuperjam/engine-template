@@ -3252,7 +3252,13 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # 3657 is those two ratchets meeting in a merge, not a new budget: the file measures exactly that,
         # and neither side's instruction was trimmed to fit the other's cap. The preservation-source ratio
         # (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3657)
+        # 3657 -> 3850 for spend-counted repair rounds, measured at +193 words. That cost buys four
+        # things a session cannot infer from the verbs: what makes a round COUNT (a panel, not a
+        # judgment), the two bounds and that both are guidance stops rather than walls, the blocker-union
+        # default and the minimal-cold-check convention, and that each round is measured from the
+        # previous round's end. Honesty first: thinning this passage to hold the old number would leave
+        # the weakening -- two flat rounds to three counted -- disclosed nowhere a session reads.
+        self.assertLessEqual(len(text.split()), 3850)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
