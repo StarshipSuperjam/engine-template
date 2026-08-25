@@ -17,13 +17,28 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
+import repair_divergence  # noqa: E402
 
 HEAD_A = "a" * 40
 HEAD_B = "b" * 40
 HEAD_C = "c" * 40
+HEAD_D = "d" * 40
+HEAD_E = "e" * 40
+HEAD_F = "f" * 40
 BASE = "0" * 40
 PLAN_ID = "pln_0123456789ab"
 SEALED = "sha256:" + "e" * 64
+
+
+def classification(guarded=(), derived=(), docs=(), authored=(), churn=None):
+    """A repair_divergence.classify() result, as the coordinator consumes it. The commits are fake
+    throughout these tests, so the real classifier (which shells out to git) is stood in for — what is
+    under test here is what the COORDINATOR does with a classification, not how one is measured."""
+    files = {"guarded": list(guarded), "derived": list(derived),
+             "docs": list(docs), "authored": list(authored)}
+    counts = dict(churn) if churn else {kind: len(paths) for kind, paths in files.items()}
+    return {"anchor": HEAD_A, "head": HEAD_B, "files": files, "churn": counts,
+            "total_churn": sum(counts.values())}
 
 
 def plan_v1(objective="Ship a small instrument panel"):
@@ -1643,14 +1658,27 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     # --- repair-round escalation (never a cap on review coverage) ----------------------
 
-    def assess(self, judgment, head, lens=None, guidance=None, reviewed=None):
+    def assess(self, judgment, head, lens=None, guidance=None, reviewed=None, classified=None,
+               lenses=("usability", "technical-integrity")):
         ns = argparse.Namespace(judgment=judgment, rationale="Round rationale.", lens=lens, guidance=guidance)
+        out = io.StringIO()
         with mock.patch.object(bc, "_head", return_value=head), \
              mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
-             mock.patch.object(bc, "_required", return_value=[{"lens": "usability"}]), \
-             mock.patch.object(bc, "_installed", return_value=["usability"]), \
-             contextlib.redirect_stdout(io.StringIO()):
+             mock.patch.object(bc, "_required", return_value=[{"lens": x} for x in lenses]), \
+             mock.patch.object(bc, "_installed", return_value=list(lenses)), \
+             mock.patch.object(repair_divergence, "classify",
+                               return_value=classified or classification(authored=["app/main.py"])), \
+             mock.patch.object(bc, "_commit_present", return_value=True), \
+             mock.patch.object(bc, "_is_ancestor", return_value=True), \
+             contextlib.redirect_stdout(out):
             bc.cmd_repair_assess(ns, self.store)
+        return out.getvalue()
+
+    def refused_assess(self, judgment, head, lens=None, guidance=None, classified=None):
+        """Drive an assess expected to refuse, returning the refusal text."""
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            self.assess(judgment, head, lens=lens, guidance=guidance, classified=classified)
+        return str(caught.exception)
 
     def receipt_round(self, head):
         """Finish the current round's lenses so the next assess advances to a new commit pair. The receipts
@@ -1664,38 +1692,169 @@ class TestValidationRepairAndStatus(CoordinatorCase):
                 for x in s["repair"]["lenses"]]
         self.store.mutate(change)
 
-    def test_a_none_judgment_still_counts_toward_escalation(self):
-        # The defect this closes: gating only scoped/full made "no re-review needed" the FRICTIONLESS exit
-        # at the moment cost pressure peaks -- the accept-the-breaks-and-merge outcome.
+    PANEL = ["usability", "technical-integrity"]
+
+    def panel_round(self, head, **kw):
+        """A COUNTED round: it dispatches a panel (two or more cold lenses), and finishes it."""
+        self.assess("scoped", head, lens=list(self.PANEL), **kw)
+        self.receipt_round(head)
+
+    def record_findings(self, rows):
+        """Seed schema-faithful findings: (id, stage, commit, lens, severity, blocks_this_pr)."""
+        digest = "sha256:" + "4" * 64
+        def change(s):
+            s["findings"] = [
+                {"id": fid, "stage": stage, "lens": lens, "packet_digest": digest,
+                 "lens_packet_digest": digest, "commit": commit, "severity": severity,
+                 "summary": f"{fid} summary", "disposition": "accepted-fixed",
+                 "rationale": "Fixed.", "escalation_kind": None, "blocks_this_pr": blocks,
+                 "handoff_summary": None, "operator_summary": None, "private_reference": None}
+                for fid, stage, commit, lens, severity, blocks in rows]
+        self.store.mutate(change)
+
+    def test_a_none_judgment_is_recorded_but_spends_no_counted_budget(self):
+        # A round costs what it SPENDS. `none` dispatches nobody, so it does not consume the counted
+        # budget -- but it is still a recorded round, and the absolute ceiling still bounds it, so
+        # "no re-review needed" is not the frictionless infinite exit it would otherwise be.
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.assess("none", HEAD_B)
-        self.assertEqual(len(self.state()["repair_rounds"]), 1)
-        self.assertEqual(self.state()["repair_rounds"][0]["judgment"], "none")
+        rounds = self.state()["repair_rounds"]
+        self.assertEqual(len(rounds), 1)
+        self.assertEqual(rounds[0]["judgment"], "none")
+        self.assertFalse(rounds[0]["counted"])
 
-    def test_a_third_round_of_any_judgment_stops_for_operator_guidance(self):
+    def test_a_single_lens_cold_check_spends_no_counted_budget(self):
+        # The cheap check the operator asked for: one cold context on a low-yield change. "Minimal" is
+        # DERIVED from the recorded roster, never declared by the session that benefits from declaring it.
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
-        self.assess("scoped", HEAD_B, lens=["usability"]); self.receipt_round(HEAD_B)
-        self.assess("scoped", HEAD_C, lens=["usability"]); self.receipt_round(HEAD_C)
-        self.assertEqual(len(self.state()["repair_rounds"]), 2)
-        with mock.patch.object(bc, "_head", return_value="d" * 40), \
+        self.assess("scoped", HEAD_B, lens=["usability"])
+        self.assertFalse(self.state()["repair_rounds"][0]["counted"])
+
+    def test_a_panel_round_spends_counted_budget(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("scoped", HEAD_B, lens=list(self.PANEL))
+        self.assertTrue(self.state()["repair_rounds"][0]["counted"])
+
+    def test_the_fourth_counted_round_stops_for_operator_guidance(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B); self.panel_round(HEAD_C); self.panel_round(HEAD_D)
+        self.assertEqual(sum(1 for r in self.state()["repair_rounds"] if r["counted"]), 3)
+        message = self.refused_assess("scoped", HEAD_E, lens=list(self.PANEL))
+        self.assertIn("--guidance", message)
+        self.assertIn("counted budget", message)
+        self.assertIn("How the rounds have gone", message)
+
+    def test_an_uncounted_round_after_the_counted_budget_still_runs(self):
+        # The point of counting by spend: a cheap cold check on a low-yield change is not what runs an
+        # unattended session into the ground, so it is not what the counted cap should stop.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B); self.panel_round(HEAD_C); self.panel_round(HEAD_D)
+        self.assess("scoped", HEAD_E, lens=["usability"])
+        self.assertEqual(len(self.state()["repair_rounds"]), 4)
+
+    def test_the_absolute_ceiling_stops_a_mixed_run_of_cheap_rounds(self):
+        # Six rounds of ANY kind is the wall the operator asked for: "I can't go afk and come back to 21
+        # rounds." Uncounted rounds are cheaper, not free.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        for head in (HEAD_B, HEAD_C, HEAD_D, HEAD_E, HEAD_F, "1" * 40):
+            self.assess("none", head)
+        self.assertEqual(len(self.state()["repair_rounds"]), 6)
+        self.assertEqual(sum(1 for r in self.state()["repair_rounds"] if r["counted"]), 0)
+        message = self.refused_assess("none", "2" * 40)
+        self.assertIn("--guidance", message)
+        self.assertIn("absolute ceiling", message)
+
+    def test_each_round_is_measured_from_the_previous_ROUND_not_the_reviewed_commit(self):
+        # The measurement trap this closes: the reviewed commit advances only past a COMPLETED round, so
+        # after a `none` round it stays put. Anchoring there would measure every later round cumulatively
+        # from it, and each one would look bigger than the last -- a growth signal manufactured by the
+        # anchor rather than by the work.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("none", HEAD_B)
+        self.assess("none", HEAD_C)
+        self.assertEqual(self.state()["repair_rounds"][0]["anchor"], HEAD_A)
+        self.assertEqual(self.state()["repair_rounds"][-1]["anchor"], HEAD_B)
+        self.assertEqual(self.state()["reviews"]["deliverable"]["reviewed_commit"], HEAD_A)
+
+    def test_a_round_after_a_base_change_is_marked_and_suppresses_the_growth_signal(self):
+        # A rebase must never be able to masquerade as a fix that grew.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B, classified=classification(authored=["a.py"], churn={"authored": 4, "guarded": 0, "derived": 0, "docs": 0}))
+        self.store.mutate(lambda s: s.update({"reconciles": [
+            {"from_commit": HEAD_B, "to_commit": HEAD_C, "base_before": BASE, "base_after": HEAD_C,
+             "contribution_identical": True, "divergent_paths": [], "anchored_to": HEAD_C}]}))
+        out = self.assess("scoped", HEAD_D, lens=list(self.PANEL),
+                          classified=classification(authored=["a.py", "b.py"],
+                                                    churn={"authored": 400, "guarded": 0, "derived": 0, "docs": 0}))
+        latest = self.state()["repair_rounds"][-1]
+        self.assertTrue(latest["reconciled"])
+        self.assertEqual(latest["anchor"], HEAD_A)
+        self.assertNotIn("HIGHLIGHT", out)
+
+    def test_a_widening_repair_is_highlighted_at_every_assess(self):
+        # A highlight, never a stop: the round is recorded and the Build continues. The operator asked for
+        # this signal to travel with the escalation rather than to become a second bespoke wall.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        small = classification(authored=["a.py"], churn={"authored": 6, "guarded": 0, "derived": 0, "docs": 0})
+        large = classification(authored=["a.py", "b.py"], churn={"authored": 60, "guarded": 0, "derived": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=small)
+        out = self.assess("scoped", HEAD_C, lens=list(self.PANEL), classified=large)
+        self.assertIn("HIGHLIGHT", out)
+        self.assertIn("6 -> 60 lines", out)
+        self.assertEqual(len(self.state()["repair_rounds"]), 2)   # highlighted, not stopped
+
+    def test_a_shrinking_repair_raises_no_highlight(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        large = classification(authored=["a.py", "b.py"], churn={"authored": 60, "guarded": 0, "derived": 0, "docs": 0})
+        small = classification(authored=["a.py"], churn={"authored": 6, "guarded": 0, "derived": 0, "docs": 0})
+        self.panel_round(HEAD_B, classified=large)
+        out = self.assess("scoped", HEAD_C, lens=list(self.PANEL), classified=small)
+        self.assertNotIn("HIGHLIGHT", out)
+
+    def test_documentation_and_regeneration_do_not_read_as_a_widening_repair(self):
+        # The headline the growth signal watches is code and guarded surface. A round that regenerated a
+        # large derived artifact is disclosed, but it is not what a fix breaking something looks like.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        code = classification(authored=["a.py"], churn={"authored": 6, "guarded": 0, "derived": 0, "docs": 0})
+        regen = classification(authored=["a.py"], derived=[".engine/knowledge/graph.json"],
+                               churn={"authored": 5, "guarded": 0, "derived": 9000, "docs": 0})
+        self.panel_round(HEAD_B, classified=code)
+        out = self.assess("scoped", HEAD_C, lens=list(self.PANEL), classified=regen)
+        self.assertNotIn("HIGHLIGHT", out)
+        self.assertIn("1 derived", out)
+
+    def test_an_unmeasurable_increment_refuses_the_round(self):
+        # Fail toward refusal. A defaulted classification would be published to the operator as "this round
+        # touched nothing" -- a measurement nobody made.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
              mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
-             self.assertRaisesRegex(bc.CoordinatorError, "--guidance"):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="scoped", rationale="r",
-                                                    lens=["usability"], guidance=None), self.store)
-        # ...and the free `none` exit is gated at the same point, not left open.
-        with mock.patch.object(bc, "_head", return_value="d" * 40), \
-             mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
-             self.assertRaisesRegex(bc.CoordinatorError, "--guidance"):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="r",
-                                                    lens=None, guidance=None), self.store)
+             mock.patch.object(repair_divergence, "classify",
+                               side_effect=repair_divergence.DivergenceError("git exploded")), \
+             self.assertRaisesRegex(bc.CoordinatorError, "could not be classified"):
+            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="r", lens=None,
+                                                    guidance=None), self.store)
+        self.assertEqual(self.state()["repair_rounds"], [])
+
+    def test_the_classification_never_chooses_the_judgment(self):
+        # eADR-0041 BC-16 stands: the coordinator measures and records, the orchestrator judges. A round
+        # over guarded surface still records exactly the judgment it was given.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.assess("none", HEAD_B, classified=classification(
+            guarded=[".github/workflows/engine-ci.yml"],
+            churn={"guarded": 900, "authored": 0, "derived": 0, "docs": 0}))
+        latest = self.state()["repair_rounds"][-1]
+        self.assertEqual(latest["judgment"], "none")
+        self.assertEqual(latest["lenses"], [])
+        self.assertEqual(latest["classification"]["files"]["guarded"], [".github/workflows/engine-ci.yml"])
 
     def test_recorded_guidance_allows_the_next_round_and_is_kept(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
-        self.assess("scoped", HEAD_B, lens=["usability"]); self.receipt_round(HEAD_B)
-        self.assess("scoped", HEAD_C, lens=["usability"]); self.receipt_round(HEAD_C)
-        self.assess("scoped", "d" * 40, lens=["usability"], guidance="Operator: narrow to usability and ship.")
+        self.panel_round(HEAD_B); self.panel_round(HEAD_C); self.panel_round(HEAD_D)
+        self.assess("scoped", HEAD_E, lens=list(self.PANEL),
+                    guidance="Operator: narrow to usability and ship.")
         rounds = self.state()["repair_rounds"]
-        self.assertEqual(len(rounds), 3)
+        self.assertEqual(len(rounds), 4)
         self.assertEqual(rounds[-1]["guidance"], "Operator: narrow to usability and ship.")
 
     def test_an_abandoned_fan_out_counts_as_its_own_round(self):
@@ -1713,7 +1872,9 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         # Unauthorized work is also unverified work: carrying the ledgers across handoff reversed a stated
         # non-goal, so it needs its own coverage in both directions.
         rounds = [{"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "judgment": "scoped",
-                   "lenses": ["usability"], "guidance": None}]
+                   "lenses": ["usability", "technical-integrity"], "guidance": None, "counted": True,
+                   "anchor": HEAD_A, "reconciled": False, "roster_provenance": "blocker-union",
+                   "classification": classification(authored=["app/main.py"])}]
         escalations = [{"reviewed_plan_digest": "sha256:" + "7" * 64,
                         "plan_digest": "sha256:" + "8" * 64, "operator_change": "Operator: proceed."}]
         restored = bc._restore_base_state(
@@ -1734,6 +1895,22 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertEqual(legacy["repair_rounds"], [])
         self.assertEqual(legacy["plan_change_escalations"], [])
 
+    def test_a_classified_round_survives_a_real_handoff_export(self):
+        # Both handoff schemas close their round entries to unknown keys, so adding round evidence without
+        # widening them would break cold resumption -- the export refusing on the very state it must carry.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.panel_round(HEAD_B)
+        exported = bc._handoff(self.state())
+        bc.core.validate(exported, bc.HANDOFF_SCHEMAS[exported["schema_version"]])
+        entry = exported["repair_rounds"][0]
+        self.assertTrue(entry["counted"])
+        self.assertEqual(entry["anchor"], HEAD_A)
+        self.assertEqual(entry["roster_provenance"], "explicit")
+        self.assertEqual(entry["classification"]["files"]["authored"], ["app/main.py"])
+        # ...and the round comes back intact on the other side.
+        restored = bc._restore_base_state(exported, "build-state.v2")
+        self.assertEqual(restored["repair_rounds"][0], entry)
+
     def test_reassessing_the_same_divergence_replaces_its_round(self):
         # Upgrading a scoped judgment to full on the SAME reviewed/final pair is one round, not two.
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
@@ -1745,17 +1922,53 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_none_repair_judgment_is_valid_for_small_change(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64, "reviewed_commit": HEAD_A}))
-        with mock.patch.object(bc, "_head", return_value=HEAD_B), mock.patch.object(bc, "_must_run", return_value="1 file changed, 1 insertion(+), 1 deletion(-)"), contextlib.redirect_stdout(io.StringIO()):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Direct verification covers the prescribed wording repair.", lens=None), self.store)
+        self.assess("none", HEAD_B, guidance=None)
         self.assertEqual(self.state()["repair"]["judgment"], "none")
 
     def test_repair_assessment_records_diff_and_judgment(self):
         self.test_none_repair_judgment_is_valid_for_small_change()
+        repair = self.state()["repair"]
+        self.assertEqual(repair["summary"], "1 file changed")
+        self.assertEqual(repair["classification"]["files"]["authored"], ["app/main.py"])
+        self.assertEqual(repair["anchor"], HEAD_A)
+
+    def test_a_scoped_round_defaults_to_the_lenses_that_found_blockers(self):
+        # The operator's requirement made mechanical: the next round goes back to the lenses that found
+        # blockers, and the UNION is what makes it work -- a blocker that was FIXED is recorded
+        # accepted-fixed with blocks_this_pr false, so an intersection would select nobody at all.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.record_findings([
+            ("F1", "deliverable", HEAD_A, "usability", "blocking", False),          # raised, then fixed
+            ("F2", "deliverable", HEAD_A, "technical-integrity", "serious", True),  # left blocking
+            ("F3", "deliverable", HEAD_A, "security-governance", "nit", False),     # neither
+        ])
+        self.assess("scoped", HEAD_B)
+        round_one = self.state()["repair_rounds"][0]
+        self.assertEqual(round_one["lenses"], ["technical-integrity", "usability"])
+        self.assertEqual(round_one["roster_provenance"], "blocker-union")
+
+    def test_an_explicit_lens_overrides_the_default_and_is_recorded_as_explicit(self):
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", True)])
+        self.assess("scoped", HEAD_B, lens=["technical-integrity"])
+        round_one = self.state()["repair_rounds"][0]
+        self.assertEqual(round_one["lenses"], ["technical-integrity"])
+        self.assertEqual(round_one["roster_provenance"], "explicit")
+
+    def test_the_default_roster_reads_the_last_round_that_actually_REVIEWED(self):
+        # A `none` round raised no findings. Reading the roster from it would find nothing and refuse,
+        # so the lookup walks back to the last round that dispatched lenses.
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
+        self.record_findings([("F1", "deliverable", HEAD_A, "usability", "blocking", True)])
+        self.assess("none", HEAD_B)
+        self.assess("scoped", HEAD_C)
+        self.assertEqual(self.state()["repair_rounds"][-1]["lenses"], ["usability"])
 
     def test_scoped_repair_requires_named_lens(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
-        with mock.patch.object(bc, "_head", return_value=HEAD_B), mock.patch.object(bc, "_must_run", return_value="1 file changed"), self.assertRaisesRegex(bc.CoordinatorError, "at least one"):
-            bc.cmd_repair_assess(argparse.Namespace(judgment="scoped", rationale="Logic changed.", lens=None), self.store)
+        message = self.refused_assess("scoped", HEAD_B)
+        self.assertIn("at least one --lens", message)
+        self.assertIn("no finding that was blocking", message)
 
     def test_repair_review_requires_validation_for_repaired_commit(self):
         self.store.mutate(lambda s: s.update({"repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []}}))
@@ -1805,7 +2018,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
             state["repair"] = {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "material repair", "judgment": "scoped", "rationale": "Usability changed", "lenses": ["usability"], "packet_digest": "sha256:" + "3" * 64,
                                "receipts": [{"lens": "usability", "packet_digest": "sha256:" + "3" * 64, "commit": HEAD_B, "finding_ids": []}]}
         self.store.mutate(completed_re_review)
-        with mock.patch.object(bc, "_head", return_value=HEAD_C), mock.patch.object(bc, "_must_run", return_value="1 file changed, 1 insertion(+)"), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_C), mock.patch.object(bc, "_must_run", return_value="1 file changed, 1 insertion(+)"), mock.patch.object(repair_divergence, "classify", return_value=classification(authored=["app/main.py"])), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Direct verification covers the prescribed repair.", lens=None, accept_receipt_loss=True), self.store)
         self.assertEqual(self.state()["repair"]["reviewed_commit"], HEAD_B)
 
@@ -3799,6 +4012,8 @@ class TestEvidenceDurability(CoordinatorCase):
             bc.cmd_review_record(self.receipt_args(pkt, "usability", ["R-2"]), self.store)
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+                mock.patch.object(repair_divergence, "classify",
+                                  return_value=classification(authored=["app/main.py"])), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", rationale="Verified directly.",
                                                     lens=None, accept_receipt_loss=True, guidance=None), self.store)
@@ -3830,6 +4045,8 @@ class TestEvidenceDurability(CoordinatorCase):
         # spliced into the deliverable stage. Re-cutting the deliverable packet drops that copy.
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+                mock.patch.object(repair_divergence, "classify",
+                                  return_value=classification(authored=["app/main.py"])), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", accept_receipt_loss=True, rationale="Verified.", lens=None,
                                                     guidance=None), self.store)
@@ -4295,6 +4512,8 @@ class TestEvidenceDurability(CoordinatorCase):
         # nothing demands R-8 any more.
         with mock.patch.object(bc, "_head", return_value=HEAD_C), \
                 mock.patch.object(bc, "_must_run", return_value="1 file changed"), \
+                mock.patch.object(repair_divergence, "classify",
+                                  return_value=classification(authored=["app/main.py"])), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_repair_assess(argparse.Namespace(judgment="none", accept_receipt_loss=True, rationale="Verified.", lens=None,
                                                     guidance=None), self.store)

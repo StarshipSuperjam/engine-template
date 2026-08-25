@@ -245,10 +245,21 @@ def _empty_review() -> dict:
             "reviewer_contracts": [], "receipts": [], "reviewed_commit": None, "base_commit": None}
 
 
-# After this many repair rounds on one deliverable, the next round stops for operator guidance. Two is
-# the operator's chosen threshold: enough for an honest fix-and-verify cycle plus one follow-up, before
-# a loop that is not converging keeps spending. It caps neither review coverage nor lens count.
-_REPAIR_ROUND_ESCALATION = 2
+# A repair round costs what it SPENDS, not what it touched. A round that dispatches a panel -- two or more
+# cold lenses -- is a counted round; a `none` judgment and a single-lens cold check are real rounds that are
+# recorded, disclosed, and bounded, but they do not consume the counted budget. Counting by spend rather than
+# by the class of file a fix touched is the operator's decision (2026-08-25): what runs an unattended session
+# into the ground is panels, not the kind of file the last fix moved.
+#
+# Two bounds, both attention stops backed by the operator's merge -- neither caps review coverage or lens
+# count within a round, and neither chooses a judgment (eADR-0041 BC-16):
+_REPAIR_ROUND_ESCALATION = 3   # counted rounds before the next counted round stops for --guidance
+_REPAIR_ROUND_CEILING = 6      # rounds of ANY kind before the next round of any kind stops for --guidance
+_COUNTED_LENS_FLOOR = 2        # lenses a round must dispatch to count as spent
+
+# What the growth highlight measures: the churn a reader has to think about. Derived and documentation
+# movement is real and is disclosed, but it is not what a fix breaking something looks like.
+_SUBSTANTIVE_KINDS = ("guarded", "authored")
 
 
 def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: str, plan: dict,
@@ -2703,6 +2714,122 @@ def cmd_reconcile(args, store: Snapshot) -> None:
               f"spans the branch as it actually stands. Recompose the PR body before submitting.")
 
 
+def _round_counted(entry: dict) -> bool:
+    """Whether a ledger entry spent counted budget. An entry written before rounds were counted by spend
+    carries no recorded answer; it counts. Failing toward "spent" is the safe direction — an upgrade can
+    hand a Build a stop it did not need, but never a budget it already used."""
+    return bool(entry.get("counted", True))
+
+
+def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, bool]:
+    """(the commit THIS round's increment is measured from, whether a base change forced the fallback).
+
+    The previous round's final commit, or the deliverable's reviewed commit when this is the first round.
+
+    Deliberately NOT `_effective_reviewed`, which advances only past a COMPLETED round. A `none`-judged or
+    abandoned round leaves that anchor where it stood, so every later round would be measured cumulatively
+    from it and each would look larger than the last — a growth signal manufactured by the anchor rather
+    than by the work. A round that happened is a round to measure from, whatever it concluded.
+
+    A rewrite can leave a recorded final commit superseded or unreadable. There is nothing honest to measure
+    from there, so the anchor falls back to the reviewed commit and the round is MARKED, which suppresses
+    the growth comparison across it — a rebase must never be able to masquerade as a fix that grew.
+    """
+    reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
+    if not rounds:
+        return reviewed, False
+    prior_final = rounds[-1]["final_commit"]
+    superseded = any(item["from_commit"] == prior_final for item in state.get("reconciles", []))
+    if superseded or not _commit_present(prior_final) or not _is_ancestor(prior_final, head):
+        return reviewed, True
+    return prior_final, False
+
+
+def _prior_review_target(state: dict, rounds: list) -> tuple[str, str]:
+    """The (stage, commit) of the review this round is repairing — the most recent round that actually
+    dispatched lenses, or the deliverable review when none has. A `none` round raised no findings, so
+    walking back past it is what makes "the lenses that had blockers last time" mean anything."""
+    for entry in reversed(rounds):
+        if entry["lenses"]:
+            return "repair", entry["final_commit"]
+    return "deliverable", state["reviews"]["deliverable"]["reviewed_commit"]
+
+
+def _blocker_union(state: dict, stage: str, commit: str) -> list[str]:
+    """The lenses to put back on the diff: every lens that, at the review this round repairs, raised a
+    finding that was blocking OR was marked as blocking this PR.
+
+    The UNION, not the intersection. `severity == "blocking" and blocks_this_pr` selects only findings still
+    unfixed — a blocker that was fixed is recorded `accepted-fixed` with the flag false — so that reading
+    would be empty in exactly the case this default exists to serve. The union covers both the lens whose
+    blocker was just fixed (it should check the fix) and the lens whose mid-severity finding was
+    deliberately left blocking (it should check that too)."""
+    return sorted({f["lens"] for f in state["findings"]
+                   if f["stage"] == stage and f["commit"] == commit
+                   and (f["severity"] == "blocking" or f["blocks_this_pr"])})
+
+
+def _substantive_churn(entry: dict) -> int | None:
+    """Lines moved in code and guarded surface — what a reader has to think about. Derived regeneration and
+    documentation are recorded and disclosed, but they are not what a fix breaking something looks like.
+    None when the round carries no classification (a legacy entry)."""
+    classification = entry.get("classification")
+    if not classification:
+        return None
+    return sum(classification["churn"].get(kind, 0) for kind in _SUBSTANTIVE_KINDS)
+
+
+def _round_line(index: int, entry: dict) -> str:
+    """One plain sentence describing a recorded round, for the operator rather than for a parser."""
+    lenses = entry["lenses"]
+    if entry["judgment"] == "none":
+        what = "judged no re-review needed"
+    elif len(lenses) == 1:
+        what = f"one cold check ({lenses[0]})"
+    else:
+        what = f"{entry['judgment']} re-review across {len(lenses)} lenses"
+    classification = entry.get("classification")
+    if not classification:
+        moved = "surfaces not recorded"
+    else:
+        parts = [f"{len(paths)} {kind}" for kind, paths in sorted(classification["files"].items()) if paths]
+        moved = (", ".join(parts) + f", {classification['total_churn']} lines"
+                 ) if parts else "nothing changed"
+    marked = " (measured from the deliverable review after a base change)" if entry.get("reconciled") else ""
+    return (f"round {index}: {'counted' if _round_counted(entry) else 'uncounted'}, {what}{marked}; "
+            f"the fix moved {moved}")
+
+
+def _growth_note(rounds: list) -> str | None:
+    """A highlight, never a stop (operator decision, 2026-08-25). When the newest counted round moved MORE
+    code and guarded surface than the counted round before it, the repairs are widening rather than
+    converging — usually a fix that broke something beyond the finding it answered. Suppressed when a base
+    change sits anywhere between the two, because then the two measurements are not comparable."""
+    comparable = [i for i, entry in enumerate(rounds)
+                  if _round_counted(entry) and _substantive_churn(entry) is not None]
+    if len(comparable) < 2:
+        return None
+    previous, latest = comparable[-2], comparable[-1]
+    if any(rounds[i].get("reconciled") for i in range(previous + 1, latest + 1)):
+        return None
+    before, after = _substantive_churn(rounds[previous]), _substantive_churn(rounds[latest])
+    if after <= before:
+        return None
+    return (f"the last counted round moved more code and guarded surface than the one before it "
+            f"({before} -> {after} lines). The repairs are widening rather than settling, which usually "
+            f"means a fix broke something past the finding it answered.")
+
+
+def _trajectory(rounds: list) -> str:
+    """The whole ledger as prose, plus the growth highlight when there is one. Printed at every assess, so
+    the signal is in front of the orchestrator at the moment of judgment and not only at an escalation."""
+    lines = [_round_line(i + 1, entry) for i, entry in enumerate(rounds)]
+    note = _growth_note(rounds)
+    if note:
+        lines.append("HIGHLIGHT: " + note)
+    return "\n".join(lines)
+
+
 def cmd_repair_assess(args, store: Snapshot) -> None:
     head = _head()
     state = store.read()
@@ -2733,21 +2860,9 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 "deliverable review against the current head rather than recording a judgment on a span "
                 "that cannot be computed.") from exc
         raise
-    lenses = sorted(set(args.lens or []))
-    if args.judgment == "none" and lenses:
-        raise CoordinatorError("a none judgment cannot request review lenses")
-    if args.judgment == "scoped" and not lenses:
-        raise CoordinatorError("a scoped judgment must name at least one --lens")
-    if args.judgment == "full":
-        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
-    # A round is counted when it STARTS, and counted irrespective of judgment. Counting only completed
-    # scoped/full rounds would leave two holes: an abandoned fan-out costs full price yet would count
-    # zero, and gating only the reviewed path would make `none` -- "no re-review needed" -- the
-    # frictionless exit at the exact moment cost pressure peaks, which is the "accept the breaks and
-    # merge" outcome this gate exists to prevent. Re-assessing the SAME divergence (upgrading a scoped
-    # judgment to full, say) replaces its entry in place rather than counting twice.
+    # Re-assessing the SAME divergence (upgrading a scoped judgment to full, say) replaces its entry in
+    # place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
-
     def _authored_between(base: str | None, tip: str) -> bool:
         """Did anything a REVIEWER would read land between these two commits? `sync-artifacts` commits
         machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
@@ -2758,15 +2873,13 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
             return True
 
     # A round that was FANNED OUT AND NEVER COMPLETED is paid for and can never be absorbed into a later
-    # assess. Keying that on commit identity was the defect: an abandoned fan-out counted only while the
-    # tip had not moved, so a single `sync-artifacts` commit landing before the next assessment ERASED an
-    # already-paid round and dropped the count. What actually distinguishes the two cases is not where
-    # HEAD is, it is whether the lenses came back — so that is what gets recorded.
-    if prior and prior.get("packet_digest") and not _repair_round_complete(prior):
-        rounds = [{**r, "spent": True}
-                  if (r["reviewed_commit"] == prior["reviewed_commit"]
-                      and r["final_commit"] == prior["final_commit"]) else r
-                  for r in rounds]
+    # assess. That fact is read LIVE off the open repair record rather than stamped onto the ledger entry
+    # as a second cost flag: what a round cost is now recorded once, as `counted`, and a ledger carrying
+    # both `spent` and `counted` would be carrying two answers to one question -- with nothing keeping
+    # them agreeing. The live read is sufficient because absorption only ever reaches the MOST RECENT
+    # round (below), which is exactly the round `prior` describes.
+    fanned_out = bool(prior and prior.get("packet_digest")
+                      and prior["reviewed_commit"] == reviewed and prior["final_commit"] == head)
 
     def _same_episode(entry: dict) -> bool:
         """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
@@ -2778,22 +2891,56 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         it). That second case is the observed one — a completed round, then a `sync-artifacts` commit,
         which put the repair's final commit behind HEAD and forced a re-bind that the counter charged as
         a third round in a build that had run two (StarshipSuperjam/engine-template#1063)."""
-        if entry.get("spent"):
-            return False                    # its lenses were dispatched and never returned; it counts
         if _authored_between(entry["final_commit"], head):
             return False
         return reviewed in (entry["reviewed_commit"], entry["final_commit"])
 
-    same = [r for r in rounds if _same_episode(r)]
-    prior_rounds = len(rounds) - len(same)
-    guidance = getattr(args, "guidance", None)
-    if not same and prior_rounds >= _REPAIR_ROUND_ESCALATION and not guidance:
+    # Replace in place ONLY when nothing was spent yet: no repair packet was cut for this same divergence,
+    # so this assess is the operator upgrading their judgment, not a second attempt. Once a packet exists
+    # the lenses were dispatched and that round cost full price, so a further assess is a NEW round even at
+    # the same commit pair -- otherwise an abandoned fan-out repeated forever would count once.
+    same = [] if fanned_out else [r for r in rounds if _same_episode(r)]
+    kept = [r for r in rounds if r not in same]
+    anchor, reconciled = _classification_anchor(state, kept, head)
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import repair_divergence
+    try:
+        classification = repair_divergence.classify(str(ROOT), anchor, head)
+    except repair_divergence.DivergenceError as exc:
+        # Fail toward refusal, like the validator. A defaulted or empty classification would be published
+        # to the operator as "this round touched nothing", which is a measurement nobody made.
         raise CoordinatorError(
-            f"{prior_rounds} repair rounds have already run on this deliverable. A third is the point to stop "
-            "and bring the operator in: summarise plainly what keeps failing and what you propose (narrow the "
-            "re-review, accept-track the residual findings, or keep going), then record their answer with "
-            "--guidance. That text is published in the PR body, so the operator sees at merge whether they "
-            "were actually consulted. This is a discipline prompt backed by their merge, not a wall.")
+            f"this round's increment could not be classified, so there is no honest surface evidence to "
+            f"record: {exc}. Recover the anchor ({anchor[:12]}) or re-run the deliverable review against "
+            f"the current head; a judgment recorded here would rest on a measurement that was never taken."
+        ) from exc
+
+    lenses = sorted(set(args.lens or []))
+    roster_provenance = "explicit" if lenses else "none"
+    if args.judgment == "none" and lenses:
+        raise CoordinatorError("a none judgment cannot request review lenses")
+    if args.judgment == "scoped" and not lenses:
+        # The operator's requirement, made mechanical: the next round goes back to the lenses that found
+        # blockers last time. Naming --lens explicitly still overrides, wider or narrower — the choice
+        # stays the orchestrator's, and the rationale for it is already required.
+        stage, at_commit = _prior_review_target(state, kept)
+        lenses = _blocker_union(state, stage, at_commit)
+        if not lenses:
+            raise CoordinatorError(
+                f"a scoped judgment must name at least one --lens, and no default could be derived: the "
+                f"{stage} review at {str(at_commit)[:12]} recorded no finding that was blocking or marked "
+                f"as blocking this PR. Name the lenses this round should put back on the diff.")
+        roster_provenance = "blocker-union"
+    if args.judgment == "full":
+        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
+        roster_provenance = "none"
+
+    # A round costs what it SPENDS. Dispatching a panel -- two or more cold lenses -- is the spend; a `none`
+    # judgment and a single-lens cold check are recorded, disclosed, and bounded by the absolute ceiling,
+    # but they do not consume the counted budget. "Minimal" is derived here from the roster, never declared
+    # by the session that would benefit from declaring it.
+    counted = len(lenses) >= _COUNTED_LENS_FLOOR
+    guidance = getattr(args, "guidance", None)
     # CARRY-FORWARD. A receipt is a fact about what a lens read, and that fact does not stop being true
     # because the binding moved. Every prior repair receipt whose recorded range already covers the new
     # divergence survives, byte-identical; the rest are named, with the delta they still owe, so the
@@ -2822,15 +2969,36 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         print(f"warning: {len(dropped)} repair receipt(s) do not cover this new divergence and are being "
               f"dropped: {detail}." + also + " Those lenses owe a read of the new range.", file=sys.stderr)
     entry = {"reviewed_commit": reviewed, "final_commit": head, "judgment": args.judgment,
-             "lenses": lenses, "guidance": guidance}
-    rounds = [r for r in rounds if r not in same] + [entry]
+             "lenses": lenses, "guidance": guidance, "counted": counted, "anchor": anchor,
+             "reconciled": reconciled, "roster_provenance": roster_provenance,
+             "classification": classification}
+    rounds = kept + [entry]
+    prior_counted = sum(1 for r in kept if _round_counted(r))
+    if not same and not guidance:
+        stop = None
+        if counted and prior_counted >= _REPAIR_ROUND_ESCALATION:
+            stop = (f"{prior_counted} repair rounds have already dispatched a review panel on this "
+                    f"deliverable, which is the whole counted budget. This one would spend past it.")
+        elif len(kept) >= _REPAIR_ROUND_CEILING:
+            stop = (f"{len(kept)} repair rounds of every kind have already run on this deliverable — the "
+                    f"absolute ceiling, whatever each one spent.")
+        if stop:
+            raise CoordinatorError(
+                f"{stop} This is the point to stop and bring the operator in: summarise plainly what keeps "
+                "failing and what you propose (narrow the re-review, accept-track the residual findings, or "
+                "keep going), then record their answer with --guidance. That text is published in the PR "
+                "body, so the operator sees at merge whether they were actually consulted. This is a "
+                "discipline prompt backed by their merge, not a wall.\n\nHow the rounds have gone:\n"
+                + _trajectory(rounds))
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "session_effort": (prior or {}).get("session_effort"),
-              "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted"))}
+              "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted")),
+              "anchor": anchor, "counted": counted, "classification": classification}
     store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
+    print("\nHow the rounds have gone:\n" + _trajectory(rounds))
     if carried:
         print(f"carried {len(carried)} repair receipt(s) forward — "
               + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in carried), file=sys.stderr)
