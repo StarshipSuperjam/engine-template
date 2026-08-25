@@ -988,24 +988,5 @@ PLAN_JSON = r"""{
 }"""
 
 
-class TheFrontDoorDemoStillWalks(unittest.TestCase):
-    """`demo_plan_to_ready_pr` is the front-door demonstration of the whole arc — a plan written into the
-    Project Manager, approved, sealed, bound, built, and left as a ready pull request. NOTHING RAN IT.
-
-    It ships (it is not in the first-run retirement census) but no test referenced it, so the only thing
-    that would ever have executed it was the nightly workflow this same change adds — a day late, on
-    main. Two gates added in this very pull request broke it in the meantime: `seal`/`bind`/`approve`
-    began requiring the operator's recorded decision, and `review record` began requiring the effort its
-    panel delivered. Both are correct gates; the demo's own calls simply were not updated, and it died on
-    an unhandled traceback.
-
-    Five seconds of suite time is a very small price for the arc that sells the whole component."""
-
-    def test_the_plan_to_ready_pull_request_demo_passes(self):
-        import quiet_call
-        import demo_plan_to_ready_pr as demo
-        self.assertEqual(quiet_call.run(demo.main), 0)
-
-
 if __name__ == "__main__":
     unittest.main()

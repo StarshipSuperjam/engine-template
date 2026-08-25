@@ -1798,6 +1798,12 @@ _FIRST_RUN_ASSET_FILES = (
     # demonstrations are worth being able to run.
     ".engine/tools/nightly_demo_report.py",
     ".engine/tools/test_nightly_demos.py",
+    # The five-second test that walks `demo_plan_to_ready_pr`, which is retired above. A test file
+    # inherits the retirement of what it imports, so this one could not live beside the plan-library
+    # tests that ship: naming a removed demonstration would break a generated repository's first check
+    # with a programmer error its owner cannot read. Splitting by provenance is what keeps both halves
+    # honest — the library tests ship, the demonstration walk retires with its subject.
+    ".engine/tools/test_plan_to_ready_pr_demo.py",
     # The engine's OWN local-reference vocabulary (StarshipSuperjam/engine-template#943). engine-template commits
     # `.engine/operator-local-references.json` declaring `D-` so the shipped local-reference floor scans its own
     # traveling surfaces for bare decision-record ids in THIS repo. That declaration is engine-template's, not a

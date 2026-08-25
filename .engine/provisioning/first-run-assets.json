@@ -52,7 +52,8 @@
     ".engine/operator-local-references.json",
     ".github/workflows/engine-nightly-demos.yml",
     ".engine/tools/nightly_demo_report.py",
-    ".engine/tools/test_nightly_demos.py"
+    ".engine/tools/test_nightly_demos.py",
+    ".engine/tools/test_plan_to_ready_pr_demo.py"
   ],
   "directories": []
 }
