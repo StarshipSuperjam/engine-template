@@ -5677,7 +5677,7 @@
       },
       "slug": "eADR-0022-hooks-lifecycle-bindings-block-budget",
       "source": {
-        "fingerprint": "sha256:048e779ea61868dc35a28da508023467dad84d8a08173ccf283d2420c37d801c",
+        "fingerprint": "sha256:65e86775ce795f3cd32d0beccefdbe3ad785cd4def7456a66e71b0e317d18147",
         "path": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md"
       },
       "status": "accepted",
@@ -6037,7 +6037,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:ec51ef4d5cbef6a8f8cae9e219986353ef437bcec590dfdcc6838c7f607d90fe",
+        "fingerprint": "sha256:2886c728c0ec730111ac1bf3b2e2b944047f808f1bffc939d6b3e69924339882",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6117,7 +6117,7 @@
       },
       "slug": "eADR-0045-context-control-boundaries",
       "source": {
-        "fingerprint": "sha256:841fa680259f5e6a1844e1e052e9ae1340c744853d28627cf00fa9cb4b4f4c24",
+        "fingerprint": "sha256:4a86aca46c0e46135ca5cbbcd87b8a94810f42bd866d70e057426ab4917fbc88",
         "path": ".engine/contracts/eADR-0045-context-control-boundaries.md"
       },
       "status": "accepted",
@@ -6137,7 +6137,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:dfb85bcc2c1b6f82cbedc31b9909ece5dc8168ddd7097cc6a1da064d6b5d4219",
+        "fingerprint": "sha256:199dc28b04c9246641e9ac110a0825b0afec5ffc77c0aba86a4869076e933411",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6157,7 +6157,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:8621fb6ea7edeedb6e73eec05502f6af950707e7626f27f4dbad47307bd8fb17",
+        "fingerprint": "sha256:78967b7dfaa2f16bb4d637a8f67c437c7adb5dd2cec98c755cc36a97c3c36b90",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -6569,7 +6569,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:488cc4f35490f2858ffc9da4278250587d8fa2bd0c9bc087380a2e66ed908446",
+        "fingerprint": "sha256:71c423ab199ed3723fc12401bc0815d07928a7b8aee9bba95619cb4c7c32e96d",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7438,7 +7438,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:b6ac21b80a18aa178737054f4c4302874a3abe865667c773ff1a255fe7a5f911",
+        "fingerprint": "sha256:a78c26e640df5b377e0c09b68d90f754bfd040ebc2b0a5b485f3e37e3f6dd32b",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -10050,7 +10050,6 @@
           "tool:plan_contract",
           "tool:plan_lifecycle",
           "tool:plan_store",
-          "tool:providers",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:spec_referent",
@@ -10063,7 +10062,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:e988cfc4e3bdf62421666e35b0fe2201302889a332541054ca09e62c8ce37d8f",
+        "fingerprint": "sha256:9f328852fda0b53aea6e896be58680e8da0f74a5bb607aabc8917c6cf3f16fae",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10319,7 +10318,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:f1eb38b734051b7c853b53c6bb2fbe8a775f7a75f1e440892bd9ff9d2f68d823",
+        "fingerprint": "sha256:fa161f8259dc1b63cf6aaa88da59be5e65a5b95f92be35bbd42ba38d83a19693",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -11475,7 +11474,7 @@
       },
       "slug": "demo_context_control",
       "source": {
-        "fingerprint": "sha256:4275548f2af2f1e06619bc92eb86f00e266e3b6d68bce79b3b8e8aed431c7f8e",
+        "fingerprint": "sha256:ea73de8a135dd8b3b19449b296d9baf7dfee287be12cdf15b9157f02364a3d25",
         "path": ".engine/tools/demo_context_control.py"
       },
       "status": "active",
@@ -11935,7 +11934,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:a19e648e00ae463031b927273e57829675af440045bf64ec10e9e493f35e3cb7",
+        "fingerprint": "sha256:1dbc870e417d23395e76fa16f1236ad7afe41f52dc9f82c2fb5169c3060b9792",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -14449,7 +14448,6 @@
       "predicates": {
         "imports": [
           "tool:agent_bindings",
-          "tool:build_coordinator",
           "tool:build_coordinator_core",
           "tool:moment",
           "tool:plan_contract",
@@ -14465,7 +14463,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:b903f08601570193a02a901e2fa6d30c55de48ae5171185810bb2058eed2a83a",
+        "fingerprint": "sha256:07180db2b8c3a1aa8df543600ae899b6e8d566459dc7f940178b0f4252ff32cb",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16199,7 +16197,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:084d929df7ae31aeb10fa19d448f577e821245d63ec61c87cfdf4a462132b060",
+        "fingerprint": "sha256:bf7659e40022c80d4db5aac07924e16bf639b484436fb081ceb23bf9a75cbc2f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16434,7 +16432,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:5fc571eff8e38fd95381dad3a611555bbbf21e7285028dcf0c2bd834907203e1",
+        "fingerprint": "sha256:3256b9f31eed4f7ddd8c30e3517f30393cb4ba683df09e1993fb4f06b2fd1af8",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -16814,14 +16812,13 @@
         ],
         "tests": [
           "tool:build_coordinator",
-          "tool:build_state_store",
           "tool:demo_context_control",
           "tool:quiet_call"
         ]
       },
       "slug": "test_context_control_end_to_end",
       "source": {
-        "fingerprint": "sha256:62be95aaa86bbb2eebd066ca222577d6007cca9522df8e799047f212c0e89868",
+        "fingerprint": "sha256:ad0cfdf50773ee9429cc0b18cad1ff72c865c714f52af0c0f1a82ee679f0d6dc",
         "path": ".engine/tools/test_context_control_end_to_end.py"
       },
       "status": "active",
@@ -19002,7 +18999,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:f971a062115e290cf1b334c9cbf7d07f864c19e5429adb90f709203f2a48a19b",
+        "fingerprint": "sha256:184eb0edc32a23e053b16bc036c936ea2213ccfbc3b6a79f86f4387a053186f5",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
