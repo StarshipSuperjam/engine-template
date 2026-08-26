@@ -76,7 +76,7 @@ the boot briefing, the guardrail-ack path, the owned-build submit flow, or the G
      shows `isDraft: false` with `headRefOid` equal to the pushed build head, and `close_linkage_preflight.py`
      (itself "not a check, not a gate") emits no contradiction line — a clean linkage is silent, so the pass
      bar is the *absence* of a contradiction, not a "clean" message. Nothing merged automatically — the draft
-     is the claim and the operator's merge is the wall (eADR-0025).
+     is the claim and the operator's merge is the wall.
    - **False-pass tell:** completion reported while `isDraft: true`, or while `headRefOid` lags the local commit
      (an unpushed head) — a "ready" claim without the observed draft flip is the false pass.
    - **Not verified:** if no owned build reached completion in the session, this arm was not exercised.

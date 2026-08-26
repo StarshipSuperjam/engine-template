@@ -24,10 +24,11 @@ the step that does the real work on the keyword side, and skipping it is what ma
 
 ## Steps
 
-1. **Decide which source answers it.** Canonical project artifacts outrank remembered narrative: a merged pull
-   request, a decision record under `.engine/contracts/`, an issue, or the code itself is stronger evidence
-   than a memory of it. So if the answer belongs in a canonical artifact, read that instead — and use memory
-   to find *which* artifact to read. Memory is the right source for the *narrative*: why a choice was made,
+1. **Decide which source answers it.** Current project artifacts outrank remembered narrative: a merged pull
+   request, a current specification or policy, an issue, or the code itself is stronger evidence than a
+   memory of it. So if the answer belongs in a current artifact, read that instead — and use memory to find
+   *which* artifact to read. A historical record found in memory stays attributed history and never becomes
+   present authority by being recalled. Memory is the right source for the *narrative*: why a choice was made,
    what was rejected and why, what went wrong last time, what the operator prefers.
    On a forwards-facing request, use judgment: a rejected approach may leave no canonical artifact, only the
    conversation that rejected it, so memory can help even when the prompt names no past. The standing cue
@@ -52,7 +53,8 @@ the step that does the real work on the keyword side, and skipping it is what ma
    thousand characters, so an unbounded pool is genuinely expensive. **The `tags` filter is not a plain
    narrowing — it silently drops the conversation.** Captured turns carry only transcript tags, never an entity
    id, so a tag filter returns the older curated records alone, and a silent drop looks exactly like "there is
-   nothing there". That bites hardest on the case you most want it for ("what did we decide about eADR-0038?").
+   nothing there". That bites hardest on the case you most want it for ("what did we decide about the memory
+   design?").
    Search unfiltered first; reach for the filter only to narrow a flood, knowing what it costs you.
 4. **Ask the same question by meaning** with `mcp__engine-memory__recall-by-meaning`, passing the question in
    ordinary words — not the short phrases, which are for keyword search. Do this when step 3 came back thin or

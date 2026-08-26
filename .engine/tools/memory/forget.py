@@ -26,7 +26,7 @@ still going, from being undone by its own next turn. stdlib-only.
 **Nothing here decides membership by age, and nothing scores a record.** `live_records` once dropped whatever a
 frecency score put in an "archived" tier, retiring a never-recalled record somewhere between 26 and 33 days old.
 That is gone for every kind, and so is the score itself: the canonical record is now the conversation
-(eADR-0038), and a captured turn could never have earned its way out of an age-out, because nothing reinforces
+and a captured turn could never have earned its way out of an age-out, because nothing reinforces
 what nothing could recall. Membership no longer depends on the clock at all.
 
 **Reinforcement markers are a legacy shape, not a live mechanism.** Recall used to append a `reinforcement`
@@ -287,7 +287,7 @@ class ControlNotRecorded(RuntimeError):
     """A withhold or restore could not be written. Carries the plain-language reason.
 
     This RAISES rather than degrading quietly, because a missed withhold is the operator's instruction not
-    happening. Reporting "done" over a write that did not land is the failure eADR-0034 exists to forbid, and
+    happening. Reporting "done" over a write that did not land would hide a provider failure, and
     the operator would have no way to tell."""
 
 
@@ -461,7 +461,7 @@ def _is_excluded_capture(record, injected_keys: "set | None" = None) -> bool:
     `/compact` continuation summary, a `task-notification` block). The single recall-membership discriminator
     for the capture layer; recall drops it on every path via `live_records`.
 
-    GENUINE turns are recall content (eADR-0038: the exact conversation is the canonical record, and the curated
+    GENUINE turns are recall content (the exact conversation is the canonical record, and the curated
     summaries over it are the disposable layer). This predicate is deliberately NOT a kind test: the earlier
     verdict excluded the whole `turn-delta` kind because verbatim raw crowded paraphrased summaries out of every
     recall, and the answer then was to hide the canonical record. The transcript-first contract reverses that —
@@ -548,7 +548,7 @@ def live_records(path: "str | None" = None):
 
     Recall surfaces the CONVERSATION and the curated layer over it. A genuine `turn-delta` — the `Stop`-appended
     verbatim of what was actually said — is recall content, because the transcript is the canonical record and
-    the summaries above it are the disposable layer (eADR-0038). Only a harness-injected pseudo-turn is dropped,
+    the summaries above it are the disposable layer. Only a harness-injected pseudo-turn is dropped,
     by `_is_excluded_capture`, on the ONE shared read path the fast (FTS5) and slow (scan) lookups both consume,
     so membership holds identically on every path. It is re-derived on every read / index rebuild: no per-record
     marker, no carried bit, so membership survives compaction for free and edits no ledger line in place.

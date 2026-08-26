@@ -6,7 +6,7 @@ along a "content survives / reflection defers" seam. This module is the CONTENT 
   - **Every completed turn (`Stop`) appends the turn's session-id-tagged delta to the ledger** — an
     *append, not a summarization*, so it never taxes mid-session use. There used to be a second half — an
     AI-judged pass that folded each session into role-typed summaries — and it is gone: the transcript
-    itself is the record now (eADR-0038), and meaning is spent at read time by the session's own model
+    itself is the record now, and meaning is spent at read time by the session's own model
     rather than accumulated as summaries that go stale.
 
   - **Capture is cheap, generous, and LOSSLESS over conversation.** A long *turn* is *chunked*
@@ -208,7 +208,7 @@ def _is_noise(text: str) -> bool:
 # Codex's transcript format is EXPLICITLY unstable (its docs reserve the right to change it), so a
 # Codex-tagged session parses ONLY through this dedicated recognizer and NEVER falls through to the
 # tolerant Claude parser above — a partially-recognized transcript writing fragments into long-term
-# memory is strictly worse than an honestly-empty capture (eADR-0034). The recognizer captures fully
+# memory is strictly worse than an honestly-empty capture. The recognizer captures fully
 # or not at all: a transcript with no recognized record shapes reads as UNRECOGNIZED, the capture is
 # a zero-record no-op, and the loud status marker (below) says so.
 
@@ -595,7 +595,7 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     }
 
 
-# --- The capture-status marker (loud degradation, eADR-0034) ----------------------------------
+# --- The capture-status marker (loud degradation) ----------------------------------------------
 # The one intended Claude-side behavioral delta of the dual-runtime work: capture used to no-op
 # SILENTLY on a fault. Now every capture attempt records its outcome to a gitignored marker —
 # captured / no-transcript / invalid-path / unparseable — which boot renders as one plain dashboard
@@ -721,7 +721,7 @@ def _capture(payload, *, cwd) -> int:
     if lock_fd is None:
         return 0  # contended ~1s; the delta is caught at the next Stop
     try:
-        # PROVIDER-ROUTED parsing (eADR-0034): a Codex session's transcript goes ONLY through the
+        # PROVIDER-ROUTED parsing: a Codex session's transcript goes ONLY through the
         # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
         # fall-through to the tolerant Claude parser below, which could capture fragments.
         import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path
@@ -749,7 +749,7 @@ def _capture(payload, *, cwd) -> int:
             # Redact secret-shaped content AFTER the empty/noise discard — large machine-output noise
             # (command stdout: hex, base64, minified) is dropped without being scrubbed — but BEFORE
             # chunking, so a credential straddling the >4KB chunk boundary is still caught as one unit
-            # (eADR-0038: scrubbed at capture; precision-biased, fail-soft).
+            # (scrubbed at capture; precision-biased, fail-soft).
             text = scrub.scrub_text(text)
             speaker = _speaker(rec)
             # Recognise a harness-injected pseudo-turn on the WHOLE message, before chunking, so every chunk of a
