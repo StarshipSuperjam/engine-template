@@ -1034,6 +1034,16 @@ class TestReviewAndFindings(CoordinatorCase):
         with mock.patch.object(bc, "_sealed_plan_record", return_value=(loaded["record"], None)):
             evidence = bc._assemble_evidence(loaded["state"], loaded["plan"], loaded["claim"],
                                              loaded["state"]["repair"]["final_commit"], {})
+            # `_assemble_evidence` intentionally recomputes checkout-local diff evidence. That is right for
+            # a live compose, but wrong for this historical regression: without these substitutions the
+            # saved #1080 account is combined with whichever branch happens to run self-test (the active
+            # change added 1,034 bytes here). Use #1080's own recorded scope-profile receipt. The generated-
+            # surface disclosure did not exist in the saved Build, so omit that live-only field rather than
+            # inventing historical evidence that the record cannot support.
+            evidence["change_profile"] = next(
+                p["summary"] for p in loaded["state"]["preflights"]
+                if p["id"] == "scope-profile" and p["passed"])
+            evidence["index_regen"] = ""
             body = bcc.compose(loaded["claim"], evidence)
         size = len(body.encode())
         self.assertLess(size, github.GITHUB_BODY_BUDGET_BYTES, f"still over budget at {size}")

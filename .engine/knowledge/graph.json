@@ -14964,7 +14964,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:858904349b6cadadbe9c27fda43ce7a54e1a9d2c55b13c70461798399d0dad78",
+        "fingerprint": "sha256:f7ee66f69f146793aa7f4ad2c800d314ea9eaeb64d8237d682065119e697c6fd",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
