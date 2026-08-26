@@ -5674,7 +5674,7 @@
       },
       "slug": "eADR-0022-hooks-lifecycle-bindings-block-budget",
       "source": {
-        "fingerprint": "sha256:a03ee685935073b08db350c23d2d30724a68ec3cd3b6354969c06b816174ceac",
+        "fingerprint": "sha256:60d6a3484e0b51a240d747c7975826daa77c32535c193d1f951c9f2f0cae2bf7",
         "path": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md"
       },
       "status": "accepted",
@@ -6034,7 +6034,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:3205ce0e93b2ac35e1953fe6d9e484facb9a12470a47f638509f4b34d92df58c",
+        "fingerprint": "sha256:25a490276e07ff1fb4c6aeddf5d148fb382eb0a9a0d23b0d0810906ad30af615",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6114,7 +6114,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:729aac9d16e0691c835e85dac8bedd889e9744554deb32ae692bc58f4011698e",
+        "fingerprint": "sha256:a41d9de3f299d3fd3f27d162b988690672b899f723219173962ffed381a84b1f",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6282,6 +6282,7 @@
       "predicates": {
         "wires_hook": [
           "tool:boot",
+          "tool:build_coordinator",
           "tool:close",
           "tool:knowledge_gen",
           "tool:modes",
@@ -6294,7 +6295,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:0add6545c1b320d567c60a0d4d1d6c6db81629f442ef1da113b227431c3afeee",
+        "fingerprint": "sha256:e677d351f547926e6742ee9976eb83b7531ef56970b83c647a7505fdac7f8523",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6545,7 +6546,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:fbfe54cddce0cc35cdc7662c0797b86cd2b3fcdd53590651bb309e7302dc53de",
+        "fingerprint": "sha256:75d9e6d7b912b9e84586849bd3fed014e1faecc8d48355e8b75107b32069ab59",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7414,7 +7415,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:be9be9d5aa167b9b0a45bfc7f53e3be3a540aa80da68a5ad305b29628d9346b5",
+        "fingerprint": "sha256:6e0a893c826021aacb6db5529c749715d27ef470beea92fe870bd44a6b2a48e2",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -10001,7 +10002,7 @@
       "type": "tool"
     },
     {
-      "entrypoint": "cli",
+      "entrypoint": "hook",
       "guarded": false,
       "id": "tool:build_coordinator",
       "name": ".engine/tools/build_coordinator.py",
@@ -10021,6 +10022,7 @@
           "tool:build_state_store",
           "tool:ci_gatekeeper",
           "tool:derived_state",
+          "tool:hooks",
           "tool:moment",
           "tool:plan_contract",
           "tool:plan_lifecycle",
@@ -10038,7 +10040,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:0d935c000cd4ffd85da66010ec6e906fd7ede6eb51b57439c4b61a353fa93858",
+        "fingerprint": "sha256:8dd2a48d7a51363e8021471c84e89334fd41dcdfe323d1ca123d9f2f7583cba8",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10294,7 +10296,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:e2e53cfc01caa879df81fc69e326327418896497744830d90d5b62beac37aa80",
+        "fingerprint": "sha256:68e46ed836a7407c50141de0657a03e73ad9ccae9268a0b1b061a209633234d1",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -11434,6 +11436,32 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_context_control",
+      "name": ".engine/tools/demo_context_control.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:build_state_store",
+          "tool:engine_fixture",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_context_control",
+      "source": {
+        "fingerprint": "sha256:8edfa4f8f0e25cbed6cc345398de69b1b100de2a25334f1dbe1513ffe461b2b1",
+        "path": ".engine/tools/demo_context_control.py"
+      },
+      "status": "active",
+      "summary": "Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable and that",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_contract_rate",
       "name": ".engine/tools/demo_contract_rate.py",
       "owner": "core",
@@ -11884,7 +11912,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:0907b9f9f3102cd045d76552f2c866e5ec331c88816bf75f3eb33fc0969214e2",
+        "fingerprint": "sha256:a968ef1a6915bfa233ccf5aaa640e71ae58311df8f5849601dcdf3d1f6f8917a",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -12841,7 +12869,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:fc8d60538ba9745250b81377f67941616c874bf021b479b8c17c913733e1494e",
+        "fingerprint": "sha256:a0b0396668b5b0bea03ca74bbcdf4e9f5716ddb5d9501a3d6e329d7a3c996c62",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -14412,7 +14440,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:92f97b790e1bf3e7db8be7664b0943b569094397e6dd2901e068dbafef995350",
+        "fingerprint": "sha256:d2c15b8023787bbc64576666c0cdd420a3fb27879b032b79f4fa877ea31f7807",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16052,7 +16080,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:8caf817994e5745f865847850307b69f9b1cbd498a4c23ea142dfcb8afd535fd",
+        "fingerprint": "sha256:f808566c1e6447d2d8d106cbb6d43c968a90599f041f27005a7927a6584cb6ca",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16156,8 +16184,10 @@
           "tool:build_coordinator",
           "tool:build_coordinator_contract",
           "tool:build_coordinator_github",
+          "tool:build_state_store",
           "tool:checkout_health",
           "tool:derived_state",
+          "tool:hooks",
           "tool:module_coherence",
           "tool:plan_contract",
           "tool:plan_store",
@@ -16170,7 +16200,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:5aa360a9761e29411f659ecdd11496d1d916e906ee49f85f67f51df6d266c0d7",
+        "fingerprint": "sha256:b34c5e4d23578975ee80d2e2cc9d58d7394530ed167098a661fa891351f4302a",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16771,6 +16801,31 @@
       },
       "status": "active",
       "summary": "Self-tests for the standing product-spec-conformance sweep (#449) — the core tool that reads",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_context_control_end_to_end",
+      "name": ".engine/tools/test_context_control_end_to_end.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_coordinator",
+          "tool:demo_context_control",
+          "tool:quiet_call"
+        ]
+      },
+      "slug": "test_context_control_end_to_end",
+      "source": {
+        "fingerprint": "sha256:3e7b25c3e2d48d102a36ce7485d41e4a24998f078923468cadf0dd9d80eb1d4a",
+        "path": ".engine/tools/test_context_control_end_to_end.py"
+      },
+      "status": "active",
+      "summary": "End-to-end cover for the context-control spine, plus the static half of the powers-not-taken claim.",
       "type": "tool"
     },
     {
@@ -17442,7 +17497,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:173acf0c2c1d97eef0a371d325529e0ccbc10b93d5de0c2815e7c67a22a5c87a",
+        "fingerprint": "sha256:90aedde6c95d8aa41dca47db213834c5c91a2fbc2b008b2c8a07803e6bd5d90e",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18947,7 +19002,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:e10632dcb8420b3956b7635480f8aa32b325fd926bf1eb6540ad6e9e3b141218",
+        "fingerprint": "sha256:9bafd359b3f84c69161b386d8b5268e395eb534b0b2e116c1a151d509f8d7f81",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",

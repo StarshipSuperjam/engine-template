@@ -67,6 +67,19 @@ build_coordinator.py plan bind --plan <plan-id> \
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
+**The seal hands back before the Build starts.** Sealing and building are different jobs that often want
+different settings, so the seal prints a six-line hand-back: settle what lives only in the conversation,
+offer the operator a `/compact` and their model and effort choice for the BUILD, wait for their go. Always
+`/compact`, never `/clear` — the one session that cleared at this boundary is the one that lost its thread.
+It is an offer, not a gate — the bind's own `--operator-decision` consent is the operator's agreement to
+begin, nothing mechanical checks the hand-back's steps, and the engine neither reads nor records what the
+session runs on. Recommend once, not per seal: the operator's own user-level `/autocompact` threshold
+(around 75%), which survives engine updates; the engine writes no auto-compact setting in any scope.
+
+Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this
+session against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and
+a `compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
+
 The snapshot is durable and lives beside its sealed plan, so a killed Build resumes with its evidence
 intact; a later command finds it from the worktree, and `--state <path>` still names one outright. It is one
 atomically replaced, lock-protected document of current evidence, carrying no authority — not an event

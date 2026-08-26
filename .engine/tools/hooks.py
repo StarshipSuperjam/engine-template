@@ -67,13 +67,19 @@ import validate  # noqa: E402
 #             the prompt's content, modes reads the prompt and acts only on an acceptance envelope at
 #             byte zero, and modes writes no stance signal and no file the scent touches. The adapter
 #             lives on this event only on Codex, which has no plan-exit signal to key on.
-#             SessionStart has THREE owners: boot's orientation pack + memory's own session-start work
+#             SessionStart has FOUR owners: boot's orientation pack + memory's own session-start work
 #             (the cross-session erasure observer and the backup push)
 #             + the optional github-projects-sync board refresh, which coexist on one event by keyed
 #             registration (the PostToolUse multi-owner precedent). The board-sync owner is present only
 #             while that optional module is installed; the entry names every system that may own the event.
+#             The fourth is build-coordinator's post-compaction re-grounding, and it is the only owner
+#             keyed to the `compact` matcher: boot deliberately does NOT run its full pack after a
+#             compaction, which is what leaves a compacted session with no orientation at all, and this
+#             owner fills exactly that gap with a narrow Build pointer. The two cannot contend — they
+#             fire on disjoint matchers. PreCompact stays memory-only: it cannot inject, so it could
+#             never have carried this, and its single-fire housekeeping is unchanged by the new owner.
 EVENT_INVENTORY = {
-    "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync"), "blocks": False, "injects": True},
+    "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync", "build-coordinator"), "blocks": False, "injects": True},
     "PreToolUse":       {"owners": ("invariant-owner",),         "blocks": True,  "injects": True},
     "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": True},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},

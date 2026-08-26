@@ -17,6 +17,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
+import build_state_store  # noqa: E402
+import hooks  # noqa: E402
 import repair_divergence  # noqa: E402
 
 HEAD_A = "a" * 40
@@ -3549,8 +3551,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # work inline — the cost the routing exists to remove.
         # 273 is those two independently justified raises meeting in a merge, not a new budget: the file
         # measures exactly 273 lines, and neither side's additions were trimmed to fit the other's cap.
+        # 273 -> 286 for the seal-to-build hand-back paragraph. It carries four rules the operator
+        # set in person: the hand-back is six lines and an offer, /compact and never /clear (the one
+        # session that cleared at this boundary lost its thread), the bind's existing consent is the
+        # agreement to begin, and the /autocompact recommendation is made once here rather than
+        # nagged at every seal. Earlier revisions spent this same budget on a boundary detector and
+        # then a required-answer gate, both cut; the cap is the file's exact measurement each time.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 273)
+        self.assertLessEqual(len(text.splitlines()), 286)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -3625,7 +3633,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # 3850 -> 3877: the last 27 of those words are the honest worst case the two bounds allow, added
         # because a reviewer showed the passage otherwise left an impression of cheapness it could not
         # back. The preservation-source ratio (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3877)
+        # 3877 -> 4058, the two independently justified raises above meeting in a merge, not a new
+        # budget: #1080's repair-round passage and this branch's hand-back paragraph (with the
+        # operator's four rules — six lines, an offer, never /clear, recommend /autocompact once) both
+        # ship, and the file measures exactly this. Neither side's prose was trimmed to fit the other's
+        # cap.
+        self.assertLessEqual(len(text.split()), 4058)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
@@ -3636,7 +3649,10 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
                        # validation and stay green — the exact defect a deliverable reviewer caught,
                        # where a scout confined to a copy was told to produce evidence that binds to
                        # the live tree. This sentence is the half that says which runs are not its job.
-                       "It is the wrong tool for the two classes below"):
+                       "It is the wrong tool for the two classes below",
+                       # The hand-back's honesty. An edit that trimmed this phrase would stay green
+                       # while the runbook quietly started reading as though the pause were enforced.
+                       "an offer, not a gate"):
             self.assertIn(phrase, text)
 
     def test_runbook_keeps_review_synthesis_marker_grammar_and_routine_authority_boundary(self):
@@ -5012,3 +5028,207 @@ class TestEvidenceDurability(CoordinatorCase):
         legacy = bc._restore_base_state({k: v for k, v in value.items() if k != "reconciles"},
                                         "build-state.v1")
         self.assertEqual(legacy["reconciles"], [])
+
+
+class TestUnconditionalResumeVerification(CoordinatorCase):
+    """The guarantee that does NOT rest on a hook having fired.
+
+    The design claim is that the post-compaction path and the ordinary path are the same code, so
+    these cases assert the same verdicts with an observation present and with none at all. If a
+    future change makes verification conditional on an observation, the pair stops agreeing.
+    """
+
+    def test_read_only_verbs_are_exempt_and_mutating_verbs_are_not(self):
+        self.assertFalse(bc._mutates(argparse.Namespace(command="status")))
+        self.assertFalse(bc._mutates(argparse.Namespace(command="work", work_command="frontier")))
+        self.assertTrue(bc._mutates(argparse.Namespace(command="checkpoint")))
+        self.assertTrue(bc._mutates(argparse.Namespace(command="work", work_command="integrate")))
+
+    def test_the_state_family_is_exempted_one_subcommand_at_a_time(self):
+        # `state` used to be exempted as a whole command, so a mutating subcommand added later would
+        # have skipped verification by inheritance rather than by anyone deciding it should. The
+        # exemption is a closed set now; this asserts its exact membership, so widening it is an edit
+        # someone has to make here as well as there.
+        self.assertEqual(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS, frozenset({"where", "migrate", "supersede"}))
+        # Every `state` subcommand that exists is in it, and each is a subparser that really exists.
+        state_parser = bc.parser()._subparsers._group_actions[0].choices["state"]
+        declared = set(state_parser._subparsers._group_actions[0].choices)
+        self.assertEqual(declared, set(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS))
+        # And the polarity holds for one that does not exist yet.
+        self.assertNotIn("rebuild", bc._SNAPSHOTLESS_STATE_SUBCOMMANDS)
+        self.assertTrue(bc._mutates(argparse.Namespace(command="state", state_command="rebuild")))
+
+    def test_an_unknown_verb_is_verified_by_default(self):
+        # The polarity is the point: a verb added later must fail SAFE. If this ever inverts, a new
+        # mutating verb silently skips the gate and nothing else notices.
+        self.assertTrue(bc._mutates(argparse.Namespace(command="a-verb-added-next-year")))
+
+    def test_a_matching_session_passes(self):
+        state = self.seed()
+        state["build"]["worktree"] = str(bc.ROOT)
+        state["plan"]["bound_head"] = bc._head()
+        self.assertEqual(bc.resume_reasons(state), [])
+
+    def test_a_different_worktree_refuses_and_names_both(self):
+        state = self.seed()
+        state["build"]["worktree"] = "/somewhere/else"
+        state["plan"]["bound_head"] = bc._head()
+        reasons = bc.resume_reasons(state)
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("somewhere/else", reasons[0])
+        self.assertIn(str(bc.ROOT), reasons[0])
+
+    def test_a_head_off_the_builds_line_refuses(self):
+        state = self.seed()
+        state["build"]["worktree"] = str(bc.ROOT)
+        state["plan"]["bound_head"] = HEAD_A  # never a commit in this repository
+        reasons = bc.resume_reasons(state)
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("not an ancestor", reasons[0])
+
+    def test_a_descendant_head_passes_because_builds_commit(self):
+        state = self.seed()
+        state["build"]["worktree"] = str(bc.ROOT)
+        state["plan"]["bound_head"] = HEAD_A
+        with mock.patch.object(bc, "_is_ancestor", return_value=True):
+            self.assertEqual(bc.resume_reasons(state), [])
+
+    def test_a_legacy_snapshot_makes_no_new_demands(self):
+        # Bound before either field existed. It must resume, not be told it is broken.
+        self.assertEqual(bc.resume_reasons({"build": {}, "plan": {}}), [])
+
+    def test_verify_resume_refuses_before_the_verb_and_names_it(self):
+        state = self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = "/somewhere/else"
+        self.store.mutate(change)
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self.assertIn("checkpoint", str(caught.exception))
+
+    def test_verification_leaves_nothing_behind_beside_the_snapshot(self):
+        # The guarantee is the refusal, not a tally of the times it held. Anything written here would
+        # be a record kept for its own sake, which is exactly what this design removed.
+        self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["plan"]["bound_head"] = bc._head()
+        self.store.mutate(change)
+        before = sorted(p.name for p in Path(self.state_path).parent.iterdir())
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self.assertEqual(sorted(p.name for p in Path(self.state_path).parent.iterdir()), before)
+
+    def test_verification_never_writes_the_snapshot(self):
+        # A write here would bump the revision under a guard the verb is about to hold, so the check
+        # that protects the Build would be the thing that wedges it.
+        self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["plan"]["bound_head"] = bc._head()
+        self.store.mutate(change)
+        before = self.state()["revision"]
+        bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
+        self.assertEqual(self.state()["revision"], before)
+
+
+class TestPostCompactionRegrounding(CoordinatorCase):
+    """The SessionStart compact-matcher owner: advisory by design, closed by allowlist."""
+
+    def seeded_snapshot(self) -> Path:
+        """A snapshot carrying exactly the material that must never reach a context window."""
+        state = self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["progress"] = {"current_item": "CX-01",
+                             "completed": [{"id": "CX-00", "commit": HEAD_A}]}
+            s["findings"] = [{
+                "id": "SEC-1", "stage": "deliverable", "lens": "security-governance",
+                "packet_digest": "sha256:" + "f" * 64, "commit": None,
+                "severity": "blocking", "summary": "SECRET-FINDING-SUMMARY",
+                "disposition": "accepted-fixed", "rationale": "SECRET-FINDING-RATIONALE",
+                "escalation_kind": None, "blocks_this_pr": False,
+                "handoff_summary": "SECRET-HANDOFF-SUMMARY",
+                "private_reference": "SECRET-PRIVATE-REFERENCE",
+            }]
+        self.store.mutate(change)
+        return Path(self.state_path)
+
+    @contextlib.contextmanager
+    def resolve_to(self, pairs):
+        """Stand in for worktree-keyed resolution. The resolution itself is proven against a real
+        library in test_build_state_store; these cases are about what the HANDLER does with each
+        answer — none, one, several."""
+        with mock.patch.object(bc, "_library", return_value=None), \
+             mock.patch.object(bc.build_state_store, "bound_snapshots", return_value=pairs):
+            yield
+
+    def test_it_ignores_every_source_but_compact(self):
+        for source in ("startup", "resume", "clear", None):
+            self.assertEqual(bc.reground_handler({"source": source}), hooks.proceed())
+
+    def test_no_bound_build_says_so_rather_than_guessing_or_going_quiet(self):
+        with self.resolve_to([]):
+            decision = bc.reground_handler({"source": "compact"})
+        text = decision["context"]
+        self.assertIn("No Build is bound to this worktree", text)
+
+    def test_several_bound_builds_disclose_the_ambiguity_and_assume_nothing(self):
+        with self.resolve_to([("slug-one", Path("/a")), ("slug-two", Path("/b"))]):
+            decision = bc.reground_handler({"source": "compact"})
+        text = decision["context"]
+        self.assertIn("slug-one", text)
+        self.assertIn("slug-two", text)
+        self.assertIn("nothing is assumed", text)
+
+    def test_one_bound_build_injects_the_allowlisted_pointer(self):
+        path = self.seeded_snapshot()
+        with self.resolve_to([("a-slug", path)]):
+            decision = bc.reground_handler({"source": "compact", "session_id": "s1"})
+        text = decision["context"]
+        self.assertIn("owner/repo", text)
+        self.assertIn("CX-01", text)
+        self.assertIn(PLAN_ID, text)
+
+    def test_the_injection_carries_no_reviewer_private_text(self):
+        """The redaction fixture, seeded on purpose so it can actually fail.
+
+        A pointer built by formatting 'the interesting parts of the state' would carry finding text
+        and reviewer private references into a context window and then into a transcript. The
+        allowlist is what prevents that, and this is the case that proves the allowlist is closed.
+        """
+        path = self.seeded_snapshot()
+        with self.resolve_to([("a-slug", path)]):
+            decision = bc.reground_handler({"source": "compact"})
+        text = decision["context"]
+        for secret in ("SECRET-FINDING-SUMMARY", "SECRET-FINDING-RATIONALE",
+                       "SECRET-PRIVATE-REFERENCE"):
+            self.assertNotIn(secret, text)
+
+    def test_the_allowlist_is_the_whole_vocabulary_of_the_pointer(self):
+        # Structural, not behavioural: a field added to the renderer without being added to the
+        # allowlist is exactly the regression the redaction case above cannot see on its own.
+        self.seeded_snapshot()
+        rendered = bc.reground_pointer(self.store.read())
+        labels = {label for label, _ in bc._REGROUND_ALLOWLIST}
+        for line in rendered.splitlines():
+            if line.startswith("  ") and ": " in line:
+                self.assertIn(line.strip().split(": ")[0], labels)
+
+    def test_the_hook_reacts_to_a_compaction_and_records_nothing(self):
+        # It injects; it does not keep a history. Nothing reads a record of compactions, and one kept
+        # anyway would be bookkeeping for its own sake.
+        path = self.seeded_snapshot()
+        before = sorted(p.name for p in path.parent.iterdir())
+        with self.resolve_to([("a-slug", path)]):
+            decision = bc.reground_handler({"source": "compact", "session_id": "s1", "trigger": "auto"})
+        self.assertEqual(decision["action"], "inject")
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), before)
+
+    def test_a_broken_library_fails_open_and_never_stops_the_session(self):
+        with mock.patch.object(bc.build_state_store, "bound_snapshots",
+                               side_effect=RuntimeError("library is unreadable")):
+            self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())

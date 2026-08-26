@@ -286,7 +286,7 @@ def _arc_one(copy, head, env, pr_state, holder):
 
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                        "--repository", REPO, "--pr", str(PR),
-                          "--operator-decision", DEMO_CONSENT)
+                       "--operator-decision", DEMO_CONSENT)
     ok &= _pass("the Build binds to that seal", bound.returncode == 0,
                 "the Build is anchored to the sealed plan, not to a document handed over in chat")
 
@@ -366,7 +366,7 @@ def _arc_two(copy, head, env, holder, pr_state):
     state_path = os.path.join(tempfile.mkdtemp(prefix="entry-door-arc2-"), "state.json")
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                        "--repository", REPO, "--pr", str(PR),
-                          "--operator-decision", DEMO_CONSENT)
+                       "--operator-decision", DEMO_CONSENT)
     ok &= _pass("and drives a running Build", bound.returncode == 0,
                 "the arc ends where arc 1 began: a Build anchored to a seal")
     return ok

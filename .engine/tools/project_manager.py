@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -1265,7 +1266,36 @@ def cmd_seal(args) -> int:
     print(f"  payload   {seal['build_plan_digest']}")
     if changed:
         print("\nThe PR must disclose that the sealed plan differs from the reviewed one, and by what.")
+    print(seal_handback(record["plan_id"]))
     return 0
+
+
+def seal_handback(plan_id: str) -> str:
+    """The plan-to-build hand-back: stop, settle, offer, wait.
+
+    SIX LINES, ADDRESSED TO THE SESSION. This prints into the session's context, not onto the
+    operator's screen, so it is instructions for the assistant's next move — not operator training.
+    The operator ruled the long form out: a hand-back that needs paragraphs of meta-commentary to
+    explain the next step is a poorly designed step. The settle summary the session then gives the
+    operator is conversational and build-specific; the readiness line at its end is the offer.
+
+    /compact, NEVER /clear. The one build session that lost its thread — the incident this whole
+    spine exists to prevent — is the one that cleared instead of compacting. A cleared session keeps
+    nothing to re-ground from; a compacted one keeps the summary plus everything settled below.
+
+    An offer, not a gate: the bind's own --operator-decision consent is the agreement to begin, and
+    nothing mechanical checks any of this. The one-time /autocompact recommendation lives in the
+    runbook, not here — repeating it at every seal is nagging, not guidance.
+    """
+    return "\n".join([
+        "",
+        "The plan is sealed and read-only. Stop building context here.",
+        "Settle into the record anything that still lives only in this conversation, then offer",
+        "the operator a /compact and their model and effort choice for the build phase. Wait.",
+        "Their go begins the Build:",
+        f"  build_coordinator.py plan bind --plan {plan_id} \\",
+        "    --repository <owner/repo> --pr <number> --operator-decision \"<their go>\"",
+    ])
 
 
 def cmd_close(args) -> int:

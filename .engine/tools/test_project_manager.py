@@ -2061,5 +2061,52 @@ class ARealProjectCrossesTheRenameWhole(unittest.TestCase):
                                                          "test_plan_coordinator.py")))
 
 
+class TestSealHandback(unittest.TestCase):
+    """The seal used to print digests and stop; then it printed a manual. Both were wrong.
+
+    The operator's ruling, after living with the long form: a hand-back that needs paragraphs of
+    meta-commentary to explain the next step is a poorly designed step. So what these pin is the
+    SHORTNESS as much as the content — the brevity cap is a real requirement, not a style note —
+    plus the two hard content rules: never /clear (the one session that cleared at this boundary is
+    the one that lost its thread), and no gate vocabulary (the pause is an offer).
+    """
+
+    def text(self):
+        return project_manager.seal_handback("pln_0123456789ab")
+
+    def test_it_is_brief(self):
+        # Six lines of substance. A hand-back that grows past this is becoming a manual again.
+        self.assertLessEqual(len([l for l in self.text().splitlines() if l.strip()]), 6)
+
+    def test_it_names_every_required_element(self):
+        text = self.text()
+        self.assertIn("Settle", text)
+        self.assertIn("/compact", text)
+        self.assertIn("model and effort", text)
+        self.assertIn("Wait", text)
+
+    def test_it_carries_the_plan_id_into_the_bind_it_suggests(self):
+        self.assertIn("--plan pln_0123456789ab", self.text())
+
+    def test_it_never_suggests_clear(self):
+        # The only build session that lost its thread is the one that ran /clear here instead of
+        # /compact: a cleared session keeps nothing to re-ground from. Not guidance to ever revive.
+        self.assertNotIn("/clear", self.text())
+
+    def test_it_claims_no_teeth_and_teaches_no_flag(self):
+        text = self.text()
+        self.assertNotIn("REFUSES", text)
+        self.assertNotIn("--override", text)
+        self.assertNotIn("--session-model", text)
+
+    def test_it_does_not_lecture(self):
+        # The recurring recommendations and provider disclosures live in the runbook, read when
+        # orchestrating — not re-printed at every seal into every session.
+        text = self.text()
+        self.assertNotIn("/autocompact", text)
+        self.assertNotIn("/hooks", text)
+        self.assertNotIn("Codex", text)
+
+
 if __name__ == "__main__":
     unittest.main()

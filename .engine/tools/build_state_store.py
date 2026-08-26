@@ -233,6 +233,7 @@ def migrate(source: Path | str, selector: str, schema, *,
     return destination
 
 
+
 def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Path | None:
     """Set the current snapshot aside so a second Build of the same plan may start. Never silent.
 

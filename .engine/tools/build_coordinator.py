@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -30,6 +31,7 @@ import build_coordinator_work as work
 import build_review_range as ranges
 import build_state_store
 import ci_gatekeeper
+import hooks
 import moment
 import repo_identity
 import review_integrity
@@ -239,6 +241,117 @@ def _resolve_store(args) -> Snapshot:
     library = _library()
     return build_state_store.resolve_for_worktree(
         ROOT, _state_schema_for, args.expect_revision, library=library)
+
+
+# --- unconditional resume verification ----------------------------------------
+#
+# WHY THIS IS UNCONDITIONAL, and why that word is the whole design. The hazard is a session whose
+# context was compacted mid-Build: it continues from a summary, and a summary can be wrong about
+# which Build it is in, which worktree it is standing in, or where the branch was. The obvious fix is
+# to verify when a compaction is known to have happened — and that fix is worthless, because knowing
+# a compaction happened depends on a fail-open hook having fired. A guarantee that rests on a
+# best-effort signal is not a guarantee; it is the signal's reliability wearing a guarantee's name.
+#
+# So verification never asks whether a compaction occurred. It runs before every mutating verb, reads
+# only what the durable snapshot already records, and refuses by name. Its cost is three cheap reads;
+# its value is that the post-compaction case and the ordinary case are the SAME code path, which is
+# also why the post-compaction fixture and the no-observation fixture must pass identically.
+#
+# It READS and refuses; it never writes the snapshot. A write here would bump the revision under a
+# compare-and-swap guard a verb is about to use, so the verification that exists to protect the Build
+# would be the thing that wedges it.
+
+# Verbs that mutate nothing. Everything ABSENT from this set is verified — the polarity is deliberate,
+# so a verb added later is verified by default and an omission fails safe rather than silently
+# skipping the gate. A read-only verb is exempt because refusing a `status` on a moved worktree hides
+# the very diagnosis the operator opened `status` to get.
+_READ_ONLY_VERBS = frozenset({
+    ("status", None), ("depths", None),
+    ("state", "where"),
+    ("review", "packet"),
+    ("work", "frontier"), ("work", "packet"),
+    ("contract", "template"), ("contract", "preview"),
+    ("submit", "preview"),
+    ("handoff", "export"),
+})
+
+
+def _verb(args) -> tuple[str, str | None]:
+    command = getattr(args, "command", None)
+    for attr in ("plan_command", "review_command", "finding_command", "assumption_command",
+                 "state_command", "repair_command", "handoff_command", "submit_command",
+                 "contract_command", "work_command"):
+        sub = getattr(args, attr, None)
+        if sub:
+            return command, sub
+    return command, None
+
+
+def _mutates(args) -> bool:
+    return _verb(args) not in _READ_ONLY_VERBS
+
+
+# `state` subcommands that resolve no snapshot of their own, enumerated rather than exempted as a
+# whole command. The whole-command form quietly undid the fail-safe polarity above for a family of
+# verbs: a `state` subcommand added later would have skipped the gate by inheritance rather than by
+# anyone deciding it should. Each name here addresses its target explicitly — `where` reads, `migrate`
+# takes a --source, `supersede` takes a --plan — so none of them mutates the snapshot this session
+# resolved. The last two are RECOVERY verbs besides: their whole job is to deal with a snapshot this
+# session does not match, so verifying the match first would deadlock the very situation they exist to
+# unstick. A fourth subcommand gets no exemption until someone writes its reason here.
+_SNAPSHOTLESS_STATE_SUBCOMMANDS = frozenset({"where", "migrate", "supersede"})
+
+
+def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None = None) -> list[str]:
+    """Every way this session disagrees with the snapshot it is about to mutate, in plain words.
+
+    Each leg is skipped only when the snapshot never recorded the fact to compare against — a Build
+    bound before that field existed. A skipped leg is genuinely unverifiable, not quietly passed, and
+    the caller reports which legs ran.
+    """
+    reasons: list[str] = []
+    here = Path(worktree if worktree is not None else ROOT).resolve()
+
+    recorded_worktree = (state.get("build") or {}).get("worktree")
+    if recorded_worktree and Path(recorded_worktree).resolve() != here:
+        reasons.append(
+            f"this Build's snapshot records worktree {Path(recorded_worktree).resolve()}, but this "
+            f"session is standing in {here}. Two Builds cannot share a snapshot: run the verb from "
+            f"the Build's own worktree, or name the snapshot you mean with --state.")
+
+    plan_state = state.get("plan") or {}
+    bound_head = plan_state.get("bound_head")
+    current = head if head is not None else _head()
+    if bound_head and current:
+        if not _is_ancestor(bound_head, current):
+            reasons.append(
+                f"the commit this Build was bound at ({bound_head[:12]}) is not an ancestor of the "
+                f"current HEAD ({current[:12]}), so this worktree has moved off the Build's line — a "
+                f"reset, a branch switch, or a different checkout. Return the worktree to the Build's "
+                f"branch before mutating its record.")
+    return reasons
+
+
+def verify_resume(store, args) -> None:
+    """Refuse to mutate a Build this session does not actually match. Runs before every mutating verb.
+
+    It writes nothing. The guarantee is the refusal itself, not a tally of the times it held: a durable
+    count of passed verifications would be a record kept for its own sake, and the operator asked for
+    the guarantee rather than the bookkeeping.
+    """
+    try:
+        state = store.read()
+    except CoordinatorError:
+        # An unreadable snapshot is the resolving store's refusal to make, with its own remedy. Raising
+        # a second, worse-worded version of it here would replace a good error with a vague one.
+        return
+    reasons = resume_reasons(state)
+    command, sub = _verb(args)
+    verb = command if not sub else f"{command} {sub}"
+    if reasons:
+        raise CoordinatorError(
+            f"this session does not match the Build it is about to change, so '{verb}' refused before "
+            "writing anything:\n  - " + "\n  - ".join(reasons))
 
 
 def _empty_review() -> dict:
@@ -858,6 +971,24 @@ def _library() -> "plan_store.PlanLibrary":
     """
     import plan_store
     return plan_store.PlanLibrary()
+
+
+# --- the seal-to-build hand-off -----------------------------------------------
+#
+# Sealing a plan and building it are different jobs, and they often want different settings. The seal
+# renders a hand-back (project_manager.seal_handback) offering the operator the pause: settle what
+# lives only in the conversation, compact (never clear), choose the model and effort for the BUILD. All
+# it is an offer. The bind's own --operator-decision consent — required below — is the operator's
+# agreement to begin, and nothing mechanical checks the hand-back's steps.
+#
+# WHAT WAS TRIED AND REMOVED, so it is not re-attempted. Two gates were built here and cut on the
+# operator's direction. First a boundary DETECTOR: bind refused unless it could prove the
+# conversation had broken since the seal — session identity plus a durable compaction ledger — with
+# an override flag. Then a required ANSWER: bind refused without self-reported --session-model and
+# --session-effort. Both failed the same test: the engine cannot read what a session actually runs
+# on, so either gate proves only that a string was typed, and the session is what types it. The
+# consent gate that already exists carries the operator's go; ceremony bolted on beyond it was cost
+# without assurance, and the operator named it governance overreach.
 
 
 def _sealed_plan(selector: str) -> tuple[str, str, dict]:
@@ -4870,12 +5001,102 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+# --- post-compaction re-grounding ---------------------------------------------
+#
+# The Engine cannot cause a compaction and does not try to. What it can do is be the first thing the
+# freshly compacted session reads. `SessionStart` with the `compact` matcher fires after the summary
+# is installed and its stdout becomes that session's additionalContext, so this is the one moment a
+# pointer can reach a session that has just forgotten why it was here.
+#
+# The pointer is ADVISORY and is described that way everywhere. Nothing compels a model to obey
+# injected text, so this reduces drift; it does not bound it. What bounds it is `verify_resume`
+# above, which runs whether or not this hook ever fired.
+#
+# CONSTRUCTED FROM AN ALLOWLIST, never from the snapshot at large. The snapshot holds reviewer
+# `--private-reference` notes and finding text, contracted as local-only and never published. An
+# injection built by formatting "the interesting parts of the state" is one refactor away from
+# carrying those into a context window and then into a transcript. So the fields below are the whole
+# vocabulary of what may be injected: adding one is an edit here, in the open, and the redaction
+# fixture seeds the snapshot with private text and asserts it never appears.
+_REGROUND_ALLOWLIST: tuple[tuple[str, "Any"], ...] = (
+    ("repository", lambda s: (s.get("build") or {}).get("repository")),
+    ("pr", lambda s: (s.get("build") or {}).get("pr")),
+    ("worktree", lambda s: (s.get("build") or {}).get("worktree")),
+    ("plan", lambda s: (s.get("plan") or {}).get("plan_id")),
+    ("profile", lambda s: (s.get("plan") or {}).get("profile")),
+    ("bound at", lambda s: ((s.get("plan") or {}).get("bound_head") or "")[:12] or None),
+    ("current work item", lambda s: (s.get("progress") or {}).get("current_item")),
+    ("items completed", lambda s: len((s.get("progress") or {}).get("completed") or []) or None),
+    ("submission", lambda s: s.get("submission")),
+)
+
+
+def reground_pointer(state: dict) -> str:
+    """The injected pointer for one resolved Build, built only from the allowlist above."""
+    lines = ["Engine: this session was compacted while a Build was running. The Build's durable record —",
+             "not this session's summary — is the authority for what follows.", ""]
+    for label, extract in _REGROUND_ALLOWLIST:
+        try:
+            value = extract(state)
+        except Exception:  # noqa: BLE001 — a malformed snapshot must not break re-grounding
+            value = None
+        if value is not None and value != "":
+            lines.append(f"  {label}: {value}")
+    lines += [
+        "",
+        "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
+        "mutating coordinator verb re-verifies this session against that record and refuses on a",
+        "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
+    ]
+    return "\n".join(lines)
+
+
+def reground_handler(payload: dict) -> dict:
+    """The SessionStart compact-matcher owner. Injects a pointer, a disclosure, or nothing."""
+    # Only the compact lifecycle. A startup/resume/clear SessionStart already gets the full boot pack,
+    # and injecting a second, narrower orientation there would compete with it.
+    if (payload.get("source") or payload.get("matcher")) != "compact":
+        return hooks.proceed()
+    try:
+        library = _library()
+        found = build_state_store.bound_snapshots(ROOT, library=library)
+    except Exception:  # noqa: BLE001 — fail open: a hook never blocks a session from starting
+        return hooks.proceed()
+    if not found:
+        # Silence here would be indistinguishable from "the hook is broken", and a guess would be
+        # worse than either. So the no-Build case says so plainly and stops.
+        return hooks.inject(
+            "Engine: this session was compacted. No Build is bound to this worktree, so there is no "
+            "Build record to re-ground against.")
+    if len(found) > 1:
+        return hooks.inject(
+            "Engine: this session was compacted, and "
+            f"{len(found)} Build snapshots name this worktree ({', '.join(s for s, _ in found)}). "
+            "That is ambiguous, so nothing is assumed about which Build is running here — resolve it "
+            "with 'build_coordinator.py state supersede' or by naming one with --state.")
+    slug, path = found[0]
+    try:
+        state = core.json_file(path)
+    except Exception:  # noqa: BLE001
+        return hooks.proceed()
+    # The compaction itself is not written down anywhere. This hook REACTS to one; nothing reads a
+    # history of them, and keeping a record no reader consumes would be bookkeeping for its own sake.
+    return hooks.inject(reground_pointer(state))
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # Hook mode, ahead of argparse on purpose: this invocation reads its event from stdin and must
+    # resolve its own snapshot (tolerating none and several), which is exactly what the argparse path
+    # below is not built to do.
+    if argv[:1] == ["reground-hook"]:
+        return hooks.run_hook("SessionStart", reground_handler)
     args = parser().parse_args(argv)
     try:
         standalone = args.command == "review" and args.review_command == "packet" and args.standalone
         stateless = (args.command == "depths"
-                     or args.command == "state"
+                     or (args.command == "state"
+                         and getattr(args, "state_command", None) in _SNAPSHOTLESS_STATE_SUBCOMMANDS)
                      or (args.command == "contract" and getattr(args, "contract_command", None) == "template"))
         # `plan bind` is the one command that has no snapshot to resolve: it is the command that
         # creates one. Without --state it chooses the durable address itself, from the plan it binds.
@@ -4884,6 +5105,11 @@ def main(argv: list[str] | None = None) -> int:
             raise CoordinatorError("standalone review packets require --repository and --depth")
         deferred = binding and not args.state
         store = None if (standalone or stateless or deferred) else _resolve_store(args)
+        # Before the verb, never inside it: one chokepoint the whole gate rides on, so a verb cannot
+        # be added that quietly skips it. `plan bind` is exempt because it CREATES the snapshot the
+        # check reads — there is nothing yet to disagree with.
+        if store is not None and not binding and _mutates(args):
+            verify_resume(store, args)
         args.func(args, store)
         return 0
     except CoordinatorError as exc:

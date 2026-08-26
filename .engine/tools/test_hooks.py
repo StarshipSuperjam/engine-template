@@ -385,7 +385,10 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
                      ".engine/tools/modes.py accept-hook", ".engine/tools/validate.py accept-hook",
                      ".engine/tools/close.py", ".engine/tools/scent.py",
                      ".engine/tools/telemetry.py run-ambient",
-                     ".engine/tools/telemetry.py drain-inbox")
+                     ".engine/tools/telemetry.py drain-inbox",
+                     # The post-compaction re-grounding owner: the ONLY wire on the `compact` matcher,
+                     # so it adds one to the set and one to the count.
+                     ".engine/tools/build_coordinator.py reground-hook")
     MEMORY_RELPATHS = (".engine/tools/memory/compact.py pre-compact",
                        ".engine/tools/memory/erasure_observer.py session-start",
                        ".engine/tools/memory/backup_vault.py session-start")
@@ -411,10 +414,11 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
 
         core = validate.load_json(os.path.join(validate.ROOT, ".engine/modules/core/manifest.json"))
         c_cmds = self._hook_cmds(core)
-        self.assertEqual(len(c_cmds), 16, "the sixteen venv-rooted core hook wires (boot ×3 + 9: modes, "
+        self.assertEqual(len(c_cmds), 17, "the seventeen venv-rooted core hook wires (boot ×3 + 9: modes, "
                          "knowledge_gen, self_map, validate pre-commit, session_economy, modes accept, "
                          "validate accept, close, "
-                         "scent + telemetry run-ambient ×2 + telemetry drain-inbox ×2: startup + resume)")
+                         "scent + telemetry run-ambient ×2 + telemetry drain-inbox ×2: startup + resume "
+                         "+ build_coordinator reground-hook on the compact matcher)")
         self.assertEqual(set(c_cmds), expected_core, "every core manifest hook command is hook_command's output")
 
         memory = validate.load_json(
@@ -442,14 +446,14 @@ class TestHookCommandMatchesWiredLiterals(unittest.TestCase):
         self.assertEqual(set(pd_cmds), expected_product_design,
                          "product-design's manifest hook command is hook_command's output")
 
-        # settings.json registers all installed modules' hooks: 15 core + 7 memory + 2 board-sync + 1 product-design venv-rooted.
+        # settings.json registers all installed modules' hooks: 17 core + 7 memory + 2 board-sync + 1 product-design venv-rooted.
         settings = validate.load_json(os.path.join(validate.ROOT, ".claude", "settings.json"))
         s_cmds = self._venv_hook_commands(
             h.get("command", "") for groups in settings["hooks"].values()
             for grp in groups for h in grp.get("hooks", []))
-        self.assertEqual(len(s_cmds), 26,
-                         "the twenty-six venv-rooted hook commands in settings "
-                         "(16 core + 7 memory + 2 board-sync + 1 product-design)")
+        self.assertEqual(len(s_cmds), 27,
+                         "the twenty-seven venv-rooted hook commands in settings "
+                         "(17 core + 7 memory + 2 board-sync + 1 product-design)")
         self.assertEqual(set(s_cmds), expected_core | expected_memory | expected_projects | expected_product_design,
                          "settings matches the form (and so all four manifests) exactly")
 
@@ -942,3 +946,63 @@ class TestCrashDebugHermeticGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPostCompactionOwnerCoexistsWithMemory(unittest.TestCase):
+    """The compact lifecycle now has two engine owners. They must not collide, and memory's
+    single-fire housekeeping must be exactly as it was.
+
+    The hazard this guards is a plausible alternative design: putting re-grounding on PreCompact
+    beside memory's compaction trigger, or adding the memory sweeps to the compact matcher. Either
+    would make memory's once-per-compaction work fire twice, or ask an event that cannot inject to
+    inject. These assert the split that avoids both.
+    """
+
+    def _settings(self):
+        return validate.load_json(os.path.join(validate.ROOT, ".claude/settings.json"))
+
+    def _groups(self, event):
+        return self._settings().get("hooks", {}).get(event, [])
+
+    def test_precompact_is_still_memory_only(self):
+        self.assertEqual(hooks.EVENT_INVENTORY["PreCompact"]["owners"], ("memory",))
+        self.assertFalse(hooks.EVENT_INVENTORY["PreCompact"]["injects"],
+                         "PreCompact cannot inject, which is why re-grounding could never live there")
+        commands = [h["command"] for g in self._groups("PreCompact") for h in g["hooks"]]
+        self.assertEqual(len(commands), 1, "memory's compaction trigger, and nothing else")
+        self.assertIn("memory/compact.py", commands[0])
+
+    def test_the_regrounding_owner_is_registered_on_sessionstart(self):
+        self.assertIn("build-coordinator", hooks.EVENT_INVENTORY["SessionStart"]["owners"])
+        self.assertTrue(hooks.EVENT_INVENTORY["SessionStart"]["injects"])
+
+    def test_the_compact_matcher_carries_only_the_regrounding_owner(self):
+        compact = [g for g in self._groups("SessionStart") if g.get("matcher") == "compact"]
+        self.assertEqual(len(compact), 1)
+        commands = [h["command"] for h in compact[0]["hooks"]]
+        self.assertEqual(len(commands), 1)
+        self.assertIn("build_coordinator.py", commands[0])
+        self.assertIn("reground-hook", commands[0])
+
+    def test_memory_does_not_also_run_on_the_compact_matcher(self):
+        # If it did, one compaction would run memory's session-start work twice: once on PreCompact
+        # and again here. The whole point of the matcher split is that it does not.
+        compact = [g for g in self._groups("SessionStart") if g.get("matcher") == "compact"]
+        commands = " ".join(h["command"] for g in compact for h in g["hooks"])
+        self.assertNotIn("memory/", commands)
+
+    def test_boot_does_not_run_on_the_compact_matcher(self):
+        # Boot deliberately never runs its full pack after a compaction — that absence is what leaves
+        # a compacted session unoriented, and what the narrow pointer exists to fill.
+        compact = [g for g in self._groups("SessionStart") if g.get("matcher") == "compact"]
+        commands = " ".join(h["command"] for g in compact for h in g["hooks"])
+        self.assertNotIn("boot.py", commands)
+
+    def test_one_compaction_lifecycle_fires_each_owner_exactly_once(self):
+        # The lifecycle as the platform runs it: PreCompact, then SessionStart(compact).
+        pre = [h["command"] for g in self._groups("PreCompact") for h in g["hooks"]]
+        post = [h["command"] for g in self._groups("SessionStart")
+                if g.get("matcher") == "compact" for h in g["hooks"]]
+        self.assertEqual(len(pre), 1, "memory acts once")
+        self.assertEqual(len(post), 1, "re-grounding acts once")
+        self.assertEqual(len(set(pre) & set(post)), 0, "and never the same command twice")
