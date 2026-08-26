@@ -16,6 +16,9 @@ what can be checked honestly rather than to what sounds most sweeping:
     ever writes that setting, it must name it, and naming it fails here.
   - The context-control surface spawns no process. This is what "never invokes clear, never initiates
     compaction" reduces to mechanically — neither is reachable except by running something.
+  - The surface writes nothing at all. It used to be allowed one write — its own record of observed
+    compactions — so the assertion could only say "nothing else". Nothing reads such a record now, so
+    the claim is absolute and the check has no carve-out to get stale.
   - The surface reads no transcript and computes no length-based estimate. This is the narrowest of
     the three and is scoped to the functions themselves, because a repository-wide ban on `len(` would
     be theatre.
@@ -35,7 +38,6 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc      # noqa: E402
-import build_state_store            # noqa: E402
 import quiet_call                   # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,11 +50,6 @@ SURFACE = (
     bc.reground_pointer,
     bc.resume_reasons,
     bc.verify_resume,
-    bc.phase_barrier_reasons,
-    bc.record_seal_session,
-    bc.context_control_report,
-    build_state_store.observe,
-    build_state_store.observations,
 )
 
 
@@ -106,21 +103,18 @@ class ThePowersNotTaken(unittest.TestCase):
                              "utilization is never estimated from text — the engine reports what it "
                              "observed, never what it guessed")
 
-    def test_the_surface_writes_only_its_own_observation_records(self):
-        # Every write in the surface goes through `observe`, whose only target is an observation
-        # record. Asserted structurally because the behavioural half (one run, one file) is the
-        # demo's job and cannot speak for paths that run did not take.
+    def test_the_surface_writes_nothing_at_all(self):
+        # Stronger than the claim this replaced, and simpler to check. The surface used to be allowed
+        # one kind of write — its own append-only record of compactions — which meant the assertion
+        # had to carve out an exception and could only ever say "nothing ELSE". Nothing reads such a
+        # record now, so the carve-out is gone and the claim is absolute. The behavioural half is the
+        # demo's job: it runs the real handler against a real engine clone and compares every byte.
         for fn in SURFACE:
-            if fn is build_state_store.observe:
-                continue
             source = inspect.getsource(fn)
-            self.assertNotIn("write_text", source, f"{fn.__name__} must not write files directly")
-            self.assertNotIn("atomic_write", source, f"{fn.__name__} must not write files directly")
-
-    def test_status_never_claims_an_effective_threshold(self):
-        source = inspect.getsource(bc.context_control_report)
-        self.assertIn('"effective_threshold": None', source,
-                      "status reports the threshold as unreadable, and must keep saying so")
+            for forbidden in ("write_text", "atomic_write", "open(", ".observe("):
+                with self.subTest(fn=fn.__name__, forbidden=forbidden):
+                    self.assertNotIn(forbidden, source,
+                                     f"{fn.__name__} must not write anything")
 
 
 class TheGuaranteeDoesNotRestOnTheHook(unittest.TestCase):

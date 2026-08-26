@@ -12,18 +12,20 @@ is the one behaviour under test, so a green arm cannot be a fixture that was nev
     This is the arm that matters, because it is the failure a compacted session actually produces:
     not a crash, but confident work against the wrong record.
 
-  ARM 2 — THE BOUNDARY. Binding a Build in the same session that sealed the plan.
-    * POSITIVE: with no boundary recorded since the seal, entry refuses and names the remedy.
-    * NEGATIVE CONTROL: a compaction recorded after the seal clears it — proving the barrier answers
-      to evidence rather than refusing unconditionally, which is the way this gate could be useless
-      while still looking green.
+  ARM 2 — THE HAND-OFF. Binding a Build without saying what the build phase runs on.
+    * POSITIVE: entry refuses, names both missing flags, and names the remedy. Driven through the
+      real command line, because a refusal reached by calling the handler with a hand-built argument
+      object proves the branch exists, never that a session would actually meet it.
+    * NEGATIVE CONTROL: the same bind WITH the answer proceeds — proving the gate answers to the
+      answer rather than refusing unconditionally, which is the way this gate could be useless while
+      still looking green.
 
   ARM 3 — THE POWERS NOT TAKEN. The whole context-control surface is run against a real engine clone.
-    * POSITIVE: the ONLY files it writes are its own append-only observation records. No settings
-      file is touched, no compaction is initiated, no clear is invoked, nothing estimates
+    * POSITIVE: it writes NOTHING AT ALL. Not a settings file, not a record of its own — the clone is
+      byte-identical afterwards. No compaction is initiated, no clear is invoked, nothing estimates
       utilization from text.
-    * NEGATIVE CONTROL: a variant handler that writes an auto-compact setting into the fixture's
-      settings.json is caught by the same comparison — so the check can fail, and does.
+    * NEGATIVE CONTROL: a variant that writes an auto-compact setting into the fixture's settings.json
+      is caught by the same comparison — so the check can fail, and does.
 
 Run: uv run --directory .engine --frozen -- python tools/demo_context_control.py
 Its companion test (`test_context_control_end_to_end`) runs it, so it travels with the engine.
@@ -69,6 +71,38 @@ def _snapshot_state(worktree: str) -> dict:
     }
 
 
+def _demo_plan() -> dict:
+    """A minimal, schema-shaped v2 payload for the bind arm to carry.
+
+    Written out here rather than imported from the test fixtures: a demo that depends on test code
+    is a demo that stops running the day someone reorganizes the tests.
+    """
+    return {
+        "schema_version": "build-plan.v2", "profile": "normal",
+        "intent_source": {"kind": "direct"},
+        "raw_intent": "Demonstrate the seal-to-build hand-off.",
+        "interpretation": "Bind refuses until it carries the operator's model and effort.",
+        "evidence": [{"claim": "The gate ships in build_coordinator.", "basis": "this file runs it",
+                      "kind": "observed"}],
+        "assumptions": [{"claim": "The demo reproduces this document.", "status": "verified"}],
+        "objective": "Show the hand-off refusing and then proceeding.",
+        "success_obligations": [{"outcome": "An unanswered bind refuses.",
+                                 "verification": "this demo"}],
+        "scope_boundary": ["The bind gate"], "non_goals": ["Anything else"],
+        "risks": ["None — this payload is never executed."],
+        "work_items": [{
+            "id": "DEMO-01", "depends_on": [], "description": "A single node, never run.",
+            "executor_class": "builder", "paths": [".engine/tools/demo_context_control.py"],
+            "exclusive_resources": ["demo"], "verification": ["none"],
+            "output_contract": {"deliverable": "nothing", "artifact_kinds": ["tests"],
+                                "required_evidence": ["changed_paths"]}}],
+        "parallelism": {"mode": "serial", "max_concurrency": 1},
+        "review_strategy": "None; this plan is never reviewed.",
+        "spec": {"posture": "none", "selection_basis": "No product spec governs a demo.",
+                 "disclosure": "No settled spec."},
+    }
+
+
 def arm_one_recovery() -> tuple[bool, list[str]]:
     """A session in the wrong worktree tries to mutate a Build."""
     lines = []
@@ -94,34 +128,60 @@ def arm_one_recovery() -> tuple[bool, list[str]]:
         return refused and not unguarded, lines
 
 
-def arm_two_boundary() -> tuple[bool, list[str]]:
-    """Binding in the same session that sealed the plan."""
-    lines = []
-    with tempfile.TemporaryDirectory() as tmp:
-        record = Path(tmp) / "observations.ndjson"
-        original = bc._library_observations_path
-        bc._library_observations_path = lambda: record
-        os.environ["CLAUDE_CODE_SESSION_ID"] = "THE-SEALING-SESSION"
-        try:
-            build_state_store.observe(record, {"kind": "seal", "plan_id": "pln_x",
-                                               "session": "THE-SEALING-SESSION"})
-            build_state_store.observe(record, {"kind": "compaction", "at": BEFORE_SEAL})
-            refusal = bc.phase_barrier_reasons(SEALED_AT, "pln_x")
-            refused = bool(refusal)
-            lines.append(f"  refuses in the sealing session, no boundary:    {refused}")
-            named = all(token in " ".join(refusal) for token in
-                        ("/compact", "/clear", "--override-phase-barrier", "model and effort"))
-            lines.append(f"    and names the exact remedy:                  {named}")
+def arm_two_handoff() -> tuple[bool, list[str]]:
+    """Binding without answering the seal hand-back, through the real command line."""
+    import argparse
+    import contextlib
+    import io
+    from unittest import mock
 
-            # NEGATIVE CONTROL: record a compaction AFTER the seal. If the barrier still refused, it
-            # would be refusing unconditionally — green, and worthless.
-            build_state_store.observe(record, {"kind": "compaction", "at": AFTER_SEAL})
-            cleared = not bc.phase_barrier_reasons(SEALED_AT, "pln_x")
-            lines.append(f"  a compaction AFTER the seal clears it:          {cleared}")
-            return refused and named and cleared, lines
-        finally:
-            bc._library_observations_path = original
-            os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+    lines = []
+    plan_payload = {"plan_id": "pln_0123456789ab", "sealed": "sha256:" + "b" * 64}
+
+    def bind(*extra) -> tuple[int, str]:
+        """One real `plan bind` argv. Only the OUTSIDE world is stubbed — the draft PR lookup, the
+        git head, the label call — never the gate under test, which runs exactly as it ships."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = str(Path(tmp) / "state.json")
+            head = "e" * 40
+            pr = {"number": 7, "state": "OPEN", "isDraft": True,
+                  "headRefOid": head, "baseRefOid": "0" * 40}
+            err = io.StringIO()
+            with mock.patch.object(bc, "_sealed_plan",
+                                   return_value=(plan_payload["plan_id"], plan_payload["sealed"],
+                                                 _demo_plan())), \
+                    mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                    mock.patch.object(bc, "_head", return_value=head), \
+                    mock.patch.object(bc, "_base", return_value="0" * 40), \
+                    mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
+                    mock.patch.object(bc, "_record_build_binding"), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                code = bc.main(["--state", state_path, "plan", "bind",
+                                "--plan", plan_payload["plan_id"], "--repository", "owner/repo",
+                                "--pr", "7", "--operator-decision", "start the Build", *extra])
+            return code, err.getvalue()
+
+    # POSITIVE: nobody was asked, so nothing can be answered, so the Build does not start.
+    code, err = bind()
+    refused = code != 0
+    lines.append(f"  refuses a bind that names no model or effort:   {refused}")
+    named = all(token in err for token in
+                ("--session-model", "--session-effort", "hand-back", "bind again"))
+    lines.append(f"    and names both flags and the remedy:         {named}")
+
+    # A half answer is not an answer, and the refusal is specific about which half is missing.
+    half_code, half_err = bind("--session-model", "demo-model")
+    precise = half_code != 0 and "--session-effort" in half_err and "--session-model" not in half_err
+    lines.append(f"  half an answer still refuses, naming that half: {precise}")
+
+    # NEGATIVE CONTROL: answered, it proceeds. Without this the arm would pass on a gate that
+    # refused everything, which is green and worthless.
+    ok_code, ok_err = bind("--session-model", "demo-model", "--session-effort", "medium")
+    proceeds = ok_code == 0
+    lines.append(f"  the SAME bind, answered, proceeds:             {proceeds}")
+    if not proceeds:
+        lines.append(f"    it did not: {ok_err.strip()[:120]}")
+    return refused and named and precise and proceeds, lines
 
 
 def arm_three_powers_not_taken() -> tuple[bool, list[str]]:
@@ -170,11 +230,9 @@ def arm_three_powers_not_taken() -> tuple[bool, list[str]]:
         settings = json.loads((Path(live) / ".claude/settings.json").read_text(encoding="utf-8"))
         no_threshold = "autoCompactWindow" not in json.dumps(settings)
         lines.append(f"  no auto-compact setting was written anywhere:   {no_threshold}")
-        observed = build_state_store.observations(
-            snapshot.parent / build_state_store.OBSERVATIONS_FILENAME)
-        recorded = len(observed) == 1 and observed[0]["kind"] == "compaction"
-        lines.append(f"  the compaction WAS recorded (it did do its job): {recorded}")
-        lines.append(f"  and it re-grounded the session:                 {bool(injected)}")
+        lines.append(f"  and it re-grounded the session anyway:         {bool(injected)}")
+        lines.append("    (the clone being untouched is the point: the hook REACTS to a compaction")
+        lines.append("     and keeps no record that one happened — nothing reads such a record)")
 
         # NEGATIVE CONTROL: a variant that writes the setting the engine refuses to write. The same
         # comparison must catch it, or arm three proves nothing.
@@ -183,17 +241,17 @@ def arm_three_powers_not_taken() -> tuple[bool, list[str]]:
         settings_path.write_text(json.dumps(settings), encoding="utf-8")
         caught = fingerprint().get(".claude/settings.json") != before.get(".claude/settings.json")
         lines.append(f"  a settings-writing variant IS caught:           {caught}")
-        return (not touched) and no_threshold and recorded and bool(injected) and caught, lines
+        return (not touched) and no_threshold and bool(injected) and caught, lines
 
 
 def main() -> int:
     print("=" * 78)
     print("DEMO — context control: compaction is survived by verification, the plan-to-build")
-    print("boundary is a real refusal, and the engine takes none of the powers it refused.")
+    print("stop is a question that must be answered, and the engine takes none of the powers it refused.")
     print("=" * 78)
     arms = [
         ("ARM 1 — RECOVERY (a session mutating a Build it does not match)", arm_one_recovery),
-        ("ARM 2 — THE BOUNDARY (binding in the session that sealed)", arm_two_boundary),
+        ("ARM 2 — THE HAND-OFF (binding without saying what the build runs on)", arm_two_handoff),
         ("ARM 3 — THE POWERS NOT TAKEN (no settings write, no clear, no initiation)",
          arm_three_powers_not_taken),
     ]
@@ -215,8 +273,8 @@ def main() -> int:
             print(f"  - {title}")
         return 1
     print("DEMO PASSED: a mismatched session is refused before it writes (and without the recorded")
-    print("facts it would not have been); the boundary refuses on no evidence and clears on real")
-    print("evidence; and the whole surface writes nothing but its own observation record.")
+    print("facts it would not have been); bind refuses an unanswered hand-back and proceeds on an")
+    print("answered one; and the whole surface writes nothing at all.")
     return 0
 
 
