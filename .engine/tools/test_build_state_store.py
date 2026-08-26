@@ -182,6 +182,23 @@ class DoesNotDestroy(_Library):
         self.assertEqual(json.loads(landed.read_text())["build"]["pr"], 7)
         self.assertTrue(source.is_file(), "migration deleted its own source; there is no way back")
 
+    def test_migration_carries_a_snapshot_written_before_a_field_was_retired(self):
+        """The verb whose whole job is moving an older document forward must actually move it forward.
+
+        This call site was added while answering a finding about untested call sites, and was itself
+        untested: deleting the migration from `migrate` left the entire suite green. An OS-temp snapshot
+        is exactly the document most likely to predate a retirement, because it is the one written by
+        the engine version before the relocation.
+        """
+        source = self._os_temp_snapshot(
+            pr=11, repair_rounds=[{"reviewed_commit": "a" * 40, "final_commit": "b" * 40,
+                                   "judgment": "scoped", "lenses": ["usability"], "guidance": None,
+                                   "spent": True}])
+        landed = build_state_store.migrate(source, "pln_0123456789ab", SCHEMA, library=self.lib)
+        self.assertNotIn("spent", json.loads(landed.read_text())["repair_rounds"][0])
+        self.assertIn("spent", json.loads(source.read_text())["repair_rounds"][0],
+                      "migration copies forward; it never edits the source it kept as the way back")
+
     def test_rolling_the_engine_back_across_the_relocation_finds_its_snapshot_where_it_was(self):
         """The rollback answer, and it is the reason migration keeps its source.
 
@@ -317,14 +334,18 @@ class ASnapshotWrittenByTheEngineBeforeThisOne(unittest.TestCase):
         import inspect
         import build_coordinator as bc
         source = inspect.getsource(bc.cmd_handoff_restore)
-        migrate_at = source.index("forward_migrate")
+        # Anchored on the ASSIGNMENT, not the first `forward_migrate` token anywhere in the function:
+        # a comment mentioning the name above the validate call would otherwise satisfy this while the
+        # real call sat after it.
+        migrate_at = source.index('value["repair_rounds"] = core.forward_migrate')
         validate_at = source.index("_validate(value, HANDOFF_SCHEMA_V2)")
         self.assertLess(migrate_at, validate_at,
                         "a strip that must beat a schema has to run before the validate call")
 
-    def test_a_handoff_carrying_it_survives_its_own_schema(self):
-        """The consequence of the ordering above, against the real schema rather than a hand-built
-        shape: once stripped, the document validates and restores with the field gone."""
+    def test_a_stripped_handoff_validates_and_restores_with_the_field_gone(self):
+        """The narrower half, stated as what it is. This checks the OUTCOME against the real schema --
+        a migrated document validates and restores clean -- and NOT the ordering, which it cannot see:
+        it migrates its own fixture rather than driving the verb. The ordering is pinned above."""
         import build_coordinator as bc
         base = _state()
         rounds = core.forward_migrate({"repair_rounds": [self._round(spent=True)]})["repair_rounds"]

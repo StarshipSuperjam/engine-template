@@ -3124,10 +3124,29 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # A replacement re-judges a round; it never un-spends one. Writing the fresh answer straight onto
     # the entry let a completed panel be re-assessed as a single-lens check or a `none` and come back
     # UNCOUNTED -- the ledger forgot a panel it had paid for, so the next assess's `prior_counted` was
-    # short by one and the budget stop arrived late. The gate already knew this (`already_counted`);
-    # the ledger did not, and the ledger is what every later round reads.
+    # short by one and the budget stop arrived late. The ledger is what every later round reads.
+    #
+    # Stickiness keys on EVIDENCE THAT LENSES WENT OUT -- a packet cut for that round, or receipts back
+    # from it -- never on the roster the previous entry recorded. Keying it on the roster charged for a
+    # panel nobody dispatched: judge two lenses, think better of it before cutting the packet, re-judge
+    # with one, and the round stayed `counted` forever. Nothing was spent, and the merge surface then
+    # said so twice over -- the headline counting it among the rounds that "dispatched a review panel"
+    # while its own line called it one cold check.
+    # TWO QUESTIONS, and collapsing them into one predicate gets one of them wrong either way.
+    #
+    # `already_counted` -- does this assess ADD a charge? No, if the entry it replaces already holds a
+    # counted slot in the ledger. Upgrading a scoped panel to a full one before anything was dispatched
+    # is one round judged twice, not two rounds, so the budget stop must not fire on it.
+    #
+    # `already_spent` -- what did this round COST? A replacement is only possible when nothing was
+    # dispatched OR the round completed, so the recorded roster cannot answer this; only evidence that
+    # lenses went out can. Keying the entry on the roster charged for a panel nobody dispatched: judge
+    # two lenses, think better of it before cutting the packet, re-judge with one, and the round stayed
+    # `counted` forever -- with the merge surface then contradicting itself, counting it among the
+    # rounds that "dispatched a review panel" while its own line called it one cold check.
     already_counted = any(_round_counted(r) for r in same)
-    counted = spends_now or already_counted
+    already_spent = already_counted and bool(prior and (prior.get("packet_digest") or prior.get("receipts")))
+    counted = spends_now or already_spent
     guidance = getattr(args, "guidance", None)
     # A replacement never ERASES a recorded consultation: dropping the answer would remove the escalation
     # from the PR body and, with it, the preflight requirement that the body carry it, while the rounds
@@ -3135,7 +3154,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     # a key: it satisfies no stop it was not given for. An answer recorded at the absolute ceiling ("one
     # cheap check, then ship") would otherwise be inherited by a re-judgment that turns that cheap check
     # into a panel, spending a counted round the operator was never asked about -- the same bypass
-    # `already_counted` closes, re-opened through the consultation record itself. Only the answer supplied
+    # `already_spent` closes, re-opened through the consultation record itself. Only the answer supplied
     # to THIS assess can pass a stop.
     fresh_guidance = guidance
     if not guidance:

@@ -275,6 +275,23 @@ class TheRoundCounter(_RealRepo):
         self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True],
                          "the panel was dispatched and paid for; re-judging it cheap cannot refund it")
 
+    def test_a_judgment_abandoned_before_the_packet_was_cut_is_not_charged_as_a_panel(self):
+        """The other edge of counted-stickiness. Keeping a round counted must key on evidence the lenses
+        WENT OUT, not on the roster the entry recorded: judge two lenses, think better of it before
+        cutting the packet, re-judge with one, and nothing was ever dispatched. Charging it anyway made
+        the merge surface contradict itself -- counted among the rounds that "dispatched a review panel"
+        while its own line read "one cold check"."""
+        reviewed = self.commit("src.py", "the deliverable")
+        repaired = self.commit("src.py", "the repair")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        state, _ = self._assess(state, repaired, lenses=("usability", "technical-integrity"))
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True])
+        self.assertIsNone(state["repair"]["packet_digest"], "nothing was dispatched")
+        state, _ = self._assess(state, repaired, lenses=("usability",))
+        self.assertEqual(len(state["repair_rounds"]), 1)
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [False],
+                         "no packet was cut and no receipt came back, so no panel was ever paid for")
+
     def test_real_work_past_a_completed_round_does_open_a_new_one(self):
         """The counter is not simply looser. Authored work the round's lenses have not read is a genuine
         second round and still counts toward the gate."""
