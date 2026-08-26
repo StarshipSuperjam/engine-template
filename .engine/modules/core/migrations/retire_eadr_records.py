@@ -492,8 +492,15 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                 os.rmdir("instance", dir_fd=contracts_fd)
                 os.fsync(contracts_fd)
                 _killpoint("instance-delete")
+                if os.listdir(contracts_fd):
+                    raise RuntimeError("the retired contract directory still contains an entry")
+                if not _same_dir("contracts", engine_fd, contracts_fd):
+                    raise RuntimeError("the retired contract directory was swapped during retirement")
             finally:
                 os.close(contracts_fd)
+            os.rmdir("contracts", dir_fd=engine_fd)
+            os.fsync(engine_fd)
+            _killpoint("contracts-delete")
 
             if _OVERRIDES in targets:
                 target = targets[_OVERRIDES]

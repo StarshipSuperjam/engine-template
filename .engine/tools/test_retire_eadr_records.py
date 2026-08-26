@@ -130,7 +130,7 @@ class RetirementMigrationTests(unittest.TestCase):
             receipt = migration.apply(self._context(root), self._sealed(plan))
         self.assertEqual(receipt["status"], "applied")
         self.assertEqual({c["path"] for c in receipt["changes"]}, expected)
-        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts", "instance")))
+        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts")))
         with open(os.path.join(root, ".engine", "operator-overrides.json"), encoding="utf-8") as handle:
             kept = json.load(handle)
         self.assertEqual(kept, {"attention": {"excerpt_chars": 900}, "unrelated": {"kept": True}})
@@ -216,7 +216,7 @@ class RetirementMigrationTests(unittest.TestCase):
         with self._empty_plans():
             receipt = migration.apply(self._context(root), self._sealed(plan))
         self.assertEqual(receipt["status"], "applied")
-        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts", "instance")))
+        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts")))
         self.assertEqual([p.name for p in Path(root, ".engine").rglob("*")
                           if "upgrade-retirement" in p.name], [])
 
@@ -238,7 +238,7 @@ class RetirementMigrationTests(unittest.TestCase):
         self.assertEqual(receipt["status"], "applied")
         self.assertEqual({entry["path"] for entry in receipt["changes"]},
                          {target["path"] for target in plan["targets"]})
-        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts", "instance")))
+        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts")))
 
     def test_actionable_plan_compatibility_matrix(self):
         plans_tmp = tempfile.TemporaryDirectory()
@@ -324,6 +324,7 @@ class RetirementMigrationTests(unittest.TestCase):
             "m.apply({'root':root,'kind':'tracked-content','module_id':'core','from_version':'0.6.3',"
             "'to_version':'0.7.0','engine_version':'0.7.0'},plan)\n")
         boundaries = ("record-capture", "record-verified", "record-delete", "instance-delete",
+                      "contracts-delete",
                       "override-capture", "override-rewrite", "override-replace", "override-delete")
         for boundary in boundaries:
             with self.subTest(boundary=boundary):
