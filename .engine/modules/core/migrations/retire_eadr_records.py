@@ -182,7 +182,12 @@ def _plan_refusals(root: str) -> list[dict]:
             if status in {"complete", "retired", "abandoned"}:
                 continue
             document = library.head(slug)
-            rendered = json.dumps(document, sort_keys=True, ensure_ascii=False)
+            # Only the executable Build payload can strand a future update. Raw intent, revision notes,
+            # deliberation, and other immutable planning history may name the retired surface as context;
+            # treating that history as an instruction would force a history rewrite the retirement explicitly
+            # forbids. Native/legacy plan fixtures without an engine-plan wrapper remain directly scannable.
+            executable = document.get("build_plan", document) if isinstance(document, dict) else document
+            rendered = json.dumps(executable, sort_keys=True, ensure_ascii=False)
             tokens = sorted(set(_RETIRED_PLAN_TOKEN_RE.findall(rendered)))
             if not tokens:
                 continue
