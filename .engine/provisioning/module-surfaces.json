@@ -2112,6 +2112,9 @@
   ".engine/tools/render_safety.py": [
    "core"
   ],
+  ".engine/tools/repair_divergence.py": [
+   "core"
+  ],
   ".engine/tools/repo_behavior.py": [
    "core"
   ],
@@ -2533,6 +2536,9 @@
    "core"
   ],
   ".engine/tools/test_render_safety.py": [
+   "core"
+  ],
+  ".engine/tools/test_repair_divergence.py": [
    "core"
   ],
   ".engine/tools/test_repo_behavior.py": [

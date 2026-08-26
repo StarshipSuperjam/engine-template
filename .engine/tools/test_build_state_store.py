@@ -182,6 +182,23 @@ class DoesNotDestroy(_Library):
         self.assertEqual(json.loads(landed.read_text())["build"]["pr"], 7)
         self.assertTrue(source.is_file(), "migration deleted its own source; there is no way back")
 
+    def test_migration_carries_a_snapshot_written_before_a_field_was_retired(self):
+        """The verb whose whole job is moving an older document forward must actually move it forward.
+
+        This call site was added while answering a finding about untested call sites, and was itself
+        untested: deleting the migration from `migrate` left the entire suite green. An OS-temp snapshot
+        is exactly the document most likely to predate a retirement, because it is the one written by
+        the engine version before the relocation.
+        """
+        source = self._os_temp_snapshot(
+            pr=11, repair_rounds=[{"reviewed_commit": "a" * 40, "final_commit": "b" * 40,
+                                   "judgment": "scoped", "lenses": ["usability"], "guidance": None,
+                                   "spent": True}])
+        landed = build_state_store.migrate(source, "pln_0123456789ab", SCHEMA, library=self.lib)
+        self.assertNotIn("spent", json.loads(landed.read_text())["repair_rounds"][0])
+        self.assertIn("spent", json.loads(source.read_text())["repair_rounds"][0],
+                      "migration copies forward; it never edits the source it kept as the way back")
+
     def test_rolling_the_engine_back_across_the_relocation_finds_its_snapshot_where_it_was(self):
         """The rollback answer, and it is the reason migration keeps its source.
 
@@ -256,6 +273,96 @@ class DoesNotDestroy(_Library):
         self._store().create(_state(pr=2))
         with self.assertRaises(core.CoordinatorError):
             build_state_store.supersede(self.lib, self.slug, reason="second")
+
+
+class ASnapshotWrittenByTheEngineBeforeThisOne(unittest.TestCase):
+    """IT SURVIVES A FIELD BEING REMOVED — the direction a schema-first rule does not cover.
+
+    The Build schemas forbid unknown properties, so dropping a field breaks every snapshot already
+    written with it: the store re-validates the WHOLE document on read and on write, so such a Build
+    becomes unreadable the moment the removal lands, and the refusal names no verb that recovers it.
+    """
+
+    def _round(self, **over):
+        entry = {"reviewed_commit": "a" * 40, "final_commit": "b" * 40, "judgment": "scoped",
+                 "lenses": ["usability"], "guidance": None}
+        entry.update(over)
+        return entry
+
+    def test_a_round_recorded_with_the_superseded_spent_flag_still_loads(self):
+        migrated = core.forward_migrate({"repair_rounds": [self._round(spent=True)]})
+        self.assertEqual(migrated["repair_rounds"], [self._round()],
+                         "`spent` is dropped, not tolerated: the ledger records what a round cost "
+                         "once, as `counted`")
+
+    def test_the_migration_touches_nothing_it_does_not_have_to(self):
+        clean = {"repair_rounds": [self._round(counted=True)], "revision": 4}
+        self.assertIs(core.forward_migrate(clean), clean,
+                      "a snapshot with nothing to migrate is returned as it stands, not rebuilt")
+        self.assertEqual(core.forward_migrate({"revision": 1}), {"revision": 1})
+        self.assertEqual(core.forward_migrate({"repair_rounds": []}), {"repair_rounds": []})
+
+    def test_the_migration_does_not_mutate_the_document_it_was_handed(self):
+        original = {"repair_rounds": [self._round(spent=True)]}
+        core.forward_migrate(original)
+        self.assertIn("spent", original["repair_rounds"][0],
+                      "the loaded document is copied, never edited underneath its caller")
+
+    def test_a_real_snapshot_file_carrying_it_loads_and_saves_through_a_real_store(self):
+        """The WIRING, not the function. Calling `forward_migrate` directly proves the function; it
+        proves nothing about whether anything calls it, and deleting either call site left every unit
+        test green -- the guard-with-no-teeth shape this build keeps meeting."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "snapshot.json"
+            state = _state()
+            state["repair_rounds"] = [self._round(spent=True)]
+            path.write_text(json.dumps(state), encoding="utf-8")
+            store = core.StateStore(str(path), SCHEMA)
+            loaded = store.read()                      # refuses outright if the load does not migrate
+            self.assertNotIn("spent", loaded["repair_rounds"][0])
+            store.mutate(lambda s: s.update({"submission": "draft"}), from_revision=loaded["revision"])
+            self.assertNotIn("spent", json.loads(path.read_text())["repair_rounds"][0])
+
+    def test_the_handoff_strip_runs_BEFORE_the_document_is_validated(self):
+        """The half that was not closed the first time, pinned where it actually went wrong.
+
+        The strip was placed in the restore BUILDER, which validation never reaches: the verb validates
+        the handoff first, so a document carrying `spent` was refused outright -- the exact failure the
+        migration exists to prevent. Order is the whole property, so order is what is asserted; a unit
+        test on the function could not see it, and neither could any test in the suite.
+        """
+        import inspect
+        import build_coordinator as bc
+        source = inspect.getsource(bc.cmd_handoff_restore)
+        # Anchored on the ASSIGNMENT, not the first `forward_migrate` token anywhere in the function:
+        # a comment mentioning the name above the validate call would otherwise satisfy this while the
+        # real call sat after it.
+        migrate_at = source.index('value["repair_rounds"] = core.forward_migrate')
+        validate_at = source.index("_validate(value, HANDOFF_SCHEMA_V2)")
+        self.assertLess(migrate_at, validate_at,
+                        "a strip that must beat a schema has to run before the validate call")
+
+    def test_a_stripped_handoff_validates_and_restores_with_the_field_gone(self):
+        """The narrower half, stated as what it is. This checks the OUTCOME against the real schema --
+        a migrated document validates and restores clean -- and NOT the ordering, which it cannot see:
+        it migrates its own fixture rather than driving the verb. The ordering is pinned above."""
+        import build_coordinator as bc
+        base = _state()
+        rounds = core.forward_migrate({"repair_rounds": [self._round(spent=True)]})["repair_rounds"]
+        handoff = {"schema_version": "build-handoff.v2", "repair_rounds": rounds,
+                   "build": base["build"], "plan": base["plan"], "approval": None,
+                   "reviews": base["reviews"], "work": {}, "finding_summaries": [],
+                   "progress": base["progress"], "validation": None, "repair": None,
+                   "preflights": [], "pr_contract": None}
+        core.validate(handoff, bc.HANDOFF_SCHEMA_V2)
+        self.assertNotIn("spent", bc._restore_base_state(handoff, "build-state.v2")["repair_rounds"][0])
+
+    def test_a_legacy_round_keeps_costing_its_slot(self):
+        """Dropping the flag must not refund the round. `_round_counted` reads an absent `counted` as
+        counted -- the fail-toward-spent direction."""
+        import build_coordinator as bc
+        migrated = core.forward_migrate({"repair_rounds": [self._round(spent=True)]})
+        self.assertTrue(bc._round_counted(migrated["repair_rounds"][0]))
 
 
 class OneHome(unittest.TestCase):
