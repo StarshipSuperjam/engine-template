@@ -10061,7 +10061,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:a0096d7e34f55b3b96ceebc9d1553f5595b7aea1f8b7e8dc6b84729e9bccc883",
+        "fingerprint": "sha256:58f94ae85b6c76f48f761af8f02511e48d766920442e42474c1b0ae9f9dedc62",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
