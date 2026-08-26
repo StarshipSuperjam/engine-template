@@ -429,7 +429,9 @@ def _upgrade_leg(proj: str, baseline_tag: str, candidate: str, *, run_complete_s
     qualified with the upgraded projection's real CI validator.  The oldest supported baseline also receives
     the complete self-test suite, exercising the whole migration chain without serially repeating that same
     expensive suite for every later source version. Returns {passed, detail}. Leaves the projection STAGED (the
-    practice tail `git add -A`s but never commits/opens) so the rollback leg can undo it."""
+    practice tail `git add -A`s but never commits/opens) so the rollback leg can undo it. A candidate with a
+    tracked-content migration also leaves its durable transaction active; the rollback leg accepts only its
+    verified recovery-commit result, while older/no-tracked transitions retain the rescue-branch proof."""
     try:
         target_ref = _candidate_ref(candidate)
     except GateError as exc:
@@ -558,7 +560,8 @@ def _rollback_leg(proj: str, baseline_tag: str) -> dict:
     `proj`, through a SECOND fresh child running the candidate's overlaid `rollback` (`_rollback_driver_source`).
     Assert the PARSED result, never the exit code: `rollback --confirm` exits 0 on `state:"none"` (nothing to
     undo) and an in-projection git failure degrades to `state:"none"` too — either would be a vacuous pass. The
-    bar is the `demo_594` bar: a STAGED update was seen, it was UNDONE, a recovery point was saved first, and no
+    bar is the `demo_594` bar: a STAGED update was seen and rescued before discard, OR a tracked-content
+    transaction was restored from its recorded recovery commit; either way it was UNDONE with no
     refusal/partial. The foreign-work guard NOT tripping is the standing regression for the
     StarshipSuperjam/engine-template#599 rollback-refusal class (an `_upgrade_footprint` that disagreed with the
     reconcile deliver-set would flag the freshly-delivered files as foreign work and refuse). After the undo the
@@ -575,7 +578,8 @@ def _rollback_leg(proj: str, baseline_tag: str) -> dict:
                           f"{_tail(run.stderr or run.stdout, 3000)}"}
     result = json.loads(run.stdout.split("ROLLBACK_RESULT:", 1)[1])
     problems = []
-    if result.get("state") != "staged":
+    transaction = result.get("state") == "transaction"
+    if result.get("state") not in {"staged", "transaction"}:
         problems.append(f"the engine saw no staged update to undo (state={result.get('state')!r}) — a vacuous "
                         "pass, not a real rollback")
     if result.get("refused"):
@@ -585,7 +589,10 @@ def _rollback_leg(proj: str, baseline_tag: str) -> dict:
         problems.append(f"the undo only partly completed: {result.get('reason')}")
     if not result.get("undone"):
         problems.append("the undo did not report the staged update discarded")
-    if not (result.get("recovery_point") or "").startswith("engine-rescue/"):
+    if transaction:
+        if result.get("transaction_state") != "restored" or not result.get("recovery_commit"):
+            problems.append("the transactional undo did not prove a restored Git recovery commit")
+    elif not (result.get("recovery_point") or "").startswith("engine-rescue/"):
         problems.append("the undo did not save a recovery point before discarding")
     if result.get("resync_failed"):
         problems.append("the tool-runtime rebuild after the undo reported a failure")

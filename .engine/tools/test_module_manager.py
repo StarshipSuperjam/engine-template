@@ -18,6 +18,8 @@ import hashlib
 import io
 import json
 import os
+import signal
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -567,6 +569,15 @@ class TestSelectMigrations(unittest.TestCase):
         sel = module_manager.select_migrations({"a": "0.3.0"}, {"a": "0.4"}, [m])
         self.assertEqual([s["version"] for s in sel], ["0.4.0"])
 
+    def test_tracked_content_selection_retains_its_declared_scope(self):
+        m = _man("a", migrations={
+            "0.2.0": {"description": "retire tracked records", "run": "migrations/t.py",
+                      "kind": "tracked-content", "scope": [".engine/legacy"]}})
+        sel = module_manager.select_migrations({"a": "0.1.0"}, {"a": "0.2.0"}, [m])
+        self.assertEqual(sel, [{"module_id": "a", "version": "0.2.0",
+                               "description": "retire tracked records", "run": "migrations/t.py",
+                               "kind": "tracked-content", "scope": [".engine/legacy"]}])
+
 
 class TestRunMigrations(unittest.TestCase):
     """The runner's execution + the no-backup guard. A migration .py is loaded by path and run; only the
@@ -753,6 +764,311 @@ class TestRunMigrations(unittest.TestCase):
             self.assertIn("backup could not be completed", res["refused"][0])
             self.assertIn("Ask me to", res["refused"][0])      # carries a recovery action
             self.assertFalse(os.path.exists(marker))           # the body bailed before mutating
+
+
+class TestTrackedContentMigrationProtocol(unittest.TestCase):
+    """The generic two-phase protocol and Git-native recovery transaction, with no retirement-specific code."""
+
+    TARGET = ".engine/legacy/record.md"
+    EXTRA = ".engine/legacy/companion.md"
+
+    def _git(self, root, *args):
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=True).stdout.strip()
+
+    def _repo(self, *, migration_body=None):
+        tmp = tempfile.TemporaryDirectory()
+        root = tmp.name
+        self._git(root, "init", "-b", "main")
+        self._git(root, "config", "user.email", "tests@example.invalid")
+        self._git(root, "config", "user.name", "Engine tests")
+        os.makedirs(os.path.join(root, ".engine", "legacy"), exist_ok=True)
+        os.makedirs(os.path.join(root, ".engine", "modules", "m", "migrations"), exist_ok=True)
+        with open(os.path.join(root, self.TARGET), "w", encoding="utf-8") as fh:
+            fh.write("before record\n")
+        with open(os.path.join(root, self.EXTRA), "w", encoding="utf-8") as fh:
+            fh.write("before companion\n")
+        with open(os.path.join(root, ".gitignore"), "w", encoding="utf-8") as fh:
+            fh.write("__pycache__/\n")
+        body = migration_body or (
+            "import os, subprocess\n"
+            "def ident(root, rel):\n"
+            "    path = os.path.join(root, *rel.split('/'))\n"
+            "    if not os.path.lexists(path): return 'absent'\n"
+            "    with open(path, 'rb') as fh: data = fh.read()\n"
+            "    p = subprocess.run(['git', '-C', root, 'hash-object', '--stdin'], input=data, capture_output=True)\n"
+            "    return 'git-blob:' + p.stdout.decode().strip()\n"
+            "def preflight(context):\n"
+            f"    path = {self.TARGET!r}\n"
+            "    return {'status':'ready','targets':[{'path':path,'operation':'delete',"
+            "'before_identity':ident(context['root'], path),'recovery_scope':[path]}]}\n"
+            "def apply(context, sealed_plan):\n"
+            "    target = sealed_plan['targets'][0]\n"
+            "    os.unlink(os.path.join(context['root'], *target['path'].split('/')))\n"
+            "    return {'status':'applied','changes':[{'path':target['path'],'operation':'delete',"
+            "'before_identity':target['before_identity'],'after_identity':'absent',"
+            "'changed_paths':[target['path']]}]}\n")
+        with open(os.path.join(root, ".engine", "modules", "m", "migrations", "tracked.py"),
+                  "w", encoding="utf-8") as fh:
+            fh.write(body)
+        self._git(root, "add", "-A")
+        self._git(root, "commit", "-m", "fixture")
+        return tmp
+
+    def _selected(self):
+        return [{"module_id": "m", "version": "1.0.0", "description": "retire records",
+                 "run": "migrations/tracked.py", "kind": "tracked-content",
+                 "scope": [".engine/legacy"]}]
+
+    def _patch_root(self, stack, root):
+        stack.enter_context(mock.patch.object(validate, "ROOT", root))
+        stack.enter_context(mock.patch.object(validate, "ENGINE_DIR", os.path.join(root, ".engine")))
+
+    def test_typed_preflight_apply_receipt_pr_render_and_byte_identical_rollback(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        with contextlib.ExitStack() as stack:
+            self._patch_root(stack, root)
+            pre = module_manager.preflight_tracked_content_migrations(
+                self._selected(), {"m": "0.0.0"}, "v1")
+            self.assertEqual(pre["refusals"], [])
+            self.assertEqual(pre["footprint"], [self.TARGET])
+            target = pre["targets"][0]
+            self.assertEqual(set(target), {"path", "operation", "before_identity", "recovery_scope"})
+            self.assertEqual(target["operation"], "delete")
+            tx = module_manager.checkout_health.begin_upgrade_transaction(
+                root, sealed_targets=pre["targets"], footprint=[self.TARGET, self.EXTRA])
+            self.assertTrue(tx["ok"], tx)
+            live = module_manager.checkout_health.inspect_upgrade_transaction(root)
+            self.assertEqual(live["state"], "active")
+            self.assertEqual(live["record"]["footprint"], sorted([self.TARGET, self.EXTRA]))
+            self.assertEqual(live["record"]["recovery_ref"], "refs/engine/upgrade-recovery")
+            self.assertEqual(module_manager.checkout_health.update_upgrade_transaction(
+                root, "committed")["code"], "phase-transition-invalid")
+            self.assertEqual(module_manager.checkout_health.finish_upgrade_transaction(
+                root)["code"], "transaction-not-terminal")
+            self.assertTrue(module_manager.checkout_health.update_upgrade_transaction(root, "mutating")["ok"])
+            result = module_manager.run_migrations(
+                self._selected(), {"m": "0.0.0"}, "v1",
+                tracked_plans=pre["plans"], recovery_ref=tx["recovery_ref"])
+            self.assertEqual(result["refusals"], [])
+            self.assertEqual(result["rollback_footprint"], [self.TARGET])
+            self.assertEqual(len(result["receipts"]), 1)
+            receipt = result["receipts"][0]
+            self.assertEqual(set(receipt), {"migration_id", "path", "operation", "before_identity",
+                                            "after_identity", "recovery_ref", "changed_paths"})
+            self.assertEqual(receipt["after_identity"], "absent")
+            import release_cut
+            with mock.patch.object(release_cut, "template_preamble", return_value=""):
+                body = module_manager.render_upgrade_pr_body(
+                    {"m": "0.0.0"}, {"m": "1.0.0"}, {"migrations": result})
+            self.assertIn(f"Removed {self.TARGET}", body)
+            self.assertIn(receipt["before_identity"], body)
+            self.assertIn("after absent", body)
+            self.assertIn("refs/engine/upgrade-recovery", body)
+            self.assertNotIn("Stored data or settings changed", body)
+            self.assertTrue(module_manager.checkout_health.update_upgrade_transaction(
+                root, "mutated", receipts=result["receipts"])["ok"])
+            restored = module_manager.checkout_health.recover_upgrade_transaction(root)
+            self.assertTrue(restored["ok"], restored)
+            self.assertEqual(restored["state"], "restored")
+            with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "before record\n")
+            self.assertEqual(self._git(root, "status", "--porcelain"), "")
+            self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"], "none")
+
+    def test_malformed_duplicate_out_of_scope_and_typed_refusal_results_fail_closed(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        actual = module_manager.checkout_health._tx_blob_identity(root, self.TARGET)
+        good_target = {"path": self.TARGET, "operation": "delete", "before_identity": actual,
+                       "recovery_scope": [self.TARGET]}
+        cases = [
+            ("malformed", {"status": "ready"}, "preflight-malformed"),
+            ("duplicate", {"status": "ready", "targets": [good_target, dict(good_target)]}, "target-invalid"),
+            ("outside", {"status": "ready", "targets": [{**good_target, "path": "outside.md",
+                                                             "recovery_scope": ["outside.md"]}]}, "target-invalid"),
+            ("typed-refusal", {"status": "refused", "refusals": [{"code": "unsafe-tree",
+                "path": self.TARGET, "reason": "the fixture is unsafe", "remediation": "repair it"}]},
+             "unsafe-tree"),
+            ("bad-refusal", {"status": "refused", "refusals": [{"code": "BAD"}]}, "refusal-malformed")]
+        with contextlib.ExitStack() as stack:
+            self._patch_root(stack, root)
+            for label, raw, code in cases:
+                with self.subTest(label=label), mock.patch.object(
+                        module_manager, "_load_tracked_migration",
+                        return_value=(lambda context, value=raw: value, lambda context, plan: None)):
+                    pre = module_manager.preflight_tracked_content_migrations(
+                        self._selected(), {"m": "0.0.0"}, "v1")
+                    self.assertTrue(pre["refusals"])
+                    self.assertEqual(pre["refusals"][-1]["code"], code)
+                    self.assertFalse(pre["plans"])
+            self.assertTrue(os.path.isfile(os.path.join(root, self.TARGET)))
+
+    def test_ready_empty_target_set_is_a_sealed_noop_and_never_calls_apply(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        with contextlib.ExitStack() as stack:
+            self._patch_root(stack, root)
+            apply = mock.Mock(side_effect=AssertionError("empty preflight must not invoke apply"))
+            with mock.patch.object(module_manager, "_load_tracked_migration",
+                                   return_value=(lambda context: {"status": "ready", "targets": []}, apply)):
+                pre = module_manager.preflight_tracked_content_migrations(
+                    self._selected(), {"m": "0.0.0"}, "v1")
+                self.assertEqual(pre["refusals"], [])
+                self.assertEqual(pre["targets"], [])
+                result = module_manager.run_migrations(
+                    self._selected(), {"m": "0.0.0"}, "v1", tracked_plans=pre["plans"])
+            self.assertEqual(result["ran"], ["m -> 1.0.0 (tracked-content)"])
+            self.assertEqual(result["receipts"], [])
+            apply.assert_not_called()
+
+    def test_preview_renders_the_same_exact_declaration_without_calling_it_a_setting(self):
+        preview = {"status": "update-available", "current": "0.9.0", "target_ref": "1.0.0",
+                   "files": {}, "wires": {}, "migrations": self._selected(),
+                   "tracked_targets": [{"path": self.TARGET, "operation": "delete",
+                                         "before_identity": "git-blob:a", "recovery_scope": [self.TARGET]}],
+                   "retired_capabilities": [], "removed_capabilities": []}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            module_manager._render_upgrade_preview(preview)
+        rendered = out.getvalue()
+        self.assertIn(f"Removes tracked engine content: {self.TARGET}", rendered)
+        self.assertNotIn("Changes a setting", rendered)
+        applied = io.StringIO()
+        receipt = {"path": self.TARGET, "operation": "delete", "before_identity": "git-blob:a",
+                   "after_identity": "absent", "recovery_ref": "refs/engine/upgrade-recovery"}
+        with contextlib.redirect_stdout(applied):
+            module_manager._render_upgrade({"from": {"m": "0.0.0"}, "to": {"m": "1.0.0"},
+                                            "migrations": {"ran": [], "refused": [],
+                                                           "receipts": [receipt]},
+                                            "notes": [], "findings": [], "pr": None})
+        applied_text = applied.getvalue()
+        self.assertIn(f"removed tracked engine content: {self.TARGET}", applied_text)
+        self.assertIn("git-blob:a -> absent", applied_text)
+        self.assertIn("refs/engine/upgrade-recovery", applied_text)
+
+    def test_discarded_plan_and_unsealed_apply_change_are_typed_refusals(self):
+        body = (
+            "import os, subprocess\n"
+            "def ident(root, rel):\n"
+            "    path=os.path.join(root,*rel.split('/'))\n"
+            "    if not os.path.exists(path): return 'absent'\n"
+            "    with open(path,'rb') as fh: data=fh.read()\n"
+            "    return 'git-blob:' + subprocess.run(['git','-C',root,'hash-object','--stdin'], input=data, "
+            "capture_output=True).stdout.decode().strip()\n"
+            "def preflight(context):\n"
+            f"    p={self.TARGET!r}\n"
+            "    return {'status':'ready','targets':[{'path':p,'operation':'delete',"
+            "'before_identity':ident(context['root'],p),'recovery_scope':[p]}]}\n"
+            "def apply(context, plan):\n"
+            f"    target={self.TARGET!r}; extra={self.EXTRA!r}\n"
+            "    os.unlink(os.path.join(context['root'],*target.split('/')))\n"
+            "    with open(os.path.join(context['root'],*extra.split('/')),'w') as fh: fh.write('unsealed')\n"
+            "    t=plan['targets'][0]\n"
+            "    return {'status':'applied','changes':[{'path':target,'operation':'delete',"
+            "'before_identity':t['before_identity'],'after_identity':'absent','changed_paths':[target]}]}\n")
+        tmp = self._repo(migration_body=body)
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        with contextlib.ExitStack() as stack:
+            self._patch_root(stack, root)
+            pre = module_manager.preflight_tracked_content_migrations(
+                self._selected(), {"m": "0.0.0"}, "v1")
+            tx = module_manager.checkout_health.begin_upgrade_transaction(
+                root, sealed_targets=pre["targets"], footprint=[self.TARGET, self.EXTRA])
+            self.assertTrue(module_manager.checkout_health.update_upgrade_transaction(root, "mutating")["ok"])
+            missing = module_manager.run_migrations(
+                self._selected(), {"m": "0.0.0"}, "v1",
+                tracked_plans={}, recovery_ref=tx["recovery_ref"])
+            self.assertEqual(missing["refusals"][0]["code"], "sealed-plan-missing")
+            self.assertTrue(os.path.isfile(os.path.join(root, self.TARGET)))
+            leaked = module_manager.run_migrations(
+                self._selected(), {"m": "0.0.0"}, "v1",
+                tracked_plans=pre["plans"], recovery_ref=tx["recovery_ref"])
+            self.assertEqual(leaked["refusals"][0]["code"], "unsealed-change")
+            restored = module_manager.checkout_health.recover_upgrade_transaction(root)
+            self.assertTrue(restored["ok"], restored)
+            with open(os.path.join(root, self.EXTRA), encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "before companion\n")
+
+    def test_transaction_refuses_foreign_work_and_corrupt_pairs_are_manual(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        target = {"path": self.TARGET, "operation": "delete",
+                  "before_identity": module_manager.checkout_health._tx_blob_identity(root, self.TARGET),
+                  "recovery_scope": [self.TARGET]}
+        with open(os.path.join(root, "foreign.txt"), "w", encoding="utf-8") as fh:
+            fh.write("operator work")
+        refused = module_manager.checkout_health.begin_upgrade_transaction(
+            root, sealed_targets=[target], footprint=[self.TARGET])
+        self.assertFalse(refused["ok"])
+        self.assertEqual(refused["code"], "foreign-work")
+        os.unlink(os.path.join(root, "foreign.txt"))
+        begun = module_manager.checkout_health.begin_upgrade_transaction(
+            root, sealed_targets=[target], footprint=[self.TARGET])
+        self.assertTrue(begun["ok"], begun)
+        self._git(root, "update-ref", "-d", begun["recovery_ref"])
+        corrupt = module_manager.checkout_health.inspect_upgrade_transaction(root)
+        self.assertEqual(corrupt["state"], "corrupt")
+        manual = module_manager.checkout_health.recover_upgrade_transaction(root)
+        self.assertFalse(manual["ok"])
+        self.assertEqual(manual["state"], "manual")
+        self.assertTrue(manual["journal_path"])
+        self.assertEqual(manual["recovery_ref"], "refs/engine/upgrade-recovery")
+
+    def test_sigkill_restart_matrix_restores_or_finalizes_every_durable_boundary(self):
+        helper_dir = os.path.dirname(module_manager.checkout_health.__file__)
+        script = (
+            "import json, os, signal, subprocess, sys\n"
+            f"sys.path.insert(0, {helper_dir!r})\n"
+            "import checkout_health as ch\n"
+            "root, boundary, target, before = sys.argv[1:]\n"
+            "sealed=[{'path':target,'operation':'replace','before_identity':before,'recovery_scope':[target]}]\n"
+            "tx=ch.begin_upgrade_transaction(root,sealed_targets=sealed,footprint=[target])\n"
+            "assert tx['ok'], tx\n"
+            "if boundary != 'prepared':\n"
+            "  assert ch.update_upgrade_transaction(root,'mutating')['ok']\n"
+            "  with open(os.path.join(root,*target.split('/')),'w') as fh: fh.write('after kill boundary\\n')\n"
+            "if boundary in ('mutated','committed','pr-opened'):\n"
+            "  assert ch.update_upgrade_transaction(root,'mutated',receipts=[])['ok']\n"
+            "if boundary in ('committed','pr-opened'):\n"
+            "  subprocess.run(['git','-C',root,'checkout','-b','engine-update'],check=True,capture_output=True)\n"
+            "  subprocess.run(['git','-C',root,'add','-A'],check=True)\n"
+            "  subprocess.run(['git','-C',root,'commit','-m','upgrade'],check=True,capture_output=True)\n"
+            "  commit=subprocess.run(['git','-C',root,'rev-parse','HEAD'],check=True,capture_output=True,text=True).stdout.strip()\n"
+            "  assert ch.update_upgrade_transaction(root,'committed',pull_request={'branch':'engine-update','commit':commit})['ok']\n"
+            "if boundary == 'pr-opened':\n"
+            "  assert ch.update_upgrade_transaction(root,'pr-opened',pull_request={'number':77,'url':'https://example.invalid/77'})['ok']\n"
+            "os.kill(os.getpid(), signal.SIGKILL)\n")
+        for boundary in ("prepared", "mutating", "mutated", "committed", "pr-opened"):
+            with self.subTest(boundary=boundary):
+                tmp = self._repo()
+                root = tmp.name
+                before = module_manager.checkout_health._tx_blob_identity(root, self.TARGET)
+                killed = subprocess.run([sys.executable, "-c", script, root, boundary, self.TARGET, before],
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(killed.returncode, -signal.SIGKILL)
+                self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
+                                 "active")
+                recovered = module_manager.checkout_health.recover_upgrade_transaction(root)
+                self.assertTrue(recovered["ok"], recovered)
+                if boundary == "pr-opened":
+                    self.assertEqual(recovered["state"], "finalized")
+                    with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
+                        self.assertEqual(fh.read(), "after kill boundary\n")
+                else:
+                    self.assertEqual(recovered["state"], "restored")
+                    self.assertEqual(self._git(root, "branch", "--show-current"), "main")
+                    with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
+                        self.assertEqual(fh.read(), "before record\n")
+                    self.assertEqual(self._git(root, "status", "--porcelain"), "")
+                self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
+                                 "none")
+                tmp.cleanup()
 
 
 class TestVersionStamp(unittest.TestCase):
@@ -1076,7 +1392,29 @@ class TestMigrationsSchema(unittest.TestCase):
     def test_migrations_entry_with_bad_kind_is_rejected(self):
         man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
                "migrations": {"1.0.0": {"description": "x", "run": "migrations/x.py", "kind": "sideways"}}}
-        self.assertTrue(list(self._validator().iter_errors(man)))    # kind must be data|config
+        self.assertTrue(list(self._validator().iter_errors(man)))    # kind must name a supported protocol
+
+    def test_tracked_content_requires_a_nonempty_safe_scope(self):
+        good = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+                "migrations": {"1.0.0": {"description": "retire records", "run": "migrations/x.py",
+                                             "kind": "tracked-content", "scope": [".engine/legacy"]}}}
+        self.assertEqual(list(self._validator().iter_errors(good)), [])
+        for scope in (None, [], ["../outside"], [".git/refs"], ["/absolute"]):
+            bad = json.loads(json.dumps(good))
+            if scope is None:
+                del bad["migrations"]["1.0.0"]["scope"]
+            else:
+                bad["migrations"]["1.0.0"]["scope"] = scope
+            with self.subTest(scope=scope):
+                self.assertTrue(list(self._validator().iter_errors(bad)))
+
+    def test_legacy_migration_kinds_reject_scope_instead_of_ignoring_it(self):
+        for kind in ("data", "config"):
+            man = {"id": "a", "version": "1.0.0", "status": "optional", "provides": {},
+                   "migrations": {"1.0.0": {"description": "reshape", "run": "migrations/x.py",
+                                                "kind": kind, "scope": [".engine/legacy"]}}}
+            with self.subTest(kind=kind):
+                self.assertTrue(list(self._validator().iter_errors(man)))
 
     def test_present_manifests_carry_no_migrations_field_so_stay_valid(self):
         # the tightening is zero-breakage today: neither shipped manifest declares migrations
@@ -1294,6 +1632,79 @@ class TestUpgradeEndToEnd(unittest.TestCase):
         self.assertFalse(opened)
         self.assertTrue(any(f.get("severity") == "hard" for f in result["findings"]))
         self.assertIn("NOT opened for review", result["reason"])
+
+    def test_tracked_content_upgrade_preview_apply_and_public_rollback_round_trip(self):
+        target = "legacy-record.md"
+        with tempfile.TemporaryDirectory() as d:
+            live = os.path.join(d, "live")
+            os.makedirs(live)
+            release = module_manager._build_upgrade_release(os.path.join(d, "release"))
+            manifest_path = os.path.join(release, ".engine", "modules", "base", "manifest.json")
+            manifest = validate.load_json(manifest_path)
+            manifest["migrations"] = {
+                "0.2.0": {"description": "Remove one obsolete tracked fixture record.",
+                          "run": "migrations/tracked_020.py", "kind": "tracked-content",
+                          "scope": [target]}}
+            module_manager._write_json(manifest_path, manifest)
+            migration = (
+                "import os, subprocess\n"
+                "def ident(root, rel):\n"
+                "    path=os.path.join(root,*rel.split('/'))\n"
+                "    if not os.path.exists(path): return 'absent'\n"
+                "    with open(path,'rb') as fh: data=fh.read()\n"
+                "    return 'git-blob:' + subprocess.run(['git','-C',root,'hash-object','--stdin'], input=data, "
+                "capture_output=True).stdout.decode().strip()\n"
+                "def preflight(context):\n"
+                f"    p={target!r}\n"
+                "    return {'status':'ready','targets':[{'path':p,'operation':'delete',"
+                "'before_identity':ident(context['root'],p),'recovery_scope':[p]}]}\n"
+                "def apply(context, plan):\n"
+                "    t=plan['targets'][0]\n"
+                "    os.unlink(os.path.join(context['root'],*t['path'].split('/')))\n"
+                "    return {'status':'applied','changes':[{'path':t['path'],'operation':'delete',"
+                "'before_identity':t['before_identity'],'after_identity':'absent','changed_paths':[t['path']]}]}\n")
+            with open(os.path.join(release, ".engine", "modules", "base", "migrations", "tracked_020.py"),
+                      "w", encoding="utf-8") as fh:
+                fh.write(migration)
+            with module_manager._redirect_root(live):
+                module_manager._build_upgrade_fixture(live)
+                with open(os.path.join(live, target), "w", encoding="utf-8") as fh:
+                    fh.write("retire me on upgrade\n")
+                subprocess.run(["git", "-C", live, "init", "-b", "main"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", live, "config", "user.email", "tests@example.invalid"], check=True)
+                subprocess.run(["git", "-C", live, "config", "user.name", "Engine tests"], check=True)
+                subprocess.run(["git", "-C", live, "add", "-A"], check=True)
+                subprocess.run(["git", "-C", live, "commit", "-m", "deployment"],
+                               check=True, capture_output=True)
+                original = subprocess.run(["git", "-C", live, "rev-parse", "HEAD"], check=True,
+                                          capture_output=True, text=True).stdout.strip()
+                preview = module_manager.plan_upgrade(
+                    "v0.2.0", release_tree=release, target_ref="v0.2.0")
+                self.assertEqual([t["path"] for t in preview["tracked_targets"]], [target])
+                result = module_manager.upgrade(
+                    ref="v0.2.0", release_tree=release,
+                    backup=lambda *args, **kwargs: {"ok": True})  # forces the full injected in-process path
+                self.assertTrue(result["applied"], result.get("reason"))
+                self.assertIsNone(result.get("reason"), result.get("reason"))
+                self.assertEqual(result["migrations"]["receipts"][0]["path"], target)
+                self.assertFalse(os.path.exists(os.path.join(live, target)))
+                transaction = module_manager.checkout_health.inspect_upgrade_transaction(live)
+                self.assertEqual(transaction["state"], "active")
+                self.assertFalse(any("__pycache__" in p for p in transaction["record"]["footprint"]),
+                                 transaction["record"]["footprint"])
+                undone = module_manager.rollback(confirm=True, resync=lambda: True, transport=None)
+                self.assertTrue(undone["undone"], undone)
+                self.assertEqual(undone["state"], "transaction")
+                self.assertEqual(undone["transaction_state"], "restored")
+                self.assertEqual(subprocess.run(["git", "-C", live, "branch", "--show-current"], check=True,
+                                                capture_output=True, text=True).stdout.strip(), "main")
+                self.assertEqual(subprocess.run(["git", "-C", live, "rev-parse", "HEAD"], check=True,
+                                                capture_output=True, text=True).stdout.strip(), original)
+                self.assertEqual(subprocess.run(["git", "-C", live, "status", "--porcelain",
+                                                 "--untracked-files=all"], check=True,
+                                                capture_output=True, text=True).stdout.strip(), "")
+                with open(os.path.join(live, target), encoding="utf-8") as fh:
+                    self.assertEqual(fh.read(), "retire me on upgrade\n")
 
 
 class TestUpgradeSafety(unittest.TestCase):
@@ -3571,6 +3982,45 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
             return resp
         out = self._run(ok)
         self.assertEqual(out["number"], 7)
+
+    def test_transaction_callbacks_record_commit_before_pull_request(self):
+        events = []
+        opened = {"number": 7, "html_url": "https://github.com/acme/widget/pull/7"}
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps(opened).encode()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+
+        def git(args, **kwargs):
+            stdout = "a" * 40 + "\n" if args[:3] == ["git", "rev-parse", "HEAD"] else "main\n"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with mock.patch("subprocess.run", side_effect=git), mock.patch("urllib.request.urlopen", return_value=resp):
+            result = module_manager._open_upgrade_pr(
+                branch="engine-update-v1", title="t", body="b", repo="acme/widget", token="secret",
+                on_commit=lambda info: events.append(("commit", info)) or True,
+                on_pr=lambda info: events.append(("pr", info)) or True)
+        self.assertEqual(result, opened)
+        self.assertEqual([kind for kind, _value in events], ["commit", "pr"])
+        self.assertEqual(events[0][1]["commit"], "a" * 40)
+        self.assertEqual(events[1][1]["number"], 7)
+
+    def test_pull_request_receipt_failure_is_loud_after_remote_open(self):
+        opened = {"number": 7, "html_url": "https://github.com/acme/widget/pull/7"}
+        resp = mock.MagicMock()
+        resp.read.return_value = json.dumps(opened).encode()
+        resp.__enter__.return_value = resp
+        resp.__exit__.return_value = False
+
+        def git(args, **kwargs):
+            stdout = "b" * 40 + "\n" if args[:3] == ["git", "rev-parse", "HEAD"] else "main\n"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with mock.patch("subprocess.run", side_effect=git), mock.patch("urllib.request.urlopen", return_value=resp):
+            with self.assertRaisesRegex(RuntimeError, "durable transaction receipt"):
+                module_manager._open_upgrade_pr(
+                    branch="engine-update-v1", title="t", body="b", repo="acme/widget", token="secret",
+                    on_commit=lambda info: True, on_pr=lambda info: False)
 
     def test_a_checkout_collision_never_dead_ends_or_force_deletes(self):
         # #877: `checkout -b` colliding with a leftover branch from an earlier attempt. That branch may hold

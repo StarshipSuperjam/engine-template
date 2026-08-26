@@ -81,8 +81,10 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -104,6 +106,15 @@ _FETCH_TIMEOUT = 6
 # velocity-relative). A window by COUNT, normalised by the date SPAN of those merges — data-relative, never
 # the wall clock, so the bar is deterministic and testable.
 _VELOCITY_SAMPLE = 50
+
+# Upgrade transactions live in Git's per-worktree metadata, not in the checked-out tree. A killed process can
+# therefore be detected by the next invocation even when the working copy is half-overlaid. The ref name is
+# deliberately stable: a ref without its journal, or a journal without its ref, is a loud corrupt transaction
+# rather than an older attempt being silently shadowed by a new one.
+_UPGRADE_TX_JOURNAL = "engine-upgrade-transaction.json"
+_UPGRADE_TX_REF = "refs/engine/upgrade-recovery"
+_UPGRADE_TX_SCHEMA = "engine-upgrade-transaction.v1"
+_GIT_OID_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 30) -> str | None:
@@ -411,6 +422,419 @@ def save_recovery_point(main: str, *, message: str) -> str | None:
             #               this rescue branch; HEAD never moves on to the default branch) — losslessness is
             #               then self-evident, not reliant on git's later checkout-refusal as a backstop
     return name
+
+
+# ---- durable tracked-content upgrade transaction -------------------------------------------------
+
+def _tx_run(root: str, args: list[str], *, env=None, text_input: str | None = None):
+    """Run one bounded Git transaction command without a shell. The caller interprets failure; this helper
+    never guesses or rewrites an error into success."""
+    try:
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True,
+                              input=text_input, env=env, timeout=60, check=False)
+    except Exception:  # noqa: BLE001 — callers surface a typed refusal
+        return None
+
+
+def _tx_git_path(root: str) -> str | None:
+    proc = _tx_run(root, ["rev-parse", "--git-path", _UPGRADE_TX_JOURNAL])
+    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    path = proc.stdout.strip()
+    return path if os.path.isabs(path) else os.path.normpath(os.path.join(root, path))
+
+
+def _tx_ref_oid(root: str) -> str | None:
+    proc = _tx_run(root, ["rev-parse", "--verify", "--quiet", _UPGRADE_TX_REF])
+    return proc.stdout.strip() if proc is not None and proc.returncode == 0 and proc.stdout.strip() else None
+
+
+def _tx_safe_path(value) -> str | None:
+    """Normalize one repository-relative FILE path. Git metadata and directory-wide targets are forbidden:
+    a declarative migration must seal the exact files it can touch, never a recursive ambient root."""
+    if not isinstance(value, str) or not value.strip() or "\0" in value or os.path.isabs(value):
+        return None
+    raw = value.replace("\\", "/")
+    norm = os.path.normpath(raw).replace(os.sep, "/")
+    if norm in ("", ".", "..") or norm.startswith("../") or norm == ".git" or norm.startswith(".git/"):
+        return None
+    return norm
+
+
+def _tx_blob_identity(root: str, rel: str) -> str | None:
+    """Identity of the working-tree bytes using Git's own blob hash, or ``absent``. A symlink hashes its
+    link text, matching Git's tracked representation rather than following it outside the repository."""
+    path = os.path.join(root, *rel.split("/"))
+    if not os.path.lexists(path):
+        return "absent"
+    try:
+        if os.path.islink(path):
+            data = os.fsencode(os.readlink(path))
+        else:
+            with open(path, "rb") as fh:
+                data = fh.read()
+    except OSError:
+        return None
+    proc = subprocess.run(["git", "-C", root, "hash-object", "--stdin"], input=data, capture_output=True,
+                          timeout=30, check=False)
+    if proc.returncode != 0:
+        return None
+    return "git-blob:" + proc.stdout.decode("ascii", errors="replace").strip()
+
+
+def _tx_dirty_paths(root: str) -> set[str] | None:
+    """All changed paths without porcelain rename parsing: staged, unstaged, then untracked. None means the
+    guard could not prove the set and the transaction must refuse."""
+    paths: set[str] = set()
+    for args in (["diff", "--name-only", "-z"], ["diff", "--cached", "--name-only", "-z"],
+                 ["ls-files", "--others", "--exclude-standard", "-z"]):
+        proc = _tx_run(root, list(args))
+        if proc is None or proc.returncode != 0:
+            return None
+        paths.update(p for p in proc.stdout.split("\0") if p)
+    return paths
+
+
+def _tx_fsync_dir(path: str) -> bool:
+    try:
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return True
+    except OSError:
+        return False
+
+
+def _tx_write_journal(path: str, record: dict) -> bool:
+    """Atomic replace plus file and directory fsync. A JSON file that merely reached Python's buffers is not
+    a restart receipt."""
+    parent = os.path.dirname(path)
+    try:
+        os.makedirs(parent, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".engine-upgrade-transaction-", dir=parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(record, fh, indent=2, sort_keys=True)
+                fh.write("\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+            return _tx_fsync_dir(parent)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    except (OSError, TypeError, ValueError):
+        return False
+
+
+def inspect_upgrade_transaction(root: str) -> dict:
+    """Read and validate the restart receipt. A one-sided or malformed journal/ref pair is ``corrupt`` with
+    manual recovery evidence; it is never treated as no transaction."""
+    journal_path = _tx_git_path(root)
+    if not journal_path:
+        return {"state": "corrupt", "code": "git-path-unavailable",
+                "reason": "Git could not resolve the upgrade transaction journal path."}
+    journal_exists = os.path.isfile(journal_path)
+    ref_oid = _tx_ref_oid(root)
+    if not journal_exists and not ref_oid:
+        return {"state": "none", "journal_path": journal_path, "recovery_ref": _UPGRADE_TX_REF}
+    evidence = {"journal_path": journal_path, "recovery_ref": _UPGRADE_TX_REF,
+                "recovery_commit": ref_oid}
+    if not journal_exists or not ref_oid:
+        return {"state": "corrupt", "code": "transaction-pair-incomplete", **evidence,
+                "reason": "The upgrade recovery journal and Git ref are not both present."}
+    try:
+        with open(journal_path, encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (OSError, ValueError) as exc:
+        return {"state": "corrupt", "code": "journal-unreadable", **evidence,
+                "reason": f"The upgrade recovery journal is unreadable: {exc}"}
+    required = {"schema_version", "phase", "original_head", "original_branch", "sealed_targets",
+                "footprint", "before", "recovery_ref", "recovery_commit"}
+    if not isinstance(record, dict) or record.get("schema_version") != _UPGRADE_TX_SCHEMA \
+            or not required.issubset(record):
+        return {"state": "corrupt", "code": "journal-malformed", **evidence,
+                "reason": "The upgrade recovery journal is missing required typed fields."}
+    if record.get("recovery_ref") != _UPGRADE_TX_REF or record.get("recovery_commit") != ref_oid:
+        return {"state": "corrupt", "code": "recovery-ref-mismatch", **evidence,
+                "reason": "The upgrade recovery journal does not name the recovery ref's commit."}
+    footprint = record.get("footprint")
+    before = record.get("before")
+    phases = {"prepared", "mutating", "mutated", "committed", "pr-opened", "rolling-back"}
+    branch_check = (_tx_run(root, ["check-ref-format", "--branch", record.get("original_branch")])
+                    if isinstance(record.get("original_branch"), str) else None)
+    if record.get("phase") not in phases or branch_check is None or branch_check.returncode != 0 \
+            or not isinstance(record.get("original_head"), str) \
+            or not _GIT_OID_RE.fullmatch(record["original_head"]):
+        return {"state": "corrupt", "code": "journal-state-malformed", **evidence,
+                "reason": "The upgrade recovery journal's phase or original Git position is malformed."}
+    if not isinstance(footprint, list) or not isinstance(before, dict) or len(set(footprint)) != len(footprint) \
+            or any(_tx_safe_path(p) != p for p in footprint) or set(before) != set(footprint):
+        return {"state": "corrupt", "code": "footprint-malformed", **evidence,
+                "reason": "The upgrade recovery journal's dynamic footprint is malformed."}
+    if any(v != "absent" and (not isinstance(v, str) or not _GIT_OID_RE.fullmatch(v.removeprefix("git-blob:"))
+                              or not v.startswith("git-blob:"))
+           for v in before.values()):
+        return {"state": "corrupt", "code": "before-identity-malformed", **evidence,
+                "reason": "The upgrade recovery journal contains a malformed before identity."}
+    targets = record.get("sealed_targets")
+    if not isinstance(targets, list) or any(
+            not isinstance(t, dict) or set(t) != {"path", "operation", "before_identity", "recovery_scope"}
+            or t.get("path") not in before or t.get("operation") not in {"create", "replace", "delete"}
+            or t.get("before_identity") != before.get(t.get("path")) or not isinstance(t.get("recovery_scope"), list)
+            or t.get("path") not in t.get("recovery_scope")
+            or any(p not in before for p in t.get("recovery_scope")) for t in targets):
+        return {"state": "corrupt", "code": "sealed-targets-malformed", **evidence,
+                "reason": "The upgrade recovery journal's sealed target set is malformed."}
+    parent = _tx_run(root, ["rev-parse", f"{ref_oid}^"])
+    recovery_tree = _tx_run(root, ["rev-parse", f"{ref_oid}^{{tree}}"])
+    original_tree = _tx_run(root, ["rev-parse", f"{record['original_head']}^{{tree}}"])
+    if any(p is None or p.returncode != 0 for p in (parent, recovery_tree, original_tree)) \
+            or parent.stdout.strip() != record["original_head"] \
+            or recovery_tree.stdout.strip() != original_tree.stdout.strip():
+        return {"state": "corrupt", "code": "recovery-commit-malformed", **evidence,
+                "reason": "The recovery ref is not an exact child snapshot of the recorded original commit."}
+    return {"state": "active", "journal_path": journal_path, "recovery_ref": _UPGRADE_TX_REF,
+            "record": record}
+
+
+def begin_upgrade_transaction(root: str, *, sealed_targets: list[dict], footprint: list[str]) -> dict:
+    """Seal a lossless pre-update recovery point before any upgrade mutation. Uses a TEMPORARY index to
+    write a commit without touching the operator's index, anchors it at a dedicated ref, then durably writes
+    the Git-path journal. Dirty work anywhere refuses: inside the footprint would invalidate the recorded
+    before identities; outside it would later be swept into the upgrade opener's ``git add -A``."""
+    prior = inspect_upgrade_transaction(root)
+    if prior.get("state") != "none":
+        return {"ok": False, "code": "transaction-already-present",
+                "reason": "An earlier engine update transaction still needs recovery.", "transaction": prior}
+    normalized = [_tx_safe_path(p) for p in footprint]
+    if any(p is None for p in normalized) or len(set(normalized)) != len(normalized):
+        return {"ok": False, "code": "footprint-invalid",
+                "reason": "The upgrade's dynamic rollback footprint is not a unique list of exact repository files."}
+    footprint = sorted(normalized)
+    dirty = _tx_dirty_paths(root)
+    if dirty is None:
+        return {"ok": False, "code": "worktree-unreadable",
+                "reason": "Git could not prove which working-tree paths are changed."}
+    if dirty:
+        foreign = sorted(dirty - set(footprint))
+        touched = sorted(dirty & set(footprint))
+        return {"ok": False, "code": "foreign-work" if foreign else "target-dirty",
+                "paths": (foreign or touched)[:20],
+                "reason": ("The repository has changes outside this update's sealed footprint."
+                           if foreign else "A file this update would touch already has uncommitted changes.")}
+    head_p = _tx_run(root, ["rev-parse", "HEAD"])
+    branch_p = _tx_run(root, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    if head_p is None or head_p.returncode != 0 or branch_p is None or branch_p.returncode != 0:
+        return {"ok": False, "code": "head-unresolved",
+                "reason": "Git could not resolve the current commit and branch without guessing."}
+    original_head, original_branch = head_p.stdout.strip(), branch_p.stdout.strip()
+    before = {p: _tx_blob_identity(root, p) for p in footprint}
+    if any(v is None for v in before.values()):
+        return {"ok": False, "code": "before-identity-unreadable",
+                "reason": "At least one file in the rollback footprint could not be identified."}
+    sealed_paths = set()
+    for target in sealed_targets:
+        if not isinstance(target, dict) or set(target) != {
+                "path", "operation", "before_identity", "recovery_scope"}:
+            return {"ok": False, "code": "sealed-target-malformed",
+                    "reason": "A tracked-content target is not a typed record."}
+        rel = _tx_safe_path(target.get("path"))
+        rec = target.get("recovery_scope")
+        if not rel or rel not in before or target.get("before_identity") != before[rel] \
+                or target.get("operation") not in {"create", "replace", "delete"} \
+                or not isinstance(rec, list) or rel not in rec or any(p not in before for p in rec):
+            return {"ok": False, "code": "sealed-target-drift", "path": target.get("path"),
+                    "reason": "A tracked-content target no longer matches its preflight identity."}
+        if (target["operation"] == "create") != (before[rel] == "absent"):
+            return {"ok": False, "code": "sealed-operation-mismatch", "path": rel,
+                    "reason": "The sealed create/replace/delete operation does not match the target's presence."}
+        if rel in sealed_paths:
+            return {"ok": False, "code": "sealed-target-duplicate", "path": rel,
+                    "reason": "Two tracked-content declarations target the same path."}
+        sealed_paths.add(rel)
+    journal_path = _tx_git_path(root)
+    if not journal_path:
+        return {"ok": False, "code": "git-path-unavailable",
+                "reason": "Git could not resolve its transaction journal path."}
+    with tempfile.TemporaryDirectory(prefix="engine-upgrade-index-") as work:
+        index_path = os.path.join(work, "index")
+        env = {**os.environ, "GIT_INDEX_FILE": index_path}
+        read = _tx_run(root, ["read-tree", original_head], env=env)
+        tree = _tx_run(root, ["write-tree"], env=env) if read is not None and read.returncode == 0 else None
+        if tree is None or tree.returncode != 0:
+            return {"ok": False, "code": "recovery-index-failed",
+                    "reason": "Git could not write the temporary-index recovery tree."}
+        commit = _tx_run(root, ["-c", "user.email=engine@local", "-c", "user.name=engine",
+                                "commit-tree", tree.stdout.strip(), "-p", original_head,
+                                "-m", "engine: pre-upgrade recovery transaction"])
+    if commit is None or commit.returncode != 0 or not commit.stdout.strip():
+        return {"ok": False, "code": "recovery-commit-failed",
+                "reason": "Git could not create the pre-upgrade recovery commit."}
+    recovery_commit = commit.stdout.strip()
+    update = _tx_run(root, ["update-ref", _UPGRADE_TX_REF, recovery_commit])
+    if update is None or update.returncode != 0:
+        return {"ok": False, "code": "recovery-ref-failed",
+                "reason": "Git could not anchor the pre-upgrade recovery commit."}
+    record = {"schema_version": _UPGRADE_TX_SCHEMA, "phase": "prepared",
+              "original_head": original_head, "original_branch": original_branch,
+              "sealed_targets": sealed_targets, "footprint": footprint, "before": before,
+              "recovery_ref": _UPGRADE_TX_REF, "recovery_commit": recovery_commit,
+              "receipts": [], "pull_request": None}
+    if not _tx_write_journal(journal_path, record):
+        return {"ok": False, "code": "journal-write-failed", "recovery_ref": _UPGRADE_TX_REF,
+                "recovery_commit": recovery_commit, "journal_path": journal_path,
+                "reason": "The recovery ref exists, but its durable transaction journal could not be written."}
+    return {"ok": True, "journal_path": journal_path, "recovery_ref": _UPGRADE_TX_REF,
+            "recovery_commit": recovery_commit, "footprint": footprint}
+
+
+def update_upgrade_transaction(root: str, phase: str, *, receipts=None, pull_request=None) -> dict:
+    """Durably advance the journal. The closed phase vocabulary makes a corrupted or invented state loud."""
+    if phase not in {"prepared", "mutating", "mutated", "committed", "pr-opened", "rolling-back"}:
+        return {"ok": False, "code": "phase-invalid", "reason": f"Unknown transaction phase {phase!r}."}
+    current = inspect_upgrade_transaction(root)
+    if current.get("state") != "active":
+        return {"ok": False, "code": "transaction-unavailable", "transaction": current,
+                "reason": "The upgrade transaction cannot be advanced safely."}
+    record = dict(current["record"])
+    allowed = {"prepared": {"mutating", "rolling-back"},
+               "mutating": {"mutated", "rolling-back"},
+               "mutated": {"committed", "rolling-back"},
+               "committed": {"pr-opened", "rolling-back"},
+               "pr-opened": {"rolling-back"},
+               "rolling-back": {"rolling-back"}}
+    if phase != record.get("phase") and phase not in allowed.get(record.get("phase"), set()):
+        return {"ok": False, "code": "phase-transition-invalid",
+                "reason": f"The transaction cannot move from {record.get('phase')!r} to {phase!r}."}
+    if phase == "committed" and (not isinstance(pull_request, dict)
+                                  or not pull_request.get("branch") or not pull_request.get("commit")):
+        return {"ok": False, "code": "commit-receipt-invalid",
+                "reason": "The committed phase requires the exact upgrade branch and commit."}
+    if phase == "pr-opened" and (not isinstance(pull_request, dict)
+                                  or not any(pull_request.get(k) for k in ("number", "url", "html_url"))):
+        return {"ok": False, "code": "pull-request-receipt-invalid",
+                "reason": "The pull-request phase requires a durable pull-request identifier."}
+    record["phase"] = phase
+    if receipts is not None:
+        record["receipts"] = receipts
+    if pull_request is not None:
+        record["pull_request"] = pull_request
+    if not _tx_write_journal(current["journal_path"], record):
+        return {"ok": False, "code": "journal-write-failed",
+                "reason": "The upgrade transaction phase could not be made durable."}
+    return {"ok": True, "phase": phase}
+
+
+def finish_upgrade_transaction(root: str) -> dict:
+    """Clear the pair only after the caller has made a durable PR state, or after verified rollback. Ref first,
+    journal second: a kill between them leaves a loud one-sided pair, never a false clean state."""
+    current = inspect_upgrade_transaction(root)
+    if current.get("state") == "none":
+        return {"ok": True, "state": "none"}
+    if current.get("state") != "active":
+        return {"ok": False, "code": "transaction-corrupt", "transaction": current}
+    phase = current["record"].get("phase")
+    if phase not in {"pr-opened", "rolling-back"} \
+            or (phase == "pr-opened" and not current["record"].get("pull_request")):
+        return {"ok": False, "code": "transaction-not-terminal",
+                "reason": "The transaction is not durably opened for review or verified as rolled back."}
+    delete = _tx_run(root, ["update-ref", "-d", _UPGRADE_TX_REF, current["record"]["recovery_commit"]])
+    if delete is None or delete.returncode != 0:
+        return {"ok": False, "code": "recovery-ref-delete-failed"}
+    try:
+        os.unlink(current["journal_path"])
+        if not _tx_fsync_dir(os.path.dirname(current["journal_path"])):
+            return {"ok": False, "code": "journal-directory-fsync-failed"}
+    except OSError:
+        return {"ok": False, "code": "journal-delete-failed"}
+    return {"ok": True, "state": "cleared"}
+
+
+def recover_upgrade_transaction(root: str) -> dict:
+    """Restart path. A completed PR receipt is finalized; every earlier phase restores the exact dynamic
+    footprint from the recovery commit, returns to the original branch, verifies byte identities, then clears
+    the journal/ref. New foreign work stops recovery with manual evidence instead of being overwritten."""
+    current = inspect_upgrade_transaction(root)
+    if current.get("state") == "none":
+        return {"ok": True, "state": "none"}
+    if current.get("state") != "active":
+        return {"ok": False, "state": "manual", "code": current.get("code"),
+                "reason": current.get("reason"), "journal_path": current.get("journal_path"),
+                "recovery_ref": current.get("recovery_ref"),
+                "recovery_commit": current.get("recovery_commit")}
+    record = current["record"]
+    if record.get("phase") == "pr-opened" and record.get("pull_request"):
+        cleared = finish_upgrade_transaction(root)
+        return {**cleared, "ok": bool(cleared.get("ok")), "state": "finalized"}
+    dirty = _tx_dirty_paths(root)
+    if dirty is None:
+        return {"ok": False, "state": "manual", "code": "worktree-unreadable",
+                "reason": "Git could not prove which files changed during recovery.",
+                "journal_path": current["journal_path"], "recovery_ref": _UPGRADE_TX_REF}
+    foreign = sorted(dirty - set(record["footprint"]))
+    if foreign:
+        return {"ok": False, "state": "manual", "code": "foreign-work", "paths": foreign[:20],
+                "reason": "New work exists outside the sealed rollback footprint.",
+                "journal_path": current["journal_path"], "recovery_ref": _UPGRADE_TX_REF}
+    advanced = update_upgrade_transaction(root, "rolling-back")
+    if not advanced.get("ok"):
+        return {"ok": False, "state": "manual", **advanced}
+    commit = record["recovery_commit"]
+    for rel in record["footprint"]:
+        exists = _tx_run(root, ["cat-file", "-e", f"{commit}:{rel}"])
+        if exists is not None and exists.returncode == 0:
+            restore = _tx_run(root, ["restore", "--source", commit, "--staged", "--worktree", "--", rel])
+            if restore is None or restore.returncode != 0:
+                return {"ok": False, "state": "manual", "code": "path-restore-failed", "path": rel,
+                        "reason": "Git could not restore one file from the recovery commit.",
+                        "journal_path": current["journal_path"], "recovery_ref": _UPGRADE_TX_REF}
+        else:
+            path = os.path.join(root, *rel.split("/"))
+            try:
+                if os.path.islink(path) or os.path.isfile(path):
+                    os.unlink(path)
+                elif os.path.isdir(path):
+                    return {"ok": False, "state": "manual", "code": "unexpected-directory", "path": rel,
+                            "reason": "A rollback file path became a directory; it was left untouched."}
+            except OSError:
+                return {"ok": False, "state": "manual", "code": "path-remove-failed", "path": rel}
+            staged = _tx_run(root, ["add", "-A", "--", rel])
+            if staged is None or staged.returncode != 0:
+                # A footprint deliberately includes release candidates that may be absent both before and
+                # after. Git reports pathspec failure for such a never-indexed absent path; that is already the
+                # exact desired state, not a failed restore. A path still present in the index must not receive
+                # this exemption.
+                indexed = _tx_run(root, ["ls-files", "--error-unmatch", "--", rel])
+                if indexed is None or indexed.returncode == 0:
+                    return {"ok": False, "state": "manual", "code": "path-stage-failed", "path": rel}
+    for rel, expected in record["before"].items():
+        if _tx_blob_identity(root, rel) != expected:
+            return {"ok": False, "state": "manual", "code": "rollback-identity-mismatch", "path": rel,
+                    "reason": "A restored path does not match its sealed pre-update identity."}
+    branch_ref = _tx_run(root, ["rev-parse", "--verify", f"refs/heads/{record['original_branch']}"])
+    if branch_ref is None or branch_ref.returncode != 0 or branch_ref.stdout.strip() != record["original_head"]:
+        return {"ok": False, "state": "manual", "code": "original-branch-moved",
+                "reason": "The original branch no longer points at the sealed pre-update commit.",
+                "journal_path": current["journal_path"], "recovery_ref": _UPGRADE_TX_REF,
+                "recovery_commit": commit}
+    current_branch = _tx_run(root, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    if current_branch is None or current_branch.returncode != 0:
+        return {"ok": False, "state": "manual", "code": "current-branch-unresolved"}
+    if current_branch.stdout.strip() != record["original_branch"]:
+        switch = _tx_run(root, ["checkout", record["original_branch"]])
+        if switch is None or switch.returncode != 0:
+            return {"ok": False, "state": "manual", "code": "original-branch-restore-failed",
+                    "reason": "The files were restored, but Git could not return to the original branch.",
+                    "journal_path": current["journal_path"], "recovery_ref": _UPGRADE_TX_REF}
+    for rel, expected in record["before"].items():
+        if _tx_blob_identity(root, rel) != expected:
+            return {"ok": False, "state": "manual", "code": "post-switch-identity-mismatch", "path": rel}
+    cleared = finish_upgrade_transaction(root)
+    return {**cleared, "ok": bool(cleared.get("ok")), "state": "restored",
+            "branch": record["original_branch"], "recovery_commit": commit}
 
 
 def _make_rescue(main: str) -> str | None:

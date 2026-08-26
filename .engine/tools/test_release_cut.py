@@ -519,10 +519,10 @@ class MigrationAccumulation(unittest.TestCase):
     # the candidate would be SILENTLY SKIPPED on a multi-version upgrade. classify() flags it; the cut is refused.
     _MIG = {"0.2.0": {"description": "d", "run": "r", "kind": "config"}}
 
-    def _classify(self, live, baseline):
+    def _classify(self, live, baseline, *, floor=None):
         base = _baseline_tree(baseline)
         try:
-            with _Tree(live):
+            with _Tree(live, min_upgradeable_from=floor):
                 return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
         finally:
             shutil.rmtree(base, ignore_errors=True)
@@ -543,6 +543,19 @@ class MigrationAccumulation(unittest.TestCase):
         live = {"core": _module("core", migrations={"0.4.0": {"description": "d", "run": "r", "kind": "config"}})}
         base = {"core": _module("core", migrations={"0.4": {"description": "d", "run": "r", "kind": "config"}})}
         self.assertEqual(self._classify(live, base)["migration_violations"], [])
+
+    def test_migration_key_may_retire_once_the_supported_floor_reaches_it(self):
+        baseline = {"core": _module("core", migrations=self._MIG)}
+        for floor in ("0.2.0", "0.3.0"):
+            with self.subTest(floor=floor):
+                self.assertEqual(self._classify({"core": _module("core")}, baseline, floor=floor)
+                                 ["migration_violations"], [])
+
+    def test_migration_key_cannot_retire_below_its_version(self):
+        p = self._classify({"core": _module("core")},
+                           {"core": _module("core", migrations=self._MIG)}, floor="0.1.9")
+        self.assertEqual(len(p["migration_violations"]), 1)
+        self.assertIn("0.2.0", p["migration_violations"][0])
 
     def test_whole_removed_module_is_not_a_dropped_migration(self):
         # a removed CAPABILITY is inventoried as removed (major bump); its migrations are a KNOWN BOUND for
@@ -1372,7 +1385,7 @@ class RenderPRBody(unittest.TestCase):
                       risk)
 
     def test_scope_pr_list_leads_and_migration_surfaces_beside_it(self):
-        proposal = {"change_inventory": ["'memory-store' gained a data/config migration (0.2.0)."],
+        proposal = {"change_inventory": ["'memory-store' gained an upgrade migration (0.2.0)."],
                     "impacts": [], "engine_floor_level": "minor", "engine_floor_version": "0.2.0",
                     "merged_prs": ["Refactor storage (#41)", "Tidy CLI (#42)"]}
         applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {"memory-store": "0.2.0"}}
@@ -1380,7 +1393,7 @@ class RenderPRBody(unittest.TestCase):
         self.assertIn("What changed since the last release (2 pull requests):", scope)
         self.assertIn("- Refactor storage (#41)", scope)
         self.assertIn("Capability and data changes:", scope)
-        self.assertIn("gained a data/config migration", scope)          # the migration is not lost
+        self.assertIn("gained an upgrade migration", scope)             # the migration is not lost
 
     def test_scope_long_pr_list_is_foldable_but_open_by_default(self):
         proposal = {"change_inventory": [], "impacts": [], "engine_floor_level": "minor",
@@ -1537,12 +1550,12 @@ class ReleaseNotes(unittest.TestCase):
         # the consent-critical case: with a PR list present, a data migration must STILL be named (it has no
         # other callout), not be replaced by flat PR titles.
         proposal = {"engine_floor_level": "minor", "impacts": [],
-                    "change_inventory": ["'memory-store' gained a data/config migration (0.2.0)."],
+                    "change_inventory": ["'memory-store' gained an upgrade migration (0.2.0)."],
                     "merged_prs": ["Refactor storage layout (#41)", "Tidy CLI (#42)"]}
         notes = rc.render_release_notes("v0.2.0", proposal)
         self.assertIn("## What changed since the last release (2 pull requests)", notes)   # the work
         self.assertIn("## Capability and data changes", notes)                             # + the signals
-        self.assertIn("gained a data/config migration", notes)                             # the migration is NAMED
+        self.assertIn("gained an upgrade migration", notes)                                # the migration is NAMED
 
     def test_no_signal_caveat_is_not_shown_beside_the_pr_list(self):
         # when nothing structural fired, the "No module added…" caveat is not a per-item signal — don't show it

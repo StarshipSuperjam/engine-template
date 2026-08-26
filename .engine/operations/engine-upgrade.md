@@ -22,7 +22,8 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    nothing**: it tells you the version you're on, whether a newer one is available, whether a previous update
    looks unfinished, and — when an update is available — **what that update would change**: the engine files
    it replaces or adds, the settings it turns on or off or updates, any stored-data change (and whether a
-   backup is set up for it), and **any capability the update retires** — something you could ask the engine for
+   backup is set up for it), any exact tracked Engine content a declared migration will create, replace, or
+   remove, and **any capability the update retires** — something you could ask the engine for
    before and no longer can, named in plain language, whether the update retired it *inside* a module it keeps
    or by dropping a *whole* module (a whole-module drop is retired cleanly on update, its files removed, not a
    refusal); and — the mirror of a removal — **any new capability the release brings in that you don't have
@@ -35,7 +36,8 @@ changing nothing, whenever it cannot proceed — so it is safe to try.
    settings and saved data untouched**, turns shared-file settings on or off to match the new version,
    **installs the new modules the release adds that you need** — a required capability automatically, a net-new
    default add-on turned on unless you decline it — while **offering** the optional ones for you to add later,
-   rebuilds the engine's tools, reshapes any saved data the new version needs in a new form, re-checks that
+   rebuilds the engine's tools, reshapes any saved data the new version needs in a new form, applies any
+   tracked-content migration only from its sealed preflight target set, re-checks that
    everything fits together, and opens the change as a pull request. (If the release adds a *required* module the
    update cannot install, it **refuses cleanly and opens nothing** — an engine is never shipped missing a
    capability it requires.) Applying **takes the `--confirm`** — bare
@@ -77,9 +79,22 @@ spoken in conversation. If you simply mention wanting to update, the engine **po
 
 **What the check covers.** The check answers four things before you commit to an update: whether an update is
 **available** and to which version; the **impact** it would have (the files, settings, stored-data changes, and
-retired capabilities above); the **progress** of applying it, which the apply step reports as it goes — what it applied, the data
+exact tracked-content changes and retired capabilities above); the **progress** of applying it, which the apply
+step reports as it goes — what it applied, the data
 it migrated, and the pull request it opened; and the **validation** — the engine's own consistency check runs
 at the end, and, with the pull request's own checks, is visible on the pull request you review.
+
+**Tracked Engine content changes use a sealed transaction.** A module may declare a generic
+`tracked-content` migration within a bounded repository-relative scope. Its read-only preflight must return
+either exact targets (path, create/replace/delete operation, before identity, and recovery scope) or a typed
+refusal (stable code, path, reason, and remediation). Before the first such mutation, the updater records the
+exact dynamic rollback footprint and original branch/commit in a temporary-index Git recovery commit, anchors
+that commit at `refs/engine/upgrade-recovery`, and atomically fsyncs a journal in Git's per-worktree metadata.
+Apply receives only the sealed plan and must return exact before/after receipts; the preview, pull request, and
+undo surfaces render those same records rather than calling tracked-file deletion a settings change. A
+malformed, missing, duplicated, out-of-scope, drifted, or discarded declaration refuses without opening a pull
+request. The journal and ref are cleared only after the upgrade commit and pull request are durably recorded,
+or after rollback verifies the original bytes.
 
 **Saved data is backed up before it is changed — or the update stops.** Most updates only replace the
 engine's code, which a reverted pull request restores on its own. When an update also needs to change saved
@@ -125,6 +140,13 @@ but **nothing was opened for review or merged** — safe either way. `/engine-up
 
 Bare `upgrade` reports a half-finished tree as *unfinished*, not "up to date", and bare `rollback` shows the
 same choice — so you can always tell where you stand.
+
+When the stopped update has a tracked-content transaction, the next upgrade or rollback invocation checks the
+Git-path journal/ref pair before doing anything new. A complete pre-PR transaction is restored to the original
+branch and byte identities automatically; a transaction with a durable pull-request receipt is finalized. A
+missing, mismatched, or unreadable journal/ref pair is never guessed away: the engine stops and names the
+journal, recovery ref, and commit available for manual recovery. New work outside the sealed footprint also
+stops automatic rollback so unrelated operator changes are never overwritten.
 
 **Too old to update cleanly.** Before it changes anything (and in the preview), an update checks whether your engine
 is below the release's **clean-upgrade floor** — the oldest version proven to update to it in one clean pass. Below

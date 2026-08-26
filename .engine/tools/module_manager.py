@@ -16,7 +16,9 @@ wall for the new release's engine paths (the design's upgrade re-render — `_re
 tool-runtime, run the packages' `migrations` in dependency order, run coherence, and land it as a reviewed PR.
 A `data` migration is **backup-first**: it is refused (pre-flight, before any overlay) unless a backup seam
 is available (memory owns the mechanism, live via `memory.snapshot_for_migration`), so the engine never
-changes un-backed-up data. It DEGRADES to the current version on an unreachable release.
+changes un-backed-up data. A `tracked-content` migration is two-phase: preflight seals exact in-scope paths
+and before identities, then apply runs only behind a durable Git recovery ref/journal and returns exact
+receipts. It DEGRADES to the current version on an unreachable release.
 FIXTURE-DEMOED: the real release fetch, the `uv sync` re-sync, the git/PR open, and a real data migration
 are exercised by fixtures, not by a live release in this template repo (which cuts no releases of itself)
 — the named inductive gaps.
@@ -90,6 +92,8 @@ import bootstrap         # noqa: E402  (ControlPlane.de_bootstrap — the clean-
 import engine_write      # noqa: E402  (the engine-owned write boundary — homed once, StarshipSuperjam/engine-template#862/StarshipSuperjam/engine-template#923)
 import derived_state      # noqa: E402  (the derived-committed set + its regeneration — single owner, StarshipSuperjam/engine-template#925)
 import release_source     # noqa: E402  (release fetch + ref/tag resolution boundary — single home, StarshipSuperjam/engine-template#925 Part 5)
+import checkout_health    # noqa: E402  (durable Git-native upgrade transaction; dependency-light, no back-edge)
+import render_safety      # noqa: E402  (receipt/refusal paths cross Markdown and terminal render boundaries)
 
 
 # ---- paths (computed from validate.ROOT at CALL time so a test/demo can redirect ROOT) --------
@@ -646,10 +650,8 @@ def _resolve_backup_seam(backup):
         return None
 
 
-def _load_migration(module_dir: str, run_rel: str):
-    """Load the migration at <module_dir>/<run_rel> and return its migrate(context) callable. Loaded under
-    a UNIQUE synthetic module name (so two modules' migration files never collide in sys.modules) via the
-    importlib spec loader — no sys.path mutation."""
+def _load_migration_module(module_dir: str, run_rel: str):
+    """Load one migration module under a unique synthetic name, with no sys.path mutation."""
     import importlib.util   # local: only the migration path needs it
     path = os.path.join(module_dir, run_rel)
     if not os.path.isfile(path):
@@ -657,11 +659,37 @@ def _load_migration(module_dir: str, run_rel: str):
     uniq = re.sub(r"[^a-z0-9]+", "_", os.path.relpath(path, validate.ROOT).lower())
     spec = importlib.util.spec_from_file_location(f"engine_migration_{uniq}", path)
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    # Migration modules are one-shot upgrade payloads. Importing them must not manufacture an untracked
+    # ``__pycache__`` beside the payload: such a cache is neither a declared target nor part of the release
+    # surface, and could appear after the rollback foreign-work check. Scope the interpreter flag tightly so
+    # ordinary imports keep their ambient policy.
+    prior_bytecode = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(mod)
+    finally:
+        sys.dont_write_bytecode = prior_bytecode
+    return mod
+
+
+def _load_migration(module_dir: str, run_rel: str):
+    """Load the legacy data/config ``migrate(context)`` entrypoint."""
+    mod = _load_migration_module(module_dir, run_rel)
     fn = getattr(mod, "migrate", None)
     if not callable(fn):
         raise RuntimeError(f"migration '{run_rel}' does not define a migrate(context) function")
     return fn
+
+
+def _load_tracked_migration(module_dir: str, run_rel: str) -> tuple:
+    """Load the two-phase tracked-content protocol. Both callables are mandatory; accepting one without the
+    other would make preview and apply read different sources."""
+    mod = _load_migration_module(module_dir, run_rel)
+    preflight, apply = getattr(mod, "preflight", None), getattr(mod, "apply", None)
+    if not callable(preflight) or not callable(apply):
+        raise RuntimeError(
+            f"migration '{run_rel}' must define both preflight(context) and apply(context, sealed_plan)")
+    return preflight, apply
 
 
 # THE single version-key normalizer now lives in `validate` (beside `_ver_tuple`), so the lowest-layer
@@ -695,8 +723,13 @@ def select_migrations(from_versions: dict, target_versions: dict, manifests: lis
         for ver in sorted((m.get("migrations") or {}), key=validate._ver_tuple):
             if frm < _ver_key(ver) <= tgt:
                 e = (m.get("migrations") or {})[ver] or {}
-                out.append({"module_id": mid, "version": ver, "description": e.get("description"),
-                            "run": e.get("run"), "kind": e.get("kind")})
+                item = {"module_id": mid, "version": ver, "description": e.get("description"),
+                        "run": e.get("run"), "kind": e.get("kind")}
+                # Preserve the long-standing data/config result shape. ``scope`` is protocol state, not a
+                # generic optional decoration, so only tracked-content selections carry it forward.
+                if e.get("kind") == "tracked-content":
+                    item["scope"] = list(e.get("scope") or [])
+                out.append(item)
     return out
 
 
@@ -1012,8 +1045,251 @@ def _bind_migration_id(seam, module_id: str, version: str, reversibility_floor: 
     return _seam
 
 
+_TRACKED_OPERATIONS = {"create", "replace", "delete"}
+_REFUSAL_CODE_RE = re.compile(r"^[a-z][a-z0-9-]*$")
+
+
+def _tracked_protocol_path(item: dict) -> str:
+    return f".engine/modules/{item.get('module_id')}/{item.get('run')}"
+
+
+def _render_tracked_path(value) -> str:
+    return render_safety.safe_path(value)
+
+
+def _tracked_refusal(code: str, path: str, reason: str, remediation: str) -> dict:
+    return {"code": code, "path": path, "reason": reason, "remediation": remediation}
+
+
+def _scope_contains(path: str, scopes: list[str]) -> bool:
+    return any(path == s.rstrip("/") or path.startswith(s.rstrip("/") + "/") for s in scopes)
+
+
+def _tracked_context(item: dict, from_versions: dict, engine_version: str) -> dict:
+    return {"root": validate.ROOT, "module_id": item["module_id"],
+            "from_version": from_versions.get(item["module_id"]), "to_version": item["version"],
+            "engine_version": engine_version, "kind": "tracked-content",
+            "scope": list(item.get("scope") or [])}
+
+
+def _validate_refusal(value) -> dict | None:
+    if not isinstance(value, dict) or set(value) != {"code", "path", "reason", "remediation"}:
+        return None
+    path = checkout_health._tx_safe_path(value.get("path"))
+    if path != value.get("path") or not _REFUSAL_CODE_RE.fullmatch(str(value.get("code") or "")) \
+            or not isinstance(value.get("reason"), str) or not value["reason"].strip() \
+            or not isinstance(value.get("remediation"), str) or not value["remediation"].strip():
+        return None
+    return dict(value)
+
+
+def preflight_tracked_content_migrations(selected: list, from_versions: dict, engine_version: str,
+                                         module_dir=None) -> dict:
+    """Seal exact tracked-content targets before mutation. Malformed, duplicate, out-of-scope, untracked,
+    drifted, or discarded results become typed refusals; no partial target set is accepted."""
+    module_dir = module_dir or _modules_dir
+    out = {"plans": {}, "targets": [], "footprint": [], "refusals": []}
+    tracked = module_coherence._tracked_paths()
+    if tracked is None and any(i.get("kind") == "tracked-content" for i in selected):
+        item = next(i for i in selected if i.get("kind") == "tracked-content")
+        out["refusals"].append(_tracked_refusal(
+            "tracked-set-unavailable", _tracked_protocol_path(item),
+            "Git could not prove which repository files are tracked.",
+            "Repair the repository's Git metadata, then run the update again."))
+        return out
+    seen: set[str] = set()
+    recovery: set[str] = set()
+    for item in selected:
+        if item.get("kind") != "tracked-content":
+            continue
+        midver = f"{item['module_id']}@{item['version']}"
+        protocol_path = _tracked_protocol_path(item)
+        raw_scopes = [s.rstrip("/") if isinstance(s, str) else s for s in (item.get("scope") or [])]
+        scopes = [checkout_health._tx_safe_path(s) for s in raw_scopes]
+        if not scopes or any(s is None for s in scopes) or scopes != raw_scopes \
+                or len(set(scopes)) != len(scopes):
+            out["refusals"].append(_tracked_refusal(
+                "scope-malformed", protocol_path, "The tracked-content migration has no safe declared scope.",
+                "Declare one or more exact repository-relative scope prefixes in the module manifest."))
+            continue
+        try:
+            preflight, _apply = _load_tracked_migration(module_dir(item["module_id"]), item["run"])
+            raw = preflight(_tracked_context(item, from_versions, engine_version))
+        except Exception as exc:  # noqa: BLE001 — typed refusal, never a raw traceback
+            out["refusals"].append(_tracked_refusal(
+                "preflight-failed", protocol_path, f"The migration preflight failed: {exc}",
+                "Fix the migration's preflight and run the update again."))
+            continue
+        expected_shape = ({"status", "targets"} if isinstance(raw, dict) and raw.get("status") == "ready"
+                          else {"status", "refusals"})
+        if not isinstance(raw, dict) or raw.get("status") not in {"ready", "refused"} \
+                or set(raw) != expected_shape:
+            out["refusals"].append(_tracked_refusal(
+                "preflight-malformed", protocol_path, "The migration preflight returned an invalid typed result.",
+                "Return exactly status=ready with targets, or status=refused with typed refusals."))
+            continue
+        if raw["status"] == "refused":
+            refs = raw.get("refusals")
+            valid = [_validate_refusal(r) for r in refs] if isinstance(refs, list) else []
+            if not refs or len(valid) != len(refs) or any(v is None for v in valid):
+                out["refusals"].append(_tracked_refusal(
+                    "refusal-malformed", protocol_path, "The migration returned a malformed refusal.",
+                    "Return stable code, offending path, plain reason, and remediation for every refusal."))
+            else:
+                out["refusals"].extend(valid)
+            continue
+        targets = raw.get("targets")
+        if not isinstance(targets, list):
+            out["refusals"].append(_tracked_refusal(
+                "targets-malformed", protocol_path, "The ready preflight did not return a target list.",
+                "Return an explicit target list, which may be empty when there is nothing to change."))
+            continue
+        sealed, local_seen = [], set()
+        item_failed = False
+        for target in targets:
+            if not isinstance(target, dict) or set(target) != {
+                    "path", "operation", "before_identity", "recovery_scope"}:
+                out["refusals"].append(_tracked_refusal(
+                    "target-malformed", protocol_path, "A tracked-content target is missing typed fields.",
+                    "Return path, operation, before_identity, and recovery_scope for every target."))
+                item_failed = True
+                break
+            path = checkout_health._tx_safe_path(target.get("path"))
+            rec = target.get("recovery_scope")
+            rec_norm = [checkout_health._tx_safe_path(p) for p in rec] if isinstance(rec, list) else []
+            actual = checkout_health._tx_blob_identity(validate.ROOT, path) if path else None
+            reason = None
+            if path != target.get("path") or not _scope_contains(path or "", scopes):
+                reason = "The target is outside the manifest's declared tracked-content scope."
+            elif path in seen or path in local_seen:
+                reason = "Two tracked-content migrations target the same path."
+            elif target.get("operation") not in _TRACKED_OPERATIONS:
+                reason = "The target operation is not create, replace, or delete."
+            elif not rec or len(set(rec_norm)) != len(rec_norm) or any(p is None for p in rec_norm) \
+                    or path not in rec_norm or any(not _scope_contains(p, scopes) for p in rec_norm):
+                reason = "The recovery scope must be a unique in-scope list containing the target path."
+            elif actual is None or target.get("before_identity") != actual:
+                reason = "The target's before identity does not match the working tree."
+            elif target.get("operation") in {"replace", "delete"} and (actual == "absent" or path not in tracked):
+                reason = "A replace/delete target must be an existing Git-tracked file."
+            elif target.get("operation") == "create" and actual != "absent":
+                reason = "A create target must be absent at preflight."
+            if reason:
+                out["refusals"].append(_tracked_refusal(
+                    "target-invalid", path or protocol_path, reason,
+                    "Correct the target declaration or repository state, then run the update again."))
+                item_failed = True
+                break
+            sealed.append({"path": path, "operation": target["operation"],
+                           "before_identity": actual, "recovery_scope": sorted(rec_norm)})
+            local_seen.add(path)
+        if item_failed:
+            continue
+        seen.update(local_seen)
+        for target in sealed:
+            recovery.update(target["recovery_scope"])
+        plan = {"schema_version": "tracked-content-plan.v1", "migration_id": midver,
+                "module_id": item["module_id"], "version": item["version"], "run": item["run"],
+                "scope": scopes, "targets": sealed}
+        out["plans"][midver] = plan
+        out["targets"].extend(sealed)
+    out["footprint"] = sorted(recovery)
+    return out
+
+
+def _apply_tracked_content(item: dict, from_versions: dict, engine_version: str, module_dir,
+                           sealed_plan: dict, recovery_ref: str) -> dict:
+    """Apply one sealed plan and bind its typed receipt to actual resulting bytes."""
+    midver = f"{item['module_id']}@{item['version']}"
+    protocol_path = _tracked_protocol_path(item)
+    expected_plan_keys = {"schema_version", "migration_id", "module_id", "version", "run", "scope", "targets"}
+    if not isinstance(sealed_plan, dict) or set(sealed_plan) != expected_plan_keys \
+            or sealed_plan.get("schema_version") != "tracked-content-plan.v1" \
+            or sealed_plan.get("migration_id") != midver or not isinstance(sealed_plan.get("targets"), list):
+        return {"refusal": _tracked_refusal(
+            "sealed-plan-missing", protocol_path, "The tracked-content migration has no matching sealed plan.",
+            "Run preflight and retain its exact plan through apply.")}
+    targets_list = sealed_plan.get("targets")
+    # A ready preflight with no targets is the typed no-op. Calling arbitrary apply code without a recovery
+    # transaction would create an unprotected mutation surface, so an empty sealed plan advances without
+    # invoking apply and produces no path receipt.
+    if not targets_list:
+        return {"receipts": []}
+    tx = checkout_health.inspect_upgrade_transaction(validate.ROOT)
+    if tx.get("state") != "active" or (tx.get("record") or {}).get("phase") != "mutating" \
+            or recovery_ref != tx.get("recovery_ref"):
+        return {"refusal": _tracked_refusal(
+            "recovery-transaction-missing", protocol_path,
+            "The tracked-content migration has no matching live recovery transaction.",
+            "Recover any earlier transaction, rerun preflight, and apply the update again.")}
+    tx_record = tx.get("record") or {}
+    if not isinstance(targets_list, list) or any(t not in (tx_record.get("sealed_targets") or [])
+                                                for t in targets_list):
+        return {"refusal": _tracked_refusal(
+            "sealed-plan-discarded", protocol_path,
+            "The apply plan is not the target set sealed into the durable recovery transaction.",
+            "Recover the transaction and rerun preflight before applying the migration.")}
+    for target in targets_list:
+        if checkout_health._tx_blob_identity(validate.ROOT, target["path"]) != target["before_identity"]:
+            return {"refusal": _tracked_refusal(
+                "target-drift", target["path"], "A sealed target changed after preflight and before apply.",
+                "Recover the transaction, settle the file change, and run the update again.")}
+    before_dirty = checkout_health._tx_dirty_paths(validate.ROOT)
+    tx_footprint = ((tx.get("record") or {}).get("footprint") or []) if tx.get("state") == "active" else []
+    before_footprint = {p: checkout_health._tx_blob_identity(validate.ROOT, p) for p in tx_footprint}
+    try:
+        _preflight, apply = _load_tracked_migration(module_dir(item["module_id"]), item["run"])
+        raw = apply(_tracked_context(item, from_versions, engine_version), sealed_plan)
+    except Exception as exc:  # noqa: BLE001 — the transaction remains available for restart recovery
+        return {"refusal": _tracked_refusal(
+            "apply-failed", protocol_path, f"The tracked-content apply step failed: {exc}",
+            "Recover the durable upgrade transaction, fix the migration, and run the update again.")}
+    if not isinstance(raw, dict) or set(raw) != {"status", "changes"} or raw.get("status") != "applied" \
+            or not isinstance(raw.get("changes"), list):
+        return {"refusal": _tracked_refusal(
+            "receipt-malformed", protocol_path, "The tracked-content apply step returned an invalid receipt.",
+            "Return status=applied and one exact typed change for every sealed target.")}
+    targets = {t["path"]: t for t in sealed_plan["targets"]}
+    if len(raw["changes"]) != len(targets):
+        return {"refusal": _tracked_refusal(
+            "receipt-incomplete", protocol_path, "The apply receipt does not cover every sealed target exactly once.",
+            "Return one receipt change for every target and no extras.")}
+    receipts, seen = [], set()
+    for change in raw["changes"]:
+        if not isinstance(change, dict) or set(change) != {
+                "path", "operation", "before_identity", "after_identity", "changed_paths"}:
+            return {"refusal": _tracked_refusal(
+                "receipt-malformed", protocol_path, "A receipt change is missing typed fields.",
+                "Return path, operation, before_identity, after_identity, and changed_paths.")}
+        path, changed = change.get("path"), change.get("changed_paths")
+        target = targets.get(path)
+        actual_after = checkout_health._tx_blob_identity(validate.ROOT, path) if target else None
+        if not target or path in seen or change.get("operation") != target["operation"] \
+                or change.get("before_identity") != target["before_identity"] \
+                or change.get("after_identity") != actual_after or changed != [path] \
+                or (target["operation"] == "delete" and actual_after != "absent") \
+                or (target["operation"] in {"create", "replace"} and actual_after == "absent"):
+            return {"refusal": _tracked_refusal(
+                "receipt-mismatch", path or protocol_path,
+                "The apply receipt does not match the sealed target or resulting bytes.",
+                "Recover the transaction and make apply return the exact observed change.")}
+        seen.add(path)
+        receipts.append({"migration_id": midver, "path": path, "operation": target["operation"],
+                         "before_identity": target["before_identity"], "after_identity": actual_after,
+                         "recovery_ref": recovery_ref, "changed_paths": [path]})
+    after_dirty = checkout_health._tx_dirty_paths(validate.ROOT)
+    after_footprint = {p: checkout_health._tx_blob_identity(validate.ROOT, p) for p in tx_footprint}
+    footprint_changes = {p for p in tx_footprint if before_footprint.get(p) != after_footprint.get(p)}
+    if before_dirty is None or after_dirty is None or (after_dirty - before_dirty) - set(targets) \
+            or footprint_changes - set(targets):
+        return {"refusal": _tracked_refusal(
+            "unsealed-change", protocol_path, "Apply changed a path outside its exact sealed targets.",
+            "Recover the transaction and confine apply to the sealed plan.")}
+    return {"receipts": receipts}
+
+
 def run_migrations(selected: list, from_versions: dict, engine_version: str,
-                   module_dir=None, backup=None) -> dict:
+                   module_dir=None, backup=None, tracked_plans=None, recovery_ref=None) -> dict:
     """Run the SELECTED migrations (from select_migrations) in order. `module_dir(module_id)` returns that
     module's directory so `run` resolves (defaults to the live layout). `engine_version` is handed to each
     migration (a data migration stamps its snapshot with it). `backup` injects the seam (tests/demo); None
@@ -1031,7 +1307,9 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
     if module_dir is None:
         module_dir = _modules_dir
     seam = _resolve_backup_seam(backup)
-    result = {"ran": [], "refused": []}
+    result = {"ran": [], "refused": [], "refusals": [], "receipts": [],
+              "rollback_footprint": []}
+    tracked_plans = tracked_plans or {}
     handles: list = []                                   # each data migration's snapshot handle, so after the run we
     #                                                      can relay one plain property (could the retained pre-update
     #                                                      copy be locked?) without learning the snapshot's tag mechanism.
@@ -1040,6 +1318,24 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
     #                                                      == one reversibility unit (true for the sole caller upgrade()).
     for item in selected:
         mid, ver, kind = item["module_id"], item["version"], item.get("kind")
+        if kind == "tracked-content":
+            migration_id = f"{mid}@{ver}"
+            applied = _apply_tracked_content(
+                item, from_versions, engine_version, module_dir,
+                tracked_plans.get(migration_id), recovery_ref)
+            if applied.get("refusal"):
+                refusal = applied["refusal"]
+                result["refusals"].append(refusal)
+                result["refused"].append(
+                    f"Did not apply tracked repository changes for '{mid}' to {ver}: {refusal['reason']} "
+                    f"{refusal['remediation']}")
+                continue
+            receipts = applied.get("receipts") or []
+            result["receipts"].extend(receipts)
+            result["rollback_footprint"].extend(
+                p for receipt in receipts for p in receipt.get("changed_paths", []))
+            result["ran"].append(f"{mid} -> {ver} (tracked-content)")
+            continue
         if kind == "data" and seam is None:
             result["refused"].append(
                 f"Did not update stored data for '{mid}' to {ver}: no data backup is set up yet, and the "
@@ -1087,6 +1383,7 @@ def run_migrations(selected: list, from_versions: dict, engine_version: str,
     # A retained pre-update copy that could not be locked can still be deleted by hand; record that (once) so the
     # operator can be told to keep it. True only when a snapshot reported plainly that it could not be locked.
     result["backup_unprotected"] = any(isinstance(h, dict) and h.get("hardened") is False for h in handles)
+    result["rollback_footprint"] = sorted(set(result["rollback_footprint"]))
     return result
 
 
@@ -1583,7 +1880,8 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     scope = ["The version this update moves the engine to:"]
     for mid in sorted(target_versions):
         scope.append(f"- {mid}: {from_versions.get(mid, '—')} → {target_versions.get(mid)}")
-    ran = (result.get("migrations") or {}).get("ran") or []
+    ran = [r for r in ((result.get("migrations") or {}).get("ran") or [])
+           if "(tracked-content)" not in r]
     if ran:
         # run_migrations formats each as "<mid> -> <ver> (<kind>)"; render it plainly — a unicode arrow to
         # match the version lines above, and the raw data/config category glossed. A data migration mutates
@@ -1601,6 +1899,15 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
                 saved += (" One heads-up: the engine could not confirm that recovery copy is locked, so it "
                           "could be deleted by hand — leave it in place to keep the undo available.")
             scope.append(saved)
+    tracked_receipts = (result.get("migrations") or {}).get("receipts") or []
+    if tracked_receipts:
+        scope += ["", "Tracked engine content changed by a sealed migration (exact receipt):"]
+        for receipt in tracked_receipts:
+            verb = {"delete": "Removed", "replace": "Replaced", "create": "Created"}.get(
+                receipt.get("operation"), "Changed")
+            scope.append(f"- {verb} {_render_tracked_path(receipt.get('path'))} — before "
+                         f"{receipt.get('before_identity')}, "
+                         f"after {receipt.get('after_identity')}; recovery {receipt.get('recovery_ref')}")
     # Capability retirements — the plain "you could do this before, and now you can't" line the operator would
     # otherwise never get. The description IS the whole notice (there is no kind/gloss to fall back on the way a
     # migration has), so unlike the migration block above this DOES render the authored description, literalized
@@ -1863,6 +2170,9 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         "- The engine's own files this version added or removed, and its marked blocks in shared files "
         "(CODEOWNERS, CLAUDE.md, AGENTS.md, .gitignore), where this version updated them — each is noted "
         "under Scope."]
+    if tracked_receipts:
+        files_bullets.append("- The exact tracked-content migration paths listed under Scope: "
+                             + ", ".join(sorted(_render_tracked_path(r["path"]) for r in tracked_receipts)) + ".")
     if result.get("groups_changed"):
         # Gated on the GENUINE net change (not the write signal): only then does `.engine/pyproject.toml`'s
         # default-groups line actually differ in the opened pull request, so this enumeration matches the diff
@@ -2155,7 +2465,8 @@ def _redact_credentials(text: str) -> str:
     return re.sub(r"(https?://)[^/\s@]+@", r"\1***@", text)
 
 
-def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) -> dict:
+def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
+                     on_commit=None, on_pr=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
     git-automation helper existed) — branch/commit/push via subprocess (the bootstrap.py pattern), the PR
@@ -2224,6 +2535,13 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
             _run_step(args)
+            if args[1] == "commit" and on_commit is not None:
+                committed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=validate.ROOT,
+                                           capture_output=True, text=True, check=False)
+                if committed.returncode != 0 or on_commit(
+                        {"branch": branch, "commit": committed.stdout.strip()}) is False:
+                    raise RuntimeError("the upgrade commit was created, but its durable transaction phase "
+                                       "could not be recorded; the recovery journal was retained")
         except subprocess.CalledProcessError as exc:
             err = _redact_credentials(_decode(exc.stderr) or _decode(exc.stdout))   # stdout: git writes "nothing to commit" there; redact any tokened remote URL
             # A `commit` that failed ONLY because nothing was staged is not really a failure — the working tree
@@ -2306,7 +2624,11 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None) 
     # token or headers (only exc.code + GitHub's response reason + the resolved repo/base/head).
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
-            return _json.loads(resp.read())
+            opened = _json.loads(resp.read())
+            if on_pr is not None and on_pr(opened) is False:
+                raise RuntimeError("the pull request was opened, but its durable transaction receipt could "
+                                   "not be recorded; the recovery journal was retained")
+            return opened
     except urllib.error.HTTPError as exc:
         detail = _github_error_detail(exc)
         reason = f"GitHub returned HTTP {exc.code}" + (f" — {detail}" if detail else "")
@@ -2783,7 +3105,8 @@ def _regen_indexes() -> list:
 def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, old_by_id, old_owned,
                   candidates, handle, selected, seam, practice, opener, groups_before=None, gate=None,
                   dropped_ids=(), pre_overlay_known=(), catalog_trusted=True,
-                  control_plane_repair=None, require_control_plane=False) -> dict:
+                  control_plane_repair=None, require_control_plane=False,
+                  tracked_plans=None, transaction=None) -> dict:
     """The version-sensitive tail of an upgrade — the work that MUST run as the freshly-overlaid engine code
     (the StarshipSuperjam/engine-template#594 fix): apply the new version's wiring with the FRESH appliers, re-render the release-evolvable
     seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), RECONCILE the file surface to
@@ -2798,7 +3121,8 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     tail = {"wiring": [], "codeowners": None, "claude_floor": None, "agents_floor": None,
             "foundation_ignores": None, "fixtures_delivered": [],
             "orphans_removed": {"engine": [], "suspect": [], "left_in_place": []},
-            "migrations": {"ran": [], "refused": []}, "retired_capabilities": [],
+            "migrations": {"ran": [], "refused": [], "refusals": [], "receipts": [],
+                           "rollback_footprint": []}, "retired_capabilities": [],
             "removed_capabilities": [],
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None,
             "groups_before": groups_before, "groups_after": None, "groups_changed": False,
@@ -2842,12 +3166,31 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # BEFORE the manifest bump and the gate, so the gate sees a coherent tree (no folder for a pruned package).
     _retire_dropped_module_dirs(dropped_ids, tail["orphans_removed"], tracked=tracked)
     # (c) MIGRATIONS (selected + dependency-ordered; the no-backup guard already pre-flighted in phase 1).
-    tail["migrations"] = run_migrations(selected, from_versions, target_ref, backup=seam)
+    tail["migrations"] = run_migrations(
+        selected, from_versions, target_ref, backup=seam, tracked_plans=tracked_plans,
+        recovery_ref=(transaction or {}).get("recovery_ref"))
     if tail["migrations"].get("refused"):
-        tail["reason"] = ("The update was applied to the working copy but a stored-data update could not be "
-                          "completed (its backup did not succeed), so it was NOT opened for review and "
-                          "nothing was merged. Ask me to set up or check your backup, then update again.")
+        typed = tail["migrations"].get("refusals") or []
+        if typed:
+            first = typed[0]
+            tail["reason"] = ("The update was applied to the working copy but its tracked-file migration "
+                              f"refused at {_render_tracked_path(first['path'])}: {first['reason']} "
+                              f"{first['remediation']} It was "
+                              "NOT opened for review and nothing was merged; the durable recovery transaction "
+                              "was retained.")
+        else:
+            tail["reason"] = ("The update was applied to the working copy but a stored-data update could not be "
+                              "completed (its backup did not succeed), so it was NOT opened for review and "
+                              "nothing was merged. Ask me to set up or check your backup, then update again.")
         return tail
+    if transaction:
+        advanced = checkout_health.update_upgrade_transaction(
+            validate.ROOT, "mutated", receipts=tail["migrations"].get("receipts") or [])
+        if not advanced.get("ok"):
+            tail["reason"] = ("The tracked files were changed, but the durable recovery journal could not "
+                              "record their receipts, so the update was NOT opened for review. The recovery "
+                              "ref was retained for manual recovery.")
+            return tail
     if any(item.get("kind") == "data" for item in selected):
         saved_note = ("Before changing your saved memory, I automatically saved a copy of it from right "
                       "before this update — there's nothing for you to do now. If this update is ever "
@@ -3021,11 +3364,40 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # (f) LAND as a reviewed pull request (skipped on a practice run — no git/PR boundary).
     if practice or opener is None:
         tail["notes"].append(PRACTICE_RUN_NOTE)
+        if transaction:
+            tail["notes"].append("(the durable recovery transaction remains active so the practice update's "
+                                 "rollback can restore its exact dynamic footprint)")
         return tail
     title = f"Maintenance: update the engine to {target_ref}"
     branch = "engine-update-" + re.sub(r"[^a-zA-Z0-9._-]+", "-", target_ref)
     try:
-        tail["pr"] = opener(branch=branch, title=title, body=body)
+        if transaction and opener is _open_upgrade_pr:
+            def _on_commit(info):
+                return checkout_health.update_upgrade_transaction(
+                    validate.ROOT, "committed", pull_request=info).get("ok", False)
+
+            def _on_pr(opened):
+                return checkout_health.update_upgrade_transaction(
+                    validate.ROOT, "pr-opened", pull_request=opened).get("ok", False)
+
+            tail["pr"] = opener(branch=branch, title=title, body=body,
+                                on_commit=_on_commit, on_pr=_on_pr)
+        else:
+            tail["pr"] = opener(branch=branch, title=title, body=body)
+            if transaction:
+                commit = _git(validate.ROOT, "rev-parse", "HEAD")
+                if not checkout_health.update_upgrade_transaction(
+                        validate.ROOT, "committed",
+                        pull_request={"branch": branch, "commit": commit}).get("ok") \
+                        or not checkout_health.update_upgrade_transaction(
+                            validate.ROOT, "pr-opened", pull_request=tail["pr"]).get("ok"):
+                    raise RuntimeError("the injected pull-request boundary completed, but its durable "
+                                       "transaction receipt could not be recorded")
+        if transaction:
+            cleared = checkout_health.finish_upgrade_transaction(validate.ROOT)
+            if not cleared.get("ok"):
+                tail["notes"].append("(the pull request was opened, but the completed recovery transaction "
+                                     "could not be cleared; the next invocation will finalize or report it)")
     except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
         tail["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
     return tail
@@ -3066,7 +3438,8 @@ def _run_upgrade_tail(state: dict) -> None:
         groups_before=state.get("groups_before") or [], dropped_ids=dropped_ids,
         pre_overlay_known=set(state.get("pre_overlay_known") or []),
         catalog_trusted=state.get("catalog_trusted", True),
-        require_control_plane=not practice)
+        require_control_plane=not practice,
+        tracked_plans=state.get("tracked_plans") or {}, transaction=state.get("transaction"))
     _upgrade_state_dump(tail, state["result_path"])
 
 
@@ -3210,7 +3583,8 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
            "from_versions": {}, "target_versions": {},
            "files": {"replaced": [], "added": []},
            "wires": {"added": [], "removed": [], "updated": []},
-           "migrations": [], "retired_capabilities": [], "removed_capabilities": [], "backed_up": None,
+           "migrations": [], "tracked_targets": [], "migration_refusals": [],
+           "retired_capabilities": [], "removed_capabilities": [], "backed_up": None,
            "modules_installed": [], "modules_offered": []}
     tmp = None
     try:
@@ -3310,6 +3684,16 @@ def plan_upgrade(ref: str | None = None, release_tree: str | None = None,
         selected = select_migrations(from_versions, out["target_versions"], list(candidates.values()))
         out["migrations"] = [{"module_id": s.get("module_id"), "version": s.get("version"),
                               "description": s.get("description"), "kind": s.get("kind")} for s in selected]
+        tracked_preflight = preflight_tracked_content_migrations(
+            selected, from_versions, target_ref,
+            module_dir=lambda mid: os.path.join(release_tree, ".engine", "modules", mid))
+        out["tracked_targets"] = list(tracked_preflight["targets"])
+        out["migration_refusals"] = list(tracked_preflight["refusals"])
+        if tracked_preflight["refusals"]:
+            first = tracked_preflight["refusals"][0]
+            return {**out, "refused": True, "status": "migration-refused",
+                    "reason": f"The update's tracked-file preflight refused at {first['path']}: "
+                              f"{first['reason']} {first['remediation']} Nothing was changed."}
         # Capability retirements — the same range selector, from the SAME present-manifest set, independent of
         # whether any migration was selected (a retirement can ship with no migration). Preview mirrors apply.
         out["retired_capabilities"] = select_retired_capabilities(
@@ -3366,6 +3750,17 @@ def upgrade_preview(ref: str | None = None) -> dict:
     recorded or the home is unreachable, and never raises (a preview must not crash the operator's check)."""
     current = (module_coherence.load_engine_manifest() or {}).get("engine_release")
     named = ref if (ref and ref != "latest") else None
+    if _git(validate.ROOT, "rev-parse", "--git-dir") is not None:
+        tx = checkout_health.inspect_upgrade_transaction(validate.ROOT)
+        if tx.get("state") != "none":
+            reason = ("An earlier update has a durable recovery transaction in progress. Undo or resume that "
+                      "transaction before starting another update."
+                      if tx.get("state") == "active" else
+                      f"An earlier update's recovery journal/ref pair is incomplete ({tx.get('reason')}). "
+                      f"Journal: {tx.get('journal_path')}; recovery ref: {tx.get('recovery_ref')}. Ask me to "
+                      "inspect and recover it manually before starting another update.")
+            return {"status": "transaction-incomplete", "current": current, "named_ref": named,
+                    "reason": reason, "transaction": tx}
     hard = [f for f in module_coherence.check_coherence() if f.get("severity") == "hard"]
     if hard:
         # A hard coherence finding means the tree is inconsistent — most often a stalled update, but it can
@@ -3425,9 +3820,15 @@ def _render_upgrade_preview(p: dict) -> None:
             print(f"  {verb}: {_describe_wire(wire)}")
     migs = p.get("migrations") or []
     for m in migs:
+        if m.get("kind") == "tracked-content":
+            continue
         what = ("stored data" if m.get("kind") == "data"
                 else "a setting" if m.get("kind") == "config" else "an engine record")
         print(f"  Changes {what}: {m.get('description') or m.get('module_id')}")
+    for target in p.get("tracked_targets") or []:
+        verb = {"delete": "Removes", "replace": "Replaces", "create": "Creates"}.get(
+            target.get("operation"), "Changes")
+        print(f"  {verb} tracked engine content: {_render_tracked_path(target.get('path'))}")
     print("  After you confirm, the Engine may strengthen and verify its own main-branch safety rule for "
           "this version. It never creates, augments, or rewrites a rule you made; if the exact Engine-owned "
           "rule cannot be verified, the update stops before opening a pull request and routes you to setup.")
@@ -3501,11 +3902,31 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                                        or control_plane_repair is not None)         # test/demo full-injection
     practice = injected_release and not in_process                    # local release, no callables ⇒ child, no resync/PR
     result = {"refused": False, "applied": False, "reason": None, "from": None, "to": None,
-              "copied": [], "wiring": [], "synced": None, "migrations": {"ran": [], "refused": []},
+              "copied": [], "wiring": [], "synced": None,
+              "migrations": {"ran": [], "refused": [], "refusals": [], "receipts": [],
+                             "rollback_footprint": []},
               "retired_capabilities": [], "findings": [], "pr": None, "notes": [], "codeowners": None,
-              "claude_floor": None, "agents_floor": None}
+              "claude_floor": None, "agents_floor": None, "transaction": None,
+              "transaction_recovery": None}
     tmp = None
     try:
+        # RESTART DETECTION precedes every new mutation. Non-Git throwaway fixtures (and installations that
+        # select no tracked-content migration) have no transaction path; a real repository with a journal/ref
+        # pair is restored or finalized before this invocation reads its upgrade baseline. Corruption is a loud
+        # refusal carrying the manual journal/ref evidence — never guessed away.
+        if _git(validate.ROOT, "rev-parse", "--git-dir") is not None:
+            existing_tx = checkout_health.inspect_upgrade_transaction(validate.ROOT)
+            if existing_tx.get("state") != "none":
+                recovered = checkout_health.recover_upgrade_transaction(validate.ROOT)
+                result["transaction_recovery"] = recovered
+                if not recovered.get("ok"):
+                    return {**result, "refused": True,
+                            "reason": ("An earlier engine update has an incomplete recovery transaction, and "
+                                       f"it could not be restored safely ({recovered.get('reason') or recovered.get('code')}). "
+                                       f"Journal: {recovered.get('journal_path')}; recovery ref: "
+                                       f"{recovered.get('recovery_ref')}. Nothing new was changed.")}
+                result["notes"].append("(restored an incomplete earlier update transaction before starting "
+                                       "this update)")
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
         from_versions = dict(engine.get("packages") or {})
         present_ids = sorted(from_versions)
@@ -3607,10 +4028,10 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         pre_overlay_known, catalog_trusted = _pre_overlay_known(present_ids)
         # PRE-FLIGHT the data-migration backup guard BEFORE any overlay (the half-state law): refuse the
         # WHOLE upgrade if a data migration in range has no backup seam — nothing is applied.
-        selected = select_migrations(
-            from_versions, target_versions,
-            [validate.load_json(os.path.join(release_tree, ".engine", "modules", mid, "manifest.json"))
-             for mid in target_versions])   # SURVIVORS only — a dropped module has no release manifest to read
+        release_manifests = [
+            validate.load_json(os.path.join(release_tree, ".engine", "modules", mid, "manifest.json"))
+            for mid in target_versions]   # SURVIVORS only — a dropped module has no release manifest to read
+        selected = select_migrations(from_versions, target_versions, release_manifests)
         seam = _resolve_backup_seam(backup)
         data_no_seam = sorted({s["module_id"] for s in selected
                                if s.get("kind") == "data" and seam is None})
@@ -3620,6 +4041,45 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                               f"no data backup is set up yet — and the engine never changes stored data it "
                               f"can't first back up. The engine is unchanged. Ask me to set up a backup, then "
                               f"update again."}
+        # TRACKED-CONTENT PREFLIGHT — runs from the release tree but reads the unmodified deployment. Its exact
+        # plans are retained through apply; a refusal stops here, before overlay/version/PR. Only when at least
+        # one target exists do we open the Git-native transaction. The dynamic footprint includes every normal
+        # upgrade-owned file plus release add/delete candidates and each migration's declared recovery scope,
+        # so rollback recognizes those exact deletions without a permanent migration-specific branch.
+        tracked_preflight = preflight_tracked_content_migrations(
+            selected, from_versions, target_ref,
+            module_dir=lambda mid: os.path.join(release_tree, ".engine", "modules", mid))
+        if tracked_preflight["refusals"]:
+            result["migrations"]["refusals"] = list(tracked_preflight["refusals"])
+            first = tracked_preflight["refusals"][0]
+            return {**result, "refused": True,
+                    "reason": f"The update's tracked-file preflight refused at "
+                              f"{_render_tracked_path(first['path'])}: "
+                              f"{first['reason']} {first['remediation']} Nothing was changed."}
+        transaction = None
+        if tracked_preflight["targets"]:
+            candidates_before_overlay = {m["id"]: m for m in release_manifests}
+            try:
+                dynamic_footprint = (set(_upgrade_footprint()) | set(old_owned)
+                                     | set(engine_synced_paths(release_tree, candidates_before_overlay,
+                                                               project_retire=False))
+                                     | set(tracked_preflight["footprint"]))
+            except Exception as exc:  # noqa: BLE001 — cannot seal an incomplete footprint
+                return {**result, "refused": True,
+                        "reason": f"The update could not seal its rollback footprint ({exc}); nothing changed."}
+            transaction = checkout_health.begin_upgrade_transaction(
+                validate.ROOT, sealed_targets=tracked_preflight["targets"],
+                footprint=sorted(dynamic_footprint))
+            result["transaction"] = transaction
+            if not transaction.get("ok"):
+                return {**result, "refused": True,
+                        "reason": f"The update could not create its durable recovery transaction: "
+                                  f"{transaction.get('reason') or transaction.get('code')}. Nothing changed."}
+            advanced = checkout_health.update_upgrade_transaction(validate.ROOT, "mutating")
+            if not advanced.get("ok"):
+                return {**result, "refused": True,
+                        "reason": "The recovery transaction was created but could not record its mutation "
+                                  "phase, so the update stopped before overlaying files."}
         # (2) OVERLAY engine code (driven off the present set; containment fail-closed). This lands the new
         # release's `.engine/tools/*.py` on disk — but THIS process still holds the pre-upgrade libraries,
         # which is exactly why the version-sensitive tail below runs as a fresh child of the overlaid code.
@@ -3663,14 +4123,16 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 gate=_coherence_only_gate, dropped_ids=dropped_ids,
                 pre_overlay_known=pre_overlay_known, catalog_trusted=catalog_trusted,
                 control_plane_repair=control_plane_repair,
-                require_control_plane=control_plane_repair is not None)
+                require_control_plane=control_plane_repair is not None,
+                tracked_plans=tracked_preflight["plans"], transaction=transaction)
         else:
             tail = _spawn_upgrade_tail({
                 "release_tree": release_tree, "target_ref": target_ref, "from_versions": from_versions,
                 "target_versions": target_versions, "present_ids": present_ids, "old_by_id": old_by_id,
                 "old_owned": old_owned, "groups_before": pre_overlay_groups, "handle": engine.get("handle"),
                 "practice": practice, "dropped_ids": dropped_ids, "marker": _UPGRADE_TAIL_MARKER,
-                "pre_overlay_known": sorted(pre_overlay_known), "catalog_trusted": catalog_trusted})
+                "pre_overlay_known": sorted(pre_overlay_known), "catalog_trusted": catalog_trusted,
+                "tracked_plans": tracked_preflight["plans"], "transaction": transaction})
         _merge_tail(result, tail)
         return result
     finally:
@@ -3988,6 +4450,12 @@ def _render_upgrade(result: dict) -> None:
               "left the file unchanged")
     for r in result.get("migrations", {}).get("ran", []):
         print(f"  - ran update: {r}")
+    for receipt in result.get("migrations", {}).get("receipts", []):
+        verb = {"delete": "removed", "replace": "replaced", "create": "created"}.get(
+            receipt.get("operation"), "changed")
+        print(f"  - {verb} tracked engine content: {_render_tracked_path(receipt.get('path'))} "
+              f"({receipt.get('before_identity')} -> {receipt.get('after_identity')}; "
+              f"recovery {receipt.get('recovery_ref')})")
     for r in result.get("migrations", {}).get("refused", []):
         print(f"  - {r}")
     for r in (result.get("retired_capabilities", []) + result.get("removed_capabilities", [])):
@@ -4809,15 +5277,16 @@ def remove_engine_demo() -> bool:
 # `rollback` is the deliberate counterpart to `upgrade`, surfaced through the one `/engine-upgrade` command.
 # It is the ONE operator action that changes the working copy WITHOUT a reviewable pull request — a stalled
 # update was never committed, so there is nothing to open a PR against. The honest safety floor (accepted by
-# the maintainer, and stated in the pull request body): it acts ONLY on a real staged/ahead state; it saves a
-# recovery point (a local "safe point" branch capturing everything) BEFORE touching anything, so nothing is
-# unrecoverable; the memory restore keeps its resurrection guard, so an older copy never overwrites newer
+# the maintainer, and stated in the pull request body): it acts ONLY on a real staged/ahead state; a legacy
+# staged update first saves a local safe-point branch, while a tracked-content update restores its already-
+# durable exact-footprint recovery transaction; the memory restore keeps its resurrection guard, so older memory never overwrites newer
 # memory; and the operator-typed skill (disable-model-invocation) plus the conduct routing are the
 # pre-execution gates. No false "never" — the same honesty as slice 2's routing posture.
 
 _ROLLBACK_USAGE = ("usage: module_manager.py rollback [--confirm] [--json]\n"
                    "  Without --confirm it only CHECKS what undoing would do and changes nothing.\n"
-                   "  With --confirm it undoes a staged/stalled update (saving a recovery point first),\n"
+                   "  With --confirm it undoes a staged/stalled update (using its durable transaction, or\n"
+                   "  saving a recovery point first for an older staged update),\n"
                    "  or puts your saved memory back to the copy from before an update that was taken out.")
 
 
@@ -4900,6 +5369,10 @@ def _diagnose_undo() -> dict:
     overlay-code), then memory-ahead-of-code (a reverted/merged update whose stored-data change outlived the
     code), then nothing-local. Never mutates and never promotes a durable Issue (github=None)."""
     current = (module_coherence.load_engine_manifest() or {}).get("engine_release")
+    if _git(validate.ROOT, "rev-parse", "--git-dir") is not None:
+        tx = checkout_health.inspect_upgrade_transaction(validate.ROOT)
+        if tx.get("state") != "none":
+            return {"state": "transaction", "current": current, "transaction": tx}
     if _staged_upgrade_dirty():
         return {"state": "staged", "current": current}
     offer = None
@@ -5016,6 +5489,17 @@ def rollback(*, confirm: bool = False, resync=_UNSET, transport=None) -> dict:
     diag = _diagnose_undo()
     if not confirm:
         return diag
+    if diag["state"] == "transaction":
+        restored = checkout_health.recover_upgrade_transaction(validate.ROOT)
+        result = {**restored, "state": "transaction", "undone": bool(restored.get("ok")),
+                  "transaction_state": restored.get("state")}
+        if restored.get("ok") and resync is not None and resync() is False:
+            result["resync_failed"] = True
+        if restored.get("ok"):
+            for k, v in _put_back_pre_update_memory(transport, {}).items():
+                if k in ("restored", "memory_note"):
+                    result[k] = v
+        return result
     if diag["state"] == "staged":
         return _discard_staged_update(resync, transport)
     if diag["state"] == "memory-ahead":
@@ -5027,7 +5511,18 @@ def _render_rollback(r: dict, applied: bool) -> None:
     """Plain-language render of a rollback preview (applied=False) or result (applied=True)."""
     state = r.get("state")
     if not applied:
-        if state == "staged":
+        if state == "transaction":
+            tx = (r.get("transaction") or {})
+            if tx.get("state") == "corrupt":
+                print("An update recovery transaction is incomplete or damaged, so I will not guess at an "
+                      f"undo. Journal: {tx.get('journal_path')}; recovery ref: {tx.get('recovery_ref')}. "
+                      "Ask me to inspect those two recovery records and restore the named commit manually.")
+            else:
+                print("An update has a durable recovery transaction in progress. I can restore the exact "
+                      "sealed file footprint to its pre-update bytes and return to the original branch before "
+                      "anything new runs. To go ahead, type `/engine-upgrade` and choose to undo (or run "
+                      "`rollback --confirm`).")
+        elif state == "staged":
             # Disclose EVERYTHING the undo touches, up front, so the operator consents from a full picture:
             # the engine's own files, the shared setup files they may have edited, and any saved memory.
             print("An update is staged but not finished — I can undo it. First I save a recovery point of "
@@ -5049,6 +5544,16 @@ def _render_rollback(r: dict, applied: bool) -> None:
         return
     if r.get("refused") or r.get("partial"):
         print(r["reason"])
+        return
+    if state == "transaction":
+        if r.get("undone"):
+            line = ("Done — I restored the interrupted update's exact sealed footprint to its pre-update "
+                    "bytes and returned to the original branch.")
+            if r.get("resync_failed"):
+                line += " One heads-up: I couldn't rebuild the engine's tool-runtime automatically."
+            print(line)
+        else:
+            print(r.get("reason") or "The transaction could not be restored automatically; nothing was guessed.")
         return
     if state == "staged" and r.get("undone"):
         line = ("Done — I undid the staged update and put your engine back to before it: its own files, the "

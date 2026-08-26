@@ -779,13 +779,25 @@ def _accumulation_violations(was: dict, present: dict, block: str, message) -> l
     return out
 
 
-def _migration_accumulation_violations(was: dict, present: dict) -> list:
-    """Dropped migration version-keys on retained modules. The sanctioned way to retire a transform is to KEEP
-    its key with a no-op `run`, never to delete the key — so a drop is always a defect the cut refuses."""
-    return _accumulation_violations(
-        was, present, "migrations",
-        lambda mid, ver: (f"the '{mid}' capability dropped the upgrade step for version {ver} that the last "
-                          f"release shipped; an engine updating across this version would skip it"))
+def _migration_accumulation_violations(was: dict, present: dict,
+                                       min_upgradeable_from: str | None = None) -> list:
+    """Dropped migration keys on retained modules. A key remains mandatory while any supported upgrader could
+    still sit below it. Once the candidate's clean-upgrade floor is AT OR ABOVE the key, range selection can no
+    longer reach that transform (from < key is impossible), so the key may retire generically. The floor is the
+    proof; no migration id or content-specific exception is consulted."""
+    floor = _norm_ver(min_upgradeable_from) if min_upgradeable_from else None
+    out = []
+    for mid, man in present.items():
+        old = was.get(mid)
+        if not old:
+            continue
+        new_keys = {_norm_ver(k) for k in (man.get("migrations") or {})}
+        for ver in sorted((old.get("migrations") or {}), key=validate._ver_tuple):
+            if _norm_ver(ver) in new_keys or (floor is not None and _norm_ver(ver) <= floor):
+                continue
+            out.append(f"the '{mid}' capability dropped the upgrade step for version {ver} that the last "
+                       f"release shipped; an engine updating across this version would skip it")
+    return out
 
 
 def _retired_capabilities_accumulation_violations(was: dict, present: dict) -> list:
@@ -1023,7 +1035,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         old_migs = set((old.get("migrations") or {}).keys())
         if new_migs - old_migs:
             keys = ", ".join(sorted(new_migs - old_migs))
-            inventory.append(f"'{mid}' gained a data/config migration ({keys}).")
+            inventory.append(f"'{mid}' gained an upgrade migration ({keys}).")
             # A migration MOVES the package version (a patch) so the updater's version-ranged migration machinery
             # sees it in a new release — but its mere existence is NOT a SemVer signal: a migration can accompany a
             # patch bug-fix, a minor feature, or a major break. The semantic level comes from the declared PR
@@ -1083,7 +1095,8 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         "compatibility_unknown": compatibility_unknown,
         # A dropped migration key on a retained module — the cut is refused on this, before apply writes (see
         # _cmd_propose). Empty on a clean diff; a stable field of the diff proposal so the refusal is legible.
-        "migration_violations": _migration_accumulation_violations(was, present),
+        "migration_violations": _migration_accumulation_violations(
+            was, present, engine.get("min_upgradeable_from")),
         # A dropped retired-capability key — same range-skip class as a dropped migration, but the notice, not a
         # transform, is what silently vanishes for a lagging upgrader. Its own field + its own refusal message,
         # because the recovery differs: a retirement has no no-op form, so the only recourse is to never drop it.
@@ -1649,7 +1662,7 @@ def _cap(text: str) -> str:
 
 def _structural_signals(proposal: dict) -> list:
     """The capability + data signals from the change inventory — 'Added the X capability', 'Removed the X
-    capability', and (consent-critical for an upgrader) ''X' gained a data/config migration' — with the
+    capability', and (consent-critical for an upgrader) ''X' gained an upgrade migration' — with the
     no-signal caveat and the first-release framing excluded. These answer 'what does upgrading DO to me?', a
     question the flat merged-PR list does not, so they are surfaced BESIDE the pull-request list, not replaced
     by it. A new migration in particular has no other callout (a removed capability rides the breaking
