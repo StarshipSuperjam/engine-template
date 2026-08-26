@@ -6157,7 +6157,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:6bbee2653dc0d1f3630cf4c2e4ec108ad5991f3507614581a88725f812874e65",
+        "fingerprint": "sha256:8621fb6ea7edeedb6e73eec05502f6af950707e7626f27f4dbad47307bd8fb17",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -10050,6 +10050,7 @@
           "tool:plan_contract",
           "tool:plan_lifecycle",
           "tool:plan_store",
+          "tool:providers",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:spec_referent",
@@ -10062,7 +10063,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:e1604cfb309bc68db45b4169c55510cf3d410fd7b1a1aa829ec2fcba0299daec",
+        "fingerprint": "sha256:e988cfc4e3bdf62421666e35b0fe2201302889a332541054ca09e62c8ce37d8f",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11934,7 +11935,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:0907b9f9f3102cd045d76552f2c866e5ec331c88816bf75f3eb33fc0969214e2",
+        "fingerprint": "sha256:a19e648e00ae463031b927273e57829675af440045bf64ec10e9e493f35e3cb7",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -14464,7 +14465,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:48f9b0e0c0987b2f6c8eefa11074c16832fa0c99dfdd8a6fad7bbaa3039f17c5",
+        "fingerprint": "sha256:b903f08601570193a02a901e2fa6d30c55de48ae5171185810bb2058eed2a83a",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16198,7 +16199,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:cc99c77f0d073e970a0b1e9648711cb0602a2bd59262d3cf7b87339884ad9564",
+        "fingerprint": "sha256:084d929df7ae31aeb10fa19d448f577e821245d63ec61c87cfdf4a462132b060",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
