@@ -6034,7 +6034,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:725315be546dfa73c22c0b077b0b08351dc921d33fb05794444bb7e8d56844cb",
+        "fingerprint": "sha256:3205ce0e93b2ac35e1953fe6d9e484facb9a12470a47f638509f4b34d92df58c",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
