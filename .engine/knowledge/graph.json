@@ -6546,7 +6546,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:ed7a7123905b5980261b0f883130294eb92ef82bf9f7ad0d2a7819a5e1895d75",
+        "fingerprint": "sha256:9c9fa42185aff775766d1ab890f1064bb37e3a1527764104cf0f61a12af80371",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -10039,7 +10039,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:586998e56084c6eab64d7b6cbd5c52aca571208c04cde6f81e540425100c9f94",
+        "fingerprint": "sha256:82e3f90a9eb5525c119e535a1d9edaf5ecef7d3ce17824a552fb2c357a1b6a3e",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -14431,8 +14431,7 @@
           "tool:plan_lifecycle",
           "tool:plan_program",
           "tool:plan_projection",
-          "tool:plan_store",
-          "tool:providers"
+          "tool:plan_store"
         ],
         "provided_by": [
           "module:core"
@@ -14440,7 +14439,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:f903b644353fd798211557f21e86f154d63f1d40df3cabd055438577a711d9bb",
+        "fingerprint": "sha256:d2c15b8023787bbc64576666c0cdd420a3fb27879b032b79f4fa877ea31f7807",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16174,7 +16173,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:0191875c8da8d23719daa94bbb9a8bf7319c669183578a160370818735da2fca",
+        "fingerprint": "sha256:ad3833b59310aefd6d6d3868ebf4561799a678f7265604f567bc41c3bacb2812",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -18976,7 +18975,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:263de8c46ee2f70ddc8601a4d746f325ab11241a4fc537bd42bb5c4f73e1c662",
+        "fingerprint": "sha256:9bafd359b3f84c69161b386d8b5268e395eb534b0b2e116c1a151d509f8d7f81",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
