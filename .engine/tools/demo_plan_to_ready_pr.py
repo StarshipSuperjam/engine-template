@@ -284,7 +284,7 @@ def _arc_one(copy, head, env, pr_state, holder):
                            "--operator-decision", DEMO_CONSENT)
     ok &= _pass("sealed", sealed.returncode == 0, "the plan is now read-only and can start a Build")
 
-    # THE PHASE BARRIER, and why this walk-through crosses it with the override rather than for real.
+    # THE SEAL-TO-BUILD HAND-OFF, and why this walk-through answers it rather than routing around.
     # A real operator seals, then leaves the planning context — /compact, /clear, or a fresh session —
     # and chooses the model and effort for the build phase before binding. Bind REFUSES until it
     # carries that choice, so the demo states one. This is the whole ceremony, not a way around it:

@@ -38,14 +38,11 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import build_coordinator as bc      # noqa: E402  (the real verification + barrier under test)
+import build_coordinator as bc      # noqa: E402  (the real verification + bind gate under test)
 import build_state_store            # noqa: E402
 import engine_fixture               # noqa: E402
 import plan_store                   # noqa: E402
 
-SEALED_AT = "2026-08-26T02:46:39Z"
-AFTER_SEAL = "2026-08-26T05:00:00Z"
-BEFORE_SEAL = "2026-08-26T01:00:00Z"
 
 
 def _snapshot_state(worktree: str) -> dict:
@@ -185,7 +182,7 @@ def arm_two_handoff() -> tuple[bool, list[str]]:
 
 
 def arm_three_powers_not_taken() -> tuple[bool, list[str]]:
-    """The whole surface runs against a real engine clone; only observation records may change."""
+    """The whole surface runs against a real engine clone; NOTHING may change."""
     lines = []
     real_root = str(Path(__file__).resolve().parents[2])
     with tempfile.TemporaryDirectory() as tmp:

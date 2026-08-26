@@ -144,6 +144,31 @@ class TheGuaranteeDoesNotRestOnTheHook(unittest.TestCase):
                 setattr(namespace, f"{command}_command", sub)
             self.assertFalse(bc._mutates(namespace), f"{command} {sub or ''} is read-only")
 
+    def test_the_carved_out_recovery_verbs_really_do_skip_the_gate(self):
+        """The gap this file used to hide rather than show.
+
+        `_mutates` is a PREDICATE, and asserting it is not the same as asserting the gate runs. Two
+        verbs it labels mutating — `state migrate` and `state supersede` — never reach verification,
+        because main() resolves no store for them. Asserting the predicate alone read as if it proved
+        the obligation while the gate was skipped, which is how the divergence survived a review.
+
+        So this drives main() and watches for the call. The carve-out is deliberate (eADR-0045: both
+        exist to handle a snapshot this session does not match, so gating them deadlocks recovery) —
+        what must not happen is it being deliberate and invisible.
+        """
+        import argparse
+        from unittest import mock
+
+        # The predicate says these mutate...
+        for sub in ("migrate", "supersede"):
+            self.assertTrue(bc._mutates(argparse.Namespace(command="state", state_command=sub)),
+                            f"state {sub} is classified as mutating")
+        # ...and the gate does not run for them. Asserted through main(), not by reading the set.
+        with mock.patch.object(bc, "verify_resume") as gate, \
+                mock.patch.object(bc, "cmd_state_supersede"):
+            bc.main(["state", "supersede", "--plan", "pln_0123456789ab", "--reason", "a demo"])
+        gate.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

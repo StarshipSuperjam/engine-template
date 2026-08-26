@@ -1306,7 +1306,7 @@ def seal_handback(plan_id: str, *, provider: str | None = None) -> str:
         f"       build_coordinator.py plan bind --plan {plan_id} \\",
         "         --repository <owner/repo> --pr <number> \\",
         "         --operator-decision \"<your words>\" \\",
-        "         --session-model <model> --session-effort <low|medium|high>",
+        "         --session-model <model, e.g. opus-5> --session-effort <low|medium|high>",
         "",
         "  Build entry REFUSES without both of those — that part is mechanism, not ceremony, and it",
         "  is the only part that is. There is nothing to override: your answer is the agreement to",

@@ -2834,7 +2834,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
                        # validation and stay green — the exact defect a deliverable reviewer caught,
                        # where a scout confined to a copy was told to produce evidence that binds to
                        # the live tree. This sentence is the half that says which runs are not its job.
-                       "It is the wrong tool for the two classes below"):
+                       "It is the wrong tool for the two classes below",
+                       # The ceremony residue. The obligation promised a runbook check that names it,
+                       # and until now only the hand-back half existed — so an edit that trimmed this
+                       # sentence would have stayed green while the runbook quietly started reading
+                       # as though the whole hand-back were enforced.
+                       "is ceremony no mechanism can check"):
             self.assertIn(phrase, text)
 
     def test_runbook_keeps_review_synthesis_marker_grammar_and_routine_authority_boundary(self):
