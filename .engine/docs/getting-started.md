@@ -30,14 +30,6 @@ About the Engine's own protection files: an ordinary edit to one leaves a plain-
 
 When you ask for something that changes your project, the Engine works in careful steps and shows you what it plans before it does it, so nothing significant happens without your say-so.
 
-**Separately, there is one more pause — between planning a change and building it.** Planning something and building it are different jobs, and they often want different settings — a different model, a different amount of care. So when a plan is locked in, the Engine hands you a short list rather than rolling straight on: settle anything that still lives only in the conversation, clear or compress the context, and choose what you want the *building* to run on. Then the build starts.
-
-Most of that list is a suggestion the Engine cannot enforce — it cannot check that you settled a fact or cleared a context. One part of it is real: **the build will not start until someone has said what it should run on.** Naming the model and the effort is what starts it, and there is no override to get past it. Be clear about the limit, though, because this part is yours to hold: the Engine can tell that an answer was given, never that *you* were the one asked. Your assistant could fill both in without ever putting the question to you. So if building begins and you do not remember choosing, that is worth asking about. You will not be shown the choice again afterwards — repeating it back at you in every status line and again in the pull request would just be noise.
-
-One thing worth setting once, because it applies everywhere and the Engine deliberately will not set it for you: your **auto-compact threshold**, with the `/autocompact` command. It saves against your own account rather than this project, so it survives updates and covers every project you work on. Around 75% is where long sessions tend to start wandering. The Engine leaves that dial entirely to you — a project-level value would quietly override your own choice, which is not a thing it will do to you.
-
-If a long build *does* get compressed partway through, that is meant to be a non-event. The Engine re-checks that it is still working on the build it thinks it is before it changes anything, and refuses if it isn't — so a confused session fails safely instead of writing into the wrong place.
-
 ## Finding the commands
 
 Alongside plain conversation, the Engine gives you a set of shortcuts — short typed commands that start with **`engine-`** so you can tell them apart from the other commands your assistant offers. The opening keystroke depends on where you're working: in **Claude Code** you type them as `/engine-…`; in **Codex** the same commands are `$engine-…`. There are three easy ways to see what's available:
