@@ -2736,8 +2736,16 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # work inline — the cost the routing exists to remove.
         # 273 is those two independently justified raises meeting in a merge, not a new budget: the file
         # measures exactly 273 lines, and neither side's additions were trimmed to fit the other's cap.
+        # 273 -> 286 for the plan-to-build phase barrier, on the same justification as every raise above:
+        # `plan bind` now REFUSES when no session boundary or compaction is recorded since the seal, so a
+        # session working from the old text meets a refusal the runbook never mentions and cannot resolve
+        # from it — it would not know the boundary is the remedy, that --session-model/--session-effort
+        # exist, or that --override-phase-barrier is the way through. The second paragraph prevents the
+        # opposite error: a session that reads a barrier at bind and infers it must also stop at every
+        # mid-Build compaction, which is the ceremony this design deliberately removed. Thirteen lines is
+        # what those two cost; nothing was padded and nothing else was trimmed to pay for it.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 273)
+        self.assertLessEqual(len(text.splitlines()), 286)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -2803,7 +2811,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # 3657 is those two ratchets meeting in a merge, not a new budget: the file measures exactly that,
         # and neither side's instruction was trimmed to fit the other's cap. The preservation-source ratio
         # (448/6296) is unchanged.
-        self.assertLessEqual(len(text.split()), 3657)
+        # 3657 -> 3835 for the plan-to-build phase barrier: the bind refusal a session cannot resolve from
+        # the old text, plus the sentence that stops it over-reading the barrier into a mid-Build stop. The
+        # word cost is higher per line than a typical raise because the remedy has to be SPELLED OUT — a
+        # refusal whose fix the runbook only gestures at is the failure mode this cap was never meant to
+        # cause. Still one instruction and one guard against its misreading; nothing padded.
+        self.assertLessEqual(len(text.split()), 3835)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
@@ -4362,3 +4375,147 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         with mock.patch.object(bc.build_state_store, "bound_snapshots",
                                side_effect=RuntimeError("library is unreadable")):
             self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())
+
+
+class TestPhaseBarrier(CoordinatorCase):
+    """The seal-to-build boundary: mechanism where it can reach, ceremony where it cannot.
+
+    The design hazard these guard is a gate that always refuses. A barrier nobody can satisfy is a
+    barrier everybody overrides, which is strictly worse than none — so the positive cases matter at
+    least as much as the refusal, and case 5 (a compaction that predates the seal) is the one that
+    keeps 'a boundary happened' from decaying into 'a boundary happened at some point ever'.
+    """
+
+    SEALED = "2026-08-26T02:46:39Z"
+
+    def setUp(self):
+        super().setUp()
+        self.record = Path(self.temp.name) / "observations.ndjson"
+        patch = mock.patch.object(bc, "_library_observations_path", return_value=self.record)
+        patch.start()
+        self.addCleanup(patch.stop)
+        session = mock.patch.dict(os.environ, {bc._SESSION_ENV: "THIS-SESSION"})
+        session.start()
+        self.addCleanup(session.stop)
+
+    def seal_by(self, session, plan_id="pln_x"):
+        build_state_store.observe(self.record,
+                                  {"kind": "seal", "plan_id": plan_id, "session": session})
+
+    def compact_at(self, at):
+        build_state_store.observe(self.record, {"kind": "compaction", "at": at})
+
+    def test_no_boundary_recorded_refuses(self):
+        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+
+    def test_a_different_sealing_session_is_a_boundary(self):
+        self.seal_by("SOME-OTHER-SESSION")
+        self.assertEqual(bc.phase_barrier_reasons(self.SEALED, "pln_x"), [])
+
+    def test_the_same_session_with_no_compaction_refuses(self):
+        self.seal_by("THIS-SESSION")
+        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+
+    def test_a_compaction_after_the_seal_is_a_boundary(self):
+        self.seal_by("THIS-SESSION")
+        self.compact_at("2026-08-26T05:00:00Z")
+        self.assertEqual(bc.phase_barrier_reasons(self.SEALED, "pln_x"), [])
+
+    def test_a_compaction_before_the_seal_is_not_a_boundary(self):
+        # Otherwise the barrier decays from "a boundary since the seal" into "a boundary ever".
+        self.seal_by("THIS-SESSION")
+        self.compact_at("2026-08-26T01:00:00Z")
+        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+
+    def test_the_refusal_names_the_exact_remedy(self):
+        reasons = " ".join(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+        self.assertIn("/compact", reasons)
+        self.assertIn("/clear", reasons)
+        self.assertIn("--override-phase-barrier", reasons)
+        self.assertIn("model and effort", reasons)
+
+    def test_a_legacy_seal_says_why_the_identity_check_cannot_run(self):
+        reasons = " ".join(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+        self.assertIn("predates the engine recording which session sealed it", reasons)
+
+    def test_an_unidentifiable_session_says_so(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            reasons = " ".join(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+        self.assertIn("cannot identify itself", reasons)
+
+    def test_no_seal_moment_makes_no_claim(self):
+        self.assertEqual(bc.phase_barrier_reasons(None, "pln_x"), [])
+
+    def test_an_unparseable_seal_moment_makes_no_claim(self):
+        self.assertEqual(bc.phase_barrier_reasons("not-a-time", "pln_x"), [])
+
+    def test_recording_a_sealing_session_is_append_only_and_last_wins(self):
+        self.seal_by("FIRST")
+        self.seal_by("SECOND")
+        self.assertEqual(bc._sealing_session("pln_x"), "SECOND")
+        self.assertEqual(len(build_state_store.observations(self.record)), 2,
+                         "the earlier line is kept, never rewritten")
+
+    def test_a_sealing_session_for_another_plan_is_not_borrowed(self):
+        self.seal_by("SOME-OTHER-SESSION", plan_id="pln_other")
+        self.assertIsNone(bc._sealing_session("pln_x"))
+        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
+
+
+class TestContextControlStatus(CoordinatorCase):
+    """Status reports what was OBSERVED and never what is configured."""
+
+    def report(self):
+        return bc.context_control_report(self.store, self.state())
+
+    def test_it_never_claims_an_effective_threshold(self):
+        self.seed()
+        report = self.report()
+        self.assertIsNone(report["effective_threshold"])
+        self.assertTrue(report["observation_limited"])
+        rendered = io.StringIO()
+        with contextlib.redirect_stdout(rendered):
+            bc._print_context_control(report)
+        text = rendered.getvalue()
+        self.assertIn("never configured", text)
+        self.assertNotIn("threshold is", text)
+
+    def test_the_none_state_is_reported_as_none_not_omitted(self):
+        self.seed()
+        report = self.report()
+        self.assertEqual(report["observed_compactions"], 0)
+        self.assertEqual(report["compaction_history"], [])
+        self.assertEqual(report["session_at_bind"], {"model": None, "effort": None})
+
+    def test_observed_compactions_and_verifications_are_counted(self):
+        self.seed()
+        path = bc._observations_path_for(self.store)
+        build_state_store.observe(path, {"kind": "compaction", "trigger": "auto"})
+        build_state_store.observe(path, {"kind": "resume-verification", "outcome": "passed"})
+        build_state_store.observe(path, {"kind": "resume-verification", "outcome": "refused",
+                                         "reasons": ["the worktree moved"]})
+        report = self.report()
+        self.assertEqual(report["observed_compactions"], 1)
+        self.assertEqual(report["resume_verifications"]["passed"], 1)
+        self.assertEqual(report["resume_verifications"]["refused"], 1)
+        self.assertEqual(report["resume_verifications"]["last_refusal_reasons"], ["the worktree moved"])
+
+    def test_bind_time_model_and_effort_are_reported_as_self_reported(self):
+        self.seed()
+
+        def change(s):
+            s["build"]["session_at_bind"] = {"model": "opus-5", "effort": "high"}
+        self.store.mutate(change)
+        rendered = io.StringIO()
+        with contextlib.redirect_stdout(rendered):
+            bc._print_context_control(self.report())
+        text = rendered.getvalue()
+        self.assertIn("self-reported", text)
+        self.assertIn("opus-5", text)
+        self.assertIn("high", text)
+
+    def test_the_recommendation_is_reported_as_surfaced_not_effective(self):
+        self.seed()
+        recommendation = self.report()["recommendation"]
+        self.assertIn("not readable here", recommendation)
+        self.assertIn("surfaced state", recommendation)

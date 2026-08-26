@@ -67,6 +67,19 @@ build_coordinator.py plan bind --plan <plan-id> \
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
+**Bind also refuses to start the Build in the same uncompacted session that sealed the plan.** Sealing and
+building are different jobs, and the context that just carried a plan review is the worst one to write code
+in. A boundary is proven by a bind from a session other than the sealing one, or by a compaction recorded
+after the seal; with neither, bind refuses and names the remedy — settle what lives only in the conversation,
+`/compact` or `/clear`, choose the model and effort for the BUILD, bind again. Record what you chose with
+`--session-model` / `--session-effort` (self-reported, never measured). To build in the same context anyway,
+pass `--override-phase-barrier`; it is recorded and published in the pull request. The stop itself is
+ceremony — only the refusal is mechanism.
+
+Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this
+session against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and
+a `compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
+
 The snapshot is durable and lives beside its sealed plan, so a killed Build resumes with its evidence
 intact; a later command finds it from the worktree, and `--state <path>` still names one outright. It is one
 atomically replaced, lock-protected document of current evidence, carrying no authority — not an event

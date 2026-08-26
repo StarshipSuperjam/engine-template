@@ -2061,5 +2061,50 @@ class ARealProjectCrossesTheRenameWhole(unittest.TestCase):
                                                          "test_plan_coordinator.py")))
 
 
+class TestSealHandback(unittest.TestCase):
+    """The seal used to print digests and stop, at the exact moment the operator most needed telling.
+
+    What these pin is the honesty of the text as much as its content: every element the plan requires
+    must be there, and the parts that are ceremony must SAY they are ceremony. A hand-back that
+    implied the engine could enforce the pause would be claiming a guarantee it does not have.
+    """
+
+    def text(self, provider=None):
+        return project_manager.seal_handback("pln_0123456789ab", provider=provider)
+
+    def test_it_names_every_required_element(self):
+        text = self.text()
+        self.assertIn("Settle", text)
+        self.assertIn("/compact", text)
+        self.assertIn("/clear", text)
+        self.assertIn("model and reasoning effort", text)
+        self.assertIn("/autocompact", text)
+
+    def test_it_carries_the_plan_id_into_the_bind_it_suggests(self):
+        self.assertIn("--plan pln_0123456789ab", self.text())
+
+    def test_the_settle_step_is_disclosed_as_ceremony(self):
+        self.assertIn("nothing mechanical can check this for you", self.text())
+
+    def test_it_separates_the_one_mechanical_part_from_the_ceremony(self):
+        text = self.text()
+        self.assertIn("REFUSES", text)
+        self.assertIn("mechanism, not ceremony", text)
+        self.assertIn("--override-phase-barrier", text)
+
+    def test_the_recommendation_is_user_scope_and_the_engine_writes_nothing(self):
+        text = self.text()
+        self.assertIn("USER scope", text)
+        self.assertIn("deliberately writes no auto-compact setting", text)
+
+    def test_codex_gets_the_re_trust_and_asymmetry_disclosure(self):
+        text = self.text(provider="codex")
+        self.assertIn("/hooks", text)
+        self.assertIn("not registered here", text)
+
+    def test_claude_gets_no_codex_disclosure(self):
+        self.assertNotIn("/hooks", self.text(provider="claude"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -1256,6 +1257,15 @@ def cmd_seal(args) -> int:
         current.setdefault("consent", []).append(consent)
 
     library.update_record(slug, mint_seal, expected_revision=record["current"]["revision"])
+    # Which session sealed this, for the Build's phase barrier to compare against. Deliberately AFTER
+    # the seal is minted and deliberately best-effort: it is a fact about the sealing, not part of it,
+    # and a Build that cannot prove a boundary refuses safely on its own. Nothing about the seal
+    # depends on this line succeeding.
+    try:
+        import build_coordinator
+        build_coordinator.record_seal_session(record["plan_id"], os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    except Exception:  # noqa: BLE001 — never let bookkeeping disturb a terminal act
+        pass
     plan_projection.project_library(library)
     print(f"sealed {record['plan_id']} at revision {seal['revision']}")
     print(f"  on the operator's decision: “{consent['decision']}”")
@@ -1265,7 +1275,66 @@ def cmd_seal(args) -> int:
     print(f"  payload   {seal['build_plan_digest']}")
     if changed:
         print("\nThe PR must disclose that the sealed plan differs from the reviewed one, and by what.")
+    print(seal_handback(record["plan_id"], provider=_provider_name()))
     return 0
+
+
+def _provider_name() -> str | None:
+    try:
+        import providers
+        return providers.detect()
+    except Exception:  # noqa: BLE001 — provider detection never blocks a seal
+        return None
+
+
+def seal_handback(plan_id: str, *, provider: str | None = None) -> str:
+    """The plan-to-build hand-back: what to do in the gap between sealing and building.
+
+    Until this existed the seal path printed digests and stopped, so the most consequential gap in the
+    whole ceremony — the one where the operator would want to change model and effort, and where the
+    planning context should be dropped — was the one moment nothing said anything at all.
+
+    HONEST ABOUT WHAT IT IS. Only one line of this is mechanism: Build entry refuses when no boundary
+    is recorded since the seal. The rest is ceremony, and it says so. Nothing can make an operator
+    take the pause, and a hand-back implying otherwise would claim a guarantee the engine lacks.
+    """
+    lines = [
+        "",
+        "The plan is sealed and read-only. Before the Build starts — the plan-to-build boundary:",
+        "",
+        "  1. Settle anything that still lives only in this conversation. The sealed plan and the",
+        "     Build's own record are what survive; a fact that is only in the chat is a fact the",
+        "     next context will not have. (Ceremony: nothing mechanical can check this for you.)",
+        "  2. /compact — or /clear, which is cleaner if nothing above still needs carrying. The",
+        "     context that just held the plan review is the worst context to start writing code in.",
+        "  3. Choose the model and reasoning effort you want for the BUILD, a different job from",
+        "     planning and often one that wants a different setting.",
+        "  4. Then bind:",
+        f"       build_coordinator.py plan bind --plan {plan_id} \\",
+        "         --repository <owner/repo> --pr <number> \\",
+        "         --operator-decision \"<your words>\" \\",
+        "         [--session-model <model> --session-effort <low|medium|high>]",
+        "",
+        "  Build entry REFUSES if no session boundary or compaction is recorded since this seal —",
+        "  that part is mechanism, not ceremony. To build in this same context anyway, pass",
+        "  --override-phase-barrier; it is recorded on the Build and published in the pull request.",
+        "",
+        "  Worth doing once, for every future session: set your auto-compact threshold with the",
+        "  /autocompact command, which writes it at USER scope, so it survives engine updates and",
+        "  applies to every project. Around 75% is where sessions tend to start drifting. The engine",
+        "  deliberately writes no auto-compact setting anywhere — that dial is yours, and a",
+        "  project-scope value would silently outrank it.",
+    ]
+    if (provider or "").lower() == "codex":
+        lines += [
+            "",
+            "  On Codex: post-compaction re-grounding is not registered here — that runtime exposes no",
+            "  SessionStart compact source, and its PostCompact event is not confirmed to inject. What",
+            "  you keep is the coordinator's own refusal, which runs identically on both runtimes. If an",
+            "  engine update changes the hook registration, Codex skips the new hooks until you",
+            "  re-approve them with /hooks.",
+        ]
+    return "\n".join(lines)
 
 
 def cmd_close(args) -> int:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -960,6 +961,141 @@ def _library() -> "plan_store.PlanLibrary":
     return plan_store.PlanLibrary()
 
 
+# --- the seal-to-build phase barrier ------------------------------------------
+#
+# WHAT THIS IS FOR. Sealing a plan and building it are different jobs, and until now a session did
+# both in one unbroken breath — same context, same model, same reasoning effort the planning was
+# chosen for. The context that just carried a four-lens panel and thirty-three findings is the worst
+# context to start writing code in, and the moment to change model or effort is exactly the moment
+# nothing was stopping.
+#
+# Nothing here can MAKE that moment happen; the operator takes it or they do not. What the engine can
+# do is refuse to start a Build in the same uncompacted session that sealed the plan, which turns an
+# easily-skipped intention into something they have to answer for. So the mechanism is a refusal with
+# an explicit override, and the ceremony around it is described as ceremony, not as a guarantee.
+#
+# THE SIGNAL, and why it is two signals. A new session proves itself by IDENTITY: the seal records
+# which session sealed the plan, and a bind from a different session is a boundary by definition. A
+# compaction does not end a session and so cannot move that identity — which is precisely why the
+# second signal exists: the re-grounding hook records compactions, and one recorded after the seal
+# proves the context was dropped without the session ending. Between them they cover /clear, a fresh
+# session, and /compact, which are the three ways an operator actually takes this boundary.
+#
+# WHAT WAS TRIED AND DOES NOT WORK, recorded so it is not re-attempted: the live-session marker boot
+# writes. It is keyed to the repository root of the checkout the code runs from, and `plan bind` runs
+# in the BUILD worktree, which is never the root boot stamped. Reading it there returns nothing every
+# time, so a barrier resting on it would refuse every bind — and a gate that always refuses is a gate
+# everyone learns to override, which is worse than no gate at all.
+#
+# It FAILS CLOSED. When neither signal is provable the answer is "cannot prove a boundary", and that
+# refuses. A plan sealed before this recording existed has no sealing session to compare against and
+# so lands here; the refusal says so, and the override is one flag away, recorded and published.
+_SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
+_LIBRARY_OBSERVATIONS = "observations.ndjson"
+
+
+def _library_observations_path() -> "Path | None":
+    """The Build-independent observation record, at the plan library's root.
+
+    Build-independent on purpose. The per-Build record lives beside a Build's snapshot, which does not
+    exist until `plan bind` — so a compaction between the seal and the bind, the exact compaction this
+    barrier most wants to see, would have nowhere to be written. This is that nowhere.
+    """
+    try:
+        return Path(_library().root) / _LIBRARY_OBSERVATIONS
+    except Exception:  # noqa: BLE001 — no library is a reason to prove nothing, never to crash
+        return None
+
+
+def _seal_moment(selector: str) -> str | None:
+    """When this plan was sealed, from its own record, or None if that cannot be read."""
+    try:
+        library = _library()
+        record = library.read_record(library.resolve(selector))
+        return (record.get("seal") or {}).get("at")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def record_seal_session(plan_id: str, session_id: str | None) -> None:
+    """Note which session sealed a plan, in the library's append-only record.
+
+    In the observation record rather than the plan record on purpose: the seal itself is immutable and
+    schema-closed, and this is not part of what was sealed — it is a fact ABOUT the sealing, useful
+    only to the barrier. Append-only means it can never alter a seal, which is the property that
+    matters most about anything written near a terminal act.
+    """
+    path = _library_observations_path()
+    if path is None or not session_id:
+        return
+    build_state_store.observe(path, {"kind": "seal", "plan_id": plan_id, "session": session_id})
+
+
+def _sealing_session(plan_id: str) -> str | None:
+    path = _library_observations_path()
+    if path is None:
+        return None
+    for entry in reversed(build_state_store.observations(path)):
+        if entry.get("kind") == "seal" and entry.get("plan_id") == plan_id:
+            return entry.get("session")
+    return None
+
+
+def phase_barrier_reasons(sealed_at: str | None, plan_id: str | None = None) -> list[str]:
+    """Empty when a session boundary or a compaction is provable since the seal; otherwise why not.
+
+    Read-only, and deliberately unable to prove a boundary by inference: a signal it cannot read is
+    not a boundary it may assume.
+    """
+    if not sealed_at:
+        # No seal moment to measure against. The barrier makes no claim rather than a bad one — the
+        # bind's own sealed-plan checks are what guard this case.
+        return []
+    sealed_epoch = moment.epoch(sealed_at)
+    if sealed_epoch is None:
+        return []
+
+    # Signal one: identity. A bind from a session other than the one that sealed is a boundary by
+    # definition, and needs nothing to have been observed along the way.
+    here = os.environ.get(_SESSION_ENV) or None
+    sealed_by = _sealing_session(plan_id) if plan_id else None
+    if here and sealed_by and here != sealed_by:
+        return []
+
+    # Signal two: a compaction recorded after the seal. This is what covers /compact, which keeps the
+    # same session and so leaves signal one unmoved.
+    path = _library_observations_path()
+    if path is not None:
+        for entry in build_state_store.observations(path):
+            if entry.get("kind") != "compaction":
+                continue
+            when = moment.epoch(entry.get("at"))
+            if when is not None and when > sealed_epoch:
+                return []
+
+    reasons = [
+        f"no session boundary and no compaction is recorded since this plan was sealed ({sealed_at}). "
+        "The Build would start in the same context that did the planning — the one that just carried "
+        "the plan review — on the model and effort the planning was chosen for.",
+        "The remedy is the boundary itself: settle anything that still lives only in this "
+        "conversation, then /compact or /clear, choose the model and effort you want for the BUILD, "
+        "and run this bind again. Starting a fresh session works too.",
+    ]
+    if not sealed_by:
+        reasons.append(
+            "Note: this plan's seal predates the engine recording which session sealed it, so the "
+            "identity check has nothing to compare against and only a recorded compaction can clear "
+            "the barrier here. That is a gap in the evidence, not a judgement about this Build.")
+    if not here:
+        reasons.append(
+            f"Note: {_SESSION_ENV} is not set in this environment, so this session cannot identify "
+            "itself and the identity check cannot run.")
+    reasons.append(
+        "If you mean to build in this session anyway, say so explicitly: pass "
+        "--override-phase-barrier. It is recorded on the Build and published in the pull request.")
+    return reasons
+
+
 def _sealed_plan(selector: str) -> tuple[str, str, dict]:
     """Resolve a sealed plan in the local library: (plan_id, sealed_digest, build payload).
 
@@ -1127,11 +1263,37 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     if not (getattr(args, "operator_decision", None) or "").strip():
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
     consent = plan_lifecycle.attestation("bind", args.operator_decision, at=moment.utc_now())
+    # The phase barrier, on the gate that already exists rather than beside it. This is the same
+    # consent door — it already refuses an unsealed plan, a moved digest, and a missing decision — so
+    # the boundary check belongs here, where a second ceremony would only drift from it.
+    override = bool(getattr(args, "override_phase_barrier", False))
+    barrier = phase_barrier_reasons(_seal_moment(args.plan), plan_id)
+    if barrier and not override:
+        raise CoordinatorError("\n  ".join(["the Build has not crossed the plan-to-build boundary yet."] + barrier))
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
+    # What the build phase actually started on. Self-reported and recorded as such: the engine cannot
+    # read the session's model or effort, so this is the operator's or the session's own statement,
+    # and status says so rather than presenting it as measured. Recorded even when both are absent, so
+    # a reader can tell "nobody said" from "nobody asked".
+    model = getattr(args, "session_model", None)
+    effort = getattr(args, "session_effort", None)
+    if model or effort or override:
+        state["build"]["session_at_bind"] = {"model": model, "effort": effort}
+    if override:
+        # The barrier was crossed on the operator's say-so rather than on a recorded boundary. It goes
+        # in the same ledger every other unreviewed-divergence goes in, so it surfaces in status and
+        # publishes in the PR body instead of living only in this terminal.
+        state.setdefault("plan_change_escalations", []).append({
+            "reviewed_plan_digest": state["plan"]["digest"],
+            "plan_digest": state["plan"]["digest"],
+            "operator_change":
+                "Phase barrier overridden at bind (--override-phase-barrier). No session boundary or "
+                "compaction was recorded since the seal, so this Build starts in the same context that "
+                "planned it. The operator's recorded bind decision: " + args.operator_decision})
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
@@ -1428,6 +1590,59 @@ def cmd_approve(args, store: Snapshot) -> None:
     print(f"approved plan and {args.depth} review depth")
 
 
+def context_control_report(store, state: dict) -> dict:
+    """What this Build has OBSERVED about its own context, and what it deliberately cannot say.
+
+    Every number here is observation-limited and labelled so. The engine cannot read the harness's
+    effective auto-compact threshold — there is no interface that exposes it — so this reports what
+    was seen happening, never what is configured. A status line claiming an effective threshold would
+    be the most confident sentence on the screen and the only unverifiable one.
+    """
+    entries = build_state_store.observations(_observations_path_for(store))
+    compactions = [e for e in entries if e.get("kind") == "compaction"]
+    verifications = [e for e in entries if e.get("kind") == "resume-verification"]
+    session = (state.get("build") or {}).get("session_at_bind") or {}
+    return {
+        "observed_compactions": len(compactions),
+        "compaction_history": [
+            {"at": e.get("at"), "trigger": e.get("trigger"), "session": e.get("session")}
+            for e in compactions],
+        "resume_verifications": {
+            "passed": sum(1 for e in verifications if e.get("outcome") == "passed"),
+            "refused": sum(1 for e in verifications if e.get("outcome") == "refused"),
+            "last_refusal_reasons": next(
+                (e.get("reasons") for e in reversed(verifications) if e.get("outcome") == "refused"),
+                []),
+        },
+        "session_at_bind": {"model": session.get("model"), "effort": session.get("effort")},
+        "observation_limited": True,
+        "effective_threshold": None,
+        "recommendation":
+            "A one-time user-level /autocompact setting is recommended in the seal hand-back and the "
+            "operator docs. Whether it has been applied is the operator's own setting and is not "
+            "readable here, so this is the recommendation's surfaced state, not its effective state.",
+    }
+
+
+def _print_context_control(report: dict) -> None:
+    print("Context control (observed, never configured — the engine cannot read the harness threshold):")
+    print(f"  compactions observed on this Build: {report['observed_compactions']}"
+          " (observation-limited: a compaction whose hook did not fire leaves no line here)")
+    for entry in report["compaction_history"]:
+        print(f"    - {entry['at']} ({entry['trigger']})")
+    checks = report["resume_verifications"]
+    print(f"  resume verifications: {checks['passed']} passed, {checks['refused']} refused")
+    for reason in checks["last_refusal_reasons"]:
+        print(f"    last refusal: {reason}")
+    session = report["session_at_bind"]
+    if session["model"] or session["effort"]:
+        print(f"  recorded at bind (self-reported): model {session['model'] or 'not stated'}, "
+              f"effort {session['effort'] or 'not stated'}")
+    else:
+        print("  recorded at bind (self-reported): nothing was stated")
+    print(f"  {report['recommendation']}")
+
+
 def cmd_status(args, store: Snapshot) -> None:
     state = store.read()
     plan = None
@@ -1435,6 +1650,7 @@ def cmd_status(args, store: Snapshot) -> None:
         plan = _plan(args.plan)
         _assert_plan(state, plan)
     result = _status(state, plan)
+    result["context_control"] = context_control_report(store, state)
     if args.json:
         # The reminder rides in the JSON payload too, so a session consuming --json (a documented status
         # path) still meets the submit-gate nudge (StarshipSuperjam/engine-template#1014).
@@ -1461,6 +1677,7 @@ def cmd_status(args, store: Snapshot) -> None:
             print(label + ":")
             for value in values:
                 print(f"  - {value}")
+    _print_context_control(result["context_control"])
     if result["suggested_next"]:
         print("Suggested next: " + result["suggested_next"])
     if result["available_activities"]:
@@ -4417,7 +4634,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
-    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decision", help="The operator's actual words giving the go for the Build to begin. Published verbatim in the pull request's consent trail; a record, not a proof."); bind.set_defaults(func=cmd_plan_bind)
+    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decision", help="The operator's actual words giving the go for the Build to begin. Published verbatim in the pull request's consent trail; a record, not a proof."); bind.add_argument("--override-phase-barrier", action="store_true", help="Start the Build in the same context that sealed the plan, with no session boundary or compaction recorded since. Recorded on the Build and published in the pull request."); bind.add_argument("--session-model", help="The model this BUILD phase runs on, self-reported. Recorded, never measured."); bind.add_argument("--session-effort", choices=["low", "medium", "high"], help="The reasoning effort this BUILD phase runs at, self-reported. Recorded, never measured."); bind.set_defaults(func=cmd_plan_bind)
     adopt = plan.add_parser("adopt", help="consume a SEALED successor plan without restarting the Build"); adopt.add_argument("--successor", required=True, help="a sealed plan in the library that names the bound plan as its predecessor"); adopt.add_argument("--input", required=True, help="the plan this Build is currently executing, for the node-by-node comparison"); adopt.add_argument("--operator-decision", help="The operator's actual words authorising the Build to continue on the successor."); adopt.set_defaults(func=cmd_plan_adopt)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)
@@ -4526,6 +4743,15 @@ def reground_handler(payload: dict) -> dict:
     except Exception:  # noqa: BLE001 — fail open: a hook never blocks a session from starting
         return hooks.proceed()
     if not found:
+        # Still recorded, and this is the recording that the phase barrier reads. A compaction taken
+        # between sealing a plan and binding it happens when NO Build exists yet, so the per-Build
+        # record has nowhere to put it — and that compaction is exactly the one the barrier is asking
+        # about. It goes to the library-level record instead.
+        library_record = _library_observations_path()
+        if library_record is not None:
+            build_state_store.observe(library_record, {
+                "kind": "compaction", "trigger": payload.get("trigger") or "unknown",
+                "session": payload.get("session_id"), "worktree": str(ROOT), "plan_slug": None})
         # Silence here would be indistinguishable from "the hook is broken", and a guess would be
         # worse than either. So the no-Build case says so plainly and stops.
         return hooks.inject(
@@ -4542,9 +4768,15 @@ def reground_handler(payload: dict) -> dict:
         state = core.json_file(path)
     except Exception:  # noqa: BLE001
         return hooks.proceed()
-    build_state_store.observe(path.parent / build_state_store.OBSERVATIONS_FILENAME, {
-        "kind": "compaction", "trigger": payload.get("trigger") or "unknown",
-        "session": payload.get("session_id"), "worktree": str(ROOT), "plan_slug": slug})
+    entry = {"kind": "compaction", "trigger": payload.get("trigger") or "unknown",
+             "session": payload.get("session_id"), "worktree": str(ROOT), "plan_slug": slug}
+    build_state_store.observe(path.parent / build_state_store.OBSERVATIONS_FILENAME, entry)
+    # And to the library-level record, so a compaction taken during THIS Build still counts as a
+    # boundary for the next plan's barrier. The two records answer different questions — this Build's
+    # history, and whether any boundary has happened at all — so both get the line.
+    library_record = _library_observations_path()
+    if library_record is not None:
+        build_state_store.observe(library_record, entry)
     return hooks.inject(reground_pointer(state))
 
 

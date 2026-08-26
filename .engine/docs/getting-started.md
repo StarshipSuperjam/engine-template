@@ -42,6 +42,16 @@ You never have to memorize anything; the list is always a few keystrokes or one 
 
 One question worth knowing you can ask: **"what is my engine made of?"** — its version, the parts it is built from, and how they fit together. Ask it in plain words, or type **`/engine-parts`** for the same plain readout. It only reads; it never changes anything.
 
+## The pause between planning a change and building it
+
+Planning something and building it are different jobs, and they often want different settings — a different model, a different amount of care. So when a plan is locked in, the Engine hands you a short list rather than rolling straight on: settle anything that still lives only in the conversation, clear or compress the context, and choose what you want the *building* to run on. Then the build starts.
+
+Most of that is a suggestion the Engine cannot enforce. One part of it is real: the Engine will **refuse to start building in the same unbroken conversation that just locked the plan**, and it tells you exactly how to clear that — or how to say "build here anyway", which it records and shows you again when you come to approve the change.
+
+One thing worth setting once, because it applies everywhere and the Engine deliberately will not set it for you: your **auto-compact threshold**, with the `/autocompact` command. It saves against your own account rather than this project, so it survives updates and covers every project you work on. Around 75% is where long sessions tend to start wandering. The Engine leaves that dial entirely to you — a project-level value would quietly override your own choice, which is not a thing it will do to you.
+
+If a long build *does* get compressed partway through, that is meant to be a non-event. The Engine re-checks that it is still working on the build it thinks it is before it changes anything, and refuses if it isn't — so a confused session fails safely instead of writing into the wrong place.
+
 ## When the engine suggests removing a part of itself
 
 From time to time the Engine checks over its own parts and may suggest **retiring** something it no longer needs — a rule, a document, or a piece of its own machinery.
