@@ -381,7 +381,10 @@ def _write_all(fd: int, data: bytes) -> None:
 
 def _sealed_targets(sealed_plan: dict) -> dict[str, dict]:
     """Validate the pre-overlay target plan without consulting Git's now-candidate index."""
-    if not isinstance(sealed_plan, dict) or sealed_plan.get("status") != "ready" \
+    if not isinstance(sealed_plan, dict) or sealed_plan.get("schema_version") != "tracked-content-plan.v1" \
+            or sealed_plan.get("migration_id") != "core@0.7.0" \
+            or sealed_plan.get("module_id") != "core" or sealed_plan.get("version") != "0.7.0" \
+            or sealed_plan.get("run") != "migrations/retire_eadr_records.py" \
             or not isinstance(sealed_plan.get("targets"), list):
         raise RuntimeError("the sealed retirement plan is malformed")
     targets = {}
@@ -397,10 +400,10 @@ def _sealed_targets(sealed_plan: dict) -> dict[str, dict]:
             name = path[len(_INSTANCE) + 1:]
             if name != "README.md" and not _RECORD_RE.fullmatch(name):
                 raise RuntimeError(f"the sealed retirement plan names an unsupported record: {path}")
-            expected_scope = [path, _path_for_instance_name(_q_name(name))]
+            expected_scope = sorted([path, _path_for_instance_name(_q_name(name))])
             expected_operation = "delete"
         elif path == _OVERRIDES:
-            expected_scope = [_OVERRIDES, ".engine/" + _OVERRIDE_Q, ".engine/" + _OVERRIDE_NEXT]
+            expected_scope = sorted([_OVERRIDES, ".engine/" + _OVERRIDE_Q, ".engine/" + _OVERRIDE_NEXT])
             expected_operation = "replace"
         else:
             raise RuntimeError(f"the sealed retirement plan names an out-of-scope target: {path}")

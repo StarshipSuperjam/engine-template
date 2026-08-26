@@ -96,6 +96,24 @@ class RetirementMigrationTests(unittest.TestCase):
         self.assertEqual(result.get("status"), "ready", result)
         return result
 
+    @staticmethod
+    def _sealed(plan):
+        return {
+            "schema_version": "tracked-content-plan.v1",
+            "migration_id": "core@0.7.0",
+            "module_id": "core",
+            "version": "0.7.0",
+            "run": "migrations/retire_eadr_records.py",
+            "scope": [
+                ".engine/contracts/instance",
+                ".engine/operator-overrides.json",
+                ".engine/.engine-upgrade-retirement-quarantine-overrides",
+                ".engine/.engine-upgrade-retirement-next-overrides",
+            ],
+            "targets": [{**target, "recovery_scope": sorted(target["recovery_scope"])}
+                        for target in plan["targets"]],
+        }
+
     def test_historical_filename_grammar_and_exact_target_receipt(self):
         for name in self.VALID_NAMES:
             self.assertIsNotNone(migration._RECORD_RE.fullmatch(name), name)
@@ -109,7 +127,7 @@ class RetirementMigrationTests(unittest.TestCase):
         expected.add(".engine/operator-overrides.json")
         self.assertEqual({t["path"] for t in plan["targets"]}, expected)
         with self._empty_plans():
-            receipt = migration.apply(self._context(root), plan)
+            receipt = migration.apply(self._context(root), self._sealed(plan))
         self.assertEqual(receipt["status"], "applied")
         self.assertEqual({c["path"] for c in receipt["changes"]}, expected)
         self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts", "instance")))
@@ -196,7 +214,7 @@ class RetirementMigrationTests(unittest.TestCase):
             handle.write(original)
         plan = self._preflight(root)
         with self._empty_plans():
-            receipt = migration.apply(self._context(root), plan)
+            receipt = migration.apply(self._context(root), self._sealed(plan))
         self.assertEqual(receipt["status"], "applied")
         self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts", "instance")))
         self.assertEqual([p.name for p in Path(root, ".engine").rglob("*")
@@ -216,7 +234,7 @@ class RetirementMigrationTests(unittest.TestCase):
                   ".engine/operator-overrides.json")
         self.assertEqual(self._git(root, "ls-files", "--", ".engine/contracts/instance"), "")
         with self._empty_plans():
-            receipt = migration.apply(self._context(root), plan)
+            receipt = migration.apply(self._context(root), self._sealed(plan))
         self.assertEqual(receipt["status"], "applied")
         self.assertEqual({entry["path"] for entry in receipt["changes"]},
                          {target["path"] for target in plan["targets"]})
@@ -318,7 +336,7 @@ class RetirementMigrationTests(unittest.TestCase):
                 self.assertTrue(tx["ok"], tx)
                 self.assertTrue(checkout_health.update_upgrade_transaction(root, "mutating")["ok"])
                 with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as handle:
-                    json.dump(plan, handle)
+                    json.dump(self._sealed(plan), handle)
                     plan_path = handle.name
                 self.addCleanup(lambda p=plan_path: os.path.exists(p) and os.unlink(p))
                 env = dict(os.environ)
