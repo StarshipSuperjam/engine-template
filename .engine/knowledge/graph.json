@@ -5674,7 +5674,7 @@
       },
       "slug": "eADR-0022-hooks-lifecycle-bindings-block-budget",
       "source": {
-        "fingerprint": "sha256:60d6a3484e0b51a240d747c7975826daa77c32535c193d1f951c9f2f0cae2bf7",
+        "fingerprint": "sha256:a03ee685935073b08db350c23d2d30724a68ec3cd3b6354969c06b816174ceac",
         "path": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md"
       },
       "status": "accepted",
@@ -6034,7 +6034,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:cd09479d0e13655106462348e0f150ac3124d77f40b7b42c9fa05385f92b7ce5",
+        "fingerprint": "sha256:3205ce0e93b2ac35e1953fe6d9e484facb9a12470a47f638509f4b34d92df58c",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6114,7 +6114,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:199dc28b04c9246641e9ac110a0825b0afec5ffc77c0aba86a4869076e933411",
+        "fingerprint": "sha256:729aac9d16e0691c835e85dac8bedd889e9744554deb32ae692bc58f4011698e",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6282,7 +6282,6 @@
       "predicates": {
         "wires_hook": [
           "tool:boot",
-          "tool:build_coordinator",
           "tool:close",
           "tool:knowledge_gen",
           "tool:modes",
@@ -6295,7 +6294,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:e677d351f547926e6742ee9976eb83b7531ef56970b83c647a7505fdac7f8523",
+        "fingerprint": "sha256:0add6545c1b320d567c60a0d4d1d6c6db81629f442ef1da113b227431c3afeee",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6546,7 +6545,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:9c9fa42185aff775766d1ab890f1064bb37e3a1527764104cf0f61a12af80371",
+        "fingerprint": "sha256:fbfe54cddce0cc35cdc7662c0797b86cd2b3fcdd53590651bb309e7302dc53de",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7415,7 +7414,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:6e0a893c826021aacb6db5529c749715d27ef470beea92fe870bd44a6b2a48e2",
+        "fingerprint": "sha256:be9be9d5aa167b9b0a45bfc7f53e3be3a540aa80da68a5ad305b29628d9346b5",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -7601,7 +7600,7 @@
       },
       "slug": "build-handoff.v2",
       "source": {
-        "fingerprint": "sha256:fb5b841bbdfbeb3c3b2876b102fb0ca827a73bd0b25b7042a6d2568d15e30690",
+        "fingerprint": "sha256:2fa7bed6dc38121ece908e47f9feda887332af8415e0ee71aa9257c327ce4093",
         "path": ".engine/schemas/build-handoff.v2.json"
       },
       "status": "active",
@@ -7703,7 +7702,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:36e86679e1dc26f5f4abe2a9503750b6cd580646dd7189e060e3adbd955fe34b",
+        "fingerprint": "sha256:059a25d09c398239c1ba6a39587a319e6cf7fa9708f25f5173bc0cf5dc6e0653",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -10002,7 +10001,7 @@
       "type": "tool"
     },
     {
-      "entrypoint": "hook",
+      "entrypoint": "cli",
       "guarded": false,
       "id": "tool:build_coordinator",
       "name": ".engine/tools/build_coordinator.py",
@@ -10022,11 +10021,11 @@
           "tool:build_state_store",
           "tool:ci_gatekeeper",
           "tool:derived_state",
-          "tool:hooks",
           "tool:moment",
           "tool:plan_contract",
           "tool:plan_lifecycle",
           "tool:plan_store",
+          "tool:repair_divergence",
           "tool:repo_identity",
           "tool:review_integrity",
           "tool:spec_referent",
@@ -10039,7 +10038,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:82e3f90a9eb5525c119e535a1d9edaf5ecef7d3ce17824a552fb2c357a1b6a3e",
+        "fingerprint": "sha256:0d935c000cd4ffd85da66010ec6e906fd7ede6eb51b57439c4b61a353fa93858",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10063,7 +10062,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:bcb2eb6c703d08d0bfa5c8d9fbbd3cd27b454ec64ef07eb0d478ec9b2101640f",
+        "fingerprint": "sha256:b50a4c99601e2b0991b7a1109a63bf417c94faa36bde665ac98e661212ad4a86",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -10083,7 +10082,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:764f78b576365d93766dec7d8b95ab48d412d089a68b8add6e0ec6c49f519800",
+        "fingerprint": "sha256:1c62f1e083e6151f8a10da477e27c123f11f1f8775e6fce757db4a8a7b53c9f3",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -10295,7 +10294,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:fa161f8259dc1b63cf6aaa88da59be5e65a5b95f92be35bbd42ba38d83a19693",
+        "fingerprint": "sha256:e2e53cfc01caa879df81fc69e326327418896497744830d90d5b62beac37aa80",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -11435,32 +11434,6 @@
     {
       "entrypoint": "demo",
       "guarded": false,
-      "id": "tool:demo_context_control",
-      "name": ".engine/tools/demo_context_control.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:build_coordinator",
-          "tool:build_state_store",
-          "tool:engine_fixture",
-          "tool:plan_store"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_context_control",
-      "source": {
-        "fingerprint": "sha256:8edfa4f8f0e25cbed6cc345398de69b1b100de2a25334f1dbe1513ffe461b2b1",
-        "path": ".engine/tools/demo_context_control.py"
-      },
-      "status": "active",
-      "summary": "Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable and that",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
       "id": "tool:demo_contract_rate",
       "name": ".engine/tools/demo_contract_rate.py",
       "owner": "core",
@@ -11911,7 +11884,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:a968ef1a6915bfa233ccf5aaa640e71ae58311df8f5849601dcdf3d1f6f8917a",
+        "fingerprint": "sha256:0907b9f9f3102cd045d76552f2c866e5ec331c88816bf75f3eb33fc0969214e2",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -12868,7 +12841,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:a0b0396668b5b0bea03ca74bbcdf4e9f5716ddb5d9501a3d6e329d7a3c996c62",
+        "fingerprint": "sha256:fc8d60538ba9745250b81377f67941616c874bf021b479b8c17c913733e1494e",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -14439,7 +14412,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:d2c15b8023787bbc64576666c0cdd420a3fb27879b032b79f4fa877ea31f7807",
+        "fingerprint": "sha256:92f97b790e1bf3e7db8be7664b0943b569094397e6dd2901e068dbafef995350",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -14845,6 +14818,30 @@
       },
       "status": "active",
       "summary": "The one render-safety boundary — neutralise an attacker-influenceable identifier before it is rendered",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:repair_divergence",
+      "name": ".engine/tools/repair_divergence.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:derived_state",
+          "tool:weakening_guard"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "repair_divergence",
+      "source": {
+        "fingerprint": "sha256:a38b88dfc9c94f6700914a37d9edf57ff9a26d55a741356c278671439923fe3f",
+        "path": ".engine/tools/repair_divergence.py"
+      },
+      "status": "active",
+      "summary": "What a repair round actually touched, by kind of surface.",
       "type": "tool"
     },
     {
@@ -16055,7 +16052,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f808566c1e6447d2d8d106cbb6d43c968a90599f041f27005a7927a6584cb6ca",
+        "fingerprint": "sha256:8caf817994e5745f865847850307b69f9b1cbd498a4c23ea142dfcb8afd535fd",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16158,14 +16155,14 @@
           "tool:boot",
           "tool:build_coordinator",
           "tool:build_coordinator_contract",
-          "tool:build_state_store",
+          "tool:build_coordinator_github",
           "tool:checkout_health",
           "tool:derived_state",
-          "tool:hooks",
           "tool:module_coherence",
           "tool:plan_contract",
           "tool:plan_store",
           "tool:project_manager",
+          "tool:repair_divergence",
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
           "tool:test_plan_store"
@@ -16173,7 +16170,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:ad3833b59310aefd6d6d3868ebf4561799a678f7265604f567bc41c3bacb2812",
+        "fingerprint": "sha256:5aa360a9761e29411f659ecdd11496d1d916e906ee49f85f67f51df6d266c0d7",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16408,7 +16405,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:bc6be05f9f0d8e3ef15e0ceeef1cf2e724bbc076ea86e2afced1745b69413d6a",
+        "fingerprint": "sha256:31d8cc7174fc07092e7b0785f903b27e106b07420ed0e431b8ba075f63a944ce",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -16774,31 +16771,6 @@
       },
       "status": "active",
       "summary": "Self-tests for the standing product-spec-conformance sweep (#449) — the core tool that reads",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_context_control_end_to_end",
-      "name": ".engine/tools/test_context_control_end_to_end.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:build_coordinator",
-          "tool:demo_context_control",
-          "tool:quiet_call"
-        ]
-      },
-      "slug": "test_context_control_end_to_end",
-      "source": {
-        "fingerprint": "sha256:3e7b25c3e2d48d102a36ce7485d41e4a24998f078923468cadf0dd9d80eb1d4a",
-        "path": ".engine/tools/test_context_control_end_to_end.py"
-      },
-      "status": "active",
-      "summary": "End-to-end cover for the context-control spine, plus the static half of the powers-not-taken claim.",
       "type": "tool"
     },
     {
@@ -17470,7 +17442,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:90aedde6c95d8aa41dca47db213834c5c91a2fbc2b008b2c8a07803e6bd5d90e",
+        "fingerprint": "sha256:173acf0c2c1d97eef0a371d325529e0ccbc10b93d5de0c2815e7c67a22a5c87a",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18975,7 +18947,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:9bafd359b3f84c69161b386d8b5268e395eb534b0b2e116c1a151d509f8d7f81",
+        "fingerprint": "sha256:e10632dcb8420b3956b7635480f8aa32b325fd926bf1eb6540ad6e9e3b141218",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -19340,6 +19312,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_repair_divergence",
+      "name": ".engine/tools/test_repair_divergence.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:derived_state",
+          "tool:repair_divergence",
+          "tool:weakening_guard"
+        ]
+      },
+      "slug": "test_repair_divergence",
+      "source": {
+        "fingerprint": "sha256:af0656946ee31653f2fb08b9751453776503db4486e62f464d79cb7c0a7a926f",
+        "path": ".engine/tools/test_repair_divergence.py"
+      },
+      "status": "active",
+      "summary": "Tests for repair_divergence — what a repair round touched, by kind of surface.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_repo_behavior",
       "name": ".engine/tools/test_repo_behavior.py",
       "owner": "core",
@@ -19521,7 +19518,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:40a8e95f0123df4cc9c1b25efd3e60fc4d1bd33ca4ed961eab641ce0930cd36d",
+        "fingerprint": "sha256:7d407aac518cab4c97f1e2c3a708dd9e154e524207b480663d35ad88e15b09c4",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",

@@ -195,6 +195,103 @@ class TheRoundCounter(_RealRepo):
                          "re-pointing at a commit the engine generated itself is bookkeeping, not a round")
         self.assertIn("re-points the repair round already recorded", err)
 
+    def test_a_generated_commit_cannot_absorb_a_fan_out_that_never_came_back(self):
+        """StarshipSuperjam/engine-template#1065, on the path the spend-counting rewrite reopened.
+
+        A round whose panel was dispatched and never returned is PAID FOR. StarshipSuperjam/engine-template#1071 recorded that
+        on the
+        ledger entry so no later assess could absorb it; the spend-counting rewrite dropped that flag and
+        read the fact live off the open repair record instead -- but keyed the live read on the commit
+        pair, which is exactly the identity keying
+        StarshipSuperjam/engine-template#1065 named as the defect. One `sync-artifacts` commit
+        then moved the head, `_same_episode` read the generated commit as `nothing authored landed`, and
+        the abandoned round was re-pointed instead of counted. Repeated, the ledger never grew: ten
+        dispatched panels, one entry, and BOTH bounds silent -- the counted budget refunded every time and
+        the absolute ceiling never reached, because the ceiling counts entries."""
+        reviewed = self.commit("src.py", "the deliverable")
+        repaired = self.commit("src.py", "the repair")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        state, _ = self._assess(state, repaired)
+        self.assertEqual(len(state["repair_rounds"]), 1)
+        # The panel was cut and the lenses never returned: no receipt, packet still open.
+        state["repair"]["packet_digest"] = "sha256:" + "5" * 64
+        generated = self.commit(DERIVED_PATH, "regenerated")
+        state, err = self._assess(state, generated)
+        self.assertEqual(len(state["repair_rounds"]), 2,
+                         "a dispatched-and-abandoned round is paid for; a generated commit must not "
+                         "absorb it and refund its slot")
+        self.assertNotIn("re-points the repair round already recorded", err)
+
+    def test_abandoned_panels_reach_the_counted_budget_they_are_supposed_to_reach(self):
+        """The consequence stated as the obligation states it. The headline promises no class of round
+        repeats unbounded while the operator is away; that is only true if every dispatched panel leaves
+        an entry behind."""
+        reviewed = self.commit("src.py", "the deliverable")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        head = self.commit("src.py", "the repair")
+        for attempt in range(3):
+            state, _ = self._assess(state, head, lenses=("usability", "technical-integrity"))
+            state["repair"]["packet_digest"] = "sha256:" + "5" * 64   # dispatched, never returned
+            head = self.commit(DERIVED_PATH, f"regenerated {attempt}")
+        # Three panels, three entries -- each abandoned, each still on the ledger. The whole budget.
+        self.assertEqual(len(state["repair_rounds"]), 3)
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            self._assess(state, head, lenses=("usability", "technical-integrity"))
+        self.assertIn("counted budget", str(caught.exception))
+
+    def test_abandoned_cheap_checks_reach_the_absolute_ceiling(self):
+        """The other half of the same promise, and the half only the CEILING can keep. A single-lens
+        check spends no counted budget, so if an abandoned one could be absorbed nothing would ever stop
+        it -- the ceiling is the only bound in play, and it counts ledger entries."""
+        reviewed = self.commit("src.py", "the deliverable")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        head = self.commit("src.py", "the repair")
+        for attempt in range(6):
+            state, _ = self._assess(state, head, lenses=("usability",))
+            state["repair"]["packet_digest"] = "sha256:" + "5" * 64   # dispatched, never returned
+            head = self.commit(DERIVED_PATH, f"regenerated {attempt}")
+        self.assertEqual(len(state["repair_rounds"]), 6)
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [False] * 6,
+                         "a one-lens check never spends the counted budget")
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            self._assess(state, head, lenses=("usability",))
+        self.assertIn("absolute ceiling", str(caught.exception))
+
+    def test_re_judging_a_completed_panel_does_not_refund_it(self):
+        """A replacement re-judges a round; it never un-spends one. The entry used to take the fresh
+        answer, so a completed two-lens panel re-assessed as a single-lens check came back UNCOUNTED --
+        the ledger forgot a panel it had paid for, and every later round read the short number."""
+        reviewed = self.commit("src.py", "the deliverable")
+        repaired = self.commit("src.py", "the repair")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        state, _ = self._assess(state, repaired, lenses=("usability", "technical-integrity"))
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True])
+        # The panel came back, then a generated commit moved the head: the same episode, re-pointed.
+        state["repair"]["receipts"] = [self.receipt("usability", reviewed, repaired, packet_digest=None)]
+        state["repair"]["packet_digest"] = None
+        generated = self.commit(DERIVED_PATH, "regenerated")
+        state, _ = self._assess(state, generated, lenses=("usability",))
+        self.assertEqual(len(state["repair_rounds"]), 1)
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True],
+                         "the panel was dispatched and paid for; re-judging it cheap cannot refund it")
+
+    def test_a_judgment_abandoned_before_the_packet_was_cut_is_not_charged_as_a_panel(self):
+        """The other edge of counted-stickiness. Keeping a round counted must key on evidence the lenses
+        WENT OUT, not on the roster the entry recorded: judge two lenses, think better of it before
+        cutting the packet, re-judge with one, and nothing was ever dispatched. Charging it anyway made
+        the merge surface contradict itself -- counted among the rounds that "dispatched a review panel"
+        while its own line read "one cold check"."""
+        reviewed = self.commit("src.py", "the deliverable")
+        repaired = self.commit("src.py", "the repair")
+        state = _state(reviewed_commit=reviewed, base_commit=self.base)
+        state, _ = self._assess(state, repaired, lenses=("usability", "technical-integrity"))
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [True])
+        self.assertIsNone(state["repair"]["packet_digest"], "nothing was dispatched")
+        state, _ = self._assess(state, repaired, lenses=("usability",))
+        self.assertEqual(len(state["repair_rounds"]), 1)
+        self.assertEqual([r["counted"] for r in state["repair_rounds"]], [False],
+                         "no packet was cut and no receipt came back, so no panel was ever paid for")
+
     def test_real_work_past_a_completed_round_does_open_a_new_one(self):
         """The counter is not simply looser. Authored work the round's lenses have not read is a genuine
         second round and still counts toward the gate."""

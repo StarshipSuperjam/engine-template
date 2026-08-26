@@ -375,6 +375,30 @@ def run_validation(command: list[str], log_path: Path, *, root: Path) -> int:
         return process.wait()
 
 
+def forward_migrate(state: dict) -> dict:
+    """Drop fields a shipped snapshot may carry that the current schema no longer declares.
+
+    The Build schemas set `additionalProperties: false`, so REMOVING a field is a breaking change for
+    every document already written with it: the store re-validates the whole snapshot on read AND on
+    write, so such a Build is unreadable from the moment the removal lands, with no verb named in the
+    refusal that would recover it. Applied on load, before validation, in the one place both Build
+    stores share -- `RevisionedStore` is theirs alone; the plan library has its own store, so nothing
+    here reaches it.
+
+    `spent` (StarshipSuperjam/engine-template#1071) marked a repair round whose panel was dispatched
+    and never returned. Spend counting replaced it: what a round cost is now recorded once, as
+    `counted`. Dropping it here rather than tolerating it in the schema is what keeps the ledger from
+    carrying two answers to one question. A legacy round loses no protection by it -- `_round_counted`
+    reads an absent `counted` as counted, which is the fail-toward-spent direction.
+    """
+    rounds = state.get("repair_rounds")
+    if isinstance(rounds, list) and any(isinstance(r, dict) and "spent" in r for r in rounds):
+        state = dict(state)
+        state["repair_rounds"] = [{k: v for k, v in r.items() if k != "spent"}
+                                  if isinstance(r, dict) else r for r in rounds]
+    return state
+
+
 class RevisionedStore:
     """THE revisioned-JSON store discipline, in one place: lock, validate, compare-and-swap, replace.
 
@@ -421,7 +445,7 @@ class RevisionedStore:
         with self._locked():
             if not self.path.exists():
                 raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
-            state = json_file(self.path)
+            state = forward_migrate(json_file(self.path))
             validate(state, self._schema_for(state))
             return state
 
@@ -435,7 +459,7 @@ class RevisionedStore:
         with self._locked():
             if not self.path.exists():
                 raise CoordinatorError(f"no {self.what} at {self.path}; {self.missing_remedy}")
-            state = json_file(self.path)
+            state = forward_migrate(json_file(self.path))
             validate(state, self._schema_for(state))
             expected = self.expected_revision if self.expected_revision is not None else from_revision
             assert_revision(state["revision"], expected, "snapshot", self.stale_remedy)

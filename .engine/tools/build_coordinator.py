@@ -16,6 +16,7 @@ import stat
 import subprocess
 import sys
 import time
+import unicodedata
 from typing import Any
 
 import build_coordinator_contract as composer  # aliased 'composer', not 'contract': this file uses the bare
@@ -358,10 +359,21 @@ def _empty_review() -> dict:
             "reviewer_contracts": [], "receipts": [], "reviewed_commit": None, "base_commit": None}
 
 
-# After this many repair rounds on one deliverable, the next round stops for operator guidance. Two is
-# the operator's chosen threshold: enough for an honest fix-and-verify cycle plus one follow-up, before
-# a loop that is not converging keeps spending. It caps neither review coverage nor lens count.
-_REPAIR_ROUND_ESCALATION = 2
+# A repair round costs what it SPENDS, not what it touched. A round that dispatches a panel -- two or more
+# cold lenses -- is a counted round; a `none` judgment and a single-lens cold check are real rounds that are
+# recorded, disclosed, and bounded, but they do not consume the counted budget. Counting by spend rather than
+# by the class of file a fix touched is the operator's decision (2026-08-25): what runs an unattended session
+# into the ground is panels, not the kind of file the last fix moved.
+#
+# Two bounds, both attention stops backed by the operator's merge -- neither caps review coverage or lens
+# count within a round, and neither chooses a judgment (eADR-0041 BC-16):
+_REPAIR_ROUND_ESCALATION = 3   # counted rounds before the next counted round stops for --guidance
+_REPAIR_ROUND_CEILING = 6      # rounds of ANY kind before the next round of any kind stops for --guidance
+_COUNTED_LENS_FLOOR = 2        # lenses a round must dispatch to count as spent
+
+# What the growth highlight measures: the churn a reader has to think about. Derived and documentation
+# movement is real and is disclosed, but it is not what a fix breaking something looks like.
+_SUBSTANTIVE_KINDS = ("guarded", "authored")
 
 
 def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: str, plan: dict,
@@ -1703,6 +1715,19 @@ def _packet(args, store: Snapshot | None) -> None:
               "spec": canonical_spec, "commit": commit, "base_commit": _base() if commit else None,
               "impact": impact, "protocol_digest": _digest(protocol),
               "installed_lenses": installed_names, "required_lenses": required}
+    if stage == "repair":
+        # Point the re-review at the REPAIR, mechanically. `base_commit` is the merge base — the whole
+        # PR — so without this a repair reviewer is handed the entire change again and left to work out
+        # for itself which part of it is new. The anchor and the instruction line travel together: the
+        # field alone can be read past, but a sentence naming the subject of the review cannot.
+        anchor = state["repair"].get("anchor") or state["repair"]["reviewed_commit"]
+        referent["repair_anchor"] = anchor
+        referent["repair_classification"] = state["repair"].get("classification")
+        referent["review_subject"] = (
+            f"Review the repair, not the whole pull request. The subject of this review is the diff "
+            f"`{anchor[:12]}..{commit[:12]}` — what changed since the review you are following up. "
+            f"`base_commit` is the merge base and is context only. Read the wider change when you need it "
+            f"to judge the repair; report on the repair.")
     declarations = _hard_check_declarations()
     path, digest = _write_json_artifact("build-hard-check-declarations", declarations)
     referent["hard_check_declarations"] = {"digest": digest, "count": len(declarations),
@@ -2834,6 +2859,274 @@ def cmd_reconcile(args, store: Snapshot) -> None:
               f"spans the branch as it actually stands. Recompose the PR body before submitting.")
 
 
+def _round_counted(entry: dict) -> bool:
+    """Whether a ledger entry spent counted budget. An entry written before rounds were counted by spend
+    carries no recorded answer; it counts. Failing toward "spent" is the safe direction — an upgrade can
+    hand a Build a stop it did not need, but never a budget it already used."""
+    return bool(entry.get("counted", True))
+
+
+def _classification_anchor(state: dict, rounds: list, head: str) -> tuple[str, str | None]:
+    """(the commit THIS round's increment is measured from, why the previous round's end could not be used).
+
+    The previous round's final commit, or the deliverable's reviewed commit when this is the first round.
+
+    Deliberately NOT `_effective_reviewed`, which advances only past a COMPLETED round. A `none`-judged or
+    abandoned round leaves that anchor where it stood, so every later round would be measured cumulatively
+    from it and each would look larger than the last — a growth signal manufactured by the anchor rather
+    than by the work. A round that happened is a round to measure from, whatever it concluded.
+
+    A rewrite can leave a recorded final commit superseded or unreadable. There is nothing honest to measure
+    from there, so the anchor falls back to the reviewed commit. The round is MARKED with WHICH of the two
+    things happened, and either marking suppresses the growth comparison across it — measured from a
+    different starting point, the two rounds are not comparable, and a rebase must never be able to
+    masquerade as a fix that grew. The two markings are kept apart because they are different facts, and
+    telling an operator "after a base change" when a session merely amended a commit is a false statement
+    about their branch:
+
+      `reconcile`  a recorded reconcile re-anchored the review; the base really did move.
+      `rewritten`  the previous round's commit is no longer reachable, with no reconcile recorded — an
+                   amend or a local rebase. Routine, and NOT a base change.
+
+    The first round is marked too when a reconcile is on record: a reconcile re-anchors the deliverable
+    review onto a new base, so the first round measured after one spans that rebase and its size is the
+    branch's, not one fix's.
+    """
+    reviewed = state["reviews"]["deliverable"]["reviewed_commit"]
+    if not rounds:
+        # Only a DIVERGENT reconcile that anchored THIS review leaves the first round spanning the rebase.
+        # A clean reconcile re-anchors the review onto the post-rebase head, so the round after it measures
+        # one fix; and an older reconcile that a later review cycle has superseded says nothing about this
+        # anchor at all. Marking on "any reconcile exists" told the operator their base had moved across a
+        # span that crossed no rebase -- the same false statement the reconcile/rewritten split exists to
+        # prevent.
+        spanning = any(not item["contribution_identical"] and item["anchored_to"] == reviewed
+                       for item in state.get("reconciles", []))
+        return reviewed, ("reconcile" if spanning else None)
+    prior_final = rounds[-1]["final_commit"]
+    if any(item["from_commit"] == prior_final for item in state.get("reconciles", [])):
+        return reviewed, "reconcile"
+    if not _commit_present(prior_final) or not _is_ancestor(prior_final, head):
+        return reviewed, "rewritten"
+    return prior_final, None
+
+
+def _prior_review_target(state: dict, rounds: list) -> tuple[str, str]:
+    """The (stage, commit) of the review this round is repairing — the most recent round a review was
+    actually DISPATCHED for, or the deliverable review when none was.
+
+    Keyed on RECEIPTS, because naming lenses is a judgment and dispatching them is an event: a round can
+    be assessed and then re-judged before a single reviewer runs, and walking back to the most recent
+    round with a roster landed on a commit no review had ever reported against.
+
+    Findings were tried here as the proxy for that event and were wrong in a way that mattered. A panel
+    that RAN AND FOUND NOTHING records receipts and no findings, so it looked identical to a panel that
+    never ran: the walk stepped over it and refilled the roster from an older review whose blockers that
+    clean round had just cleared, publishing "defaulted to the lenses that raised blockers last time"
+    about a review that raised none. It also quietly amended an approved obligation — an empty union with
+    no `--lens` must REFUSE and say why, and a clean panel is precisely an empty union. A receipt is
+    written for a clean lens too, so it separates the two cases that findings cannot.
+
+    Near-exact rather than perfect: re-cutting the DELIVERABLE packet mid-loop drops spliced repair
+    receipts, and the walk then falls back to the deliverable review. That is the safe direction — the
+    deliverable review has by then been re-run, so its findings are the current ones."""
+    dispatched = {receipt["commit"] for produced_by, receipt in review.live_receipts(state)
+                  if produced_by == "repair"}
+    for entry in reversed(rounds):
+        if entry["lenses"] and entry["final_commit"] in dispatched:
+            return "repair", entry["final_commit"]
+    return "deliverable", state["reviews"]["deliverable"]["reviewed_commit"]
+
+
+def _blocker_union(state: dict, stage: str, commit: str) -> list[str]:
+    """The lenses to put back on the diff: every lens that, at the review this round repairs, raised a
+    finding that was blocking OR was marked as blocking this PR.
+
+    The UNION, not the intersection. `severity == "blocking" and blocks_this_pr` selects only findings still
+    unfixed — a blocker that was fixed is recorded `accepted-fixed` with the flag false — so that reading
+    would be empty in exactly the case this default exists to serve. The union covers both the lens whose
+    blocker was just fixed (it should check the fix) and the lens whose mid-severity finding was
+    deliberately left blocking (it should check that too)."""
+    return sorted({f["lens"] for f in state["findings"]
+                   if f["stage"] == stage and f["commit"] == commit
+                   and (f["severity"] == "blocking" or f["blocks_this_pr"])})
+
+
+def _substantive_churn(entry: dict) -> int | None:
+    """Lines moved in code and guarded surface — what a reader has to think about. Derived regeneration and
+    documentation are recorded and disclosed, but they are not what a fix breaking something looks like.
+    None when the round carries no classification (a legacy entry)."""
+    classification = entry.get("classification")
+    if not classification:
+        return None
+    return sum(classification["churn"].get(kind, 0) for kind in _SUBSTANTIVE_KINDS)
+
+
+_ANCHOR_NOTES = {
+    "reconcile": (" (the base moved, so this round is measured from the deliverable review and its size is "
+                  "the branch's, not one fix's)"),
+    "rewritten": (" (the previous round's commit is no longer on this branch, so this round is measured "
+                  "from the deliverable review and cannot be compared with the round before it)"),
+}
+
+
+def _round_line(index: int, entry: dict) -> str:
+    """One plain sentence describing a recorded round, for the operator rather than for a parser."""
+    lenses = entry["lenses"]
+    if entry["judgment"] == "none":
+        what = "judged no re-review needed"
+    elif len(lenses) == 1:
+        what = f"one cold check ({lenses[0]})"
+    else:
+        what = f"{entry['judgment']} re-review across {len(lenses)} lenses"
+    # Whether a human judgment picked the coverage or a default did is the distinction the roster
+    # provenance was recorded FOR, so it is said here rather than left in the ledger for nobody to read.
+    if entry.get("roster_provenance") == "blocker-union":
+        what += ", defaulted to the lenses that raised blockers last time"
+    elif entry.get("roster_provenance") == "explicit":
+        what += ", lenses named deliberately"
+    classification = entry.get("classification")
+    if not classification:
+        moved = "surfaces not recorded"
+    else:
+        parts = [f"{len(paths)} {kind}" for kind, paths in sorted(classification["files"].items()) if paths]
+        moved = (", ".join(f"{part} file(s)" for part in parts) + f", {classification['total_churn']} lines"
+                 ) if parts else "nothing"
+    marked = _ANCHOR_NOTES.get(entry.get("anchor_note") or "", "")
+    if classification and "guards_read" not in classification:
+        # A round recorded before the honesty flag existed. "Unknown" is the right reading -- but saying a
+        # read FAILED would be a different, false claim about what happened.
+        marked += (" (this round was recorded before guard reads were checked, so whether its guarded "
+                   "count is complete is unknown)")
+    elif classification and not classification["guards_read"]:
+        marked += (" (a guard registration on this round's span could not be read, so the guarded count "
+                   "below may be short)")
+    return (f"round {index}: {'counted' if _round_counted(entry) else 'uncounted'}, {what}{marked}; "
+            f"the fix moved {moved}")
+
+
+def _growth_note(rounds: list) -> str | None:
+    """A highlight, never a stop (operator decision, 2026-08-25). When the newest counted round moved MORE
+    code and guarded surface than the counted round before it, the repairs are widening rather than
+    converging — usually a fix that broke something beyond the finding it answered. Suppressed when a base
+    change sits anywhere between the two, because then the two measurements are not comparable."""
+    comparable = [i for i, entry in enumerate(rounds)
+                  if _round_counted(entry) and _substantive_churn(entry) is not None]
+    if len(comparable) < 2:
+        return None
+    previous, latest = comparable[-2], comparable[-1]
+    # The window includes the EARLIER round itself: a round measured branch-wide (its own anchor_note set)
+    # carries a number that is not a fix's size, so comparing it against a normal round produces either a
+    # false alarm or a false silence. Both were reachable before this included `previous`.
+    if any(rounds[i].get("anchor_note") for i in range(previous, latest + 1)):
+        # Said out loud rather than passed over in silence: a reader who sees no highlight is entitled to
+        # know whether that means "it did not widen" or "we could not tell".
+        return ("the last two counted rounds were measured from different starting points, so whether the "
+                "repairs are widening could not be judged. Read their sizes above as separate facts, not "
+                "as a trend.")
+    before, after = _substantive_churn(rounds[previous]), _substantive_churn(rounds[latest])
+    if after <= before:
+        return None
+    # Name what actually grew. Saying "code and guarded surface" when no guarded file moved tells the
+    # operator protected surface was touched when it was not -- in the one sentence written to catch
+    # their eye, which is the worst possible place to be loose.
+    grew = [kind for kind in _SUBSTANTIVE_KINDS
+            if (rounds[latest]["classification"]["churn"].get(kind, 0)
+                > rounds[previous]["classification"]["churn"].get(kind, 0))]
+    moved = {"guarded": "guarded surface", "authored": "code"}
+    # `grew` cannot be empty here: `after > before` is the sum over exactly these kinds, so at least one
+    # of them rose. No fallback -- an unreachable branch reads as a case that is handled and is not.
+    what = " and ".join(moved[kind] for kind in grew)
+    return (f"the last counted round moved more {what} than the one before it ({before} -> {after} lines). "
+            f"The repairs are widening rather than settling, which usually means a fix broke something "
+            f"past the finding it answered.")
+
+
+_ROUND_PATH_SAMPLE = 4   # paths named per kind before the rest are counted, so a long round stays readable
+
+
+def _round_guidance_lines(state: dict) -> list[str]:
+    """The operator's recorded answer at each round that passed a stop. Single-homed because two readers
+    need the exact same strings: the PR body composes them as cadence escalations, and the pr-contract
+    preflight REQUIRES them — a body may not keep the rounds headline's claim that guidance was disclosed
+    while the guidance itself is missing."""
+    rounds = state.get("repair_rounds", [])
+    return [f"repair round {index} of {len(rounds)} proceeded past the escalation point on recorded "
+            f"operator guidance: {_plain(item['guidance'])}"
+            for index, item in enumerate(rounds, start=1) if item.get("guidance")]
+
+
+def _plain(text: str) -> str:
+    """Free text on its way to the operator's merge surface, reduced to something that cannot restructure
+    the page around it. Two things matter: a code span must not close early, and — the reason this exists
+    beyond tidiness — an unterminated HTML comment opener HIDES every line rendered after it on GitHub,
+    which would blank the rounds record, the growth highlight and the reviewed-vs-submitted line while a
+    presence-only preflight still found each of them in the source.
+
+    `<` is neutralised outright rather than a list of openers being blacklisted. A blacklist has to be
+    complete to be worth anything, and `<!--` is only one of several constructs that open a raw HTML block;
+    neither a repository path nor a recorded sentence from the operator has a legitimate need for the
+    character. Control and formatting characters go too — including the bidirectional overrides and
+    zero-width joiners this project already scrubs from its boot pack — because text that reorders itself
+    on screen is not text the operator can be said to have read. Nothing is deleted silently: `<` becomes a
+    visible marker, so the operator still reads what was written."""
+    scrubbed = "".join(" " if unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} else ch for ch in text)
+    return scrubbed.replace("`", "'").replace("<", "‹")
+
+
+def _fenced(path: str) -> str:
+    """A repository path inside a Markdown code span. Backticks are legal in POSIX filenames, and so are
+    newlines and tabs; any of them would close the span early and spill the rest of the path into the
+    operator's merge surface as markup."""
+    return "`" + _plain(path) + "`"
+
+
+def _repair_round_lines(state: dict) -> list[str]:
+    """The rounds record as it appears at the operator's merge surface: one headline they cannot miss, then
+    a plain sub-bullet per round with a bounded sample of what it moved. EVERY line here is required by the
+    pr-contract preflight, along with the recorded operator guidance, so the disclosure and the gate cannot
+    drift apart. Bounded on purpose — a six-round Build must still fit inside the body budget."""
+    rounds = state.get("repair_rounds", [])
+    if not rounds:
+        return []
+    counted = sum(1 for entry in rounds if _round_counted(entry))
+    lines = [f"- **Repair rounds.** {len(rounds)} round(s) ran after the deliverable review, "
+             f"{counted} of which dispatched a review panel. A panel round is what spends the budget; the "
+             f"budget is {_REPAIR_ROUND_ESCALATION} panel rounds, and {_REPAIR_ROUND_CEILING} rounds of any "
+             f"kind is the absolute ceiling. Passing either stop needs recorded operator guidance, "
+             f"disclosed above. Whether the repairs are widening is judged on code and guarded surface "
+             f"only; regenerated and documentation churn is listed below but never compared. A file counts "
+             f"as guarded if it was protected at ANY point since the deliverable review, so a guard retired "
+             f"mid-build still reads as guarded rather than quietly becoming ordinary work."]
+    for index, entry in enumerate(rounds, start=1):
+        lines.append("  - " + _round_line(index, entry))
+        classification = entry.get("classification")
+        if not classification:
+            continue
+        for kind in _SUBSTANTIVE_KINDS + ("derived", "docs"):
+            paths = classification["files"].get(kind) or []
+            if not paths:
+                continue
+            shown = ", ".join(_fenced(path) for path in paths[:_ROUND_PATH_SAMPLE])
+            more = (f" and {len(paths) - _ROUND_PATH_SAMPLE} more"
+                    if len(paths) > _ROUND_PATH_SAMPLE else "")
+            lines.append(f"    - {kind}: {shown}{more}")
+    note = _growth_note(rounds)
+    if note:
+        lines.append("  - **Worth a look before you merge.** " + note)
+    return lines
+
+
+def _trajectory(rounds: list) -> str:
+    """The whole ledger as prose, plus the growth highlight when there is one. Printed at every assess, so
+    the signal is in front of the orchestrator at the moment of judgment and not only at an escalation."""
+    lines = [_round_line(i + 1, entry) for i, entry in enumerate(rounds)]
+    note = _growth_note(rounds)
+    if note:
+        lines.append("HIGHLIGHT: " + note)
+    return "\n".join(lines)
+
+
 def cmd_repair_assess(args, store: Snapshot) -> None:
     head = _head()
     state = store.read()
@@ -2864,21 +3157,9 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
                 "deliverable review against the current head rather than recording a judgment on a span "
                 "that cannot be computed.") from exc
         raise
-    lenses = sorted(set(args.lens or []))
-    if args.judgment == "none" and lenses:
-        raise CoordinatorError("a none judgment cannot request review lenses")
-    if args.judgment == "scoped" and not lenses:
-        raise CoordinatorError("a scoped judgment must name at least one --lens")
-    if args.judgment == "full":
-        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
-    # A round is counted when it STARTS, and counted irrespective of judgment. Counting only completed
-    # scoped/full rounds would leave two holes: an abandoned fan-out costs full price yet would count
-    # zero, and gating only the reviewed path would make `none` -- "no re-review needed" -- the
-    # frictionless exit at the exact moment cost pressure peaks, which is the "accept the breaks and
-    # merge" outcome this gate exists to prevent. Re-assessing the SAME divergence (upgrading a scoped
-    # judgment to full, say) replaces its entry in place rather than counting twice.
+    # Re-assessing the SAME divergence (upgrading a scoped judgment to full, say) replaces its entry in
+    # place rather than counting twice.
     rounds = list(state.get("repair_rounds", []))
-
     def _authored_between(base: str | None, tip: str) -> bool:
         """Did anything a REVIEWER would read land between these two commits? `sync-artifacts` commits
         machine output the engine generated itself, and no reviewer would read it. An unmeasurable range
@@ -2889,15 +3170,16 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
             return True
 
     # A round that was FANNED OUT AND NEVER COMPLETED is paid for and can never be absorbed into a later
-    # assess. Keying that on commit identity was the defect: an abandoned fan-out counted only while the
-    # tip had not moved, so a single `sync-artifacts` commit landing before the next assessment ERASED an
-    # already-paid round and dropped the count. What actually distinguishes the two cases is not where
-    # HEAD is, it is whether the lenses came back — so that is what gets recorded.
-    if prior and prior.get("packet_digest") and not _repair_round_complete(prior):
-        rounds = [{**r, "spent": True}
-                  if (r["reviewed_commit"] == prior["reviewed_commit"]
-                      and r["final_commit"] == prior["final_commit"]) else r
-                  for r in rounds]
+    # assess. That fact is read LIVE off the open repair record rather than stamped onto the ledger entry
+    # as a second cost flag: what a round cost is recorded once, as `counted`, and a ledger carrying both
+    # `spent` and `counted` would be carrying two answers to one question with nothing keeping them
+    # agreeing. What makes the round unabsorbable is that its lenses HAVE NOT COME BACK -- never where the
+    # head happens to sit. Adding the commit pair to this condition reopened the identity keying that
+    # StarshipSuperjam/engine-template#1065 named as the defect: one `sync-artifacts` commit moved the
+    # head, `_same_episode` correctly read the generated commit as nothing authored, and the abandoned
+    # round was re-pointed instead of counted. Repeated, the ledger never grew -- the counted budget
+    # refunded every time and the ceiling never reached, because the ceiling counts entries.
+    fanned_out = bool(prior and prior.get("packet_digest") and not _repair_round_complete(prior))
 
     def _same_episode(entry: dict) -> bool:
         """Whether this assess is the round `entry` already recorded, re-pointed rather than repeated.
@@ -2909,22 +3191,105 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         it). That second case is the observed one — a completed round, then a `sync-artifacts` commit,
         which put the repair's final commit behind HEAD and forced a re-bind that the counter charged as
         a third round in a build that had run two (StarshipSuperjam/engine-template#1063)."""
-        if entry.get("spent"):
-            return False                    # its lenses were dispatched and never returned; it counts
         if _authored_between(entry["final_commit"], head):
             return False
         return reviewed in (entry["reviewed_commit"], entry["final_commit"])
 
-    same = [r for r in rounds if _same_episode(r)]
-    prior_rounds = len(rounds) - len(same)
-    guidance = getattr(args, "guidance", None)
-    if not same and prior_rounds >= _REPAIR_ROUND_ESCALATION and not guidance:
+    # Replace in place ONLY when nothing was spent yet: no repair packet was cut for this same divergence,
+    # so this assess is the operator upgrading their judgment, not a second attempt. Once a packet exists
+    # the lenses were dispatched and that round cost full price, so a further assess is a NEW round even at
+    # the same commit pair -- otherwise an abandoned fan-out repeated forever would count once.
+    # ...and only the MOST RECENT round is replaceable. Matching any round with this commit pair let a
+    # branch reset back to an older round's head delete that round -- panel already dispatched, guidance
+    # and all -- and refund its counted slot, while both stops were skipped because the assess looked like
+    # a replacement. Re-recording an older pair is a NEW round; only the latest judgment is still open.
+    same = [] if fanned_out or not rounds else [r for r in rounds[-1:] if _same_episode(r)]
+    # By POSITION, never by value: two dict-identical rounds (the same commit pair assessed twice with a
+    # packet cut between, so each appended rather than replaced) would both be dropped by an equality
+    # filter, silently erasing a round from the ledger and refunding its counted slot.
+    kept = rounds[:-1] if same else list(rounds)
+    anchor, anchor_note = _classification_anchor(state, kept, head)
+    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
+    import repair_divergence
+    try:
+        classification = repair_divergence.classify(
+            str(ROOT), anchor, head,
+            # The floor: everything guarded as of the commit the reviewers approved stays guarded for the
+            # whole repair loop, so a guard de-registered in an early round cannot make a late round's
+            # churn on that file read as ordinary authored work.
+            guard_reference=state["reviews"]["deliverable"]["reviewed_commit"])
+    except repair_divergence.DivergenceError as exc:
+        # Fail toward refusal, like the validator. A defaulted or empty classification would be published
+        # to the operator as "this round touched nothing", which is a measurement nobody made.
         raise CoordinatorError(
-            f"{prior_rounds} repair rounds have already run on this deliverable. A third is the point to stop "
-            "and bring the operator in: summarise plainly what keeps failing and what you propose (narrow the "
-            "re-review, accept-track the residual findings, or keep going), then record their answer with "
-            "--guidance. That text is published in the PR body, so the operator sees at merge whether they "
-            "were actually consulted. This is a discipline prompt backed by their merge, not a wall.")
+            f"this round's increment could not be classified, so there is no honest surface evidence to "
+            f"record: {exc}. Recover the anchor ({anchor[:12]}) or re-run the deliverable review against "
+            f"the current head; a judgment recorded here would rest on a measurement that was never taken."
+        ) from exc
+
+    lenses = sorted(set(args.lens or []))
+    roster_provenance = "explicit" if lenses else "none"
+    if args.judgment == "none" and lenses:
+        raise CoordinatorError("a none judgment cannot request review lenses")
+    if args.judgment == "scoped" and not lenses:
+        # The operator's requirement, made mechanical: the next round goes back to the lenses that found
+        # blockers last time. Naming --lens explicitly still overrides, wider or narrower — the choice
+        # stays the orchestrator's, and the rationale for it is already required.
+        stage, at_commit = _prior_review_target(state, kept)
+        lenses = _blocker_union(state, stage, at_commit)
+        if not lenses:
+            raise CoordinatorError(
+                f"a scoped judgment must name at least one --lens, and no default could be derived: the "
+                f"{stage} review at {str(at_commit)[:12]} recorded no finding that was blocking or marked "
+                f"as blocking this PR. Name the lenses this round should put back on the diff.")
+        roster_provenance = "blocker-union"
+    if args.judgment == "full":
+        lenses = [item["lens"] for item in _required(_protocol(), "thorough", _installed())]
+        roster_provenance = "none"
+
+    # A round costs what it SPENDS. Dispatching a panel -- two or more cold lenses -- is the spend; a `none`
+    # judgment and a single-lens cold check are recorded, disclosed, and bounded by the absolute ceiling,
+    # but they do not consume the counted budget. "Minimal" is derived here from the roster, never declared
+    # by the session that would benefit from declaring it.
+    spends_now = len(lenses) >= _COUNTED_LENS_FLOOR
+    # A replacement re-judges a round; it never un-spends one. Writing the fresh answer straight onto
+    # the entry let a completed panel be re-assessed as a single-lens check or a `none` and come back
+    # UNCOUNTED -- the ledger forgot a panel it had paid for, so the next assess's `prior_counted` was
+    # short by one and the budget stop arrived late. The ledger is what every later round reads.
+    #
+    # Stickiness keys on EVIDENCE THAT LENSES WENT OUT -- a packet cut for that round, or receipts back
+    # from it -- never on the roster the previous entry recorded. Keying it on the roster charged for a
+    # panel nobody dispatched: judge two lenses, think better of it before cutting the packet, re-judge
+    # with one, and the round stayed `counted` forever. Nothing was spent, and the merge surface then
+    # said so twice over -- the headline counting it among the rounds that "dispatched a review panel"
+    # while its own line called it one cold check.
+    # TWO QUESTIONS, and collapsing them into one predicate gets one of them wrong either way.
+    #
+    # `already_counted` -- does this assess ADD a charge? No, if the entry it replaces already holds a
+    # counted slot in the ledger. Upgrading a scoped panel to a full one before anything was dispatched
+    # is one round judged twice, not two rounds, so the budget stop must not fire on it.
+    #
+    # `already_spent` -- what did this round COST? A replacement is only possible when nothing was
+    # dispatched OR the round completed, so the recorded roster cannot answer this; only evidence that
+    # lenses went out can. Keying the entry on the roster charged for a panel nobody dispatched: judge
+    # two lenses, think better of it before cutting the packet, re-judge with one, and the round stayed
+    # `counted` forever -- with the merge surface then contradicting itself, counting it among the
+    # rounds that "dispatched a review panel" while its own line called it one cold check.
+    already_counted = any(_round_counted(r) for r in same)
+    already_spent = already_counted and bool(prior and (prior.get("packet_digest") or prior.get("receipts")))
+    counted = spends_now or already_spent
+    guidance = getattr(args, "guidance", None)
+    # A replacement never ERASES a recorded consultation: dropping the answer would remove the escalation
+    # from the PR body and, with it, the preflight requirement that the body carry it, while the rounds
+    # headline went on asserting that guidance had been disclosed. But a carried answer is a RECORD, never
+    # a key: it satisfies no stop it was not given for. An answer recorded at the absolute ceiling ("one
+    # cheap check, then ship") would otherwise be inherited by a re-judgment that turns that cheap check
+    # into a panel, spending a counted round the operator was never asked about -- the same bypass
+    # `already_spent` closes, re-opened through the consultation record itself. Only the answer supplied
+    # to THIS assess can pass a stop.
+    fresh_guidance = guidance
+    if not guidance:
+        guidance = next((r["guidance"] for r in same if r.get("guidance")), None)
     # CARRY-FORWARD. A receipt is a fact about what a lens read, and that fact does not stop being true
     # because the binding moved. Every prior repair receipt whose recorded range already covers the new
     # divergence survives, byte-identical; the rest are named, with the delta they still owe, so the
@@ -2953,15 +3318,43 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
         print(f"warning: {len(dropped)} repair receipt(s) do not cover this new divergence and are being "
               f"dropped: {detail}." + also + " Those lenses owe a read of the new range.", file=sys.stderr)
     entry = {"reviewed_commit": reviewed, "final_commit": head, "judgment": args.judgment,
-             "lenses": lenses, "guidance": guidance}
-    rounds = [r for r in rounds if r not in same] + [entry]
+             "lenses": lenses, "guidance": guidance, "counted": counted, "anchor": anchor,
+             "anchor_note": anchor_note, "roster_provenance": roster_provenance,
+             "classification": classification}
+    rounds = kept + [entry]
+    prior_counted = sum(1 for r in kept if _round_counted(r))
+    if not fresh_guidance:
+        stop = None
+        # The counted cap is checked even when this assess REPLACES an existing entry, because a
+        # replacement can still spend: recording a cheap single-lens round and then re-assessing the same
+        # commit pair as a panel turns a free round into a counted one, and skipping the check on the
+        # replacement path made that a way past the budget. Only a replacement that was ALREADY counted
+        # is free -- it is the same spend, judged again.
+        if spends_now and not already_counted and prior_counted >= _REPAIR_ROUND_ESCALATION:
+            stop = (f"{prior_counted} repair rounds have already dispatched a review panel on this "
+                    f"deliverable, which is the whole counted budget. This one would spend past it.")
+        # The ceiling counts ROUNDS, so a replacement -- which adds none -- never trips it.
+        elif not same and len(kept) >= _REPAIR_ROUND_CEILING:
+            stop = (f"{len(kept)} repair rounds of every kind have already run on this deliverable — the "
+                    f"absolute ceiling, whatever each one spent.")
+        if stop:
+            raise CoordinatorError(
+                f"{stop} This is the point to stop and bring the operator in: summarise plainly what keeps "
+                "failing and what you propose (narrow the re-review, accept-track the residual findings, or "
+                "keep going), then record their answer with --guidance. That text is published in the PR "
+                "body, so the operator sees at merge whether they were actually consulted. This is a "
+                "discipline prompt backed by their merge, not a wall.\n\nHow the rounds have gone:\n"
+                + _trajectory(rounds))
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
               "session_effort": (prior or {}).get("session_effort"),
-              "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted"))}
+              "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted")),
+              "anchor": anchor, "counted": counted, "classification": classification,
+              "roster_provenance": roster_provenance}
     store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
     print(json.dumps(repair, indent=2, sort_keys=True))
+    print("\nHow the rounds have gone:\n" + _trajectory(rounds))
     if carried:
         print(f"carried {len(carried)} repair receipt(s) forward — "
               + "; ".join(ranges.coverage_report(ROOT, r, reviewed, head) for r in carried), file=sys.stderr)
@@ -2997,6 +3390,18 @@ def _compute_preflight_legs(state: dict, head: str, pr_data: dict, body: str) ->
         contract_passed = False
         ids = [re.search(r"`([^`]+)`", line).group(1) for line in missing_disagreements]
         contract_summary += "; missing reviewer disagreement disclosure: " + ", ".join(ids)
+    # The rounds record is coordinator-derived and REQUIRED once any round has run: the same pattern as the
+    # disagreement lines, so what the operator is told about repair cost cannot quietly fall out of the body.
+    # EVERY line, not just the headline -- the per-round detail and the growth highlight are the parts a
+    # reader acts on, and requiring only the summary sentence would let a body keep the headline's claim
+    # while dropping the "worth a look before you merge" line the headline is standing in front of. The
+    # recorded operator guidance is required with them: the headline asserts that guidance was disclosed,
+    # so the assertion and the thing it asserts have to be gated together.
+    missing_rounds = [line for line in _repair_round_lines(state) + _round_guidance_lines(state)
+                      if line not in body]
+    if missing_rounds:
+        contract_passed = False
+        contract_summary += f"; missing {len(missing_rounds)} line(s) of the repair-rounds disclosure"
     profile = _run([sys.executable, str(ROOT / ".engine" / "tools" / "scope_profile.py"), base])
     profile_summary = (profile.stdout or profile.stderr or "no scope-profile output").strip()
     declarations = _hard_check_declarations()
@@ -3261,6 +3666,12 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # so drop any stray copy before validation — an old block still restores cleanly instead of failing
     # closed on the forbidden key. The value is reviewer-internal and never survives the round-trip
     # (restore already yields None for it), so dropping it here loses nothing an up-to-date export keeps.
+    # Same reason, same side of the gate: a handoff exported under
+    # StarshipSuperjam/engine-template#1071 carries `spent` on its repair rounds, and the schema no
+    # longer declares it. This MUST run before `_validate` -- a strip placed in the restore builder
+    # below can never run, because validation refuses the document first.
+    value["repair_rounds"] = core.forward_migrate(
+        {"repair_rounds": value.get("repair_rounds", [])})["repair_rounds"]
     stripped_private = False
     for _summary in value.get("finding_summaries") or []:
         # Guard the shape: a malformed block (a non-dict summary) must still reach _validate and fail
@@ -3957,21 +4368,124 @@ def _plan_review_clause(state: dict) -> str:
             "so the operator's own read is its review")
 
 
-def _plan_finding_lines(state: dict) -> list[str]:
-    """The sealed plan review's findings and their dispositions, for the merge surface.
+# What earns a finding its own line on the merge surface, plan-side and Build-side alike.
+#
+# The pull-request body is an ACCOUNT, not a ledger. 520 hand-written merges before the coordinator
+# carried the same template at a ~9.6KB median with a ~2KB Review section, and served the same merge
+# decision; the coordinator turned that section into a transcription of ledgers that already have
+# machine-readable homes (the sealed plan record, the Build snapshot, the handoff block) and tripled
+# the body, until StarshipSuperjam/engine-template#1080 could not publish at all. So consequence earns
+# wordage: what the operator must still act on, or ever disagreed over, renders in full; the settled
+# remainder is counted.
+#
+# The plan record does NOT constrain disposition against `blocks_this_pr` -- the plan-side disposer
+# enforces no coherence rule and the schema declares the fields independent, unlike the Build side's
+# `disposition_conflict`. So this keys on the UNION rather than on either field alone: keying on the
+# flag would compact an escalated finding recorded as non-blocking (an operator decision, silently
+# summarised), and keying on the disposition would drop a `rejected` finding carrying the flag.
+# Failing toward disclosure is the only safe direction when the record permits both.
+_UNSETTLED_DISPOSITIONS = ("escalated", "rejected", "partially-accepted")
 
-    A plan review that found blocking problems must be VISIBLE at merge, whatever was decided about
-    them. Rendered from the plan record, so nothing in the Build's own receipt bookkeeping can strip
-    them.
+
+def _finding_is_consequential(finding: dict, *, deferred_counts: bool = False) -> bool:
+    """Whether this finding earns its own line rather than a place in a count.
+
+    `deferred_counts` adds `accepted-tracked` for the Build-side ledger: deferred work is live risk a
+    remediating session needs named, and it is the class most likely to explain a later defect. It is
+    NOT added plan-side, where a tracked plan finding was answered before the code existed.
     """
-    plan_review = _sealed_plan_review(state)
+    if finding.get("blocks_this_pr"):
+        return True
+    disposition = finding.get("disposition")
+    if disposition in _UNSETTLED_DISPOSITIONS:
+        return True
+    return bool(deferred_counts and disposition == "accepted-tracked")
+
+
+def partition_findings(findings: list, *, deferred_counts: bool = False) -> tuple[list, list]:
+    """Split a finding ledger into (rendered in full, counted), exhaustively and exactly once.
+
+    Single-homed and returned as two lists so every count downstream is a `len()` projection of the
+    very list the renderer consumed. A parallel tally computed alongside the render is the shape that
+    lets a merge surface assert a number nobody measured, which is the failure this whole change
+    exists to avoid committing in a new place.
+    """
+    full, counted = [], []
+    for finding in findings:
+        (full if _finding_is_consequential(finding, deferred_counts=deferred_counts)
+         else counted).append(finding)
+    return full, counted
+
+
+def _tally(findings: list, key: str) -> str:
+    """`3 nit, 1 serious` -- ordered by count then name so the phrasing is stable across composes."""
+    counts = {}
+    for finding in findings:
+        counts[finding.get(key) or "unrecorded"] = counts.get(finding.get(key) or "unrecorded", 0) + 1
+    return ", ".join(f"{n} {name}" for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def _qa_finding_split(state: dict) -> dict:
+    """Which Build findings render in full, and the counted remainder — by id, for the composer.
+
+    Ids rather than rendered text: the composer owns the wording and joins these against the claim's
+    operator-safe summaries, so raw reviewer text still cannot reach the body by this route.
+    """
+    findings = state.get("findings", [])
+    full, counted = partition_findings(findings, deferred_counts=True)
+    by_stage = {}
+    for finding in counted:
+        by_stage.setdefault(finding.get("stage") or "unrecorded", []).append(finding)
+    return {"full_ids": [f["id"] for f in full],
+            "counted_total": len(counted),
+            "counted_by_stage": {stage: {"count": len(group), "severities": _tally(group, "severity")}
+                                 for stage, group in sorted(by_stage.items())}}
+
+
+def _plan_finding_lines(state: dict) -> list[str]:
+    """The sealed plan review's outcome, as an account of what the operator must still weigh.
+
+    A plan finding they must act on -- still blocking, escalated, rejected, or only partly accepted --
+    renders in full. Everything else is settled history that served its purpose before the code
+    existed, and is counted. The disclosure states the totals, how many render in full, AND that the
+    full text lives only in the workstation-local plan library (`.engine/plans/` is gitignored and
+    never published), because a pointer that reads as reassurance when the thing cannot be opened from
+    a fresh clone is worse than no pointer at all.
+    """
+    record, problem = _sealed_plan_record(state)
+    if problem:
+        # Unreadable is NOT empty. Rendering a zero count for a record that could not be opened would
+        # assert a measurement nobody took, on the surface the operator's consent rests on.
+        #
+        # WITHOUT the underlying message, following the sibling disclosures above: the library's own
+        # read errors enumerate neighbouring plan slugs, which are the operator's private working
+        # titles for unrelated work, and absolute paths from their machine. This line is composed into
+        # a body pushed to a public pull request, so it says WHAT failed and never quotes the failure.
+        return ["- **The sealed plan review could not be read** while composing this body, so nothing "
+                "here summarises it — neither the findings nor a count. Treat its outcome as unknown "
+                "rather than empty."]
+    plan_review = (record or {}).get("plan_review")
+    if not plan_review:
+        return []
+    findings = plan_review.get("findings", [])
+    if not findings:
+        return []
+    full, counted = partition_findings(findings)
     lines = []
-    for finding in (plan_review or {}).get("findings", []):
-        disposition = finding.get("disposition") or "undispositioned"
-        summary = finding.get("operator_summary") or finding["summary"]
-        blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
-        lines.append(f"- **Plan finding `{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
-                     f"{disposition}){blocks}. {summary}")
+    if full:
+        lines.append("- **Plan findings you must still weigh.**")
+        for finding in full:
+            disposition = finding.get("disposition") or "undispositioned"
+            summary = finding.get("operator_summary") or finding["summary"]
+            blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
+            lines.append(f"  - **`{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
+                         f"{disposition}){blocks}. {summary}")
+    settled = (f" The other {len(counted)} were settled before the build began "
+               f"({_tally(counted, 'severity')}) and are not restated here." if counted else "")
+    lines.append(f"- **The plan review in full.** {len(findings)} finding(s), of which {len(full)} "
+                 f"render above.{settled} The complete text stays in this workstation's plan library, "
+                 f"which is local and never published — it is not readable from a clone of this "
+                 f"repository.")
     return lines
 
 
@@ -4027,8 +4541,8 @@ def _drift_line(state: dict, head: str) -> str:
     for item in reconciles:
         detail = ("the branch's own contribution was verified unchanged on exact tree entries"
                   if item["contribution_identical"] else
-                  (item["unmeasurable"] or "the contribution differs at: "
-                   + ", ".join(item["divergent_paths"])))
+                  (_plain(item["unmeasurable"] or "") or "the contribution differs at: "
+                   + ", ".join(_fenced(path) for path in item["divergent_paths"])))
         events.append(f"history was rewritten and the review bindings were re-anchored from "
                       f"`{item['from_commit'][:12]}` to `{item['anchored_to'][:12]}` "
                       f"(base `{(item['base_before'] or '?')[:12]}` → `{item['base_after'][:12]}`, {detail})")
@@ -4192,7 +4706,8 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # disclosed so a self-attested post-hoc resolution can never vanish before the operator sees it.
     authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
     assumption_resolutions = [
-        f"{d['claim']} -> {d['resolved_as']} (self-attested, not re-reviewed) — basis: {d['basis']}"
+        f"{_plain(d['claim'])} -> {d['resolved_as']} (self-attested, not re-reviewed) — "
+        f"basis: {_plain(d['basis'])}"
         for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
 
     # The two cost-cadence escalations, published because an escalation the operator cannot see at merge is
@@ -4210,13 +4725,8 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         # to re-review a sealed plan.
         cadence_escalations.append(
             f"the executed plan differs from the sealed plan its panel read, on recorded operator "
-            f"authority and without re-review: {item['operator_change']}")
-    rounds = state.get("repair_rounds", [])
-    for index, item in enumerate(rounds, start=1):
-        if item.get("guidance"):
-            cadence_escalations.append(
-                f"repair round {index} of {len(rounds)} proceeded past the escalation point on recorded "
-                f"operator guidance: {item['guidance']}")
+            f"authority and without re-review: {_plain(item['operator_change'])}")
+    cadence_escalations += _round_guidance_lines(state)
 
     return {
         "closes": closes,
@@ -4228,10 +4738,18 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "code_execution_line": code_execution_line,
         "disagreement_lines": _plan_disagreement_lines(state) + review.required_disagreement_lines(state),
         "plan_finding_lines": _plan_finding_lines(state),
+        # The Build-side ledger gets the same treatment, partitioned HERE rather than in the composer
+        # so the claim contract is untouched: the claim still carries one operator-safe summary per
+        # finding (`_assert_claim_findings` still demands an exact 1:1 match) and the handoff still
+        # carries every one at full fidelity. Only what the BODY renders changes. `accepted-tracked`
+        # counts as consequential on this side alone -- deferred work is live risk, and it is the
+        # class most likely to explain a defect a later remediation session is chasing.
+        "qa_finding_split": _qa_finding_split(state),
         "consent_lines": _plan_consent_lines(state),
         "obligation_lines": _plan_obligation_lines(state),
         "assumption_resolutions": assumption_resolutions,
         "cadence_escalations": cadence_escalations,
+        "repair_round_lines": _repair_round_lines(state),
         "drift_line": drift_line,
         "composition_marker": marker,
         # preserved marker blocks are extracted from the live body at apply time, where the write happens.

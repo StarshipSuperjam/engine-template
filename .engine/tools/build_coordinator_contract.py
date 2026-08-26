@@ -34,11 +34,20 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
                                  honest no-spec disclosure — rendered by spec_referent, never here
   review_coverage     str        depth and the passes that ran, rendered from coordinator evidence
   code_execution_line str        the code-execution disclosure (BO-41), computed from the review receipts
-  plan_finding_lines  [str]      the sealed plan review's findings and dispositions, verbatim
+  plan_finding_lines  [str]      the sealed plan review's OUTCOME as an account: findings the
+                                 operator must still weigh rendered in full, the settled remainder
+                                 counted. Not a per-finding transcript
+                                 (StarshipSuperjam/engine-template#1083).
+  qa_finding_split    {}         which Build findings render in full (`full_ids`) and the counted
+                                 remainder, per stage. The claim still carries a summary for EVERY
+                                 finding; this only decides which of them reach the body.
   consent_lines       [str]      the operator's recorded decision at each plan consent gate, verbatim
   obligation_lines    [str]      the sealed plan's carried obligations — each with its state and, for a
                                  release, the reason — read from the plan record, never from Build state
   disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
+  repair_round_lines  [str]      the repair-rounds record: a required headline (what the loop spent) then
+                                 one indented sub-bullet per round with a bounded sample of the surfaces it
+                                 moved — pre-marked and pre-indented, placed here unchanged
   drift_line          str        the reviewed->submitted commit/divergence sentence, coordinator-computed
   close_linkage_lines [str]      advisory close-linkage lines to fold into Review (apply's fixed-point pass)
   composition_marker  str        the hidden marker carrying the claim digest and final commit
@@ -314,11 +323,27 @@ def compose(claim: dict, evidence: dict) -> str:
         review_body.append("- **Operator decisions at this plan's consent gates**, in their own words. "
                            "Recorded by the session, not independently proven.")
         review_body += [f"  {cl}" for cl in evidence["consent_lines"]]
-    for fs in rev["finding_summaries"]:
+    # Consequence earns wordage. The claim carries an operator-safe summary for every finding and the
+    # handoff keeps them all; what reaches the merge surface is what the operator must still act on or
+    # ever disagreed over. A body that transcribes every row buries the two findings that mattered
+    # among the seventy that did not, and on
+    # StarshipSuperjam/engine-template#1080 it could not be published at all.
+    split = evidence.get("qa_finding_split") or {}
+    full_ids = split.get("full_ids")
+    shown = ([fs for fs in rev["finding_summaries"] if fs["id"] in set(full_ids)]
+             if full_ids is not None else rev["finding_summaries"])
+    for fs in shown:
         line = f"- **Finding `{fs['id']}`.** {fs['operator_summary']}"
         if fs.get("public_reference"):
             line += f" ({fs['public_reference']})"
         review_body.append(line)
+    if split.get("counted_total"):
+        per_stage = "; ".join(f"{s['count']} in {stage} ({s['severities']})"
+                              for stage, s in split["counted_by_stage"].items())
+        review_body.append(
+            f"- **The rest of the review record.** A further {split['counted_total']} finding(s) were "
+            f"raised and settled without leaving anything outstanding — {per_stage}. Each is recorded "
+            f"in full in this Build's own evidence, which travels with the handoff.")
     for dl in evidence.get("disagreement_lines", []):
         review_body.append(dl)
     # Post-approval assumption resolutions the operator must meet at merge: a premise authored 'unresolved'
@@ -332,6 +357,11 @@ def compose(claim: dict, evidence: dict) -> str:
     # what lets the operator check that claim at the merge gate, where their consent actually lives.
     for ce in evidence.get("cadence_escalations", []):
         review_body.append(f"- **Escalation recorded.** {ce}")
+    # What the repair loop actually cost, and what each round moved. These lines arrive carrying their own
+    # bullet markers and indentation, because the shape IS the evidence: a headline the pr-contract
+    # preflight requires, then one sub-bullet per round with a bounded sample of the surfaces it touched.
+    for rl in evidence.get("repair_round_lines", []):
+        review_body.append(rl)
     if evidence.get("drift_line"):
         review_body.append(f"- **Reviewed vs submitted.** {evidence['drift_line']}")
     for cl in evidence.get("close_linkage_lines", []):
