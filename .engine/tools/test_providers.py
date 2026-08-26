@@ -391,6 +391,32 @@ class TestParityCheckSelfIntegrity(unittest.TestCase):
         self.assertFalse(any("provider-exceptions" in entry for entry in everything))
 
 
+class TestProviderExceptionLedgerSchema(unittest.TestCase):
+    def setUp(self):
+        self.schema = validate.load_json(
+            os.path.join(validate.ROOT, ".engine", "schemas", "provider-exceptions.v1.json"))
+        self.ledger = validate.load_json(
+            os.path.join(validate.ROOT, ".engine", "policies", "provider-exceptions.json"))
+
+    def _errors(self, instance):
+        return list(validate.Draft202012Validator(self.schema).iter_errors(instance))
+
+    def test_schema_is_well_formed_and_committed_ledger_conforms(self):
+        validate.Draft202012Validator.check_schema(self.schema)
+        self.assertEqual(self._errors(self.ledger), [])
+
+    def test_reason_remains_required(self):
+        legacy = json.loads(json.dumps(self.ledger))
+        legacy["exceptions"][0].pop("reason")
+        self.assertNotEqual(self._errors(legacy), [])
+
+    def test_retired_decision_pointer_is_rejected(self):
+        legacy = json.loads(json.dumps(self.ledger))
+        legacy["exceptions"][0]["contract_ref"] = "eADR-0034"
+        self.assertNotEqual(self._errors(legacy), [],
+                            "the closed ledger shape no longer accepts decorative pointers")
+
+
 class TestCaptureStatusPathSingleHomed(unittest.TestCase):
     def test_writer_and_readers_spell_the_same_path(self):
         """The marker is written by capture and read by boot and telemetry; three spellings, one

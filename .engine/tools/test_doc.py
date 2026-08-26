@@ -99,7 +99,7 @@ class TestSchema(unittest.TestCase):
     def test_unknown_extra_field_is_rejected(self):
         # docs carry NO id field (slug filename is the identity, the operation precedent) and NO date; the
         # schema is closed, so an id/date key — or any extra key — is rejected.
-        for extra in ("id", "date", "author", "established_by"):
+        for extra in ("id", "date", "author", "owner"):
             bad = {**VALID_ACTIVE, extra: "x"}
             self.assertNotEqual(_errors(DOC_SCHEMA, bad), [],
                                 f"{extra} is not allowed (additionalProperties false)")

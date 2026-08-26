@@ -6,10 +6,10 @@ forward-obligation), and the catalog flip that wires schema + template in.
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
-These lock: policy.v1 is a well-formed schema with teeth (a status outside the decision lifecycle, a bad
-date, a missing required field, an unknown extra field, a malformed established_by link, or a values block
-that is empty, badly-keyed, or carries a non-number is rejected, while the optional established_by and the
-optional values block of plain tuning numbers conform when present and when absent); the committed policy template's body
+These lock: policy.v1 is a well-formed schema with teeth (a status outside the lifecycle, a bad
+date, a missing required field, an unknown extra field, or a values block that is empty, badly-keyed, or
+carries a non-number is rejected, while the optional values block of plain tuning numbers conforms when
+present and when absent); the committed policy template's body
 carries exactly the four required sections in order, its frontmatter shape-spec matches the policy-shape
 rule's params byte-for-byte (no drift between the authoring scaffold and the machine-read rule), and that
 shape-spec is a well-formed template.v1; the policy-shape rule is well-formed, joins CI, dispatches the shape
@@ -82,8 +82,8 @@ def _policies_from_manifests(manifests) -> set:
 
 EXPECTED_POLICIES = _policies_from_manifests(module_coherence.discover_manifests())
 
-# A representative, conforming policy frontmatter instance (a foundational policy omits established_by).
-VALID_FM = {"title": "Contract threshold", "status": "accepted", "date": "2026-06-03"}
+# A representative, conforming policy frontmatter instance.
+VALID_FM = {"title": "Briefing budget", "status": "accepted", "date": "2026-06-03"}
 
 # A well-formed policy BODY (the shape kind reads the body, never the frontmatter).
 VALID_BODY = (
@@ -151,10 +151,10 @@ class TestSchema(unittest.TestCase):
     def test_representative_instance_conforms(self):
         self.assertEqual(_errors(POLICY_SCHEMA, VALID_FM), [])
 
-    def test_established_by_optional_present_and_absent_both_conform(self):
-        self.assertEqual(_errors(POLICY_SCHEMA, VALID_FM), [])                       # absent
-        with_link = {**VALID_FM, "established_by": "eADR-0001"}
-        self.assertEqual(_errors(POLICY_SCHEMA, with_link), [])                      # present
+    def test_retired_decision_pointer_is_rejected(self):
+        legacy = {**VALID_FM, "established_by": "eADR-0001"}
+        self.assertNotEqual(_errors(POLICY_SCHEMA, legacy), [],
+                            "policy frontmatter is closed and no longer accepts decorative pointers")
 
     def test_missing_required_field_is_rejected(self):
         for drop in ("title", "status", "date"):
@@ -162,7 +162,7 @@ class TestSchema(unittest.TestCase):
             self.assertNotEqual(_errors(POLICY_SCHEMA, bad), [], f"dropping {drop} should fail")
 
     def test_status_outside_the_decision_lifecycle_is_rejected(self):
-        # the same 'decision' vocabulary contracts use; there is deliberately no 'rejected' state.
+        # There is deliberately no 'rejected' state.
         for bad_status in ("rejected", "draft", "active", "Accepted"):
             bad = {**VALID_FM, "status": bad_status}
             self.assertNotEqual(_errors(POLICY_SCHEMA, bad), [], f"{bad_status} is not a lifecycle state")
@@ -173,10 +173,6 @@ class TestSchema(unittest.TestCase):
         for bad_date in ("June 3", "2026-6-3", "06-03-2026", "2026/06/03", "2026-06-03T00:00:00Z"):
             bad = {**VALID_FM, "date": bad_date}
             self.assertNotEqual(_errors(POLICY_SCHEMA, bad), [], f"{bad_date} should fail the date pattern")
-
-    def test_bad_established_by_pattern_is_rejected(self):
-        bad = {**VALID_FM, "established_by": "eADR-1"}
-        self.assertNotEqual(_errors(POLICY_SCHEMA, bad), [])
 
     def test_unknown_extra_field_is_rejected(self):
         bad = {**VALID_FM, "enforcement_tier": "posture"}   # enforcement tier is the body section, not frontmatter
@@ -209,7 +205,7 @@ class TestSchema(unittest.TestCase):
                                 f"{bad_key!r} is not a valid machine key")
 
     def test_schema_carries_no_id_field(self):
-        # policies are slug-named (no numbered id scheme), unlike contracts' eADR-####.
+        # Policies are slug-named; their filename is the identity.
         self.assertNotIn("id", POLICY_SCHEMA["properties"])
 
 
