@@ -4190,6 +4190,20 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         self.assertTrue(bc._mutates(argparse.Namespace(command="checkpoint")))
         self.assertTrue(bc._mutates(argparse.Namespace(command="work", work_command="integrate")))
 
+    def test_the_state_family_is_exempted_one_subcommand_at_a_time(self):
+        # `state` used to be exempted as a whole command, so a mutating subcommand added later would
+        # have skipped verification by inheritance rather than by anyone deciding it should. The
+        # exemption is a closed set now; this asserts its exact membership, so widening it is an edit
+        # someone has to make here as well as there.
+        self.assertEqual(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS, frozenset({"where", "migrate", "supersede"}))
+        # Every `state` subcommand that exists is in it, and each is a subparser that really exists.
+        state_parser = bc.parser()._subparsers._group_actions[0].choices["state"]
+        declared = set(state_parser._subparsers._group_actions[0].choices)
+        self.assertEqual(declared, set(bc._SNAPSHOTLESS_STATE_SUBCOMMANDS))
+        # And the polarity holds for one that does not exist yet.
+        self.assertNotIn("rebuild", bc._SNAPSHOTLESS_STATE_SUBCOMMANDS)
+        self.assertTrue(bc._mutates(argparse.Namespace(command="state", state_command="rebuild")))
+
     def test_an_unknown_verb_is_verified_by_default(self):
         # The polarity is the point: a verb added later must fail SAFE. If this ever inverts, a new
         # mutating verb silently skips the gate and nothing else notices.
@@ -4229,16 +4243,7 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         # Bound before either field existed. It must resume, not be told it is broken.
         self.assertEqual(bc.resume_reasons({"build": {}, "plan": {}}), [])
 
-    def test_the_verdict_is_identical_with_and_without_an_observation(self):
-        state = self.seed()
-        state["build"]["worktree"] = "/somewhere/else"
-        state["plan"]["bound_head"] = bc._head()
-        without = bc.resume_reasons(state)
-        build_state_store.observe(Path(self.temp.name) / "observations.ndjson",
-                                  {"kind": "compaction", "session": "s"})
-        self.assertEqual(bc.resume_reasons(state), without)
-
-    def test_verify_resume_refuses_before_the_verb_and_records_the_outcome(self):
+    def test_verify_resume_refuses_before_the_verb_and_names_it(self):
         state = self.seed()
 
         def change(s):
@@ -4247,21 +4252,19 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         with self.assertRaises(bc.CoordinatorError) as caught:
             bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
         self.assertIn("checkpoint", str(caught.exception))
-        recorded = build_state_store.observations(
-            Path(self.state_path).parent / build_state_store.OBSERVATIONS_FILENAME)
-        self.assertEqual([e["outcome"] for e in recorded], ["refused"])
 
-    def test_verify_resume_passes_and_records_a_pass(self):
+    def test_verification_leaves_nothing_behind_beside_the_snapshot(self):
+        # The guarantee is the refusal, not a tally of the times it held. Anything written here would
+        # be a record kept for its own sake, which is exactly what this design removed.
         self.seed()
 
         def change(s):
             s["build"]["worktree"] = str(bc.ROOT)
             s["plan"]["bound_head"] = bc._head()
         self.store.mutate(change)
+        before = sorted(p.name for p in Path(self.state_path).parent.iterdir())
         bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
-        recorded = build_state_store.observations(
-            Path(self.state_path).parent / build_state_store.OBSERVATIONS_FILENAME)
-        self.assertEqual([e["outcome"] for e in recorded], ["passed"])
+        self.assertEqual(sorted(p.name for p in Path(self.state_path).parent.iterdir()), before)
 
     def test_verification_never_writes_the_snapshot(self):
         # A write here would bump the revision under a guard the verb is about to hold, so the check
@@ -4361,165 +4364,17 @@ class TestPostCompactionRegrounding(CoordinatorCase):
             if line.startswith("  ") and ": " in line:
                 self.assertIn(line.strip().split(": ")[0], labels)
 
-    def test_a_compaction_is_observed_beside_the_snapshot(self):
+    def test_the_hook_reacts_to_a_compaction_and_records_nothing(self):
+        # It injects; it does not keep a history. Nothing reads a record of compactions, and one kept
+        # anyway would be bookkeeping for its own sake.
         path = self.seeded_snapshot()
+        before = sorted(p.name for p in path.parent.iterdir())
         with self.resolve_to([("a-slug", path)]):
-            bc.reground_handler({"source": "compact", "session_id": "s1", "trigger": "auto"})
-        recorded = build_state_store.observations(
-            path.parent / build_state_store.OBSERVATIONS_FILENAME)
-        self.assertEqual(len(recorded), 1)
-        self.assertEqual(recorded[0]["kind"], "compaction")
-        self.assertEqual(recorded[0]["session"], "s1")
+            decision = bc.reground_handler({"source": "compact", "session_id": "s1", "trigger": "auto"})
+        self.assertEqual(decision["action"], "inject")
+        self.assertEqual(sorted(p.name for p in path.parent.iterdir()), before)
 
     def test_a_broken_library_fails_open_and_never_stops_the_session(self):
         with mock.patch.object(bc.build_state_store, "bound_snapshots",
                                side_effect=RuntimeError("library is unreadable")):
             self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())
-
-
-class TestPhaseBarrier(CoordinatorCase):
-    """The seal-to-build boundary: mechanism where it can reach, ceremony where it cannot.
-
-    The design hazard these guard is a gate that always refuses. A barrier nobody can satisfy is a
-    barrier everybody overrides, which is strictly worse than none — so the positive cases matter at
-    least as much as the refusal, and case 5 (a compaction that predates the seal) is the one that
-    keeps 'a boundary happened' from decaying into 'a boundary happened at some point ever'.
-    """
-
-    SEALED = "2026-08-26T02:46:39Z"
-
-    def setUp(self):
-        super().setUp()
-        self.record = Path(self.temp.name) / "observations.ndjson"
-        patch = mock.patch.object(bc, "_library_observations_path", return_value=self.record)
-        patch.start()
-        self.addCleanup(patch.stop)
-        # The seam's own chain name. Spelled out here because a test may carry provider vocabulary
-        # (the vocab check exempts tests) and because patching what `session_from_env` actually reads
-        # is the point — patching a constant the production path no longer consults would be a test
-        # that passes while the behaviour it claims to cover has moved.
-        session = mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "THIS-SESSION"})
-        session.start()
-        self.addCleanup(session.stop)
-
-    def seal_by(self, session, plan_id="pln_x"):
-        build_state_store.observe(self.record,
-                                  {"kind": "seal", "plan_id": plan_id, "session": session})
-
-    def compact_at(self, at):
-        build_state_store.observe(self.record, {"kind": "compaction", "at": at})
-
-    def test_no_boundary_recorded_refuses(self):
-        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-
-    def test_a_different_sealing_session_is_a_boundary(self):
-        self.seal_by("SOME-OTHER-SESSION")
-        self.assertEqual(bc.phase_barrier_reasons(self.SEALED, "pln_x"), [])
-
-    def test_the_same_session_with_no_compaction_refuses(self):
-        self.seal_by("THIS-SESSION")
-        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-
-    def test_a_compaction_after_the_seal_is_a_boundary(self):
-        self.seal_by("THIS-SESSION")
-        self.compact_at("2026-08-26T05:00:00Z")
-        self.assertEqual(bc.phase_barrier_reasons(self.SEALED, "pln_x"), [])
-
-    def test_a_compaction_before_the_seal_is_not_a_boundary(self):
-        # Otherwise the barrier decays from "a boundary since the seal" into "a boundary ever".
-        self.seal_by("THIS-SESSION")
-        self.compact_at("2026-08-26T01:00:00Z")
-        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-
-    def test_the_refusal_names_the_exact_remedy(self):
-        reasons = " ".join(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-        self.assertIn("/compact", reasons)
-        self.assertIn("/clear", reasons)
-        self.assertIn("--override-phase-barrier", reasons)
-        self.assertIn("model and effort", reasons)
-
-    def test_a_legacy_seal_says_why_the_identity_check_cannot_run(self):
-        reasons = " ".join(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-        self.assertIn("predates the engine recording which session sealed it", reasons)
-
-    def test_an_unidentifiable_session_says_so(self):
-        with mock.patch.dict(os.environ, {}, clear=True):
-            reasons = " ".join(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-        self.assertIn("cannot identify itself", reasons)
-
-    def test_no_seal_moment_makes_no_claim(self):
-        self.assertEqual(bc.phase_barrier_reasons(None, "pln_x"), [])
-
-    def test_an_unparseable_seal_moment_makes_no_claim(self):
-        self.assertEqual(bc.phase_barrier_reasons("not-a-time", "pln_x"), [])
-
-    def test_recording_a_sealing_session_is_append_only_and_last_wins(self):
-        self.seal_by("FIRST")
-        self.seal_by("SECOND")
-        self.assertEqual(bc._sealing_session("pln_x"), "SECOND")
-        self.assertEqual(len(build_state_store.observations(self.record)), 2,
-                         "the earlier line is kept, never rewritten")
-
-    def test_a_sealing_session_for_another_plan_is_not_borrowed(self):
-        self.seal_by("SOME-OTHER-SESSION", plan_id="pln_other")
-        self.assertIsNone(bc._sealing_session("pln_x"))
-        self.assertTrue(bc.phase_barrier_reasons(self.SEALED, "pln_x"))
-
-
-class TestContextControlStatus(CoordinatorCase):
-    """Status reports what was OBSERVED and never what is configured."""
-
-    def report(self):
-        return bc.context_control_report(self.store, self.state())
-
-    def test_it_never_claims_an_effective_threshold(self):
-        self.seed()
-        report = self.report()
-        self.assertIsNone(report["effective_threshold"])
-        self.assertTrue(report["observation_limited"])
-        rendered = io.StringIO()
-        with contextlib.redirect_stdout(rendered):
-            bc._print_context_control(report)
-        text = rendered.getvalue()
-        self.assertIn("never configured", text)
-        self.assertNotIn("threshold is", text)
-
-    def test_the_none_state_is_reported_as_none_not_omitted(self):
-        self.seed()
-        report = self.report()
-        self.assertEqual(report["observed_compactions"], 0)
-        self.assertEqual(report["compaction_history"], [])
-        self.assertEqual(report["session_at_bind"], {"model": None, "effort": None})
-
-    def test_observed_compactions_and_verifications_are_counted(self):
-        self.seed()
-        path = bc._observations_path_for(self.store)
-        build_state_store.observe(path, {"kind": "compaction", "trigger": "auto"})
-        build_state_store.observe(path, {"kind": "resume-verification", "outcome": "passed"})
-        build_state_store.observe(path, {"kind": "resume-verification", "outcome": "refused",
-                                         "reasons": ["the worktree moved"]})
-        report = self.report()
-        self.assertEqual(report["observed_compactions"], 1)
-        self.assertEqual(report["resume_verifications"]["passed"], 1)
-        self.assertEqual(report["resume_verifications"]["refused"], 1)
-        self.assertEqual(report["resume_verifications"]["last_refusal_reasons"], ["the worktree moved"])
-
-    def test_bind_time_model_and_effort_are_reported_as_self_reported(self):
-        self.seed()
-
-        def change(s):
-            s["build"]["session_at_bind"] = {"model": "opus-5", "effort": "high"}
-        self.store.mutate(change)
-        rendered = io.StringIO()
-        with contextlib.redirect_stdout(rendered):
-            bc._print_context_control(self.report())
-        text = rendered.getvalue()
-        self.assertIn("self-reported", text)
-        self.assertIn("opus-5", text)
-        self.assertIn("high", text)
-
-    def test_the_recommendation_is_reported_as_surfaced_not_effective(self):
-        self.seed()
-        recommendation = self.report()["recommendation"]
-        self.assertIn("not readable here", recommendation)
-        self.assertIn("surfaced state", recommendation)

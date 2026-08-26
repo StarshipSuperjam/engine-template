@@ -258,67 +258,6 @@ class DoesNotDestroy(_Library):
             build_state_store.supersede(self.lib, self.slug, reason="second")
 
 
-class TheObservationRecord(_Library):
-    """IT DOES NOT CONTEND — the sidecar exists so a hook and the coordinator never fight.
-
-    The whole reason observations are not in the snapshot is that a hook-side write would bump the
-    revision under a compare-and-swap guard the coordinator is holding. That is the claim these
-    assert, and the guard test is the one that would actually catch a regression back into the
-    snapshot: it holds a from_revision across an observation and still writes.
-    """
-
-    def path(self) -> Path:
-        return build_state_store.observations_path(self.lib, self.slug)
-
-    def test_appends_accumulate_in_order(self):
-        build_state_store.observe(self.path(), {"kind": "compaction", "session": "one"})
-        build_state_store.observe(self.path(), {"kind": "compaction", "session": "two"})
-        found = build_state_store.observations(self.path())
-        self.assertEqual([e["session"] for e in found], ["one", "two"])
-        self.assertTrue(all(e.get("at") for e in found), "every observation is stamped")
-
-    def test_a_missing_record_reads_as_no_observations(self):
-        self.assertEqual(build_state_store.observations(self.path()), [])
-
-    def test_a_torn_line_costs_that_line_and_not_the_record(self):
-        build_state_store.observe(self.path(), {"kind": "compaction", "session": "good"})
-        with open(self.path(), "a", encoding="utf-8") as fh:
-            fh.write('{"kind": "compaction", "session": "tor')  # killed mid-append
-        build_state_store.observe(self.path(), {"kind": "compaction", "session": "after"})
-        found = build_state_store.observations(self.path())
-        self.assertEqual([e["session"] for e in found], ["good", "after"])
-
-    def test_an_unwritable_record_never_fails_the_caller(self):
-        # The callers are a fail-open hook and a verb that has already done its work. Neither may die
-        # because a note could not be filed.
-        build_state_store.observe(self.path().parent / "nope" / "deeper" / "x.ndjson", {"kind": "x"})
-
-    def test_it_is_owner_only_like_everything_else_in_the_library(self):
-        build_state_store.observe(self.path(), {"kind": "compaction"})
-        self.assertEqual(self.path().stat().st_mode & 0o777, plan_store.FILE_MODE)
-
-    def test_an_observation_cannot_invalidate_a_held_revision_guard(self):
-        store = self._store()
-        store.create(_state())
-        observed = []
-
-        def change(state):
-            # Mid-mutation, exactly where a hook firing during a coordinator verb would land.
-            build_state_store.observe(self.path(), {"kind": "compaction", "session": "mid"})
-            observed.append(True)
-            state["submission"] = "ready"
-
-        store.mutate(change, from_revision=1)
-        self.assertTrue(observed)
-        self.assertEqual(self._store().read()["submission"], "ready")
-        self.assertEqual(len(build_state_store.observations(self.path())), 1)
-
-    def test_the_record_lives_beside_the_snapshot_never_inside_it(self):
-        self.assertEqual(self.path().parent,
-                         build_state_store.snapshot_path(self.lib, self.slug).parent)
-        self.assertNotEqual(self.path(), build_state_store.snapshot_path(self.lib, self.slug))
-
-
 class OneHome(unittest.TestCase):
     """IT HAS ONE HOME — asserted structurally, because drift here is silent."""
 
