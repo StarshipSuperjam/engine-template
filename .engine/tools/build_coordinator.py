@@ -293,8 +293,8 @@ def _mutates(args) -> bool:
 # `state` subcommands that resolve no snapshot of their own, enumerated rather than exempted as a
 # whole command. The whole-command form quietly undid the fail-safe polarity above for a family of
 # verbs: a `state` subcommand added later would have skipped the gate by inheritance rather than by
-# anyone deciding it should. Each name here addresses its target explicitly -- `where` reads, `migrate`
-# takes a --source, `supersede` takes a --plan -- so none of them mutates the snapshot this session
+# anyone deciding it should. Each name here addresses its target explicitly — `where` reads, `migrate`
+# takes a --source, `supersede` takes a --plan — so none of them mutates the snapshot this session
 # resolved. The last two are RECOVERY verbs besides: their whole job is to deal with a snapshot this
 # session does not match, so verifying the match first would deadlock the very situation they exist to
 # unstick. A fourth subcommand gets no exemption until someone writes its reason here.
@@ -1155,19 +1155,34 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     if not (getattr(args, "operator_decision", None) or "").strip():
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
     consent = plan_lifecycle.attestation("bind", args.operator_decision, at=moment.utc_now())
+    # The seal-to-build hand-off, on the consent door that already exists rather than beside it. The
+    # seal printed a hand-back asking which model and effort the BUILD should run on; this refuses to
+    # start until that question has an answer. The answer IS the agreement to begin, which is why
+    # there is no override to pass and nothing to escalate: an operator who was never asked cannot
+    # have answered, and a session that skipped the asking has nothing to put here.
+    model = (getattr(args, "session_model", None) or "").strip()
+    effort = (getattr(args, "session_effort", None) or "").strip()
+    if not (model and effort):
+        absent = [f"--session-{name}" for name, value in (("model", model), ("effort", effort))
+                  if not value]
+        raise CoordinatorError(
+            "the Build cannot start until you have chosen what it runs on: "
+            f"{' and '.join(absent)} {'is' if len(absent) == 1 else 'are'} missing.\n"
+            "  Sealing a plan and building it are different jobs and often want different settings. "
+            "The seal printed the hand-back that asks for this: settle anything that still lives only "
+            "in the conversation, /compact or /clear, then choose the model and reasoning effort you "
+            "want for the BUILD and bind again with both stated.\n"
+            "  Recorded as self-reported, never measured — the engine cannot read what a session is "
+            "actually running on. It is asked for because the asking is the point.")
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
-    # What the build phase actually started on. Self-reported and recorded as such: the engine cannot
-    # read the session's model or effort, so this is the operator's or the session's own statement,
-    # and status says so rather than presenting it as measured. Recorded even when both are absent, so
-    # a reader can tell "nobody said" from "nobody asked".
-    model = getattr(args, "session_model", None)
-    effort = getattr(args, "session_effort", None)
-    if model or effort:
-        state["build"]["session_at_bind"] = {"model": model, "effort": effort}
+    # What the gate was given. Kept so the refusal above is auditable rather than write-only, and
+    # deliberately not surfaced back to the operator anywhere: they chose it, and reading their own
+    # choice back to them in status and again in the pull request is noise, not disclosure.
+    state["build"]["session_at_bind"] = {"model": model, "effort": effort}
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.

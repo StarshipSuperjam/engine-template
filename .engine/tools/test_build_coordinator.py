@@ -137,8 +137,12 @@ class CoordinatorCase(unittest.TestCase):
         return self.store.read()
 
     def bind_args(self, **over):
+        # Both session fields carry a value by default because bind now REFUSES without them: they
+        # are the operator's answer to the seal hand-back, and every other bind case here is about
+        # something else. The refusal itself has its own class below, driven through the real CLI.
         args = {"plan": PLAN_ID, "mode": "same-session", "repository": "owner/repo", "pr": 7,
-                "issue": None, "operator_decision": "yes, start the Build"}
+                "issue": None, "operator_decision": "yes, start the Build",
+                "session_model": "opus-5", "session_effort": "high"}
         args.update(over)
         return argparse.Namespace(**args)
 
@@ -191,7 +195,8 @@ class TestPlanAndSnapshot(CoordinatorCase):
         with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding"), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_plan_bind(self.bind_args(), self.store)
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
-                                                 "mode": "same-session", "worktree": str(bc.ROOT)})
+                                                 "mode": "same-session", "worktree": str(bc.ROOT),
+                                                 "session_at_bind": {"model": "opus-5", "effort": "high"}})
 
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
@@ -2736,16 +2741,17 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # work inline — the cost the routing exists to remove.
         # 273 is those two independently justified raises meeting in a merge, not a new budget: the file
         # measures exactly 273 lines, and neither side's additions were trimmed to fit the other's cap.
-        # 273 -> 286 for the plan-to-build phase barrier, on the same justification as every raise above:
-        # `plan bind` now REFUSES when no session boundary or compaction is recorded since the seal, so a
-        # session working from the old text meets a refusal the runbook never mentions and cannot resolve
-        # from it — it would not know the boundary is the remedy, that --session-model/--session-effort
-        # exist, or that --override-phase-barrier is the way through. The second paragraph prevents the
-        # opposite error: a session that reads a barrier at bind and infers it must also stop at every
-        # mid-Build compaction, which is the ceremony this design deliberately removed. Thirteen lines is
-        # what those two cost; nothing was padded and nothing else was trimmed to pay for it.
+        # 273 -> 284 for the seal-to-build hand-off, on the same justification as every raise above:
+        # `plan bind` now REFUSES without --session-model and --session-effort, so a session working from
+        # the old text meets a refusal the runbook never mentions and cannot resolve from it. The second
+        # paragraph prevents the opposite error: a session that reads a stop at bind and infers it must
+        # also stop at every mid-Build compaction, which is the ceremony this design deliberately removed.
+        # Eleven lines is what those two cost. The cap is the file's exact measurement, not the older
+        # 286 this build first raised it to — that number was budgeted for a boundary DETECTOR whose
+        # refusal had four remedies to spell out, and the detector was cut. A cap left standing above what
+        # its prose actually needs is unearned headroom, so it comes back down with the text.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 286)
+        self.assertLessEqual(len(text.splitlines()), 284)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -2811,12 +2817,13 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # 3657 is those two ratchets meeting in a merge, not a new budget: the file measures exactly that,
         # and neither side's instruction was trimmed to fit the other's cap. The preservation-source ratio
         # (448/6296) is unchanged.
-        # 3657 -> 3835 for the plan-to-build phase barrier: the bind refusal a session cannot resolve from
-        # the old text, plus the sentence that stops it over-reading the barrier into a mid-Build stop. The
-        # word cost is higher per line than a typical raise because the remedy has to be SPELLED OUT — a
+        # 3657 -> 3806 for the seal-to-build hand-off: the bind refusal a session cannot resolve from the
+        # old text, plus the sentence that stops it over-reading that stop into a mid-Build one. The word
+        # cost is higher per line than a typical raise because the remedy has to be SPELLED OUT — a
         # refusal whose fix the runbook only gestures at is the failure mode this cap was never meant to
-        # cause. Still one instruction and one guard against its misreading; nothing padded.
-        self.assertLessEqual(len(text.split()), 3835)
+        # cause. Like the line cap above, this is the file's exact measurement rather than the 3835 this
+        # build first budgeted for the detector it no longer ships.
+        self.assertLessEqual(len(text.split()), 3806)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
@@ -4378,3 +4385,81 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         with mock.patch.object(bc.build_state_store, "bound_snapshots",
                                side_effect=RuntimeError("library is unreadable")):
             self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())
+
+
+class TestSealToBuildHandoff(CoordinatorCase):
+    """The one mechanical part of the plan-to-build boundary: bind refuses until it is answered.
+
+    Driven through `main()` with real argv rather than by calling the handler with a hand-built
+    Namespace. That is deliberate and it is the gap this class exists to close: a fixture that sets
+    the fields directly proves the handler branches, never that the refusal a session actually meets
+    at the command line exists at all. Every case here goes through argparse.
+    """
+
+    def cli(self, *extra):
+        """Run a real `plan bind` argv against this case's snapshot; return (exit code, stderr)."""
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        argv = ["--state", str(self.state_path),
+                "plan", "bind", "--plan", PLAN_ID, "--repository", "owner/repo", "--pr", "7",
+                "--operator-decision", "yes, start the Build", *extra]
+        err = io.StringIO()
+        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
+                mock.patch.object(bc, "_record_build_binding"), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            code = bc.main(argv)
+        return code, err.getvalue()
+
+    def test_an_unanswered_bind_refuses_and_names_both_flags(self):
+        code, err = self.cli()
+        self.assertEqual(code, 2)
+        self.assertIn("--session-model", err)
+        self.assertIn("--session-effort", err)
+
+    def test_half_an_answer_is_not_an_answer_and_the_refusal_names_only_the_missing_half(self):
+        code, err = self.cli("--session-model", "opus-5")
+        self.assertEqual(code, 2)
+        self.assertIn("--session-effort", err)
+        self.assertNotIn("--session-model", err)
+
+        code, err = self.cli("--session-effort", "high")
+        self.assertEqual(code, 2)
+        self.assertIn("--session-model", err)
+        self.assertNotIn("--session-effort", err)
+
+    def test_whitespace_is_not_an_answer(self):
+        # A shell that expands an unset variable hands argparse an empty string, not an absent flag.
+        code, err = self.cli("--session-model", "   ", "--session-effort", "high")
+        self.assertEqual(code, 2)
+        self.assertIn("--session-model", err)
+
+    def test_the_refusal_names_the_remedy_rather_than_only_the_rule(self):
+        _, err = self.cli()
+        for phrase in ("hand-back", "bind again", "self-reported"):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, err)
+
+    def test_there_is_no_override_to_find(self):
+        # The absence IS the design: an operator's answer is the agreement, so a flag that skipped
+        # the asking would be a way to start a Build nobody was asked about.
+        self.assertNotIn("override-phase-barrier", bc.parser().format_help())
+        # argparse rejects it outright, which is the strongest form of "there is no way past this":
+        # the flag is not merely ignored, the command line carrying it does not parse.
+        with self.assertRaises(SystemExit) as caught, contextlib.redirect_stderr(io.StringIO()):
+            self.cli("--override-phase-barrier")
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_an_answered_bind_proceeds_and_records_what_it_was_given(self):
+        code, err = self.cli("--session-model", "opus-5", "--session-effort", "high")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.state()["build"]["session_at_bind"],
+                         {"model": "opus-5", "effort": "high"})
+
+    def test_the_answer_is_never_read_back_to_the_operator(self):
+        # Recorded so the gate is auditable; surfaced nowhere, on the operator's own instruction.
+        self.cli("--session-model", "opus-5", "--session-effort", "high")
+        rendered = io.StringIO()
+        with contextlib.redirect_stdout(rendered):
+            bc.cmd_status(argparse.Namespace(plan=None, json=False), self.store)
+        self.assertNotIn("opus-5", rendered.getvalue())

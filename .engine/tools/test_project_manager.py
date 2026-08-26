@@ -2090,7 +2090,15 @@ class TestSealHandback(unittest.TestCase):
         text = self.text()
         self.assertIn("REFUSES", text)
         self.assertIn("mechanism, not ceremony", text)
-        self.assertIn("--override-phase-barrier", text)
+        self.assertIn("--session-model", text)
+        self.assertIn("--session-effort", text)
+
+    def test_it_offers_no_way_around_the_one_mechanical_part(self):
+        # The hand-back must not teach an escape that does not exist. It says so in the one place
+        # a reader would look for one, and names no flag they could try.
+        text = self.text()
+        self.assertIn("nothing to override", text)
+        self.assertNotIn("--override", text)
 
     def test_the_recommendation_is_user_scope_and_the_engine_writes_nothing(self):
         text = self.text()
