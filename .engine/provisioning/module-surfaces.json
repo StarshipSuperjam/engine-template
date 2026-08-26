@@ -897,9 +897,6 @@
   ".engine/contracts/eADR-0044-plan-coordinator-local-library.md": [
    "core"
   ],
-  ".engine/contracts/eADR-0045-context-control-boundaries.md": [
-   "core"
-  ],
   ".engine/docs/ci-assurance.md": [
    "core"
   ],

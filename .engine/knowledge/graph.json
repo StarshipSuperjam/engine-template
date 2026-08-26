@@ -1081,8 +1081,7 @@
           "contract:eADR-0041-build-coordinator-behavior",
           "contract:eADR-0042-multi-writer-integration",
           "contract:eADR-0043-default-on-clean-checkout-catch-up",
-          "contract:eADR-0044-plan-coordinator-local-library",
-          "contract:eADR-0045-context-control-boundaries"
+          "contract:eADR-0044-plan-coordinator-local-library"
         ]
       },
       "slug": "contract-frontmatter",
@@ -1152,8 +1151,7 @@
           "contract:eADR-0041-build-coordinator-behavior",
           "contract:eADR-0042-multi-writer-integration",
           "contract:eADR-0043-default-on-clean-checkout-catch-up",
-          "contract:eADR-0044-plan-coordinator-local-library",
-          "contract:eADR-0045-context-control-boundaries"
+          "contract:eADR-0044-plan-coordinator-local-library"
         ]
       },
       "slug": "contract-shape",
@@ -1224,8 +1222,7 @@
           "contract:eADR-0041-build-coordinator-behavior",
           "contract:eADR-0042-multi-writer-integration",
           "contract:eADR-0043-default-on-clean-checkout-catch-up",
-          "contract:eADR-0044-plan-coordinator-local-library",
-          "contract:eADR-0045-context-control-boundaries"
+          "contract:eADR-0044-plan-coordinator-local-library"
         ]
       },
       "slug": "contract-threshold",
@@ -6104,26 +6101,6 @@
       "type": "contract"
     },
     {
-      "id": "contract:eADR-0045-context-control-boundaries",
-      "name": ".engine/contracts/eADR-0045-context-control-boundaries.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0045-context-control-boundaries",
-      "source": {
-        "fingerprint": "sha256:1fb90edaac2b1bc6b16dc4da4e747d4109a259fb6e141762fe8dcfcf097df435",
-        "path": ".engine/contracts/eADR-0045-context-control-boundaries.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
       "id": "doc:ci-assurance",
       "name": ".engine/docs/ci-assurance.md",
       "owner": "core",
@@ -6157,7 +6134,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:4b99b7b00f0bb07828d09da02633b656e20353139b57a367a054869df0a4c30a",
+        "fingerprint": "sha256:f309653e92b64b29bcefdc220b0a4b8b305e4cb3a0cbab5f725b399a4562d3dd",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -6569,7 +6546,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:71c423ab199ed3723fc12401bc0815d07928a7b8aee9bba95619cb4c7c32e96d",
+        "fingerprint": "sha256:ed7a7123905b5980261b0f883130294eb92ef82bf9f7ad0d2a7819a5e1895d75",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -7726,7 +7703,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:aaf989bb6e687f6e4583a66399411ee4d7ccd89bdf62f0ec25b3ceb564a46516",
+        "fingerprint": "sha256:36e86679e1dc26f5f4abe2a9503750b6cd580646dd7189e060e3adbd955fe34b",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -10062,7 +10039,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:71b71a4c999f5daa446ff282fb937fba38dc04c49c1038170b0e5fa559f4ef5c",
+        "fingerprint": "sha256:586998e56084c6eab64d7b6cbd5c52aca571208c04cde6f81e540425100c9f94",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11474,11 +11451,11 @@
       },
       "slug": "demo_context_control",
       "source": {
-        "fingerprint": "sha256:bfdbf8e560e3cf551c517e3f0d0ebedee6d289a73296715753c5b2e09d0b6060",
+        "fingerprint": "sha256:8edfa4f8f0e25cbed6cc345398de69b1b100de2a25334f1dbe1513ffe461b2b1",
         "path": ".engine/tools/demo_context_control.py"
       },
       "status": "active",
-      "summary": "Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable, that the",
+      "summary": "Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable and that",
       "type": "tool"
     },
     {
@@ -11934,7 +11911,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:ed1fe433aea79eaa77f22adc1eb07cda234ca40b642ba6871ec748ee9be26868",
+        "fingerprint": "sha256:a968ef1a6915bfa233ccf5aaa640e71ae58311df8f5849601dcdf3d1f6f8917a",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -14463,7 +14440,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:d3368b32e74d706db687451613df35f83ebd38001eab09bba32f03ad83d6e100",
+        "fingerprint": "sha256:f903b644353fd798211557f21e86f154d63f1d40df3cabd055438577a711d9bb",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16197,7 +16174,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:3ec13b04e999f0b1a43fd228117f83a31ccbd23ac7dee21ad572e4c7cc7c3c26",
+        "fingerprint": "sha256:0191875c8da8d23719daa94bbb9a8bf7319c669183578a160370818735da2fca",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16432,7 +16409,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:3256b9f31eed4f7ddd8c30e3517f30393cb4ba683df09e1993fb4f06b2fd1af8",
+        "fingerprint": "sha256:bc6be05f9f0d8e3ef15e0ceeef1cf2e724bbc076ea86e2afced1745b69413d6a",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -18999,7 +18976,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:184eb0edc32a23e053b16bc036c936ea2213ccfbc3b6a79f86f4387a053186f5",
+        "fingerprint": "sha256:263de8c46ee2f70ddc8601a4d746f325ab11241a4fc537bd42bb5c4f73e1c662",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
