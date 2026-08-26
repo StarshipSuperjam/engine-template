@@ -20,7 +20,10 @@
         "base_at_bind": {"$ref": "#/$defs/commit"},
         "mode": {"enum": ["same-session", "unattended"]},
         "worktree": {"type": "string", "minLength": 1,
-                     "description": "Absolute path of the worktree this Build runs in. How a session that restarted finds its durable snapshot again: the worktree is what the session is standing in, where a pointer file is something the crash could have taken with it. Optional, because a snapshot addressed by an explicit --state path needs no such lookup."}
+                     "description": "Absolute path of the worktree this Build runs in. How a session that restarted finds its durable snapshot again: the worktree is what the session is standing in, where a pointer file is something the crash could have taken with it. Optional, because a snapshot addressed by an explicit --state path needs no such lookup."},
+        "session_at_bind": {"type": "object", "additionalProperties": false,
+                            "properties": {"model": {"type": ["string", "null"]}, "effort": {"type": ["string", "null"]}},
+                            "description": "The model and reasoning effort the session reported when this Build was bound. Self-reported and never measured, so it is a record of what the build phase started on, not a proof of it. Optional: a snapshot bound before this field existed, or by a session that reported neither, simply omits it."}
       }
     },
     "plan": {

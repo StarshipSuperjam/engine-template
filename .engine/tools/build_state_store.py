@@ -229,6 +229,92 @@ def migrate(source: Path | str, selector: str, schema, *,
     return destination
 
 
+# --- the observation record ---------------------------------------------------
+
+# Observations live BESIDE the snapshot, never inside it, and the reason is a deadlock rather than a
+# preference. A compaction is observed by a hook, and a hook fires while the coordinator may be
+# holding a compare-and-swap guard on the snapshot: a hook-side write into that document would bump
+# the revision under the guard and make the coordinator's own next write fail, turning an advisory
+# observation into a wedged Build. An append-only sidecar has no revision to invalidate, so the two
+# writers never contend.
+#
+# It is also why this file is APPEND-ONLY and why every reader tolerates damage. A line is one JSON
+# object; a torn or truncated final line (the honest outcome of a process killed mid-append) costs
+# exactly that line and never the record. Nothing here is authoritative: the snapshot and the sealed
+# plan remain the authority, and an observation is only ever evidence that something was seen.
+OBSERVATIONS_FILENAME = "observations.ndjson"
+
+
+def observations_path(library: plan_store.PlanLibrary, slug: str) -> Path:
+    """The append-only observation record for one plan's Build, beside its snapshot."""
+    return plan_store.contain(builds_dir(library, slug) / OBSERVATIONS_FILENAME, library.root,
+                              "a Build observation record")
+
+
+def observe(path: Path | str, entry: dict) -> None:
+    """Append one observation. Best-effort by contract: a failure here must never fail the caller.
+
+    The callers are a fail-open hook and a coordinator verb that has already done its real work. In
+    both, an unwritable observation record is worth strictly less than the thing it would interrupt,
+    so this swallows its own errors. That is a deliberate weakening and it is safe ONLY because no
+    guarantee rests on an observation having been written: the resume verification below runs
+    unconditionally and reaches the same verdict whether or not this record has a line in it.
+    """
+    path = Path(path)
+    record = dict(entry)
+    record.setdefault("at", moment.utc_now())
+    try:
+        plan_store.ensure_dir(path.parent)
+        line = json.dumps(record, sort_keys=True, ensure_ascii=False) + "\n"
+        # A torn final line — the honest outcome of a process killed mid-append — has no newline, and
+        # appending straight onto it would fuse the damaged line and this one into a single corrupt
+        # line, costing BOTH. Closing the boundary first keeps the damage to the line that actually
+        # suffered it. Still strictly append-only: nothing already written is rewritten.
+        prefix = ""
+        try:
+            if path.is_file() and path.stat().st_size:
+                with open(path, "rb") as probe:
+                    probe.seek(-1, 2)
+                    if probe.read(1) != b"\n":
+                        prefix = "\n"
+        except OSError:
+            prefix = ""
+        # Opened per-append in "a" mode: the O_APPEND write of a single short line is what keeps two
+        # writers from interleaving into one corrupt line, and it is why this does not go through
+        # `atomic_write` — a whole-file replace would lose a concurrent writer's line outright.
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(prefix + line)
+        try:
+            path.chmod(plan_store.FILE_MODE)
+        except OSError:
+            pass
+    except Exception:  # noqa: BLE001 — an observation is never worth failing the caller for
+        return
+
+
+def observations(path: Path | str) -> list[dict]:
+    """Every readable observation, oldest first. Unparseable lines are skipped, never healed."""
+    path = Path(path)
+    if not path.is_file():
+        return []
+    found: list[dict] = []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            found.append(entry)
+    return found
+
+
 def supersede(library: plan_store.PlanLibrary, slug: str, *, reason: str) -> Path | None:
     """Set the current snapshot aside so a second Build of the same plan may start. Never silent.
 

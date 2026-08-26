@@ -2852,12 +2852,30 @@ class TestHookRegistration(unittest.TestCase):
         with open(SETTINGS_PATH, encoding="utf-8") as fh:
             self.settings = json.load(fh)
 
+    def _boot_matchers(self):
+        """The matchers BOOT is registered on — not every matcher on the event.
+
+        Scoped to boot on purpose. This assertion once read the event's whole matcher set, which was
+        the same thing only while boot was the event's sole matcher-bearing owner. It stopped being
+        the same thing when the Build coordinator registered post-compaction re-grounding on the
+        `compact` source, and an assertion that then failed would have been reporting boot's law
+        broken when boot had not moved. The law below is boot's, so it is measured on boot's wires.
+        """
+        return {g["matcher"] for g in self.settings["hooks"]["SessionStart"]
+                if any("tools/boot.py" in h["command"] for h in g["hooks"])}
+
     def test_sessionstart_wired_on_the_start_sources_not_compact(self):
-        groups = self.settings["hooks"]["SessionStart"]
-        matchers = {g["matcher"] for g in groups}
-        self.assertEqual(matchers, set(boot.SESSION_START_SOURCES))
-        self.assertNotIn("compact", matchers,
+        self.assertEqual(self._boot_matchers(), set(boot.SESSION_START_SOURCES))
+        self.assertNotIn("compact", self._boot_matchers(),
                          "boot must NOT re-render on compaction (negative law: no compact re-render)")
+
+    def test_the_compact_source_carries_no_boot_render(self):
+        # The negative law from the other side: whatever else registers on `compact`, none of it is
+        # boot. This is what keeps "no full re-render after a compaction" true as owners are added.
+        compact = [g for g in self.settings["hooks"]["SessionStart"] if g["matcher"] == "compact"]
+        for group in compact:
+            for hook in group["hooks"]:
+                self.assertNotIn("tools/boot.py", hook["command"])
 
     def test_every_sessionstart_command_points_into_engine_and_uses_the_venv(self):
         for g in self.settings["hooks"]["SessionStart"]:
@@ -2868,8 +2886,13 @@ class TestHookRegistration(unittest.TestCase):
 
     def test_boot_is_wired_exactly_once_on_every_start_source(self):
         # memory-substrate co-registers its consolidation sweep on the same SessionStart sources,
-        # so not every command names boot — but boot must still be present exactly once per source.
+        # so not every command names boot — but boot must still be present exactly once per START
+        # source. Sources boot deliberately sits out (`compact`) are excluded rather than demanded:
+        # the previous form asked every group for a boot render, which is the opposite of the law
+        # asserted directly above.
         for g in self.settings["hooks"]["SessionStart"]:
+            if g["matcher"] not in boot.SESSION_START_SOURCES:
+                continue
             boot_cmds = [h for h in g["hooks"] if "tools/boot.py" in h["command"]]
             self.assertEqual(len(boot_cmds), 1, f"boot wired once on the '{g['matcher']}' source")
 

@@ -3,6 +3,14 @@
   "exceptions": [
     {
       "kind": "hook",
+      "id": ".engine/tools/build_coordinator.py reground-hook",
+      "missing_or_weaker": "missing",
+      "provider": "codex",
+      "reason": "Post-compaction re-grounding rides Claude Code's SessionStart `compact` source, whose stdout becomes the freshly compacted session's context. Codex has no such source: its documented SessionStart matchers are startup/resume/clear, and its compaction lifecycle is the separate PostCompact event, which this engine has never bound and which is not confirmed — by any authority read first-hand here — to inject context back into the session that follows it. Registering a hook on an unverified injection capability would ship a guardrail that may do nothing while reading as though it does, and would additionally disarm every Codex-local gate until the operator re-approves hooks (see the hook-trust-gate entry). So the disclosed fallback branch ships instead, and the asymmetry is one of RE-GROUNDING SPEED, not of guarantee: the guarantee itself — that a session cannot mutate a Build it does not match — is unconditional verb-entry verification inside build_coordinator.py (eADR-0041, BC-31), which is provider-neutral code that runs identically on both runtimes and never depends on a hook having fired. What a Codex operator loses is the advisory pointer after a compaction; what they keep is the refusal. If Codex injection is later proven, this entry is deleted and the counterpart registered.",
+      "contract_ref": "eADR-0034"
+    },
+    {
+      "kind": "hook",
       "id": ".engine/tools/modes.py accept-hook",
       "missing_or_weaker": "missing",
       "provider": "codex",
