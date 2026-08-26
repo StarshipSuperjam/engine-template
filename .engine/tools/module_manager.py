@@ -902,6 +902,38 @@ def classify_available_modules(release_tree, present_ids, pre_overlay_known, *,
     return result
 
 
+def _transaction_release_candidates(release_tree: str, survivor_manifests: dict,
+                                    pre_overlay_known, *, catalog_trusted=True,
+                                    dropped_ids=()) -> dict:
+    """Release manifests whose files an upgrade transaction may WRITE.
+
+    The ordinary overlay/reconcile candidates are only the installed survivor modules. The tail can also
+    install net-new ``required`` and genuinely net-new ``default-on`` modules, however, and ``add()`` writes
+    their manifests plus every file in their ``provides`` surface. A tracked-content transaction must seal
+    those paths before the overlay starts or rollback will misclassify the new module as foreign operator work.
+
+    Reuse the exact install-vs-offer classifier the tail uses: optional, experimental, previously-declined, and
+    fail-closed default-on offers stay OUT of the footprint because the update does not write them. A malformed
+    release is raised here rather than guessed around; the caller converts that into its normal pre-mutation
+    rollback-footprint refusal. Returns the survivor map union the release manifests for planned installs.
+    """
+    candidates = dict(survivor_manifests or {})
+    plan = classify_available_modules(
+        release_tree, list(candidates), pre_overlay_known,
+        catalog_trusted=catalog_trusted, dropped_ids=dropped_ids)
+    if plan.get("malformed"):
+        shown = ", ".join(plan["malformed"][:3]) + ("…" if len(plan["malformed"]) > 3 else "")
+        raise _UpgradeRefused(f"the release contains a malformed module description ({shown})")
+    for entry in plan["install"]:
+        mid = entry["id"]
+        manifest = validate.load_json(
+            os.path.join(release_tree, ".engine", "modules", mid, "manifest.json"))
+        if manifest.get("id") != mid:
+            raise _UpgradeRefused(f"the release module directory '{mid}' contains a different module id")
+        candidates[mid] = manifest
+    return candidates
+
+
 def _pre_overlay_known(present_ids) -> tuple:
     """The set of module ids this deployment KNEW before the overlay — installed ∪ the pre-overlay catalog's ids
     ∪ the pre-overlay module manifests' ids — the StarshipSuperjam/engine-template#759 discriminator that tells a NET-NEW `default-on` module
@@ -3162,8 +3194,11 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
                                   "to undo the staged overlay and run the update again.")
                 return tail
             try:
+                transaction_candidates = _transaction_release_candidates(
+                    release_tree, candidates, pre_overlay_known,
+                    catalog_trusted=catalog_trusted, dropped_ids=dropped_ids)
                 dynamic_footprint = (set(_upgrade_footprint()) | set(old_owned) | set(dirty)
-                                     | set(engine_synced_paths(release_tree, candidates,
+                                     | set(engine_synced_paths(release_tree, transaction_candidates,
                                                                project_retire=False))
                                      | set(adopted_preflight["footprint"]))
             except Exception as exc:  # noqa: BLE001 - an incomplete adopted footprint is never guessed
@@ -4118,6 +4153,9 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         if tracked_preflight["targets"]:
             candidates_before_overlay = {m["id"]: m for m in release_manifests}
             try:
+                candidates_before_overlay = _transaction_release_candidates(
+                    release_tree, candidates_before_overlay, pre_overlay_known,
+                    catalog_trusted=catalog_trusted, dropped_ids=dropped_ids)
                 dynamic_footprint = (set(_upgrade_footprint()) | set(old_owned)
                                      | set(engine_synced_paths(release_tree, candidates_before_overlay,
                                                                project_retire=False))

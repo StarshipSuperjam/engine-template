@@ -1635,6 +1635,8 @@ class TestUpgradeEndToEnd(unittest.TestCase):
 
     def test_tracked_content_upgrade_preview_apply_and_public_rollback_round_trip(self):
         target = "legacy-record.md"
+        new_module_tool = ".engine/tools/new_required_tool.py"
+        new_module_manifest = ".engine/modules/new-required/manifest.json"
         with tempfile.TemporaryDirectory() as d:
             live = os.path.join(d, "live")
             os.makedirs(live)
@@ -1666,6 +1668,15 @@ class TestUpgradeEndToEnd(unittest.TestCase):
             with open(os.path.join(release, ".engine", "modules", "base", "migrations", "tracked_020.py"),
                       "w", encoding="utf-8") as fh:
                 fh.write(migration)
+            # A release can add a module after the survivor-only overlay. Its files must be sealed into the
+            # transaction up front or rollback mistakes this legitimate upgrade output for foreign work.
+            os.makedirs(os.path.dirname(os.path.join(release, new_module_manifest)), exist_ok=True)
+            module_manager._write_json(os.path.join(release, new_module_manifest), {
+                "id": "new-required", "version": "0.2.0", "status": "required",
+                "provides": {"tool": [new_module_tool]}, "depends": {"base": ">=0.2.0"},
+                "migrations": {}, "wires": []})
+            with open(os.path.join(release, new_module_tool), "w", encoding="utf-8") as fh:
+                fh.write("# installed by the upgrade\n")
             with module_manager._redirect_root(live):
                 module_manager._build_upgrade_fixture(live)
                 with open(os.path.join(live, target), "w", encoding="utf-8") as fh:
@@ -1690,6 +1701,10 @@ class TestUpgradeEndToEnd(unittest.TestCase):
                 self.assertFalse(os.path.exists(os.path.join(live, target)))
                 transaction = module_manager.checkout_health.inspect_upgrade_transaction(live)
                 self.assertEqual(transaction["state"], "active")
+                self.assertIn(new_module_tool, transaction["record"]["footprint"])
+                self.assertIn(new_module_manifest, transaction["record"]["footprint"])
+                self.assertTrue(os.path.isfile(os.path.join(live, new_module_tool)))
+                self.assertTrue(os.path.isfile(os.path.join(live, new_module_manifest)))
                 self.assertFalse(any("__pycache__" in p for p in transaction["record"]["footprint"]),
                                  transaction["record"]["footprint"])
                 undone = module_manager.rollback(confirm=True, resync=lambda: True, transport=None)
@@ -1705,6 +1720,8 @@ class TestUpgradeEndToEnd(unittest.TestCase):
                                                 capture_output=True, text=True).stdout.strip(), "")
                 with open(os.path.join(live, target), encoding="utf-8") as fh:
                     self.assertEqual(fh.read(), "retire me on upgrade\n")
+                self.assertFalse(os.path.lexists(os.path.join(live, new_module_tool)))
+                self.assertFalse(os.path.lexists(os.path.join(live, new_module_manifest)))
 
 
 class TestUpgradeSafety(unittest.TestCase):
