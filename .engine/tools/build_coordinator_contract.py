@@ -36,7 +36,8 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
   code_execution_line str        the code-execution disclosure (BO-41), computed from the review receipts
   plan_finding_lines  [str]      the sealed plan review's OUTCOME as an account: findings the
                                  operator must still weigh rendered in full, the settled remainder
-                                 counted. Not a per-finding transcript (#1083).
+                                 counted. Not a per-finding transcript
+                                 (StarshipSuperjam/engine-template#1083).
   qa_finding_split    {}         which Build findings render in full (`full_ids`) and the counted
                                  remainder, per stage. The claim still carries a summary for EVERY
                                  finding; this only decides which of them reach the body.
@@ -322,7 +323,8 @@ def compose(claim: dict, evidence: dict) -> str:
     # Consequence earns wordage. The claim carries an operator-safe summary for every finding and the
     # handoff keeps them all; what reaches the merge surface is what the operator must still act on or
     # ever disagreed over. A body that transcribes every row buries the two findings that mattered
-    # among the seventy that did not, and on #1080 it could not be published at all.
+    # among the seventy that did not, and on
+    # StarshipSuperjam/engine-template#1080 it could not be published at all.
     split = evidence.get("qa_finding_split") or {}
     full_ids = split.get("full_ids")
     shown = ([fs for fs in rev["finding_summaries"] if fs["id"] in set(full_ids)]
