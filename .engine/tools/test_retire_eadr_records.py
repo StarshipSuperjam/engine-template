@@ -202,6 +202,26 @@ class RetirementMigrationTests(unittest.TestCase):
         self.assertEqual([p.name for p in Path(root, ".engine").rglob("*")
                           if "upgrade-retirement" in p.name], [])
 
+    def test_apply_uses_the_sealed_baseline_inventory_after_candidate_overlay_stages_deletions(self):
+        tmp = self._repo(["eADR-0001.md"])
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        plan = self._preflight(root)
+
+        # The real updater seals preflight against the baseline, then overlays/stages the candidate. Its index
+        # therefore no longer lists either retired path even though phase two deliberately keeps the live bytes
+        # for the tracked-content migration. Apply must verify the sealed bytes, not rediscover through that
+        # now-candidate index.
+        self._git(root, "rm", "--cached", "-r", ".engine/contracts/instance",
+                  ".engine/operator-overrides.json")
+        self.assertEqual(self._git(root, "ls-files", "--", ".engine/contracts/instance"), "")
+        with self._empty_plans():
+            receipt = migration.apply(self._context(root), plan)
+        self.assertEqual(receipt["status"], "applied")
+        self.assertEqual({entry["path"] for entry in receipt["changes"]},
+                         {target["path"] for target in plan["targets"]})
+        self.assertFalse(os.path.exists(os.path.join(root, ".engine", "contracts", "instance")))
+
     def test_actionable_plan_compatibility_matrix(self):
         plans_tmp = tempfile.TemporaryDirectory()
         self.addCleanup(plans_tmp.cleanup)

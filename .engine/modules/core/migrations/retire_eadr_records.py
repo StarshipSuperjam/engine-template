@@ -379,16 +379,51 @@ def _write_all(fd: int, data: bytes) -> None:
         view = view[written:]
 
 
-def apply(context: dict, sealed_plan: dict) -> dict:
-    live = _discover(context)
-    if live.get("status") != "ready":
-        first = (live.get("refusals") or [{}])[0]
-        raise RuntimeError(f"{first.get('code')}: {first.get('reason')} {first.get('remediation')}")
-    if live["targets"] != sealed_plan.get("targets"):
-        raise RuntimeError("the live retirement set no longer matches the sealed preflight plan")
+def _sealed_targets(sealed_plan: dict) -> dict[str, dict]:
+    """Validate the pre-overlay target plan without consulting Git's now-candidate index."""
+    if not isinstance(sealed_plan, dict) or sealed_plan.get("status") != "ready" \
+            or not isinstance(sealed_plan.get("targets"), list):
+        raise RuntimeError("the sealed retirement plan is malformed")
+    targets = {}
+    for target in sealed_plan["targets"]:
+        if not isinstance(target, dict) or not isinstance(target.get("path"), str) \
+                or not isinstance(target.get("before_identity"), str) \
+                or not isinstance(target.get("recovery_scope"), list):
+            raise RuntimeError("the sealed retirement plan contains a malformed target")
+        path = target["path"]
+        if path in targets:
+            raise RuntimeError(f"the sealed retirement plan repeats a target: {path}")
+        if path.startswith(_INSTANCE + "/"):
+            name = path[len(_INSTANCE) + 1:]
+            if name != "README.md" and not _RECORD_RE.fullmatch(name):
+                raise RuntimeError(f"the sealed retirement plan names an unsupported record: {path}")
+            expected_scope = [path, _path_for_instance_name(_q_name(name))]
+            expected_operation = "delete"
+        elif path == _OVERRIDES:
+            expected_scope = [_OVERRIDES, ".engine/" + _OVERRIDE_Q, ".engine/" + _OVERRIDE_NEXT]
+            expected_operation = "replace"
+        else:
+            raise RuntimeError(f"the sealed retirement plan names an out-of-scope target: {path}")
+        if target.get("operation") != expected_operation or target["recovery_scope"] != expected_scope:
+            raise RuntimeError(f"the sealed retirement plan has an invalid operation or recovery scope: {path}")
+        targets[path] = target
+    if _INSTANCE + "/README.md" not in targets:
+        raise RuntimeError("the sealed retirement plan does not include the former record guide")
+    return targets
 
+
+def apply(context: dict, sealed_plan: dict) -> dict:
+    # Preflight ran against the baseline index. The generic updater then overlays and stages the candidate
+    # before apply, so Git's live index intentionally no longer contains these retired paths. Re-discovering
+    # through that candidate index makes every valid real upgrade disagree with its own sealed plan. The plan
+    # is the authority in phase two; live filesystem bytes, membership, plan heads, and races are rechecked
+    # below through held no-follow descriptors before anything is changed.
+    refusals = _plan_refusals(context["root"])
+    if refusals:
+        first = refusals[0]
+        raise RuntimeError(f"{first.get('code')}: {first.get('reason')} {first.get('remediation')}")
+    targets = _sealed_targets(sealed_plan)
     object_format = _object_format(context["root"])
-    targets = {t["path"]: t for t in sealed_plan["targets"]}
     changes = []
     root_fd = _open_dir(context["root"])
     try:
@@ -399,6 +434,23 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                 instance_fd = _open_dir("instance", contracts_fd)
                 try:
                     instance_paths = sorted(p for p in targets if p.startswith(_INSTANCE + "/"))
+                    expected_names = [path[len(_INSTANCE) + 1:] for path in instance_paths]
+                    if sorted(os.listdir(instance_fd)) != expected_names:
+                        raise RuntimeError("the live retirement set no longer matches the sealed preflight plan")
+                    # Verify the WHOLE sealed set before the first rename. A concurrent add/remove or byte
+                    # change therefore refuses without partial mutation; the per-file checks in the mutation
+                    # loop remain as the second race belt.
+                    for path in instance_paths:
+                        name = path[len(_INSTANCE) + 1:]
+                        fd, meta = _open_regular(name, instance_fd)
+                        try:
+                            if _blob_identity(_read_fd(fd), object_format) != targets[path]["before_identity"] \
+                                    or not _same_entry(name, instance_fd, meta):
+                                raise RuntimeError(f"sealed record changed before apply: {path}")
+                        finally:
+                            os.close(fd)
+                    if not _same_dir("instance", contracts_fd, instance_fd):
+                        raise RuntimeError("the former record directory was swapped before apply")
                     for path in instance_paths:
                         name = path[len(_INSTANCE) + 1:]
                         qname = _q_name(name)
