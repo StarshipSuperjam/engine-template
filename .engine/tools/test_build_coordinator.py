@@ -3292,6 +3292,29 @@ class TestTheCanonSaysOneThing(unittest.TestCase):
         self.assertEqual(len(rows), 1, f"{identifier} must appear exactly once")
         return rows[0]
 
+    def test_the_review_sections_genre_is_recorded_as_a_decision(self):
+        """The canon test above asserts a FIXED list of rows, so a new one is invisible to it — a row
+        could be missing or malformed and the suite would stay green. This reads BC-31 itself.
+
+        It is asserted here because the change it records is a REDUCTION in what the merge surface
+        discloses. A weakening that is not written where the behaviour is governed is a weakening
+        nobody can find later, and the honesty of the record is the only thing standing behind it.
+        """
+        row = self._row("BC-31")
+        self.assertIn("account", row.lower())
+        # The measurement, not just the claim: a reader must be able to see what it cost and why.
+        self.assertIn("60,000", row, "the budget the surface actually broke against")
+        self.assertIn("1080", row, "the build that could not publish")
+        # What survives, named — these are the guarantee, not the transcript that was dropped.
+        for kept in ("still-blocking", "escalated", "rejected", "partially-accepted",
+                     "accepted-tracked", "disagreement"):
+            self.assertIn(kept, row, f"BC-31 must name {kept} among what still renders in full")
+        # And the cost, stated rather than implied.
+        self.assertIn("gitignored", row, "the plan library's locality is part of the decision")
+        amendments = [l for l in self.behavior.splitlines() if l.startswith("_Amended 2026-08-25")]
+        self.assertTrue(any("BC-31" in l for l in amendments),
+                        "the dated amendment log must carry the row it introduced")
+
     def test_the_moved_assertions_are_corrected_in_place_not_left_standing(self):
         # Each of the five names the cutover as a source, so a reader can see WHEN it changed and why
         # — rather than finding a silently rewritten row with no history.
