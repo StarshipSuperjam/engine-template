@@ -5677,7 +5677,7 @@
       },
       "slug": "eADR-0022-hooks-lifecycle-bindings-block-budget",
       "source": {
-        "fingerprint": "sha256:65e86775ce795f3cd32d0beccefdbe3ad785cd4def7456a66e71b0e317d18147",
+        "fingerprint": "sha256:60d6a3484e0b51a240d747c7975826daa77c32535c193d1f951c9f2f0cae2bf7",
         "path": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md"
       },
       "status": "accepted",
@@ -6037,7 +6037,7 @@
       },
       "slug": "eADR-0041-build-coordinator-behavior",
       "source": {
-        "fingerprint": "sha256:2886c728c0ec730111ac1bf3b2e2b944047f808f1bffc939d6b3e69924339882",
+        "fingerprint": "sha256:cd09479d0e13655106462348e0f150ac3124d77f40b7b42c9fa05385f92b7ce5",
         "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
       },
       "status": "accepted",
@@ -6117,7 +6117,7 @@
       },
       "slug": "eADR-0045-context-control-boundaries",
       "source": {
-        "fingerprint": "sha256:4a86aca46c0e46135ca5cbbcd87b8a94810f42bd866d70e057426ab4917fbc88",
+        "fingerprint": "sha256:1fb90edaac2b1bc6b16dc4da4e747d4109a259fb6e141762fe8dcfcf097df435",
         "path": ".engine/contracts/eADR-0045-context-control-boundaries.md"
       },
       "status": "accepted",
@@ -6157,7 +6157,7 @@
       },
       "slug": "getting-started",
       "source": {
-        "fingerprint": "sha256:78967b7dfaa2f16bb4d637a8f67c437c7adb5dd2cec98c755cc36a97c3c36b90",
+        "fingerprint": "sha256:4b99b7b00f0bb07828d09da02633b656e20353139b57a367a054869df0a4c30a",
         "path": ".engine/docs/getting-started.md"
       },
       "status": "active",
@@ -7438,7 +7438,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:a78c26e640df5b377e0c09b68d90f754bfd040ebc2b0a5b485f3e37e3f6dd32b",
+        "fingerprint": "sha256:6e0a893c826021aacb6db5529c749715d27ef470beea92fe870bd44a6b2a48e2",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -10062,7 +10062,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:9f328852fda0b53aea6e896be58680e8da0f74a5bb607aabc8917c6cf3f16fae",
+        "fingerprint": "sha256:71b71a4c999f5daa446ff282fb937fba38dc04c49c1038170b0e5fa559f4ef5c",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -11474,7 +11474,7 @@
       },
       "slug": "demo_context_control",
       "source": {
-        "fingerprint": "sha256:ea73de8a135dd8b3b19449b296d9baf7dfee287be12cdf15b9157f02364a3d25",
+        "fingerprint": "sha256:bfdbf8e560e3cf551c517e3f0d0ebedee6d289a73296715753c5b2e09d0b6060",
         "path": ".engine/tools/demo_context_control.py"
       },
       "status": "active",
@@ -11934,7 +11934,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:1dbc870e417d23395e76fa16f1236ad7afe41f52dc9f82c2fb5169c3060b9792",
+        "fingerprint": "sha256:ed1fe433aea79eaa77f22adc1eb07cda234ca40b642ba6871ec748ee9be26868",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -14463,7 +14463,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:07180db2b8c3a1aa8df543600ae899b6e8d566459dc7f940178b0f4252ff32cb",
+        "fingerprint": "sha256:d3368b32e74d706db687451613df35f83ebd38001eab09bba32f03ad83d6e100",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16197,7 +16197,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:bf7659e40022c80d4db5aac07924e16bf639b484436fb081ceb23bf9a75cbc2f",
+        "fingerprint": "sha256:3ec13b04e999f0b1a43fd228117f83a31ccbd23ac7dee21ad572e4c7cc7c3c26",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16818,7 +16818,7 @@
       },
       "slug": "test_context_control_end_to_end",
       "source": {
-        "fingerprint": "sha256:ad0cfdf50773ee9429cc0b18cad1ff72c865c714f52af0c0f1a82ee679f0d6dc",
+        "fingerprint": "sha256:3e7b25c3e2d48d102a36ce7485d41e4a24998f078923468cadf0dd9d80eb1d4a",
         "path": ".engine/tools/test_context_control_end_to_end.py"
       },
       "status": "active",
