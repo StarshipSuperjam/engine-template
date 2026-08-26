@@ -16671,7 +16671,7 @@
       },
       "slug": "test_knowledge_vocabulary",
       "source": {
-        "fingerprint": "sha256:d796579f8273496e0f01a8f3cef253767035f254c50de1acffcb98a303c50d54",
+        "fingerprint": "sha256:c4b943f1249313bbd01cf95dc1fe842265427452d085ff944f9a0796e24103c5",
         "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
@@ -18828,7 +18828,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:f238a8550ede225b9fef46ae470e810fd0b806e418a0f9f5c0f2c32f26c119a5",
+        "fingerprint": "sha256:080a57ad9c3dd15c7c350f6e068372ecc326f3a25e043f98e4ebe21e1367de8d",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",

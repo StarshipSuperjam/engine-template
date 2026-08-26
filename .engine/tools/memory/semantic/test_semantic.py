@@ -40,7 +40,7 @@ class WordPieceTests(unittest.TestCase):
         """Frozen against the reference implementation. A change here silently invalidates every vector."""
         for text, expected in [
             ("the check that goes red", [1002, 3644, 1014, 2638, 1423]),
-            ("the established design", [18419, 12632, 17, 36228, 1626]),       # punctuation splits, so ids survive as pieces
+            ("ADR-0038", [37857, 17, 36228, 1626]),              # punctuation splits, so ids survive as pieces
             ("café NAÏVE", [6674, 14749]),                        # accents stripped, then lowercased
             ("__init__.py", [41, 41, 36350, 41, 41, 18, 36542]),
             ("C++ & C#", [45, 15, 15, 10, 45, 7]),
