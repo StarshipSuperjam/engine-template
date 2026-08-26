@@ -3826,21 +3826,124 @@ def _plan_review_clause(state: dict) -> str:
             "so the operator's own read is its review")
 
 
-def _plan_finding_lines(state: dict) -> list[str]:
-    """The sealed plan review's findings and their dispositions, for the merge surface.
+# What earns a finding its own line on the merge surface, plan-side and Build-side alike.
+#
+# The pull-request body is an ACCOUNT, not a ledger. 520 hand-written merges before the coordinator
+# carried the same template at a ~9.6KB median with a ~2KB Review section, and served the same merge
+# decision; the coordinator turned that section into a transcription of ledgers that already have
+# machine-readable homes (the sealed plan record, the Build snapshot, the handoff block) and tripled
+# the body, until StarshipSuperjam/engine-template#1080 could not publish at all. So consequence earns
+# wordage: what the operator must still act on, or ever disagreed over, renders in full; the settled
+# remainder is counted.
+#
+# The plan record does NOT constrain disposition against `blocks_this_pr` -- the plan-side disposer
+# enforces no coherence rule and the schema declares the fields independent, unlike the Build side's
+# `disposition_conflict`. So this keys on the UNION rather than on either field alone: keying on the
+# flag would compact an escalated finding recorded as non-blocking (an operator decision, silently
+# summarised), and keying on the disposition would drop a `rejected` finding carrying the flag.
+# Failing toward disclosure is the only safe direction when the record permits both.
+_UNSETTLED_DISPOSITIONS = ("escalated", "rejected", "partially-accepted")
 
-    A plan review that found blocking problems must be VISIBLE at merge, whatever was decided about
-    them. Rendered from the plan record, so nothing in the Build's own receipt bookkeeping can strip
-    them.
+
+def _finding_is_consequential(finding: dict, *, deferred_counts: bool = False) -> bool:
+    """Whether this finding earns its own line rather than a place in a count.
+
+    `deferred_counts` adds `accepted-tracked` for the Build-side ledger: deferred work is live risk a
+    remediating session needs named, and it is the class most likely to explain a later defect. It is
+    NOT added plan-side, where a tracked plan finding was answered before the code existed.
     """
-    plan_review = _sealed_plan_review(state)
+    if finding.get("blocks_this_pr"):
+        return True
+    disposition = finding.get("disposition")
+    if disposition in _UNSETTLED_DISPOSITIONS:
+        return True
+    return bool(deferred_counts and disposition == "accepted-tracked")
+
+
+def partition_findings(findings: list, *, deferred_counts: bool = False) -> tuple[list, list]:
+    """Split a finding ledger into (rendered in full, counted), exhaustively and exactly once.
+
+    Single-homed and returned as two lists so every count downstream is a `len()` projection of the
+    very list the renderer consumed. A parallel tally computed alongside the render is the shape that
+    lets a merge surface assert a number nobody measured, which is the failure this whole change
+    exists to avoid committing in a new place.
+    """
+    full, counted = [], []
+    for finding in findings:
+        (full if _finding_is_consequential(finding, deferred_counts=deferred_counts)
+         else counted).append(finding)
+    return full, counted
+
+
+def _tally(findings: list, key: str) -> str:
+    """`3 nit, 1 serious` -- ordered by count then name so the phrasing is stable across composes."""
+    counts = {}
+    for finding in findings:
+        counts[finding.get(key) or "unrecorded"] = counts.get(finding.get(key) or "unrecorded", 0) + 1
+    return ", ".join(f"{n} {name}" for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
+
+def _qa_finding_split(state: dict) -> dict:
+    """Which Build findings render in full, and the counted remainder — by id, for the composer.
+
+    Ids rather than rendered text: the composer owns the wording and joins these against the claim's
+    operator-safe summaries, so raw reviewer text still cannot reach the body by this route.
+    """
+    findings = state.get("findings", [])
+    full, counted = partition_findings(findings, deferred_counts=True)
+    by_stage = {}
+    for finding in counted:
+        by_stage.setdefault(finding.get("stage") or "unrecorded", []).append(finding)
+    return {"full_ids": [f["id"] for f in full],
+            "counted_total": len(counted),
+            "counted_by_stage": {stage: {"count": len(group), "severities": _tally(group, "severity")}
+                                 for stage, group in sorted(by_stage.items())}}
+
+
+def _plan_finding_lines(state: dict) -> list[str]:
+    """The sealed plan review's outcome, as an account of what the operator must still weigh.
+
+    A plan finding they must act on -- still blocking, escalated, rejected, or only partly accepted --
+    renders in full. Everything else is settled history that served its purpose before the code
+    existed, and is counted. The disclosure states the totals, how many render in full, AND that the
+    full text lives only in the workstation-local plan library (`.engine/plans/` is gitignored and
+    never published), because a pointer that reads as reassurance when the thing cannot be opened from
+    a fresh clone is worse than no pointer at all.
+    """
+    record, problem = _sealed_plan_record(state)
+    if problem:
+        # Unreadable is NOT empty. Rendering a zero count for a record that could not be opened would
+        # assert a measurement nobody took, on the surface the operator's consent rests on.
+        #
+        # WITHOUT the underlying message, following the sibling disclosures above: the library's own
+        # read errors enumerate neighbouring plan slugs, which are the operator's private working
+        # titles for unrelated work, and absolute paths from their machine. This line is composed into
+        # a body pushed to a public pull request, so it says WHAT failed and never quotes the failure.
+        return ["- **The sealed plan review could not be read** while composing this body, so nothing "
+                "here summarises it — neither the findings nor a count. Treat its outcome as unknown "
+                "rather than empty."]
+    plan_review = (record or {}).get("plan_review")
+    if not plan_review:
+        return []
+    findings = plan_review.get("findings", [])
+    if not findings:
+        return []
+    full, counted = partition_findings(findings)
     lines = []
-    for finding in (plan_review or {}).get("findings", []):
-        disposition = finding.get("disposition") or "undispositioned"
-        summary = finding.get("operator_summary") or finding["summary"]
-        blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
-        lines.append(f"- **Plan finding `{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
-                     f"{disposition}){blocks}. {summary}")
+    if full:
+        lines.append("- **Plan findings you must still weigh.**")
+        for finding in full:
+            disposition = finding.get("disposition") or "undispositioned"
+            summary = finding.get("operator_summary") or finding["summary"]
+            blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
+            lines.append(f"  - **`{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
+                         f"{disposition}){blocks}. {summary}")
+    settled = (f" The other {len(counted)} were settled before the build began "
+               f"({_tally(counted, 'severity')}) and are not restated here." if counted else "")
+    lines.append(f"- **The plan review in full.** {len(findings)} finding(s), of which {len(full)} "
+                 f"render above.{settled} The complete text stays in this workstation's plan library, "
+                 f"which is local and never published — it is not readable from a clone of this "
+                 f"repository.")
     return lines
 
 
@@ -4097,6 +4200,13 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         "code_execution_line": code_execution_line,
         "disagreement_lines": _plan_disagreement_lines(state) + review.required_disagreement_lines(state),
         "plan_finding_lines": _plan_finding_lines(state),
+        # The Build-side ledger gets the same treatment, partitioned HERE rather than in the composer
+        # so the claim contract is untouched: the claim still carries one operator-safe summary per
+        # finding (`_assert_claim_findings` still demands an exact 1:1 match) and the handoff still
+        # carries every one at full fidelity. Only what the BODY renders changes. `accepted-tracked`
+        # counts as consequential on this side alone -- deferred work is live risk, and it is the
+        # class most likely to explain a defect a later remediation session is chasing.
+        "qa_finding_split": _qa_finding_split(state),
         "consent_lines": _plan_consent_lines(state),
         "obligation_lines": _plan_obligation_lines(state),
         "assumption_resolutions": assumption_resolutions,

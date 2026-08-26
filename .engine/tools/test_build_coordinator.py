@@ -870,6 +870,159 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertNotIn("subsequently re-reviewed", source)
         self.assertIn("without re-review", source)
 
+    # --- The Review section is an ACCOUNT, not a ledger (engine-template#1083) ---------------------
+    SEVERITIES = ("blocking", "serious", "nit")
+    DISPOSITIONS = ("accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated")
+
+    def test_every_finding_lands_in_exactly_one_of_rendered_or_counted(self):
+        """Exhaustively, over the whole space the record permits — not over the cases I thought of.
+
+        The partition is the whole safety argument: a finding that falls through both arms is one the
+        operator never sees, and one that lands in both is double-reported. The plan record constrains
+        neither severity against disposition nor either against the blocking flag, so the space is the
+        full cross-product and the test walks all of it.
+        """
+        for severity in self.SEVERITIES:
+            for disposition in self.DISPOSITIONS:
+                for blocks in (True, False):
+                    for deferred in (True, False):
+                        finding = {"id": "F", "lens": "l", "severity": severity,
+                                   "disposition": disposition, "blocks_this_pr": blocks,
+                                   "summary": "s"}
+                        full, counted = bc.partition_findings([finding], deferred_counts=deferred)
+                        self.assertEqual(len(full) + len(counted), 1,
+                                         f"{severity}/{disposition}/blocks={blocks} landed in "
+                                         f"{len(full)} rendered and {len(counted)} counted")
+
+    def test_what_the_operator_must_still_act_on_is_never_counted(self):
+        """Each arm of the union named separately, so removing any one of them fails HERE.
+
+        The plan record permits an escalated finding recorded as non-blocking and a rejected one
+        carrying the flag — the plan-side disposer enforces no coherence between the two fields, unlike
+        the Build side — so keying on either field alone silently compacts a live operator decision.
+        """
+        def rendered(**over):
+            finding = {"id": "F", "lens": "l", "severity": "nit", "disposition": "accepted-fixed",
+                       "blocks_this_pr": False, "summary": "s"}
+            finding.update(over)
+            return bool(bc.partition_findings([finding])[0])
+        self.assertTrue(rendered(blocks_this_pr=True), "a still-blocking finding must render")
+        self.assertTrue(rendered(disposition="escalated"), "an escalated finding is an open decision")
+        self.assertTrue(rendered(disposition="rejected"), "a rejection is a disagreement to meet")
+        self.assertTrue(rendered(disposition="partially-accepted"), "part of it still stands")
+        self.assertFalse(rendered(), "a settled nit is counted")
+        self.assertFalse(rendered(disposition="accepted-tracked"),
+                         "plan-side, tracked work was answered before the code existed")
+        self.assertTrue(bc.partition_findings(
+            [{"id": "F", "lens": "l", "severity": "nit", "disposition": "accepted-tracked",
+              "blocks_this_pr": False, "summary": "s"}], deferred_counts=True)[0],
+            "Build-side, deferred work is live risk a remediating session needs named")
+
+    def test_an_unreadable_plan_record_is_not_rendered_as_zero_findings(self):
+        state = self.state()
+        with self._with_plan_review(None, problem="/Users/someone/.engine/plans/layoffs-q3 is corrupt"):
+            lines = bc._plan_finding_lines(state)
+        rendered = "\n".join(lines)
+        self.assertIn("could not be read", rendered)
+        self.assertNotIn("0 finding", rendered, "unreadable is not empty")
+        # And never quotes the failure: the library's errors name private plan titles and local paths.
+        self.assertNotIn("layoffs-q3", rendered)
+        self.assertNotIn("/Users/", rendered)
+
+    def test_the_counts_are_projections_of_what_was_rendered(self):
+        findings = [{"id": f"F{i}", "lens": "architecture" if i % 2 else "risk-governance",
+                     "severity": "nit" if i % 3 else "serious", "disposition": "accepted-fixed",
+                     "blocks_this_pr": False, "summary": "s"} for i in range(9)]
+        findings.append({"id": "OPEN", "lens": "l", "severity": "serious", "disposition": "escalated",
+                         "blocks_this_pr": True, "summary": "s", "operator_summary": "still open"})
+        state = self.state()
+        with self._with_plan_review({"lenses": ["l"], "findings": findings}):
+            rendered = "\n".join(bc._plan_finding_lines(state))
+        self.assertIn("10 finding(s), of which 1 render above", rendered)
+        self.assertIn("The other 9 were settled", rendered)
+        self.assertIn("still open", rendered)
+
+    def test_the_digest_is_bounded_by_what_is_open_not_by_how_many_were_raised(self):
+        """The durable property behind the byte fix: a thorough panel must not be able to crowd the
+        author's own account out of the body. Two records, same open findings, wildly different
+        settled tails — the rendered size must barely move."""
+        def render(settled):
+            findings = [{"id": f"S{i}", "lens": "l", "severity": "nit",
+                         "disposition": "accepted-fixed", "blocks_this_pr": False,
+                         "summary": "x" * 400} for i in range(settled)]
+            findings.append({"id": "OPEN", "lens": "l", "severity": "blocking",
+                             "disposition": "escalated", "blocks_this_pr": True,
+                             "summary": "s", "operator_summary": "the one that matters"})
+            state = self.state()
+            with self._with_plan_review({"lenses": ["l"], "findings": findings}):
+                return "\n".join(bc._plan_finding_lines(state))
+        small, huge = render(3), render(200)
+        self.assertIn("the one that matters", huge, "the open finding survives at any scale")
+        self.assertLess(len(huge.encode()), 1200, "the digest is bounded")
+        self.assertLess(len(huge.encode()) - len(small.encode()), 40,
+                        "200 settled findings cost no more than a longer number")
+
+    def test_the_qa_ledger_renders_what_is_open_and_counts_the_rest(self):
+        """The Build-side half, at the composer. The CLAIM still carries a summary for every finding —
+        that contract is untouched — and this only decides which of them reach the body."""
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim, _good_evidence
+        claim, evidence = _good_claim(), _good_evidence()
+        claim["review"]["finding_summaries"] = [
+            {"id": "OPEN-1", "operator_summary": "an unmet objection"},
+            {"id": "DEFER-1", "operator_summary": "deferred and still live"},
+            {"id": "SETTLED-1", "operator_summary": "settled quietly"},
+            {"id": "SETTLED-2", "operator_summary": "also settled"},
+        ]
+        evidence["qa_finding_split"] = {
+            "full_ids": ["OPEN-1", "DEFER-1"], "counted_total": 2,
+            "counted_by_stage": {"deliverable": {"count": 2, "severities": "2 nit"}}}
+        body = bcc.compose(claim, evidence)
+        self.assertIn("an unmet objection", body)
+        self.assertIn("deferred and still live", body)
+        self.assertNotIn("settled quietly", body, "a settled finding is counted, not transcribed")
+        self.assertIn("A further 2 finding(s)", body)
+        self.assertIn("2 in deliverable", body)
+
+    def test_an_absent_split_still_renders_every_summary(self):
+        """Fail toward disclosure: a composer handed no partition (an older evidence dict, a handoff
+        restored across the change) renders the whole ledger rather than silently dropping it."""
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim, _good_evidence
+        claim, evidence = _good_claim(), _good_evidence()
+        claim["review"]["finding_summaries"] = [{"id": "A", "operator_summary": "first"},
+                                                {"id": "B", "operator_summary": "second"}]
+        evidence.pop("qa_finding_split", None)
+        body = bcc.compose(claim, evidence)
+        self.assertIn("first", body)
+        self.assertIn("second", body)
+
+    def test_the_build_that_could_not_publish_now_composes_well_inside_the_budget(self):
+        """The instance behind the property: StarshipSuperjam/engine-template#1080 refused at 64,313
+        bytes with its author's account already cut three times. Composed here from that Build's own
+        saved claim, snapshot and sealed plan record — skipped rather than faked if they are not on
+        this machine, because a fixture invented for this test would prove nothing about that body."""
+        import json
+        base = Path("/Users/shanekidd/Developer/engine-template/.engine/plans"
+                    "/diff-classified-repair-rounds-surface-evidence-s--8ded7b")
+        saved = {n: base / p for n, p in (("state", "builds/pr-1080-state.json"),
+                                          ("claim", "builds/pr-1080-claim.json"),
+                                          ("plan", "builds/pr-1080-build-plan.json"),
+                                          ("record", "record.json"))}
+        if not all(f.is_file() for f in saved.values()):
+            self.skipTest("PR#1080's saved build artifacts are not on this machine")
+        loaded = {n: json.loads(f.read_text()) for n, f in saved.items()}
+        import build_coordinator_contract as bcc
+        import build_coordinator_github as github
+        with mock.patch.object(bc, "_sealed_plan_record", return_value=(loaded["record"], None)):
+            evidence = bc._assemble_evidence(loaded["state"], loaded["plan"], loaded["claim"],
+                                             loaded["state"]["repair"]["final_commit"], {})
+            body = bcc.compose(loaded["claim"], evidence)
+        size = len(body.encode())
+        self.assertLess(size, github.GITHUB_BODY_BUDGET_BYTES, f"still over budget at {size}")
+        # Not merely under: back to the size the 520 hand-written merges ran at, with the account whole.
+        self.assertLess(size, 30_000, f"{size} bytes is still the ledger genre, not an account")
+
     def test_a_plan_reviews_findings_and_disagreements_reach_the_merge_surface(self):
         # The disclosure the panel move must not drop: what the plan review found, how it was answered, and
         # any blocking finding that was decided not to block.
@@ -886,8 +1039,16 @@ class TestReviewAndFindings(CoordinatorCase):
         with self._with_plan_review(recorded):
             lines = bc._plan_finding_lines(state)
             disagreements = bc._plan_disagreement_lines(state)
-        self.assertTrue(any("`RISK-1`" in x and "accepted-tracked" in x for x in lines), lines)
-        self.assertTrue(any("`ARCH-2`" in x and "accepted-fixed" in x for x in lines), lines)
+        # The disclosure is what must not drop, not the transcript. Neither of these is something the
+        # operator must still act on: RISK-1 was blocking and was answered (so it is a DISAGREEMENT,
+        # and reaches the surface in full through its own renderer); ARCH-2 was fixed. So the finding
+        # lines carry the account -- both counted, neither transcribed -- and the disagreement line
+        # still carries RISK-1's operator-safe text verbatim, which is the guarantee that matters.
+        rendered = "\n".join(lines)
+        self.assertNotIn("`ARCH-2`", rendered, "a settled finding is counted, not transcribed")
+        self.assertIn("2 finding(s), of which 0 render above", rendered)
+        self.assertIn("The other 2 were settled", rendered)
+        self.assertIn("never published", rendered, "the plan library's locality is disclosed, not implied")
         self.assertEqual(len(disagreements), 1)
         self.assertIn("RISK-1", disagreements[0])
         self.assertIn("writable by anything", disagreements[0])
@@ -3130,6 +3291,29 @@ class TestTheCanonSaysOneThing(unittest.TestCase):
         rows = [line for line in self.behavior.splitlines() if line.startswith(f"| {identifier} |")]
         self.assertEqual(len(rows), 1, f"{identifier} must appear exactly once")
         return rows[0]
+
+    def test_the_review_sections_genre_is_recorded_as_a_decision(self):
+        """The canon test above asserts a FIXED list of rows, so a new one is invisible to it — a row
+        could be missing or malformed and the suite would stay green. This reads BC-31 itself.
+
+        It is asserted here because the change it records is a REDUCTION in what the merge surface
+        discloses. A weakening that is not written where the behaviour is governed is a weakening
+        nobody can find later, and the honesty of the record is the only thing standing behind it.
+        """
+        row = self._row("BC-31")
+        self.assertIn("account", row.lower())
+        # The measurement, not just the claim: a reader must be able to see what it cost and why.
+        self.assertIn("60,000", row, "the budget the surface actually broke against")
+        self.assertIn("1080", row, "the build that could not publish")
+        # What survives, named — these are the guarantee, not the transcript that was dropped.
+        for kept in ("still-blocking", "escalated", "rejected", "partially-accepted",
+                     "accepted-tracked", "disagreement"):
+            self.assertIn(kept, row, f"BC-31 must name {kept} among what still renders in full")
+        # And the cost, stated rather than implied.
+        self.assertIn("gitignored", row, "the plan library's locality is part of the decision")
+        amendments = [l for l in self.behavior.splitlines() if l.startswith("_Amended 2026-08-25")]
+        self.assertTrue(any("BC-31" in l for l in amendments),
+                        "the dated amendment log must carry the row it introduced")
 
     def test_the_moved_assertions_are_corrected_in_place_not_left_standing(self):
         # Each of the five names the cutover as a source, so a reader can see WHEN it changed and why
