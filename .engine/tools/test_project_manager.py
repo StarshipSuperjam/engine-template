@@ -2062,53 +2062,50 @@ class ARealProjectCrossesTheRenameWhole(unittest.TestCase):
 
 
 class TestSealHandback(unittest.TestCase):
-    """The seal used to print digests and stop, at the exact moment the operator most needed telling.
+    """The seal used to print digests and stop; then it printed a manual. Both were wrong.
 
-    What these pin is the honesty of the text as much as its content: every element the plan requires
-    must be there, and the parts that are ceremony must SAY they are ceremony. A hand-back that
-    implied the engine could enforce the pause would be claiming a guarantee it does not have.
+    The operator's ruling, after living with the long form: a hand-back that needs paragraphs of
+    meta-commentary to explain the next step is a poorly designed step. So what these pin is the
+    SHORTNESS as much as the content — the brevity cap is a real requirement, not a style note —
+    plus the two hard content rules: never /clear (the one session that cleared at this boundary is
+    the one that lost its thread), and no gate vocabulary (the pause is an offer).
     """
 
-    def text(self, provider=None):
-        return project_manager.seal_handback("pln_0123456789ab", provider=provider)
+    def text(self):
+        return project_manager.seal_handback("pln_0123456789ab")
+
+    def test_it_is_brief(self):
+        # Six lines of substance. A hand-back that grows past this is becoming a manual again.
+        self.assertLessEqual(len([l for l in self.text().splitlines() if l.strip()]), 6)
 
     def test_it_names_every_required_element(self):
         text = self.text()
         self.assertIn("Settle", text)
         self.assertIn("/compact", text)
-        self.assertIn("/clear", text)
-        self.assertIn("model and reasoning effort", text)
-        self.assertIn("/autocompact", text)
+        self.assertIn("model and effort", text)
+        self.assertIn("Wait", text)
 
     def test_it_carries_the_plan_id_into_the_bind_it_suggests(self):
         self.assertIn("--plan pln_0123456789ab", self.text())
 
-    def test_the_settle_step_is_disclosed_as_ceremony(self):
-        self.assertIn("nothing mechanical can check this for you", self.text())
+    def test_it_never_suggests_clear(self):
+        # The only build session that lost its thread is the one that ran /clear here instead of
+        # /compact: a cleared session keeps nothing to re-ground from. Not guidance to ever revive.
+        self.assertNotIn("/clear", self.text())
 
-    def test_it_is_an_offer_and_says_so(self):
-        # The one honesty that matters: nothing here may read as enforcement. The operator ruled the
-        # gated versions of this boundary governance overreach — twice — so the text must claim no
-        # teeth, name no refusal, and teach no flag beyond the consent the bind already requires.
+    def test_it_claims_no_teeth_and_teaches_no_flag(self):
         text = self.text()
-        self.assertIn("an offer, not a gate", text)
-        self.assertIn("agreement to begin", text)
         self.assertNotIn("REFUSES", text)
         self.assertNotIn("--override", text)
         self.assertNotIn("--session-model", text)
 
-    def test_the_recommendation_is_user_scope_and_the_engine_writes_nothing(self):
+    def test_it_does_not_lecture(self):
+        # The recurring recommendations and provider disclosures live in the runbook, read when
+        # orchestrating — not re-printed at every seal into every session.
         text = self.text()
-        self.assertIn("USER scope", text)
-        self.assertIn("deliberately writes no auto-compact setting", text)
-
-    def test_codex_gets_the_re_trust_and_asymmetry_disclosure(self):
-        text = self.text(provider="codex")
-        self.assertIn("/hooks", text)
-        self.assertIn("not registered here", text)
-
-    def test_claude_gets_no_codex_disclosure(self):
-        self.assertNotIn("/hooks", self.text(provider="claude"))
+        self.assertNotIn("/autocompact", text)
+        self.assertNotIn("/hooks", text)
+        self.assertNotIn("Codex", text)
 
 
 if __name__ == "__main__":

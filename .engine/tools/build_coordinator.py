@@ -965,7 +965,7 @@ def _library() -> "plan_store.PlanLibrary":
 #
 # Sealing a plan and building it are different jobs, and they often want different settings. The seal
 # renders a hand-back (project_manager.seal_handback) offering the operator the pause: settle what
-# lives only in the conversation, compact or clear, choose the model and effort for the BUILD. All of
+# lives only in the conversation, compact (never clear), choose the model and effort for the BUILD. All
 # it is an offer. The bind's own --operator-decision consent — required below — is the operator's
 # agreement to begin, and nothing mechanical checks the hand-back's steps.
 #

@@ -1266,66 +1266,36 @@ def cmd_seal(args) -> int:
     print(f"  payload   {seal['build_plan_digest']}")
     if changed:
         print("\nThe PR must disclose that the sealed plan differs from the reviewed one, and by what.")
-    print(seal_handback(record["plan_id"], provider=_provider_name()))
+    print(seal_handback(record["plan_id"]))
     return 0
 
 
-def _provider_name() -> str | None:
-    try:
-        import providers
-        return providers.detect()
-    except Exception:  # noqa: BLE001 — provider detection never blocks a seal
-        return None
+def seal_handback(plan_id: str) -> str:
+    """The plan-to-build hand-back: stop, settle, offer, wait.
 
+    SIX LINES, ADDRESSED TO THE SESSION. This prints into the session's context, not onto the
+    operator's screen, so it is instructions for the assistant's next move — not operator training.
+    The operator ruled the long form out: a hand-back that needs paragraphs of meta-commentary to
+    explain the next step is a poorly designed step. The settle summary the session then gives the
+    operator is conversational and build-specific; the readiness line at its end is the offer.
 
-def seal_handback(plan_id: str, *, provider: str | None = None) -> str:
-    """The plan-to-build hand-back: what to do in the gap between sealing and building.
+    /compact, NEVER /clear. The one build session that lost its thread — the incident this whole
+    spine exists to prevent — is the one that cleared instead of compacting. A cleared session keeps
+    nothing to re-ground from; a compacted one keeps the summary plus everything settled below.
 
-    Until this existed the seal path printed digests and stopped, so the most consequential gap in the
-    whole ceremony — the one where the operator would want to change model and effort, and where the
-    planning context should be dropped — was the one moment nothing said anything at all.
-
-    HONEST ABOUT WHAT IT IS. All of it is an offer. The bind's own consent record — the operator's
-    go, which the Build already requires — is the agreement to begin, and nothing mechanical checks
-    any step above it. A hand-back implying the engine could enforce the pause would claim a
-    guarantee it does not have.
+    An offer, not a gate: the bind's own --operator-decision consent is the agreement to begin, and
+    nothing mechanical checks any of this. The one-time /autocompact recommendation lives in the
+    runbook, not here — repeating it at every seal is nagging, not guidance.
     """
-    lines = [
+    return "\n".join([
         "",
-        "The plan is sealed and read-only. Before the Build starts — the plan-to-build boundary:",
-        "",
-        "  1. Settle anything that still lives only in this conversation. The sealed plan and the",
-        "     Build's own record are what survive; a fact that is only in the chat is a fact the",
-        "     next context will not have. (Ceremony: nothing mechanical can check this for you.)",
-        "  2. /compact — or /clear, which is cleaner if nothing above still needs carrying. The",
-        "     context that just held the plan review is the worst context to start writing code in.",
-        "  3. Choose the model and reasoning effort you want for the BUILD, a different job from",
-        "     planning and often one that wants a different setting.",
-        "  4. Then give the go, and the Build begins:",
-        f"       build_coordinator.py plan bind --plan {plan_id} \\",
-        "         --repository <owner/repo> --pr <number> \\",
-        "         --operator-decision \"<your go>\"",
-        "",
-        "  All of this is an offer, not a gate. Your go at the bind — the consent the Build already",
-        "  requires — is the agreement to begin; nothing mechanical checks the steps above, and the",
-        "  engine neither reads nor records what the session runs on.",
-        "",
-        "  Worth doing once, for every future session: set your auto-compact threshold with the",
-        "  /autocompact command, which writes it at USER scope, so it survives engine updates and",
-        "  applies to every project. Around 75% is where sessions tend to start drifting. The engine",
-        "  deliberately writes no auto-compact setting anywhere — that dial is yours, and a",
-        "  project-scope value would silently outrank it.",
-    ]
-    if (provider or "").lower() == "codex":
-        lines += [
-            "",
-            "  On Codex: post-compaction re-grounding is not registered here — that runtime exposes no",
-            "  SessionStart compact source, and its PostCompact event is not confirmed to inject. What",
-            "  you keep is the coordinator's own resume verification, which runs identically on both",
-            "  runtimes. If an engine update changes the hook registration, Codex skips the new hooks",
-            "  until you re-approve them with /hooks.",
-        ]
-    return "\n".join(lines)
+        "The plan is sealed and read-only. Stop building context here.",
+        "Settle into the record anything that still lives only in this conversation, then offer",
+        "the operator a /compact and their model and effort choice for the build phase. Wait.",
+        "Their go begins the Build:",
+        f"  build_coordinator.py plan bind --plan {plan_id} \\",
+        "    --repository <owner/repo> --pr <number> --operator-decision \"<their go>\"",
+    ])
 
 
 def cmd_close(args) -> int:

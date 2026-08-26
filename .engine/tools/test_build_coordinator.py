@@ -2736,14 +2736,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # work inline — the cost the routing exists to remove.
         # 273 is those two independently justified raises meeting in a merge, not a new budget: the file
         # measures exactly 273 lines, and neither side's additions were trimmed to fit the other's cap.
-        # 273 -> 283 for the seal-to-build hand-back: one paragraph naming the offer the seal now
-        # prints — settle, compact or clear, choose the BUILD's model and effort — and saying plainly
-        # that it is an offer, not a gate, with the bind's existing consent as the agreement to begin.
-        # Earlier revisions of this raise budgeted 286 for a boundary detector and then 284 for a
-        # required-answer gate; both were cut on the operator's direction, and the cap follows the
-        # prose down each time rather than banking the headroom.
+        # 273 -> 286 for the seal-to-build hand-back paragraph. It carries four rules the operator
+        # set in person: the hand-back is six lines and an offer, /compact and never /clear (the one
+        # session that cleared at this boundary lost its thread), the bind's existing consent is the
+        # agreement to begin, and the /autocompact recommendation is made once here rather than
+        # nagged at every seal. Earlier revisions spent this same budget on a boundary detector and
+        # then a required-answer gate, both cut; the cap is the file's exact measurement each time.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 283)
+        self.assertLessEqual(len(text.splitlines()), 286)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -2809,11 +2809,10 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # 3657 is those two ratchets meeting in a merge, not a new budget: the file measures exactly that,
         # and neither side's instruction was trimmed to fit the other's cap. The preservation-source ratio
         # (448/6296) is unchanged.
-        # 3657 -> 3784 for the seal-to-build hand-back paragraph, plus the sentence that stops a reader
-        # over-reading the pause into a mid-Build stop. Like the line cap above, this is the file's
-        # exact measurement — earlier revisions budgeted 3835 and then 3806 for gates that were cut on
-        # the operator's direction, and the cap follows the prose down rather than banking the headroom.
-        self.assertLessEqual(len(text.split()), 3784)
+        # 3657 -> 3838 for the hand-back paragraph and the operator's four rules it carries (see the
+        # line-cap comment above). The file's exact measurement, as every revision of this cap has
+        # been — never banked headroom.
+        self.assertLessEqual(len(text.split()), 3838)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
