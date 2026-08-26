@@ -284,21 +284,11 @@ def _arc_one(copy, head, env, pr_state, holder):
                            "--operator-decision", DEMO_CONSENT)
     ok &= _pass("sealed", sealed.returncode == 0, "the plan is now read-only and can start a Build")
 
-    # THE SEAL-TO-BUILD HAND-OFF, and why this walk-through answers it rather than routing around.
-    # A real operator seals, then leaves the planning context — /compact, /clear, or a fresh session —
-    # and chooses the model and effort for the build phase before binding. Bind REFUSES until it
-    # carries that choice, so the demo states one. This is the whole ceremony, not a way around it:
-    # there is no override, and a walk-through that could not answer would be a walk-through that
-    # cannot bind.
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                        "--repository", REPO, "--pr", str(PR),
-                       "--operator-decision", DEMO_CONSENT,
-                       "--session-model", "demo-model", "--session-effort", "medium")
+                       "--operator-decision", DEMO_CONSENT)
     ok &= _pass("the Build binds to that seal", bound.returncode == 0,
                 "the Build is anchored to the sealed plan, not to a document handed over in chat")
-    ok &= _pass("answering the plan-to-build hand-back to get there", bound.returncode == 0,
-                "bind refuses until it carries the model and effort for the BUILD, which is what "
-                "makes crossing a visible act rather than a silent one")
 
     # The Build records the depth the plan was approved at, against the payload it is executing. The
     # DECISION was made once, on the plan side, with the whole plan rendered; this is the Build writing
@@ -374,11 +364,9 @@ def _arc_two(copy, head, env, holder, pr_state):
     ok &= _pass("now it seals", sealed.returncode == 0, "approved at a care level, then locked")
 
     state_path = os.path.join(tempfile.mkdtemp(prefix="entry-door-arc2-"), "state.json")
-    # Same as arc 1: the bind states what the build phase runs on, because bind refuses without it.
     bound = _build_cmd(copy, env, state_path, "plan", "bind", "--plan", plan_id,
                        "--repository", REPO, "--pr", str(PR),
-                       "--operator-decision", DEMO_CONSENT,
-                       "--session-model", "demo-model", "--session-effort", "medium")
+                       "--operator-decision", DEMO_CONSENT)
     ok &= _pass("and drives a running Build", bound.returncode == 0,
                 "the arc ends where arc 1 began: a Build anchored to a seal")
     return ok

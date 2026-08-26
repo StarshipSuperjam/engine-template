@@ -2086,19 +2086,16 @@ class TestSealHandback(unittest.TestCase):
     def test_the_settle_step_is_disclosed_as_ceremony(self):
         self.assertIn("nothing mechanical can check this for you", self.text())
 
-    def test_it_separates_the_one_mechanical_part_from_the_ceremony(self):
+    def test_it_is_an_offer_and_says_so(self):
+        # The one honesty that matters: nothing here may read as enforcement. The operator ruled the
+        # gated versions of this boundary governance overreach — twice — so the text must claim no
+        # teeth, name no refusal, and teach no flag beyond the consent the bind already requires.
         text = self.text()
-        self.assertIn("REFUSES", text)
-        self.assertIn("mechanism, not ceremony", text)
-        self.assertIn("--session-model", text)
-        self.assertIn("--session-effort", text)
-
-    def test_it_offers_no_way_around_the_one_mechanical_part(self):
-        # The hand-back must not teach an escape that does not exist. It says so in the one place
-        # a reader would look for one, and names no flag they could try.
-        text = self.text()
-        self.assertIn("nothing to override", text)
+        self.assertIn("an offer, not a gate", text)
+        self.assertIn("agreement to begin", text)
+        self.assertNotIn("REFUSES", text)
         self.assertNotIn("--override", text)
+        self.assertNotIn("--session-model", text)
 
     def test_the_recommendation_is_user_scope_and_the_engine_writes_nothing(self):
         text = self.text()

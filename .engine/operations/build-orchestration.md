@@ -67,12 +67,11 @@ build_coordinator.py plan bind --plan <plan-id> \
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
-**Bind also refuses until it carries `--session-model` and `--session-effort`.** Sealing and building are
-different jobs that want different settings, and the seal's hand-back asks which the BUILD should run on.
-This is where that question must be answered: the answer IS the agreement to begin, so there is no override
-and nothing to escalate — a Build nobody was asked about cannot start. Both are self-reported, never
-measured, recorded on the Build and surfaced back to the operator nowhere. The rest of the hand-back —
-settle what lives only in the conversation, `/compact` or `/clear` — is ceremony no mechanism can check.
+**The seal hands back before the Build starts.** Sealing and building are different jobs that often want
+different settings, so the seal prints a hand-back: settle what lives only in the conversation, `/compact`
+or `/clear`, choose the model and effort for the BUILD. It is an offer, not a gate — the bind's own
+`--operator-decision` consent is the operator's agreement to begin, nothing mechanical checks the
+hand-back's steps, and the engine neither reads nor records what the session runs on.
 
 Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this
 session against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and

@@ -1285,11 +1285,10 @@ def seal_handback(plan_id: str, *, provider: str | None = None) -> str:
     whole ceremony — the one where the operator would want to change model and effort, and where the
     planning context should be dropped — was the one moment nothing said anything at all.
 
-    HONEST ABOUT WHAT IT IS. Only one line of this is mechanism: Build entry refuses until the bind
-    states the model and effort the build phase is to run on. That refusal is what makes step 3 real
-    and it is the only step with teeth. The rest is ceremony, and it says so. Nothing can make an
-    operator settle a fact or clear a context, and a hand-back implying otherwise would claim a
-    guarantee the engine does not have.
+    HONEST ABOUT WHAT IT IS. All of it is an offer. The bind's own consent record — the operator's
+    go, which the Build already requires — is the agreement to begin, and nothing mechanical checks
+    any step above it. A hand-back implying the engine could enforce the pause would claim a
+    guarantee it does not have.
     """
     lines = [
         "",
@@ -1302,16 +1301,14 @@ def seal_handback(plan_id: str, *, provider: str | None = None) -> str:
         "     context that just held the plan review is the worst context to start writing code in.",
         "  3. Choose the model and reasoning effort you want for the BUILD, a different job from",
         "     planning and often one that wants a different setting.",
-        "  4. Then bind, stating what you chose:",
+        "  4. Then give the go, and the Build begins:",
         f"       build_coordinator.py plan bind --plan {plan_id} \\",
         "         --repository <owner/repo> --pr <number> \\",
-        "         --operator-decision \"<your words>\" \\",
-        "         --session-model <model, e.g. opus-5> --session-effort <low|medium|high>",
+        "         --operator-decision \"<your go>\"",
         "",
-        "  Build entry REFUSES without both of those — that part is mechanism, not ceremony, and it",
-        "  is the only part that is. There is nothing to override: your answer is the agreement to",
-        "  begin, so a Build that was never asked simply cannot start. What you state is recorded as",
-        "  self-reported and never measured; the engine cannot read what a session is running on.",
+        "  All of this is an offer, not a gate. Your go at the bind — the consent the Build already",
+        "  requires — is the agreement to begin; nothing mechanical checks the steps above, and the",
+        "  engine neither reads nor records what the session runs on.",
         "",
         "  Worth doing once, for every future session: set your auto-compact threshold with the",
         "  /autocompact command, which writes it at USER scope, so it survives engine updates and",

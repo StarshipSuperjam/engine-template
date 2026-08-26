@@ -963,29 +963,20 @@ def _library() -> "plan_store.PlanLibrary":
 
 # --- the seal-to-build hand-off -----------------------------------------------
 #
-# WHAT THIS IS FOR. Sealing a plan and building it are different jobs, and until now a session did
-# both in one unbroken breath — same context, same model, same reasoning effort the planning was
-# chosen for. The context that just carried a four-lens panel and thirty-three findings is the worst
-# context to start writing code in, and the moment to change model or effort is exactly the moment
-# nothing was stopping.
+# Sealing a plan and building it are different jobs, and they often want different settings. The seal
+# renders a hand-back (project_manager.seal_handback) offering the operator the pause: settle what
+# lives only in the conversation, compact or clear, choose the model and effort for the BUILD. All of
+# it is an offer. The bind's own --operator-decision consent — required below — is the operator's
+# agreement to begin, and nothing mechanical checks the hand-back's steps.
 #
-# WHAT THE GATE IS, and what it deliberately is not. `plan bind` refuses until it carries the
-# operator's stated model and effort for the build phase. That is the whole mechanism: the required
-# answer IS their agreement to begin, so there is no override to add and nothing to escalate.
-#
-# WHAT WAS TRIED AND REMOVED, recorded so it is not re-attempted. An earlier build of this gate tried
-# to PROVE the conversation had actually broken — comparing the binding session against the one that
-# sealed, and reading a durable record of compactions written by the re-grounding hook. It worked, and
-# it was the wrong thing: the operator asked for a stop that offers them a choice, not for the engine
-# to adjudicate whether they had taken a break. Detection bought nothing the required answer does not
-# already buy, and it cost an append-only compaction ledger, a sealing-session marker, an override
-# flag and an escalation path — machinery whose only consumer was the detector itself. A gate that
-# infers consent from a boundary it sniffed is also weaker than one that simply requires the answer.
-#
-# WHAT THE GATE CANNOT DO, stated plainly because the docs must not overclaim it. It can require that
-# an answer was given. It cannot prove the operator was genuinely asked, that the context was actually
-# cleared, or that the model named is the model running. Every one of those is ceremony, and the
-# runbook and the operator docs call it ceremony rather than a guarantee.
+# WHAT WAS TRIED AND REMOVED, so it is not re-attempted. Two gates were built here and cut on the
+# operator's direction. First a boundary DETECTOR: bind refused unless it could prove the
+# conversation had broken since the seal — session identity plus a durable compaction ledger — with
+# an override flag. Then a required ANSWER: bind refused without self-reported --session-model and
+# --session-effort. Both failed the same test: the engine cannot read what a session actually runs
+# on, so either gate proves only that a string was typed, and the session is what types it. The
+# consent gate that already exists carries the operator's go; ceremony bolted on beyond it was cost
+# without assurance, and the operator named it governance overreach.
 
 
 def _sealed_plan(selector: str) -> tuple[str, str, dict]:
@@ -1155,35 +1146,11 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     if not (getattr(args, "operator_decision", None) or "").strip():
         raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
     consent = plan_lifecycle.attestation("bind", args.operator_decision, at=moment.utc_now())
-    # The seal-to-build hand-off, on the consent door that already exists rather than beside it. The
-    # seal printed a hand-back asking which model and effort the BUILD should run on; this refuses to
-    # start until that question has an answer. The answer IS the agreement to begin, which is why
-    # there is no override to pass and nothing to escalate: an operator who was never asked cannot
-    # have answered, and a session that skipped the asking has nothing to put here.
-    model = (getattr(args, "session_model", None) or "").strip()
-    effort = (getattr(args, "session_effort", None) or "").strip()
-    if not (model and effort):
-        absent = [f"--session-{name}" for name, value in (("model", model), ("effort", effort))
-                  if not value]
-        raise CoordinatorError(
-            "the Build cannot start until you have chosen what it runs on: "
-            f"{' and '.join(absent)} {'is' if len(absent) == 1 else 'are'} missing.\n"
-            "  Sealing a plan and building it are different jobs and often want different settings. "
-            "The seal printed the hand-back that asks for this: settle anything that still lives only "
-            "in the conversation, /compact or /clear, then choose the model and reasoning effort you "
-            "want for the BUILD and bind again with both stated — a model name like opus-5, at low, "
-            "medium or high effort.\n"
-            "  Recorded as self-reported, never measured — the engine cannot read what a session is "
-            "actually running on. It is asked for because the asking is the point.")
     pr = _verify_draft(args.repository, args.pr)
     if pr.get("headRefOid") != _head():
         raise CoordinatorError("the draft PR head does not match this worktree")
     state = _initial_state(args.repository, args.pr, pr.get("baseRefOid") or _base(), plan_id,
                            sealed_digest, plan, issue, mode)
-    # What the gate was given. Kept so the refusal above is auditable rather than write-only, and
-    # deliberately not surfaced back to the operator anywhere: they chose it, and reading their own
-    # choice back to them in status and again in the pull request is noise, not disclosure.
-    state["build"]["session_at_bind"] = {"model": model, "effort": effort}
     # Where this Build's evidence lands. With no --state it goes to the durable store beside its own
     # sealed plan, which is the default because the alternative is what actually happened: a killed
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
@@ -4469,7 +4436,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--expect-revision", type=int, help="optional compare-and-swap guard")
     sub = p.add_subparsers(dest="command", required=True)
     plan = sub.add_parser("plan").add_subparsers(dest="plan_command", required=True)
-    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decision", help="The operator's actual words giving the go for the Build to begin. Published verbatim in the pull request's consent trail; a record, not a proof."); bind.add_argument("--session-model", help="The model this BUILD phase runs on, e.g. opus-5. Self-reported: recorded, never measured."); bind.add_argument("--session-effort", choices=["low", "medium", "high"], help="The reasoning effort this BUILD phase runs at, self-reported. Recorded, never measured."); bind.set_defaults(func=cmd_plan_bind)
+    bind = plan.add_parser("bind"); bind.add_argument("--plan", required=True, help="a SEALED plan in the local library, by id or by name"); bind.add_argument("--mode", choices=["same-session", "unattended"], default="same-session"); bind.add_argument("--repository", required=True); bind.add_argument("--pr", type=int, required=True); bind.add_argument("--issue", type=int, help="the Issue that AUTHORIZES this work; never its plan"); bind.add_argument("--operator-decision", help="The operator's actual words giving the go for the Build to begin. Published verbatim in the pull request's consent trail; a record, not a proof."); bind.set_defaults(func=cmd_plan_bind)
     adopt = plan.add_parser("adopt", help="consume a SEALED successor plan without restarting the Build"); adopt.add_argument("--successor", required=True, help="a sealed plan in the library that names the bound plan as its predecessor"); adopt.add_argument("--input", required=True, help="the plan this Build is currently executing, for the node-by-node comparison"); adopt.add_argument("--operator-decision", help="The operator's actual words authorising the Build to continue on the successor."); adopt.set_defaults(func=cmd_plan_adopt)
     revise = plan.add_parser("revise"); revise.add_argument("--input", required=True); revise.add_argument("--operator-change", help="The operator's decision authorizing execution of a plan that differs from the sealed one. The sealed plan is unchanged; the divergence is disclosed at merge."); revise.set_defaults(func=cmd_plan_revise)
     approve = sub.add_parser("approve"); approve.add_argument("--plan", required=True); approve.add_argument("--depth", choices=["quick", "standard", "thorough"], required=True); approve.set_defaults(func=cmd_approve)

@@ -358,11 +358,7 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
                 self.assertRaises(bc.CoordinatorError):
             bc.cmd_plan_bind(argparse.Namespace(
                 plan="pln_0123456789ab", repository="o/r", pr=1, issue=None, mode="same-session",
-                operator_decision="go", state=None,
-                # Bind refuses without the operator's answer to the seal hand-back, and it refuses
-                # BEFORE the address lookup this case is about. Supplied so the refusal under test
-                # is the one the fixture actually installed, not the gate standing in front of it.
-                session_model="opus-5", session_effort="high"), None)
+                operator_decision="go", state=None), None)
         self.assertEqual(asked["plan_id"], "pln_0123456789ab")
 
 

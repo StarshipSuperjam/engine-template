@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable, that the
-plan-to-build boundary is real, and that the engine takes none of the powers it deliberately refused.
+"""Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable and that
+the engine takes none of the powers it deliberately refused.
 
-Three arms, each FAIL-THEN-PASS on the same fixture. The only difference between the two arms of each
+Two arms, each FAIL-THEN-PASS on the same fixture. The only difference between the two arms of each
 is the one behaviour under test, so a green arm cannot be a fixture that was never capable of failing.
 
   ARM 1 — RECOVERY. A session standing in a different worktree tries to mutate a Build.
@@ -12,15 +12,7 @@ is the one behaviour under test, so a green arm cannot be a fixture that was nev
     This is the arm that matters, because it is the failure a compacted session actually produces:
     not a crash, but confident work against the wrong record.
 
-  ARM 2 — THE HAND-OFF. Binding a Build without saying what the build phase runs on.
-    * POSITIVE: entry refuses, names both missing flags, and names the remedy. Driven through the
-      real command line, because a refusal reached by calling the handler with a hand-built argument
-      object proves the branch exists, never that a session would actually meet it.
-    * NEGATIVE CONTROL: the same bind WITH the answer proceeds — proving the gate answers to the
-      answer rather than refusing unconditionally, which is the way this gate could be useless while
-      still looking green.
-
-  ARM 3 — THE POWERS NOT TAKEN. The whole context-control surface is run against a real engine clone.
+  ARM 2 — THE POWERS NOT TAKEN. The whole context-control surface is run against a real engine clone.
     * POSITIVE: it writes NOTHING AT ALL. Not a settings file, not a record of its own — the clone is
       byte-identical afterwards. No compaction is initiated, no clear is invoked, nothing estimates
       utilization from text.
@@ -68,38 +60,6 @@ def _snapshot_state(worktree: str) -> dict:
     }
 
 
-def _demo_plan() -> dict:
-    """A minimal, schema-shaped v2 payload for the bind arm to carry.
-
-    Written out here rather than imported from the test fixtures: a demo that depends on test code
-    is a demo that stops running the day someone reorganizes the tests.
-    """
-    return {
-        "schema_version": "build-plan.v2", "profile": "normal",
-        "intent_source": {"kind": "direct"},
-        "raw_intent": "Demonstrate the seal-to-build hand-off.",
-        "interpretation": "Bind refuses until it carries the operator's model and effort.",
-        "evidence": [{"claim": "The gate ships in build_coordinator.", "basis": "this file runs it",
-                      "kind": "observed"}],
-        "assumptions": [{"claim": "The demo reproduces this document.", "status": "verified"}],
-        "objective": "Show the hand-off refusing and then proceeding.",
-        "success_obligations": [{"outcome": "An unanswered bind refuses.",
-                                 "verification": "this demo"}],
-        "scope_boundary": ["The bind gate"], "non_goals": ["Anything else"],
-        "risks": ["None — this payload is never executed."],
-        "work_items": [{
-            "id": "DEMO-01", "depends_on": [], "description": "A single node, never run.",
-            "executor_class": "builder", "paths": [".engine/tools/demo_context_control.py"],
-            "exclusive_resources": ["demo"], "verification": ["none"],
-            "output_contract": {"deliverable": "nothing", "artifact_kinds": ["tests"],
-                                "required_evidence": ["changed_paths"]}}],
-        "parallelism": {"mode": "serial", "max_concurrency": 1},
-        "review_strategy": "None; this plan is never reviewed.",
-        "spec": {"posture": "none", "selection_basis": "No product spec governs a demo.",
-                 "disclosure": "No settled spec."},
-    }
-
-
 def arm_one_recovery() -> tuple[bool, list[str]]:
     """A session in the wrong worktree tries to mutate a Build."""
     lines = []
@@ -123,62 +83,6 @@ def arm_one_recovery() -> tuple[bool, list[str]]:
         lines.append(f"  WITHOUT the recorded facts, the same mutation:  "
                      f"{'proceeds' if not unguarded else 'refused'}")
         return refused and not unguarded, lines
-
-
-def arm_two_handoff() -> tuple[bool, list[str]]:
-    """Binding without answering the seal hand-back, through the real command line."""
-    import argparse
-    import contextlib
-    import io
-    from unittest import mock
-
-    lines = []
-    plan_payload = {"plan_id": "pln_0123456789ab", "sealed": "sha256:" + "b" * 64}
-
-    def bind(*extra) -> tuple[int, str]:
-        """One real `plan bind` argv. Only the OUTSIDE world is stubbed — the draft PR lookup, the
-        git head, the label call — never the gate under test, which runs exactly as it ships."""
-        with tempfile.TemporaryDirectory() as tmp:
-            state_path = str(Path(tmp) / "state.json")
-            head = "e" * 40
-            pr = {"number": 7, "state": "OPEN", "isDraft": True,
-                  "headRefOid": head, "baseRefOid": "0" * 40}
-            err = io.StringIO()
-            with mock.patch.object(bc, "_sealed_plan",
-                                   return_value=(plan_payload["plan_id"], plan_payload["sealed"],
-                                                 _demo_plan())), \
-                    mock.patch.object(bc, "_verify_draft", return_value=pr), \
-                    mock.patch.object(bc, "_head", return_value=head), \
-                    mock.patch.object(bc, "_base", return_value="0" * 40), \
-                    mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
-                    mock.patch.object(bc, "_record_build_binding"), \
-                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-                code = bc.main(["--state", state_path, "plan", "bind",
-                                "--plan", plan_payload["plan_id"], "--repository", "owner/repo",
-                                "--pr", "7", "--operator-decision", "start the Build", *extra])
-            return code, err.getvalue()
-
-    # POSITIVE: nobody was asked, so nothing can be answered, so the Build does not start.
-    code, err = bind()
-    refused = code != 0
-    lines.append(f"  refuses a bind that names no model or effort:   {refused}")
-    named = all(token in err for token in
-                ("--session-model", "--session-effort", "hand-back", "bind again"))
-    lines.append(f"    and names both flags and the remedy:         {named}")
-
-    # A half answer is not an answer, and the refusal is specific about which half is missing.
-    half_code, half_err = bind("--session-model", "demo-model")
-    precise = half_code != 0 and "--session-effort" in half_err and "--session-model" not in half_err
-    lines.append(f"  half an answer still refuses, naming that half: {precise}")
-
-    # NEGATIVE CONTROL: answered, it proceeds. Without this the arm would pass on a gate that
-    # refused everything, which is green and worthless.
-    ok_code, ok_err = bind("--session-model", "demo-model", "--session-effort", "medium")
-    proceeds = ok_code == 0
-    lines.append(f"  the SAME bind, answered, proceeds:             {proceeds}")
-    if not proceeds:
-        lines.append(f"    it did not: {ok_err.strip()[:120]}")
-    return refused and named and precise and proceeds, lines
 
 
 def arm_three_powers_not_taken() -> tuple[bool, list[str]]:
@@ -243,13 +147,12 @@ def arm_three_powers_not_taken() -> tuple[bool, list[str]]:
 
 def main() -> int:
     print("=" * 78)
-    print("DEMO — context control: compaction is survived by verification, the plan-to-build")
-    print("stop is a question that must be answered, and the engine takes none of the powers it refused.")
+    print("DEMO — context control: compaction is survived by verification, and the engine")
+    print("takes none of the powers it deliberately refused.")
     print("=" * 78)
     arms = [
         ("ARM 1 — RECOVERY (a session mutating a Build it does not match)", arm_one_recovery),
-        ("ARM 2 — THE HAND-OFF (binding without saying what the build runs on)", arm_two_handoff),
-        ("ARM 3 — THE POWERS NOT TAKEN (no settings write, no clear, no initiation)",
+        ("ARM 2 — THE POWERS NOT TAKEN (no settings write, no clear, no initiation)",
          arm_three_powers_not_taken),
     ]
     failures = []
@@ -270,8 +173,7 @@ def main() -> int:
             print(f"  - {title}")
         return 1
     print("DEMO PASSED: a mismatched session is refused before it writes (and without the recorded")
-    print("facts it would not have been); bind refuses an unanswered hand-back and proceeds on an")
-    print("answered one; and the whole surface writes nothing at all.")
+    print("facts it would not have been), and the whole surface writes nothing at all.")
     return 0
 
 
