@@ -4394,7 +4394,11 @@ class TestPhaseBarrier(CoordinatorCase):
         patch = mock.patch.object(bc, "_library_observations_path", return_value=self.record)
         patch.start()
         self.addCleanup(patch.stop)
-        session = mock.patch.dict(os.environ, {bc._SESSION_ENV: "THIS-SESSION"})
+        # The seam's own chain name. Spelled out here because a test may carry provider vocabulary
+        # (the vocab check exempts tests) and because patching what `session_from_env` actually reads
+        # is the point — patching a constant the production path no longer consults would be a test
+        # that passes while the behaviour it claims to cover has moved.
+        session = mock.patch.dict(os.environ, {"CLAUDE_CODE_SESSION_ID": "THIS-SESSION"})
         session.start()
         self.addCleanup(session.stop)
 

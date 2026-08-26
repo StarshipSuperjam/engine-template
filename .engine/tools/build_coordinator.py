@@ -990,7 +990,10 @@ def _library() -> "plan_store.PlanLibrary":
 # It FAILS CLOSED. When neither signal is provable the answer is "cannot prove a boundary", and that
 # refuses. A plan sealed before this recording existed has no sealing session to compare against and
 # so lands here; the refusal says so, and the override is one flag away, recorded and published.
-_SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
+#
+# The session identity comes from `providers.session_from_env`, not from an environment variable read
+# here. That is the provider seam's job and the seam already owns the chain, so a runtime whose
+# session id arrives under a different name is answered in one place rather than in every caller.
 _LIBRARY_OBSERVATIONS = "observations.ndjson"
 
 
@@ -1057,7 +1060,8 @@ def phase_barrier_reasons(sealed_at: str | None, plan_id: str | None = None) -> 
 
     # Signal one: identity. A bind from a session other than the one that sealed is a boundary by
     # definition, and needs nothing to have been observed along the way.
-    here = os.environ.get(_SESSION_ENV) or None
+    import providers
+    here = providers.session_from_env()
     sealed_by = _sealing_session(plan_id) if plan_id else None
     if here and sealed_by and here != sealed_by:
         return []
@@ -1088,8 +1092,8 @@ def phase_barrier_reasons(sealed_at: str | None, plan_id: str | None = None) -> 
             "the barrier here. That is a gap in the evidence, not a judgement about this Build.")
     if not here:
         reasons.append(
-            f"Note: {_SESSION_ENV} is not set in this environment, so this session cannot identify "
-            "itself and the identity check cannot run.")
+            "Note: this environment carries no session id the provider seam recognizes, so this "
+            "session cannot identify itself and the identity check cannot run.")
     reasons.append(
         "If you mean to build in this session anyway, say so explicitly: pass "
         "--override-phase-barrier. It is recorded on the Build and published in the pull request.")

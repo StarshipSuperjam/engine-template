@@ -1263,7 +1263,8 @@ def cmd_seal(args) -> int:
     # depends on this line succeeding.
     try:
         import build_coordinator
-        build_coordinator.record_seal_session(record["plan_id"], os.environ.get("CLAUDE_CODE_SESSION_ID"))
+        import providers
+        build_coordinator.record_seal_session(record["plan_id"], providers.session_from_env())
     except Exception:  # noqa: BLE001 — never let bookkeeping disturb a terminal act
         pass
     plan_projection.project_library(library)
