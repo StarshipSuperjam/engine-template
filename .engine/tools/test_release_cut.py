@@ -209,14 +209,15 @@ class Classify(unittest.TestCase):
             with _Tree(live):
                 p = rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
             self.assertIn("core", p["package_floor"])                     # a retirement raises the module floor
+            self.assertEqual(p["package_floor"]["core"], "0.5.0")
             self.assertIn("announced a retired capability (0.4.0)", " ".join(p["change_inventory"]))
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
     def test_diff_migration_patches_and_retirement_raises_no_clobber(self):
         # StarshipSuperjam/engine-template#942: a migration MOVES the package a PATCH (so the updater's version-ranged machinery sees
-        # it) but is NOT a SemVer signal (its existence implies no minor); a retirement is a MINOR floor. When both
-        # land at the same module version, the combine takes the HIGHER (minor), never clobbering downward.
+        # it) but is NOT a SemVer signal; a retirement is a MINOR floor. When both land together, the combine
+        # takes the HIGHER (minor), never clobbering downward.
         mig = {"0.4.0": {"description": "d", "run": "r", "kind": "config"}}
         ret = {"0.4.0": {"description": "gone"}}
         base = _baseline_tree({"core": _module("core", ver="0.3.0")})
@@ -229,6 +230,39 @@ class Classify(unittest.TestCase):
             self.assertEqual(floor_both, "0.5.0")                         # a retirement raises it to a minor
             self.assertGreaterEqual(rc.validate._ver_tuple(floor_both),
                                     rc.validate._ver_tuple(floor_mig))    # combine never clobbers downward
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def test_retirement_cutover_declared_minor_folds_to_0_7_0_without_a_release_write(self):
+        migration = {"0.7.0": {"description": "remove retired records", "run": "retire.py",
+                                "kind": "tracked-content"}}
+        retirement = {"0.7.0": {"description": "the permanent record surface is gone"}}
+        base = _baseline_tree({"core": _module("core", ver="0.6.2"),
+                               "validators-core": _module("validators-core", ver="0.3.0")})
+        try:
+            live = {"core": _module("core", ver="0.6.2", migrations=migration,
+                                     retired_capabilities=retirement),
+                    "validators-core": _module("validators-core", ver="0.3.0")}
+            with _Tree(live, engine_release="0.6.3"):
+                proposal = rc.classify(rc.Baseline("v0.6.3", False, "diff"), base)
+
+            # Building the change declares the selector but does not pretend the release was already cut.
+            self.assertEqual(proposal["current_engine"], "0.6.3")
+            self.assertEqual(proposal["package_floor"]["core"], "0.7.0")
+            self.assertEqual(proposal["engine_floor_level"], "none")
+
+            per_pr = [{"number": 1095, "title": "Retire the permanent record surface", "impact": "minor",
+                       "author": "human", "files": [".engine/modules/core/manifest.json",
+                                                      ".engine/modules/validators-core/manifest.json"]}]
+            resolved = rc.resolve_release_impact(proposal["engine_floor_level"], "0.6.3", per_pr)
+            self.assertIsNone(resolved["refusal"])
+            self.assertEqual(resolved["effective"], "minor")
+            self.assertEqual(resolved["engine_floor_version"], "0.7.0")
+            folded = rc.fold_package_impacts(
+                proposal["package_floor"], {"core": "0.6.2", "validators-core": "0.3.0"},
+                resolved["per_pr"], {".engine/modules/core/manifest.json": ["core"],
+                                     ".engine/modules/validators-core/manifest.json": ["validators-core"]})
+            self.assertEqual(folded["package_floor"], {"core": "0.7.0", "validators-core": "0.4.0"})
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
@@ -254,43 +288,43 @@ def _write_text(path, text):
         fh.write(text)
 
 
-class ContractSurfaceReframe(unittest.TestCase):
-    # StarshipSuperjam/engine-template#942: the classifier proves a floor only where it genuinely can. An ADDED contract surface -> minor;
+class InterfaceSurfaceReframe(unittest.TestCase):
+    # StarshipSuperjam/engine-template#942: the classifier proves a floor only where it genuinely can. An ADDED interface surface -> minor;
     # a genuine REMOVED surface -> major; a RENAMED/relocated surface -> 'unknown' (NOT a false major); a surface
     # CHANGED in place -> 'unknown'. 'unknown' sets no floor and is surfaced for review.
-    _BODY = "# eADR-0001\n\n" + ("A settled decision with enough body to make similarity real.\n" * 20)
+    _BODY = "# interface-0001\n\n" + ("A settled decision with enough body to make similarity real.\n" * 20)
 
-    def _classify_with_contracts(self, base_files, live_files):
+    def _classify_with_interfaces(self, base_files, live_files):
         base = _baseline_tree({"core": _module("core")})
         for name, text in base_files.items():
-            _write_text(os.path.join(base, ".engine", "contracts", name), text)
+            _write_text(os.path.join(base, ".engine", "interfaces", name), text)
         try:
             with _Tree({"core": _module("core")}) as t:
                 for name, text in live_files.items():
-                    _write_text(os.path.join(t.root, ".engine", "contracts", name), text)
+                    _write_text(os.path.join(t.root, ".engine", "interfaces", name), text)
                 return rc.classify(rc.Baseline("v0.0.9", False, "diff"), base)
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
     def test_added_surface_floors_minor(self):
-        p = self._classify_with_contracts({}, {"eADR-0009-new.md": self._BODY})
+        p = self._classify_with_interfaces({}, {"interface-0009-new.md": self._BODY})
         self.assertEqual(p["engine_floor_level"], "minor")
         self.assertEqual(p["compatibility_unknown"], [])
 
     def test_removed_surface_floors_major(self):
-        p = self._classify_with_contracts({"eADR-0009-gone.md": self._BODY}, {})
+        p = self._classify_with_interfaces({"interface-0009-gone.md": self._BODY}, {})
         self.assertEqual(p["engine_floor_level"], "major")
 
     def test_renamed_surface_is_unknown_not_major(self):
         # the SAME body under a NEW name: a rename, not a removal. It must NOT floor major; it is 'unknown'.
-        p = self._classify_with_contracts({"eADR-0009-old.md": self._BODY},
-                                          {"eADR-0009-relocated.md": self._BODY})
+        p = self._classify_with_interfaces({"interface-0009-old.md": self._BODY},
+                                          {"interface-0009-relocated.md": self._BODY})
         self.assertEqual(p["engine_floor_level"], "none")            # a rename never forces major
         self.assertTrue(any("renamed/relocated" in im["what"] for im in p["compatibility_unknown"]))
 
     def test_changed_in_place_is_unknown_not_minor(self):
-        p = self._classify_with_contracts({"eADR-0009-x.md": self._BODY},
-                                          {"eADR-0009-x.md": self._BODY + "\nappended clause changing it.\n"})
+        p = self._classify_with_interfaces({"interface-0009-x.md": self._BODY},
+                                          {"interface-0009-x.md": self._BODY + "\nappended clause changing it.\n"})
         self.assertEqual(p["engine_floor_level"], "none")            # a byte change proves nothing -> no floor
         self.assertEqual(len(p["compatibility_unknown"]), 1)
         self.assertIn("changed in place", p["compatibility_unknown"][0]["what"])
@@ -302,18 +336,18 @@ class ContractSurfaceReframe(unittest.TestCase):
         pairs = rc._pair_renames(removed, added)
         self.assertEqual(pairs, {"old.md": "new.md"})               # paired the similar one, not the turtle file
 
-    def test_pair_renames_resists_real_eADR_boilerplate_shape(self):
-        # QA re-audit: this repo's real eADRs share ~10 identical frontmatter/heading LINES and carry their
+    def test_pair_renames_resists_real_interface_boilerplate_shape(self):
+        # QA re-audit: this repo's real interfaces share ~10 identical frontmatter/heading LINES and carry their
         # substance in a FEW long paragraph-lines, so two UNRELATED decisions score ~0.77 LINE-similarity —
         # above 0.5 but below the 0.85 rename bar. They must NOT pair, or a genuine breaking removal in the same
         # window as an unrelated addition would be masked as a rename and lose its major floor.
-        boiler = [b"---", b"title: eADR", b"status: accepted", b"---", b"", b"# Status", b"Accepted", b"",
+        boiler = [b"---", b"title: interface", b"status: accepted", b"---", b"", b"# Status", b"Accepted", b"",
                   b"# Context", b"", b"# Decision", b"", b"# Significance", b"", b"# Rationale"]  # ~15 shared lines
         removed_body = [f"Webhook removal paragraph {i}: the legacy contract is gone.".encode() for i in range(6)]
         added_body = [f"Telemetry paragraph {i}: an unrelated new capability nothing depended on.".encode()
                       for i in range(6)]
-        removed = {"eADR-0100-webhook.md": b"\n".join(boiler + removed_body)}
-        added = {"eADR-0200-telemetry.md": b"\n".join(boiler + added_body)}
+        removed = {"interface-0100-webhook.md": b"\n".join(boiler + removed_body)}
+        added = {"interface-0200-telemetry.md": b"\n".join(boiler + added_body)}
         ratio = __import__("difflib").SequenceMatcher(
             None, rc._rename_lines(list(removed.values())[0]), rc._rename_lines(list(added.values())[0])).ratio()
         self.assertTrue(0.5 <= ratio < 0.85, f"expected the collision regime, got {ratio:.3f}")
@@ -322,12 +356,12 @@ class ContractSurfaceReframe(unittest.TestCase):
     def test_pair_renames_still_detects_a_genuine_rename(self):
         # a rename keeps NEAR-IDENTICAL content (a relocation, or a rename with a tiny edit) -> must still pair,
         # so a genuine rename is not a false major.
-        body = (b"---\ntitle: eADR-0009\n---\n\n# Decision\n\n"
+        body = (b"---\ntitle: interface-0009\n---\n\n# Decision\n\n"
                 + b"".join(f"Decision detail line {i} describing the retained capability.\n".encode()
                            for i in range(20)))
         renamed = body.replace(b"line 3 ", b"line 3 (typo fixed) ")   # one tiny edit
-        self.assertEqual(rc._pair_renames({"eADR-0009-old-name.md": body}, {"eADR-0009-new-name.md": renamed}),
-                         {"eADR-0009-old-name.md": "eADR-0009-new-name.md"})
+        self.assertEqual(rc._pair_renames({"interface-0009-old-name.md": body}, {"interface-0009-new-name.md": renamed}),
+                         {"interface-0009-old-name.md": "interface-0009-new-name.md"})
 
 
 class DeclaredImpactFold(unittest.TestCase):
@@ -479,7 +513,7 @@ class DeclaredImpactFold(unittest.TestCase):
 
     def test_version_decision_concise_vs_detailed(self):
         proposal = {"declared_impact": "minor", "effective_impact": "minor", "mechanical_floor_level": "none",
-                    "compatibility_unknown": [{"what": "the contract surface 'x' changed in place"}],
+                    "compatibility_unknown": [{"what": "the interface surface 'x' changed in place"}],
                     "declared_per_pr": [{"number": 11, "title": "add a thing", "impact": "minor"},
                                         {"number": 12, "title": "a bump", "impact": None}],
                     "impact_defaulted": ["#5 dep bump (exempt author dependabot[bot]; folded as patch)"]}
@@ -1357,7 +1391,7 @@ class RenderPRBody(unittest.TestCase):
         # otherwise markdown treats it as a lazy continuation of the breaking-change bullet above and fuses
         # them, hiding the interface-changes signpost on exactly the release that most needs reading.
         proposal = {"change_inventory": ["Removed the 'legacy' capability."],
-                    "impacts": [{"what": "the contract surface 'c' changed", "why": "read it against consumers"}],
+                    "impacts": [{"what": "the interface surface 'c' changed", "why": "read it against consumers"}],
                     "engine_floor_level": "major", "engine_floor_version": "1.0.0"}
         applied = {"applied": True, "engine": "1.0.0", "from_engine": "0.3.0", "targets": {"core": "1.0.0"}}
         lines = rc.render_pr_body(proposal, applied).splitlines()
@@ -1370,18 +1404,18 @@ class RenderPRBody(unittest.TestCase):
         # so the "what changed" list would read blank without the impacts — yet a changed contract is exactly
         # what forced the bump. The Scope collation must surface the contract change so the version is justified.
         proposal = {"change_inventory": [],
-                    "impacts": [{"what": "the contract surface 'eADR-0014-one-history.md' changed",
+                    "impacts": [{"what": "the interface surface 'interface-0014-one-history.md' changed",
                                  "why": "read it against consumers", "floor_level": "minor"}],
                     "engine_floor_level": "minor", "engine_floor_version": "0.2.0"}
         applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0", "targets": {}}
         body = rc.render_pr_body(proposal, applied)
         scope = body.split("## Scope", 1)[1].split("## Out of scope", 1)[0]
         self.assertIn("What changed since the last release:", scope)
-        self.assertIn("eADR-0014-one-history.md", scope)             # the contract change is in "what changed"
+        self.assertIn("interface-0014-one-history.md", scope)             # the contract change is in "what changed"
         # the Risk section renders the interface change with the SAME polish as the published Release notes —
         # a bold heading + its description as a sentence — so the consent surface is not rougher (usability).
         risk = body.split("## Risk", 1)[1].split("## Validation", 1)[0]
-        self.assertIn("**The contract surface 'eADR-0014-one-history.md' changed.** Read it against consumers",
+        self.assertIn("**The interface surface 'interface-0014-one-history.md' changed.** Read it against consumers",
                       risk)
 
     def test_scope_pr_list_leads_and_migration_surfaces_beside_it(self):
@@ -1424,7 +1458,7 @@ class RenderPRBody(unittest.TestCase):
 
     def test_diff_body_lists_impacts_and_itemises_varied_versions(self):
         proposal = {"change_inventory": ["Added the 'x' capability."],
-                    "impacts": [{"what": "the contract surface 'c' changed", "why": "read it against consumers"}]}
+                    "impacts": [{"what": "the interface surface 'c' changed", "why": "read it against consumers"}]}
         applied = {"applied": True, "engine": "0.2.0", "from_engine": "0.1.0",
                    "targets": {"core": "0.2.0", "qa-review": "0.1.5"}}
         body = rc.render_pr_body(proposal, applied)
@@ -1474,10 +1508,10 @@ class RenderPRBody(unittest.TestCase):
 class ChangeSummary(unittest.TestCase):
     def test_merges_inventory_and_contract_impacts(self):
         proposal = {"change_inventory": ["Added the 'x' capability."],
-                    "impacts": [{"what": "the contract surface 'c.md' changed", "why": "..."}]}
+                    "impacts": [{"what": "the interface surface 'c.md' changed", "why": "..."}]}
         lines = rc.change_summary(proposal)
         self.assertIn("Added the 'x' capability.", lines)
-        self.assertIn("The contract surface 'c.md' changed.", lines)   # capitalized, period added
+        self.assertIn("The interface surface 'c.md' changed.", lines)   # capitalized, period added
 
     def test_empty_when_nothing_changed(self):
         self.assertEqual(rc.change_summary({"change_inventory": [], "impacts": []}), [])
@@ -1485,7 +1519,7 @@ class ChangeSummary(unittest.TestCase):
     def test_contract_only_release_is_not_empty(self):
         # the case that made the PR body's "what changed" read blank: no structural inventory, only impacts
         lines = rc.change_summary({"change_inventory": [],
-                                   "impacts": [{"what": "the contract surface 'c.md' changed", "why": "..."}]})
+                                   "impacts": [{"what": "the interface surface 'c.md' changed", "why": "..."}]})
         self.assertEqual(len(lines), 1)
 
 
@@ -1493,7 +1527,7 @@ class ReleaseNotes(unittest.TestCase):
     def test_human_readable_with_sections_bullets_and_descriptions(self):
         proposal = {"engine_floor_level": "major",
                     "change_inventory": ["Added the 'x' capability.", "Removed the 'legacy' capability."],
-                    "impacts": [{"what": "the contract surface 'c.md' changed",
+                    "impacts": [{"what": "the interface surface 'c.md' changed",
                                  "why": "read it against consumers before confirming."}]}
         notes = rc.render_release_notes("v1.0.0", proposal)
         self.assertIn("Engine version v1.0.0.", notes)
@@ -1502,7 +1536,7 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("## What changed since the last release", notes)   # section
         self.assertIn("- Added the 'x' capability.", notes)              # bullets
         self.assertIn("## Interface changes to read", notes)             # distinct section
-        self.assertIn("**The contract surface 'c.md' changed.** Read it against consumers", notes)  # bold + desc
+        self.assertIn("**The interface surface 'c.md' changed.** Read it against consumers", notes)  # bold + desc
 
     def test_minor_release_has_no_breaking_callout(self):
         notes = rc.render_release_notes("v0.2.0", {"engine_floor_level": "minor",
@@ -1661,24 +1695,24 @@ class NestedContractDetection(unittest.TestCase):
     def test_dir_bytes_recurses_into_subdirectories(self):
         d = tempfile.mkdtemp()
         try:
-            _write(os.path.join(d, "eADR-0001-top.md"), {"x": 1})              # a top-level file
+            _write(os.path.join(d, "interface-0001-top.md"), {"x": 1})              # a top-level file
             _write(os.path.join(d, "sub", "nested.md"), {"y": 2})              # + a nested file
             keys = set(rc._dir_bytes(d).keys())
-            self.assertIn("eADR-0001-top.md", keys)
+            self.assertIn("interface-0001-top.md", keys)
             self.assertIn(os.path.join("sub", "nested.md"), keys)              # the subtree is no longer skipped
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
     def test_impact_statement_fires_for_a_nested_contract_change(self):
-        # a contract surface added in a subdirectory must produce an impact (the non-recursive read missed it)
+        # a interface surface added in a subdirectory must produce an impact (the non-recursive read missed it)
         base = tempfile.mkdtemp()
-        os.makedirs(os.path.join(base, ".engine", "contracts", "instance"), exist_ok=True)
+        os.makedirs(os.path.join(base, ".engine", "interfaces", "instance"), exist_ok=True)
         with _Tree({"core": _module("core", ver="0.1.0")}, engine_release="0.1.0"):
             # add a nested contract file only in the LIVE tree
-            live_nested = os.path.join(validate.ROOT, ".engine", "contracts", "instance", "README.md")
+            live_nested = os.path.join(validate.ROOT, ".engine", "interfaces", "instance", "README.md")
             os.makedirs(os.path.dirname(live_nested), exist_ok=True)
             with open(live_nested, "w") as f:
-                f.write("a new nested contract surface")
+                f.write("a new nested interface surface")
             impacts = rc._impact_statements(base)   # base has an empty contracts dir -> the nested file is "added"
         surfaces = [im["surface"] for im in impacts]
         self.assertTrue(any("instance/README.md" in s for s in surfaces),

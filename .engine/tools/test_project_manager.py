@@ -1947,12 +1947,6 @@ class TheRetitle(unittest.TestCase):
     # list earns its keep only while every reason on it is true — otherwise the next genuine miss hides
     # among the excuses.
     ALLOWED = {
-        ".engine/contracts/eADR-0044-plan-coordinator-local-library.md":
-            "the decision record's own FILENAME is history and is kept; its 2026-08-25 amendment is the "
-            "one place the old name is spoken in this repository, and it speaks of it as the past",
-        ".engine/provisioning/module-surfaces.json":
-            "generated, and what it carries is the eADR FILENAME above — it is correct because that file "
-            "is correctly named",
         ".engine/tools/test_plan_dogfood.py":
             "the historical plan document itself — the real PR A plan's title, raw intent and decisions. "
             "History keeps the name it was written under",

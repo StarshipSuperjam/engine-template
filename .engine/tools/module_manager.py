@@ -598,9 +598,8 @@ _GITIGNORE_REL = ".gitignore"           # the foundation-ignores fence lives her
 # and root `.gitignore`
 # (the foundation-ignores fence is re-asserted locally by apply_foundation_ignores on upgrade — step (2f)
 # below — never fetched, since a release's file would clobber the adopter's own ignore lines + module
-# fences). Gitignored data and the deployment's per-instance eADR stream (`.engine/contracts/instance/`, off
-# core's non-recursive `.engine/contracts/*.md` canon glob) are in no
-# `provides`/FOUNDATION_CODE, so the overlay leaves them untouched (config + data preserved). A member may be
+# fences). Gitignored data is in no `provides`/FOUNDATION_CODE, so the overlay
+# leaves it untouched. A member may be
 # a glob (the issue templates); the overlay loop below expands it against the release tree, so the issue
 # templates are now refreshed on update (they were silently omitted before — single-homing closed that gap;
 # forward-only).
@@ -1488,7 +1487,7 @@ def _preserved_present(dest_root: "str | None" = None) -> set:
     upgrade over an existing bound value leaves it untouched. THE SINGLE refinement of `_overlay_copy_map`
     every overlay consumer applies: the copy legs (`_overlay_engine_code`, `_copy_synced`) skip these, and the
     overwrite views (`overlay_replace_paths`, `plan_upgrade`) subtract them — so the operator-facing
-    disclosure/preview stay in lockstep with what the update actually does (eADR-0037: the overwrite set is
+    disclosure/preview stay in lockstep with what the update actually does (the established design: the overwrite set is
     `_overlay_copy_map` MINUS this). Exact repo-relative membership (never a basename), matching the map keys."""
     root = validate.ROOT if dest_root is None else dest_root
     return {rel for rel in module_coherence.PRESERVE_DATA
@@ -1519,9 +1518,8 @@ def overlay_replace_paths() -> set:
 def _overlay_engine_code(release_tree: str, present_ids: list, exclude=None) -> tuple:
     """Overlay the engine CODE of the PRESENT packages from `release_tree`: each present module's
     `provides` files + its manifest, plus the FOUNDATION_CODE infra the release ships. Driven off the
-    PRESENT set (never the release tree's modules/*), so a deselected module is NEVER resurrected. Operator config (engine.json identity, the policy-override) and gitignored
-    data + the per-instance eADR stream (`.engine/contracts/instance/`) are in no
-    `provides`/FOUNDATION_CODE, so they are untouched.
+    present set (never the release tree's modules/*), so a deselected module is never resurrected.
+    Operator config and gitignored data are outside `provides`/FOUNDATION_CODE and remain untouched.
     CONTAINMENT GUARD (the topology wall): every destination must resolve INSIDE ROOT — fail closed BEFORE
     any write (the add path's containment-first pattern). `exclude` (a set of repo-relative paths) is NOT overwritten — the brownfield
     arrival passes the engine-exclusive paths an operator chose to keep ('leave-as-is', a class-1 collision),
@@ -1658,16 +1656,15 @@ def engine_synced_paths(tree_root: str, manifests_by_id: dict, *, project_retire
 
 def _reconcile_carveouts() -> tuple:
     """The never-delete carve-outs for the reconcile delete leg, as (exact:set, prefixes:tuple): operator
-    config, the preserved per-deployment DATA files, the pruned runtime roots, the deployment's per-instance
-    eADR stream, the committed fixture namespace, and the five keyed/rendered foundation files. Mirrors
-    module_coherence's carve-out sets so an operator's tuning, saved data, instance decision records, and
+    config, the preserved per-deployment data files, the pruned runtime roots,
+    the committed fixture namespace, and the five keyed/rendered foundation files. Mirrors
+    module_coherence's carve-out sets so an operator's tuning, saved data, and
     product files are never delete candidates (they are outside `old_owned` by construction — this is the belt,
     not the sole protection). NOTE the FIXTURE_PATHS prefix is spared here for the DIRECTORY-retire leg (whose
     `rmtree` has no untracked guard); the FILE-delete leg deliberately drops it (see `_reconcile_surface`) so a
     stale, tracked fixture the release no longer ships is reconciled away like any other owned file."""
     exact = set(module_coherence.OPERATOR_CONFIG) | set(_FOUNDATION_KEYED) | set(module_coherence.PRESERVE_DATA)
     prefixes = tuple(sorted(d + "/" for d in (set(module_coherence.PRUNE_PATHS)
-                                              | set(module_coherence.DEPLOYMENT_CONTRACTS)
                                               | set(module_coherence.FIXTURE_PATHS))))
     return exact, prefixes
 
@@ -3126,7 +3123,68 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             "removed_capabilities": [],
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None,
             "groups_before": groups_before, "groups_after": None, "groups_changed": False,
-            "modules_installed": [], "modules_offered": [], "control_plane": None}
+            "modules_installed": [], "modules_offered": [], "control_plane": None,
+            "transaction": transaction}
+    # CROSS-VERSION TRANSACTION ADOPTION. A deployment whose parent upgrade process predates the generic
+    # tracked-content protocol has already copied the candidate overlay before this freshly-overlaid child can
+    # run. It therefore cannot have supplied sealed plans or a transaction. Close that one release-boundary
+    # gap generically here, before ANY tail mutation: preflight through candidate code, seal the full footprint
+    # including every already-dirty overlay path, and anchor recovery to the unchanged HEAD tree. The transaction
+    # primitive accepts that existing dirt only in this explicit mode, only inside the footprint, and never on a
+    # sealed target. Thus a current deployed release can cross the first tracked-content release without an
+    # imaginary intermediate release, while rollback still restores the true pre-overlay bytes.
+    tracked_ids = {f"{item['module_id']}@{item['version']}" for item in selected
+                   if item.get("kind") == "tracked-content"}
+    supplied_ids = set((tracked_plans or {}).keys())
+    if tracked_ids - supplied_ids:
+        tail["applied"] = True  # the pre-protocol parent already copied the candidate overlay
+        if transaction:
+            tail["reason"] = ("The update has a recovery transaction but is missing one or more sealed "
+                              "tracked-file plans, so it stopped without guessing. Ask me to undo the update "
+                              "and run it again.")
+            return tail
+        adopted_preflight = preflight_tracked_content_migrations(
+            selected, from_versions, target_ref)
+        if adopted_preflight["refusals"]:
+            first = adopted_preflight["refusals"][0]
+            tail["migrations"]["refusals"] = list(adopted_preflight["refusals"])
+            tail["reason"] = ("The update's tracked-file preflight refused after the candidate tools were "
+                              f"overlaid at {_render_tracked_path(first['path'])}: {first['reason']} "
+                              f"{first['remediation']} No tracked repository content was changed; ask me to "
+                              "undo the staged overlay, apply the remediation, and run the update again.")
+            return tail
+        tracked_plans = adopted_preflight["plans"]
+        if adopted_preflight["targets"]:
+            dirty = checkout_health._tx_dirty_paths(validate.ROOT)
+            if dirty is None:
+                tail["reason"] = ("The update could not prove which files the older parent had already "
+                                  "overlaid, so it stopped before tracked repository content changed. Ask me "
+                                  "to undo the staged overlay and run the update again.")
+                return tail
+            try:
+                dynamic_footprint = (set(_upgrade_footprint()) | set(old_owned) | set(dirty)
+                                     | set(engine_synced_paths(release_tree, candidates,
+                                                               project_retire=False))
+                                     | set(adopted_preflight["footprint"]))
+            except Exception as exc:  # noqa: BLE001 - an incomplete adopted footprint is never guessed
+                tail["reason"] = ("The update could not seal the older parent's staged overlay into a "
+                                  f"recovery footprint ({exc}). Ask me to undo it and run the update again.")
+                return tail
+            transaction = checkout_health.begin_upgrade_transaction(
+                validate.ROOT, sealed_targets=adopted_preflight["targets"],
+                footprint=sorted(dynamic_footprint), adopt_existing=True)
+            tail["transaction"] = transaction
+            if not transaction.get("ok"):
+                tail["reason"] = ("The update could not adopt the older parent's staged overlay into its "
+                                  "durable recovery transaction: "
+                                  f"{transaction.get('reason') or transaction.get('code')}. No tracked "
+                                  "repository content was changed; ask me to undo the overlay and retry.")
+                return tail
+            advanced = checkout_health.update_upgrade_transaction(validate.ROOT, "mutating")
+            if not advanced.get("ok"):
+                tail["reason"] = ("The recovery transaction was created but could not record its mutation "
+                                  "phase, so the update stopped before tracked repository content changed.")
+                return tail
     # (a0) RETIRED-CAPABILITY ANNOUNCEMENTS — derived from the FULL present-manifest set (`candidates`), NEVER
     # from `selected`: a version that retires a capability but ships no migration must still announce it, so this
     # is independent of migration selection (design-review). Announcement-only, so it is computed once up front

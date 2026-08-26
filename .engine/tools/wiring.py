@@ -25,11 +25,11 @@ REVERSAL KEYS ON ENGINE-NAMESPACED IDENTITY, never bare content (module-system 1
   - codex-hook  -> .codex/hooks.json (the Codex runtime's registration), keyed on {event, matcher,
                    type, command} exactly like `hook`; command -> .engine/. Codex trusts hooks per
                    exact definition, so every apply/reverse that changes the file carries the
-                   re-trust notice in its finding (eADR-0034).
+                   re-trust notice in its finding (the established design).
   - codex-mcp   -> .codex/config.toml, the engine server rendered inside a comment-fenced
                    engine-managed block keyed on the engine-prefixed server name — a fence, never a
                    whole-file TOML rewrite, so product tables outside the fences are untouched; the
-                   whole file must parse as TOML before AND after, or the engine refuses (eADR-0034)
+                   whole file must parse as TOML before AND after, or the engine refuses (the established design)
 
 Apply **inserts iff absent**; reverse **removes only the engine-identified entry** (an operator's
 or product's identical-looking entry is left untouched). Every apply and reverse is **idempotent**,
@@ -120,7 +120,7 @@ CODEX_CONFIG_PATH = os.path.join(validate.ROOT, ".codex", "config.toml")  # code
 
 # The plain-language re-trust notice every codex-hook change carries: Codex records trust against each
 # hook's exact definition, so a new or changed registration is silently SKIPPED until the operator
-# re-trusts it — the one moment to say so is when the engine makes the change (eADR-0034).
+# re-trusts it — the one moment to say so is when the engine makes the change (the established design).
 CODEX_RETRUST_NOTE = ("Codex skips new or changed hooks until you approve them again — open Codex "
                       "and run /hooks to re-approve the engine's hooks.")
 
@@ -548,14 +548,6 @@ def catalog_add(data: dict, directive: dict, schema: dict):
     if not isinstance(name, str) or not _SURFACE_NAME_RE.match(name):
         raise WiringError(f"refused: {name!r} is not a valid surface name (lowercase letters and "
                           f"hyphens).")
-    # Authority-tier reservation (issue StarshipSuperjam/engine-template#401): the top two authority ranks are reserved to the
-    # self-referential core (`contract`/`policy`); a module `ontology-entry` may not mint or downgrade one.
-    # Name-bound half (the seam has no module identity) — the owner-based half is authority_reservation_findings
-    # at the merge gate. Refused fail-closed here so a bad record never lands, mirroring the schema re-check.
-    reason = validate.reserved_authority_reason(
-        name, record.get("authority") if isinstance(record, dict) else None)
-    if reason:
-        raise WiringError(f"refused to add the ontology-entry '{name}': {reason} The engine made no change.")
     surfaces = data.setdefault("surfaces", {})
     if surfaces.get(name) == record:
         return data, False

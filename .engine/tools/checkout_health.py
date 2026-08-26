@@ -482,6 +482,31 @@ def _tx_blob_identity(root: str, rel: str) -> str | None:
     return "git-blob:" + proc.stdout.decode("ascii", errors="replace").strip()
 
 
+def _tx_tree_identity(root: str, commit: str, rel: str) -> str | None:
+    """Identity of ``rel`` in one committed tree, or ``absent``.
+
+    ``ls-tree -z -- <path>`` keeps hostile whitespace and path punctuation out of the parser and lets the
+    compatibility adoption path record the true pre-overlay bytes even though the candidate overlay is
+    already present in the working tree.  A non-blob entry is not an exact file footprint and fails closed.
+    """
+    proc = _tx_run(root, ["ls-tree", "-z", commit, "--", rel])
+    if proc is None or proc.returncode != 0:
+        return None
+    entries = [entry for entry in proc.stdout.split("\0") if entry]
+    if not entries:
+        return "absent"
+    if len(entries) != 1:
+        return None
+    try:
+        header, path = entries[0].split("\t", 1)
+        _mode, kind, oid = header.split(" ", 2)
+    except ValueError:
+        return None
+    if path != rel or kind != "blob" or not _GIT_OID_RE.fullmatch(oid):
+        return None
+    return "git-blob:" + oid
+
+
 def _tx_dirty_paths(root: str) -> set[str] | None:
     """All changed paths without porcelain rename parsing: staged, unstaged, then untracked. None means the
     guard could not prove the set and the transaction must refuse."""
@@ -600,11 +625,15 @@ def inspect_upgrade_transaction(root: str) -> dict:
             "record": record}
 
 
-def begin_upgrade_transaction(root: str, *, sealed_targets: list[dict], footprint: list[str]) -> dict:
+def begin_upgrade_transaction(root: str, *, sealed_targets: list[dict], footprint: list[str],
+                              adopt_existing: bool = False) -> dict:
     """Seal a lossless pre-update recovery point before any upgrade mutation. Uses a TEMPORARY index to
     write a commit without touching the operator's index, anchors it at a dedicated ref, then durably writes
-    the Git-path journal. Dirty work anywhere refuses: inside the footprint would invalidate the recorded
-    before identities; outside it would later be swept into the upgrade opener's ``git add -A``."""
+    the Git-path journal. Dirty work normally refuses. ``adopt_existing`` is the bounded cross-version bridge
+    for a deployed parent older than this transaction protocol: the freshly-overlaid child may adopt ONLY
+    already-dirty paths inside the complete dynamic footprint, while every sealed tracked-content target must
+    still be pristine. Its before identities come from HEAD, not from overlaid working bytes, so recovery is
+    still byte-identical to the true pre-update tree. Foreign work and dirty targets always refuse."""
     prior = inspect_upgrade_transaction(root)
     if prior.get("state") != "none":
         return {"ok": False, "code": "transaction-already-present",
@@ -614,24 +643,27 @@ def begin_upgrade_transaction(root: str, *, sealed_targets: list[dict], footprin
         return {"ok": False, "code": "footprint-invalid",
                 "reason": "The upgrade's dynamic rollback footprint is not a unique list of exact repository files."}
     footprint = sorted(normalized)
-    dirty = _tx_dirty_paths(root)
-    if dirty is None:
-        return {"ok": False, "code": "worktree-unreadable",
-                "reason": "Git could not prove which working-tree paths are changed."}
-    if dirty:
-        foreign = sorted(dirty - set(footprint))
-        touched = sorted(dirty & set(footprint))
-        return {"ok": False, "code": "foreign-work" if foreign else "target-dirty",
-                "paths": (foreign or touched)[:20],
-                "reason": ("The repository has changes outside this update's sealed footprint."
-                           if foreign else "A file this update would touch already has uncommitted changes.")}
     head_p = _tx_run(root, ["rev-parse", "HEAD"])
     branch_p = _tx_run(root, ["symbolic-ref", "--quiet", "--short", "HEAD"])
     if head_p is None or head_p.returncode != 0 or branch_p is None or branch_p.returncode != 0:
         return {"ok": False, "code": "head-unresolved",
                 "reason": "Git could not resolve the current commit and branch without guessing."}
     original_head, original_branch = head_p.stdout.strip(), branch_p.stdout.strip()
-    before = {p: _tx_blob_identity(root, p) for p in footprint}
+    dirty = _tx_dirty_paths(root)
+    if dirty is None:
+        return {"ok": False, "code": "worktree-unreadable",
+                "reason": "Git could not prove which working-tree paths are changed."}
+    foreign = sorted(dirty - set(footprint))
+    sealed_paths_declared = {t.get("path") for t in sealed_targets if isinstance(t, dict)}
+    dirty_targets = sorted(dirty & sealed_paths_declared)
+    if foreign or dirty_targets or (dirty and not adopt_existing):
+        touched = sorted(dirty & set(footprint))
+        code = "foreign-work" if foreign else "target-dirty"
+        return {"ok": False, "code": code, "paths": (foreign or dirty_targets or touched)[:20],
+                "reason": ("The repository has changes outside this update's sealed footprint."
+                           if foreign else "A file this update would touch already has uncommitted changes.")}
+    before = ({p: _tx_tree_identity(root, original_head, p) for p in footprint}
+              if adopt_existing else {p: _tx_blob_identity(root, p) for p in footprint})
     if any(v is None for v in before.values()):
         return {"ok": False, "code": "before-identity-unreadable",
                 "reason": "At least one file in the rollback footprint could not be identified."}
@@ -682,7 +714,7 @@ def begin_upgrade_transaction(root: str, *, sealed_targets: list[dict], footprin
               "original_head": original_head, "original_branch": original_branch,
               "sealed_targets": sealed_targets, "footprint": footprint, "before": before,
               "recovery_ref": _UPGRADE_TX_REF, "recovery_commit": recovery_commit,
-              "receipts": [], "pull_request": None}
+              "receipts": [], "pull_request": None, "adopted_existing": bool(adopt_existing)}
     if not _tx_write_journal(journal_path, record):
         return {"ok": False, "code": "journal-write-failed", "recovery_ref": _UPGRADE_TX_REF,
                 "recovery_commit": recovery_commit, "journal_path": journal_path,
@@ -976,7 +1008,7 @@ def recorded_product_repository(cwd: str | None = None) -> str | None:
     return product if isinstance(product, str) and product.strip() else None
 
 
-# ---- the engine-mechanic executable build target (eADR-0026): the OWNED product the mechanic delivers PRs INTO.
+# ---- the engine-mechanic executable build target (the established design): the OWNED product the mechanic delivers PRs INTO.
 # Unlike recorded_product_repository (a display label), product_build_target is EXECUTABLE — a fail-closed belt
 # gates every use, and the per-machine checkout path is local by nature (the slug travels on a fork; the path
 # does not). The readers here are OFFLINE and READ-ONLY (fail-soft-quiet, this module's convention); the
@@ -993,7 +1025,7 @@ _PRODUCT_CHECKOUT_FILE_REL = os.path.join(".engine", "mechanic", "product-checko
 
 def recorded_product_build_target(cwd: str | None = None) -> str | None:
     """OFFLINE, READ-ONLY: the engine's recorded EXECUTABLE build target (`product_build_target` in the manifest)
-    — the OWNED repository this engine-mechanic delivers pull requests into (eADR-0026). None when absent, which
+    — the OWNED repository this engine-mechanic delivers pull requests into (the established design). None when absent, which
     is the normal self-building state (the engine builds its own repo and records no executable target). A pure
     manifest read (the recorded_product_repository idiom); it NEVER fetches, executes, or writes — the belt and
     the mechanic build entry are the only things that ACT on the value, and only after the fail-closed check."""
@@ -1151,7 +1183,7 @@ def claim_at_fresh_head(checkout_path: str, rel_path: str, still_present) -> dic
 # A stray build workspace with no git activity in this many days is "stale" and worth a cleanup nudge; one
 # touched more recently is treated as a possibly-live session's and left alone (StarshipSuperjam/engine-template#950). A detection
 # threshold, deliberately a code constant here rather than a briefing-budget dial — that policy governs the
-# pack's byte-fit, not detector tuning, and blurring the two would cross eADR-0033's boundary.
+# pack's byte-fit, not detector tuning, and blurring the two would cross the established design's boundary.
 SPRAWL_STALE_DAYS = 7
 
 

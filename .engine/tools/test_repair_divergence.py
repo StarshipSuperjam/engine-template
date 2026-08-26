@@ -90,7 +90,7 @@ class TestClassification(unittest.TestCase):
 
     def test_governing_prose_is_authored_and_only_real_documentation_is_docs(self):
         prose = [".engine/operations/build-orchestration.md",
-                 ".engine/contracts/eADR-0041-build-coordinator-behavior.md",
+                 ".engine/policies/finding-disposition.md",
                  ".engine/conduct/defaults.md",
                  "CLAUDE.md",
                  ".claude/agents/engine-qa-review-usability.md"]

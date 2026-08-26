@@ -836,7 +836,7 @@ class TestNativePlanIntake(unittest.TestCase):
                         "the PostToolUse modes wire must invoke `modes.py accept-hook`")
 
     def test_the_codex_intake_adapter_is_wired_after_boot_on_userpromptsubmit(self):
-        # Order is the point. eADR-0042 refuses writers of undefined order; a registered owner in a
+        # Order is the point. the established design refuses writers of undefined order; a registered owner in a
         # stated position is not that. boot's per-prompt scent runs first and this runs after it.
         prompts = [w for w in self._wires()
                    if w.get("type") == "codex-hook" and w.get("event") == "UserPromptSubmit"]

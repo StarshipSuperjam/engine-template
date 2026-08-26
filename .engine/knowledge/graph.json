@@ -16,7 +16,7 @@
       "role": "audit",
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:80a958c32231de6180b58233a2d83619ed71978e74ab8683aeb041fc07e27084",
+        "fingerprint": "sha256:ab2534bfd4156c677e4f53a8305b1790386534db7f047e41f06bcaf64db875e6",
         "path": ".claude/agents/engine-audit.md"
       },
       "status": "active",
@@ -222,7 +222,7 @@
       "role": "pre-submission-review",
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:6258f1f08db6f1991164cccaa053b9a6765e89ceff72620cbed8b9a0a07729fe",
+        "fingerprint": "sha256:487da44439292f3ab446b2ac6e2d84af0e918fcef78a5c94d745843563b127c6",
         "path": ".claude/agents/engine-qa-review-technical-integrity.md"
       },
       "status": "active",
@@ -757,7 +757,7 @@
       },
       "slug": "codex-provider-parity",
       "source": {
-        "fingerprint": "sha256:385bfc14cd8bf5a47ada40e871df8657b3fb74d3642b340dbf74ebf1456bcda7",
+        "fingerprint": "sha256:047ee427dfa466a916d52882439a01a3dee16d0a54af6724543e7cfec89f4b24",
         "path": ".engine/check/codex-provider-parity.json"
       },
       "status": "active",
@@ -1024,217 +1024,6 @@
         "CI"
       ],
       "tier": "soft",
-      "type": "check"
-    },
-    {
-      "id": "check:contract-frontmatter",
-      "kind": "schema",
-      "name": ".engine/check/contract-frontmatter.json",
-      "owner": "validators-core",
-      "predicates": {
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ],
-        "targets": [
-          "contract:eADR-0001-versioned-template",
-          "contract:eADR-0002-repo-authoritative-truth",
-          "contract:eADR-0003-ship-the-substrate-not-the-data",
-          "contract:eADR-0004-degrade-to-git-native",
-          "contract:eADR-0005-nudge-locally-hardgate-at-review",
-          "contract:eADR-0006-three-enforcement-tiers",
-          "contract:eADR-0007-engine-product-wall",
-          "contract:eADR-0008-fault-containment-at-the-seams",
-          "contract:eADR-0009-modules-declare-files-and-wiring",
-          "contract:eADR-0010-derived-binding-by-presence",
-          "contract:eADR-0011-guardrail-integrity",
-          "contract:eADR-0012-deferral-seams",
-          "contract:eADR-0013-one-trust-gate-evidence",
-          "contract:eADR-0014-one-history-living-documents",
-          "contract:eADR-0015-remediation-loop-not-self-healing",
-          "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
-          "contract:eADR-0017-engine-namespaced-identifiers",
-          "contract:eADR-0018-cognitive-substrate-one-workflow",
-          "contract:eADR-0019-memory-knowledge-distinct-substrates",
-          "contract:eADR-0020-thin-dispatcher-kind-registry",
-          "contract:eADR-0021-control-plane-enforcement-layer",
-          "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
-          "contract:eADR-0023-one-manifest-grammar-provisioning",
-          "contract:eADR-0024-modes-three-stances-two-axes",
-          "contract:eADR-0025-draft-pr-is-the-claim",
-          "contract:eADR-0026-external-contribution-fork-native",
-          "contract:eADR-0027-execution-substrate-uv-runtime",
-          "contract:eADR-0028-cold-adversarial-audit",
-          "contract:eADR-0029-contract-threshold-standing-rule-tier",
-          "contract:eADR-0030-operator-stance-floor",
-          "contract:eADR-0031-state-cursor-pointers-and-counts",
-          "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family",
-          "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0035-deferred-work-marker",
-          "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-memory-transcript-first-recall",
-          "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier",
-          "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-default-on-clean-checkout-catch-up",
-          "contract:eADR-0044-plan-coordinator-local-library"
-        ]
-      },
-      "slug": "contract-frontmatter",
-      "source": {
-        "fingerprint": "sha256:22637608c9a88488b576af8130712542623b1809fba23b8dd582e47bb7b1d454",
-        "path": ".engine/check/contract-frontmatter.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
-      "id": "check:contract-shape",
-      "kind": "shape",
-      "name": ".engine/check/contract-shape.json",
-      "owner": "validators-core",
-      "predicates": {
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ],
-        "targets": [
-          "contract:eADR-0001-versioned-template",
-          "contract:eADR-0002-repo-authoritative-truth",
-          "contract:eADR-0003-ship-the-substrate-not-the-data",
-          "contract:eADR-0004-degrade-to-git-native",
-          "contract:eADR-0005-nudge-locally-hardgate-at-review",
-          "contract:eADR-0006-three-enforcement-tiers",
-          "contract:eADR-0007-engine-product-wall",
-          "contract:eADR-0008-fault-containment-at-the-seams",
-          "contract:eADR-0009-modules-declare-files-and-wiring",
-          "contract:eADR-0010-derived-binding-by-presence",
-          "contract:eADR-0011-guardrail-integrity",
-          "contract:eADR-0012-deferral-seams",
-          "contract:eADR-0013-one-trust-gate-evidence",
-          "contract:eADR-0014-one-history-living-documents",
-          "contract:eADR-0015-remediation-loop-not-self-healing",
-          "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
-          "contract:eADR-0017-engine-namespaced-identifiers",
-          "contract:eADR-0018-cognitive-substrate-one-workflow",
-          "contract:eADR-0019-memory-knowledge-distinct-substrates",
-          "contract:eADR-0020-thin-dispatcher-kind-registry",
-          "contract:eADR-0021-control-plane-enforcement-layer",
-          "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
-          "contract:eADR-0023-one-manifest-grammar-provisioning",
-          "contract:eADR-0024-modes-three-stances-two-axes",
-          "contract:eADR-0025-draft-pr-is-the-claim",
-          "contract:eADR-0026-external-contribution-fork-native",
-          "contract:eADR-0027-execution-substrate-uv-runtime",
-          "contract:eADR-0028-cold-adversarial-audit",
-          "contract:eADR-0029-contract-threshold-standing-rule-tier",
-          "contract:eADR-0030-operator-stance-floor",
-          "contract:eADR-0031-state-cursor-pointers-and-counts",
-          "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family",
-          "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0035-deferred-work-marker",
-          "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-memory-transcript-first-recall",
-          "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier",
-          "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-default-on-clean-checkout-catch-up",
-          "contract:eADR-0044-plan-coordinator-local-library"
-        ]
-      },
-      "slug": "contract-shape",
-      "source": {
-        "fingerprint": "sha256:64ff8f33aee45663eaf484ea87c75dd16f11bb2d34c691d0bd60e0915dfbc89b",
-        "path": ".engine/check/contract-shape.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI",
-        "audit-prep"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
-      "id": "check:contract-threshold",
-      "kind": "presence",
-      "name": ".engine/check/contract-threshold.json",
-      "owner": "validators-core",
-      "predicates": {
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ],
-        "targets": [
-          "contract:eADR-0001-versioned-template",
-          "contract:eADR-0002-repo-authoritative-truth",
-          "contract:eADR-0003-ship-the-substrate-not-the-data",
-          "contract:eADR-0004-degrade-to-git-native",
-          "contract:eADR-0005-nudge-locally-hardgate-at-review",
-          "contract:eADR-0006-three-enforcement-tiers",
-          "contract:eADR-0007-engine-product-wall",
-          "contract:eADR-0008-fault-containment-at-the-seams",
-          "contract:eADR-0009-modules-declare-files-and-wiring",
-          "contract:eADR-0010-derived-binding-by-presence",
-          "contract:eADR-0011-guardrail-integrity",
-          "contract:eADR-0012-deferral-seams",
-          "contract:eADR-0013-one-trust-gate-evidence",
-          "contract:eADR-0014-one-history-living-documents",
-          "contract:eADR-0015-remediation-loop-not-self-healing",
-          "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
-          "contract:eADR-0017-engine-namespaced-identifiers",
-          "contract:eADR-0018-cognitive-substrate-one-workflow",
-          "contract:eADR-0019-memory-knowledge-distinct-substrates",
-          "contract:eADR-0020-thin-dispatcher-kind-registry",
-          "contract:eADR-0021-control-plane-enforcement-layer",
-          "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
-          "contract:eADR-0023-one-manifest-grammar-provisioning",
-          "contract:eADR-0024-modes-three-stances-two-axes",
-          "contract:eADR-0025-draft-pr-is-the-claim",
-          "contract:eADR-0026-external-contribution-fork-native",
-          "contract:eADR-0027-execution-substrate-uv-runtime",
-          "contract:eADR-0028-cold-adversarial-audit",
-          "contract:eADR-0029-contract-threshold-standing-rule-tier",
-          "contract:eADR-0030-operator-stance-floor",
-          "contract:eADR-0031-state-cursor-pointers-and-counts",
-          "contract:eADR-0032-attention-policy-plus-function",
-          "contract:eADR-0033-boot-refresh-family",
-          "contract:eADR-0034-dual-provider-adapter-core",
-          "contract:eADR-0035-deferred-work-marker",
-          "contract:eADR-0037-upgrade-overwrite-disclosure",
-          "contract:eADR-0038-memory-transcript-first-recall",
-          "contract:eADR-0039-whole-module-removal-reconcile",
-          "contract:eADR-0040-guardrail-ack-two-tier",
-          "contract:eADR-0041-build-coordinator-behavior",
-          "contract:eADR-0042-multi-writer-integration",
-          "contract:eADR-0043-default-on-clean-checkout-catch-up",
-          "contract:eADR-0044-plan-coordinator-local-library"
-        ]
-      },
-      "slug": "contract-threshold",
-      "source": {
-        "fingerprint": "sha256:78cdfb9ab575f242a59cdc2ffc02e8fd277fcd7da25374b4e27ed1c409111db1",
-        "path": ".engine/check/contract-threshold.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
       "type": "check"
     },
     {
@@ -1508,7 +1297,7 @@
       },
       "slug": "guardrail-weakening",
       "source": {
-        "fingerprint": "sha256:ac823d22f94c717ca723a41979d51f57de1564f7dfa3063baef864ac96d57337",
+        "fingerprint": "sha256:b935ea5baef9a6ccdf47fea0d8fda1fcb7a8f6a713bc0b797e2f4e070deffb27",
         "path": ".engine/check/guardrail-weakening.json"
       },
       "status": "active",
@@ -1947,34 +1736,6 @@
       "type": "check"
     },
     {
-      "id": "check:ontology-authority-reservation",
-      "kind": "custom/script",
-      "name": ".engine/check/ontology-authority-reservation.json",
-      "owner": "validators-core",
-      "predicates": {
-        "enforced_by": [
-          "tool:authority_reservation_check"
-        ],
-        "governed_by": [
-          "schema:check.v1"
-        ],
-        "provided_by": [
-          "module:validators-core"
-        ]
-      },
-      "slug": "ontology-authority-reservation",
-      "source": {
-        "fingerprint": "sha256:4e6e14f2b8c009493545d1994f4ffb24107241b81976d287a40fef360cd288c0",
-        "path": ".engine/check/ontology-authority-reservation.json"
-      },
-      "status": "active",
-      "suites": [
-        "CI"
-      ],
-      "tier": "hard",
-      "type": "check"
-    },
-    {
       "id": "check:operation-frontmatter",
       "kind": "schema",
       "name": ".engine/check/operation-frontmatter.json",
@@ -2086,7 +1847,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:9d9d74ab1077db88ff978c01b583b0f34e258352e0dd050fc80ffb36ba214c26",
+        "fingerprint": "sha256:dfe07e2d58364531aca3e59e30bf362610785b611914f363d3ccd28c71c9ef45",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -2168,7 +1929,6 @@
         "targets": [
           "policy:attention",
           "policy:briefing-budget",
-          "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
           "policy:external-contribution",
@@ -2236,7 +1996,6 @@
         "targets": [
           "policy:attention",
           "policy:briefing-budget",
-          "policy:contract-threshold",
           "policy:dependency-discipline",
           "policy:escalation",
           "policy:external-contribution",
@@ -2570,7 +2329,7 @@
       },
       "slug": "provider-exceptions-schema",
       "source": {
-        "fingerprint": "sha256:5f0a1a3dae2cc718060648f4581492b2ac570af38787554833e408c232c894b9",
+        "fingerprint": "sha256:6809e8a06253610197349d59ee8f9092f51820f24db510b8fd55f8063fa9919a",
         "path": ".engine/check/provider-exceptions-schema.json"
       },
       "status": "active",
@@ -2819,7 +2578,7 @@
       },
       "slug": "shipped-local-references",
       "source": {
-        "fingerprint": "sha256:4306a9ef61a5a7e9035e5b630b9d0ae640d9c4ca31c7f9971296051fdd41454c",
+        "fingerprint": "sha256:b3be99676db3b56c0c8a67db4b5e1e985ec7f0b2a437e870c4247fa237b41b28",
         "path": ".engine/check/shipped-local-references.json"
       },
       "status": "active",
@@ -3154,7 +2913,7 @@
       },
       "slug": "engine-audit",
       "source": {
-        "fingerprint": "sha256:348d04c9a6a5e88a0f3cbeeca2a30b55ac46b6360fa22ced9a463af530efb23f",
+        "fingerprint": "sha256:609ffc003dccb5374e49f5588e075593066b34e23a1b225e36baaffb81aea571",
         "path": ".codex/agents/engine-audit.toml"
       },
       "status": "active",
@@ -3314,7 +3073,7 @@
       },
       "slug": "engine-qa-review-technical-integrity",
       "source": {
-        "fingerprint": "sha256:f2291feafad926a2b2814d34304ef52b08368e5151c24d2cc1d8cc27f5acbf34",
+        "fingerprint": "sha256:dd00462295b0c692955b5b19b13a698cefed2d1c0030e258a83bbb0acd933b71",
         "path": ".codex/agents/engine-qa-review-technical-integrity.toml"
       },
       "status": "active",
@@ -4154,7 +3913,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:2d8a831b44f456ca563d2089f51940ecc9ab0edf89c59da343927d7e291242b3",
+        "fingerprint": "sha256:e203d544212e71bc40f821a3e77991e0cdeccb319e06f6f91e7553078739bae8",
         "path": ".agents/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -5234,871 +4993,11 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:ec594c766f6bf0fe03faf472a2cf5af7160c04d580f96664ffd9b63862f3558f",
+        "fingerprint": "sha256:e15bc33b5166cd96a82e476f9216e353b7611d6861946fba5b2048292888b93b",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
       "type": "conduct"
-    },
-    {
-      "id": "contract:eADR-0001-versioned-template",
-      "name": ".engine/contracts/eADR-0001-versioned-template.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0001-versioned-template",
-      "source": {
-        "fingerprint": "sha256:4bdccd156d705997e36cc35bed4f3ba12ddf0c9d198b4f58b45974ba985d7341",
-        "path": ".engine/contracts/eADR-0001-versioned-template.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0002-repo-authoritative-truth",
-      "name": ".engine/contracts/eADR-0002-repo-authoritative-truth.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0002-repo-authoritative-truth",
-      "source": {
-        "fingerprint": "sha256:10dd78c6593defc4d621f9a9c9baffa01c2d2d098d8a9a057cfcf68ee3f35112",
-        "path": ".engine/contracts/eADR-0002-repo-authoritative-truth.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0003-ship-the-substrate-not-the-data",
-      "name": ".engine/contracts/eADR-0003-ship-the-substrate-not-the-data.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0003-ship-the-substrate-not-the-data",
-      "source": {
-        "fingerprint": "sha256:c22c5f261c4ae46f6725e58a4b06edd7f282bccb226e407de466729b58068ed3",
-        "path": ".engine/contracts/eADR-0003-ship-the-substrate-not-the-data.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0004-degrade-to-git-native",
-      "name": ".engine/contracts/eADR-0004-degrade-to-git-native.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0004-degrade-to-git-native",
-      "source": {
-        "fingerprint": "sha256:d85615bf5b2f40347a9e318fed645d22bb3a43b32cd2040412e815b0d0226ebb",
-        "path": ".engine/contracts/eADR-0004-degrade-to-git-native.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0005-nudge-locally-hardgate-at-review",
-      "name": ".engine/contracts/eADR-0005-nudge-locally-hardgate-at-review.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0005-nudge-locally-hardgate-at-review",
-      "source": {
-        "fingerprint": "sha256:37ccd6483f8dbfc7985134eddae4d9e874ba6152ff499aec5654245a9f466e2b",
-        "path": ".engine/contracts/eADR-0005-nudge-locally-hardgate-at-review.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0006-three-enforcement-tiers",
-      "name": ".engine/contracts/eADR-0006-three-enforcement-tiers.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0006-three-enforcement-tiers",
-      "source": {
-        "fingerprint": "sha256:499d709a08cb45871c982060ab9b39bae7c44cff4633c5cf8944ce05efa580c1",
-        "path": ".engine/contracts/eADR-0006-three-enforcement-tiers.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0007-engine-product-wall",
-      "name": ".engine/contracts/eADR-0007-engine-product-wall.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0007-engine-product-wall",
-      "source": {
-        "fingerprint": "sha256:970a02a20481a55955c7f19e98248eacca8a4c6e74d1f4902ea677adaa10853a",
-        "path": ".engine/contracts/eADR-0007-engine-product-wall.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0008-fault-containment-at-the-seams",
-      "name": ".engine/contracts/eADR-0008-fault-containment-at-the-seams.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0008-fault-containment-at-the-seams",
-      "source": {
-        "fingerprint": "sha256:699b27f542e6dcc4bf24a5590b8aff09fe5e1e0d8d878ddad5c6e8678469f6cc",
-        "path": ".engine/contracts/eADR-0008-fault-containment-at-the-seams.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0009-modules-declare-files-and-wiring",
-      "name": ".engine/contracts/eADR-0009-modules-declare-files-and-wiring.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0009-modules-declare-files-and-wiring",
-      "source": {
-        "fingerprint": "sha256:f854773f5e19ec38cb5f9b29fb19bbc0fd339c96c2d5ae0c50d04b211f1d1a1d",
-        "path": ".engine/contracts/eADR-0009-modules-declare-files-and-wiring.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0010-derived-binding-by-presence",
-      "name": ".engine/contracts/eADR-0010-derived-binding-by-presence.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0010-derived-binding-by-presence",
-      "source": {
-        "fingerprint": "sha256:79f410401b3c3f7e510d2096323fdbe6abae1cab24a977def16b278d269bdc05",
-        "path": ".engine/contracts/eADR-0010-derived-binding-by-presence.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0011-guardrail-integrity",
-      "name": ".engine/contracts/eADR-0011-guardrail-integrity.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0011-guardrail-integrity",
-      "source": {
-        "fingerprint": "sha256:763734be8858ea7bf3cd55e026d1b1fbdc5bf1dca4b9ccdfad2d9de25c73d9ea",
-        "path": ".engine/contracts/eADR-0011-guardrail-integrity.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0012-deferral-seams",
-      "name": ".engine/contracts/eADR-0012-deferral-seams.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0012-deferral-seams",
-      "source": {
-        "fingerprint": "sha256:fd0de6d770d24dfb340fa78217b4d5c215cf7bfb69815c137fa9d5bca41138e1",
-        "path": ".engine/contracts/eADR-0012-deferral-seams.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0013-one-trust-gate-evidence",
-      "name": ".engine/contracts/eADR-0013-one-trust-gate-evidence.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0013-one-trust-gate-evidence",
-      "source": {
-        "fingerprint": "sha256:f5162f92de028da6e45cad07e79e73e59fab86f79dc9a10e02db3cd972fcd493",
-        "path": ".engine/contracts/eADR-0013-one-trust-gate-evidence.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0014-one-history-living-documents",
-      "name": ".engine/contracts/eADR-0014-one-history-living-documents.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0014-one-history-living-documents",
-      "source": {
-        "fingerprint": "sha256:d28af0de197bef90d35dd11a1dbccdf455bc5ee88c5601a425dab745942e15d8",
-        "path": ".engine/contracts/eADR-0014-one-history-living-documents.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0015-remediation-loop-not-self-healing",
-      "name": ".engine/contracts/eADR-0015-remediation-loop-not-self-healing.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0015-remediation-loop-not-self-healing",
-      "source": {
-        "fingerprint": "sha256:6e69068917ae4cc7e7d38c6e5c4765616a031ba81cafeff5797bf45b35c5f253",
-        "path": ".engine/contracts/eADR-0015-remediation-loop-not-self-healing.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0016-ontology-surfaces-catalogued-ranked",
-      "name": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0016-ontology-surfaces-catalogued-ranked",
-      "source": {
-        "fingerprint": "sha256:304599955e76f19edabcf692cd6048fcb1bda8bf088940ca9865d97ababde420",
-        "path": ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0017-engine-namespaced-identifiers",
-      "name": ".engine/contracts/eADR-0017-engine-namespaced-identifiers.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0017-engine-namespaced-identifiers",
-      "source": {
-        "fingerprint": "sha256:2ebfa449c44288e940809d661f837ffbf665479f1230c3226c32d047e424dd8c",
-        "path": ".engine/contracts/eADR-0017-engine-namespaced-identifiers.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0018-cognitive-substrate-one-workflow",
-      "name": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0018-cognitive-substrate-one-workflow",
-      "source": {
-        "fingerprint": "sha256:18c806bf7e81ef26a010e8f7221b4677378c1437d86643af6d662ddd6e020222",
-        "path": ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0019-memory-knowledge-distinct-substrates",
-      "name": ".engine/contracts/eADR-0019-memory-knowledge-distinct-substrates.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0019-memory-knowledge-distinct-substrates",
-      "source": {
-        "fingerprint": "sha256:cfca6833a665c64e94ac07b1b17c133f71072f0ff9be2577709ba62ecdd05493",
-        "path": ".engine/contracts/eADR-0019-memory-knowledge-distinct-substrates.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0020-thin-dispatcher-kind-registry",
-      "name": ".engine/contracts/eADR-0020-thin-dispatcher-kind-registry.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0020-thin-dispatcher-kind-registry",
-      "source": {
-        "fingerprint": "sha256:fc4e29cebfb34ac9b7751b1a40509eb940225881795e25d6a10cdef1bbb0d1f2",
-        "path": ".engine/contracts/eADR-0020-thin-dispatcher-kind-registry.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0021-control-plane-enforcement-layer",
-      "name": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0021-control-plane-enforcement-layer",
-      "source": {
-        "fingerprint": "sha256:0758c9943be003d2ea46216b98c43870b312cda569d1fce9a029121d2ee86d39",
-        "path": ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0022-hooks-lifecycle-bindings-block-budget",
-      "name": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0022-hooks-lifecycle-bindings-block-budget",
-      "source": {
-        "fingerprint": "sha256:60d6a3484e0b51a240d747c7975826daa77c32535c193d1f951c9f2f0cae2bf7",
-        "path": ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0023-one-manifest-grammar-provisioning",
-      "name": ".engine/contracts/eADR-0023-one-manifest-grammar-provisioning.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0023-one-manifest-grammar-provisioning",
-      "source": {
-        "fingerprint": "sha256:26da28f5390bd2c7ee4197ed06fcc21f2c0fb87091b6ad5b4e9d65988b58e7d2",
-        "path": ".engine/contracts/eADR-0023-one-manifest-grammar-provisioning.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0024-modes-three-stances-two-axes",
-      "name": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0024-modes-three-stances-two-axes",
-      "source": {
-        "fingerprint": "sha256:cabd1e4e6a789a3a1aaf7ed3787ac05d05a8f961f64a6f757341b50df99c1229",
-        "path": ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0025-draft-pr-is-the-claim",
-      "name": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0025-draft-pr-is-the-claim",
-      "source": {
-        "fingerprint": "sha256:7ee4a089bf2eae93c7970bc467c97ff48f74ce9fadcff60837cc94a6bc49d2bc",
-        "path": ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0026-external-contribution-fork-native",
-      "name": ".engine/contracts/eADR-0026-external-contribution-fork-native.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0026-external-contribution-fork-native",
-      "source": {
-        "fingerprint": "sha256:b9c523cd54c99c10203e0dccca7b3bf0132c32079c3a1dbfb9d62ee4b1c08860",
-        "path": ".engine/contracts/eADR-0026-external-contribution-fork-native.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0027-execution-substrate-uv-runtime",
-      "name": ".engine/contracts/eADR-0027-execution-substrate-uv-runtime.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0027-execution-substrate-uv-runtime",
-      "source": {
-        "fingerprint": "sha256:7001e048a2cb6cc439f2fdc1c391b94841f0229a3cd3fe5aea05adfb869ba8ab",
-        "path": ".engine/contracts/eADR-0027-execution-substrate-uv-runtime.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0028-cold-adversarial-audit",
-      "name": ".engine/contracts/eADR-0028-cold-adversarial-audit.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0028-cold-adversarial-audit",
-      "source": {
-        "fingerprint": "sha256:df4d76fbc0296e1bee1d328c7556506b5e05e5de3516b9e4366e9cc9bfb52e5d",
-        "path": ".engine/contracts/eADR-0028-cold-adversarial-audit.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0029-contract-threshold-standing-rule-tier",
-      "name": ".engine/contracts/eADR-0029-contract-threshold-standing-rule-tier.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0029-contract-threshold-standing-rule-tier",
-      "source": {
-        "fingerprint": "sha256:6b40e201763bb58996c8db43be3866fcbe0da1d0b3670b935d425ff5d11f617b",
-        "path": ".engine/contracts/eADR-0029-contract-threshold-standing-rule-tier.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0030-operator-stance-floor",
-      "name": ".engine/contracts/eADR-0030-operator-stance-floor.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0030-operator-stance-floor",
-      "source": {
-        "fingerprint": "sha256:49ea1ae077e2cdb9d045cf49c67904d704c0d8e2da2b594264f9108edbbe227c",
-        "path": ".engine/contracts/eADR-0030-operator-stance-floor.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0031-state-cursor-pointers-and-counts",
-      "name": ".engine/contracts/eADR-0031-state-cursor-pointers-and-counts.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0031-state-cursor-pointers-and-counts",
-      "source": {
-        "fingerprint": "sha256:06342cdf049e4d08ef66376ef06a765c6040c3d690569ba2253ced2a4bfa6bea",
-        "path": ".engine/contracts/eADR-0031-state-cursor-pointers-and-counts.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0032-attention-policy-plus-function",
-      "name": ".engine/contracts/eADR-0032-attention-policy-plus-function.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0032-attention-policy-plus-function",
-      "source": {
-        "fingerprint": "sha256:71e3cbfe152a79a5999bcc1b360895e4206091d1e527b6853d71cc7142186b8c",
-        "path": ".engine/contracts/eADR-0032-attention-policy-plus-function.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0033-boot-refresh-family",
-      "name": ".engine/contracts/eADR-0033-boot-refresh-family.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0033-boot-refresh-family",
-      "source": {
-        "fingerprint": "sha256:c777d6d9cff55050103d3281feb37841f4e7093e155a8ab7acadfe5a79882716",
-        "path": ".engine/contracts/eADR-0033-boot-refresh-family.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0034-dual-provider-adapter-core",
-      "name": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0034-dual-provider-adapter-core",
-      "source": {
-        "fingerprint": "sha256:e85d67a47443c7527d441d31ef77196aace11a1e3c10bebfa5b80ef5bbf596f1",
-        "path": ".engine/contracts/eADR-0034-dual-provider-adapter-core.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0035-deferred-work-marker",
-      "name": ".engine/contracts/eADR-0035-deferred-work-marker.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0035-deferred-work-marker",
-      "source": {
-        "fingerprint": "sha256:53f3fc7cd638f8a10903871a06db03cb48cd98082694e6d95e8336aa3d5aa2e4",
-        "path": ".engine/contracts/eADR-0035-deferred-work-marker.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0037-upgrade-overwrite-disclosure",
-      "name": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0037-upgrade-overwrite-disclosure",
-      "source": {
-        "fingerprint": "sha256:0eee5bf576c8c7df846132c140b2119c5b70b1cd4a063d43975565a678d6babe",
-        "path": ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0038-memory-transcript-first-recall",
-      "name": ".engine/contracts/eADR-0038-memory-transcript-first-recall.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0038-memory-transcript-first-recall",
-      "source": {
-        "fingerprint": "sha256:807e73f32c6911796fb547c38ca0ab7adaecf596d3d0d5e35c5a0765be4150f6",
-        "path": ".engine/contracts/eADR-0038-memory-transcript-first-recall.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0039-whole-module-removal-reconcile",
-      "name": ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0039-whole-module-removal-reconcile",
-      "source": {
-        "fingerprint": "sha256:6328f0399316b9e5fb9a759887e658a12e82727ddcbc059032735038ee4f194d",
-        "path": ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0040-guardrail-ack-two-tier",
-      "name": ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0040-guardrail-ack-two-tier",
-      "source": {
-        "fingerprint": "sha256:e09992c6ead5036537926e7ee4567ab153e4f6a2201af5bb9f41cad8c98d033a",
-        "path": ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0041-build-coordinator-behavior",
-      "name": ".engine/contracts/eADR-0041-build-coordinator-behavior.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0041-build-coordinator-behavior",
-      "source": {
-        "fingerprint": "sha256:25a490276e07ff1fb4c6aeddf5d148fb382eb0a9a0d23b0d0810906ad30af615",
-        "path": ".engine/contracts/eADR-0041-build-coordinator-behavior.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0042-multi-writer-integration",
-      "name": ".engine/contracts/eADR-0042-multi-writer-integration.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0042-multi-writer-integration",
-      "source": {
-        "fingerprint": "sha256:dd96f5cad41129081718b9e8ed764fbc1c9807a461929fcf9195422a86ed0eb8",
-        "path": ".engine/contracts/eADR-0042-multi-writer-integration.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0043-default-on-clean-checkout-catch-up",
-      "name": ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0043-default-on-clean-checkout-catch-up",
-      "source": {
-        "fingerprint": "sha256:130e6a21f45e644985d154629aeb57f868750147e829ecbb069c583cbe755460",
-        "path": ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md"
-      },
-      "status": "accepted",
-      "type": "contract"
-    },
-    {
-      "id": "contract:eADR-0044-plan-coordinator-local-library",
-      "name": ".engine/contracts/eADR-0044-plan-coordinator-local-library.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:contract.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "eADR-0044-plan-coordinator-local-library",
-      "source": {
-        "fingerprint": "sha256:2aae3793e6cc4773765e1e0a651b9bc6c6fb70f57856f46b1215749413820fc6",
-        "path": ".engine/contracts/eADR-0044-plan-coordinator-local-library.md"
-      },
-      "status": "accepted",
-      "type": "contract"
     },
     {
       "id": "doc:ci-assurance",
@@ -6114,7 +5013,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:a41d9de3f299d3fd3f27d162b988690672b899f723219173962ffed381a84b1f",
+        "fingerprint": "sha256:70b849f5df9fa4e080cb05ce8db8e198bbcb639d380eb1b49812920d83d1f3b8",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6185,7 +5084,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:d04d6fa7c9fd940b3b09ab04d0a9842ae0f2468011cabba06d6bf4688b3c6d03",
+        "fingerprint": "sha256:ae1599a16f5abfb004b5e69d3680b5ad8dc6535d7e9f60f5d31de10888f72742",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -6250,7 +5149,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:420702766e5c74a98147b4d63a58075cdb0940ffc6f775864da6c2eb826a53e7",
+        "fingerprint": "sha256:1235ea2244fdf0c19efdc050df30771de268643778428b1c94ab246160c33a61",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -6295,7 +5194,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:e677d351f547926e6742ee9976eb83b7531ef56970b83c647a7505fdac7f8523",
+        "fingerprint": "sha256:ff049d208df6fb01f66956018a7f80f8a6edbd87f3635b743c6456a873042df0",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6505,7 +5404,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:4da8651d1440d700d187852498f6217f6ff96c67bb20835f04a48bdbb2a8d3c9",
+        "fingerprint": "sha256:e79e7ca9174f2acccd0d56fb763498b682b6c9fbff0b2e8e5b1f4b57923b2a55",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -6526,7 +5425,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:3c0fbe20d54121844b79d259547cf455fa6b278d5e4e8116225d7a532b116b40",
+        "fingerprint": "sha256:2178306f6e98414cdf37f00c991a88c32c7f4a759e4997d24e5dc7e411130e3c",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6546,7 +5445,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:75d9e6d7b912b9e84586849bd3fed014e1faecc8d48355e8b75107b32069ab59",
+        "fingerprint": "sha256:b8b716a9aca898d08f4d0d0e513a900bee3e12f6adf163cda76c3f1eb2150587",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6646,7 +5545,7 @@
       },
       "slug": "close-turn",
       "source": {
-        "fingerprint": "sha256:5a26629e3650f1910bcfe0f34083a1f5897c481d27ffa90460d5174d4b2bd3e1",
+        "fingerprint": "sha256:106fcd5fe70b4ff780e4b6c99428ef1898cf126a7f112b45c9def17340d5fad9",
         "path": ".engine/operations/close-turn.md"
       },
       "status": "active",
@@ -6666,7 +5565,7 @@
       },
       "slug": "codex-incident-replay",
       "source": {
-        "fingerprint": "sha256:c485e7c83285db96d985acdcd240a41157531a8d304b287a38c2577385e21961",
+        "fingerprint": "sha256:9e884f3ea0523d7f7d0521585c34be53d8affa54711fb8b472ed869ee8c8d462",
         "path": ".engine/operations/codex-incident-replay.md"
       },
       "status": "active",
@@ -6706,7 +5605,7 @@
       },
       "slug": "codex-validation",
       "source": {
-        "fingerprint": "sha256:97ac2235714c80c3f05823127aaa340dd8d0ca47bcc26556db4fddb50ed44851",
+        "fingerprint": "sha256:e90106879d15529a17480172353345c32cfca75ca6cda88fb6b799d973c1d907",
         "path": ".engine/operations/codex-validation.md"
       },
       "status": "active",
@@ -6786,7 +5685,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:a7f489a88893a0b8e085acd033dd7603ad6b7964458710779fe3163d0df7162d",
+        "fingerprint": "sha256:adae6eb42f8afb1d9b205da5e45e88ae2ec45102f7be8b4e1ed3d6208c8916b5",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -6806,7 +5705,7 @@
       },
       "slug": "engine-release",
       "source": {
-        "fingerprint": "sha256:5585f4077c0c03174333f883e533826bc2b7920f394a6e08e918ec474e406150",
+        "fingerprint": "sha256:d1840cfcbeafeb1620d1b3c32ba12480c587f486ebb6a81706800adfc402d31d",
         "path": ".engine/operations/engine-release.md"
       },
       "status": "active",
@@ -6866,7 +5765,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:4c9e48d7c405dc323a3ea03460fdd176c94d4d173a8237e38ee8fe17b118633d",
+        "fingerprint": "sha256:cb8e8bfb07ac4a5051ecfa22fb1a13d9a2cb5e21b2bc09ddd01c04dc6940587f",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -6966,7 +5865,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:3c9883e96bb45672152faace68aad0a7e5f2985b46b0753ac7b05332371cec96",
+        "fingerprint": "sha256:baa667161ddcfd648cd70d0a41a32338a6abc4889942f3cbd73d0bd21ad29ec1",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -7166,7 +6065,7 @@
       },
       "slug": "serialized-integration",
       "source": {
-        "fingerprint": "sha256:4611cb89351e1d1730e95f8efd26791c3d79829c7d143b68093b09d8f63bca59",
+        "fingerprint": "sha256:ccf33f2977969888ca3fd616bf69134bb6bae45542282dfd00a5b9facf30164d",
         "path": ".engine/operations/serialized-integration.md"
       },
       "status": "active",
@@ -7186,7 +6085,7 @@
       },
       "slug": "tune-policy",
       "source": {
-        "fingerprint": "sha256:ae5bc227f8e52738a56ca7d30b96ed899f5432b49f128dba198e94f889b86592",
+        "fingerprint": "sha256:8544f9c4b4edd8f740ae482eea00289cb6cbac26597ddd144126b4e5b2ede419",
         "path": ".engine/operations/tune-policy.md"
       },
       "status": "active",
@@ -7227,32 +6126,11 @@
       },
       "slug": "briefing-budget",
       "source": {
-        "fingerprint": "sha256:849850de66f1e64df0337c6ab0d218111d6f24a805fde77584ceb9df63fe6b81",
+        "fingerprint": "sha256:027a6c18e8fc5df122410b8a48e9ecbc5fda37eb588ceedee9b91160539fe379",
         "path": ".engine/policies/briefing-budget.md"
       },
       "status": "active",
       "title": "Briefing budget",
-      "type": "policy"
-    },
-    {
-      "id": "policy:contract-threshold",
-      "name": ".engine/policies/contract-threshold.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:policy.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "contract-threshold",
-      "source": {
-        "fingerprint": "sha256:170025abb30e179bf657cfc4a35a15c3aa5d4bc91282c0c4264019c3d42d4b39",
-        "path": ".engine/policies/contract-threshold.md"
-      },
-      "status": "active",
-      "title": "Contract threshold",
       "type": "policy"
     },
     {
@@ -7332,7 +6210,7 @@
       },
       "slug": "finding-disposition",
       "source": {
-        "fingerprint": "sha256:cfbd955e37d30c0a997d51af7c7d016a8baf2d8fc875a2f56cc962cfa195f921",
+        "fingerprint": "sha256:19dd7e71da5188b399eac48ce8975fbfdaf20fc856ff51f3d4ec54fed94fb39b",
         "path": ".engine/policies/finding-disposition.md"
       },
       "status": "active",
@@ -7415,7 +6293,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:6e0a893c826021aacb6db5529c749715d27ef470beea92fe870bd44a6b2a48e2",
+        "fingerprint": "sha256:d34d3f57b805bfd7b4153111d25a08e28a034481d0f232237c79581849be6c7a",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -7456,7 +6334,7 @@
       },
       "slug": "spec-structure-integrity",
       "source": {
-        "fingerprint": "sha256:56c81668df38c9c2146ba1f1e963206a486a03d1f645b8639e1c0b25602d249c",
+        "fingerprint": "sha256:08272c04fd05a964e629a23ee764b749fec21dad7dce9684ccc27c3b9f6593f2",
         "path": ".engine/policies/spec-structure-integrity.md"
       },
       "status": "active",
@@ -7737,7 +6615,7 @@
       },
       "slug": "codex-agent.v1",
       "source": {
-        "fingerprint": "sha256:4c41c19188e2c84d90db40cf66462e463c5dfcea81989d8625837416ab34b858",
+        "fingerprint": "sha256:5e4ae9cd976930beebdf276a6cc840e670b78aa8ef0a5fd4c70a2dba6092fc8b",
         "path": ".engine/schemas/codex-agent.v1.json"
       },
       "status": "active",
@@ -7754,7 +6632,7 @@
       },
       "slug": "codex-hooks.v1",
       "source": {
-        "fingerprint": "sha256:eb3d53e55b40b68a77c91257e95fb6876cfcdfb3325624e78d14db88603b8421",
+        "fingerprint": "sha256:73a958fa0a188cba9fd8aed6dfa6f73464d33755093e7948c6bbf9fe02dc0225",
         "path": ".engine/schemas/codex-hooks.v1.json"
       },
       "status": "active",
@@ -7771,7 +6649,7 @@
       },
       "slug": "codex-skill.v1",
       "source": {
-        "fingerprint": "sha256:b28f686a59a58f2cb88913ae206523e3f16f833a17fafafb36d91b996902034c",
+        "fingerprint": "sha256:3ea42a7180c6c43495c9358c0a7d6d4110405af3755e0a83d546f3aa3a7677a1",
         "path": ".engine/schemas/codex-skill.v1.json"
       },
       "status": "active",
@@ -7824,23 +6702,6 @@
       "source": {
         "fingerprint": "sha256:304ee2d6728d74641ee68ecbbf3978932dca207c3748fbd5a63e79b1f4fbb9e3",
         "path": ".engine/schemas/conformance-verdicts.v1.json"
-      },
-      "status": "active",
-      "type": "schema"
-    },
-    {
-      "id": "schema:contract.v1",
-      "name": ".engine/schemas/contract.v1.json",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "contract.v1",
-      "source": {
-        "fingerprint": "sha256:95a37258f57a0193099b9e498078d3a5c13be69f8fcf24b1560822ae0f03a55b",
-        "path": ".engine/schemas/contract.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7924,7 +6785,7 @@
       },
       "slug": "engine.v1",
       "source": {
-        "fingerprint": "sha256:dd84e6ea48f2945f68fe88bbf014c9313412831c7b5e2fe4c83e74f9747ecd3f",
+        "fingerprint": "sha256:89b28ea7a95ef08540b4cc6ef9b2f3075a78b207ba7e66304e1ea764e0372639",
         "path": ".engine/schemas/engine.v1.json"
       },
       "status": "active",
@@ -8026,7 +6887,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:f922d0c1afee336f6ce865be392bdba7def67e491a6bcd7ec99f577d34f95691",
+        "fingerprint": "sha256:0a6046704c5384e13f425347cf52748929a512b768516d5366ba3c82905c6e8e",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -8060,7 +6921,7 @@
       },
       "slug": "module.v1",
       "source": {
-        "fingerprint": "sha256:d26590c7dcaac2e5c715161155a44218c350cebd100b47f2301a9455d19b59fb",
+        "fingerprint": "sha256:906ec0f72d15bbd968af30e37ad6b5184d7d657a269f4d4b85d82dd820e7c665",
         "path": ".engine/schemas/module.v1.json"
       },
       "status": "active",
@@ -8128,7 +6989,7 @@
       },
       "slug": "policy.v1",
       "source": {
-        "fingerprint": "sha256:c98f652b7414a370de0bac63e618f6f56a3de59252c2d48deeec31061592506a",
+        "fingerprint": "sha256:94489b6706fb4b570d12fd952ad3d2d48186ce9be22f4cae0704edb38188a91e",
         "path": ".engine/schemas/policy.v1.json"
       },
       "status": "active",
@@ -8145,7 +7006,7 @@
       },
       "slug": "pr-body-claim.v1",
       "source": {
-        "fingerprint": "sha256:674608594bdc225c1433b49207f9a52640038de5f9a8fbfeafbafc46cb710543",
+        "fingerprint": "sha256:a609c06a16ea4ab01354292c1f0a4c69347885f6e213f9090e951f606a3ab760",
         "path": ".engine/schemas/pr-body-claim.v1.json"
       },
       "status": "active",
@@ -8213,7 +7074,7 @@
       },
       "slug": "provider-exceptions.v1",
       "source": {
-        "fingerprint": "sha256:10d5727f90e01ee4e311d1f8cb093f22539f913623697a84f908d2493fe15baf",
+        "fingerprint": "sha256:b8408e30c62586d59f3d6bd50ec10a211f0c7af4febdf25cf9438d8c6e9efb1e",
         "path": ".engine/schemas/provider-exceptions.v1.json"
       },
       "status": "active",
@@ -8332,7 +7193,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:a1f4aef6480ac76c22937f354ea92c1780d236da298406aad6dfdec34e920fb5",
+        "fingerprint": "sha256:dd40297e04f15f9e625198400cf9fb02e5da425dcdc52a335aa3b504b6a7cdd5",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -8349,7 +7210,7 @@
       },
       "slug": "surface-catalog.schema",
       "source": {
-        "fingerprint": "sha256:cfad6041aaa6193ac7cd898a939e907bc48f15355648d8b6f4d82f3a96a5159f",
+        "fingerprint": "sha256:a9c12fcf5947129ad49111b18e04b24668995498faaf05b44814e75a67370131",
         "path": ".engine/schemas/surface-catalog.schema.json"
       },
       "status": "active",
@@ -8859,7 +7720,7 @@
       },
       "slug": "engine-recall",
       "source": {
-        "fingerprint": "sha256:b903be711897f2c4ce197d84a900141d12a625be4f02511809db50b537b83c86",
+        "fingerprint": "sha256:dd352042a677704fd2a36d66281aba3612244cbdeaf6487924e33a19e210ceb6",
         "path": ".claude/skills/engine-recall/SKILL.md"
       },
       "status": "active",
@@ -9784,35 +8645,11 @@
       },
       "slug": "audit_soft_promote",
       "source": {
-        "fingerprint": "sha256:e252c512829dbfdb3198794825c2c89cbce172f0ffc15da881bba3c8feb7a627",
+        "fingerprint": "sha256:e4e7e496f657798140f57b22bbc47382090daade251be648ce09256ee83b1802",
         "path": ".engine/tools/audit_soft_promote.py"
       },
       "status": "active",
       "summary": "Promote a standing length-budget soft finding to a tracked engine Issue (issue StarshipSuperjam/engine-template#273 half 2).",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "ci",
-      "guarded": true,
-      "id": "tool:authority_reservation_check",
-      "name": ".engine/tools/authority_reservation_check.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:module_coherence",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "authority_reservation_check",
-      "source": {
-        "fingerprint": "sha256:3c89d3f2f011b5d20f11c07ecba07866bd77b6a63b2ac4600e3c91fd02beab74",
-        "path": ".engine/tools/authority_reservation_check.py"
-      },
-      "status": "active",
-      "summary": "Authority-tier reservation guard (issue StarshipSuperjam/engine-template#401) — the custom/script entry for",
       "type": "tool"
     },
     {
@@ -9861,7 +8698,7 @@
       },
       "slug": "block_coherence_check",
       "source": {
-        "fingerprint": "sha256:a013a0fbad30e2482ec942eba0ede4359b9e0e77400b72048486f4967c1ba4bd",
+        "fingerprint": "sha256:2506c09f0c8feacdf3bc6fcb7450ceb8b91737f093f05a3db97dd20c6bad9e32",
         "path": ".engine/tools/block_coherence_check.py"
       },
       "status": "active",
@@ -9914,7 +8751,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:9eb8eb84283e52e387b6287607d6e2483e188e5869b40bb4422e6e9722c44fd7",
+        "fingerprint": "sha256:aeb8f7205994d928193f17abd330bc58a558a76ae40fe6738b8ece8dfdf71fd4",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9962,7 +8799,7 @@
       },
       "slug": "boot_slice",
       "source": {
-        "fingerprint": "sha256:46d7f9e18c42d66d2d7a3cc202e3e27c75875ed5c74709b185361c0fc27abd0d",
+        "fingerprint": "sha256:1ab71833c120754b75784b48b678db5852094dac5708d6b259f1f5a1a929c26a",
         "path": ".engine/tools/boot_slice.py"
       },
       "status": "active",
@@ -9994,7 +8831,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:19322f04928edac870e85f3dc0601d55336eb078c315ab4f19eaf0737f28a700",
+        "fingerprint": "sha256:8321634f3c92164d4a5d780970809bd7988efc6834916c611cc8c5a913f08568",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -10040,7 +8877,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:8dd2a48d7a51363e8021471c84e89334fd41dcdfe323d1ca123d9f2f7583cba8",
+        "fingerprint": "sha256:c004b09335e39922e2bf3c9b86bf28c893543459968e2ae1adcf94bbe0eb814e",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10084,7 +8921,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:1c62f1e083e6151f8a10da477e27c123f11f1f8775e6fce757db4a8a7b53c9f3",
+        "fingerprint": "sha256:5b11d8e1b3b2d72459bbd0ee7828fd4d51ca0b1771f520d4c7c2b4d3045a732a",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -10296,7 +9133,7 @@
       },
       "slug": "build_state_store",
       "source": {
-        "fingerprint": "sha256:68e46ed836a7407c50141de0657a03e73ad9ccae9268a0b1b061a209633234d1",
+        "fingerprint": "sha256:8a7e63428dcc09a59ea1d388c5cf1e7b6ea4bb4f944d2b483b4857536d96028c",
         "path": ".engine/tools/build_state_store.py"
       },
       "status": "active",
@@ -10324,7 +9161,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:8860bbb4892b0a2660753f83e17a77d329daa4f5a927d6657eccbd667ecf0c78",
+        "fingerprint": "sha256:05b6ea41db52e4c8d4a3634c0e04849b48f229d117b02584a634da1baabc2a4c",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -10420,7 +9257,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:40ef76898b0d1599eeba2825b94921bd6dd0ccd88b587241f398d2f3b3671b67",
+        "fingerprint": "sha256:6911a6ded49170bff5b304bf9b431bcc08f61aa7700986cd449ba2da5f947a65",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -10610,7 +9447,7 @@
       },
       "slug": "codex_agent_coherence_check",
       "source": {
-        "fingerprint": "sha256:fc6b7840f5f651f07d2a591c413ffb69f4f9237bfff3466af43e710a5f556a6e",
+        "fingerprint": "sha256:61984ea3a5184151417877bb9656d4ef944f059bfcee6a39040e639016f96735",
         "path": ".engine/tools/codex_agent_coherence_check.py"
       },
       "status": "active",
@@ -10635,11 +9472,11 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:0719c3cc5647e553669376bb15c5cdf26d132fcbc63b293e15dc203c62d02794",
+        "fingerprint": "sha256:95aab5b91a6b1ce4d9e9105d0338f262de793dcb0f0ee7150c48dbc1f5a2fd0d",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
-      "summary": "The Codex render tool — one renderer for BOTH Codex adapter surfaces (eADR-0034).",
+      "summary": "The Codex render tool — one renderer for BOTH Codex adapter surfaces (the established design).",
       "type": "tool"
     },
     {
@@ -10658,7 +9495,7 @@
       },
       "slug": "codex_skill_coherence_check",
       "source": {
-        "fingerprint": "sha256:a9ef2f51a307ee8a3e31fb60d02c3f2c78b5cd9ffe787c55fa2e07a897b12102",
+        "fingerprint": "sha256:cc0f7937c6060d1eded3be01d559d3bbf8fcea7fd52304cd26ef48d48484272f",
         "path": ".engine/tools/codex_skill_coherence_check.py"
       },
       "status": "active",
@@ -10818,30 +9655,6 @@
       },
       "status": "active",
       "summary": "Product-spec coverage inspector — the read-only `custom/script` entry for engine/check/product-spec-coverage",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
-      "id": "tool:demo_467_deployment_eadr_namespace",
-      "name": ".engine/tools/demo_467_deployment_eadr_namespace.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:knowledge_gen",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_467_deployment_eadr_namespace",
-      "source": {
-        "fingerprint": "sha256:b3244cb21cc2de95d766298fd51cb4480551fcf6cbdf595529156d498f2796c3",
-        "path": ".engine/tools/demo_467_deployment_eadr_namespace.py"
-      },
-      "status": "active",
-      "summary": "Demo — a deployment's own decision records get a project-namespaced name that can't clash with the engine's.",
       "type": "tool"
     },
     {
@@ -11139,32 +9952,6 @@
     {
       "entrypoint": "demo",
       "guarded": false,
-      "id": "tool:demo_ack_authority",
-      "name": ".engine/tools/demo_ack_authority.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:ack_status",
-          "tool:github_client",
-          "tool:protection_guard",
-          "tool:weakening_guard"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_ack_authority",
-      "source": {
-        "fingerprint": "sha256:916b57bbf0628f76f131cde627f9bd3fd781d929a9a3c5c5ffc9050e5a81f787",
-        "path": ".engine/tools/demo_ack_authority.py"
-      },
-      "status": "active",
-      "summary": "demo_ack_authority — prove the guardrail-ack operator-authority binding (StarshipSuperjam/engine-template#958)",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
       "id": "tool:demo_actionlint",
       "name": ".engine/tools/demo_actionlint.py",
       "owner": "core",
@@ -11457,30 +10244,6 @@
       },
       "status": "active",
       "summary": "Behavioral FALSIFICATION for the context-control spine — that a compaction is survivable and that",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
-      "id": "tool:demo_contract_rate",
-      "name": ".engine/tools/demo_contract_rate.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:boot",
-          "tool:telemetry"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_contract_rate",
-      "source": {
-        "fingerprint": "sha256:b06f6a7d1f779246ea34c7207142975641d2a43e7e6f926e062bf96c9582dc24",
-        "path": ".engine/tools/demo_contract_rate.py"
-      },
-      "status": "active",
-      "summary": "Operator-runnable demo of the contract-rate nudge — boot's \"are decisions being over-recorded?\" line.",
       "type": "tool"
     },
     {
@@ -11865,7 +10628,7 @@
       },
       "slug": "demo_operator_backlog",
       "source": {
-        "fingerprint": "sha256:931e35d0c480f59108118e7f5ac2eef5e24e62dd43804522afed4a3d7028a0fd",
+        "fingerprint": "sha256:ad9aac49c92a305edc3431c3f4a0f546aae5c17e3f23fa037df85de8912bc1b9",
         "path": ".engine/tools/demo_operator_backlog.py"
       },
       "status": "active",
@@ -11961,7 +10724,7 @@
       },
       "slug": "demo_release_cut",
       "source": {
-        "fingerprint": "sha256:d588cffc6a0aef29762ddbe4168c589e9928202c77fded8a279b873f6e00ebc7",
+        "fingerprint": "sha256:0d3e81f6324c802beb5d3b3554a808939e8ff64b19173cc3fe28456365bbd9fd",
         "path": ".engine/tools/demo_release_cut.py"
       },
       "status": "active",
@@ -12295,7 +11058,7 @@
       },
       "slug": "demo_weakening_guard_narrowed_set",
       "source": {
-        "fingerprint": "sha256:7ca52832770e7b0259f6c624fd9671f2f5871f919810401ae3d80390d235abc3",
+        "fingerprint": "sha256:8f6fe345c0871e7ca921f84a9ae45e31e42d949a149a226ebd1c90045e163bfb",
         "path": ".engine/tools/demo_weakening_guard_narrowed_set.py"
       },
       "status": "active",
@@ -12415,7 +11178,7 @@
       },
       "slug": "embed",
       "source": {
-        "fingerprint": "sha256:220f58eded4fb8565118769710ef96f4e44877e1176d7f85b372d7d6c572ef04",
+        "fingerprint": "sha256:f3bf9341b42cd32c7d9c7482ccc6b5cef5f8bf86607d704b7f77122dbc67724b",
         "path": ".engine/tools/memory/semantic/embed.py"
       },
       "status": "active",
@@ -12510,11 +11273,11 @@
       },
       "slug": "engine_todo",
       "source": {
-        "fingerprint": "sha256:77da80eaccde1a4e5574f7b7a9031e7e40d19d5fa00b14014b8c432e27068314",
+        "fingerprint": "sha256:92a601830e5c03a959dbc8d9271de3f57ba00240a1ddf07078fc5637d1289df4",
         "path": ".engine/tools/engine_todo.py"
       },
       "status": "active",
-      "summary": "The deferred-work marker: its parser, and the `list` command that enumerates every one (eADR-0035).",
+      "summary": "The deferred-work marker: its parser, and the `list` command that enumerates every one (the established design).",
       "type": "tool"
     },
     {
@@ -12534,11 +11297,11 @@
       },
       "slug": "engine_todo_form_check",
       "source": {
-        "fingerprint": "sha256:38016141080e656b5eeb1413de17445395e1f0673d90a64932058d460da1b79d",
+        "fingerprint": "sha256:a036ef4f9a30623131c9dabc786ea1fca27373f9bfd559c89e505081de5c4a6f",
         "path": ".engine/tools/engine_todo_form_check.py"
       },
       "status": "active",
-      "summary": "Deferred-work marker form — the custom/script entry for engine/check/engine-todo-form (eADR-0035).",
+      "summary": "Deferred-work marker form — the custom/script entry for engine/check/engine-todo-form (the established design).",
       "type": "tool"
     },
     {
@@ -12758,7 +11521,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:f0772f24dbb6f5395cf2e4e55f8e4b2a7aae44604d774c71c5e4fdb776c906ba",
+        "fingerprint": "sha256:48b92a81fe6e4e937a8a2504b9af51b3cadd02709a776088c012f16ed765e5e1",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -12778,7 +11541,7 @@
       },
       "slug": "github_client",
       "source": {
-        "fingerprint": "sha256:695d4fd55b3c9a4f671932c980bc19be958e222f34f1cd95d8cb6757d86cf781",
+        "fingerprint": "sha256:fc38d4cf8e8259fc7791302c4aea42edebdbde813be85dde9860a9819040a80c",
         "path": ".engine/tools/github_client.py"
       },
       "status": "active",
@@ -12869,7 +11632,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:a0b0396668b5b0bea03ca74bbcdf4e9f5716ddb5d9501a3d6e329d7a3c996c62",
+        "fingerprint": "sha256:2f804da8dcf80a4885c8fe6e1e0a4408efec1d0be5dba547de093aa5b6868c21",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -12940,7 +11703,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:fa5d28b2e19132bc9f887c3cdc70aec3a14700a9cb755d2e8f4857cde0d570f7",
+        "fingerprint": "sha256:e9cd445fd8d2782e74518e78df660df9798ca27210bdd658e8cc16ebb0a25959",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -12977,7 +11740,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:d4226c439bf0f72c489936d2b7cb14a50ff3385e7e0d835315acdb12e4796318",
+        "fingerprint": "sha256:ddd0b00cd2b695208ac056934927ed0f7f912edb2113638e199407d039ea6b62",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13007,7 +11770,7 @@
       },
       "slug": "integration_queue",
       "source": {
-        "fingerprint": "sha256:cfbfdceb2f5a30f74570d7df83253b36d9e977dbe496e858960c9c532c2da245",
+        "fingerprint": "sha256:b8efae832bb2c2d6454ba24bd02e2fa101ab77b912bf76d309a88b6b0ba467ff",
         "path": ".engine/tools/integration_queue.py"
       },
       "status": "active",
@@ -13030,7 +11793,7 @@
       },
       "slug": "integration_queue_backend",
       "source": {
-        "fingerprint": "sha256:5761a7c284af7a1377dcf26fc4208808120dc15c30d4ef03cd58905275f53288",
+        "fingerprint": "sha256:a7730587508cce9bf64d4297a852c06eab711e357ba87bea1bb9095304c32a43",
         "path": ".engine/tools/integration_queue_backend.py"
       },
       "status": "active",
@@ -13165,7 +11928,7 @@
       },
       "slug": "issue_kind",
       "source": {
-        "fingerprint": "sha256:0137c1983bbf399ab58c1ac8fe0488d2861f56fc039d2af364d4876e2b695fc6",
+        "fingerprint": "sha256:4d1523505455863b83232a97d2d97649ad90c3dde1140bd4f5c03df4a5fc0e42",
         "path": ".engine/tools/issue_kind.py"
       },
       "status": "active",
@@ -13217,7 +11980,7 @@
       },
       "slug": "issue_kind_label",
       "source": {
-        "fingerprint": "sha256:d7cb4260082a4f2d348aa5535bfea54d36e1c9444e91062abe898902feec5392",
+        "fingerprint": "sha256:2b0e298531222e54f2c7a2e2fcc96d154ac9b013cbefc5ea882489bee412072d",
         "path": ".engine/tools/issue_kind_label.py"
       },
       "status": "active",
@@ -13266,7 +12029,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:c732d07896dfd6cabe8481832542338c86b81a7d5ede908b25d3f8ac5efe304e",
+        "fingerprint": "sha256:2d3952876a45d1d3476e36597bb985f9cebfce3445ba996314bde0e0dd1f4736",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -13290,7 +12053,7 @@
       },
       "slug": "knowledge_index",
       "source": {
-        "fingerprint": "sha256:100dc525dab485e764ce3e9aa4fc5acd544370f348478d8663d2a92b5abb09c5",
+        "fingerprint": "sha256:c258d9506d636126f49a69d8cbe2d58659eac2346b4c9e706c0b5e48cd170c88",
         "path": ".engine/tools/knowledge_index.py"
       },
       "status": "active",
@@ -13338,7 +12101,7 @@
       },
       "slug": "knowledge_query",
       "source": {
-        "fingerprint": "sha256:9ce228f552100483cb43f840f4e689e6837750b45dc300267269356d47941474",
+        "fingerprint": "sha256:49835d125737b5a8bd58f28bef18adae17baa28507cb8c4fff1956cb969cd396",
         "path": ".engine/tools/knowledge_query.py"
       },
       "status": "active",
@@ -13361,7 +12124,7 @@
       },
       "slug": "knowledge_vocabulary_check",
       "source": {
-        "fingerprint": "sha256:f4795130d3c1c1097b494ea8bdab4a3827d5d94f37c208b0663d78b917a86d9d",
+        "fingerprint": "sha256:cc5fb9ba0b41d152fcc236f8075b6de8cd0cbdfa3bbb92983fa9a727486f1cd5",
         "path": ".engine/tools/knowledge_vocabulary_check.py"
       },
       "status": "active",
@@ -13450,7 +12213,7 @@
       },
       "slug": "legacy_shapes",
       "source": {
-        "fingerprint": "sha256:594822da13040be26b71d3192eccb9070184f92945fef163f5ab354ccfc27427",
+        "fingerprint": "sha256:eb39efde30acbe09b5091b0189c3538dc3f7a23fabab10146e2509eb04159473",
         "path": ".engine/tools/memory/legacy_shapes.py"
       },
       "status": "active",
@@ -13622,7 +12385,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:dae7e338ea7def2969d2fa66e474b7610184ba69004fb891dda0282f3de3384d",
+        "fingerprint": "sha256:749b2033cdd4a7a2a3134bff25d899064bc90e13e67c483f5346889f52ff2fae",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13666,11 +12429,11 @@
       },
       "slug": "mechanic_build",
       "source": {
-        "fingerprint": "sha256:5447be99b11f04febaa9dd4126ba37844d1f1db0508df8b3e0ed067a3080c503",
+        "fingerprint": "sha256:f347212d12e2fc13822fd12838e99ae2cca2aa908d61c413413509b52606373a",
         "path": ".engine/tools/mechanic_build.py"
       },
       "status": "active",
-      "summary": "The engine-mechanic build entry (eADR-0026): the FAIL-CLOSED gate behind an engine-mechanic's cross-repo build.",
+      "summary": "The engine-mechanic build entry (the established design): the FAIL-CLOSED gate behind an engine-mechanic's cross-repo build.",
       "type": "tool"
     },
     {
@@ -13785,7 +12548,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:3cd2966eebc7e69218c85562cf3251f8f50ed0ce2718ad3d4591088475651c64",
+        "fingerprint": "sha256:ed39bd0829866923d630428538003d7e07c099261993638c1c3733c155c56b97",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13862,7 +12625,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:9fbf2ed08b772c06a08062c39960e34c468d207ed6c257cd0a473a3da204b414",
+        "fingerprint": "sha256:29346af6f0a9933755fc9c1c608a27f8b2d5fa5d064c68b859fa0aad275e47f2",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -13892,6 +12655,7 @@
           "tool:release_cut",
           "tool:release_impact_check",
           "tool:release_source",
+          "tool:render_safety",
           "tool:repo_identity",
           "tool:restore_vault",
           "tool:telemetry",
@@ -13904,7 +12668,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:33b6876c87991dc9d25b5566d53f6fcca818be25a03ec0f937841e589d4acf30",
+        "fingerprint": "sha256:29fb3ed32d72d5c2979c0938ac535052a19bce515247f3e6b046fd05f920235f",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13973,7 +12737,7 @@
       },
       "slug": "moment",
       "source": {
-        "fingerprint": "sha256:724a279455b7efe82288baf02059a8b0580eba0f5fca54eafcce386a5f3bb743",
+        "fingerprint": "sha256:bed6f6308fc3e37a46b06b9831176d7c0657b00ca2fa8b84728e557327419414",
         "path": ".engine/tools/moment.py"
       },
       "status": "active",
@@ -14145,7 +12909,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:de345b1c520b5fda088cddfee2e68c767d571b55435a787f70e55665c8fc249f",
+        "fingerprint": "sha256:329497f545a5946902ebe0eff31ad87e9e05ea0453a1134d7afc4d3caa934a93",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -14195,7 +12959,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:5a71fdab91f8e3c21425a2fb6364f9b5a7d7bfdc77b013e6e287c25cc8333f6c",
+        "fingerprint": "sha256:d40a0867dfe20c5b9a6904406e68b9e55c68bb821b6a40296619de835b9c3c2d",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -14440,7 +13204,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:d2c15b8023787bbc64576666c0cdd420a3fb27879b032b79f4fa877ea31f7807",
+        "fingerprint": "sha256:105f562990e83de21eebe1071fd7f063142a7ae4a28a9d3f972eddd9ec756867",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -14511,7 +13275,7 @@
       },
       "slug": "protection_guard",
       "source": {
-        "fingerprint": "sha256:d60af0577040fdc59e4e08a58c343c67e96f766463eb82bc88c0fa1a1840c360",
+        "fingerprint": "sha256:3af5fbda4665a0807bb8cffa43a426f8e046168f79a8d35015276bc0b1e0e290",
         "path": ".engine/tools/protection_guard.py"
       },
       "status": "active",
@@ -14535,11 +13299,11 @@
       },
       "slug": "provider_parity_check",
       "source": {
-        "fingerprint": "sha256:de79c6029a0e08d1587137ef83b68efc4160ce37b5f9e8fc1f58c64848c00d56",
+        "fingerprint": "sha256:fa3c914dd3ad4947aaae98a678c493efef3cfa2656cbed17d96313749e0a1272",
         "path": ".engine/tools/provider_parity_check.py"
       },
       "status": "active",
-      "summary": "Provider parity — the custom/script entry for engine/check/codex-provider-parity (eADR-0034).",
+      "summary": "Provider parity — the custom/script entry for engine/check/codex-provider-parity (the established design).",
       "type": "tool"
     },
     {
@@ -14558,7 +13322,7 @@
       },
       "slug": "provider_vocab_check",
       "source": {
-        "fingerprint": "sha256:6827b20d67ea89bee9ae293a42547f8b56d45fd7fdccbc3d58872239158baab8",
+        "fingerprint": "sha256:43417fab8ea4446418a8f6d2d4ce67274ca343778c515c96f3a43d59438435d4",
         "path": ".engine/tools/provider_vocab_check.py"
       },
       "status": "active",
@@ -14578,11 +13342,11 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:2448a0b6e7bb3ae9b4001cfe2e444e35a5417953c2d0ed89d3f042ecb2544feb",
+        "fingerprint": "sha256:1432575f5dbec1be7a03c5d2d149ad739c1bbb08cb08097bb2aef48e88344066",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
-      "summary": "Provider normalization — the ONE seam where AI-runtime differences are absorbed (eADR-0034).",
+      "summary": "Provider normalization — the ONE seam where AI-runtime differences are absorbed (the established design).",
       "type": "tool"
     },
     {
@@ -14623,7 +13387,7 @@
       },
       "slug": "recall",
       "source": {
-        "fingerprint": "sha256:38035cbed3ac1a7d6276161657d7e1f29024559ae2e1412355f1a27a2e599558",
+        "fingerprint": "sha256:fab07ff753f5abb373000e5806faf08ec67ded6905dd73ef2c5714d10c332bdb",
         "path": ".engine/tools/memory/recall.py"
       },
       "status": "active",
@@ -14643,7 +13407,7 @@
       },
       "slug": "records",
       "source": {
-        "fingerprint": "sha256:6c49bb692b62101c7a992b5352e20b94d898964037575a8362b3f391109c789d",
+        "fingerprint": "sha256:10114de28de5a71f49dc8504d4093374688e3c3d186df5d0f59e8d5a521bad64",
         "path": ".engine/tools/memory/records.py"
       },
       "status": "active",
@@ -14677,7 +13441,7 @@
       },
       "slug": "release_cut",
       "source": {
-        "fingerprint": "sha256:915caa749be45464fb74c7757ee70de3f3745004043ab69c713eba96bba07bf5",
+        "fingerprint": "sha256:556f4e07153a6c93c280f148deafd3c7637879dbd347e1353fe10784ab47b574",
         "path": ".engine/tools/release_cut.py"
       },
       "status": "active",
@@ -14703,7 +13467,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:d5017aa7274ff2a31a4060184150dd7e9adb29b02d67c41d74c6f6dd2298c2f2",
+        "fingerprint": "sha256:2515b85e2e3a4d0952e021c353543598ab8f45e82dc30b369f97b5a41a550b74",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -14723,7 +13487,7 @@
       },
       "slug": "release_impact",
       "source": {
-        "fingerprint": "sha256:59534091343be1f71493c07b9506175297beff8bfc03696e50a0d1d94f3af3d5",
+        "fingerprint": "sha256:d5de32cc5cbfb6ef3b8617803d01cda54b703e2d11c26fafc8c4da94c3212de5",
         "path": ".engine/tools/release_impact.py"
       },
       "status": "active",
@@ -14821,7 +13585,7 @@
       },
       "slug": "release_terminal",
       "source": {
-        "fingerprint": "sha256:a10221d38b020cbb6ac206d6a1ae7670953a37aae3c5939f2727f9d3f4f765bb",
+        "fingerprint": "sha256:8e9b70307131df37430b8fee8b8c48d304504e4126cbaaaea997fb17b3fce3ae",
         "path": ".engine/tools/release_terminal.py"
       },
       "status": "active",
@@ -14865,7 +13629,7 @@
       },
       "slug": "repair_divergence",
       "source": {
-        "fingerprint": "sha256:a38b88dfc9c94f6700914a37d9edf57ff9a26d55a741356c278671439923fe3f",
+        "fingerprint": "sha256:7ed6fdeaded6e63bdc6e011b1b2288d8e3d72906c340cd7fd70c167d82fa009f",
         "path": ".engine/tools/repair_divergence.py"
       },
       "status": "active",
@@ -15118,7 +13882,7 @@
       },
       "slug": "scent",
       "source": {
-        "fingerprint": "sha256:b9d430ffda5e37950b824d210bab663b693d726715270917103cf357037b3ab3",
+        "fingerprint": "sha256:33fdf409ea0ac8dacecb08ac2922a707300884814a520e0631d2cae938557f4e",
         "path": ".engine/tools/scent.py"
       },
       "status": "active",
@@ -15181,7 +13945,7 @@
       },
       "slug": "scrub",
       "source": {
-        "fingerprint": "sha256:5719e3528fe85e8e3d879d93933f38349e95bd28b1151a42c8961cde3a646154",
+        "fingerprint": "sha256:18ba6576d70f97c3970fac9fb2cef5c9c877970544fa4ee3263bf9f43b338cdf",
         "path": ".engine/tools/memory/scrub.py"
       },
       "status": "active",
@@ -15445,7 +14209,7 @@
       },
       "slug": "shipped_local_references_check",
       "source": {
-        "fingerprint": "sha256:4028742ed31e6b8da24e35fafbdc851e0a59f4ac9409699394d8fc99e3d73bcd",
+        "fingerprint": "sha256:ccd09478fb85e1b252028b916c0ac8fea5dd91398a2c608cfc29148b8f4ab9cc",
         "path": ".engine/tools/shipped_local_references_check.py"
       },
       "status": "active",
@@ -15539,7 +14303,7 @@
       },
       "slug": "spec_referent",
       "source": {
-        "fingerprint": "sha256:da3526a52e979a334747487b7aecb899cbbee0a92447bd84722e53afaeacbb39",
+        "fingerprint": "sha256:ed4a751eefac9298758960bd2f34f9c6e7cc80c814f1ee05624007d052ada934",
         "path": ".engine/tools/spec_referent.py"
       },
       "status": "active",
@@ -15619,7 +14383,7 @@
       },
       "slug": "submit",
       "source": {
-        "fingerprint": "sha256:cb75dc0986a60baacb2866e1c2b5fa1a8b0c2c546a1b358d15487327c93769f0",
+        "fingerprint": "sha256:03f08bb1c747c8b9bde93ab9ebff1f8ef173f0be62c53ee64d88a72a83eeb18d",
         "path": ".engine/tools/external_contribution/submit.py"
       },
       "status": "active",
@@ -15674,7 +14438,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:a11f1a0b7d942b67c9d1e80c16fb8608922a7eb8269917d4ed439d0940751193",
+        "fingerprint": "sha256:ba1a4a120cacb8da97639714e98373ba90706761b998b26c6ba8ddb4407a6850",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -15900,7 +14664,7 @@
       },
       "slug": "test_audit_digest",
       "source": {
-        "fingerprint": "sha256:9f32892dbfc30ea3166c874c8e4e4859e07b16f209b92ed04a341c1b5f29983e",
+        "fingerprint": "sha256:fa00f039b429231bd5e3b790cd8a49364211c5c5312de42926b5699de7fc0ab2",
         "path": ".engine/tools/test_audit_digest.py"
       },
       "status": "active",
@@ -16080,7 +14844,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f808566c1e6447d2d8d106cbb6d43c968a90599f041f27005a7927a6584cb6ca",
+        "fingerprint": "sha256:a71c1ad5d96e4696b95bd29654611dafa7d795d5ce4add24f42969c350ff0f36",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -16133,7 +14897,7 @@
       },
       "slug": "test_boot_slice",
       "source": {
-        "fingerprint": "sha256:78461f285b7d093e89b4ce2de1ef6cdb12810f6aa5d4e6fd23a43ccb6e35babe",
+        "fingerprint": "sha256:0405215fd8b6ff893ae51904a1c99d669ef356c3bb888191e2d62ebcf4823c85",
         "path": ".engine/tools/test_boot_slice.py"
       },
       "status": "active",
@@ -16200,7 +14964,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:b34c5e4d23578975ee80d2e2cc9d58d7394530ed167098a661fa891351f4302a",
+        "fingerprint": "sha256:858904349b6cadadbe9c27fda43ce7a54e1a9d2c55b13c70461798399d0dad78",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16230,7 +14994,7 @@
       },
       "slug": "test_build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:956feb733d13b8d818cff461d4eb0cc12175f5f20846aae76f77825bb9ce5148",
+        "fingerprint": "sha256:9a14794999398c952a250c6dfa82b67c367925a9f18841c33305dbef98a1a25f",
         "path": ".engine/tools/test_build_coordinator_contract.py"
       },
       "status": "active",
@@ -16462,7 +15226,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:e0a48d04b7fd6a4b35ef10bfd00d1453744d74c3f5e64ef6c092ae5f8679b16d",
+        "fingerprint": "sha256:cbcebcfbc5bffc54a751f03f3117df6e7e0a47009ce490c5ba0a66b416ac34f7",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -16534,7 +15298,7 @@
       },
       "slug": "test_checkout_health",
       "source": {
-        "fingerprint": "sha256:dffe5e56ce4b45ad9a95004bdfe20de4008a390cb2adb9ff45654ff03026b384",
+        "fingerprint": "sha256:74ce16dffc7d79d9959983b6f597f6596d3c4bb4c060dbfb17f7c5f504e58bbe",
         "path": ".engine/tools/test_checkout_health.py"
       },
       "status": "active",
@@ -16821,58 +15585,11 @@
       },
       "slug": "test_context_control_end_to_end",
       "source": {
-        "fingerprint": "sha256:3e7b25c3e2d48d102a36ce7485d41e4a24998f078923468cadf0dd9d80eb1d4a",
+        "fingerprint": "sha256:6e0ec281ddc594d8459c8b73bbaf7075ed5718b9ca7254e8fd22d142ccf95ab5",
         "path": ".engine/tools/test_context_control_end_to_end.py"
       },
       "status": "active",
       "summary": "End-to-end cover for the context-control spine, plus the static half of the powers-not-taken claim.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_contract",
-      "name": ".engine/tools/test_contract.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:validate"
-        ]
-      },
-      "slug": "test_contract",
-      "source": {
-        "fingerprint": "sha256:e7d6a225c62709e29c9c9a682684f5e6c3b3cf2de3c55bc67ea504d0036d8e78",
-        "path": ".engine/tools/test_contract.py"
-      },
-      "status": "active",
-      "summary": "Self-tests for the contract surface: the contract.v1 frontmatter grammar, the committed",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_contract_canon",
-      "name": ".engine/tools/test_contract_canon.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:attention",
-          "tool:boot_slice"
-        ]
-      },
-      "slug": "test_contract_canon",
-      "source": {
-        "fingerprint": "sha256:b8792a6824599442dc6ee5a4582784a8339bf6fb830e00807a5946101247813e",
-        "path": ".engine/tools/test_contract_canon.py"
-      },
-      "status": "active",
-      "summary": "The foundational eADR canon's cold-start gate — the design-rationale transplant's own check.",
       "type": "tool"
     },
     {
@@ -17038,7 +15755,7 @@
       },
       "slug": "test_doc",
       "source": {
-        "fingerprint": "sha256:4bdb7c2318d62e463fd9f4ea288733c7ce615e4d4d9bf3e2dcb5af4c9e3289ec",
+        "fingerprint": "sha256:28238af0d6ac32f68900d5356d19a79edccad7b2e08edf39fe2e2ab04b69799d",
         "path": ".engine/tools/test_doc.py"
       },
       "status": "active",
@@ -17110,7 +15827,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:3283b5ec78480f7b439bd89820d9fc4a1fdbeddc58fedecebbb7676c9cb063fe",
+        "fingerprint": "sha256:5c5c01a2090ab60718c4d71b3b7e10a011ccd98a171e5331ac893b9f20707894",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -17162,11 +15879,11 @@
       },
       "slug": "test_engine_todo",
       "source": {
-        "fingerprint": "sha256:00d515b71e54488c39bc1c0d3bd20e0fefdafaec3e9798e9bfdca55ebe99934e",
+        "fingerprint": "sha256:3d8b51f7650c8dca0e3c0658e91a6cd631304c9bde3bd130999c88e45b30df81",
         "path": ".engine/tools/test_engine_todo.py"
       },
       "status": "active",
-      "summary": "Tests for the deferred-work marker parser and its form check (eADR-0035).",
+      "summary": "Tests for the deferred-work marker parser and its form check (the established design).",
       "type": "tool"
     },
     {
@@ -17400,7 +16117,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:64cc4425bc8f9af3c98ff1a9fe577142de78d9194510459c9087692a9b08bb18",
+        "fingerprint": "sha256:91d6eeb49dac02780039098b1dc4ef4f21a1550454e5e87d439326444b55b801",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -17497,7 +16214,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:90aedde6c95d8aa41dca47db213834c5c91a2fbc2b008b2c8a07803e6bd5d90e",
+        "fingerprint": "sha256:f847f6c6651799a653ff1ad98c95c044877387e531fdff6d419ec5f3e2eaea37",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17571,7 +16288,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:bcddbe321e229feee167bf9d52f7eb63df6ee36ca9fd7091662e882fdf18d1b4",
+        "fingerprint": "sha256:6aef8e4af4185141799126bfd69d0a239d86a6d526e466c31af1de55b73a8c18",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -17600,7 +16317,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:2a92d621b099b114b769da9ce34752f7bc0e49bb22476cd1129b0e486f9611e0",
+        "fingerprint": "sha256:c85392829ceb655baa70e0fbce4bb4acead6f814d6b8bcbbf99f47f11a22b39e",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -17897,15 +16614,13 @@
         "tests": [
           "tool:hooks",
           "tool:knowledge_gen",
-          "tool:knowledge_index",
-          "tool:knowledge_query",
           "tool:repo_identity",
           "tool:validate"
         ]
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:f2410662c5eee50498db56c6041da7ed5eae8141dea3a913713b42de04eb2569",
+        "fingerprint": "sha256:a08c0b6a450abdedd62b650c10f732dd8fada6dcd13845ce6b78dadb5216f8f7",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -17932,7 +16647,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:7c433667c8e97bc35ea9c9352cf73e665c9f6b3622524320d01759c48882ea3b",
+        "fingerprint": "sha256:19b1efd602f87022b6ba04aaec4e2f8d952f72cc15faed266a3f38d0037c1b49",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -18228,11 +16943,11 @@
       },
       "slug": "test_mechanic_build",
       "source": {
-        "fingerprint": "sha256:3ec9d35fc94cd6123757174bd4912540a30988442b5e3ad20f259ac06de633b2",
+        "fingerprint": "sha256:ae391f9ce7201794043602a923619c5501aaeaa2d371f5b0730b2bbcc3195d32",
         "path": ".engine/tools/test_mechanic_build.py"
       },
       "status": "active",
-      "summary": "Tests for mechanic_build — the engine-mechanic cross-repo build preflight (eADR-0026), the GUARDED,",
+      "summary": "Tests for mechanic_build — the engine-mechanic cross-repo build preflight (the established design), the GUARDED,",
       "type": "tool"
     },
     {
@@ -18303,7 +17018,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:836db27ee2ff2c89b9f51b97f952bbdf46794c37f6122a598d40d3cacbb453fa",
+        "fingerprint": "sha256:292a41285482c60870c5c9fe881b00b451cf2f2cb8e1168f79b825b19d066dd3",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -18357,6 +17072,7 @@
           "tool:module_manager",
           "tool:protection_guard",
           "tool:quiet_call",
+          "tool:release_cut",
           "tool:release_impact",
           "tool:release_impact_check",
           "tool:release_source",
@@ -18368,7 +17084,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:982c80ceab9d8e3704a2001adb1423d5b6521b0f4ecebad2011414f96d8483e1",
+        "fingerprint": "sha256:a7a54010e0793b3be18237009402e523871115a9b23cebf0fbb6cbe64d6ce0b9",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -18423,7 +17139,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:2d635c1c2b10d67878b37668d1f05b20a6a14b45e6e229f9d6ab06ecd17e8471",
+        "fingerprint": "sha256:d0c821649ccf2a8ec6ed27eccb96748e00a28eecbbb3738af3b219e5abff5d4f",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18770,7 +17486,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:345393691aae9b1d613610dda29cff4ad5d264993fea0135c1a47c7bb88da404",
+        "fingerprint": "sha256:ad0ab6e133344f4042aacaaf8bb5b2ce1aa304083ad11c2e1d56d3ef88b95a1e",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -18824,7 +17540,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:1dff2b49543bffde45f8f78db938a87cde6a7588a5cd1e9eddfb204a81c0f842",
+        "fingerprint": "sha256:a2dc704863daa4d0b76c2bc18b97b46999f60f805cf58610d79daaa0a727389d",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -18923,7 +17639,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:c6ca32ff2001d1e760070b54f8491c4e6c0d0c08b5da0f102630c176a729cf5f",
+        "fingerprint": "sha256:3b5f2d135f3dc79bf0ff74d4454348d96c661ba9ba701eebfd16ac34921ae50a",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",
@@ -19002,7 +17718,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:9bafd359b3f84c69161b386d8b5268e395eb534b0b2e116c1a151d509f8d7f81",
+        "fingerprint": "sha256:6d4cb082029cc9a7e4d64112b73c7166aade7696ed1aeda71a8ae46ded1966af",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -19082,11 +17798,11 @@
       },
       "slug": "test_providers",
       "source": {
-        "fingerprint": "sha256:5629ab700d38bc63bdee5a2b3be9e1d4540add4d2775cd5b22b4473499b61785",
+        "fingerprint": "sha256:7d9e1b2a0b5da5036d5842479151e241b14923244a758120d823ccbcebff6d85",
         "path": ".engine/tools/test_providers.py"
       },
       "status": "active",
-      "summary": "Self-tests for the provider-normalization seam (providers.py) — the laws eADR-0034 rest on:",
+      "summary": "Self-tests for the provider-normalization seam (providers.py) — the invariants the adapters rest on:",
       "type": "tool"
     },
     {
@@ -19155,7 +17871,7 @@
       },
       "slug": "test_recall",
       "source": {
-        "fingerprint": "sha256:e8b8f8eb3865905c0aa3fb46547f8f399832986c4aaed5d66618a9b6e1299da9",
+        "fingerprint": "sha256:9232c44467f8437522ef6b50efeb0af9a146d5bd2308c2c0027b42d1f1ef4390",
         "path": ".engine/tools/memory/test_recall.py"
       },
       "status": "active",
@@ -19210,7 +17926,7 @@
       },
       "slug": "test_release_cut",
       "source": {
-        "fingerprint": "sha256:c053c1d7b6a5343f76d78ea950e838f64303387a07c019c7eeda22d2959e6540",
+        "fingerprint": "sha256:68635320802a58e33ea2424f1796bff570633c48086b3f8a066f91bf1d1a2357",
         "path": ".engine/tools/test_release_cut.py"
       },
       "status": "active",
@@ -19235,7 +17951,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:0afa5e1f3eb7fca37b4823362100ff8985cd3666a52f8979ff53793ef8aaa85b",
+        "fingerprint": "sha256:b11af96830e50ff7d5d313e09c5608532ff9bc9ef992729d8b76f4135b7ea816",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -19334,7 +18050,7 @@
       },
       "slug": "test_release_terminal",
       "source": {
-        "fingerprint": "sha256:80829050e5aa036758c0474bdb9b0f6ed26b1c3e22736ca5399cf170f449749d",
+        "fingerprint": "sha256:0ace44d5ebc988f5d7ee1d0e8f1b6dbded09e1f705744e93778dbb6620b90d88",
         "path": ".engine/tools/test_release_terminal.py"
       },
       "status": "active",
@@ -19382,7 +18098,7 @@
       },
       "slug": "test_repair_divergence",
       "source": {
-        "fingerprint": "sha256:af0656946ee31653f2fb08b9751453776503db4486e62f464d79cb7c0a7a926f",
+        "fingerprint": "sha256:00444b214367867cbd159fc9402cbbc02d3baa2b1765b2524f9f288147bf7ea7",
         "path": ".engine/tools/test_repair_divergence.py"
       },
       "status": "active",
@@ -19497,6 +18213,30 @@
       },
       "status": "active",
       "summary": "test_restore_vault.py — memory's backup vault, the RESTORE path.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_retire_eadr_records",
+      "name": ".engine/tools/test_retire_eadr_records.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:checkout_health",
+          "tool:plan_store"
+        ]
+      },
+      "slug": "test_retire_eadr_records",
+      "source": {
+        "fingerprint": "sha256:9823f21ff1b9cdbab63e5160ed9dc09a4864b354ed3c2ecb4f13ff3fa3d56acc",
+        "path": ".engine/tools/test_retire_eadr_records.py"
+      },
+      "status": "active",
+      "summary": "Adversarial tests for the one-time deployed-record retirement migration.",
       "type": "tool"
     },
     {
@@ -19746,7 +18486,7 @@
       },
       "slug": "test_scent",
       "source": {
-        "fingerprint": "sha256:616afa572f74799eb721e9933877a7a192f09aaa873b4b50fd5093f2d6f47f22",
+        "fingerprint": "sha256:5551880b3d73b9258021bd051086a783de5bfbbd1b974497cdfb0f8ca350566b",
         "path": ".engine/tools/test_scent.py"
       },
       "status": "active",
@@ -19796,7 +18536,7 @@
       },
       "slug": "test_scrub",
       "source": {
-        "fingerprint": "sha256:2998dca7e3649093e374faf58e58fa39790cb087f4068b928c13b2288f6dc801",
+        "fingerprint": "sha256:6136f2c1f833cf2adcae2b8d807e9a60521cd815699099fc3cb29fe17146b5bc",
         "path": ".engine/tools/memory/test_scrub.py"
       },
       "status": "active",
@@ -19822,7 +18562,7 @@
       },
       "slug": "test_search",
       "source": {
-        "fingerprint": "sha256:9e71b9d2ac9681269ceeaa4365f9ffca072f6386c5fe40b912574f80b409391a",
+        "fingerprint": "sha256:931014033d68f92d94303711f93a5af4e39b6e6b9c4a86a07b22b25b7f8f2cf8",
         "path": ".engine/tools/memory/test_search.py"
       },
       "status": "active",
@@ -19932,7 +18672,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:807b5f448f6b7f5e36dc2a775d1469a55660038bbfa5b6ef680b08bca02412d1",
+        "fingerprint": "sha256:ebb812e4e1d5a1c57730dee5d6ca3cddc0c716fc2c67cc9ddb8ae79327b7683e",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -20088,7 +18828,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:da21791e313ced820d3a5b0ccafffd479e3d5a88697ae5a75f97c6b7a3aa3be9",
+        "fingerprint": "sha256:f238a8550ede225b9fef46ae470e810fd0b806e418a0f9f5c0f2c32f26c119a5",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",
@@ -20184,7 +18924,7 @@
       },
       "slug": "test_shipped_local_references_check",
       "source": {
-        "fingerprint": "sha256:4d3265a37faf95ed4bcb2949688623d79b4bef9b36bf7e20c9ed43e33289e42e",
+        "fingerprint": "sha256:abb7660ec90b6b701e6be6dbbffb010670e5e7d341146bd603f6e639ca2b682e",
         "path": ".engine/tools/test_shipped_local_references_check.py"
       },
       "status": "active",
@@ -20379,7 +19119,7 @@
       },
       "slug": "test_submit",
       "source": {
-        "fingerprint": "sha256:5275be208a573185c12fe6b24dd8d701957cdab209e55ffc9afd3c513c6696ff",
+        "fingerprint": "sha256:1fa93851dee0782fdcb9434a20a6d3c16259d2b940d9836b92852558d3137c8c",
         "path": ".engine/tools/external_contribution/test_submit.py"
       },
       "status": "active",
@@ -20424,7 +19164,6 @@
           "tool:boot",
           "tool:capture",
           "tool:github_client",
-          "tool:knowledge_gen",
           "tool:standing_situation",
           "tool:telemetry",
           "tool:validate"
@@ -20432,7 +19171,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:6e86ad87595367d62f683851435821a9232fd45170d3761596125c0fb11c43cc",
+        "fingerprint": "sha256:6449853becad67f273a6bd5e5ae64a537feed42ffec0bf5199f775e1c72e0127",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
@@ -20570,13 +19309,12 @@
         ],
         "tests": [
           "tool:github_client",
-          "tool:module_coherence",
           "tool:validate"
         ]
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:f3f1803a491e192e67978b4da5aacbd8e4df610090ca3f423b944197af07d0a4",
+        "fingerprint": "sha256:89bb9dc1734c3a81f49a6ae9c1aa4ab42be75359d0f1f9c63509c4930f1611b7",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -20602,7 +19340,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:2bd685b65d26960670fbc3017ced487c619ee5a04dff5634318b94c8ab808bf6",
+        "fingerprint": "sha256:fca7929ba8b6f7b10fc3208aa75c56de9a6659f62d313bae7190b843cb344667",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
@@ -20775,7 +19513,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:c696d71eb37ff1ec4a95eff1e18d9f5cee7ac3a6cdeb1112b3dab22e4aa2e281",
+        "fingerprint": "sha256:9cefdb9f3f63f9c44ed0925fa66ba4821200cf004488b7d160630b54fafd7035",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -20816,7 +19554,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:239a69359483b736a4703d2933b5774eddaa0a9108e66d93ea605b63d9c6103c",
+        "fingerprint": "sha256:681d5ca38271518b5c201db03e8aa162767bf90463e6bbe8bf5a6ef2fbdc9f50",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
@@ -20839,7 +19577,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:11d3a013479dc0d403905d3eb3b778c5907350ce0399cb7417acdac9f30e3761",
+        "fingerprint": "sha256:ee919f80e46a191b74d581c3fffef521b0c37b0e33f3fc5cd31fabb82d090855",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",
@@ -20859,7 +19597,7 @@
       },
       "slug": "wordpiece",
       "source": {
-        "fingerprint": "sha256:ee77c9660ef5ce76a4cb1516043286644528d2959e1907949d8fb18812773a7d",
+        "fingerprint": "sha256:a76db57e46eae06bd8888fdffcf625c4478fc0f2d18f358305b1acaca868580e",
         "path": ".engine/tools/memory/semantic/wordpiece.py"
       },
       "status": "active",

@@ -86,7 +86,7 @@ class TestEventInventory(unittest.TestCase):
         single-owner (`("boot",)`) from the day the table was written until then.
 
         What makes a second owner admissible here, and why the amendment is not the drift the table
-        exists to catch. eADR-0042 refuses writers of UNDEFINED order — writers that race, whose
+        exists to catch. the established design refuses writers of UNDEFINED order — writers that race, whose
         relative sequence nothing states — not registered owners; PostToolUse has carried three owners
         in a stated order since it was written, and this is that shape, not a new one. The two owners
         cannot contend: boot's per-prompt scent injects a constant orientation cue without reading the

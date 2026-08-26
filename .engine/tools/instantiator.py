@@ -668,7 +668,7 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     if home_repository:
         written["home_repository"] = home_repository
     # The PRODUCT coordinate — the repo this engine works ON when that differs from the repo it is deployed
-    # into (eADR-0026's fork-native arrangement). Precedence: an explicit external override (the caller passes
+    # into (the established design's fork-native arrangement). Precedence: an explicit external override (the caller passes
     # it ONLY when the product is a repository distinct from self) wins; else an already-recorded product is
     # carried FORWARD, so a resumed/re-run confirm never clobbers the operator's choice (the home_repository
     # precedence at #367). NEVER a self-default: self is derivable live from origin, so storing it would only
@@ -1387,7 +1387,7 @@ _PRODUCT_VERSION_SEED = "0.0.0"
 def _seed_product_version(say, copy=None) -> str:
     """Seed the deployed repo's own PRODUCT version file (#516) at first-run, so a deployment inherits a
     working product-release lane: once deployed, the engine's release workflow cuts THIS file's version, not the
-    engine's. A product-OWNED root file (eADR-0007 — it lives in product territory and SURVIVES an engine
+    engine's. A product-OWNED root file (the established design — it lives in product territory and SURVIVES an engine
     uninstall, unlike anything under .engine/). Seed-then-own: seed-iff-absent, so a re-run, or an operator who
     already set a product version, is a no-op. BELT: skip in the engine's OWN home repo (repo_identity.is_home_
     repo — git origin == recorded home, #323); the workshop never gets a product file because there the engine
@@ -1680,8 +1680,6 @@ _FIRST_RUN_ASSET_FILES = (
     # decision). Unlike the security-seed pair above, these reference no retiring machinery; they retire only
     # so the construction set does not ship as a junk drawer. Each is mirrored in first-run-assets.json
     # (parity-tested). The per-tool `demo` subcommand convention is the promoted standing form, decided upstream.
-    ".engine/tools/demo_467_deployment_eadr_namespace.py",
-    ".engine/tools/demo_ack_authority.py",
     ".engine/tools/demo_audit_concern_list.py",
     ".engine/tools/demo_audit_digest.py",
     ".engine/tools/demo_boot_slice.py",
@@ -1740,7 +1738,6 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_weakening_guard_narrowed_set.py",
     ".engine/tools/demo_memory_degradation_backup.py",
     ".engine/tools/demo_attention_live_dials.py",
-    ".engine/tools/demo_contract_rate.py",
     ".engine/tools/demo_restore_migration_routing.py",
     ".engine/tools/demo_operator_backlog.py",
     ".engine/tools/demo_control_plane_labels.py",
@@ -2889,8 +2886,8 @@ def _is_engine_resume(rel: str, owned: set, release_files: set | None = None,
     (#695). Every signal is EXACT / single-segment case-SENSITIVE membership — never a filesystem existence check
     and never a cross-'/' glob — so a case-insensitive filesystem can't fold an operator file onto an engine one.
 
-    Operators are NOT barred from .engine/: they author committed files there (OPERATOR_CONFIG, the per-instance
-    eADR stream `.engine/contracts/instance/`, an ad-hoc note), and those must still surface as collisions. The
+    Operators are not barred from .engine/: they may author committed files there,
+    and those must still surface as collisions. The
     signals hold that line by RECOGNIZING only what the engine positively ships or generates — an operator's
     novel path is in none of them — and the generated-unshipped signal additionally defers to the
     operator/deployment carve-out (`is_engine_generated_unshipped`), so a resume never silently drops operator
@@ -3916,7 +3913,7 @@ def main(argv: list) -> int:
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
         default_branch = _flag_value(argv, "--default-branch") or derive_default_branch()
-        # The PRODUCT override (eADR-0026): the operator names an EXTERNAL product only when the engine builds a
+        # The PRODUCT override (the established design): the operator names an EXTERNAL product only when the engine builds a
         # repo DIFFERENT from the one it is deployed into. _external_product_or_none records it ONLY when it
         # genuinely differs from self (the deployed-into slug, compared normalized) — a self-equal override is
         # the common self-building case, left unstored (derived live), never a duplicate that could drift.

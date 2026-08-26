@@ -331,12 +331,12 @@ class TestPreviewEvidence(unittest.TestCase):
         pr_data = {"body": "old body", "baseRefOid": "b" * 40}
         prof = mock.Mock(stdout="**Change profile** — small: 3 files.", returncode=0)
         plan = {"intent_source": {"kind": "direct"}, "spec": {},
-                "assumptions": [{"claim": "eADR-0043 has no dependents", "status": "unresolved"}]}
+                "assumptions": [{"claim": "the retired authority surface has no dependents", "status": "unresolved"}]}
         for resolved_as in ("verified", "accepted-risk"):
             with self.subTest(resolved_as=resolved_as):
                 state = self._state()
                 state["assumption_dispositions"] = [
-                    {"claim": "eADR-0043 has no dependents", "resolved_as": resolved_as,
+                    {"claim": "the retired authority surface has no dependents", "resolved_as": resolved_as,
                      "basis": "the review confirmed it"}]
                 with mock.patch.object(bc, "_run", return_value=prof), \
                      mock.patch.object(bc.spec_service, "canonical_spec",
@@ -346,12 +346,12 @@ class TestPreviewEvidence(unittest.TestCase):
                                        return_value=[{"lens": "spec-conformance"}, {"lens": "divergence-hunter"}]):
                     ev = bc._assemble_evidence(state, plan, claim, "c" * 40, pr_data)
                 self.assertEqual(len(ev["assumption_resolutions"]), 1)
-                self.assertIn("eADR-0043 has no dependents", ev["assumption_resolutions"][0])
+                self.assertIn("the retired authority surface has no dependents", ev["assumption_resolutions"][0])
                 self.assertIn(resolved_as, ev["assumption_resolutions"][0])
                 self.assertIn("the review confirmed it", ev["assumption_resolutions"][0])
                 body = bcc.compose(claim, ev)
                 self.assertIn("Assumption resolved after approval", body)
-                self.assertIn("eADR-0043 has no dependents", body)
+                self.assertIn("the retired authority surface has no dependents", body)
 
     def test_disposition_of_a_non_unresolved_assumption_is_not_surfaced(self):
         # The defensive filter: only assumptions authored 'unresolved' produce a disclosure (a stray
@@ -731,7 +731,7 @@ class TestCarriedObligationsReachTheMergeSurface(unittest.TestCase):
     """
 
     OBLIGATIONS = [
-        "- **OB-CANON** — _carried_. Amend eADR-0025 and eADR-0041 on plan authority.",
+        "- **OB-AUTHORITY** — _carried_. Update the plan-authority documentation and tests.",
         "- **OB-SPEC-REACCEPT** — _released_. Obtain operator re-acceptance of the settled documents. "
         "The corpus is stale, so re-accepting it would record assent to text that no longer describes "
         "the engine.",
@@ -759,7 +759,7 @@ class TestCarriedObligationsReachTheMergeSurface(unittest.TestCase):
         body = self._body()
         heading = body.index("- **Obligations carried from the predecessor plan.**")
         self.assertLess(body.index("## Review"), heading)
-        self.assertLess(heading, body.index("- **OB-CANON**"))
+        self.assertLess(heading, body.index("- **OB-AUTHORITY**"))
 
     def test_a_standalone_plan_renders_no_obligation_section(self):
         # Most plans belong to no program, and a bare heading over nothing reads like a fault.

@@ -25,7 +25,7 @@
     },
     {
       "name": "get-entity",
-      "description": "Fetch one entity by its id, with its declared attributes and outgoing edges. Returns the entity record (id, type, name, slug, source, owner, predicates, plus any declared attributes the surface carries — status, and where applicable tier, title, and per-surface discriminators) or null if no such entity exists. Consumer guidance (for the reading agent — advisory, not part of the conformance contract a swap-in implementation must answer): the declared attributes are AS-OF THE LAST GRAPH REGENERATION — treat status as last-known, and verify a supersession against the live source file before asserting it; and translate any internal lifecycle or tier token into plain language for the operator, never echoing a raw token (e.g. hard, soft, posture, retired, experimental) verbatim to them.",
+      "description": "Fetch one entity by its id, with its declared attributes and outgoing edges. Returns the entity record or null if no such entity exists. Declared attributes are as of the last graph regeneration; translate internal lifecycle or tier tokens into plain language for the operator.",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -34,7 +34,7 @@
           "id": {
             "description": "The entity id to fetch (e.g. 'check:state-cursor', 'module:core').",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           }
         }
       },
@@ -59,7 +59,7 @@
         "properties": {
           "type": {
             "description": "Restrict to one surface type (or 'module').",
-            "enum": ["contract", "policy", "conduct", "schema", "check", "tool", "operation", "skill", "agent", "codex-skill", "codex-agent", "interface", "doc", "module"]
+            "enum": ["policy", "conduct", "schema", "check", "tool", "operation", "skill", "agent", "codex-skill", "codex-agent", "interface", "doc", "module"]
           },
           "path_glob": {
             "description": "Restrict to entities whose source path matches this glob (e.g. '.engine/check/*.json').",
@@ -88,7 +88,7 @@
     },
     {
       "name": "neighbors",
-      "description": "The entities adjacent to one entity, by edge traversal. Direction selects outgoing edges (this entity points at them), incoming edges (they point at this entity — the reverse traversal the derived index exists for), or both. An optional edge filter narrows to specific predicate kinds; an optional depth (default 1) follows edges transitively up to that many hops. The 'supersedes' edge (a deployment-stream contract replacing an earlier one) is reachable here as a deliberate pull; it is excluded from the engine's default cold-start neighbourhood walk so orientation stays cheap.",
+      "description": "The entities adjacent to one entity, by edge traversal. Direction selects outgoing edges, incoming edges, or both. An optional edge filter narrows predicate kinds; an optional depth follows edges transitively.",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -97,12 +97,12 @@
           "id": {
             "description": "The entity to find neighbors of.",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           },
           "edge_filter": {
-            "description": "Restrict to these predicate kinds. Omit to follow the default cold-start walk set — the containment edges plus the code-dependency and wiring edges (provided_by, governed_by, targets, depends_on, imports, tests, enforced_by, wires_hook, implemented_by); name the off-walk lineage edge supersedes explicitly to pull it.",
+            "description": "Restrict to these predicate kinds. Omit to follow the default cold-start walk set.",
             "type": "array",
-            "items": { "enum": ["provided_by", "governed_by", "targets", "depends_on", "imports", "tests", "enforced_by", "wires_hook", "implemented_by", "supersedes"] }
+            "items": { "enum": ["provided_by", "governed_by", "targets", "depends_on", "imports", "tests", "enforced_by", "wires_hook", "implemented_by"] }
           },
           "direction": {
             "description": "'out' = edges this entity declares; 'in' = edges that point at this entity (reverse); 'both' = either. Default 'out'.",
@@ -129,7 +129,7 @@
               "required": ["id", "predicate", "direction"],
               "properties": {
                 "id": { "type": "string" },
-                "predicate": { "enum": ["provided_by", "governed_by", "targets", "depends_on", "supersedes"] },
+                "predicate": { "enum": ["provided_by", "governed_by", "targets", "depends_on", "imports", "tests", "enforced_by", "wires_hook", "implemented_by"] },
                 "direction": { "enum": ["out", "in"] }
               }
             }
@@ -148,12 +148,12 @@
           "id_a": {
             "description": "The first entity id.",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           },
           "id_b": {
             "description": "The second entity id.",
             "type": "string",
-            "pattern": "^(contract|policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
+            "pattern": "^(policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent|interface|doc|module):[A-Za-z0-9._-]+$"
           }
         }
       },

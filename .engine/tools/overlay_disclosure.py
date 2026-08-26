@@ -5,8 +5,8 @@ survive the next update. It posts one plain-language comment on the pull request
 non-engineer actually reads — a soft check would land only in the Actions log). It NEVER blocks a merge.
 
 This is DISTINCT from the guardrail-weakening guard (`guardrail-ack` / `engine-guard`): that guards
-*weakening a protection* (blocking at its killswitch tier, a plain disclosure otherwise — eADR-0040); this
-discloses *a change that won't survive an update* (a routine heads-up). The two stay separate — see eADR-0037.
+*weakening a protection* (blocking at its killswitch tier, a plain disclosure otherwise — the established design); this
+discloses *a change that won't survive an update* (a routine heads-up). The two stay separate.
 
 Deployed-only. It discloses only when this repo has an update HOME that is a DIFFERENT repo than its own
 origin (an upstream that will overlay it). In the self-hosting engine repo — which IS its own home — there is
@@ -27,8 +27,8 @@ alarm; a calm line for the engine-internal indexes the update REGENERATES from t
 (`module_manager.REGENERATED_DERIVED` — an edit there is rebuilt, not lost); and a positive confirmation for
 the per-deployment operator DATA the update PRESERVES create-if-absent (`module_coherence.PRESERVE_DATA` — so a
 change to bound data is surfaced as kept, never met with silence). It still never warns about a file the update
-leaves untouched by being outside the overlay entirely (operator config, the keyed-merge fences of
-CLAUDE.md/AGENTS.md/.gitignore, the per-deployment eADR stream).
+leaves untouched by being outside the overlay entirely (operator config and the keyed-merge fences of
+CLAUDE.md/AGENTS.md/.gitignore).
 
 RENDER SAFETY: a rename can place an attacker-chosen filename into the tree (and so into the overwrite set),
 so every rendered path is passed through `_safe_path`, which drops any character outside a conservative
@@ -176,7 +176,7 @@ def _changed_hits(changed: list, wanted: set) -> list:
 
 def disclosure_registers(changed: list) -> dict:
     """Bucket the pull request's engine-file changes into three disclosure registers, all read from the SAME
-    single overlay source so the notice cannot disagree with what the update actually does (eADR-0037):
+    single overlay source so the notice cannot disagree with what the update actually does (the established design):
 
     - `overwrite` — machinery the update replaces wholesale: the alarm (an edit here won't survive an update).
     - `derived` — engine-internal indexes the update REGENERATES from the reconciled tree

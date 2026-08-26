@@ -193,7 +193,7 @@ class TestDegradeChain(unittest.TestCase):
     def test_read_carries_from_corrupt_provenance(self):
         # A committed map that is PRESENT but unreadable (damaged) rebuilds live too, but boot names it
         # differently from the absent case — read() carries `from_corrupt` (not `from_live`) so boot renders
-        # "present but damaged" rather than "missing" (the repair differs; eADR-0004 'name what is reduced').
+        # "present but damaged" rather than "missing" (the repair differs, so the briefing names what is reduced).
         gp = os.path.join(tempfile.mkdtemp(), "corrupt-graph.json")
         with open(gp, "w", encoding="utf-8") as fh:
             fh.write('{"schema_version": 1, "entities": [\n<<<<<<< truncated\n')

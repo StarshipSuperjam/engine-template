@@ -1445,21 +1445,6 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
             triage_pressure_line = telemetry.triage_pressure_line(low_severity_count, threshold)
         except Exception:  # noqa: BLE001 — a policy-read failure suppresses the meter, never breaks the pack
             triage_pressure_line = None
-    # The render-only contract-rate nudge (the contract-threshold policy's soft-warn): one plain-language
-    # "are decisions being over-recorded?" line once the operator's OWN engine decisions accepted in the last
-    # 7 days cross the governed limit, else None. Boot DISPLAYS it read-only (it never writes a record); the
-    # count reads only the deployment-owned per-instance decision folder, and the threshold reads through the
-    # override merge so /engine-setup governs it. SUPPRESSED (None) whenever the folder can't be read or the
-    # count sits at/under the limit — never a false number.
-    contract_rate_line = None
-    contract_rate = telemetry.derive_contract_rate(moment.utc_now())
-    if contract_rate is not None:
-        try:
-            contract_threshold = telemetry.contract_rate_threshold(
-                override=operator_overrides.slice_for("contract-threshold") or None)
-            contract_rate_line = telemetry.contract_rate_line(contract_rate, contract_threshold)
-        except Exception:  # noqa: BLE001 — a policy-read failure suppresses the meter, never breaks the pack
-            contract_rate_line = None
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
     # The GitHub reader for attention's in-flight work-record read (open PRs) and the stranded-PR conflict
     # detector — both generic reads, so a NEUTRAL github_client.reader (`.repo` + `.transport`), not a domain
@@ -1806,7 +1791,6 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         "unrated_count": (None if findings is None
                           else sum(1 for f in findings if not f.get("severity"))),
         "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
-        "contract_rate_line": contract_rate_line,
         # One plain line when the last capture attempt could NOT save a session's conversation to
         # memory (the loud half of the fail-soft capture); None when fine or no marker.
         "capture_status_line": capture_status_line(),
@@ -2465,11 +2449,6 @@ def render_dashboard(s: dict) -> str:
         # (suppressed on a degraded read or a below-threshold count — telemetry owns that decision).
         if s.get("triage_pressure_line"):
             out.append(s["triage_pressure_line"])
-        # The render-only contract-rate nudge, only when the operator's own engine decisions accepted in the
-        # last 7 days cross the governed limit (suppressed on a degraded read or below-limit — telemetry owns
-        # that decision). A separate line from the backlog meter: a different signal about a different thing.
-        if s.get("contract_rate_line"):
-            out.append(s["contract_rate_line"])
         # The render-only memory-capture heads-up: the last capture attempt failed loudly (capture
         # owns the detection and the marker; boot only relays). Suppressed when fine or unknown.
         if s.get("capture_status_line"):

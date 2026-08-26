@@ -61,7 +61,7 @@ import validate  # noqa: E402
 #             non-blocking; SessionEnd is hooks-owned (cleanup/flush, cannot block).
 #             UserPromptSubmit has TWO owners in a DEFINED ORDER: boot's per-prompt scent, then
 #             modes' Codex native-plan intake adapter. That second owner is a deliberate amendment of
-#             this table, and it is a REGISTERED owner, not a drifting writer: eADR-0042 refuses
+#             this table, and it is a REGISTERED owner, not a drifting writer: the established design refuses
 #             writers of undefined order, and PostToolUse has carried three owners in defined order
 #             since it was written. The two cannot contend — boot injects orientation without reading
 #             the prompt's content, modes reads the prompt and acts only on an acceptance envelope at
@@ -463,7 +463,7 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
         payload = json.loads(raw) if raw and raw.strip() else {}
         if not isinstance(payload, dict):
             payload = {}
-        # Canonicalize the payload vocabulary at the boundary (eADR-0034): a Codex payload is
+        # Canonicalize the payload vocabulary at the boundary (the established design): a Codex payload is
         # rewritten into the canonical tool names every handler is written against; a Claude
         # payload passes through as the SAME object (identity — providers' test pins it), so the
         # Claude path is byte-unchanged. A normalization fault is a payload fault: fail open.

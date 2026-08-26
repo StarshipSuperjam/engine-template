@@ -46,7 +46,7 @@ _MESSAGE = ("The knowledge graph's entity-type vocabulary must equal the catalog
             "the type list must match it. To fix: add the new surface to .engine/schemas/surface-catalog.json, "
             "or remove the stray type from the file.")
 
-# An entity-id pattern looks like '^(contract|policy|...|module):[A-Za-z0-9._-]+$'. Capture the alternation.
+# An entity-id pattern looks like '^(policy|conduct|...|module):[A-Za-z0-9._-]+$'. Capture the alternation.
 # Tokens are surface names: lowercase letters and hyphens (the catalog's own name grammar — e.g.
 # codex-skill), joined by '|'.
 _ALT_RE = re.compile(r"^\^\(([a-z][a-z|-]*[a-z])\):")
@@ -59,24 +59,24 @@ def expected_vocabulary(catalog: dict) -> set:
 
 def _alternation_types(pattern: str):
     """The type set an entity-id `pattern` accepts, or None if the string is not an entity-id alternation.
-    The 'module' + 'contract' anchors keep an unrelated pattern from being read as the vocabulary."""
+    The 'module' + 'policy' anchors keep an unrelated pattern from being read as the vocabulary."""
     m = _ALT_RE.match(pattern)
     if not m:
         return None
     parts = m.group(1).split("|")
-    if "module" in parts and "contract" in parts:
+    if "module" in parts and "policy" in parts:
         return set(parts)
     return None
 
 
 def iter_vocabulary_sites(node):
     """Yield (kind, type-set) for every vocabulary site reachable in a parsed JSON doc: a type `enum` (a list
-    of strings carrying both 'module' and 'contract' — the surface-type vocabulary signature) or an entity-id
+    of strings carrying both 'module' and 'policy' — the surface-type vocabulary signature) or an entity-id
     `pattern` alternation. Recurses through the whole structure so a site at any depth is found."""
     if isinstance(node, dict):
         for key, val in node.items():
             if key == "enum" and isinstance(val, list) and all(isinstance(x, str) for x in val) \
-                    and "module" in val and "contract" in val:
+                    and "module" in val and "policy" in val:
                 yield ("type enum", set(val))
             elif key == "pattern" and isinstance(val, str):
                 types = _alternation_types(val)

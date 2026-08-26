@@ -26,7 +26,7 @@ precedent.
 
 THE LAWS (all load-bearing here and pinned by tests):
   - EVERY PROMPT. The reflex is the deliverable: a per-prompt event that fires only sometimes teaches the model
-    that silence means "no memory", and it may not thin to no per-prompt event at all (eADR-0018). The same
+    that silence means "no memory", and it may not thin to no per-prompt event at all (the established design). The same
     prompt twice, and two prompts sharing no vocabulary, all get the identical cue.
   - NEAR-ZERO. Fires every prompt, so it imports only `hooks` (+ `validate`) and asks `importlib` one question;
     it starts no subprocess, opens no database, and reads no file that grows with memory. Its cost does not

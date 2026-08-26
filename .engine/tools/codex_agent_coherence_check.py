@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Codex-render integrity guard — the custom/script entry for engine/check/codex-agent-coherence.
 
-Two legs over the Codex renders (eADR-0034):
+Two legs over the Codex renders (the established design):
   1. REVIEWER REQUESTED DEFAULT: every engine Codex persona (`.codex/agents/*.toml` rendered from a
      canonical Claude persona) keeps `sandbox_mode = "read-only"` and pins NO `model`. This is the
      standalone default, not a mechanical child boundary: Codex can reapply the parent task's live

@@ -228,7 +228,7 @@ def missing_floor(rules: list, required_checks: list, *, tier: str = SOLO) -> li
     evaluate/disabled mode), for the given identity `tier`. Returns the list of floor pieces not in force — empty
     means the gate fully bites. The floor requires FRESHNESS — the required checks must have passed against the
     then-current base — enforced as `strict_required_status_checks_policy` on the required_status_checks rule
-    (eADR-0021, amended by StarshipSuperjam/engine-template#915). A merge queue is an OPTIONAL second mechanism
+    (the established design, amended by StarshipSuperjam/engine-template#915). A merge queue is an OPTIONAL second mechanism
     for the same invariant where GitHub offers one (never the floor); if it is ever recognized here it ships
     together with its workflow plumbing (StarshipSuperjam/engine-template#989), never detection alone.
     In TEAM the floor additionally requires a code-owner approval that survives the last

@@ -1060,7 +1060,7 @@ class TestAbsentHome(unittest.TestCase):
 
 
 class TestRecordedProduct(unittest.TestCase):
-    """eADR-0026: a manifest recording an external product (a repo different from the one the engine is deployed
+    """the established design: a manifest recording an external product (a repo different from the one the engine is deployed
     into) reads that slug; no product recorded / no manifest / a broken strand all read None — the common
     self-building case, where the product is this repo itself and is derived live from origin, never stored."""
 
@@ -1295,7 +1295,7 @@ class TestPersistedDefaultBranch(unittest.TestCase):
 
 
 class TestProductBuildTarget(unittest.TestCase):
-    """The engine-mechanic executable build target readers (eADR-0026): the manifest reader and the two-state
+    """The engine-mechanic executable build target readers (the established design): the manifest reader and the two-state
     per-machine path resolver. The fail-closed origin-match belt itself moved to mechanic_build.py (the guarded
     gate); its tests live in test_mechanic_build.py. These readers stay fail-soft-quiet."""
 

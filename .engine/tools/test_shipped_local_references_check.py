@@ -98,7 +98,7 @@ class DeclarationDriven(_Rooted):
         self.assertEqual(f, [])
 
     def test_a_markdown_reference_is_flagged(self):
-        f = self._check({".engine/contracts/note.md": "A note citing ZZ-1 by bare identifier.\n"})
+        f = self._check({".engine/policies/note.md": "A note citing ZZ-1 by bare identifier.\n"})
         self.assertEqual(len(f), 1)
 
     def test_an_undeclared_prefix_is_left_alone(self):

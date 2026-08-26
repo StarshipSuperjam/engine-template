@@ -25,7 +25,7 @@ to guard (a scanner the engine cannot discover by presence), UNIONED with the en
 read from the trusted base; removing a declared path is a weakening, while adding one is a
 strengthening that never stops here.
 
-A match answers in one of TWO TIERS (eADR-0040). The KILLSWITCH tier — the value
+A match answers in one of TWO TIERS (the established design). The KILLSWITCH tier — the value
 detectors, the directional detectors, removal/rename of any guarded file, the
 hard-floor members, and every fail-closed path — blocks the merge until the
 operator applies the distinct, deliberate acknowledgment (the `guardrail-ack`
@@ -140,13 +140,13 @@ _FLOOR_ENFORCEMENT_CONFIG = (
     #                               settings.json posture)
     ".engine/policies/provider-exceptions.json",  # the parity check's sanctioned-exception ledger — the file
     #                               that grants exemptions from an enforcement check is itself guarded, or
-    #                               widening an exception would be the quiet way around the check (eADR-0034)
+    #                               widening an exception would be the quiet way around the check (the established design)
 )
 # The validator + this guard. validate.py is ALSO the sole home of the 5 built-in HARD check kinds
 # (presence/schema/shape/coverage/coherence): those carry no `params.script`, so the derived clause below
 # structurally cannot reach them — but the hard-check-bite meta-check proves each hard check still catches its
 # planted violation, which is the mechanical correlate that makes validate.py's DISCLOSURE tier honest
-# (eADR-0040: soft on modification, conditional on hard_check_bite_check.py staying in _HARD_EXACT). weakening_guard.py is
+# (the established design: soft on modification, conditional on hard_check_bite_check.py staying in _HARD_EXACT). weakening_guard.py is
 # additionally a check-script (doubly guarded), keeping the guard's own set-defining code in-set (the
 # self-protection property: the guard is not falsifiable by the change it judges).
 _FLOOR_VALIDATOR = (".engine/tools/validate.py", ".engine/tools/weakening_guard.py")
@@ -180,14 +180,14 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     ".engine/tools/codex_gen.py",      # renders the reviewer permission floors (read-only sandbox, policy files)
     #                                    the codex coherence checks then verify — weakening the renderer weakens
     #                                    what "in sync" means
-    ".engine/tools/mechanic_build.py", # the engine-mechanic cross-repo-write gate (eADR-0026): its fail-closed,
+    ".engine/tools/mechanic_build.py", # the engine-mechanic cross-repo-write gate (the established design): its fail-closed,
     #                                    host-anchored belt (product_checkout_matches) authorizes running a
     #                                    SEPARATE checkout's own .engine tools and opening a PR against it — a
     #                                    weakening (fail-open on doubt, or an unanchored host parse accepting a
     #                                    look-alike origin) is local code execution + a write to the wrong repo,
     #                                    with NO on-disk floored correlate any check catches. A unit test is the
     #                                    wrong instrument (the same PR can flip the belt AND its test), so a change
-    #                                    here routes through the guardrail-ack (hard tier, eADR-0040).
+    #                                    here routes through the guardrail-ack (hard tier, the established design).
     ".engine/tools/repo_identity.py",  # the origin==home seam that SCOPES the two hard public-safety checks
     #                                    (memory-pointer-public-safety, census-completeness) and the negative-
     #                                    fixture harness. Flipping is_home_repo's fail-direction turns both
@@ -237,7 +237,6 @@ _FLOOR_GATE_SCHEMAS = (
     ".engine/schemas/codex-skill.v1.json",
     ".engine/schemas/concern-list.v1.json",
     ".engine/schemas/conduct.v1.json",
-    ".engine/schemas/contract.v1.json",
     ".engine/schemas/doc.v1.json",
     ".engine/schemas/engine.v1.json",
     ".engine/schemas/execution-state.v1.json",
@@ -328,7 +327,7 @@ def _read_instance_guards(path: str | None = None) -> tuple:
 
 
 # ---------------------------------------------------------------------------
-# TIER (eADR-0040). The guarded SET is unchanged (its property-defined membership is preserved); what changed is what a match does:
+# TIER (the established design). The guarded SET is unchanged (its property-defined membership is preserved); what changed is what a match does:
 # "hard" blocks the merge pending the operator's deliberate `guardrail-ack`; "soft" is a plain-language
 # disclosure and the check passes — the protected-branch merge review judges the change. The hard criterion is
 # a PROPERTY, not a roster: a weakening with NO mechanical on-disk correlate to catch it and no
@@ -461,7 +460,7 @@ def flagged_changes(files: list, derived_scripts=_DERIVE, instance_guards=_READ_
     (status, shown_path). Derives the check-script set AND the instance pair ONCE and threads them through
     is_guardrail (one disk scan per run, not per file). This is the public set-membership seam —
     knowledge_gen.py's `guarded` field and the shipped demos consume it; main() consumes the same filter
-    through _flagged_with_prev and layers classify() on top (eADR-0040)."""
+    through _flagged_with_prev and layers classify() on top (the established design)."""
     if derived_scripts is _DERIVE:
         derived_scripts = _derive_check_scripts()
     if instance_guards is _READ_INSTANCE:
@@ -661,11 +660,11 @@ def identity_downgrade(files: list, base_tier: str | None) -> bool:
     return False
 
 
-# The engine's EXECUTABLE build target (eADR-0026 engine-mechanic): the repo the engine may branch, commit, and
+# The engine's EXECUTABLE build target: the repo the engine mechanic may branch, commit, and
 # open a pull request against. This detector is deliberately INVERTED from home_repoint on the axis that matters.
 # home_repository is born-present (template-seeded, carried forward at first-run), so only a REPOINT ever happens
 # and a first recording is benign. `product_build_target` is ABSENT by default and is first written by the
-# mechanic itself LATER — so its first-set (absent -> present) IS the eADR-0011 re-classification (arming a
+# mechanic itself LATER — so its first-set (absent -> present) IS the re-classification event (arming a
 # previously-inert engine to write against an external repo) and MUST fire the ack. A repoint fires too; a
 # DELETION (present -> absent) is benign (it reverts to the safe self-building default) and is safe to skip
 # because any later re-add is itself a flagged first-set. The manifest is deliberately NOT whole-file guarded
@@ -801,7 +800,7 @@ def instance_declaration_shrink(files: list) -> tuple | None:
 
 
 # ---------------------------------------------------------------------------
-# DIRECTIONAL DETECTORS (eADR-0040): gate-shaped MODIFICATIONS of soft-tier files that escalate back to
+# DIRECTIONAL DETECTORS (the established design): gate-shaped MODIFICATIONS of soft-tier files that escalate back to
 # hard. Each is dumb by design (patch-line reading, never patch application), and FAILS CLOSED: an
 # unreadable patch, an anomalous line, or a shape it cannot cleanly classify escalates. Each returns a list
 # of (path, reason) to escalate, or None.
@@ -859,7 +858,7 @@ def check_rule_demotion(files: list) -> list | None:
 
 _WORKFLOW_RE = re.compile(r"^\.github/workflows/[^/]+\.ya?ml$")
 # Tokens whose presence on a touched workflow line marks a gate-shaped edit: the trigger (a
-# pull_request_target -> pull_request flip runs the PR's own copy of a guard — the exact defeat eADR-0011's
+# pull_request_target -> pull_request flip runs the PR's own copy of a guard — the exact defeat the established design's
 # trusted-base isolation exists to prevent), the token/permission grants, a checkout repoint at the PR head,
 # a conditional skip, and the validator invocation. A `uses:` line is judged separately by ACTION PATH so a
 # same-action version pin (the routine dependabot bump) stays soft while an action swap escalates.
@@ -950,11 +949,11 @@ def settings_gate_unwire(files: list) -> list | None:
 _BOOTSTRAP_PATH = ".engine/tools/bootstrap.py"
 # Narrowed to the ruleset-CONFIG vocabulary (the GitHub ruleset API's own field names + the frozen
 # required-check roster constant): bare "ruleset"/"protection" fired on provisioning copy in a file that is
-# entirely about branch protection (backtest, eADR-0040). Escalation-only heuristic — narrowing it trades
+# entirely about branch protection (backtest, the established design). Escalation-only heuristic — narrowing it trades
 # recall on exotic shapes for the measured noise, and removal of the file stays hard via classify().
 # The FULL field literals of the ruleset vocabulary bootstrap.py actually writes — deliberately not the
 # bare required_/require_ prefixes, which match the ordinary `self.required_checks` attribute threaded
-# through the whole class and would escalate comment-only churn (re-audit, eADR-0040). The rule-type
+# through the whole class and would escalate comment-only churn (re-audit, the established design). The rule-type
 # strings cover dropping force-push/deletion/pull-request protection rules themselves.
 _BOOTSTRAP_GATE_TOKENS = ("required_status_checks", "required_approving_review",
                           "require_code_owner_review", "required_review_thread_resolution",
@@ -993,7 +992,7 @@ def bootstrap_ruleset_edit(files: list) -> list | None:
 _DIRECTIONAL_DETECTORS = (check_rule_demotion, workflow_gate_edit, settings_gate_unwire,
                           bootstrap_ruleset_edit)
 
-# Rendering safety (eADR-0040): the disclosure is ALWAYS emitted, and its text reaches a markdown run
+# Rendering safety (the established design): the disclosure is ALWAYS emitted, and its text reaches a markdown run
 # summary and a stdout stream GitHub parses for `::` workflow commands — so every PR-controlled path is
 # passed through this conservative whitelist (the overlay-disclosure discipline: strip, never
 # backslash-escape). No colon survives, so a filename can never forge a `::notice::`/`::stop-commands::`
@@ -1227,7 +1226,7 @@ def main() -> int:
         # not clear this fail-closed block (StarshipSuperjam/engine-template#710).
         state = _resolve_ack(repo, head_sha, token, label_present)
         if state == "fresh":
-            # eADR-0040: the ack DOWNGRADES, never erases — the fail-closed record survives as a
+            # the established design: the ack DOWNGRADES, never erases — the fail-closed record survives as a
             # disclosure. (Before the tier split this path never honored the label at all, despite its
             # own message promising it would — fixed here.)
             return emit([{"severity": "soft", "location": None,
@@ -1249,7 +1248,7 @@ def main() -> int:
                       "Splitting the change into smaller pull requests also lets the check "
                       "read every file. Until then, this check blocks the merge."}])
 
-    # Tier split (eADR-0040): classify every flagged file, then let the directional detectors escalate
+    # Tier split (the established design): classify every flagged file, then let the directional detectors escalate
     # gate-shaped modifications of soft-tier files back to hard. One derivation, threaded through.
     derived = _derive_check_scripts()
     inst = _read_instance_guards()
@@ -1383,7 +1382,7 @@ def main() -> int:
         # The gate is the head-bound acknowledgment, resolved now (only reached with a hard finding present).
         state = _resolve_ack(repo, head_sha, token, label_present)
         if state == "fresh":
-            # eADR-0040: the ack DOWNGRADES a killswitch finding to a disclosure; it never erases the
+            # the established design: the ack DOWNGRADES a killswitch finding to a disclosure; it never erases the
             # record. (Before the tier split the label erased every finding.)
             findings.append({"severity": "soft", "location": None,
                              "message": "ACKNOWLEDGED (guardrail-ack applied) — kept as a record, no "

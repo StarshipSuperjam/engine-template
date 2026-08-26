@@ -17,13 +17,13 @@ The four kinds, in strict precedence order:
              exactly the predicate `sync-artifacts` uses to decide a regenerated path is legitimate, reused
              rather than restated so a routes regeneration is described as generated in both places.
   docs       reader-facing documentation, and ONLY that: `docs/` and `.engine/docs/`. Governing prose —
-             `.engine/operations/`, `.engine/contracts/`, `.engine/conduct/`, `CLAUDE.md`, the reviewer and
+             `.engine/operations/`, `.engine/policies/`, `.engine/conduct/`, `CLAUDE.md`, the reviewer and
              skill mandates — is NOT documentation. It is the text that governs how the engine behaves, so
              it classifies `authored` and is read as seriously as code.
   authored   everything else. Unmatched is authored, never a fifth silent bucket.
 
 Nothing here decides whether a round is counted, whether it should be re-reviewed, or how deeply. Those are
-the coordinator's and the orchestrator's business (eADR-0041 BC-16). This module measures and refuses; when
+the coordinator's and the orchestrator's business. This module measures and refuses; when
 it cannot measure, it raises `DivergenceError` rather than returning a defaulted or fabricated result, so a
 caller can never mistake a git failure for a quiet, empty diff.
 """

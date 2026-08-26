@@ -16,8 +16,7 @@ update.
 1. **Show what can change.** Run `uv run --directory .engine -- python tools/tune.py show <group>` for the
    group the operator cares about, and present the settings and their current values in plain words. The
    groups are `triage-threshold` (how patient the background monitoring is before it flags a recurring
-   signal), `contract-threshold` (the decision-record burst signal), and `attention` (how the engine weighs
-   what to surface first).
+   signal) and `attention` (how the engine weighs what to surface first).
 2. **Take the operator's choice** — which setting, and the new number they want.
 3. **Reassure before saving.** Tell the operator, plainly: "This won't change anything on its own — it
    prepares your change as a request you approve before it takes effect." Confirm they want to proceed.

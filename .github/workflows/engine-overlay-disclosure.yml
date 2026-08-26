@@ -1,7 +1,7 @@
 # engine-overlay-disclosure — the non-blocking, merge-time notice that a pull request changes engine files
 # the next engine update will overwrite. It posts one plain-language comment on the pull request; it NEVER
 # blocks a merge (ADVISORY — not a required check). Distinct from the guardrail-weakening acknowledgment
-# (`guardrail-ack` / `engine-guard`): see eADR-0037.
+# (`guardrail-ack` / `engine-guard`); this workflow only reports overlay loss.
 #
 # Deployed-only: the tool discloses only when this repo's update HOME differs from its own origin (an
 # upstream that will overlay it). In the self-hosting engine repo it stays silent, so it does not fire on

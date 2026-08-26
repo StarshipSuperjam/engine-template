@@ -31,8 +31,8 @@ import knowledge_gen       # noqa: E402
 import knowledge_index     # noqa: E402
 from knowledge_index import KnowledgeUnavailable  # noqa: E402
 
-EDGE_KINDS = knowledge_index.EDGE_KINDS            # the full valid edge vocabulary (incl. supersedes)
-WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS  # the cold-start default: the walk edges (all but supersedes)
+EDGE_KINDS = knowledge_index.EDGE_KINDS
+WALK_EDGE_KINDS = knowledge_index.WALK_EDGE_KINDS
 
 
 def _decode_attributes(row) -> dict:
@@ -100,9 +100,8 @@ def _neighbors(conn, entity_id: str, edge_filter=None, direction="out", depth=1)
         raise ValueError(f"direction must be out/in/both, got {direction!r}")
     if not isinstance(depth, int) or depth < 1:
         raise ValueError(f"depth must be an integer >= 1, got {depth!r}")
-    # No edge_filter == the COLD-START default: the walk edges (WALK_EDGE_KINDS — every kind but supersedes),
-    # so a focus walk never traverses supersedes. An explicit edge_filter may name ANY valid edge (EDGE_KINDS),
-    # so supersedes is a deliberate PULL via neighbors(edge_filter=["supersedes"]).
+    # No edge_filter means the cold-start default walk. An explicit filter may
+    # name any valid edge kind.
     preds = tuple(edge_filter) if edge_filter else WALK_EDGE_KINDS
     bad = [p for p in preds if p not in EDGE_KINDS]
     if bad:
@@ -138,8 +137,8 @@ def _relate(conn, id_a: str, id_b: str):
     node is expanded at most once, so the walk is O(V+E) and returns promptly even through a high-degree
     hub (module:core, in-degree ~250) — where the previous path-materializing recursive CTE enumerated
     every simple path as its own row and hung combinatorially. relate is the deliberate PULL that
-    traverses ALL edge kinds including `supersedes`: the adjacency is built from every edge row,
-    unfiltered — only the cold-start `neighbors` walk is pinned to WALK_EDGE_KINDS. Deterministic:
+    traverses all edge kinds: the adjacency is built from every edge row,
+    unfiltered. Deterministic:
     neighbours are visited in sorted id order, so among equal-length shortest paths the chosen one is
     stable. Returns None when either endpoint is unknown or the two are unconnected; [id] for
     id_a==id_b iff that entity exists."""
@@ -147,7 +146,7 @@ def _relate(conn, id_a: str, id_b: str):
         return [id_a] if _get_entity(conn, id_a) else None
     if _get_entity(conn, id_a) is None or _get_entity(conn, id_b) is None:
         return None                                    # an unknown endpoint cannot be connected
-    # Undirected adjacency, loaded once from EVERY edge row (all kinds — relate PULLs supersedes).
+    # Undirected adjacency, loaded once from every edge row.
     adjacency: dict = {}
     for src, dst in conn.execute("SELECT src_id, dst_id FROM edges"):
         adjacency.setdefault(src, set()).add(dst)
@@ -227,8 +226,7 @@ def degrade_message(source) -> str | None:
     shorthand like "live walk"/"graph") so one fault reads the same wherever the operator meets it. 'live' =
     the committed map is MISSING (benign in a fresh worktree — regenerate to restore it); 'live-corrupt' = it
     is PRESENT but could not be read (a bad write or overlay damaged it) — named distinctly because the
-    repair differs (regenerate to REPLACE the damaged file, not to create a missing one; eADR-0004 'name
-    what is reduced')."""
+    repair differs (regenerate to replace the damaged file, not to create a missing one)."""
     m = knowledge_gen._display(knowledge_gen.GRAPH_PATH)
     if source == "live":
         return (f"your committed project map ({m}) is missing, so this answer came from a map I rebuilt from "

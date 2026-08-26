@@ -598,9 +598,6 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/conduct-frontmatter.json",
             ".engine/check/conduct-shape.json",
             ".engine/check/conduct-weakening-guard.json",
-            ".engine/check/contract-frontmatter.json",
-            ".engine/check/contract-shape.json",
-            ".engine/check/contract-threshold.json",
             ".engine/check/doc-frontmatter.json",
             ".engine/check/doc-shape.json",
             ".engine/check/engine-manifest.json",
@@ -622,7 +619,6 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/module-catalog-drift.json",
             ".engine/check/module-manifest.json",
             ".engine/check/module-surfaces-drift.json",
-            ".engine/check/ontology-authority-reservation.json",
             ".engine/check/operation-frontmatter.json",
             ".engine/check/operation-shape.json",
             ".engine/check/operator-guarded-paths.json",
@@ -650,7 +646,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/template-shape-spec.json",
             ".engine/check/untracked-surface.json",
             ".engine/check/uv-group-drift.json",
-        ], "validators-core owns exactly the 72 corpus rules")
+        ], "validators-core owns exactly the remaining corpus rules")
         # the optional-module-owned DOMAIN checks: dependency-discipline inspects the product's dependencies,
         # not the engine — outside both core's guards and validators-core's self-validation corpus.
         dd_checks = optional_owner("dependency-discipline", [
@@ -964,56 +960,6 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
                           "ordinary committed engine files are still inventoried (only the namespace is excluded)")
         finally:
             validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
-
-    def test_inventory_prunes_the_deployment_eADR_stream_but_keeps_the_engine_canon(self):
-        # #410: the deployment's per-instance eADR stream `.engine/contracts/instance/`
-        # holds COMMITTED decision records a deployment authors — in no module's `provides`, preserved across an
-        # engine overlay. The ownership inventory must skip that subtree, or every real deployment eADR reports as
-        # an unowned orphan in a deployed repo (the exact false-orphan class #410 fixes for `.engine/boot/`).
-        # test_real_repository_is_coherent only proves the SEED README does not orphan; this is the DETERMINISTIC
-        # guard that a real, non-README deployment eADR under instance/ is pruned, while the engine's own eADR
-        # CANON directly in `.engine/contracts/` stays inventoried (it rides core's non-recursive glob).
-        #
-        # The load-bearing half is the SECOND assertion: the prune is anchored on the exact path
-        # `.engine/contracts/instance`, NOT the bare name `instance`, so a same-named directory ANYWHERE ELSE
-        # (e.g. `.engine/tools/instance/`) stays ownership-checked. A bare-name `"instance"` prune would silently
-        # un-own it — this test goes red if a future change weakens the path-anchor or drops DEPLOYMENT_CONTRACTS.
-        saved_root, saved_engine = validate.ROOT, validate.ENGINE_DIR
-        try:
-            with tempfile.TemporaryDirectory() as d:
-                engine = os.path.join(d, ".engine")
-                stream = os.path.join(engine, "contracts", "instance")   # deployment stream -> must prune
-                canon = os.path.join(engine, "contracts")                # engine canon home -> keep
-                lookalike = os.path.join(engine, "tools", "instance")    # same name, other path -> keep
-                for sub in (stream, canon, lookalike):
-                    os.makedirs(sub, exist_ok=True)
-                open(os.path.join(stream, "eADR-9001-picked-postgres.md"), "w").close()
-                open(os.path.join(canon, "eADR-0001-versioned-template.md"), "w").close()
-                open(os.path.join(lookalike, "real.py"), "w").close()
-                validate.ROOT, validate.ENGINE_DIR = d, engine
-                inv = module_coherence.engine_file_inventory()
-            self.assertNotIn(".engine/contracts/instance/eADR-9001-picked-postgres.md", inv,
-                             "the deployment's committed per-instance eADR stream must be pruned")
-            self.assertIn(".engine/contracts/eADR-0001-versioned-template.md", inv,
-                          "the engine's own eADR canon directly in .engine/contracts/ must stay owned")
-            self.assertIn(".engine/tools/instance/real.py", inv,
-                          "a same-named directory elsewhere must stay owned (the path-anchor gotcha — a "
-                          "bare-name 'instance' prune would drop it)")
-        finally:
-            validate.ROOT, validate.ENGINE_DIR = saved_root, saved_engine
-
-    def test_a_deployment_eADR_home_draws_no_engine_codeowners_but_the_canon_does(self):
-        # #410: the point of the deployment home is that a deployment's OWN decision records route to the
-        # deployment, not engine review — so nothing under .engine/contracts/instance/ may acquire an engine
-        # CODEOWNERS line (it is off core's non-recursive .engine/contracts/*.md glob), while the engine's own
-        # eADR canon directly in .engine/contracts/ IS engine-owned. Real-tree correlate of the operator demo:
-        # the seed README lives under instance/ and must be absent from the owned set.
-        owned = module_coherence.codeowners_path_set()
-        instance_owned = [p for p in owned if p.startswith(".engine/contracts/instance/")]
-        self.assertEqual(instance_owned, [], "nothing under the deployment eADR home draws an engine CODEOWNERS line")
-        canon_owned = [p for p in owned if p.startswith(".engine/contracts/")
-                       and "/instance/" not in p and p.endswith(".md")]
-        self.assertTrue(canon_owned, "the engine's own eADR canon in .engine/contracts/ must stay engine-owned")
 
     def test_real_repository_is_wiring_coherent_and_approval_blind(self):
         # The committed tree's declared wires are ALL applied -> the forward wiring leg is silent.

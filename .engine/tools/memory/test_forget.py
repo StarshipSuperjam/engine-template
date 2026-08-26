@@ -84,7 +84,7 @@ class LiveRecordsTests(_Base):
         self.assertEqual(len(self._live_episodics()), 1)
 
     def test_genuine_turns_are_recall_content_and_markers_pass_through(self):
-        # The conversation IS the canonical record (eADR-0038), so a genuine turn-delta is recall content. This
+        # The conversation IS the canonical record (the established design), so a genuine turn-delta is recall content. This
         # DELIBERATELY inverts the earlier verdict, which excluded the whole kind because verbatim raw crowded
         # paraphrased summaries out of recall; the answer now is that the summaries are the disposable layer.
         # The structural `consolidated` marker still passes through (it carries no recall text, so it never

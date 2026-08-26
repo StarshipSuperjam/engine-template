@@ -197,7 +197,7 @@ def _proposal_for_publish(baseline=None, baseline_tree=None, target=None, produc
 
 def _release_notes(tag: str, proposal=None) -> str:
     """The published Release's notes. A DERIVED VIEW of the same signals the release PR body renders — one
-    source (the proposal recomputed from the MERGED tree), never a second history store (eADR-0014). Because
+    source (the proposal recomputed from the MERGED tree), never a second history store (the established design). Because
     it is recomputed from the merged tree it describes what actually shipped and can legitimately differ from
     the cut-time PR body if `main` moved between the cut and the merge. `proposal` None (the best-effort
     fallback when the recompute could not run) degrades to the minimal version + readiness line. This renderer

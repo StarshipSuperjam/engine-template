@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for mechanic_build — the engine-mechanic cross-repo build preflight (eADR-0026), the GUARDED,
+"""Tests for mechanic_build — the engine-mechanic cross-repo build preflight (the established design), the GUARDED,
 fail-closed gate behind a live cross-repo write.
 
 Lock the behaviours a non-engineer cannot read code to verify, and that the guardrail-ack protects:

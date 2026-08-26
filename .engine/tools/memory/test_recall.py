@@ -472,7 +472,7 @@ class SessionCardTests(_CabinetBase):
 
 class ReadOnlyTests(_CabinetBase):
     def test_reading_a_window_appends_nothing(self):
-        # eADR-0038: a search writes nothing on a read. The same must hold for a window.
+        # the established design: a search writes nothing on a read. The same must hold for a window.
         self._write(*[_rec("s1", i, "user", f"turn-{i}") for i in range(3)])
         before = open(self.cabinet, "rb").read()
         recall.window("s1", path=self.cabinet)

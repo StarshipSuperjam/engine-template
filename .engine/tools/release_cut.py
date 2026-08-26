@@ -16,8 +16,8 @@ Two subcommands, split so consent attaches to a proposal the writer cannot silen
              `home_repository` coordinate — the same source the updater fetches from, so producer
              and consumer agree on what "a release" is), diff since it, and author:
                * the mechanical bump FLOOR: a module ADDED => engine >= minor;
-                 a module REMOVED => engine >= major; a new `migrations` entry in a package => that
-                 package >= minor; the engine version = the MAX implied bump;
+                 a module REMOVED => engine >= major; a new `migrations` entry in a package moves
+                 that package at least a patch; the engine version = the MAX implied bump;
                * a plain-language CHANGE INVENTORY (what changed since the last release), so the
                  maintainer can catch a wrong floor or a missing signal;
                * where a contract/seam/interface/wiring surface changed, an AI-authored plain-language
@@ -90,7 +90,7 @@ MODULE_SCHEMA = os.path.join(validate.SCHEMAS_DIR, "module.v1.json")
 # The change-inventory line classify() adds when NOTHING structural fired — a caveat, not a per-item signal,
 # so the renderers exclude it when listing the structural signals beside the merged-PR list (one home for the
 # string, referenced in both places).
-_NO_STRUCTURAL_SIGNAL_NOTE = ("No module added or removed and no contract surface added or removed since the "
+_NO_STRUCTURAL_SIGNAL_NOTE = ("No module added or removed and no interface surface added or removed since the "
                               "last release — so the diff proves NO mechanical compatibility floor. This does "
                               "NOT mean 'at most a patch': the version is whatever the merged pull requests "
                               "declared (a behaviour change carries its impact there, not in the structure).")
@@ -139,7 +139,7 @@ def _strictly_greater(new: str, cur: str) -> bool:
 # --------------------------------------------------------------------------- product-release mode (StarshipSuperjam/engine-template#516)
 # Once the engine is DEPLOYED, this same machinery cuts the deployed repo's OWN product release instead of the
 # engine's version: the version is read from (and written to) a product-owned `product-version.json` at the
-# repository ROOT (product territory, eADR-0007 — so it survives an engine uninstall), the baseline is the
+# repository ROOT (product territory, the established design — so it survives an engine uninstall), the baseline is the
 # deployed repo's own last release, and the tag + GitHub Release publish into the deployed repo itself
 # (release_terminal already targets GITHUB_REPOSITORY). The CONSTRUCTION repo (where the engine IS the product)
 # keeps cutting the engine version, unchanged. A deployment inherits a working release system instead of
@@ -267,7 +267,7 @@ def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
 # touch none of them. So the notes ALSO carry the plain list of pull requests merged since the last release —
 # the actual body of work — from GitHub's own generator, which lists them independently of the merge strategy
 # (merge / squash / rebase), so it holds in a generated repo too. This is a derived view of the pull requests
-# themselves (the one history store, eADR-0014), never a second store.
+# themselves (the one history store, the established design), never a second store.
 _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
 # A looser signature: ANY line that carries a `…/pull/N` link plainly names a merged pull request (capturing N).
 # The version-authority enumerator uses it to detect a line that names a PR whose number was NOT counted into the
@@ -1045,10 +1045,7 @@ def classify(baseline: Baseline, baseline_tree: str | None) -> dict:
         # A newly-announced retired capability floors its module minor too — it is an operator-visible removal.
         # This RAISES the floor; it never certifies severity: a breaking removal must still carry its own
         # major/impact signal (a whole-module removal already floors major above). Combine with any migration
-        # floor by taking the higher version so a second writer never clobbers the first. TODAY both compute the
-        # SAME minor bump of this manifest's version, so the max is a formality — but structuring it as a combine
-        # (not a bare re-assign) keeps the floor correct the day one side gains a different bump level, instead of
-        # silently clobbering it (design-review).
+        # floor by taking the higher version so a second writer never clobbers the first.
         new_rets = set((man.get("retired_capabilities") or {}).keys())
         old_rets = set((old.get("retired_capabilities") or {}).keys())
         if new_rets - old_rets:
@@ -1157,16 +1154,14 @@ def _product_proposal(baseline: Baseline, current_version: str, merged_prs: list
 
 
 # --------------------------------------------------------------------------- impact statements
-_CONTRACT_GLOBS = (
-    os.path.join(".engine", "contracts"),        # eADR contracts
-    os.path.join(".engine", "interfaces"),        # interface surfaces
+_INTERFACE_DIRS = (
+    os.path.join(".engine", "interfaces"),
 )
 
 
 # A removed↔added surface pair this similar (by LINE similarity) reads as a RENAME. Set HIGH (0.85, not git's
 # 0.5) deliberately: a genuine rename keeps NEAR-IDENTICAL content, whereas two UNRELATED files that merely share
-# heavy structural boilerplate — this repo's own eADRs share ~10 identical frontmatter/heading lines and score
-# 0.77 line-similarity between unrelated decisions (a QA re-audit reproduced this) — must NOT pair, or a genuine
+# heavy structural boilerplate in unrelated records can otherwise score highly — must not pair, or a genuine
 # breaking removal would be masked as a rename and lose its major floor. The bias is SAFETY: when content
 # similarity is ambiguous, DON'T pair, so the removal keeps its major floor (over-flagging major is safe;
 # masking a removal is not). A rename that also substantially rewrites content falls below the bar and is treated
@@ -1177,7 +1172,7 @@ _RENAME_SIMILARITY = 0.85
 def _rename_lines(raw: bytes) -> list:
     """A surface's content as a list of LINES for rename similarity. Line-level (not byte-level) matches git's
     own rename detection AND resists the boilerplate-collision false positive a QA review reproduced: two
-    unrelated contract files that merely share a Status/Context/Decision header collide at ~0.76 BYTE similarity
+    unrelated files that merely share a structural header collide at high byte similarity
     (short files, header bytes dominate) but only ~0.25 LINE similarity (the shared header is a few lines out of
     many). It is also markedly cheaper — comparing ~N lines, not ~5000 bytes, per file pair."""
     return (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)).splitlines()
@@ -1186,7 +1181,7 @@ def _rename_lines(raw: bytes) -> list:
 def _pair_renames(removed: dict, added: dict) -> dict:
     """Pair each removed surface with the most similar added surface above _RENAME_SIMILARITY — the in-process
     equivalent of git's rename detection (difflib LINE similarity, like git itself), so a renamed or relocated
-    contract file is recognised as a rename rather than a remove+add. Returns {removed_name: added_name} for the
+    interface file is recognised as a rename rather than a remove+add. Returns {removed_name: added_name} for the
     detected renames (each added surface used at most once, best match first). Kept dependency-free and working
     on the fetched-tree byte maps _dir_bytes already produced (git --no-index would need both trees on disk in a
     repo; this does not). LINE-level, not byte-level, to resist boilerplate-collision false positives (QA)."""
@@ -1211,7 +1206,7 @@ def _pair_renames(removed: dict, added: dict) -> dict:
 
 
 def _impact_statements(baseline_tree: str) -> list[dict]:
-    """For each contract/interface surface that differs between the baseline tree and the live tree, an
+    """For each interface surface that differs between the baseline tree and the live tree, an
     AI-authored plain-language impact statement, tagged with the compatibility floor the STRUCTURE can PROVE —
     and only where it genuinely can (StarshipSuperjam/engine-template#942):
 
@@ -1229,7 +1224,7 @@ def _impact_statements(baseline_tree: str) -> list[dict]:
     demo = ("none — no behavioral correlate is available for this signal, so this rests on the impact statement "
             "and your confirmation; the release is consciously sub-bar on this signal, named here.")
     out: list[dict] = []
-    for sub in _CONTRACT_GLOBS:
+    for sub in _INTERFACE_DIRS:
         live = _dir_bytes(os.path.join(validate.ROOT, sub))
         base = _dir_bytes(os.path.join(baseline_tree, sub))
         changed = {n for n in set(live) | set(base) if live.get(n) != base.get(n)}
@@ -1239,21 +1234,21 @@ def _impact_statements(baseline_tree: str) -> list[dict]:
         renamed_added = set(renames.values())
         for name in sorted(changed):
             if name in renames:                          # the removed half of a rename pair
-                what, level = (f"the contract surface '{name}' was renamed/relocated to "
+                what, level = (f"the interface surface '{name}' was renamed/relocated to "
                                f"'{renames[name]}'"), "unknown"
                 why = ("a rename/relocation is not a removal — the surface persists, so this is tech-debt "
                        "evolution; the declared release impact governs. Review the move against consumers.")
             elif name in renamed_added:                  # the added half of a rename pair — reported by its old name
                 continue
             elif name in added:
-                what, level = f"a new contract surface '{name}' was added", "minor"
+                what, level = f"a new interface surface '{name}' was added", "minor"
                 why = "new surfaces are additive — nothing existing depended on it yet."
             elif name in removed:
-                what, level = f"the contract surface '{name}' was removed", "major"
+                what, level = f"the interface surface '{name}' was removed", "major"
                 why = "removing a surface other parts may depend on is a breaking change."
             else:
-                what, level = f"the contract surface '{name}' changed in place", "unknown"
-                why = ("a changed contract can be additive or breaking depending on its consumers — a byte diff "
+                what, level = f"the interface surface '{name}' changed in place", "unknown"
+                why = ("a changed interface can be additive or breaking depending on its consumers — a byte diff "
                        "cannot prove which, so the declared release impact governs; read the change against them.")
             out.append({
                 "surface": os.path.join(sub, name),
@@ -1267,8 +1262,8 @@ def _impact_statements(baseline_tree: str) -> list[dict]:
 
 def _dir_bytes(d: str) -> dict:
     """relative-path -> raw bytes for every file ANYWHERE under `d`, recursively (empty when the dir is
-    absent). Recursive so a contract/interface surface in a subdirectory (e.g. `contracts/instance/…`) is
-    diffed too — a non-recursive read silently skipped an entire subtree, so a nested surface added, changed,
+    absent). Recursive so an interface surface in a subdirectory is diffed too — a non-recursive read
+    silently skipped an entire subtree, so a nested surface added, changed,
     or removed produced no impact statement and no floor signal."""
     out = {}
     if not os.path.isdir(d):
@@ -1638,18 +1633,16 @@ def _render_proposal(p: dict) -> str:
 def change_summary(proposal: dict) -> list:
     """The plain-language "what changed since the last release" list that JUSTIFIES the version — the
     single derived view rendered into BOTH the release pull-request body and the published GitHub Release
-    notes. One renderer over one proposal, never a second history store (eADR-0014): history routes to the
+    notes. One renderer over one proposal, never a second history store (the established design): history routes to the
     pull-request body and, as a derived view of the same signals, the Release notes.
 
     It merges the structural change inventory (a capability added or removed, a new migration) with a
-    one-line surface note for each CHANGED contract/interface — because a contract-only release carries no
-    structural inventory line, so without the impact surfaces the "what changed" list would read empty even
-    though a changed contract is exactly what forced the bump. The detail on each impact (why it may be
+    one-line surface note for each changed interface. The detail on each impact (why it may be
     breaking) is rendered separately in the pull-request Risk section; this is the summary line."""
     lines = list(proposal.get("change_inventory") or [])
     for im in proposal.get("impacts") or []:
         what = im.get("what")
-        if what:                       # e.g. "the contract surface 'X' changed" -> "The contract surface 'X' changed."
+        if what:
             lines.append(_cap(what) + ".")
     return lines
 
@@ -1711,7 +1704,7 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     unavailable), and an "Interface changes to read" section carrying each changed contract/interface WITH
     its plain-language description. It is a derived VIEW of the same signals the
     release pull-request body renders (one source — the proposal recomputed at publish — never a second
-    history store, eADR-0014); it does not restate the version-by-version manifest table (that is the pull
+    history store, the established design); it does not restate the version-by-version manifest table (that is the pull
     request's job), it tells a reader of the published release what changed and why it matters. A None/empty
     proposal (the best-effort fallback when the publish-time recompute could not run) degrades to the version
     + readiness line alone. Maintainer register: 'engine version vX.Y.Z', no internal vocabulary."""
@@ -1750,7 +1743,7 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     if impacts:
         out += ["", "## Interface changes to read", ""]
         for im in impacts:
-            what = _cap(im.get("what")) or "A contract surface changed"
+            what = _cap(im.get("what")) or "An interface surface changed"
             why = _cap(im.get("why"))          # its own sentence after the bold heading — capitalized, not a run-on
             out.append(f"- **{what}.**" + (f" {why}" if why else ""))
     return "\n".join(out)
@@ -2036,7 +2029,7 @@ def render_pr_body(proposal: dict, applied: dict, gate_state: str = "sub-bar",
                         f"against its consumers before merging.")
         # Same polished rendering as the published Release notes — a bold heading, then the description as its
         # own sentence — so the consent surface the maintainer reads FIRST is no rougher than the Release body.
-        risk += [f"- **{_cap(im.get('what')) or 'A contract surface changed'}.**"
+        risk += [f"- **{_cap(im.get('what')) or 'An interface surface changed'}.**"
                  + (f" {_cap(im.get('why'))}" if im.get("why") else "") for im in impacts]
     elif product:
         risk.append("- The summary can only show what it detects mechanically — the list of merged pull "
@@ -2276,8 +2269,8 @@ def _cmd_propose(args) -> int:
                             "capabilities guaranteed present on every deployment.")
         if lref_viol:
             recovery.append("For each flagged line, name the capability the reference means instead of the bare "
-                            "identifier, or move it to a form that travels — an engine eADR-#### record, or a "
-                            "fully-qualified owner/repo#N — so a reader of a generated repository is not left with "
+                            "identifier, or replace it with a capability name or a fully-qualified owner/repo#N, "
+                            "so a reader of a generated repository is not left with "
                             "a pointer to nothing.")
         violations = mig_viol + ret_viol + rem_viol + dep_viol + don_viol + lref_viol
         reasons = []

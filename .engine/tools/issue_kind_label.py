@@ -10,7 +10,7 @@ WHAT THIS IS. Two jobs on every Issue `opened` or `edited`:
      projected FROM that canonical kind (issue_kind.native_label_for_kind — the single source of truth); for a
      human/legacy Issue with no marker it falls back to parsing the title's prose prefix (native_label_for_title,
      a deliberately WIDER legacy vocabulary that also reads `Docs`/`Question`). It maps only onto the four labels
-     GitHub already ships (eADR-0021: the ban is on new labels, not the natives); it mints NOTHING.
+     GitHub already ships (the established design: the ban is on new labels, not the natives); it mints NOTHING.
 
   2. TITLE (engine-authored, marker-carrying Issues only — StarshipSuperjam/engine-template#937). Repair the
      title's `Kind:` prefix to match the authoritative marker, so a missing / invented / stale prefix

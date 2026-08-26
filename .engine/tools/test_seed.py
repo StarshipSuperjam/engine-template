@@ -566,7 +566,7 @@ class TestWeakeningClassifier(unittest.TestCase):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
     def test_mechanic_build_gate_is_floored(self):
-        # The engine-mechanic cross-repo-write gate (eADR-0026): its fail-closed, host-anchored belt authorizes
+        # The engine-mechanic cross-repo-write gate (the established design): its fail-closed, host-anchored belt authorizes
         # running a SEPARATE checkout's own tools and opening a PR against it — a live runtime gate with NO
         # on-disk floored correlate, so it MUST route through the guardrail-ack. Pinned so a future edit that drops
         # it from _FLOOR_ENFORCEMENT_HOOKS is caught here. Its checkout_health readers stay UNGUARDED (fail-soft
@@ -696,7 +696,7 @@ def _write_check_json(path, obj):
 
 
 class TestWeakeningTiers(unittest.TestCase):
-    """The eADR-0040 tier machinery: classify() and the four directional detectors. The hard criterion is
+    """The established design tier machinery: classify() and the four directional detectors. The hard criterion is
     a property (a weakening with no mechanical correlate and no readable diff, plus the guard's own
     machinery); everything else guarded discloses. Fail-safe direction: unclassifiable input resolves HARD."""
 
@@ -1008,15 +1008,6 @@ class TestSchemaGateGuardCoverage(unittest.TestCase):
                             "_FLOOR_GATE_SCHEMAS in weakening_guard.py")
         self.assertEqual(gates, set(weakening_guard._FLOOR_GATE_SCHEMAS),
                          "the floored gate-schema set has drifted from the live check rules")
-
-    def test_contract_schema_is_a_guarded_gate(self):
-        # Ground the detector against the real #467 subject so it can't pass vacuously: contract.v1.json is the
-        # teeth of contract-frontmatter (hard, CI), so its loosening is held — modify flagged, add is not.
-        self.assertTrue(weakening_guard.is_guardrail(".engine/schemas/contract.v1.json", derived_scripts=frozenset()))
-        self.assertTrue(weakening_guard.flagged_changes(
-            [{"filename": ".engine/schemas/contract.v1.json", "status": "modified"}], derived_scripts=frozenset()))
-        self.assertEqual(weakening_guard.flagged_changes(
-            [{"filename": ".engine/schemas/contract.v1.json", "status": "added"}], derived_scripts=frozenset()), [])
 
     def test_output_contract_schema_is_not_guarded(self):
         # The precise-floor choice: a schema that backs only a fixture unit test (an agent/tool OUTPUT contract),
@@ -1388,8 +1379,8 @@ class TestDemonstrationSectionRequired(unittest.TestCase):
 class TestEmptinessLabelScope(unittest.TestCase):
     """The emptiness leg's Impact-awareness is scoped to the enforced label and off by
     default. With NO label its behaviour is byte-identical to before this change, so the
-    other presence consumer (contract-threshold) and any real `Word: <token>` content are
-    untouched. With the `Impact` label, the Impact line is excluded from the content count
+    other presence consumers and any real `Word: <token>` content are untouched.
+    With the `Impact` label, the Impact line is excluded from the content count
     (judged by its own fill leg instead), so a section still needs real summary/bullet
     content AND a filled Impact line."""
 
@@ -1397,7 +1388,7 @@ class TestEmptinessLabelScope(unittest.TestCase):
         # regression: a Markdown autolink or ref after a label is REAL content, never a slot
         self.assertFalse(validate.is_empty_section("See: <https://example.com/wiki>"))
         self.assertFalse(validate.is_empty_section("Ref: <ticket-123>"))
-        # contract-threshold uses no label — a Significance slot stays exactly as before
+        # Without a label, an ordinary labelled slot stays exactly as before.
         self.assertFalse(validate.is_empty_section("*Significance: <fill me>*"))
         # a bare token is still empty, with or without a label (unchanged)
         self.assertTrue(validate.is_empty_section("<why this exists>"))
@@ -1483,7 +1474,7 @@ class TestImpactFillEnforcement(unittest.TestCase):
 
     def test_param_absent_skips_the_leg(self):
         # COMPLETENESS_RULE sets no label; a filled-but-Impact-missing body still passes,
-        # proving the leg is strictly gated (this is what keeps contract-threshold safe)
+        # proving the leg is strictly gated
         body = "\n".join(f"## {s}\n**Real summary**\n- a real bullet" for s in SECTIONS)
         passed, found = validate.kind_presence(COMPLETENESS_RULE, {"pr_body": body})
         self.assertTrue(passed)
@@ -2185,7 +2176,7 @@ class TestProtectionReHome(unittest.TestCase):
 
 class TestWeakeningReHome(unittest.TestCase):
     """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract
-    (two tiers, eADR-0040): [] when nothing weakens; one HARD finding (carrying the
+    (two tiers, the established design): [] when nothing weakens; one HARD finding (carrying the
     plain-language ack guidance) on an unacknowledged killswitch-tier change, DOWNGRADED
     to a soft ACKNOWLEDGED record when the ack label is present (never erased); one SOFT
     disclosure finding whenever disclosure-tier enforcement files are modified (the ack
@@ -2271,7 +2262,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(out, [])
 
     def test_soft_tier_modification_is_one_soft_disclosure(self):
-        # validate.py is DISCLOSURE tier (eADR-0040): the check passes, the notice still names the file
+        # validate.py is DISCLOSURE tier (the established design): the check passes, the notice still names the file
         # and says plainly it needs no action.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
@@ -2303,7 +2294,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("guardrail-ack", out[0]["message"])
 
     def test_ack_label_downgrades_hard_to_disclosure_never_erases(self):
-        # eADR-0040 + #710: the head-bound ack (engine-ack success on this head) DOWNGRADES the killswitch
+        # the established design + #710: the head-bound ack (engine-ack success on this head) DOWNGRADES the killswitch
         # finding to a soft ACKNOWLEDGED record.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
@@ -2963,7 +2954,7 @@ class TestWeakeningReHome(unittest.TestCase):
 
     def test_pr_controlled_values_are_sanitized_in_findings(self):
         # a crafted filename and a crafted repoint value must not carry markdown/workflow-command
-        # metacharacters into any rendered finding (the eADR-0040 sanitization guarantee).
+        # metacharacters into any rendered finding (the established design sanitization guarantee).
         # under the guarded .engine/check/ prefix, so the crafted name genuinely enters the rendered
         # listing (a non-guarded evil name never reaches _listing at all — re-audit).
         evil_file = {"filename": ".engine/check/foo.json`[x](https://e)::stop-commands::",

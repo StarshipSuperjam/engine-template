@@ -74,7 +74,7 @@ _RECOGNISED_PREFIXES = frozenset(_CANONICAL_BY_LOWER) | {
 
 # The GitHub-native label each canonical kind projects to — a SECONDARY projection OF the canonical kind (the
 # kind is the source of truth, never the label). Maps onto only the four labels GitHub ships in every repo
-# (eADR-0021: mint nothing). Maintenance and Removal have no fitting native label → None (no label applied),
+# (the established design: mint nothing). Maintenance and Removal have no fitting native label → None (no label applied),
 # matching the legacy applicator's own None for them.
 _NATIVE_BY_KIND = {
     "Feature": "enhancement",
@@ -239,7 +239,7 @@ def _demo() -> int:
     check("parse_kind fail-closed on a non-enum last marker", parse_kind("<!-- engine-kind: bogus -->") is None)
     check("parse_kind None when absent", parse_kind("no marker here") is None)
 
-    # 6. native projection is a secondary view of the kind (eADR-0021: only the four natives; None for two).
+    # 6. native projection is a secondary view of the kind (the established design: only the four natives; None for two).
     check("native_label_for_kind: Fix->bug, Feature->enhancement, Maintenance->None, Removal->None",
           native_label_for_kind("Fix") == "bug" and native_label_for_kind("Feature") == "enhancement"
           and native_label_for_kind("Maintenance") is None and native_label_for_kind("Removal") is None)
