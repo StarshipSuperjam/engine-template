@@ -34,7 +34,12 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
                                  honest no-spec disclosure — rendered by spec_referent, never here
   review_coverage     str        depth and the passes that ran, rendered from coordinator evidence
   code_execution_line str        the code-execution disclosure (BO-41), computed from the review receipts
-  plan_finding_lines  [str]      the sealed plan review's findings and dispositions, verbatim
+  plan_finding_lines  [str]      the sealed plan review's OUTCOME as an account: findings the
+                                 operator must still weigh rendered in full, the settled remainder
+                                 counted. Not a per-finding transcript (#1083).
+  qa_finding_split    {}         which Build findings render in full (`full_ids`) and the counted
+                                 remainder, per stage. The claim still carries a summary for EVERY
+                                 finding; this only decides which of them reach the body.
   consent_lines       [str]      the operator's recorded decision at each plan consent gate, verbatim
   obligation_lines    [str]      the sealed plan's carried obligations — each with its state and, for a
                                  release, the reason — read from the plan record, never from Build state
@@ -314,11 +319,26 @@ def compose(claim: dict, evidence: dict) -> str:
         review_body.append("- **Operator decisions at this plan's consent gates**, in their own words. "
                            "Recorded by the session, not independently proven.")
         review_body += [f"  {cl}" for cl in evidence["consent_lines"]]
-    for fs in rev["finding_summaries"]:
+    # Consequence earns wordage. The claim carries an operator-safe summary for every finding and the
+    # handoff keeps them all; what reaches the merge surface is what the operator must still act on or
+    # ever disagreed over. A body that transcribes every row buries the two findings that mattered
+    # among the seventy that did not, and on #1080 it could not be published at all.
+    split = evidence.get("qa_finding_split") or {}
+    full_ids = split.get("full_ids")
+    shown = ([fs for fs in rev["finding_summaries"] if fs["id"] in set(full_ids)]
+             if full_ids is not None else rev["finding_summaries"])
+    for fs in shown:
         line = f"- **Finding `{fs['id']}`.** {fs['operator_summary']}"
         if fs.get("public_reference"):
             line += f" ({fs['public_reference']})"
         review_body.append(line)
+    if split.get("counted_total"):
+        per_stage = "; ".join(f"{s['count']} in {stage} ({s['severities']})"
+                              for stage, s in split["counted_by_stage"].items())
+        review_body.append(
+            f"- **The rest of the review record.** A further {split['counted_total']} finding(s) were "
+            f"raised and settled without leaving anything outstanding — {per_stage}. Each is recorded "
+            f"in full in this Build's own evidence, which travels with the handoff.")
     for dl in evidence.get("disagreement_lines", []):
         review_body.append(dl)
     # Post-approval assumption resolutions the operator must meet at merge: a premise authored 'unresolved'
