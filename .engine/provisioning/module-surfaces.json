@@ -897,6 +897,9 @@
   ".engine/contracts/eADR-0044-plan-coordinator-local-library.md": [
    "core"
   ],
+  ".engine/contracts/eADR-0045-context-control-boundaries.md": [
+   "core"
+  ],
   ".engine/docs/ci-assurance.md": [
    "core"
   ],
@@ -1519,6 +1522,9 @@
    "core"
   ],
   ".engine/tools/demo_ci_author_exempt.py": [
+   "core"
+  ],
+  ".engine/tools/demo_context_control.py": [
    "core"
   ],
   ".engine/tools/demo_contract_rate.py": [
@@ -2293,6 +2299,9 @@
    "core"
   ],
   ".engine/tools/test_conformance_sweep.py": [
+   "core"
+  ],
+  ".engine/tools/test_context_control_end_to_end.py": [
    "core"
   ],
   ".engine/tools/test_contract.py": [
