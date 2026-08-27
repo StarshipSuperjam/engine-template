@@ -6154,20 +6154,29 @@ def main(argv: list) -> int:
                 # the binding is gone at the moment it mattered. A limit that can be talked past is not a
                 # limit, so a FRESH apply must carry the handle from the plan that was read.
                 #
-                # Finishing is different, and the warrant is MECHANICAL, not editorial. An earlier
-                # version of this comment justified the exception by where the documentation points --
-                # which any later session defeats by editing the documentation, so it was no warrant at
-                # all. The load-bearing fact is this: while a durable recovery transaction is active,
-                # `upgrade_preview` refuses with `transaction-incomplete`, so `transaction.py plan
-                # engine-upgrade` CANNOT mint a handle -- while `upgrade --confirm` still works, because
-                # `upgrade()` recovers that transaction first. Requiring a handle would therefore make
-                # that operator's only route out unreachable. That is the whole of the justification, and
-                # it is narrower than the "plan can't mint a handle for a staged tree" claim recorded
-                # before it: tree dirtiness alone does NOT stop a plan.
+                # Finishing is different. The warrant, stated at the width the code actually supports —
+                # narrower than either of the two I recorded before it, both of which were too wide.
                 #
-                # What binds the exception is the marker's RECORDED target: finishing applies exactly the
-                # release that was staged, never whatever the home publishes now. Without a recorded
-                # target there is nothing to bind to, so this refuses rather than resolving afresh.
+                # This door is gated on `staged_upgrade_announced()`: the marker, plus a dirty tree. Two
+                # kinds of interrupted update reach it, and they are justified differently.
+                #
+                #  * An update carrying tracked-content migration targets opens a durable recovery
+                #    transaction (`if tracked_preflight["targets"]`, above `mark_upgrade_staged`). While
+                #    that transaction is active `upgrade_preview` refuses with `transaction-incomplete`,
+                #    so `transaction.py plan engine-upgrade` CANNOT mint a handle — while this command
+                #    still works, because `upgrade()` recovers the transaction first. Requiring a handle
+                #    would make that operator's only route out unreachable. THIS rests on the transaction
+                #    being opened before the marker is written; `test_module_manager` pins that order.
+                #
+                #  * An update with no tracked targets opens no transaction, yet `mark_upgrade_staged`
+                #    runs unconditionally before the overlay. So the marker is set, no transaction
+                #    exists, and `plan` CAN mint a handle. For that operator the exception is not
+                #    necessary — it is merely harmless, because what it permits is bounded below.
+                #
+                # What bounds both: the exception applies the release the marker RECORDED, so it can only
+                # ever re-apply something already consented to, never substitute a different one. Tree
+                # dirtiness alone does not stop a plan; an earlier version of this comment claimed it did
+                # and was wrong.
                 staged = staged_upgrade_detail() if staged_upgrade_announced() else {}
                 resume_ref = staged.get("target_ref")
                 if not resume_ref:

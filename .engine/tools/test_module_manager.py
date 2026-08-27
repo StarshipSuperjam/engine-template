@@ -5081,3 +5081,30 @@ class TestStagedUpgradeIsAnnouncedNotInferred(unittest.TestCase):
     def test_clearing_is_idempotent_and_never_raises(self):
         module_manager.clear_upgrade_staged()
         module_manager.clear_upgrade_staged()
+
+
+class TestTheStagedMarkerIsWrittenAfterTheRecoveryTransaction(unittest.TestCase):
+    """Pins the order the no-handle consent exception's warrant rests on.
+
+    That exception is open when the staged-update marker is set. Its justification, for the case that
+    genuinely needs it, is that a durable recovery transaction is already active — which makes
+    `upgrade_preview` refuse with `transaction-incomplete`, so a plan cannot mint a handle, while
+    `upgrade --confirm` still works because `upgrade()` recovers the transaction first. That holds only
+    because `begin_upgrade_transaction` runs BEFORE `mark_upgrade_staged`. Reorder them and the warrant
+    quietly stops being true with nothing going red — a reviewer's point, and the reason this exists.
+
+    Deliberately a source-order check rather than a behavioural one: the ordering is the property, both
+    calls sit inside a long upgrade body that cannot be driven in this repository (no release to fetch),
+    and an ordering that only holds by luck is exactly what this is guarding.
+    """
+
+    def test_the_transaction_is_opened_before_the_marker_is_written(self):
+        import inspect as _inspect
+        source = _inspect.getsource(module_manager.upgrade)
+        began = source.find("begin_upgrade_transaction")
+        marked = source.find("mark_upgrade_staged")
+        self.assertGreater(began, -1, "begin_upgrade_transaction is no longer called from upgrade()")
+        self.assertGreater(marked, -1, "mark_upgrade_staged is no longer called from upgrade()")
+        self.assertLess(began, marked,
+                        "the staged marker is now written before the recovery transaction is opened, "
+                        "which invalidates the warrant for the no-handle consent exception")

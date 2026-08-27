@@ -12780,7 +12780,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:3b8451ee119b9ced9e0252920c071ec709063631ac9130782ec83fd8e76943c9",
+        "fingerprint": "sha256:506ec476ad14a2ecbd5f814d7391b4292c3f30485ce562df352cdcff2b83610f",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -17196,7 +17196,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:e2685c51a9d4d90930036cef83bd24df3efdf539f266c1d9bfac2e43c95cc947",
+        "fingerprint": "sha256:b41bc9f99ce735a654fdf88231bbc6743ca8238aebfd5c91eb1734a2450d2bbf",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -19388,7 +19388,7 @@
       },
       "slug": "test_transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:f9e576f73b8b2a895eb3d72159d6e1b1bb5fa81906a0342f10ace70b7ad014a3",
+        "fingerprint": "sha256:b504971b5e999e0a10f8151612df867e5bfa63592ea683f55807ce0c14520680",
         "path": ".engine/tools/test_transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -19733,7 +19733,7 @@
       },
       "slug": "transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:55caa9a85e9e749ce89bc8a947dae470a24cf74b72dccfcca1ded292e85ac2be",
+        "fingerprint": "sha256:26578d8f821879e0eaf41fb32334057b3e49e37352a00b9db1342d861f9e5a74",
         "path": ".engine/tools/transaction_adapters_upgrade.py"
       },
       "status": "active",

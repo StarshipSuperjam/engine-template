@@ -108,8 +108,12 @@ class TestPlanReportsWhatTheDomainSaid(unittest.TestCase):
         self.assertIn("saved-data", [e["kind"] for e in plan["effects"]])
 
     def test_being_current_refuses_rather_than_planning_a_no_op(self):
+        """Uses the shape the domain really returns for an up-to-date engine. This test previously
+        passed `available=None, target=None`, which `upgrade_preview` never produces -- it encoded the
+        same wrong belief as the code, so the two agreed with each other and not with reality."""
         with mock.patch.object(module_manager, "upgrade_preview",
-                               return_value=dict(PREVIEW, available=None, target=None)):
+                               return_value=dict(PREVIEW, status="up-to-date",
+                                                 available="1.0.0", target_ref="1.0.0")):
             with self.assertRaises(transaction.TransactionRefused) as caught:
                 adapters.UpgradeEngine().plan(Args(), {"fingerprints": {}})
         self.assertEqual(caught.exception.code, "already-current")
@@ -273,10 +277,15 @@ class TestTheTypedCommandAppliesTheReleaseItsHandleApproved(unittest.TestCase):
         applied.assert_not_called()
 
 
-class TestPlanNeverCallsAnUnreadableStateAlreadyCurrent(unittest.TestCase):
-    """`upgrade_preview` reports these with a `status` and a `reason` and no `refused` key, so treating
-    any preview without a target as already-current told an operator with a stalled update, a half-built
-    tree, or no network that nothing was wrong -- and non-retryably, so it read as final."""
+class TestPlanNamesEveryStateItCannotPlanFrom(unittest.TestCase):
+    """Driven off the shapes `upgrade_preview` and `plan_upgrade` ACTUALLY return.
+
+    The previous version asserted the already-current path with `{"current": "1.0.0"}` -- a shape the
+    domain never produces. The real `up-to-date` preview sets `available = target_ref`, so the branch
+    under test could not fire for a genuinely current engine at all, and that operator was handed a real
+    plan and a consent handle whose first consequence read "Moves this engine to" the version it was
+    already on. A test built on an invented shape proves the code handles the invention.
+    """
 
     def _refusal(self, preview):
         with mock.patch.object(module_manager, "upgrade_preview", return_value=preview):
@@ -286,24 +295,69 @@ class TestPlanNeverCallsAnUnreadableStateAlreadyCurrent(unittest.TestCase):
                 return refused
         self.fail("expected a refusal for " + repr(preview))
 
-    def test_an_interrupted_update_is_named_as_one(self):
+    def test_a_genuinely_current_engine_is_refused_not_handed_consent_for_a_no_op(self):
+        refused = self._refusal({"status": "up-to-date", "current": "1.0.0",
+                                 "available": "1.0.0", "target_ref": "1.0.0"})
+        self.assertEqual(refused.code, "already-current")
+        self.assertFalse(refused.retryable)
+
+    def test_no_recorded_update_home_is_named_rather_than_called_up_to_date(self):
+        """The fifth state -- missed when this was repaired for the four a reviewer happened to name.
+        The operator was told they were on the newest version their update home offers, while having no
+        update home at all, and the domain's own actionable reason was discarded."""
+        refused = self._refusal({"status": "no-home", "current": "1.0.0",
+                                 "reason": "This engine has no update home recorded."})
+        self.assertEqual(refused.code, "no-update-home")
+        self.assertIn("no update home recorded", refused.explanation)
+
+    def test_an_interrupted_update_is_named_and_leads_somewhere(self):
         refused = self._refusal({"status": "transaction-incomplete", "current": "1.0.0",
                                  "reason": "An earlier update is in progress."})
         self.assertEqual(refused.code, "unfinished-update")
-        self.assertFalse(refused.retryable)
         self.assertTrue(any("resume" in step or "rollback" in step for step in refused.next_actions))
 
-    def test_being_offline_is_named_as_one_and_is_the_only_retryable_case(self):
-        refused = self._refusal({"status": "unreachable", "current": "1.0.0", "reason": "No network."})
-        self.assertEqual(refused.code, "update-home-unreachable")
-        self.assertTrue(refused.retryable, "the network case is the one that gets better on its own")
+    def test_being_offline_is_the_only_retryable_case(self):
+        self.assertTrue(self._refusal({"status": "unreachable", "current": "1.0.0",
+                                       "reason": "No network."}).retryable)
+        for status in ("no-home", "inconsistent", "missing-release", "transaction-incomplete"):
+            self.assertFalse(self._refusal({"status": status, "current": "1.0.0", "reason": "x"}).retryable,
+                             status)
 
     def test_an_inconsistent_engine_is_named_as_one(self):
         self.assertEqual(self._refusal({"status": "inconsistent", "current": "1.0.0",
                                         "reason": "Half-built."}).code, "engine-inconsistent")
 
-    def test_genuinely_current_still_says_so(self):
-        self.assertEqual(self._refusal({"current": "1.0.0"}).code, "already-current")
+    def test_a_shape_this_version_cannot_read_refuses_as_unknown_rather_than_claiming_current(self):
+        self.assertEqual(self._refusal({"current": "1.0.0"}).code, "preview-unrecognised")
+
+
+class TestTheRealConsentCheckHandsBackTheRealRelease(unittest.TestCase):
+    """The JOIN, not each half. A reviewer's exact point: this seam was proven across two mocks -- one
+    test faked `_refuse_stale_consent` to hand back a release, and the tests driving the real function
+    passed no callback. "Each half tested, the join not" is the shape that let the substitution defect
+    survive three rounds, so it is worth one test that drives the real function against a real plan."""
+
+    def test_a_matching_handle_yields_the_plans_resolved_release(self):
+        seen = {}
+        with mock.patch.object(module_manager, "upgrade_preview", return_value=dict(PREVIEW)):
+            adapter = adapters.UpgradeEngine()
+            facts = adapter.inspect(Args())
+            plan = dict(adapter.plan(Args(), facts))
+            plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
+            handle = te.consent_handle(plan)
+            message = module_manager._refuse_stale_consent(
+                None, handle, on_release=lambda r: seen.update(release=r))
+        self.assertIsNone(message, message)
+        self.assertEqual(seen.get("release"), PREVIEW["available"],
+                         "the real check did not hand back the release its own plan named")
+
+    def test_a_stale_handle_hands_back_nothing(self):
+        seen = {}
+        with mock.patch.object(module_manager, "upgrade_preview", return_value=dict(PREVIEW)):
+            message = module_manager._refuse_stale_consent(
+                None, "sha256:" + "9" * 64, on_release=lambda r: seen.update(release=r))
+        self.assertIsNotNone(message)
+        self.assertEqual(seen, {}, "a release was handed back despite the handle not matching")
 
 
 class TestTheRecordedTargetIsShapeChecked(unittest.TestCase):

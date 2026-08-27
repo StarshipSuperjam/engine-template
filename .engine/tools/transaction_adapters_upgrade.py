@@ -75,43 +75,51 @@ class UpgradeEngine(transaction.Adapter):
             raise transaction.TransactionRefused(
                 "upgrade-refused", preview.get("reason", "This update cannot proceed."),
                 ["Resolve what the reason above names, then check again."])
-        # A PREVIEW THAT COULD NOT LOOK IS NOT "ALREADY CURRENT". `upgrade_preview` reports these states
-        # with a `status` and a `reason` and NO `refused` key, so treating any preview lacking a target as
-        # already-current told an operator with a stalled update, an inconsistent tree, or no network that
-        # nothing was wrong — and round 3 made that refusal non-retryable, so it read as final. That is
-        # the consent surface making a false claim about precisely the state the no-handle exception
-        # exists to serve.
+        # DRIVEN OFF `status`, ENUMERATED — not off "is there a target". The previous shape asked
+        # `not (available or target)` and called everything else already-current, which was wrong twice
+        # over. It called the states where the preview COULD NOT LOOK "already current"; and it could
+        # never fire for an engine that genuinely IS current, because `up-to-date` sets
+        # `available = target_ref`, so that operator was handed a real plan and a consent handle whose
+        # first consequence read "Moves this engine to <the version it is already on>".
+        #
+        # This is the third time in this build that a defect was "fixed" for the sites a reviewer named
+        # rather than for every site, so the map below is the complete set `upgrade_preview` and
+        # `plan_upgrade` can return; anything outside it refuses as unrecognised rather than being
+        # guessed at.
         _CANNOT_LOOK = {
-            "transaction-incomplete": "unfinished-update",
-            "inconsistent": "engine-inconsistent",
-            "unreachable": "update-home-unreachable",
-            "missing-release": "no-such-release",
+            "no-home": ("no-update-home",
+                        ["Tell me the repository your engine updates from, then check again."], False),
+            "transaction-incomplete": ("unfinished-update",
+                                       ["See where the interrupted update got to: "
+                                        "`transaction.py resume engine-upgrade`.",
+                                        "Or undo it: `module_manager.py rollback --confirm`."], False),
+            "inconsistent": ("engine-inconsistent",
+                             ["Resolve what the reason above names, then check again."], False),
+            "unreachable": ("update-home-unreachable",
+                            ["Check again when the update home can be reached."], True),
+            "missing-release": ("no-such-release",
+                                ["Check the release name, or plan the latest instead."], False),
         }
         status = preview.get("status")
         if status in _CANNOT_LOOK:
+            code, next_actions, retryable = _CANNOT_LOOK[status]
             raise transaction.TransactionRefused(
-                _CANNOT_LOOK[status],
-                preview.get("reason") or "This update could not be planned.",
-                {"transaction-incomplete": [
-                    "See where the interrupted update got to: `transaction.py resume engine-upgrade`.",
-                    "Or undo it: `module_manager.py rollback --confirm`."],
-                 "inconsistent": [
-                     "Resolve what the reason above names, then check again."],
-                 "unreachable": [
-                     "Check again when the update home can be reached."],
-                 "missing-release": [
-                     "Check the release name, or plan the latest instead."],
-                 }[status],
-                # Only the network case gets better on its own; the others need something done first.
-                retryable=(status == "unreachable"))
-        if not (preview.get("available") or preview.get("target")):
+                code, preview.get("reason") or "This update could not be planned.",
+                next_actions, retryable=retryable)
+        if status == "up-to-date":
             raise transaction.TransactionRefused(
                 "already-current", "This engine is already on the newest version its update home offers.",
                 ["Nothing to do. Check again when a new version has been released."],
-                # NOT retryable. Re-running right now returns this identical answer, and the envelope
-                # renders `retryable` as "Retrying could help." beside "Nothing to do." -- a refusal that
-                # tells the caller to go round in a circle is the exact thing the field exists to prevent.
+                # Re-running now returns this identical answer; a new release later is what changes it.
                 retryable=False)
+        if not (preview.get("available") or preview.get("target")):
+            # A shape this version does not recognise. Refusing as unknown is the honest answer; the old
+            # code reached here and asserted the engine was up to date, which it had not established.
+            raise transaction.TransactionRefused(
+                "preview-unrecognised",
+                "The update check returned something this version does not know how to read, so no "
+                "update was planned and nothing was changed.",
+                ["Report this: it is a defect in the engine, not something you did wrong."])
 
         consequences = ["Moves this engine to {0}.".format(preview.get("available") or preview.get("target")),
                         "Your own settings and saved data are kept; the engine's own files are replaced."]
@@ -264,12 +272,9 @@ class UpgradeEngine(transaction.Adapter):
                 "summary": "Interrupted update found: {0}.".format(state),
                 "fingerprints": {
                     "undo_state": str(state),
-                    "current_version": str(diagnosis.get("current") or ""),
-                    # `head` is "" whenever `git rev-parse HEAD` cannot answer — no git binary, an unborn
-                # HEAD, a non-repository deployment. The NEVER-BLANK rule above applies to it too; the
-                # previous version guarded the two version fields and let this one through, so the
-                # comment overclaimed and the test written to prove it failed in a non-git tree.
-                "head": handoff.working_tree_state()["head"] or "unknown",
+                    "current_version": str(diagnosis.get("current") or "unreadable"),
+                    # Never blank here either — see `inspect`.
+                    "head": handoff.working_tree_state()["head"] or "unknown",
                 },
             },
             verification=[{
