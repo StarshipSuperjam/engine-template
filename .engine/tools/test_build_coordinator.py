@@ -3661,7 +3661,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # unchanged, and every phrase pinned below still reads from this file — the hand-back's
         # "an offer, not a gate" among them, kept here because the Build-side consequence stays even
         # though the pause itself is now taught upstream.
-        self.assertLessEqual(len(text.split()), 3614)
+        self.assertLessEqual(len(text.split()), 3608)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
