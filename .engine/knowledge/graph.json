@@ -5059,7 +5059,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:28c6410c4461e2869f71f001ae76edc56bd3046530157df8896223a3e7195c28",
+        "fingerprint": "sha256:50eb8d97215b3bb160fc2ba888c58d8272ef929bd4a5584d37bc2a12966163e4",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
