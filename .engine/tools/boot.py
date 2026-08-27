@@ -117,8 +117,8 @@ PRESENT_MARKER = "Project status"
 
 # The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
 # excluded — a full boot-pack re-render on compaction is deliberately not done and must never be
-# depended on; the reliable post-compaction floor is the
-# re-injected CLAUDE.md + the next per-prompt scent. These are the matcher values the hook registers on.
+# depended on; the reliable post-compaction instruction floor is the provider's re-injected root guide
+# (CLAUDE.md or AGENTS.md) + the next per-prompt scent. These are the matcher values the hook registers on.
 SESSION_START_SOURCES = ("startup", "resume", "clear")
 
 # Per-OS hook interpreter: the committed `.claude/settings.json` + core-manifest hook `wires` carry the

@@ -441,11 +441,10 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
     The law, in order:
       1. Read the event JSON from stdin (tolerant). A payload the platform cannot even deliver is the
          platform's contract breaking, not the operator's fault — FAIL OPEN (never block on it) + flag.
-      2. A forced Stop continuation (`stop_hook_active` true: the platform is force-ending the turn
-         after the block cap) STILL runs the handler — the owning system may need the give-up moment
-         (close degrades a still-undispositioned finding to a logged tracked finding here, so the cap
-         can never lose one) — but it MUST NOT re-block, or it loops until the cap, so ANY block it
-         returns is downgraded to proceed (in run_hook, the budget law; `_translate` stays pure).
+      2. A repeated Stop (`stop_hook_active` true) STILL runs the handler. The harness does not guess
+         whether that provider flag means one continuation or final cap exhaustion; the registered owner
+         must apply its own finite rule. Close does so by logging any still-undispositioned finding and
+         returning proceed, proven through the real owner in test_close.py.
       3. Run the handler. ANY exception → the guarded action proceeds (non-blocking exit) and the
          failure becomes a plain-language finding: a crashing gate must never strand a non-engineer
          who cannot debug it, and must never fail silently.

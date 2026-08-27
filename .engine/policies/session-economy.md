@@ -105,8 +105,10 @@ fail-open harness, which covers only crashes, so the escape is explicit.
 **Each rule has its own switch**, because they are unrelated behaviours and one combined switch meant that
 turning off a self-scheduling deny also silently un-gated expensive subagent spawns:
 `ENGINE_SESSION_ECONOMY_MODEL=off` for the cheap-model rule, `ENGINE_SESSION_ECONOMY_WAKEUP=off` for the
-self-scheduling rule, and `ENGINE_SESSION_ECONOMY=off` for both. Each deny names its own switch in the
-refusal text, so the escape is discoverable at the moment it is needed.
+self-scheduling rule, and `ENGINE_SESSION_ECONOMY=off` for both. The subagent-model denial names its own
+switch because the model can immediately retry with a compliant model. The self-wakeup denial deliberately
+does not advertise switches or ask the operator to resume; the switches remain available in this on-demand
+policy without turning an internal model-action refusal into routine operator governance.
 
 That escape is an environment variable rather than a tunable, deliberately. The tunables surface holds
 operator preferences and never enforcement switches, and its override file sits outside the weakening guard

@@ -393,11 +393,7 @@ def _initial_state(repo: str, pr: int, base: str, plan_id: str, sealed_digest: s
                  "spec_digest": None, "authorizing_issue": issue, "profile": plan["profile"],
                  "bound_head": _head()},
         "approval": None, "reviews": {"deliverable": _empty_review()},
-        "findings": [], "checkpoint": None,
-        # A Stop evaluator resolves this typed condition from its authoritative source.  It carries no
-        # free-form reason: assistant prose is not authority to end an active Build.
-        "terminal_condition": None,
-        "progress": {"current_item": None, "completed": []},
+        "findings": [], "checkpoint": None, "progress": {"current_item": None, "completed": []},
         "validation": None, "repair": None,
         # Cost-cadence ledgers. Both are cross-revision by design and are carried through handoff:
         # a cap a cold resume silently zeroes is a cap with a published bypass.
@@ -958,9 +954,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
               "warnings": warnings, "suggested_next": next_one, "available_activities": available,
               "progress": {"completed": completed_items, "total": len(ordered_items),
                            "current": state["progress"]["current_item"], "next": next_item}}
-    # Durable snapshots written before this optional field remain actionable unless another owner proves
-    # otherwise; absence must not be read as a terminal handoff.
-    result["terminal_condition"] = state.get("terminal_condition")
     if plan is not None and state.get("schema_version") == "build-state.v2":
         result["work"] = _work_projection(plan, state)
     return result
@@ -5054,8 +5047,9 @@ def reground_pointer(state: dict) -> str:
         "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
         "mutating coordinator verb re-verifies this session against that record and refuses on a",
         "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
-        "A progress report is not a handoff. If the record shows actionable work and no valid terminal",
-        "condition, continue the next planned step; do not schedule a self-wakeup instead of working.",
+        "A progress report is not a handoff. If the record shows actionable work,",
+        "continue the next planned step unless a real authority boundary requires a decision;",
+        "do not schedule a self-wakeup.",
     ]
     return "\n".join(lines)
 

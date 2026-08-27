@@ -1683,6 +1683,7 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_audit_concern_list.py",
     ".engine/tools/demo_audit_digest.py",
     ".engine/tools/demo_boot_slice.py",
+    ".engine/tools/demo_active_build_continuity.py",
     ".engine/tools/demo_ci_author_exempt.py",
     ".engine/tools/demo_derived_reconcile.py",
     ".engine/tools/demo_focus_read.py",

@@ -40,6 +40,9 @@ SUBAGENT_TOOLS = ("Agent", "Task")
 # Only the UNBOUND general-purpose search/plan types. The engine's own personas carry a stamped `model:`
 # and are never touched here; `general-purpose` is deliberately absent because it does judgment work.
 GATED_SUBAGENT_TYPES = ("Explore", "Plan")
+# Canonical provider vocabulary. Claude currently emits ScheduleWakeup; Codex exposes no in-session
+# scheduler (recorded in provider-exceptions.json), and no additional provider alias is known. Add an alias
+# only at the provider-normalization seam when a runtime actually publishes one; never guess deny spellings.
 WAKEUP_TOOLS = ("ScheduleWakeup",)
 OFF_SWITCH = "ENGINE_SESSION_ECONOMY"            # master: turns both rules off
 MODEL_OFF_SWITCH = "ENGINE_SESSION_ECONOMY_MODEL"   # the Explore/Plan cheap-model rule alone

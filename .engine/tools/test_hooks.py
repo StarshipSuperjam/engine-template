@@ -578,11 +578,10 @@ class TestHarnessFailOpen(unittest.TestCase):
 
 
 class TestStopHookActive(unittest.TestCase):
-    def test_forced_continuation_is_visible_to_the_owner_but_does_not_spend_its_budget(self):
-        # A deliberate law change from the earlier skip-the-handler behaviour: on a forced continuation the
-        # handler STILL runs — close uses the give-up moment to log a still-undispositioned finding — but
-        # its block is downgraded to proceed in run_hook, so the no-re-block / no-loop guarantee holds by
-        # construction (the harness owns it, not the handler).
+    def test_repeated_stop_runs_the_owner_and_preserves_its_decision(self):
+        # The shared harness cannot infer one owner's finite budget from the provider flag. It delivers the
+        # event and preserves the owner's decision; test_close drives the registered Stop owner and proves
+        # that owner logs then proceeds instead of looping.
         called = []
 
         def would_block(_payload):

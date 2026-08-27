@@ -166,30 +166,15 @@ class DoesNotLeak(_Library):
 
 
 class TerminalConditionContract(_Library):
-    """A terminal handoff names evidence; it is never a free-form status sentence."""
+    """The withdrawn Stop evaluator cannot leave a model-authored authority channel behind."""
 
-    def test_typed_terminal_condition_round_trips_with_its_authoritative_reference(self):
+    def test_legacy_null_placeholder_remains_readable(self):
+        self._store().create(_state(terminal_condition=None))
+        self.assertIsNone(self._store().read()["terminal_condition"])
+
+    def test_non_null_terminal_claim_is_rejected(self):
         condition = {
             "kind": "operator_pause",
-            "source": {"authority": "operator-command", "reference": "prompt:42",
-                       "observed_at": "2026-08-27T18:00:00Z"},
-        }
-        self._store().create(_state(terminal_condition=condition))
-        self.assertEqual(self._store().read()["terminal_condition"], condition)
-
-    def test_operator_decision_requires_the_actual_requested_action(self):
-        condition = {
-            "kind": "operator_decision",
-            "source": {"authority": "checkpoint", "reference": "checkpoint:1",
-                       "observed_at": "2026-08-27T18:00:00Z"},
-        }
-        with self.assertRaises(core.CoordinatorError):
-            self._store().create(_state(terminal_condition=condition))
-
-    def test_free_form_terminal_reason_is_rejected(self):
-        condition = {
-            "kind": "operator_pause",
-            "reason": "I feel done",
             "source": {"authority": "operator-command", "reference": "prompt:42",
                        "observed_at": "2026-08-27T18:00:00Z"},
         }
