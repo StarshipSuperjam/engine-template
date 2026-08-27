@@ -43,8 +43,8 @@ def _plan_document() -> dict:
 def _fold_in_the_review_fix(document: dict) -> dict:
     """Revision 2: the fix the cold review actually asked for.
 
-    The review found that the plan authorized its gitignored library by citing eADR-0003, and that
-    eADR-0003 in fact forbids the design twice. The fix was not to argue with the finding but to stop
+    The review found that the plan authorized its gitignored library by citing the former one-copy rule, and that
+    the rule in fact forbids the design twice. The fix was not to argue with the finding but to stop
     claiming inherited precedent and state the amendment openly — which is exactly the shape of a fix
     that folds in as a revision rather than sending the plan back for another panel.
     """
@@ -52,7 +52,7 @@ def _fold_in_the_review_fix(document: dict) -> dict:
     revised["revision"] = 2
     revised["revised_at"] = "2026-08-23T22:19:44Z"
     revised["revision_note"] = (
-        "Folds in the cold review's blocking finding: the eADR-0003 authorization argument was wrong, "
+        "Folds in the cold review's blocking finding: the one-copy-rule authorization argument was wrong, "
         "so the plan now states the amendment openly instead of claiming inherited precedent.")
     revised["deliberation"]["failure_modes"].append(
         "The library is authorized by an argument that does not survive reading the contract it cites.")
@@ -61,7 +61,7 @@ def _fold_in_the_review_fix(document: dict) -> dict:
 
 REVIEW_FINDINGS = [
     {"id": "ARCH-B1", "lens": "architecture", "severity": "blocking",
-     "summary": "The plan cites eADR-0003 as precedent for a gitignored plan library, but that contract "
+     "summary": "The plan cites the former one-copy rule as precedent for a gitignored plan library, but that rule "
                 "states no store may make a gitignored derivative the only copy — it forbids the design "
                 "rather than authorizing it."},
     {"id": "RISK-B1", "lens": "risk-governance", "severity": "blocking",
@@ -75,7 +75,7 @@ REVIEW_FINDINGS = [
 ]
 
 DISPOSITIONS = {
-    "ARCH-B1": ("accepted-fixed", "The plan now amends eADR-0003 openly instead of claiming precedent "
+    "ARCH-B1": ("accepted-fixed", "The plan now amends the one-copy rule openly instead of claiming precedent "
                                   "it does not have."),
     "RISK-B1": ("accepted-fixed", "The gitignore fence lands first, before any store code exists."),
     "FEAS-S1": ("accepted-fixed", "The store writes through F_FULLFSYNC with a directory fsync after "
@@ -271,8 +271,8 @@ class ThisBuildsOwnProgram(_Dogfood):
         {"id": "OB-PANEL-MOVE", "state": "carried",
          "statement": "PR B moves the design review panel and risk assessment out of the Build "
                       "Coordinator and deletes the retrospective plan-review waiver."},
-        {"id": "OB-CANON", "state": "carried",
-         "statement": "PR B amends eADR-0025 and eADR-0041 so the canon is not self-contradictory."},
+        {"id": "OB-AUTHORITY", "state": "carried",
+         "statement": "PR B updates the plan-authority documentation and tests so the active rules are consistent."},
         {"id": "OB-SPEC-REACCEPT", "state": "carried",
          "statement": "PR B obtains operator re-acceptance for the two settled spec documents its "
                       "cutover invalidates."},
@@ -295,7 +295,7 @@ class ThisBuildsOwnProgram(_Dogfood):
         programs, program_slug, _ = self._program()
         outstanding = programs.outstanding_obligations(programs.read(program_slug))
         self.assertEqual([o["id"] for o in outstanding],
-                         ["OB-CANON", "OB-CUTOVER", "OB-PANEL-MOVE", "OB-SPEC-REACCEPT"])
+                         ["OB-AUTHORITY", "OB-CUTOVER", "OB-PANEL-MOVE", "OB-SPEC-REACCEPT"])
         rendered = plan_program.render(programs, programs.read(program_slug))
         self.assertIn("sealed-handoff-only entry", rendered)
 
@@ -385,7 +385,7 @@ PLAN_JSON = r"""{
         "kind": "observed"
       },
       {
-        "basis": "Read build_coordinator_dag.py and build_coordinator_work.py; each guarantee carries an eADR-0041 assertion (BC-25, BC-26, BC-27) and a focused test.",
+        "basis": "Read build_coordinator_dag.py and build_coordinator_work.py; each guarantee carries an established-design assertion (BC-25, BC-26, BC-27) and a focused test.",
         "claim": "The v2 DAG scheduler already exists and is contract-pinned — frontier and admissibility selection, resource and glob-path conflict proving, attempt-bound claims, compare-and-swap writes, and integration-only completion.",
         "kind": "observed"
       },
@@ -445,8 +445,8 @@ PLAN_JSON = r"""{
         "kind": "observed"
       },
       {
-        "basis": "Read eADR-0003 Significance in full.",
-        "claim": "eADR-0003 requires a later store to declare which side of the reviewable-truth line it sits on, and states that none may make a gitignored derivative the only copy -- so it does not authorize this library and must be amended.",
+        "basis": "Read the former one-copy rule's Significance section in full.",
+        "claim": "The one-copy rule requires a later store to declare which side of the reviewable-truth line it sits on, and states that none may make a gitignored derivative the only copy -- so it does not authorize this library and must be amended.",
         "kind": "observed"
       },
       {
@@ -482,7 +482,7 @@ PLAN_JSON = r"""{
     "raw_intent": "The build coordinator is starting to settle, despite the bugs being resolved regularly, but it ends up only solving half the problem. The build is only as good as the plan, and the plan is only as good as the spec. We need to take on the plan issue now, and the spec issue will be tackled in a future release. Proposal: a Local-First Plan Coordinator that pairs with the Build Coordinator, owning the planning lifecycle from raw intent through an immutable, reviewed handoff, with durable plans living only on the operator's workstation.",
     "review_strategy": "One cold plan review at the approved depth against the approved revision, run once before seal -- never re-run per revision. Fixes fold into a revision and receive a single proportional judgment with prescribed-fix termination. A full re-review has exactly one trigger: the operator judging the shape wrong and calling for a redesign. Deliverable review before submission per the Build Coordinator's normal gate.",
     "risks": [
-      "The library could become an opaque ledger nobody opens -- the artifact eADR-0025 rejected. Mitigated by generated human-readable projections and now GRADED by a browsability obligation rather than asserted.",
+      "The library could become an opaque ledger nobody opens -- the artifact the former one-copy rule rejected. Mitigated by generated human-readable projections and now GRADED by a browsability obligation rather than asserted.",
       "Location resolution could strand a plan where the Build cannot find it. Mitigated by reusing checkout_health under a stated precedence, never the write-authorization gate, and failing closed on an ambiguous root.",
       "PR A is large, and the operator directed the program object be added to it. Mitigated by splitting the lifecycle into three separately reviewable nodes; if review judges the result oversized, the transport or program node is the intended shed to PR B rather than compressing any node.",
       "Landing inert risks dead code if PR B stalls; mitigated because the dogfood now drives the full lifecycle to a seal rather than only validating and round-tripping.",
@@ -498,7 +498,7 @@ PLAN_JSON = r"""{
       "The plan lifecycle command surface, split into read, governance, and transport, landing inert.",
       "The multi-PR program object with mechanically carried obligations.",
       "The inline dogfood proof driving this plan to a seal.",
-      "Amendments to eADR-0003, eADR-0025 and eADR-0041, plus the new Plan Coordinator decision record."
+      "Updates to the one-copy, draft-PR-claim, and Build Coordinator behavior rules, plus the new Plan Coordinator decision record."
     ],
     "spec": {
       "disclosure": "Conformance for PR A is plan-derived: the success obligations below are the acceptance referent. PR B inherits a named obligation this plan records rather than leaves to be discovered -- changing either locked document requires the operator's recorded re-acceptance at its merge, per decision 0331. An earlier revision of this plan claimed the corpus had been confirmed when it had not; that claim was false and is corrected here.",
@@ -847,7 +847,7 @@ PLAN_JSON = r"""{
         "depends_on": [
           "N09-dogfood-proof"
         ],
-        "description": "Record the decisions and regenerate derived surfaces last. Amend eADR-0003 with a dated, scoped paragraph carving out the only-copy clause for a per-instance planning store, discharging that contract's own obligation that a later store declare which side of the reviewable-truth line it sits on. Amend eADR-0025 and eADR-0041 with dated paragraphs scoped to the substrate existing and being unconsumed, with plan authority unchanged until PR B, so the canon is never self-contradictory in the merged tree. Add the new Plan Coordinator eADR whose anti-choice engages eADR-0025's ACTUAL position -- session-held plans promoted only for cold continuation -- not a decoy. Regenerate the knowledge graph, self-map and module-surface inventory LAST.",
+        "description": "Record the decisions and regenerate derived surfaces last. Amend the former one-copy rule with a dated, scoped paragraph carving out the only-copy clause for a per-instance planning store. Update the draft-PR-claim and Build Coordinator behavior rules with dated paragraphs scoped to the substrate existing and being unconsumed, with plan authority unchanged until PR B, so the active documentation is never self-contradictory in the merged tree. Add the new Plan Coordinator decision record whose anti-choice engages the draft-PR claim's actual position -- session-held plans promoted only for cold continuation -- not a decoy. Regenerate the knowledge graph, self-map and module-surface inventory LAST.",
         "exclusive_resources": [
           "governance",
           "generated-surfaces"
@@ -859,14 +859,13 @@ PLAN_JSON = r"""{
             "integrated-commit",
             "decision-record"
           ],
-          "deliverable": "Amended canon with no self-contradiction, plus the new decision record",
+          "deliverable": "Updated active documentation with no self-contradiction, plus the new decision record",
           "required_evidence": [
             "changed_paths",
             "verification_results"
           ]
         },
         "paths": [
-          ".engine/contracts/",
           ".engine/knowledge/",
           ".engine/self-map.md"
         ],
@@ -909,12 +908,12 @@ PLAN_JSON = r"""{
       {
         "disposition": "rejected",
         "option": "Keep a committed copy of the sealed plan so the gitignored store is not the only copy.",
-        "reason": "It would satisfy eADR-0003 and eADR-0025 without amendment and make the plan reviewable at merge. Rejected by the operator: it cuts against the local-first requirement for the one artifact that matters most, and sealed plans are large. The amendment is the honest cost."
+        "reason": "It would satisfy the one-copy and draft-PR-claim rules without amendment and make the plan reviewable at merge. Rejected by the operator: it cuts against the local-first requirement for the one artifact that matters most, and sealed plans are large. The amendment is the honest cost."
       },
       {
         "disposition": "rejected",
         "option": "Argue a plan library is experiential per-instance data like the memory ledger.",
-        "reason": "Deliberation, alternatives and an operator's approval are reviewable truth under eADR-0003's own dichotomy. Claiming otherwise would be arguing for a conclusion rather than from the text."
+        "reason": "Deliberation, alternatives and an operator's approval are reviewable truth under the former one-copy rule's own dichotomy. Claiming otherwise would be arguing for a conclusion rather than from the text."
       },
       {
         "disposition": "rejected",
@@ -922,7 +921,7 @@ PLAN_JSON = r"""{
         "reason": "Rejected by the operator after the product-intent lens showed the deferral was silent and unexplained, and that this build's own two-PR delivery is exactly the case being deferred. Built here instead."
       }
     ],
-    "case_against": "The strongest case against is that eADR-0025 and eADR-0041 already decided this the other way, deliberately, reasoned against a real failure where a private receipt chain produced recursive audits without improving any pull request. A gitignored local library is structurally the kind of object that reasoning rejected, and it buys durability at the cost of a record no reviewer, no CI check, and no second machine can see: if the store drifts from the PR's account of what was agreed, nothing external catches it. An earlier revision of this plan answered that by citing eADR-0003 as precedent. THAT ARGUMENT WAS WRONG, and the cold review caught it: eADR-0003 requires a later store to declare which side of the reviewable-truth line it sits on and states plainly that none may make a gitignored derivative the only copy. A plan -- deliberation, alternatives, obligations, an operator's approval -- is reviewable truth by that contract's own dichotomy, and this design makes the gitignored store the only copy. So the authorization is not inherited from precedent; it is an open amendment to eADR-0003, made deliberately, with the cost stated: cross-session recovery becomes workstation-only, and the PR body must disclose that its account of what was agreed cannot be externally verified.",
+    "case_against": "The strongest case against is that the draft-PR-claim and Build Coordinator behavior rules already decided this the other way, deliberately, reasoned against a real failure where a private receipt chain produced recursive audits without improving any pull request. A gitignored local library is structurally the kind of object that reasoning rejected, and it buys durability at the cost of a record no reviewer, no CI check, and no second machine can see: if the store drifts from the PR's account of what was agreed, nothing external catches it. An earlier revision of this plan answered that by citing the former one-copy rule as precedent. THAT ARGUMENT WAS WRONG, and the cold review caught it: the one-copy rule requires a later store to declare which side of the reviewable-truth line it sits on and states plainly that none may make a gitignored derivative the only copy. A plan -- deliberation, alternatives, obligations, an operator's approval -- is reviewable truth by that rule's own dichotomy, and this design makes the gitignored store the only copy. So the authorization is not inherited from precedent; it is an open amendment to the one-copy rule, made deliberately, with the cost stated: cross-session recovery becomes workstation-only, and the PR body must disclose that its account of what was agreed cannot be externally verified.",
     "failure_modes": [
       "Location resolution picks the calling worktree or a write-authorization gate, so plans are unreachable either always or whenever the checkout is dirty.",
       "The library becomes an opaque ledger the operator never opens -- now graded by an obligation.",
@@ -973,7 +972,7 @@ PLAN_JSON = r"""{
       "recorded": "2026-08-23T21:43:34Z"
     },
     {
-      "decision": "eADR-0003's only-copy clause is amended openly in PR A rather than relying on a precedent that does not fit; the design stays local-first and nothing large is published to GitHub.",
+      "decision": "The former one-copy rule is amended openly in PR A rather than relying on a precedent that does not fit; the design stays local-first and nothing large is published to GitHub.",
       "recorded": "2026-08-23T22:19:44Z"
     },
     {

@@ -482,14 +482,11 @@ class TestEngineHomeNarrowing(unittest.TestCase):
         self.assertIn(".engine/tools/boot.py", r["offending"])
 
     def test_deployment_private_flagged_in_both_modes_even_when_unowned(self):
-        # operator-overrides.json / contracts/instance are ownership CARVE-OUTS (not in engine_owned_paths), yet
-        # must never ride upstream. The check unions them in, in BOTH the home and third-party modes.
+        # operator-overrides.json is an ownership carve-out and must never ride upstream.
         for home in (self.HOME, None):
-            r = self._submit([".engine/operator-overrides.json", ".engine/contracts/instance/acme-eADR-0001.md"],
-                             home=home)
+            r = self._submit([".engine/operator-overrides.json"], home=home)
             self.assertEqual(r["status"], "leak-decision-needed", f"home={home}")
             self.assertIn(".engine/operator-overrides.json", r["offending"])
-            self.assertIn(".engine/contracts/instance/acme-eADR-0001.md", r["offending"])
 
 
 class TestStatus(unittest.TestCase):

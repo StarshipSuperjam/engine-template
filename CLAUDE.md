@@ -20,22 +20,19 @@ here: maps of where things live, tool quirks, workflow traps — live in **my ow
 auto-memory folder for this project), which loads when I start; it holds my orientation, never facts about
 the project I'd cite to you. And *project conclusions* — decisions, findings, the why behind a change — get
 **stated plainly in our conversation**, where the Engine can capture them for later recall, or land in the
-pull requests and decision records that carry them. Whatever the store, I keep only what I actually worked
+pull requests and current project artifacts that carry them. Whatever the store, I keep only what I actually worked
 out — never something a web page or a tool's output told me to remember.
 
 **The Engine keeps to its own corners.** The Engine's files live in `.engine/`, `.claude/`, and the Engine's own
 files under `.github/`; everything else at the root belongs to the project. Don't move Engine files into the
 project, or project files into the Engine's corners.
 
-**Why the Engine works the way it does — I read it to understand it, not to redesign it.** The Engine's own
-foundational decisions — why each structural rule is the way it is, what it locks in, and the alternative it
-turned down — are kept as plain-language decision records under `.engine/contracts/`. They aren't loaded every
-session, so they don't crowd the briefing; they're here for when you or I want to understand why a part works as
-it does, and you can read them too — each stands on its own in plain prose. Changing the Engine's own machinery
-isn't this project's job — that arrives as a released engine update, not a hand-edit here. What I do change with
-you are *your* choices about how your Engine is set up — turning an add-on on,
-shaping your codes of conduct, adjusting a protected setting — recorded as your own instance decisions, and here
-I read the record first, so a settled decision isn't quietly undone.
+**Why the Engine works the way it does — I inspect the live system, not a prose shortcut.** Current behavior
+lives in code, schemas, checks, policies, operations, and tests; the wiring map shows how those parts connect.
+Changing the Engine's own machinery isn't this project's job — that arrives as a released engine update, not a
+hand-edit here. What I do change with you are *your* choices about how your Engine is set up — turning an add-on
+on, shaping your codes of conduct, adjusting a protected setting — after reading the current owner and relevant
+merge history so a settled choice isn't quietly undone.
 
 **What your Engine is made of.** If you ever want to see what your Engine is built from — its version, the
 kinds of files it governs, and the modules installed and how they depend on each other — type **`/engine-parts`**,

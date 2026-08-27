@@ -4,7 +4,7 @@ can be tested.
 WHY THIS EXISTS AT ALL. The engine once wrote AI summaries of each session (`episodic`, closed by a
 `consolidated` marker), folded old summaries into a `gist` (closed by a `rolled-up` marker, each replaced raw
 named by a `superseded` marker), and appended a `reinforcement` marker every time recall returned a record.
-None of that is written any more — the whole curation lifecycle was deleted when eADR-0038 made the exact
+None of that is written any more — the whole curation lifecycle was deleted when the exact
 transcript the canonical record.
 
 But the records themselves are still there. Every store that has been running holds thousands of them, and

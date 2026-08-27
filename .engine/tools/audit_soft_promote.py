@@ -181,7 +181,7 @@ def _render(rel: str, message: str, machinery: bool, *, repo: str | None = None,
             # tool actually ships — offer the one-approval route. The offer is grouped with the fix-durably
             # line it operationalises, and the never-phone-home line below is QUALIFIED to "never on its own"
             # so it can never read as contradicting the offer (a bare "will not" directly above an offer to
-            # file reads as a flip-flop) — StarshipSuperjam/engine-template#643, eADR-0028 never phone home.
+            # file reads as a flip-flop) — StarshipSuperjam/engine-template#643; the check never phones home.
             if ext_contribution_installed:
                 offer = (
                     f"- **The engine can file that report for you when you ask** — it drafts the issue using "

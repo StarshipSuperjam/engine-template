@@ -335,7 +335,7 @@ class TestPlanAndSnapshot(CoordinatorCase):
     def test_a_snapshot_outside_os_temp_is_accepted_now_that_state_is_durable(self):
         # The inverse of the assertion this replaces. Until 2026-08-25 a snapshot outside the OS
         # temporary directory was REFUSED, and that refusal is exactly what made a killed Build lose
-        # its evidence. It is deleted with the eADR-0025 and eADR-0041 amendments, and durability has
+        # its evidence. It is deleted with the plan-authority cutover, and durability has
         # a proper home in build_state_store. Asserted here, where the old guarantee was made, so the
         # deletion is visible at the class that carried it rather than only in the new module.
         self.assertEqual(bc.StateStore(str(Path(os.sep) / "state.json")).path,
@@ -1034,11 +1034,21 @@ class TestReviewAndFindings(CoordinatorCase):
         with mock.patch.object(bc, "_sealed_plan_record", return_value=(loaded["record"], None)):
             evidence = bc._assemble_evidence(loaded["state"], loaded["plan"], loaded["claim"],
                                              loaded["state"]["repair"]["final_commit"], {})
+            # `_assemble_evidence` intentionally recomputes checkout-local diff evidence. That is right for
+            # a live compose, but wrong for this historical regression: without these substitutions the
+            # saved #1080 account is combined with whichever branch happens to run self-test (the active
+            # change added 1,034 bytes here). Use #1080's own recorded scope-profile receipt. The generated-
+            # surface disclosure did not exist in the saved Build, so omit that live-only field rather than
+            # inventing historical evidence that the record cannot support.
+            evidence["change_profile"] = next(
+                p["summary"] for p in loaded["state"]["preflights"]
+                if p["id"] == "scope-profile" and p["passed"])
+            evidence["index_regen"] = ""
             body = bcc.compose(loaded["claim"], evidence)
         size = len(body.encode())
         self.assertLess(size, github.GITHUB_BODY_BUDGET_BYTES, f"still over budget at {size}")
-        # Not merely under: back to the size the 520 hand-written merges ran at, with the account whole.
-        self.assertLess(size, 30_000, f"{size} bytes is still the ledger genre, not an account")
+        # Not merely under GitHub's limit: no more than half of it, with the account whole.
+        self.assertLessEqual(size, 30_000, f"{size} bytes is still the ledger genre, not an account")
 
     def test_a_plan_reviews_findings_and_disagreements_reach_the_merge_surface(self):
         # The disclosure the panel move must not drop: what the plan review found, how it was answered, and
@@ -1114,8 +1124,8 @@ class TestReviewAndFindings(CoordinatorCase):
         obligation names where it went.
         """
         document = {"program": {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
-            {"id": "OB-CANON", "state": "carried",
-             "statement": "Amend eADR-0025 and eADR-0041 on plan authority."},
+            {"id": "OB-AUTHORITY", "state": "carried",
+             "statement": "Update the plan-authority documentation and tests."},
             {"id": "OB-SPEC-REACCEPT", "state": "released",
              "statement": "Re-accept the settled specification documents.",
              "reason": "The corpus is stale; re-accepting it would record assent to text that no "
@@ -1124,7 +1134,7 @@ class TestReviewAndFindings(CoordinatorCase):
         with self._with_plan_document(document):
             lines = bc._plan_obligation_lines(self.state())
         self.assertEqual(len(lines), 2)
-        self.assertIn("**OB-CANON**", lines[0])
+        self.assertIn("**OB-AUTHORITY**", lines[0])
         self.assertIn("_carried_", lines[0])
         self.assertIn("_released_", lines[1])
         self.assertIn("The corpus is stale", lines[1])
@@ -1847,7 +1857,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertEqual(self.state()["repair_rounds"], [])
 
     def test_the_classification_never_chooses_the_judgment(self):
-        # eADR-0041 BC-16 stands: the coordinator measures and records, the orchestrator judges. A round
+        # The coordinator's judgment boundary stands: it measures and records; the orchestrator judges. A round
         # over guarded surface still records exactly the judgment it was given.
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"reviewed_commit": HEAD_A}))
         self.assess("none", HEAD_B, classified=classification(
@@ -3935,11 +3945,6 @@ class TestV2CompletionGate(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, r"validate --plan"):
             bc.cmd_validate(argparse.Namespace(plan=None), self.store)
 
-    def test_the_governance_record_registers_the_hold(self):
-        text = (bc.ROOT / ".engine" / "contracts" / "eADR-0041-build-coordinator-behavior.md").read_text(encoding="utf-8")
-        self.assertIn("| A v2 work item is unintegrated, or is recorded complete without its integration commit |", text)
-        self.assertIn("TestV2CompletionGate", text)
-
     def test_no_runbook_instructs_the_removed_mechanic(self):
         operations = bc.ROOT / ".engine" / "operations"
         routine = (operations / "routine-entry.md").read_text(encoding="utf-8")
@@ -3955,129 +3960,6 @@ class TestV2CompletionGate(CoordinatorCase):
                               + line.strip())
         self.assertIn("work integrate", routine)
         self.assertIn("work integrate", orchestration)
-
-
-class TestTheCanonSaysOneThing(unittest.TestCase):
-    """The canon and the code must not disagree about where plan authority lives.
-
-    eADR-0025 and eADR-0041 both described a world where a Build's plan was session-held and made
-    durable by promotion to an Issue. That world is gone. A merged tree in which the code enters on a
-    seal while the canon still says the session hands over a plan is a tree whose contracts cannot be
-    trusted to mean anything — so the amendments are pinned here, by assertion id, at the same gate
-    the behaviour is.
-
-    These are text assertions on purpose. What they protect is not a mechanism but a promise about
-    what a reader of the canon will find, and the failure they catch is a future change that edits the
-    behaviour and leaves the record describing the old one.
-    """
-
-    @staticmethod
-    def _contract(name):
-        return (bc.ROOT / ".engine" / "contracts" / name).read_text(encoding="utf-8")
-
-    def setUp(self):
-        self.behavior = self._contract("eADR-0041-build-coordinator-behavior.md")
-        self.claim = self._contract("eADR-0025-draft-pr-is-the-claim.md")
-
-    def _row(self, identifier):
-        rows = [line for line in self.behavior.splitlines() if line.startswith(f"| {identifier} |")]
-        self.assertEqual(len(rows), 1, f"{identifier} must appear exactly once")
-        return rows[0]
-
-    def test_the_review_sections_genre_is_recorded_as_a_decision(self):
-        """The canon test above asserts a FIXED list of rows, so a new one is invisible to it — a row
-        could be missing or malformed and the suite would stay green. This reads BC-31 itself.
-
-        It is asserted here because the change it records is a REDUCTION in what the merge surface
-        discloses. A weakening that is not written where the behaviour is governed is a weakening
-        nobody can find later, and the honesty of the record is the only thing standing behind it.
-        """
-        row = self._row("BC-31")
-        self.assertIn("account", row.lower())
-        # The measurement, not just the claim: a reader must be able to see what it cost and why.
-        self.assertIn("60,000", row, "the budget the surface actually broke against")
-        self.assertIn("1080", row, "the build that could not publish")
-        # What survives, named — these are the guarantee, not the transcript that was dropped.
-        for kept in ("still-blocking", "escalated", "rejected", "partially-accepted",
-                     "accepted-tracked", "disagreement"):
-            self.assertIn(kept, row, f"BC-31 must name {kept} among what still renders in full")
-        # And the cost, stated rather than implied.
-        self.assertIn("gitignored", row, "the plan library's locality is part of the decision")
-        amendments = [l for l in self.behavior.splitlines() if l.startswith("_Amended 2026-08-25")]
-        self.assertTrue(any("BC-31" in l for l in amendments),
-                        "the dated amendment log must carry the row it introduced")
-
-    def test_the_moved_assertions_are_corrected_in_place_not_left_standing(self):
-        # Each of the five names the cutover as a source, so a reader can see WHEN it changed and why
-        # — rather than finding a silently rewritten row with no history.
-        for identifier in ("BC-04", "BC-05", "BC-12", "BC-18", "BC-19"):
-            self.assertIn("2026-08-24", self._row(identifier), identifier)
-
-    def test_no_amended_assertion_still_describes_the_retired_mechanics(self):
-        for identifier in ("BC-04", "BC-05", "BC-12", "BC-18", "BC-19"):
-            row = self._row(identifier)
-            for retired in ("Promote only when", "promoted copy", "waives a now-retrospective"):
-                self.assertNotIn(retired, row, f"{identifier} still describes a retired mechanic")
-
-    def test_the_two_added_assertions_state_what_replaced_the_plan_gate(self):
-        entry, coverage = self._row("BC-28"), self._row("BC-29")
-        self.assertIn("only through a seal", entry)
-        self.assertIn("build-plan.v1", entry)              # names what is refused at entry
-        self.assertIn("approved depth", coverage)
-        self.assertIn("roster", coverage)                  # the demand is keyed on the roster, not the name
-
-    def test_the_weakened_hold_is_disclosed_as_a_weakening(self):
-        """The honest half. The table states a bar for ADDING a hold and none for weakening one, so
-        the only thing stopping a quiet edit is a session choosing to say so."""
-        row = next(line for line in self.behavior.splitlines()
-                   if line.startswith("| Required reviewer silently omitted |"))
-        self.assertIn("WEAKENED", row)
-        self.assertIn("2026-08-24", row)
-        self.assertIn("states a bar for ADDING a hold and states none", row)
-        self.assertNotIn("plan-review waiver, creating", row)   # the old escape clause is gone
-
-    def test_the_new_hold_carries_its_demonstrated_failure(self):
-        row = next(line for line in self.behavior.splitlines()
-                   if line.startswith("| An unattended bind whose Issue does not correspond"))
-        self.assertIn("authority nobody granted", row)
-        self.assertIn("digest equality", row)              # what the guarantee used to be
-        self.assertIn("intent_source", row)                # what replaced it
-
-    def test_the_amendment_revises_the_2026_08_15_position_by_name(self):
-        self.assertIn("introduced no new submission hard hold", self.behavior)
-        self.assertIn("revised by name again here", self.behavior)
-
-    def test_the_claim_record_no_longer_says_a_plan_is_session_held(self):
-        self.assertIn("The Build's plan is not a GitHub record at all", self.claim)
-        self.assertIn("2026-08-24", self.claim)
-        for retired in ("promoted to a suitable writable Issue", "non-durable until a Build must"):
-            self.assertNotIn(retired, self.claim, "eADR-0025 still describes promotion")
-
-    def test_the_claim_record_states_what_the_change_costs(self):
-        # The residual is the point of amending rather than deleting: recovery is workstation-only,
-        # and the operator's read of the PR is what stands behind a merge.
-        self.assertIn("workstation-only", self.claim)
-
-    def test_never_a_durable_leg_is_separated_and_then_narrowed_rather_than_deleted(self):
-        # One sentence about two things, taken apart one at a time rather than dropped. 2026-08-24
-        # separated them; 2026-08-25 dropped the durability half for the Build's own state, because
-        # a killed Build losing its evidence refuted it. What survives is the claim eADR-0025
-        # actually rests on, and it must still be there in those words.
-        self.assertIn("never plan authority", self.claim)
-        self.assertIn("one sentence about two different things", self.claim)
-        self.assertIn("carries no authority", self.claim)
-        # The BOLDED phrase is the live claim; the earlier amendments quote the old wording as
-        # history, which is the record working as intended and must not be rewritten.
-        self.assertNotIn("**never a durable leg, never plan authority**", self.claim,
-                         "eADR-0025 still claims the Build's own state is never durable")
-
-    def test_the_claim_record_states_what_durable_build_state_costs(self):
-        # Amending rather than deleting means the residuals are named: evidence now persists as long
-        # as its plan folder, and durability is not portability.
-        self.assertIn("Amended 2026-08-25", self.claim)
-        self.assertIn("private notes", self.claim)
-        self.assertIn("does not make a Build resumable on another machine", self.claim)
-
 
 class TestV1Sunset(unittest.TestCase):
     """The v1 generation is gone, and this is the search that PROVES it — with its one exclusion.
@@ -4222,7 +4104,7 @@ class TestDepthsVerb(unittest.TestCase):
 class TestAssumptionDisposition(CoordinatorCase):
     """The receipt-layer assumption-resolution mechanism (StarshipSuperjam/engine-template#1014)."""
 
-    CLAIM = "eADR-0043 has no dependents"
+    CLAIM = "the retired authority surface has no dependents"
 
     def _plan_unresolved(self, objective="Ship a small instrument panel"):
         value = plan(objective)

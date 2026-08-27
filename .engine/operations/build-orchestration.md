@@ -146,14 +146,14 @@ work, named `work_item`, assumptions and accepted risks, non-goals, planned scop
 Unexpected paths are highlighted for judgment, not automatically forbidden. A missing or mismatched plan
 blocks commit recording. A non-aligned judgment requires resolution before submission.
 
-Write genuine deferrals at the code site with the governed [`ENGINE-TODO` marker grammar](../contracts/eADR-0035-deferred-work-marker.md)—which requires no Issue merely to record one—run `engine_todo.py list` in touched areas, and disposition covered work. Verify specifications, harness capability, and delegated findings against
+Write genuine deferrals at the code site with the `ENGINE-TODO` marker grammar, owned by `engine_todo.py`; it requires no Issue merely to record one. Run `engine_todo.py list` in touched areas and disposition covered work. Verify specifications, harness capability, and delegated findings against
 first-hand authority — including a repository-state claim you would file as an engine Issue: verify it at the repo's freshly-fetched default branch (`checkout_health.claim_at_fresh_head`), and separately search that repo's open pull requests and existing Issues for the same resolution (`gh pr list`/`gh issue list --search` — a merge already shows in the default branch). Record the verified `owner/repo@sha`; if the fresh head cannot be read or the checkout is the wrong repo, report it unverified, never auto-closing an existing Issue. Iterate with focused
 tests; `status` reports unordered activities and cannot know which engineering activity is best.
 
 Reconcile the target branch before final validation; if it advanced, resolve by the substance of the change
 (the original base is disclosed evidence, not immutable authority). Prepare the derived surfaces last with
 `build_coordinator.py sync-artifacts` — it regenerates every registered generated surface (`.engine/knowledge/graph.json` and the rest) in dependency order from the reconciled tree, resolving a derived conflict by regeneration, never a side-pick, and validation refuses until they are current.
-This reconcile is no longer the sole guarantee: the floor now requires freshness (eADR-0021), so GitHub backstops it at the merge boundary.
+This reconcile is no longer the sole guarantee: the merge floor requires freshness, so GitHub backstops it at the merge boundary.
 
 ### 5. Validate, review the deliverable, and repair proportionately
 
@@ -185,7 +185,7 @@ review, validate it and make the same nature-based judgment.
 
 **A large or behaviour-changing repair after a lighter depth signals the depth was under-chosen.** A Standard
 review then a repair that fixes a serious-or-blocking finding *and* changes behaviour — or a large divergence —
-leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Depth stays the orchestrator's judgment, never a mechanical threshold (eADR-0041); continuing is bounded by what rounds SPEND. A round that dispatches two or more cold lenses is counted; three counted rounds is the budget, and six rounds of any kind is the absolute ceiling. Either stop refuses until `--guidance` records the operator's answer, and prints the trajectory — including a highlight when a round moved more code and guarded surface than the one before it, the sign a fix broke something past the finding it answered. A `none` judgment and a single cold check on a low-yield change are recorded and disclosed but spend no counted budget; by convention that cheap check is one lens on a minimal model, because its whole value is the cold context — a convention, not a mechanism, so the honest worst case these two bounds allow is three full panels plus three further single-lens rounds on any model. Each round is classified from the previous round's end, not from the reviewed commit, and the rounds record reaches the operator at merge. That narrows eADR-0041's "never an escalation" to spend-based stops for cost; coverage and lens count stay uncapped. One design panel per Build: a completed panel freezes the plan, and `plan revise` names the ways on.
+leans `scoped`/`full` over `none`: the fix-diff is evidence the change outgrew its depth. Depth stays the orchestrator's judgment, never a mechanical threshold; continuing is bounded by what rounds SPEND. A round that dispatches two or more cold lenses is counted; three counted rounds is the budget, and six rounds of any kind is the absolute ceiling. Either stop refuses until `--guidance` records the operator's answer, and prints the trajectory — including a highlight when a round moved more code and guarded surface than the one before it, the sign a fix broke something past the finding it answered. A `none` judgment and a single cold check on a low-yield change are recorded and disclosed but spend no counted budget; by convention that cheap check is one lens on a minimal model, because its whole value is the cold context — a convention, not a mechanism, so the honest worst case these two bounds allow is three full panels plus three further single-lens rounds on any model. Each round is classified from the previous round's end, not from the reviewed commit, and the rounds record reaches the operator at merge. The spend-based stops bound cost; coverage and lens count stay uncapped. One design panel per Build: a completed panel freezes the plan, and `plan revise` names the ways on.
 
 ### 6. Preflight and submit
 
@@ -226,7 +226,7 @@ Hard holds are limited to: unavailable or mismatched plan authority; absent plan
 omitted approved reviewer coverage; absent deliverable review; validation stale or red for final; post-review
 change without a proportional judgment; a finding explicitly left blocking this PR; missing or failed
 registered preflight; incomplete PR contract; wrong/non-draft PR during construction; and any operation that
-would merge. Each is tied to a demonstrated failure in `.engine/contracts/eADR-0041-build-coordinator-behavior.md`.
+would merge. Each has demonstrated-failure tests and merge history.
 Unexpected paths, reviewer severity, diff size, and non-blocking findings remain evidence or judgment inputs, as does a repair's surface classification — round accounting bounds how many rounds run, never which lenses run or how deep; an
 `unresolved` assumption instead holds the `ready` phase until cleared by `assumption dispose` or `plan revise`.
 

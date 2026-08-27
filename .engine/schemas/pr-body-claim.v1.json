@@ -90,7 +90,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["summary", "items", "impact"],
-      "description": "Exclusions framed as reasoned boundaries, not a to-do list. Each item states what is excluded AND why (separate concern / deferred by operator decision / pre-existing vector), with an optional cross-reference to the tracking issue or governing eADR.",
+      "description": "Exclusions framed as reasoned boundaries, not a to-do list. Each item states what is excluded and why, with an optional cross-reference to its tracking issue.",
       "properties": {
         "summary": {"$ref": "#/$defs/line"},
         "items": {

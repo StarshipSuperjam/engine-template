@@ -411,9 +411,8 @@ class TestMcpServer(unittest.IsolatedAsyncioTestCase):
 
 
 class TestEnrichedEntities(unittest.TestCase):
-    """Pull-path enrichment: the declared attributes ride through get-entity/find via the JSON
-    attributes column; supersedes is a deliberate PULL (neighbors edge_filter) but stays OFF the
-    cold-start default walk; build_index allowlists edge kinds."""
+    """Pull-path enrichment: attributes ride through get-entity/find and the
+    index allowlists edge kinds."""
 
     def _build(self, graph):
         tmp = tempfile.TemporaryDirectory()
@@ -433,10 +432,8 @@ class TestEnrichedEntities(unittest.TestCase):
         c.update({"status": "active", "tier": "hard", "kind": "shape", "suites": ["CI"]})
         p = _entity("policy:p1", "policy", "core", ".engine/policies/p1.md", {"provided_by": ["module:core"]})
         p["title"] = "Attention"
-        a = _entity("contract:eADR-0002", "contract", "core", "x/a.md", {"supersedes": ["contract:eADR-0001"]})
-        b = _entity("contract:eADR-0001", "contract", "core", "x/b.md", {})
         m = _entity("module:core", "module", "core", ".engine/modules/core/manifest.json", {})
-        return {"schema_version": 1, "entities": [c, p, a, b, m]}
+        return {"schema_version": 1, "entities": [c, p, m]}
 
     def test_get_entity_carries_declared_attributes_and_keeps_edges(self):
         conn = self._build(self._enriched_graph())
@@ -455,19 +452,8 @@ class TestEnrichedEntities(unittest.TestCase):
         self.assertEqual(set(inspect.signature(kq._find).parameters) - {"conn"},
                          {"type", "path_glob", "owner"})
 
-    def test_supersedes_is_pull_queryable_but_off_the_cold_start_default(self):
-        conn = self._build(self._enriched_graph())
-        pulled = {n["id"] for n in kq._neighbors(conn, "contract:eADR-0002", edge_filter=["supersedes"])}
-        self.assertEqual(pulled, {"contract:eADR-0001"})            # deliberate pull
-        default = {n["id"] for n in kq._neighbors(conn, "contract:eADR-0002")}
-        self.assertEqual(default, set())                            # cold-start default never follows it
-
-    def test_edge_sets_are_split(self):
-        self.assertNotIn("supersedes", kq.WALK_EDGE_KINDS)
-        self.assertIn("supersedes", kq.EDGE_KINDS)
-        # every walk kind is a valid edge kind; the walk is EDGE_KINDS minus the pull-only supersedes.
+    def test_walk_edges_are_all_valid(self):
         self.assertTrue(set(kq.WALK_EDGE_KINDS) <= set(kq.EDGE_KINDS))
-        self.assertEqual(set(kq.EDGE_KINDS) - set(kq.WALK_EDGE_KINDS), {"supersedes"})
 
     def test_interface_edge_filter_enum_matches_edge_kinds(self):
         # the interface's edge_filter enum is a HAND-MAINTAINED duplicate of EDGE_KINDS. The knowledge

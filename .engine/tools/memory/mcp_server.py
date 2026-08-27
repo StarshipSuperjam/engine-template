@@ -19,7 +19,7 @@ and expects the caller to read it. No closeness figure is relayed: it ranks with
 track relevance, and a number beside a result is read as confidence whatever the surrounding words say. A
 caller chooses between the two; nothing here blends them or falls back from one to the other.
 Reading changes nothing. Recall used to append an access marker for each record it returned, and the ranking
-read those back as a usage tiebreak; both are gone with the curation lifecycle (eADR-0038). Registered
+read those back as a usage tiebreak; both are gone with the curation lifecycle. Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
 fallback); the operator's one-time approval of the tool is the operator's own (never engine-written), so until they
 approve it the tool is simply switched off — recall never half-runs.
@@ -82,7 +82,7 @@ def _recall(query: str, *, tags=None, session=None, limit=None):
     BOTH exercise the real path. Returns the library `QueryResult`.
 
     A READ IS NOW A READ. Recall used to append an access marker for every record it returned, and the ranking
-    read those back as a usage tiebreak. Both are gone (eADR-0038 ends per-record scoring), so searching writes
+    read those back as a usage tiebreak. Both are gone with per-record scoring, so searching writes
     nothing at all — which is also what made the fast path stop reading the ledger, since collecting those
     markers was a full pass over it on every single query.
 
@@ -152,7 +152,7 @@ _RECALL_COMPLETENESS_NOTE = (
         "start is slow and often misses, because a session here can run to hundreds of messages. Searches the "
         "actual past conversation, so a result is usually one piece of a real message — take its "
         "`session_id` and `seq` to `recall-window` to read it in context. NOTE `tags` HAS A BLIND SPOT: captured "
-        "turns carry only transcript tags, never an entity reference like 'eADR-0007', so a tag filter silently "
+        "turns carry only transcript tags, never an entity reference, so a tag filter silently "
         "drops the conversation. Search unfiltered first. Returns narrative recall only, never structural fact "
         "(knowledge's job). Every result carries `text`, `tags`, `session_id`, `ts` and `score`; a conversation "
         "hit ADDS `speaker` and `seq`, and a pin carries `kind: pin`. Reading changes nothing — a search records "

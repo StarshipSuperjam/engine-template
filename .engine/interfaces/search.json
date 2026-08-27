@@ -46,7 +46,7 @@
             "minLength": 1
           },
           "tags": {
-            "description": "Restrict to records carrying any of these tags (entity references such as 'eADR-0007' or free topic tags). Omit for no tag filter.",
+            "description": "Restrict to records carrying any of these entity-reference or free-topic tags. Omit for no tag filter.",
             "type": "array",
             "items": {
               "type": "string",

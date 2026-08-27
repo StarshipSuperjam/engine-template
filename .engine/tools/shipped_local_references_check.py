@@ -104,8 +104,8 @@ def _message(hit: dict) -> str:
     return (
         f"{loc} carries a bare local reference (`{hit.get('token')}`) in a file that ships into every "
         f"generated repository, where it names a record that repository cannot reach — a reader meets a bare "
-        f"identifier with nowhere to go. Name the CAPABILITY it means instead of the bare reference, or move "
-        f"it to a form that travels: an engine `eADR-####` record, or a fully-qualified `owner/repo#N`. The "
+        f"identifier with nowhere to go. Name the capability it means instead of the bare reference, or use "
+        f"a fully-qualified `owner/repo#N`. The "
         f"references treated as local are declared in `.engine/operator-local-references.json`; if this file "
         f"does not actually ship into a generated repository, it belongs in the first-run retirement set "
         f"(`.engine/provisioning/first-run-assets.json`).")

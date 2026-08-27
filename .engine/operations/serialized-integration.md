@@ -5,7 +5,7 @@ title: Serialized cross-PR integration — one candidate at a time, never merged
 ## Purpose
 
 How reviewed pull requests reach the protected branch safely when more than one is in flight. Concurrent
-sessions and worktrees make the repository multi-writer (eADR-0042), so integration into the canonical branch
+sessions and worktrees make the repository multi-writer, so integration into the canonical branch
 is **serialized**: reviewed candidates enter an ordered path, exactly one is admitted at a time, it is brought
 up to date and proven fresh against the current main, and it is surfaced ready for **your** merge. The engine
 orders and proves; it never merges — your merge of the protected branch remains the only binding gate. Enter

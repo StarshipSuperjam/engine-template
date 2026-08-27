@@ -2,7 +2,6 @@
 title: Briefing budget
 status: accepted
 date: 2026-08-09
-established_by: eADR-0033
 values:
   excerpt_chars: 200
   pin_index_title_chars: 80

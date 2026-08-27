@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Provider-vocabulary confinement — the custom/script entry for
-engine/check/provider-vocabulary-confinement (eADR-0034).
+engine/check/provider-vocabulary-confinement.
 
 The dual-runtime design holds only while provider-specific vocabulary stays inside the named seams:
 a future feature that reads a runtime's session env var directly, or keys on a runtime's tool name

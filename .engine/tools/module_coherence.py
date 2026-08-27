@@ -224,21 +224,6 @@ PRUNE_PATHS = {".engine/memory", ".engine/projects-sync"}
 # fingerprinted into the graph, so the StarshipSuperjam/engine-template#281 "a regen would pull it in" risk does not apply to them).
 FIXTURE_PATHS = {".engine/_fixtures"}
 
-# Repo-relative directory PATHS holding the deployment's COMMITTED per-instance eADR stream — the
-# deployment-authored decision records on the contracts surface (the contracts-surface topology rule). The engine's own
-# foundational eADR CANON rides core's non-recursive `.engine/contracts/*.md` glob (which never descends into
-# a subdirectory); this deployment stream lives one level down, in NO module's `provides`, preserved across an
-# engine overlay like operator config. Distinct justification from every set above: it is neither a regenerable
-# cache (PRUNE_DIRS), gitignored runtime state (PRUNE_PATHS), nor test data (FIXTURE_PATHS) — it is committed
-# deployment content that must not read as an unowned orphan. Excluded by the SAME shared walk-prune as
-# FIXTURE_PATHS, so it sits outside BOTH the OWNERSHIP leg and the StarshipSuperjam/engine-template#281 untracked-surface detector. It IS a
-# graph entity, though — knowledge_gen's own presence walk (`deployment_contract_inventory` / Pass 1b) entitizes
-# it as a NON-CANON contract, told apart from the canon by the ABSENCE of a `provided_by` edge (by
-# provides-membership, never a path/marker), so a deployment's decisions are graph-visible but not engine-OWNED
-# surface. Anchored on the exact subtree path, so the engine canon at `.engine/contracts/*.md` stays fully
-# ownership-checked.
-DEPLOYMENT_CONTRACTS = {".engine/contracts/instance"}
-
 MODULES_GLOB = ".engine/modules/*/manifest.json"
 
 
@@ -357,7 +342,7 @@ _HOME_TRAVEL_FILES = frozenset({
 _HOME_TRAVEL_PREFIXES = (
     ".engine/tools/", ".engine/check/", ".engine/schemas/", ".engine/operations/",
     ".engine/policies/", ".engine/interfaces/", ".engine/docs/", ".engine/conduct/",
-    ".engine/contracts/", ".engine/modules/", ".engine/templates/", ".engine/provisioning/",
+    ".engine/modules/", ".engine/templates/", ".engine/provisioning/",
     ".claude/", ".codex/", ".agents/", ".github/",
 )
 
@@ -365,23 +350,20 @@ _HOME_TRAVEL_PREFIXES = (
 def travels_to_engine_home(path: str) -> bool:
     """True iff `path` is engine content that legitimately rides into a contribution to the engine's OWN home
     (source, build config, or a CI-required derived index) — False for this deployment's accreted state and
-    the operator's private tuning, which never travel. OPERATOR_CONFIG and the per-instance eADR stream are
-    checked FIRST, so an operator-authored file under a source namespace (e.g. `.engine/conduct/operator.md`,
+    the operator's private tuning, which never travel. OPERATOR_CONFIG is
+    checked first, so an operator-authored file under a source namespace (e.g. `.engine/conduct/operator.md`,
     the provisioning seeds) never travels despite its prefix. Default is False (flag): only positively
     recognised source/index/config travels."""
-    if path in OPERATOR_CONFIG or path.startswith(tuple(d + "/" for d in DEPLOYMENT_CONTRACTS)):
-        return False  # operator/maintainer tuning + the deployment's own decision records — private, never travel
+    if path in OPERATOR_CONFIG:
+        return False
     if path in _CI_REQUIRED_INDEXES or path in _HOME_TRAVEL_FILES:
         return True
     return path.startswith(_HOME_TRAVEL_PREFIXES)
 
 
 def is_deployment_private(path: str) -> bool:
-    """True iff `path` is operator/deployment-private committed content that must NOT ride into ANY upstream —
-    the operator's tuning (OPERATOR_CONFIG) or the deployment's own decision records (DEPLOYMENT_CONTRACTS).
-    These sit OUTSIDE `engine_owned_paths` (they are ownership carve-outs), so the leak check unions them in
-    explicitly, closing the gap where a deployment's private content could ride upstream unflagged."""
-    return path in OPERATOR_CONFIG or path.startswith(tuple(d + "/" for d in DEPLOYMENT_CONTRACTS))
+    """True iff `path` is operator-private committed content that must not ride upstream."""
+    return path in OPERATOR_CONFIG
 
 
 # The .engine/ subdirectory holding the engine's own accreted per-instance state — written fresh at first-run
@@ -402,11 +384,9 @@ def is_engine_generated_unshipped(path: str) -> bool:
     never a nested path), and CASE-SENSITIVE throughout — deliberately NOT fnmatch, whose `*` crosses `/` and
     whose match case-folds on a case-insensitive filesystem, either of which would fold an operator file onto an
     engine one (the case-fold trap the resume recognizer already guards against). It defers to the
-    operator/deployment-private carve-out FIRST, so an operator file that happens to sit under one of these
-    namespaces still surfaces. Scoped this narrowly — to these two engine-generated families, NOT to every
-    `provides` glob — precisely because operators DO author committed files under .engine/ (OPERATOR_CONFIG,
-    DEPLOYMENT_CONTRACTS): a broad provides-pattern match would silently drop them, whereas these two families
-    never hold operator content."""
+    operator-private carve-out first, so an operator file that happens to sit under one of these
+    namespaces still surfaces. Scoped this narrowly to these two engine-generated families, not every
+    `provides` glob, because operators may author committed files under .engine/."""
     if is_deployment_private(path):
         return False
     if path == ENGINE_MANIFEST_REL:
@@ -422,22 +402,17 @@ def is_engine_generated_unshipped(path: str) -> bool:
 
 def _walk_engine_files() -> list:
     """Every file under .engine/ on the live filesystem (relpaths), pruning regenerable cache dirs
-    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), the committed-but-non-surface
-    fixtures namespace (FIXTURE_PATHS), and the deployment's committed per-instance eADR stream
-    (DEPLOYMENT_CONTRACTS). The RAW walk — what is on disk, tracked or not.
-    engine_file_inventory() narrows this to the committed set; the untracked-surface detector reads it raw
-    (both therefore exclude the four pruned sets)."""
+    (PRUNE_DIRS, any depth), gitignored runtime roots (PRUNE_PATHS), and the committed-but-non-surface
+    fixtures namespace (FIXTURE_PATHS). The raw walk is what is on disk, tracked or not."""
     out = []
     for dirpath, dirs, files in os.walk(validate.ENGINE_DIR):
         # Prune name-matched caches (PRUNE_DIRS, any depth), path-matched gitignored runtime roots
-        # (PRUNE_PATHS), the committed-but-non-surface fixtures namespace (FIXTURE_PATHS), and the
-        # deployment-owned per-instance eADR stream (DEPLOYMENT_CONTRACTS) — each by the exact repo-relative
-        # path — so none of their contents are flagged as orphans.
+        # (PRUNE_PATHS) and the committed-but-non-surface fixtures namespace
+        # (FIXTURE_PATHS), each by exact repo-relative path.
         dirs[:] = [d for d in dirs
                    if d not in PRUNE_DIRS
                    and _rel(os.path.join(dirpath, d)) not in PRUNE_PATHS
-                   and _rel(os.path.join(dirpath, d)) not in FIXTURE_PATHS
-                   and _rel(os.path.join(dirpath, d)) not in DEPLOYMENT_CONTRACTS]
+                   and _rel(os.path.join(dirpath, d)) not in FIXTURE_PATHS]
         out.extend(_rel(os.path.join(dirpath, f)) for f in files)
     return sorted(out)
 

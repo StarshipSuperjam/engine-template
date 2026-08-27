@@ -108,12 +108,12 @@ PRESENT_MARKER = "Project status"
 
 # The standing advertisement of the knowledge faculty (the wiring-map query tools) and the surface-catalog
 # recognition slice used to live here as always-loaded orientation blocks. They are STATIC content — the same
-# every session — and the capped boot pack is for DYNAMIC, session-specific content (eADR-0033); static
+# every session — and the capped boot pack is for DYNAMIC, session-specific content; static
 # content that can shed is content the session sometimes never sees. Both moved to the always-loaded, uncapped
 # CLAUDE.md / AGENTS.md floor (StarshipSuperjam/engine-template#787 / StarshipSuperjam/engine-template#899): the wiring-map advert beside the `engine-parts` readout, and a
 # one-line pointer to the surface catalog (the recognition detail is pulled from the catalog / knowledge graph
 # on demand, not re-rendered every session). Retiring the per-session recognition RENDER required loosening
-# eADR-0016's boot-read leg — amended there; its catalog COVERAGE gate is unchanged.
+# The surface catalog's boot-read leg and coverage gate remain unchanged.
 
 # The SessionStart sources boot grounds on: the genuine session-START moments. `compact` is DELIBERATELY
 # excluded — a full boot-pack re-render on compaction is deliberately not done and must never be
@@ -557,7 +557,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
         # The work record, by contrast, is a SUBSTRATE attention reads itself (through the gh reader boot hands it).
         # RECENT DECISIONS IS THE MERGED-PULL-REQUEST HALF ALONE. There was a memory half: the summary writer
         # stamped a `decision` role onto what it produced, and this relayed the newest of those into the
-        # ranking. Nothing writes a role any more (eADR-0038 ends the summary writer), so that half could only
+        # ranking. Nothing writes a role any more, so that half could only
         # ever have relayed an empty list — a partition input that is structurally always nothing. Merged pull
         # requests are the decision record now, and they are a better one: they carry the operator's own merge.
         # Read ONCE, because the ranking needs the moments and the digest below needs the titles rank() strips: the ranking needs the moments and the digest
@@ -711,7 +711,7 @@ def render_mechanic_sprawl_note(sprawl: dict | None) -> str:
 
 
 def render_mechanic_grounding(mech: dict | None, *, first_run_pending: bool = False) -> str:
-    """The engine-MECHANIC grounding paragraph (eADR-0026) — AI-facing, Tier 0 in the pack (never shed), or ""
+    """The engine-MECHANIC grounding paragraph — AI-facing, Tier 0 in the pack (never shed), or ""
     when this deployment is not a mechanic. A PURE renderer over `checkout_health.mechanic_orientation`'s dict, so
     the grounding can be exercised (and demonstrated) without assembling a whole pack.
 
@@ -851,7 +851,7 @@ def _recent_sessions_recall(read=None, *, session_id=None) -> list:
 
 
 
-# The briefing-budget dials (eADR-0033): the character bounds and set-aside order boot reads to fit the pack
+# The briefing-budget dials: the character bounds and set-aside order boot reads to fit the pack
 # to the platform's per-value size limit. Read live from the policy frontmatter; a missing or malformed file
 # falls back to these shipped defaults, so the pack always assembles under boot's fail-open law. The fallback
 # MUST equal the shipped policy's `values` (a test pins this), so the doc, the code, and the margin canary
@@ -953,7 +953,7 @@ def render_pins(pinned: list, title_chars: int | None = None, *, count_max: int 
     every session, and too meaningful to truncate as a quote — so the pack carries the index and the memory tools
     carry the detail.
 
-    THE CAP IS BOUNDED AND LOUD, NEVER SILENT (StarshipSuperjam/engine-template#950, eADR-0033). `count_max` shows the newest N titles and
+    THE CAP IS BOUNDED AND LOUD, NEVER SILENT (StarshipSuperjam/engine-template#950). `count_max` shows the newest N titles and
     `block_chars` trims that count further if the block still overflows; whenever ANY pin is held back, a LOUD,
     directive-aware line discloses how many older pins are not shown and that they may carry standing
     instructions — so this is not the old rank-out (nothing drops unseen), and NOTHING is removed from storage:
@@ -1445,21 +1445,6 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
             triage_pressure_line = telemetry.triage_pressure_line(low_severity_count, threshold)
         except Exception:  # noqa: BLE001 — a policy-read failure suppresses the meter, never breaks the pack
             triage_pressure_line = None
-    # The render-only contract-rate nudge (the contract-threshold policy's soft-warn): one plain-language
-    # "are decisions being over-recorded?" line once the operator's OWN engine decisions accepted in the last
-    # 7 days cross the governed limit, else None. Boot DISPLAYS it read-only (it never writes a record); the
-    # count reads only the deployment-owned per-instance decision folder, and the threshold reads through the
-    # override merge so /engine-setup governs it. SUPPRESSED (None) whenever the folder can't be read or the
-    # count sits at/under the limit — never a false number.
-    contract_rate_line = None
-    contract_rate = telemetry.derive_contract_rate(moment.utc_now())
-    if contract_rate is not None:
-        try:
-            contract_threshold = telemetry.contract_rate_threshold(
-                override=operator_overrides.slice_for("contract-threshold") or None)
-            contract_rate_line = telemetry.contract_rate_line(contract_rate, contract_threshold)
-        except Exception:  # noqa: BLE001 — a policy-read failure suppresses the meter, never breaks the pack
-            contract_rate_line = None
     debt_count, debt_as_of = telemetry.read_state_debt(STATE_PATH)
     # The GitHub reader for attention's in-flight work-record read (open PRs) and the stranded-PR conflict
     # detector — both generic reads, so a NEUTRAL github_client.reader (`.repo` + `.transport`), not a domain
@@ -1480,7 +1465,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     map_rebuilt = bool(source and getattr(source, "from_live", False))
     # The same read distinguishes the committed map being ABSENT (map_rebuilt) from present-but-DAMAGED
     # (map_corrupt) — both ran orientation on a live rebuild, but the operator's repair reads differently, so
-    # each earns its own honestly-named heads-up (eADR-0004 'name what is reduced'). Mutually exclusive.
+    # each earns its own honestly-named heads-up. Mutually exclusive.
     map_corrupt = bool(source and getattr(source, "from_corrupt", False))
     att_lines, att_degraded, neighborhood, shipped, blocking_findings = needs_attention(
         state, gh=gh, live_findings=findings, source=source)
@@ -1558,7 +1543,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     try:
         # The PRODUCT signal, RELAYED from checkout_health's OFFLINE manifest read (boot reads no manifest
         # itself — its relay-only discipline). The recorded product repo is present ONLY when this engine
-        # builds a repo DIFFERENT from the one it is deployed into (eADR-0026); absent for the common
+        # builds a repo DIFFERENT from the one it is deployed into; absent for the common
         # self-building case, so the dashboard says nothing then. Degrades QUIETLY to None on any read failure.
         product_repository = checkout_health.recorded_product_repository()
     except Exception:  # noqa: BLE001 — a manifest read failure degrades this one signal, never the pack
@@ -1634,7 +1619,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         home_workshop = None
     try:
-        # The engine-MECHANIC orientation (eADR-0026, Slice 3), RELAYED from checkout_health's ONE offline reader
+        # The engine-MECHANIC orientation, RELAYED from checkout_health's ONE offline reader
         # (boot reads no manifest itself): this engine records an executable product build target, so it is a
         # mechanic that builds a SEPARATE owned checkout. Either None (the common self-building case) or
         # {"product", "checkout", "state": resolved | path-unset | path-unreachable} — the last being a recorded
@@ -1806,9 +1791,8 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         "unrated_count": (None if findings is None
                           else sum(1 for f in findings if not f.get("severity"))),
         "low_severity_count": low_severity_count, "triage_pressure_line": triage_pressure_line,
-        "contract_rate_line": contract_rate_line,
         # One plain line when the last capture attempt could NOT save a session's conversation to
-        # memory (the loud half of the fail-soft capture, eADR-0034); None when fine or no marker.
+        # memory (the loud half of the fail-soft capture); None when fine or no marker.
         "capture_status_line": capture_status_line(),
         # One plain line when there is no recent evidence of the hooks running (the silently-off
         # detector — Codex trust-pending, unapproved hooks, or a pre-hooks version); None when fresh.
@@ -1844,7 +1828,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # exists (a git hook silently disabled), or None (unset / resolves / unresolvable). Rendered at the top of
         # the offer tier below the governance alarms; collapse decided hook-side, never retire-eligible.
         "hooks_path": hooks_path,
-        # the PRODUCT signal (eADR-0026): the repo this engine builds when it differs from the deployed-into
+        # the PRODUCT signal: the repo this engine builds when it differs from the deployed-into
         # repo, or None for the common self-building case (the dashboard then shows no product line)
         "product_repository": product_repository,
         # the leftover-template-LICENSE signal (StarshipSuperjam/engine-template#471): the main checkout's committed root LICENSE is still the
@@ -1864,7 +1848,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # None (a deployed copy / unresolvable). AI-facing grounding — assemble_pack points the session at the
         # engine-development runbook; mutually exclusive with first_run (a placed checkout is home XOR a copy).
         "home_workshop": home_workshop,
-        # the engine-mechanic orientation (eADR-0026): {"product", "checkout", "state": resolved | path-unset |
+        # the engine-mechanic orientation: {"product", "checkout", "state": resolved | path-unset |
         # path-unreachable} when this engine builds a separate OWNED product checkout, or None (self-building /
         # unresolvable). Drives the dashboard "What this engine builds" line (preferred over product_repository),
         # the setup offer — which fires on EITHER broken state, so a mistyped path can never leave the offer
@@ -1997,7 +1981,7 @@ def render_dashboard(s: dict) -> str:
                 "gate is protecting it, and your project is ready — that was the last onboarding step. From here "
                 "it's ordinary work.")
 
-    # The engine-MECHANIC setup OFFER (eADR-0026, Slice 3): this engine builds a separate OWNED product checkout,
+    # The engine-MECHANIC setup OFFER: this engine builds a separate OWNED product checkout,
     # but this machine's path to that checkout is missing (the portable fork case — the committed slug travelled,
     # the per-machine path is each maintainer's to set once) or points at nothing. BOTH broken states offer, so a
     # typo'd path can never leave the offer silent while the card claims readiness. SUPPRESSED while first_run is
@@ -2218,7 +2202,7 @@ def render_dashboard(s: dict) -> str:
     # The broken-core.hooksPath OFFER (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708; part of #690), surfaced read-only at the TOP of the offer tier
     # (above the tidy-ups — a silently disabled safety hook outranks a leftover license), but still BELOW the
     # governance alarms: a stale hooksPath cannot let anything reach protected `main` (git just runs no hook), so
-    # it is NOT a governance alarm (eADR-0033: a new operator alarm arrives ranked behind the governance-critical
+    # it is NOT a governance alarm: a new operator alarm arrives ranked behind the governance-critical
     # ones). The line is CONTENT-FREE — it never echoes the raw config value or path (an externally-writable
     # value must not reach the operator surface in the engine's voice), and keeps git verbs off the surface (the
     # leaf law). "fixable" OFFERS the consented auto-repair; "manual" (a shared-relative / global value the
@@ -2400,7 +2384,7 @@ def render_dashboard(s: dict) -> str:
         # into the model-visible briefing, so it gets the same guard as the product slug below.
         phase = validate.defang_prompt_fence_markers(raw_phase) or "nothing merged yet"
         # The PRODUCT line — shown when this engine builds a repo DIFFERENT from the one it is deployed into
-        # (eADR-0026), so a self-building deployment gets no line rather than its own slug echoed back. PREFER the
+        # so a self-building deployment gets no line rather than its own slug echoed back. PREFER the
         # executable build target (`mechanic["product"]`, the single source of truth per the schema) over the
         # display-only `product_repository`. Rendered ABOVE the live-derived facts so the offline "may be out of
         # date, re-ground" caveat below can't misattach to this static stored label (re-grounding never changes it).
@@ -2465,11 +2449,6 @@ def render_dashboard(s: dict) -> str:
         # (suppressed on a degraded read or a below-threshold count — telemetry owns that decision).
         if s.get("triage_pressure_line"):
             out.append(s["triage_pressure_line"])
-        # The render-only contract-rate nudge, only when the operator's own engine decisions accepted in the
-        # last 7 days cross the governed limit (suppressed on a degraded read or below-limit — telemetry owns
-        # that decision). A separate line from the backlog meter: a different signal about a different thing.
-        if s.get("contract_rate_line"):
-            out.append(s["contract_rate_line"])
         # The render-only memory-capture heads-up: the last capture attempt failed loudly (capture
         # owns the detection and the marker; boot only relays). Suppressed when fine or unknown.
         if s.get("capture_status_line"):
@@ -2835,7 +2814,7 @@ def _pushed_alarms(s: dict) -> list:
         # "unchanged" when the set churns at equal count. `.get` keeps synthetic test dicts fail-soft.
         alarms.append({"key": "findings", "value": s.get("blocking_finding_fingerprint"), "collapsible": True,
                        "full": full, "terse": terse, "worse": worse})
-    # The execution-drift alarm, LAST so it ranks behind the governance-critical alarms above (eADR-0033: a new
+    # The execution-drift alarm, LAST so it ranks behind the governance-critical alarms above (a new
     # operator alarm arrives ranked behind the safety-critical ones — a re-qualify reminder is not safety-critical).
     # Only a `changed` posture pushes: qualified-here but a checked component drifted. unqualified/unknown are calm
     # (no alarm — a fresh or foreign baseline is not a problem to relay). Collapsible: a standing condition the
@@ -3129,7 +3108,7 @@ def _relay_lines(s: dict) -> list:
     return _automatic_checkout_relay(s) + lines
 
 
-# The set-aside ladder's pin-block name (briefing-budget / eADR-0033) — named once so the two-pass loud
+# The set-aside ladder's pin-block name (briefing budget) — named once so the two-pass loud
 # pin-shed and the block builder agree, and so the shed notice speaks a plain operator-facing label.
 _PINS_BLOCK_NAME = "your pins (what you asked me to remember)"
 
@@ -3166,7 +3145,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
     collapse: only the must-push relay payload behind the marker varies."""
     s = gather_signals(session_id, payload)
-    bvals = _briefing_values()          # the briefing-budget dials, read once (eADR-0033)
+    bvals = _briefing_values()          # the briefing-budget dials, read once
     marker = present_marker_line(s)
     push = _relay_lines(s) if use_ledger else must_push(s)
     # DURABLE half of the refused-cursor posture: on the REAL SessionStart path only
@@ -3243,7 +3222,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
             "full runbook is `.engine/operations/engine-development.md`; read it to ground before building.")
         out.append("")
 
-    # The engine-MECHANIC grounding (eADR-0026, Slice 3), AI-facing, Tier 0 (never shed). Fires when this engine
+    # The engine-MECHANIC grounding, AI-facing, Tier 0 (never shed). Fires when this engine
     # records an executable product build target — it builds a SEPARATE owned checkout and delivers a DIRECT pull
     # request into it. Mutually exclusive with the home overlay above by data (a mechanic's origin differs from its
     # recorded home, so detect_home_workshop is False); pinned in a test. Self-labelled AI-facing so it never
@@ -3282,7 +3261,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                        "`.engine/policies/model-routing.md`.)")
         out.append("")
 
-    # The sheddable components, each its own block with its own set-aside rank (briefing-budget / eADR-0033),
+    # The sheddable components, each its own block with its own set-aside rank (briefing budget),
     # so trimming is per-component and every shed is named accurately — not one coarse "orientation" tier whose
     # notice mislabels what actually went. The set-aside ladder (first set aside -> last kept): the build-sprawl
     # note, then the work-neighbourhood map, then where-we-left-off, then the pins index, then the status

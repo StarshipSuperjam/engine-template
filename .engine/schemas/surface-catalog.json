@@ -1,19 +1,10 @@
 {
   "$schema": "./surface-catalog.schema.json",
   "surfaces": {
-    "contract": {
-      "class": "prose",
-      "location": ".engine/contracts/",
-      "purpose": "Architecturally significant decision records — one decision each, with rationale and the rejected alternative; the top authority tier, file-per-decision; a deployment's own instance records are append-only, while the shipped founding canon is revised in place (eADR-0014).",
-      "authority": "decisions",
-      "lifecycle": "decision",
-      "governing_schema": "contract.v1.json",
-      "template": "../templates/contract.md"
-    },
     "policy": {
       "class": "prose",
       "location": ".engine/policies/",
-      "purpose": "Standing rules — ongoing directives that govern behavior across sessions; the second authority tier.",
+      "purpose": "Standing rules — ongoing directives that govern behavior across sessions; the highest declared authority tier.",
       "authority": "standing-rules",
       "lifecycle": "decision",
       "governing_schema": "policy.v1.json",

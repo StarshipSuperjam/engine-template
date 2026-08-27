@@ -27,6 +27,9 @@ import module_coherence
 import release_cut as rc
 
 
+TEMPLATE_SOURCE = os.path.join(validate.ROOT, ".github", "pull_request_template.md")
+
+
 def _write(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -43,6 +46,9 @@ def _module(mid, ver="0.0.0-dev", migrations=None):
 
 def _tree(modules, home="acme/engine-home", engine_release="0.0.0-dev"):
     root = tempfile.mkdtemp()
+    template = os.path.join(root, ".github", "pull_request_template.md")
+    os.makedirs(os.path.dirname(template), exist_ok=True)
+    shutil.copyfile(TEMPLATE_SOURCE, template)
     _write(os.path.join(root, ".engine", "engine.json"),
            {"engine_release": engine_release,
             "packages": {mid: m["version"] for mid, m in modules.items()},
@@ -156,15 +162,15 @@ def main() -> int:
         print(f"   core held at its version = {core_ver == '0.1.0'}")
         ok &= (r7["applied"] and eng7["engine_release"] == "0.2.0" and r7["targets"] == {} and core_ver == "0.1.0")
 
-        # 8. CHANGE SUMMARY collates a contract-only change (empty structural inventory + one impact), so the
-        # release notes' "what changed" is not blank when a changed contract is what forced the bump.
+        # 8. CHANGE SUMMARY collates an interface-only change (empty structural inventory + one impact), so the
+        # release notes' "what changed" is not blank when a changed interface is what forced the bump.
         summ = rc.change_summary({"change_inventory": [],
-                                  "impacts": [{"what": "the contract surface 'eADR-0014-one-history.md' changed",
+                                  "impacts": [{"what": "the interface surface 'history.json' changed",
                                                "why": "read it against consumers"}]})
-        print("\n8. CHANGE SUMMARY (contract-only release still lists what changed)")
+        print("\n8. CHANGE SUMMARY (interface-only release still lists what changed)")
         for s in summ:
             print(f"   - {s}")
-        ok &= (len(summ) == 1 and "eADR-0014-one-history.md" in summ[0])
+        ok &= (len(summ) == 1 and "history.json" in summ[0])
 
         # 9. PUBLISHED RELEASE NOTES: a human-readable body with a breaking callout, the pull requests merged
         # since the last release (the actual work) GROUPED under their change-kind, and interface changes WITH
@@ -179,8 +185,8 @@ def main() -> int:
                                "Maintenance: bump setup-uv from 8.3.0 to 8.3.2 (#43)",
                                "Fix: stop the self-review digest double-posting (#44)",
                                "Reword the onboarding copy (#45)"]}     # no prefix -> "Other changes"
-        rich["impacts"] = [{"what": "the contract surface 'eADR-0021-control-plane.md' changed",
-                            "why": "a changed contract can be additive or breaking — read it against consumers."}]
+        rich["impacts"] = [{"what": "the interface surface 'control-plane.json' changed",
+                            "why": "a changed interface can be additive or breaking — read it against consumers."}]
         notes = rc.render_release_notes("v1.0.0", rich)
         print("\n9. PUBLISHED RELEASE NOTES (merged PRs grouped by change-kind; unprefixed => 'Other changes')")
         print("\n".join("   " + ln for ln in notes.splitlines()))
@@ -229,7 +235,7 @@ def main() -> int:
     print("\n" + ("DEMO PASSED: the classifier derived the right floors, refused a non-raise, wrote "
                   "atomically preserving the update home, rolled back a failed write, rendered a legible "
                   "release-PR body with three distinct readiness states, applied an engine-only cut while "
-                  "holding unchanged capabilities, and collated a contract-only change into the summary."
+                  "holding unchanged capabilities, and collated an interface-only change into the summary."
                   if ok else "DEMO DID NOT BEHAVE AS EXPECTED — see above."))
     return 0 if ok else 1
 

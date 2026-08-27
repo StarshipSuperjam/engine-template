@@ -140,7 +140,7 @@ class CueContentTests(unittest.TestCase):
 
     def test_the_cue_carries_no_engine_or_governance_vocabulary(self):
         # It is AI-facing, but it is also the most-repeated string the engine emits; keep it plain.
-        for jargon in ("eADR", "guardrail", "validator", "suite", "gate"):
+        for jargon in ("guardrail", "validator", "suite", "gate"):
             self.assertNotIn(jargon, scent._CUE)
 
 

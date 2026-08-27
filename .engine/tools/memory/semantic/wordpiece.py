@@ -86,7 +86,7 @@ def normalize(text: str) -> str:
 def pre_tokenize(text: str) -> list:
     """BertPreTokenizer: split on whitespace, then split each punctuation character into its own word.
 
-    This is what makes `eADR-0038` three words and `__init__.py` five — the reason a project's own
+    This is what makes a hyphenated identifier three words and `__init__.py` five — the reason a project's own
     identifiers survive as searchable pieces instead of collapsing to a single unknown token.
     """
     words = []

@@ -1,6 +1,6 @@
 """Capture-time secret redaction — the one sanctioned mutation of an otherwise-verbatim archive.
 
-Memory is a transcript-first archive whose whole value is the EXACT conversation (eADR-0038); recall
+Memory is a transcript-first archive whose whole value is the EXACT conversation; recall
 depends on it. So this redactor is deliberately PRECISION-BIASED, not recall-biased: it redacts only
 credential shapes that anchor on a structural constant a normal sentence essentially never contains —
 a vendor prefix, a fixed delimiter, a rigid multi-segment grammar. It never uses an entropy heuristic,
@@ -12,12 +12,12 @@ exotic token is the correct trade against corrupting real conversation.
 Deliberately OUT of scope (a surfaced boundary, not an oversight): bare high-entropy strings; a generic
 `password=`/`secret=` sitting in prose (no vendor anchor — "the database password lives in the vault"
 must survive verbatim); personal names; and PII — EMAILS and PHONE NUMBERS are intentionally left
-intact. The operator asked for password/key/token-shaped content; eADR-0038 says "secret-shaped." An
+intact. The operator asked for password/key/token-shaped content; the live scrub policy says "secret-shaped." An
 email is not a credential, is extremely common in legitimate conversation, and is often the very anchor
 a later session searches on — redacting it trades a large recall loss for a benefit no one requested.
 PII redaction, if ever wanted, is a separate opt-in decision with its own record, never folded in here.
 
-This module is pure, offline, and standard-library-only (eADR-0004: no outbound calls, no third-party
+This module is pure, offline, and standard-library-only (no outbound calls, no third-party
 deps). `scrub_text` is deterministic, idempotent (`scrub_text(scrub_text(t)) == scrub_text(t)`), and
 NEVER raises (capture is fail-soft, capture.py:756) — on any internal fault it returns the input
 unchanged, biasing to under-redaction over corruption or a crash. It is defense-in-depth, not a wall:
@@ -97,7 +97,7 @@ def scrub_text(text):
 
     PRECISION-BIASED: only anchored, vendor/format-specific shapes are redacted; bare high-entropy
     strings, generic `password=` in prose, names, emails, and phone numbers are DELIBERATELY left intact
-    — a false positive permanently destroys unrecoverable verbatim memory (eADR-0038). Pure, offline,
+    — a false positive permanently destroys unrecoverable verbatim memory. Pure, offline,
     stdlib-only, no I/O, deterministic. Idempotent: `scrub_text(scrub_text(t)) == scrub_text(t)` (the
     `[redacted:...]` placeholder matches none of the patterns). NEVER raises — on any internal fault the
     input is returned unchanged, biasing to under-redaction over corruption or a crash."""

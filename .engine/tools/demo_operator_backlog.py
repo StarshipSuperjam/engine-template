@@ -94,7 +94,7 @@ def _render(finding_count, operator_count, operator_register, operator_degraded)
          "restore_offer": None, "migration_revert": None, "audit_stale": None, "live_standing": None,
          "neighborhood": None, "map_rebuilt": False, "map_corrupt": False, "ledger_malformed": None,
          "migration_stalled": False, "recall_offline": False, "set_aside": None, "foreign_license": None,
-         "triage_pressure_line": None, "contract_rate_line": None,
+         "triage_pressure_line": None,
          "operator_backlog_count": operator_count, "operator_backlog_register": operator_register,
          "operator_backlog_degraded": operator_degraded}
     return boot.render_dashboard(s)

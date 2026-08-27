@@ -65,8 +65,8 @@ _SPEC_DIR = os.path.join("docs", "spec")
 
 # <repo>/.engine/tools/spec_referent.py -> <repo>. A pure leaf: computed from __file__, no sibling import. The
 # CLI reads the spec tree from here (this engine's own tree). The engine-mechanic reads the PRODUCT's spec by
-# running the PRODUCT checkout's OWN spec_referent in place (subprocess-in-place, eADR-0026 / build-orchestration.md
-# owned-product arm), whose _ROOT is anchored to the checkout — so there is no need for this copy to be redirected
+# running the PRODUCT checkout's OWN spec_referent in place (the subprocess-in-place rule in
+# build-orchestration.md's owned-product arm), whose _ROOT is anchored to the checkout — so there is no need for this copy to be redirected
 # at a foreign tree. (The confined-read wall in resolve_doc still self-relativizes to whatever root it is passed.)
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

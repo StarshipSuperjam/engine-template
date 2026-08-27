@@ -51,7 +51,7 @@ class _Program(unittest.TestCase):
         slug = self.programs.create("Plan Coordinator", "A coordinator delivered across two PRs.")
         self._plan("pln_aaaaaaaaaaaa", "PR A",
                    _obligation("OB-1", "PR B cuts the Build Coordinator over to sealed handoffs."),
-                   _obligation("OB-2", "PR B amends eADR-0025 and eADR-0041."))
+                   _obligation("OB-2", "PR B updates the plan-authority documentation and tests."))
         self.programs.add_child(slug, "pln_aaaaaaaaaaaa")
         return slug
 
@@ -101,7 +101,7 @@ class TheGuarantee(_Program):
         message = str(caught.exception)
         self.assertIn("does not answer for 1 obligation", message)
         self.assertIn("OB-2", message)
-        self.assertIn("amends eADR-0025", message)
+        self.assertIn("updates the plan-authority documentation", message)
         self.assertIn("decay", message)
         # And the refusal is total: the program is unchanged.
         self.assertEqual(len(self.programs.read(slug)["children"]), 1)

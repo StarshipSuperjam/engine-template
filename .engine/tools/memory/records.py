@@ -27,7 +27,7 @@ EPISODIC_KIND = "episodic"          # an AI-written episodic summary record
 MARKER_KIND = "consolidated"        # the in-ledger "this session has been tidied" marker (survives backup)
 
 # Recall membership. Recall surfaces the recorded conversation AND the curated layer over it — the transcript
-# is the canonical record and the summaries above it are the disposable layer (eADR-0038). The whole
+# is the canonical record and the summaries above it are the disposable layer. The whole
 # `turn-delta` kind was once excluded, because verbatim turns vastly outnumber paraphrased summaries and matched
 # more exactly, crowding them out of every recall; the answer now is that the summaries are the layer being
 # retired, not the conversation. `forget._is_excluded_capture` holds what remains of the exclusion: harness-
@@ -200,7 +200,7 @@ SOURCE_IDS_KEY = "source_ids"       # on the gist: the RECORD_ID_KEY values of t
 # unconditionally. A uuid hex, so `index` keeps it OUT of the search body (index._NON_BODY_KEYS).
 SUPERSEDED_BY_KEY = "superseded_by"
 
-# The pin vocabulary — durable operator intent that has no better canonical home (eADR-0038). A pin is
+# The pin vocabulary — durable operator intent that has no better canonical home. A pin is
 # CONTENT, not a marker: it carries `text` and rides ordinary recall, and it is a record-type inside this one
 # substrate rather than a second store.
 #

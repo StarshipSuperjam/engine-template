@@ -39,16 +39,15 @@ import knowledge_gen     # noqa: E402
 CACHE_DIR = os.path.join(knowledge_gen.KNOWLEDGE_DIR, ".cache")
 INDEX_PATH = os.path.join(CACHE_DIR, "index.sqlite")
 
-# The FULL valid edge vocabulary — every predicate that may appear in the store and be requested via a
-# neighbors edge_filter / pulled by relate. `supersedes` is a deliberate PULL edge: valid here, but excluded
-# from WALK_EDGE_KINDS below so the cold-start adjacency walk never traverses it.
+# The full valid edge vocabulary — every predicate that may appear in the store
+# and be requested through a neighbors edge filter or relate.
 EDGE_KINDS = ("provided_by", "governed_by", "targets", "depends_on",
-              "imports", "tests", "enforced_by", "wires_hook", "implemented_by", "supersedes")
+              "imports", "tests", "enforced_by", "wires_hook", "implemented_by")
 
 # The cold-start adjacency walk's traversal set — the containment edges (provided_by / governed_by / targets /
 # depends_on) PLUS the code-dependency and wiring edges (imports / tests / enforced_by / wires_hook /
 # implemented_by), so a cold session's orientation push answers "what depends on / exercises / wires the part
-# I'm changing", not merely "what owns it". `supersedes` alone stays OFF the walk (a pull-only lineage edge).
+# I'm changing", not merely "what owns it".
 # The orientation budget is held flat NOT by keeping this vocabulary small but by the render's per-relationship
 # SAMPLE CAP with honest totals (attention.NEIGHBORHOOD_SAMPLE_CAP: a 162-importer hub renders as one line,
 # "showing 4 of 162"), so a richer map cannot bloat the block. The invariant that is pinned here is WHICH kinds
@@ -123,7 +122,7 @@ def _load_graph(graph_path: str):
       'live-corrupt' — the committed graph is PRESENT but UNREADABLE (merge markers, a truncated regen) →
                        fall back to the LIVE WALK exactly as absence does, but tagged distinctly so the
                        degrade signal names a DAMAGED file, not a missing one: the repair differs and the
-                       operator relies on an honest signal (eADR-0004 'name what is reduced').
+                       operator relies on an honest signal.
     A corrupt committed graph USED to raise a raw JSONDecodeError here (its validity deferred to the CI
     knowledge-coverage gate) — but that gate only fires at merge, while a reader hitting a mid-write
     truncation between commit and gate must not crash the query/boot path ('report unavailable,

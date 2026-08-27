@@ -309,7 +309,8 @@ class TestControlPlaneLegReporting(unittest.TestCase):
 @unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestRollbackLegReporting(unittest.TestCase):
     """The ROLLBACK leg (`_rollback_leg`) undoes the staged practice upgrade and asserts the PARSED result — a
-    real staged undo with a recovery point — never the exit code. It blocks a vacuous `state:"none"` (nothing
+    real staged undo with a recovery point or a verified transactional restore — never the exit code. It
+    blocks a vacuous `state:"none"` (nothing
     seen to undo), a refusal (the StarshipSuperjam/engine-template#599 foreign-work class), a partial undo, a
     missing recovery point, a resync failure, a memory reach a projection should never make, a dirty tree after
     the undo, a driver crash, or a missing result marker. The rollback child's stdout AND the trailing
@@ -330,6 +331,18 @@ class TestRollbackLegReporting(unittest.TestCase):
 
     def test_clean_rollback_passes(self):
         self.assertTrue(self._drive(self._clean())["passed"])
+
+    def test_clean_transaction_rollback_passes_with_recovery_commit_proof(self):
+        result = self._clean(state="transaction", recovery_point=None,
+                             transaction_state="restored", recovery_commit="a" * 40)
+        self.assertTrue(self._drive(result)["passed"])
+
+    def test_transaction_rollback_without_restored_commit_proof_blocks(self):
+        result = self._clean(state="transaction", recovery_point=None,
+                             transaction_state="manual", recovery_commit=None)
+        res = self._drive(result)
+        self.assertFalse(res["passed"])
+        self.assertIn("transactional undo", res["detail"])
 
     def test_vacuous_state_none_blocks(self):
         # exit 0 with nothing to undo (or an in-projection git failure degrading to none) must NOT pass

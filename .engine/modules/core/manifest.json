@@ -105,13 +105,9 @@
     "knowledge": [
       ".engine/knowledge/*.json"
     ],
-    "contract": [
-      ".engine/contracts/*.md"
-    ],
     "policy": [
       ".engine/policies/attention.md",
       ".engine/policies/briefing-budget.md",
-      ".engine/policies/contract-threshold.md",
       ".engine/policies/escalation.md",
       ".engine/policies/finding-disposition.md",
       ".engine/policies/model-bindings.json",
@@ -600,6 +596,17 @@
       "description": "Removes the per-prompt hint's strength setting from your saved settings \u2014 the reminder now appears on every message and no longer has a strength to set, so a saved value for it would be ignored.",
       "run": "migrations/retire_scent_threshold.py",
       "kind": "config"
+    },
+    "0.7.0": {
+      "description": "Removes the retired Engine decision-record files from deployed repositories and drops only their obsolete saved-setting override, after checking that no current plan still depends on them.",
+      "run": "migrations/retire_eadr_records.py",
+      "kind": "tracked-content",
+      "scope": [
+        ".engine/contracts/instance",
+        ".engine/operator-overrides.json",
+        ".engine/.engine-upgrade-retirement-quarantine-overrides",
+        ".engine/.engine-upgrade-retirement-next-overrides"
+      ]
     }
   },
   "retired_capabilities": {
@@ -608,6 +615,9 @@
     },
     "0.6.0": {
       "description": "Two typed commands are gone: `engine-conduct` and `engine-tune`. Manage your codes of conduct and your tunable settings through `engine-setup` instead \u2014 its conduct and settings sections do exactly what those commands did; there is no alias, not even a hidden one, so a stale name fails plainly rather than quietly continuing a competing vocabulary. Separately, starting a NEW Build from the old v1 plan format is no longer offered: Build now uses the v2 plan format, which lets a Build's work items depend on one another as a small graph instead of a flat ordered list. A Build already in flight on the old format keeps working, and its plans still read \u2014 nothing you have running breaks. Resuming an in-flight old-format Build from its Issue asks for real continuation evidence: the Build's published handoff must already be on its pull request, so a freshly written Issue cannot pass as an old Build. To move an old plan onto the new format, run the coordinator's 'plan migrate-v1' verb; it rewrites the plan as an equivalent step-by-step chain, and because the rewrite changes the plan you approve it again before it starts. Routine (unattended) Builds use the new format too."
+    },
+    "0.7.0": {
+      "description": "The Engine no longer keeps or authors a separate permanent decision-record collection. Existing deployed records are removed by the reviewed update after current plans are checked; past Git, pull requests, completed-plan history, and saved conversations remain unchanged."
     }
   }
 }
