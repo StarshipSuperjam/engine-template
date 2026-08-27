@@ -63,6 +63,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hooks      # noqa: E402  (run_hook + block/proceed: the fail-open harness the gate rides)
+import build_continuity  # noqa: E402  (atomic, progress-bounded active-Build continuation)
 import telemetry  # noqa: E402  (promote_finding: the out-of-band 'log it' relay; telemetry owns it)
 import validate   # noqa: E402  (collect + local_ctx: the pre-close local full-suite advisory pass)
 import moment     # noqa: E402  (the trailing-Z time seam; pure stdlib leaf)
@@ -432,6 +433,11 @@ def handler(payload):
     open_findings = pending(session_id)
     if not open_findings:
         _reset_blocks(session_id)                         # a clean turn ends the block streak (no-op if no record)
+        continuity = build_continuity.decide(payload)
+        if continuity.get("action") == "block":
+            return hooks.block(continuity["reason"])
+        if continuity.get("diagnostic"):
+            sys.stderr.write("The Build is still unfinished, but its one corrective continuation for this unchanged progress state was already used.\n")
         _run_preclose_advisory()                          # local full-suite ADVICE; never gates (see below)
         return hooks.proceed()                            # nothing undispositioned -> the turn ends
     if payload.get("stop_hook_active") is not True:

@@ -578,7 +578,7 @@ class TestHarnessFailOpen(unittest.TestCase):
 
 
 class TestStopHookActive(unittest.TestCase):
-    def test_forced_continuation_runs_handler_but_never_reblocks(self):
+    def test_forced_continuation_is_visible_to_the_owner_but_does_not_spend_its_budget(self):
         # A deliberate law change from the earlier skip-the-handler behaviour: on a forced continuation the
         # handler STILL runs — close uses the give-up moment to log a still-undispositioned finding — but
         # its block is downgraded to proceed in run_hook, so the no-re-block / no-loop guarantee holds by
@@ -589,9 +589,9 @@ class TestStopHookActive(unittest.TestCase):
             called.append(True)
             return hooks.block("disposition still open")
         code, _out, err = _run("Stop", would_block, payload={"stop_hook_active": True})
-        self.assertEqual(code, hooks.EXIT_PROCEED)   # downgraded to proceed — never re-blocks
+        self.assertEqual(code, hooks.EXIT_BLOCK)     # the owner decides whether its own finite budget permits it
         self.assertEqual(called, [True])             # ...but the handler DID run (its side effects fire)
-        self.assertEqual(err, "")                    # and no block reason was emitted
+        self.assertIn("disposition still open", err) # the owner's pushback remains visible
 
     def test_forced_continuation_proceed_passes_through(self):
         code, _out, _err = _run("Stop", lambda p: hooks.proceed(), payload={"stop_hook_active": True})

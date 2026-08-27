@@ -477,11 +477,6 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
                       f"action was allowed to proceed.", promote)
         return EXIT_NONBLOCKING
 
-    # A forced Stop continuation: the handler still runs (close needs the give-up moment to log a
-    # still-undispositioned finding), but its block is downgraded to proceed below so it can NEVER
-    # re-block and loop the cap. stop_hook_active is only ever set by the platform on a Stop.
-    forced_stop = event == "Stop" and payload.get("stop_hook_active") is True
-
     try:
         decision = handler(payload) if handler is not None else proceed()
     except (Exception, SystemExit) as exc:  # noqa: BLE001 — fail-open is the whole point. SystemExit
@@ -498,9 +493,6 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
             f"action was allowed to proceed. The work was not verified by that check.")
         _emit_finding(err, "hard", event, "crash", crash_message, promote)
         return EXIT_NONBLOCKING
-
-    if forced_stop and isinstance(decision, dict) and decision.get("action") == "block":
-        decision = proceed()   # no-re-block guarantee, by construction (the harness, not the handler)
 
     return _translate(event, decision or proceed(), out, err, promote)
 
