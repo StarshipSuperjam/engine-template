@@ -456,7 +456,7 @@ def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, messag
     if replace_namespace is not None:
         before = _get(gh, f"{base}/git/trees/{base_tree}?recursive=1")
         old_entries = (before or {}).get("tree") if isinstance(before, dict) else None
-        if not isinstance(old_entries, list):
+        if not isinstance(old_entries, list) or before.get("truncated") is True:
             return None
         tree.extend({"path": entry["path"], "mode": "100644", "type": "blob", "sha": None}
                     for entry in old_entries if isinstance(entry, dict)
@@ -578,7 +578,7 @@ def _publish_snapshot(gh, owner: str, repo: str, branch: str, namespace: str, sn
     status, before = _deadline_send(gh, "GET", f"{base}/git/trees/{base_tree}?recursive=1", None, deadline,
                                     deadline_state=deadline_state)
     old_entries = (before or {}).get("tree") if status == 200 else None
-    if not isinstance(old_entries, list):
+    if not isinstance(old_entries, list) or before.get("truncated") is True:
         return False
     manifest_bytes = json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
     wanted = {f"{namespace}/manifest.json": manifest_bytes}
@@ -607,6 +607,8 @@ def _publish_snapshot(gh, owner: str, repo: str, branch: str, namespace: str, sn
     status, check_tree = _deadline_send(gh, "GET", f"{base}/git/trees/{tree_sha}?recursive=1", None, deadline,
                                         deadline_state=deadline_state)
     entries = (check_tree or {}).get("tree") if status == 200 else None
+    if not isinstance(check_tree, dict) or check_tree.get("truncated") is True:
+        return False
     actual = {e.get("path"): e.get("sha") for e in entries or [] if isinstance(e, dict)}
     if any(actual.get(path) != _git_blob_sha1(content) for path, content in wanted.items()):
         return False

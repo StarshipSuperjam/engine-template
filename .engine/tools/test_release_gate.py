@@ -12,6 +12,7 @@ into the gate or fail against a tag-less projected tree.
 """
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import json
@@ -29,6 +30,7 @@ import validate                              # noqa: E402
 import module_manager as mm                  # noqa: E402  (the shared PRACTICE_RUN_NOTE constant)
 import release_gate as rg                    # noqa: E402
 from memory import backup_vault as bv        # noqa: E402
+from memory import index as memory_index     # noqa: E402
 from memory import ledger                    # noqa: E402
 from memory import restore_vault as rv       # noqa: E402
 from memory import snapshot_format as sf     # noqa: E402
@@ -819,6 +821,7 @@ class TestOperateArmReporting(unittest.TestCase):
         self.assertEqual(res["detail"], "")
 
 
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
 class TestMultipartMemoryReleaseEvidence(unittest.TestCase):
     """Cut-time evidence for #822's supported envelope, deadlines, and disclosed privacy limits."""
 
@@ -854,12 +857,34 @@ class TestMultipartMemoryReleaseEvidence(unittest.TestCase):
         return fake, key
 
     def test_observed_size_multipart_round_trip(self):
-        payload = random.Random(822).randbytes(76 * 1024 * 1024)
-        snapshot = sf.encode(payload)
-        self.assertGreater(len(snapshot["parts"]), 1)
-        self.assertEqual(sf.decode(snapshot["manifest"], snapshot["parts"]), payload)
-        self.assertTrue(all(sf.encoded_request_size(part) <= sf.PART_REQUEST_BYTES
-                            for part in snapshot["parts"]))
+        # A literal, valid 76 MiB ledger driven through the real publisher,
+        # boundary-faithful wrapped blob responses, total local loss, fetch,
+        # strict decode, and atomic restore.
+        text = base64.b64encode(random.Random(822).randbytes(57 * 1024 * 1024))
+        payload = b'{"kind":"turn-delta","text":"' + text + b'"}\n'
+        self.assertGreater(len(payload), 75 * 1024 * 1024)
+        Path(ledger.ledger_path()).write_bytes(payload)
+        fake = bv._FakeVault()
+
+        def wrapped_transport(method, path, body=None, **kwargs):
+            status, response = fake.transport(method, path, body)
+            if method == "GET" and "/git/blobs/" in path and isinstance(response, dict):
+                response = dict(response)
+                encoded = response["content"]
+                response["content"] = "\n".join(encoded[i:i + 60] for i in range(0, len(encoded), 60))
+            return status, response
+
+        self.assertTrue(bv.setup(scope="shared", transport=wrapped_transport, consent="y")["ok"])
+        pointer = bv.read_pointer(); key = f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"
+        tree = fake.trees[fake.commits[fake.refs[key]]["tree"]["sha"]]["tree"]
+        self.assertGreater(sum(e["path"].startswith(pointer["namespace"] + "/part-") for e in tree), 1)
+        rv._quiet_remove(ledger.ledger_path())
+        rv._quiet_remove(ledger.meta_path())
+        rv._quiet_remove(memory_index.index_path())
+        with mock.patch.object(memory_index, "fts5_available", return_value=False):
+            restored = rv.restore_now(transport=wrapped_transport, consent="y", github=None)
+        self.assertTrue(restored["ok"])
+        self.assertEqual(Path(ledger.ledger_path()).read_bytes(), payload)
 
     def test_declared_support_envelope_and_one_over_refusals(self):
         self.assertEqual(sf.MAX_UNCOMPRESSED_BYTES, 512 * 1024 * 1024)
@@ -919,6 +944,30 @@ class TestMultipartMemoryReleaseEvidence(unittest.TestCase):
         restored = rv.restore_now(transport=fake.transport, consent="y", github=None, deadline_seconds=0)
         self.assertEqual(restored["error"], "deadline")
         self.assertIn("180-second", restored["message"])
+        self.assertEqual(Path(ledger.ledger_path()).read_bytes(), before_ledger)
+
+        ticks = iter((0.0, 0.0, 2.0))
+        with self.assertRaises(sf.SnapshotDeadlineError):
+            sf.encode(b"x" * (sf._COPY_CHUNK_BYTES * 3), deadline=1.0,
+                      clock=lambda: next(ticks, 2.0))
+
+        fetch = {"ok": True,
+                 "manifest": {"ledger-version": 1, "ledger-generation": ledger.generation(),
+                              "timestamp": "1970-01-01T00:00:00Z", "engine-version": "1.2.3"},
+                 "ledger_bytes": b'{"kind":"turn-delta","text":"replacement"}\n'}
+        local_clock = {"now": 0.0}
+        real_rebuild = memory_index.rebuild
+
+        def delayed_rebuild(*args, **kwargs):
+            report = real_rebuild(*args, **kwargs)
+            local_clock["now"] = 2.0
+            return report
+
+        with mock.patch.object(rv.time, "monotonic", side_effect=lambda: local_clock["now"]), \
+                mock.patch.object(memory_index, "rebuild", side_effect=delayed_rebuild):
+            local_result = rv._restore_from_fetch(fetch, consent="y", override=True, github=None,
+                                                  deadline=1.0, deadline_state={"expired": False})
+        self.assertEqual(local_result["error"], "deadline")
         self.assertEqual(Path(ledger.ledger_path()).read_bytes(), before_ledger)
 
     def test_private_vault_and_git_history_limits_are_operator_visible(self):

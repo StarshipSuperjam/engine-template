@@ -339,6 +339,33 @@ class PushTests(_Base):
         self.assertGreater(len(bodies), len(snapshot["parts"]))
         self.assertEqual(bodies[:len(snapshot["parts"]) + 1], bodies[len(snapshot["parts"]) + 1:])
 
+    def test_truncated_tree_reads_never_advance_the_reference(self):
+        for truncate_read in (1, 2):
+            with self.subTest(truncate_read=truncate_read):
+                try:
+                    os.remove(bv._pointer_path())
+                except FileNotFoundError:
+                    pass
+                fake = bv._FakeVault()
+                bv.setup(scope="shared", transport=fake.transport, consent="y")
+                ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+                before = fake.refs[key]
+                reads = {"n": 0}
+
+                def transport(method, path, body=None):
+                    status, response = fake.transport(method, path, body)
+                    if method == "GET" and "/git/trees/" in path and isinstance(response, dict):
+                        reads["n"] += 1
+                        if reads["n"] == truncate_read:
+                            response = dict(response)
+                            response["truncated"] = True
+                    return status, response
+
+                snapshot = bv.snapshot_format.encode(b"truncation must fail closed")
+                self.assertFalse(bv._publish_snapshot(bv._gh(transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                                      ptr["namespace"], snapshot))
+                self.assertEqual(fake.refs[key], before)
+
 
 class SessionStartTests(_Base):
     def test_silent_no_op_and_no_network_before_setup(self):
