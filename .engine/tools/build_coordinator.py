@@ -302,7 +302,8 @@ def _mutates(args) -> bool:
 _SNAPSHOTLESS_STATE_SUBCOMMANDS = frozenset({"where", "migrate", "supersede"})
 
 
-def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None = None) -> list[str]:
+def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None = None,
+                   allow_rewritten_head: bool = False) -> list[str]:
     """Every way this session disagrees with the snapshot it is about to mutate, in plain words.
 
     Each leg is skipped only when the snapshot never recorded the fact to compare against — a Build
@@ -322,7 +323,7 @@ def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None
     plan_state = state.get("plan") or {}
     bound_head = plan_state.get("bound_head")
     current = head if head is not None else _head()
-    if bound_head and current:
+    if bound_head and current and not allow_rewritten_head:
         if not _is_ancestor(bound_head, current):
             reasons.append(
                 f"the commit this Build was bound at ({bound_head[:12]}) is not an ancestor of the "
@@ -345,8 +346,12 @@ def verify_resume(store, args) -> None:
         # An unreadable snapshot is the resolving store's refusal to make, with its own remedy. Raising
         # a second, worse-worded version of it here would replace a good error with a vague one.
         return
-    reasons = resume_reasons(state)
     command, sub = _verb(args)
+    # `reconcile` exists specifically for a reviewed branch whose history was rewritten onto a new
+    # base. Its own command verifies the old/new commits, bases, and contribution before it re-anchors
+    # any evidence, so applying the ordinary ancestor check first would deadlock the recovery path.
+    # Only that expected rewritten-head mismatch is waived; a different worktree still refuses here.
+    reasons = resume_reasons(state, allow_rewritten_head=(command, sub) == ("reconcile", None))
     verb = command if not sub else f"{command} {sub}"
     if reasons:
         raise CoordinatorError(

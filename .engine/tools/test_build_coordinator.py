@@ -5012,6 +5012,30 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
             bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
         self.assertIn("checkpoint", str(caught.exception))
 
+    def test_reconcile_can_verify_the_rewritten_head_it_exists_to_reanchor(self):
+        state = self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["plan"]["bound_head"] = HEAD_A
+        self.store.mutate(change)
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+             mock.patch.object(bc, "_is_ancestor", return_value=False):
+            bc.verify_resume(self.store, argparse.Namespace(command="reconcile"))
+
+    def test_reconcile_still_refuses_a_different_worktree(self):
+        state = self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = "/somewhere/else"
+            s["plan"]["bound_head"] = HEAD_A
+        self.store.mutate(change)
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+             mock.patch.object(bc, "_is_ancestor", return_value=False), \
+             self.assertRaises(bc.CoordinatorError) as caught:
+            bc.verify_resume(self.store, argparse.Namespace(command="reconcile"))
+        self.assertIn("worktree", str(caught.exception))
+
     def test_verification_leaves_nothing_behind_beside_the_snapshot(self):
         # The guarantee is the refusal, not a tally of the times it held. Anything written here would
         # be a record kept for its own sake, which is exactly what this design removed.
