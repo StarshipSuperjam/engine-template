@@ -362,7 +362,12 @@ def main(argv=None) -> int:
     if protected_count >= 0:
         raw.remove("--")
     args = build_parser().parse_args(raw)
-    args._protected_from = (len(args.rest) - protected_count
+    # CLAMP AT ZERO. When `--` precedes the operation operand, `protected_count` exceeds what landed in
+    # REMAINDER and this arithmetic goes negative -- and negative was read as "no protection at all",
+    # dropping the guard in the one case the operator asked for it most explicitly. Nobody types
+    # `run -- engine-upgrade --consent-handle=x`, but silently discarding protection is the wrong way to
+    # fail; protecting everything left is the right one.
+    args._protected_from = (max(0, len(args.rest) - protected_count)
                             if protected_count >= 0 and getattr(args, "rest", None) else -1)
     _lift_own_flags(args)
     load_failures = load_adapters()
@@ -377,6 +382,16 @@ def main(argv=None) -> int:
             result = do_run(adapter, args, getattr(args, "consent_handle", ""))
         else:
             result = do_resume(adapter, args)
+    except envelope.EnvelopeError as broken:
+        # A MALFORMED ENVELOPE IS A DEFECT IN US, and the operator must not meet it as a traceback. This
+        # was reached for real: `inspect engine-upgrade` composed a blank fingerprint whenever no target
+        # release existed -- an ordinary state, not an error -- and died. The underlying cause is fixed;
+        # this stays because the next such slip should surface as a report, not a stack trace.
+        sys.stderr.write(
+            "The engine could not describe this operation's result, so nothing was reported.\n"
+            "Nothing was changed. This is a defect in the engine, not something you did wrong.\n"
+            "Detail: {0}\n".format(broken))
+        return 2
     except StalePlan as stale:
         return _emit(stale.envelope, args.json)
     except UnknownOperation as unknown:
@@ -395,8 +410,10 @@ def main(argv=None) -> int:
             # A caller that asked for machine-readable output must not get an unparseable stream. This is
             # deliberately NOT a transaction envelope -- an envelope has to name a real operation, and
             # there is none -- so it is a small, clearly-different document that says so in its own shape.
-            json.dump({"schema_version": "transaction-unknown-operation.v1",
-                       "requested_operation": unknown.operation,
+            # Deliberately NOT a versioned document: answering a nit by minting a second `*.v1`
+            # identifier with no schema and no catalog entry is more surface than the nit needed, and
+            # would read as precedent. This is a plain object that says what it is.
+            json.dump({"unknown_operation": unknown.operation,
                        "explanation": "No adapter implements this name; nothing was changed.",
                        "load_failures": dict(unknown.load_failures or {}),
                        "available_operations": available}, sys.stdout, indent=1, sort_keys=True)

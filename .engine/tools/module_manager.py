@@ -5613,6 +5613,9 @@ def mark_upgrade_staged(detail: dict) -> None:
         pass
 
 
+_RELEASE_REF_RE = re.compile(r"[A-Za-z0-9._+-]{1,128}")
+
+
 def staged_upgrade_detail() -> dict:
     """What the staged-update marker RECORDED — the release that was actually consented to.
 
@@ -5629,7 +5632,17 @@ def staged_upgrade_detail() -> dict:
     try:
         with open(_staged_upgrade_marker_path(), encoding="utf-8") as handle:
             detail = json.load(handle)
-        return detail if isinstance(detail, dict) else {}
+        if not isinstance(detail, dict):
+            return {}
+        # SHAPE-CHECK THE RECORDED TAG. It flows into `/repos/{slug}/tarball/{ref}`, which decides what
+        # code gets overlaid, on the one path that deliberately skips the consent handle. A value with a
+        # path separator would redirect the fetch to another repository's tarball. Reaching this needs
+        # local write access to `.git/`, which is already game-over -- but promoting a file's contents to
+        # load-bearing for consent without checking its shape is the half of that promotion worth having.
+        ref = detail.get("target_ref")
+        if ref is not None and not _RELEASE_REF_RE.fullmatch(str(ref)):
+            return {}
+        return detail
     except Exception:  # noqa: BLE001 — unreadable marker is "unknown", and unknown must never mean "allowed"
         return {}
 

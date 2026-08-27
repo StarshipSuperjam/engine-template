@@ -21,6 +21,24 @@ import transaction
 import transaction_handoff as handoff
 
 
+def _pull_request_handoff_from_record(record: dict) -> dict:
+    """The handoff for an update whose pull request is already open, built from the durable record.
+
+    `checkout_health` accepts a `pr-opened` record carrying ANY ONE of `number`, `url` or `html_url`, so
+    reading only `url` produced "proposed for your review" with nothing to click -- and an empty
+    `reference`, which the envelope schema forbids. The key is omitted rather than emptied: an absent
+    reference is honest, a blank one is a value that says nothing.
+    """
+    pr = record.get("pull_request") or {}
+    reference = pr.get("url") or pr.get("html_url") or (str(pr["number"]) if pr.get("number") else "")
+    result = {"kind": "pull-request",
+              "summary": "The update is already proposed for your review. Merging it is what applies it; "
+                         "nothing here needs re-running."}
+    if reference:
+        result["reference"] = str(reference)
+    return result
+
+
 class UpgradeEngine(transaction.Adapter):
     operation = "engine-upgrade"
 
@@ -37,8 +55,12 @@ class UpgradeEngine(transaction.Adapter):
                 current or "an unreadable version",
                 "update available: {0}".format(available) if available else "no newer version available"),
             "fingerprints": {
-                "current_version": str(current or ""),
-                "target_version": str(available or ""),
+                # NEVER BLANK. The envelope requires a non-blank fingerprint, and "no newer version" is an
+                # ordinary answer -- already current, offline, mid-transaction -- not an error. Writing ""
+                # here made `inspect engine-upgrade` die with an unhandled EnvelopeError in exactly the
+                # states the summary line beside it composes prose for, so the method contradicted itself.
+                "current_version": str(current or "unreadable"),
+                "target_version": str(available or "none-available"),
                 "head": handoff.working_tree_state()["head"],
             },
         }
@@ -87,7 +109,14 @@ class UpgradeEngine(transaction.Adapter):
         }
 
     def apply(self, args, plan: dict) -> dict:
-        result = module_manager.upgrade(self._ref(args))
+        # APPLY WHAT THE PLAN NAMED. This used to pass the raw command-line operand -- `None` for the
+        # ordinary "update me" case -- so `upgrade()` resolved "latest" a SECOND time, after the consent
+        # handle had already been checked against the concretely resolved tag the plan recorded. A release
+        # landing between those two moments meant consent given for X applied Y: the exact substitution
+        # this transaction exists to prevent, on the route the runbook points at. The plan was handed to
+        # this method and ignored.
+        release = (plan.get("inputs") or {}).get("release")
+        result = module_manager.upgrade(release or self._ref(args))
         if result.get("refused"):
             raise transaction.TransactionRefused(
                 "upgrade-refused", result.get("reason", "The update could not be applied."),
@@ -165,10 +194,7 @@ class UpgradeEngine(transaction.Adapter):
                     "detail": ("This update completed and its pull request is open; only the internal "
                                "bookkeeping was left behind. There is nothing to resume."),
                 }],
-                handoff={"kind": "pull-request",
-                         "summary": "The update is already proposed for your review. Merging it is what "
-                                    "applies it; nothing here needs re-running.",
-                         "reference": str((record.get("pull_request") or {}).get("url") or "")})
+                handoff=_pull_request_handoff_from_record(record))
 
         remaining = {
             "staged": ("An update is already written into this working copy but was never opened for "

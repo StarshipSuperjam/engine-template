@@ -210,6 +210,63 @@ class TestUpgradeResumesFromWhatItRecorded(unittest.TestCase):
         self.assertIsNone(self._resume("staged", False))
 
 
+class TestInspectSurvivesHavingNoTargetRelease(unittest.TestCase):
+    """`inspect engine-upgrade` died with an unhandled EnvelopeError whenever no target release existed --
+    already current, offline, inconsistent, mid-transaction. The summary line beside the fingerprints
+    composes prose for exactly that state, so the method contradicted itself; it passed locally only
+    because this machine happened to have an update available."""
+
+    def test_no_available_release_is_an_answer_not_a_crash(self):
+        for preview in ({"current": "1.0.0"},
+                        {"status": "unreachable", "current": "1.0.0"},
+                        {"current": None},
+                        {"status": "transaction-incomplete", "current": "1.0.0"}):
+            with mock.patch.object(module_manager, "upgrade_preview", return_value=preview):
+                facts = adapters.UpgradeEngine().inspect(Args())
+            for key, value in facts["fingerprints"].items():
+                self.assertTrue(str(value).strip(), "{0} was blank for {1}".format(key, preview))
+
+
+class TestApplyUsesTheReleaseThePlanNamed(unittest.TestCase):
+    """The handle is checked against the concretely resolved tag the plan recorded -- then apply used to
+    hand `upgrade()` the raw operand (None for the ordinary case), which resolved "latest" a SECOND time.
+    A release landing between those moments meant consent for X applied Y, on the route the runbook
+    points at."""
+
+    def test_the_planned_release_is_what_gets_applied(self):
+        plan = {"inputs": {"release": "v9.9.9"}}
+        with mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
+            adapters.UpgradeEngine().apply(Args(), plan)
+        applied.assert_called_once_with("v9.9.9")
+
+    def test_a_plan_naming_no_release_still_falls_back_to_the_operand(self):
+        with mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
+            adapters.UpgradeEngine().apply(Args("v1"), {"inputs": {}})
+        applied.assert_called_once_with("v1")
+
+
+class TestTheRecordedTargetIsShapeChecked(unittest.TestCase):
+    """The recorded tag flows into `/repos/{slug}/tarball/{ref}`, deciding what code is overlaid, on the
+    one path that skips the consent handle."""
+
+    def _detail(self, value):
+        import json as _json
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "marker.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                _json.dump({"target_ref": value}, handle)
+            with mock.patch.object(module_manager, "_staged_upgrade_marker_path", return_value=path):
+                return module_manager.staged_upgrade_detail()
+
+    def test_an_ordinary_tag_is_read_back(self):
+        self.assertEqual(self._detail("v1.2.3"), {"target_ref": "v1.2.3"})
+
+    def test_a_traversal_shaped_ref_is_refused_rather_than_fetched(self):
+        for hostile in ("../other/repo", "v1/../x", "a b", ""):
+            self.assertEqual(self._detail(hostile), {}, hostile)
+
+
 class TestResumeNeverRendersAnUnreadStateGreen(unittest.TestCase):
     """The envelope's core rule, applied to the one place the repair had broken it."""
 

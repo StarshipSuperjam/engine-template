@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -303,15 +305,33 @@ class TestTheRealCommandLineWorks(unittest.TestCase):
         it, so this is handled before parsing -- and the first attempt was dead code that could never
         fire, which is the same "reads as coverage, is not" defect this round removed elsewhere."""
         result = self._run("plan", "module-add", "--", "--json")
+        said = result.stdout + result.stderr
+        # A command that died printing nothing would have passed the old assertion, which only checked
+        # that stdout did not begin with "{". Establish that it ANSWERED, and answered as prose.
+        self.assertTrue(result.stdout.strip(), "the command produced no stdout at all")
+        self.assertNotIn("Traceback", said)
         self.assertNotEqual(result.stdout.strip()[:1], "{",
                             "a protected --json was still lifted as this CLI's own flag")
+        self.assertIn("module-add", result.stdout)
+
+    def test_the_end_of_options_boundary_never_goes_negative(self):
+        """`--` before the operation makes the boundary arithmetic negative, and negative used to read as
+        "no protection at all" -- dropping the guard in the case where it was asked for most loudly."""
+        raw = ["run", "--", "engine-upgrade", "--consent-handle=x"]
+        protected_count = len(raw) - raw.index("--") - 1
+        parsed = transaction.build_parser().parse_args([a for a in raw if a != "--"])
+        parsed._protected_from = (max(0, len(parsed.rest) - protected_count)
+                                  if protected_count >= 0 and parsed.rest else -1)
+        transaction._lift_own_flags(parsed)
+        self.assertEqual(parsed.consent_handle, "",
+                         "an explicitly protected --consent-handle was lifted anyway")
 
     def test_an_unknown_operation_still_answers_in_json_when_json_was_asked_for(self):
         """No envelope -- an envelope must name a real operation -- but a caller that asked for
         machine-readable output must not be handed an unparseable stream with no signal."""
         result = self._run("plan", "definitely-not-an-operation", "--json")
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["requested_operation"], "definitely-not-an-operation")
+        self.assertEqual(payload["unknown_operation"], "definitely-not-an-operation")
         self.assertIn("module-add", payload["available_operations"])
         self.assertEqual(result.returncode, 2)
 
@@ -354,13 +374,28 @@ class TestTheModuleManagerCommandIsAlsoOneModule(unittest.TestCase):
         return subprocess.run([sys.executable, os.path.join("tools", "module_manager.py")] + list(args),
                               cwd=root, capture_output=True, text=True)
 
-    def test_the_script_and_the_imported_module_are_the_same_object(self):
-        probe = ("import sys, os; sys.path.insert(0, os.path.join(os.getcwd(), 'tools'));"
-                 "import runpy, module_manager;"
-                 "print(sys.modules['module_manager'] is module_manager)")
+    def test_running_the_script_delegates_to_the_imported_module(self):
+        """A REAL discriminator. The previous version of this test printed
+        `sys.modules['module_manager'] is module_manager` after an ordinary import, which is True
+        whatever the `__main__` block does -- a reviewer ran it against a reverted copy and got True
+        there too. Empty coverage for the very fix it names.
+
+        This one imports the module, replaces `main` on THAT object, then executes the file as
+        `__main__`. With delegation the sentinel runs, because the script hands off to the imported
+        copy. Without it, the script's own `main` runs and the sentinel never fires.
+        """
+        probe = (
+            "import sys, os, runpy;"
+            "sys.path.insert(0, os.path.join(os.getcwd(), 'tools'));"
+            "import module_manager;"
+            "module_manager.main = lambda argv: (print('DELEGATED'), 0)[1];"
+            "sys.argv = ['module_manager.py', 'status'];"
+            "runpy.run_path(os.path.join('tools', 'module_manager.py'), run_name='__main__')"
+        )
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         result = subprocess.run([sys.executable, "-c", probe], cwd=root, capture_output=True, text=True)
-        self.assertIn("True", result.stdout)
+        self.assertIn("DELEGATED", result.stdout,
+                      "the script ran its own main instead of the imported module's:\n" + result.stderr)
 
     def test_the_real_command_answers_rather_than_crashing(self):
         result = self._run("upgrade", "--help")
@@ -368,15 +403,25 @@ class TestTheModuleManagerCommandIsAlsoOneModule(unittest.TestCase):
         self.assertTrue(result.stdout.strip(), "the command produced no output at all")
 
     def test_a_fresh_apply_without_a_handle_refuses_through_the_real_command(self):
-        """Drives the gate as a subprocess, not through a patched main(): the mocks that cover this
-        elsewhere would not notice a dispatch that never reached the check."""
-        result = self._run("upgrade", "--confirm")
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        """Drives the gate as a subprocess -- but ONLY in a throwaway copy.
+
+        The previous version ran `module_manager.py upgrade --confirm` unmocked in the repository root.
+        Its comment enumerated two refusal branches and missed a third: with a marker present that
+        carries a `target_ref`, control falls through to a genuine `upgrade()` against the tree. Whether
+        it fired depended on machine state, which is exactly what makes it unacceptable in a discovered
+        suite -- a test must not be able to update the operator's engine.
+        """
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = os.path.join(tmp, "engine")
+            shutil.copytree(root, copy,
+                            ignore=shutil.ignore_patterns(".venv", ".uv", "plans", "__pycache__"))
+            result = subprocess.run(
+                [sys.executable, os.path.join("tools", "module_manager.py"), "upgrade", "--confirm"],
+                cwd=copy, capture_output=True, text=True)
         said = (result.stdout + result.stderr).lower()
-        # WHICH refusal fires depends on the checkout: a clean one has nothing staged and is told to plan
-        # first; an engine-development tree looks interrupted and is routed to resume/rollback. Both are
-        # refusals that name a runnable next step, and that is the property under test -- asserting on one
-        # branch's wording would make this pass or fail on the state of whoever's machine runs it.
+        self.assertEqual(result.returncode, 2, said)
+        # WHICH refusal fires depends on the copy's state; every branch must name a runnable next step.
         self.assertTrue(any(step in said for step in ("transaction.py plan", "rollback --confirm",
                                                       "transaction.py resume")),
                         "the refusal named no next command: " + said)

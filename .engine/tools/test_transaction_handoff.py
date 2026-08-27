@@ -155,11 +155,35 @@ class TestTheOpenerStagesSelectively(unittest.TestCase):
     pull-request path is selective today."""
 
     def test_module_manager_stages_declared_paths_when_given_them(self):
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module_manager.py")
-        with open(path, encoding="utf-8") as handle:
-            source = handle.read()
-        self.assertIn('stage_step = ["git", "add", "-A"] if not paths else ["git", "add", "--"] + list(paths)',
-                      source)
+        """BEHAVIOURAL. This was a whitespace-exact assertion on the opener's source text -- the third
+        instance of a pattern this build twice claimed to have retired, and it proved nothing about what
+        the opener does. It now captures the git commands actually issued."""
+        import module_manager
+        staged = []
+
+        fake_subprocess = mock.Mock()
+        fake_subprocess.CalledProcessError = subprocess.CalledProcessError
+        fake_subprocess.run.side_effect = lambda step, **kw: staged.append(list(step))
+        fake_client = mock.Mock()
+        fake_client.request.side_effect = RuntimeError("stop before the POST")
+        fake_boot = mock.Mock()
+        fake_boot.repo_slug.return_value = "o/r"
+        fake_boot.gh_token.return_value = "t"
+        fake_identity = mock.Mock()
+        fake_identity.resolve_default_branch.return_value = "main"
+
+        def run(paths):
+            del staged[:]
+            with mock.patch.dict(sys.modules, {"subprocess": fake_subprocess, "github_client": fake_client,
+                                               "boot": fake_boot, "repo_identity": fake_identity}):
+                try:
+                    module_manager._open_upgrade_pr("b", "t", "body", paths=paths)
+                except Exception:   # noqa: BLE001 — the POST stub ends it; the git steps are the point
+                    pass
+            return [step for step in staged if len(step) > 1 and step[1] == "add"]
+
+        self.assertEqual(run(["a.py", "b.py"]), [["git", "add", "--", "a.py", "b.py"]])
+        self.assertEqual(run(None), [["git", "add", "-A"]])
 class TestACredentialNeverReachesAPullRequestBody(unittest.TestCase):
     """The seam obligation: a credential-shaped value seeded into a plan input is absent from the body.
 
@@ -244,6 +268,45 @@ class TestACredentialNeverReachesAPullRequestBody(unittest.TestCase):
         self.assertIn("payload", posted, "the boundary never reached its POST; the test proved nothing")
         rendered = _json.dumps(posted["payload"])
         self.assertNotIn("live-tok-value", rendered)
+        self.assertNotIn("ghp_16C7e42F292c69", rendered)
+
+
+class TestTheOtherOpenerRedactsToo(unittest.TestCase):
+    """`tune.py` is the second (and, per a reviewer's search, last) function in the tree that POSTs to
+    /pulls. It composes a body interpolating an operator-supplied setting value, and it got the redaction
+    call in this round with nothing proving the call -- the same gap the upgrade opener's own test exists
+    to close. `_open_tune_pr` is injected-only and never runs here, so without this a future edit that
+    drops those two lines is invisible to the suite."""
+
+    def test_the_tune_opener_redacts_what_it_would_post(self):
+        import json as _json
+        import urllib.request
+        import tune
+        posted = {}
+
+        def capture(request, *a, **kw):
+            posted["payload"] = _json.loads(request.data.decode("utf-8"))
+            raise RuntimeError("stop here: the payload is what this test is about")
+
+        fake_subprocess = mock.Mock()
+        fake_subprocess.CalledProcessError = subprocess.CalledProcessError
+        fake_boot = mock.Mock()
+        fake_boot.repo_slug.return_value = "o/r"
+        fake_boot.gh_token.return_value = "live-tune-token"
+        fake_identity = mock.Mock()
+        fake_identity.resolve_default_branch.return_value = "main"
+        with mock.patch.object(urllib.request, "urlopen", side_effect=capture), \
+             mock.patch.dict(sys.modules, {"subprocess": fake_subprocess, "boot": fake_boot,
+                                           "repo_identity": fake_identity}):
+            try:
+                tune._open_tune_pr("b", "Tune using live-tune-token",
+                                   "- New value: `ghp_16C7e42F292c69` and live-tune-token", ["p"])
+            except Exception:   # noqa: BLE001 — the capture stops the real POST on purpose
+                pass
+
+        self.assertIn("payload", posted, "the opener never reached its POST; the test proved nothing")
+        rendered = _json.dumps(posted["payload"])
+        self.assertNotIn("live-tune-token", rendered)
         self.assertNotIn("ghp_16C7e42F292c69", rendered)
 
 
