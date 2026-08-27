@@ -4919,7 +4919,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:0524315e78bb1fbdbb3f78c438363df7fc407afd5feef4cc4b87a2a82de9e5da",
+        "fingerprint": "sha256:c15990a3f8325c56ec7854abb7075ee6207ad26446d173ee51592aea919f5abb",
         "path": ".agents/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -5771,7 +5771,7 @@
       },
       "slug": "engine-remove",
       "source": {
-        "fingerprint": "sha256:a083ede66e98c355d138d13c5bcf950b542881c6b8dc04b2c0b106e91b59e1c2",
+        "fingerprint": "sha256:e03d3b77135a9ee73ce96a3046f2916267ae39b6bb86eb9c474d86eea37ea1fe",
         "path": ".engine/operations/engine-remove.md"
       },
       "status": "active",
@@ -5811,7 +5811,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:44544b76f8ba1544d0a38b20f65ca9c2ba4d9666895354c1d69c5364edfb3ce5",
+        "fingerprint": "sha256:d2bda711a225ce6ccefbf7620f0f1c658eaea26d62570c9b2d4c86fa8a976b86",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -5931,7 +5931,7 @@
       },
       "slug": "module-add",
       "source": {
-        "fingerprint": "sha256:e1b48cc15c43a23f1c89a77c3f8fbfb77164be2fc2f0d3c4708d008e8a8808c8",
+        "fingerprint": "sha256:93462fbbf4f854089065ca0bedc6471a9fcd33f7a046d9def5993ebf8c5057db",
         "path": ".engine/operations/module-add.md"
       },
       "status": "active",
@@ -5951,7 +5951,7 @@
       },
       "slug": "module-remove",
       "source": {
-        "fingerprint": "sha256:831b7116b45661dc6644d009c87c61247dd77c85846236f7c85e8bab32428505",
+        "fingerprint": "sha256:08c6e57b97f4ecc2d3e13334d78adf64a97e2a950f2e4c3aad01376ced85d1ee",
         "path": ".engine/operations/module-remove.md"
       },
       "status": "active",
@@ -7300,6 +7300,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:transaction-envelope.v1",
+      "name": ".engine/schemas/transaction-envelope.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction-envelope.v1",
+      "source": {
+        "fingerprint": "sha256:c88489f03df48656a5ce27888da9c0a0954cbbe083e6649e364f8135a33f7724",
+        "path": ".engine/schemas/transaction-envelope.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "skill:engine-change-conduct",
       "invocation": "model-only",
       "name": ".claude/skills/engine-change-conduct/SKILL.md",
@@ -8395,7 +8412,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:da5d7084e59222ce7716df943f9f27b955c89a40bccccb14996be977f7d54757",
+        "fingerprint": "sha256:414f41f87ce8af336f358b062b87241ff4ecf57e9702c42f0da02cd547f290ad",
         "path": ".claude/skills/engine-upgrade/SKILL.md"
       },
       "status": "active",
@@ -8842,7 +8859,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:aeb8f7205994d928193f17abd330bc58a558a76ae40fe6738b8ece8dfdf71fd4",
+        "fingerprint": "sha256:6605f8a50eacb2e2eeb667ddfbb125c5f3aab7ae81f76f767aa05fd6f00d2e0f",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -12716,7 +12733,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:29346af6f0a9933755fc9c1c608a27f8b2d5fa5d064c68b859fa0aad275e47f2",
+        "fingerprint": "sha256:ae18643fad87a6c1ade6e5b21184783f82ffef5f869181134ee0cd31555fa01e",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -12750,6 +12767,9 @@
           "tool:repo_identity",
           "tool:restore_vault",
           "tool:telemetry",
+          "tool:transaction",
+          "tool:transaction_adapters_upgrade",
+          "tool:transaction_envelope",
           "tool:validate",
           "tool:wiring"
         ],
@@ -12759,7 +12779,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:622e3793bf316f63b909347f504de3cbdb08e330609c479d26963c3bf669c9bf",
+        "fingerprint": "sha256:9574c8e766b733f7c1ea6810dd30c5e74e243262a0f2ff35c30d2e6d213cd940",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -14935,7 +14955,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:9514956b174c84107e5c9d655f964912f6cc9509ef508a7f5cdee7ddd473d01e",
+        "fingerprint": "sha256:1ca9e16c457d1821027608d2833d24ae75599064ca0385a39b4e6fead9d8e88a",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17175,7 +17195,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:9e7bff54b82a034d5a1f770cf2c2ffcedc714f471c89cb77c3e6fc0972ef58c4",
+        "fingerprint": "sha256:e2685c51a9d4d90930036cef83bd24df3efdf539f266c1d9bfac2e43c95cc947",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -17230,7 +17250,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:d0c821649ccf2a8ec6ed27eccb96748e00a28eecbbb3738af3b219e5abff5d4f",
+        "fingerprint": "sha256:5af4cfb2deb3f7a6c65be03a2471e73fd0656b55c6b9b0c16664c423c397f6d4",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -19272,6 +19292,156 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_transaction",
+      "name": ".engine/tools/test_transaction.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:transaction",
+          "tool:transaction_envelope"
+        ]
+      },
+      "slug": "test_transaction",
+      "source": {
+        "fingerprint": "sha256:5cb5db63b734993ebb3a15dbe93bd542c3b7cbf3230c1698edc7aecf33849731",
+        "path": ".engine/tools/test_transaction.py"
+      },
+      "status": "active",
+      "summary": "The protocol core's own properties, proven against a recording fake adapter.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_transaction_adapters_module",
+      "name": ".engine/tools/test_transaction_adapters_module.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_manager",
+          "tool:transaction",
+          "tool:transaction_adapters_module",
+          "tool:transaction_envelope",
+          "tool:transaction_handoff"
+        ]
+      },
+      "slug": "test_transaction_adapters_module",
+      "source": {
+        "fingerprint": "sha256:9b10846760e798fa6cd379b05f391ccc8223c3ab47208e3a9c1baec1c5081491",
+        "path": ".engine/tools/test_transaction_adapters_module.py"
+      },
+      "status": "active",
+      "summary": "Module add and remove as typed transactions: ungated by ceremony, clean in the tree.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_transaction_adapters_remove",
+      "name": ".engine/tools/test_transaction_adapters_remove.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_manager",
+          "tool:transaction",
+          "tool:transaction_adapters_remove",
+          "tool:transaction_envelope"
+        ]
+      },
+      "slug": "test_transaction_adapters_remove",
+      "source": {
+        "fingerprint": "sha256:a07d087dfa9e393298d815ad03c09692f5e88496da89a6eaced35ebbbc03d6c7",
+        "path": ".engine/tools/test_transaction_adapters_remove.py"
+      },
+      "status": "active",
+      "summary": "Whole-engine removal: the ordering, the disclosure, and surviving its own deletion.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_transaction_adapters_upgrade",
+      "name": ".engine/tools/test_transaction_adapters_upgrade.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_manager",
+          "tool:transaction",
+          "tool:transaction_adapters_upgrade",
+          "tool:transaction_envelope"
+        ]
+      },
+      "slug": "test_transaction_adapters_upgrade",
+      "source": {
+        "fingerprint": "sha256:b4250033d9868144088dab6b0bd1d56a8c654b96b81744c7da7c0480bb401e83",
+        "path": ".engine/tools/test_transaction_adapters_upgrade.py"
+      },
+      "status": "active",
+      "summary": "The upgrade transaction: what its consent binds, and what it deliberately does not gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_transaction_envelope",
+      "name": ".engine/tools/test_transaction_envelope.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:transaction_envelope"
+        ]
+      },
+      "slug": "test_transaction_envelope",
+      "source": {
+        "fingerprint": "sha256:b82818791a078af494742e00e7eb9665f4daaa86aaa89632770be85baf72dc5e",
+        "path": ".engine/tools/test_transaction_envelope.py"
+      },
+      "status": "active",
+      "summary": "Schema teeth for transaction-envelope.v1, and the one property the shape exists for.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_transaction_handoff",
+      "name": ".engine/tools/test_transaction_handoff.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:transaction",
+          "tool:transaction_handoff"
+        ]
+      },
+      "slug": "test_transaction_handoff",
+      "source": {
+        "fingerprint": "sha256:d7d12681a6300d37f2ee028b8347baa42e8601b8fa33c46b23d3e63cb3a19d56",
+        "path": ".engine/tools/test_transaction_handoff.py"
+      },
+      "status": "active",
+      "summary": "The pre-mutation state matrix and the two handoff shapes.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_tune",
       "name": ".engine/tools/test_tune.py",
       "owner": "core",
@@ -19466,6 +19636,152 @@
     {
       "entrypoint": "cli",
       "guarded": false,
+      "id": "tool:transaction",
+      "name": ".engine/tools/transaction.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:transaction_envelope"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction",
+      "source": {
+        "fingerprint": "sha256:61594bfdc81565a77f8fed1b86c7b314da2c17baad9d9d38cdcd9eb07aac5ecc",
+        "path": ".engine/tools/transaction.py"
+      },
+      "status": "active",
+      "summary": "transaction.py — one stateless CLI for every lifecycle transaction.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_module",
+      "name": ".engine/tools/transaction_adapters_module.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:module_manager",
+          "tool:transaction",
+          "tool:transaction_handoff",
+          "tool:wiring"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_module",
+      "source": {
+        "fingerprint": "sha256:bdf58c4dab5284fc5fcc83892050e54c305f194bd9eab8a71405a08d02d36a8e",
+        "path": ".engine/tools/transaction_adapters_module.py"
+      },
+      "status": "active",
+      "summary": "Adding and removing one module, as typed transactions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_remove",
+      "name": ".engine/tools/transaction_adapters_remove.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:module_manager",
+          "tool:transaction",
+          "tool:transaction_envelope",
+          "tool:transaction_handoff"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_remove",
+      "source": {
+        "fingerprint": "sha256:1842b01e1fffd06c05257de46ac63d7a52a94c6429ff228fd3a810877fd0d7c2",
+        "path": ".engine/tools/transaction_adapters_remove.py"
+      },
+      "status": "active",
+      "summary": "Removing the engine entirely, as a typed transaction.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_upgrade",
+      "name": ".engine/tools/transaction_adapters_upgrade.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_manager",
+          "tool:transaction",
+          "tool:transaction_handoff"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_upgrade",
+      "source": {
+        "fingerprint": "sha256:bfde29fb10142ecccf4f6a3b2dbe24e5be9fefdc626466afcdf191bf79141f55",
+        "path": ".engine/tools/transaction_adapters_upgrade.py"
+      },
+      "status": "active",
+      "summary": "Updating the engine, and undoing an update, as typed transactions.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_envelope",
+      "name": ".engine/tools/transaction_envelope.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_envelope",
+      "source": {
+        "fingerprint": "sha256:1b70b8a8f82e993544f78039a375e40d2f5d35269751e8f8f0140336ce09f021",
+        "path": ".engine/tools/transaction_envelope.py"
+      },
+      "status": "active",
+      "summary": "transaction-envelope.v1 — the typed result every lifecycle transaction returns.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_handoff",
+      "name": ".engine/tools/transaction_handoff.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:transaction",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_handoff",
+      "source": {
+        "fingerprint": "sha256:d2def4e03aed5d5f55ee97a9c08f0b62a5108fee841e0fd9bb54c1c6e2da9eee",
+        "path": ".engine/tools/transaction_handoff.py"
+      },
+      "status": "active",
+      "summary": "Where a lifecycle transaction leaves the operator, and what must be true before it may start.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
       "id": "tool:tune",
       "name": ".engine/tools/tune.py",
       "owner": "core",
@@ -19604,7 +19920,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:b8cce4b519b404943ba891d045e7156751bbe3ca95c44b6c7c8e9edd125be5b6",
+        "fingerprint": "sha256:a5de6602f253f4c68928a16d7a466e41ea0575acf7c62b9d1c861c610be0b0f2",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
@@ -19668,7 +19984,7 @@
       },
       "slug": "wiring",
       "source": {
-        "fingerprint": "sha256:7f00ac969e399f0e2dc902c49a3cba3c6f7150c20d679154a8d6d3041999398e",
+        "fingerprint": "sha256:28bbc70ab7200868d0c83a557b7af9a23da978040465d2868b62808df158d406",
         "path": ".engine/tools/wiring.py"
       },
       "status": "active",

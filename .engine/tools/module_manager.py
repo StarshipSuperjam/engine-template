@@ -64,7 +64,7 @@ CLI:
       # --removal-notice: on a release-publishing engine, record in plain language what an operator could ask
       #   for before and no longer can — the release cut refuses to ship a whole-module removal without it.
   python tools/module_manager.py upgrade [ref]           # preview an update (checks only; changes nothing)
-  python tools/module_manager.py upgrade [ref] --confirm [--json]  # apply the whole-engine update vX -> vY
+  python tools/module_manager.py upgrade [ref] --confirm [--consent-handle H] [--json]  # apply vX -> vY
   python tools/module_manager.py demo                # mutation-free fail-then-pass (remove + add + upgrade; fixtures)
 """
 from __future__ import annotations
@@ -4060,9 +4060,12 @@ def _render_upgrade_preview(p: dict) -> None:
           f"{tail}; it arrives as a pull request you review.")
 
 
-_UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--json]\n"
+_UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--consent-handle H] [--json]\n"
                   "  Without --confirm it PREVIEWS only — checks for an update and changes nothing.\n"
                   "  With --confirm it applies the update and opens it as a reviewed pull request.\n"
+                  "  --consent-handle binds this apply to a plan you read (from `transaction.py plan\n"
+                  "    engine-upgrade`): if anything moved since, it refuses instead of applying your\n"
+                  "    consent to a different update.\n"
                   "  [ref] optionally names a version; the default is the latest published release.")
 
 
@@ -5606,6 +5609,52 @@ def clear_upgrade_staged() -> None:
         pass
 
 
+def _consent_handle_arg(argv: list):
+    """The `--consent-handle` value, or None when the operator did not carry one over.
+
+    Absent is not a refusal: the handle is an OPTIONAL binding an operator adds when they applied from a
+    plan they read. Making it mandatory would be a start gate, which is precisely what was ruled against —
+    an upgrade rolls back, and the friction would buy paperwork rather than safety.
+    """
+    for index, arg in enumerate(argv):
+        if arg.startswith("--consent-handle="):
+            return arg.split("=", 1)[1]
+        if arg == "--consent-handle" and index + 1 < len(argv):
+            return argv[index + 1]
+    return None
+
+
+def _refuse_stale_consent(ref, handle: str):
+    """Compare the carried handle against a freshly-derived one. Returns a message to print, or None.
+
+    Derived through the transaction adapter so the comparison uses the SAME plan the operator was shown —
+    not a second notion of what an update means, which would drift.
+    """
+    try:
+        import transaction
+        import transaction_adapters_upgrade  # noqa: F401 — registers the adapter
+        import transaction_envelope
+
+        class _Args:
+            rest = [ref] if ref else []
+
+        adapter = transaction._REGISTRY["engine-upgrade"]
+        facts = adapter.inspect(_Args())
+        plan = dict(adapter.plan(_Args(), facts))
+        plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
+        fresh = transaction_envelope.consent_handle(plan)
+    except Exception as exc:   # noqa: BLE001 — an unverifiable handle must not silently pass
+        return ("Couldn't check the consent handle you passed, so this update was NOT applied and nothing "
+                "was changed. Re-run `transaction.py plan engine-upgrade` for a fresh plan and handle. "
+                "({0})".format(exc))
+    if handle != fresh:
+        return ("The consent handle does not match this update. Something moved since the plan you read — "
+                "the release, what it turns on or retires, or your checkout — so applying now would apply "
+                "your consent to a different change. Nothing was changed. Run "
+                "`transaction.py plan engine-upgrade` to see the current plan, and apply with its handle.")
+    return None
+
+
 def _staged_upgrade_dirty() -> bool:
     """COULD this working copy hold a staged update — the RECOVERY question.
 
@@ -6007,7 +6056,8 @@ def main(argv: list) -> int:
                 print(_UPGRADE_USAGE)
                 return 0
             unknown = [a for a in argv[1:] if a.startswith("-") and a not in (
-                "--confirm", "--json", "--pr-absent") and not a.startswith("--pr-opened=")]
+                "--confirm", "--json", "--pr-absent") and not a.startswith("--pr-opened=")
+                and not a.startswith("--consent-handle=") and a != "--consent-handle"]
             if unknown:
                 print(f"CONFIG ERROR: unknown option(s) for upgrade: {' '.join(unknown)}\n{_UPGRADE_USAGE}",
                       file=sys.stderr)
@@ -6024,6 +6074,18 @@ def main(argv: list) -> int:
                     print(f"Couldn't complete the update check — the engine is unchanged and still working. "
                           f"({exc})")
                 return 0
+            # CONSENT BINDING (the operator's digest-only ruling). A handle carried over from
+            # `transaction.py plan engine-upgrade` binds this apply to the plan that was actually READ: if
+            # the release, the capability set, or the checkout moved in between, the handle no longer
+            # matches and this refuses rather than applying consent given to a different update. It is
+            # evidence of plan identity, never of who consented — the start protections are the
+            # harness-gated skill and, under everything, the pull request the operator merges.
+            handle = _consent_handle_arg(argv)
+            if handle is not None:
+                mismatch = _refuse_stale_consent(ref, handle)
+                if mismatch:
+                    print(mismatch)
+                    return 2
             result = upgrade(ref)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))
