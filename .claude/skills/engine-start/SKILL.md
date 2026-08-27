@@ -17,6 +17,9 @@ allowed-tools: Bash(uv run *)
 3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
    the draft pull request and plan the work, then show the operator the risk assessment and get their
    how-careful depth choice, before changing anything.
+4. Once the Build is authorized, keep moving through its actionable work. A progress report is not a
+   handoff: continue the next planned step unless the Build is submission-ready or a real authority
+   boundary requires the operator's decision. Do not schedule a self-wakeup instead of working.
 
 ## Notes
 

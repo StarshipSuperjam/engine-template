@@ -5054,6 +5054,8 @@ def reground_pointer(state: dict) -> str:
         "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
         "mutating coordinator verb re-verifies this session against that record and refuses on a",
         "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
+        "A progress report is not a handoff. If the record shows actionable work and no valid terminal",
+        "condition, continue the next planned step; do not schedule a self-wakeup instead of working.",
     ]
     return "\n".join(lines)
 

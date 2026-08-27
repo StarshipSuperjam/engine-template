@@ -13,7 +13,7 @@ When a trigger fires, the AI stops acting on its own and surfaces the decision r
 
 The invariant under both: never quietly continue past a trigger.
 
-An authorized Build is not itself an escalation trigger when it still has actionable work. Status commentary, an ordinary failed check, or an engineering obstacle stays with the Build until it is solved or becomes a typed, evidenced authority boundary. A terminal condition must point to the record that gives it authority; assistant prose and a self-labelled state are not enough. Operator pause and cancellation have their own persistent authority and are not cleared by unrelated repository progress.
+An authorized Build is not itself an escalation trigger when it still has actionable work. Status commentary, an ordinary failed check, or an engineering obstacle stays with the Build until it is solved or becomes a real authority boundary. Assistant prose and a self-labelled state are not authority. Operator pause and cancellation have their own persistent authority and are not cleared by unrelated repository progress.
 
 ## Scope
 

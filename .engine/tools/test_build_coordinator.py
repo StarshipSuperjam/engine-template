@@ -5097,6 +5097,9 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("owner/repo", text)
         self.assertIn("CX-01", text)
         self.assertIn(PLAN_ID, text)
+        self.assertIn("A progress report is not a handoff", text)
+        self.assertIn("continue the next planned step", text)
+        self.assertIn("do not schedule a self-wakeup", text)
 
     def test_the_injection_carries_no_reviewer_private_text(self):
         """The redaction fixture, seeded on purpose so it can actually fail.
