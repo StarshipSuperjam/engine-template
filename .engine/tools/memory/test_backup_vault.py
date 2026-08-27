@@ -233,6 +233,69 @@ class PushTests(_Base):
         self.assertFalse(res["ok"])
         self.assertEqual(res["error"], "not-configured")
 
+    def test_rolling_manifest_keeps_ledger_metadata_and_snapshot_identity_distinct(self):
+        ledger.append({"kind": "turn-delta", "text": "metadata"})
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        commit = fake.commits[fake.refs[key]]
+        tree = fake.trees[commit["tree"]["sha"]]["tree"]
+        entry = next(e for e in tree if e["path"] == f"{ptr['namespace']}/manifest.json")
+        manifest = json.loads(base64.b64decode(fake.blobs[entry["sha"]]))
+        self.assertEqual(manifest["snapshot-format"], bv.snapshot_format.SNAPSHOT_FORMAT)
+        self.assertEqual(manifest["compression"], "gzip")
+        self.assertEqual(manifest["ledger-version"], ledger.LEDGER_FORMAT_VERSION)
+        self.assertIn("ledger-generation", manifest)
+        self.assertIn("timestamp", manifest)
+        self.assertIn("engine-version", manifest)
+
+    def test_publisher_wire_json_matches_codec_request_measurement_at_boundary(self):
+        raw = bv.snapshot_format.max_part_bytes()
+        make = lambda size: bv._serialized_request_body({
+            "content": base64.b64encode(b"x" * size).decode("ascii"), "encoding": "base64"})
+        self.assertEqual(len(make(raw)), bv.snapshot_format.encoded_request_size(b"x" * raw))
+        self.assertLessEqual(len(make(raw)), bv.snapshot_format.PART_REQUEST_BYTES)
+        self.assertGreater(len(make(raw + 1)), bv.snapshot_format.PART_REQUEST_BYTES)
+
+    def test_multipart_publication_preserves_foreign_and_removes_only_its_stale_paths(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        old = fake.refs[key]; tree = fake.trees[fake.commits[old]["tree"]["sha"]]["tree"]
+        foreign_raw, stale_raw = b"foreign", b"stale"
+        foreign_sha, stale_sha = bv._git_blob_sha1(foreign_raw), bv._git_blob_sha1(stale_raw)
+        fake.blobs[foreign_sha] = base64.b64encode(foreign_raw).decode("ascii")
+        fake.blobs[stale_sha] = base64.b64encode(stale_raw).decode("ascii")
+        tree.extend([{"path": "another-project/keep", "sha": foreign_sha},
+                     {"path": f"{ptr['namespace']}/obsolete", "sha": stale_sha}])
+        ledger.append({"kind": "turn-delta", "text": "next"})
+        self.assertTrue(bv.push_now(transport=fake.transport)["ok"])
+        newest = fake.refs[key]; paths = {e["path"] for e in fake.trees[fake.commits[newest]["tree"]["sha"]]["tree"]}
+        self.assertIn("another-project/keep", paths)
+        self.assertNotIn(f"{ptr['namespace']}/obsolete", paths)
+
+    def test_deadline_and_tip_race_leave_prior_head_until_complete_and_retry_same_bytes(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        before = fake.refs[key]
+        snapshot = bv.snapshot_format.encode(b"race payload")
+        self.assertFalse(bv._publish_snapshot(bv._gh(fake.transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                              ptr["namespace"], snapshot, deadline=0))
+        self.assertEqual(fake.refs[key], before)
+        bodies, raced = [], {"done": False}
+        def transport(method, path, body=None):
+            if method == "POST" and path.endswith("/git/blobs"):
+                bodies.append(body["content"])
+            if method == "PATCH" and not raced["done"]:
+                raced["done"] = True
+                return 409, None
+            return fake.transport(method, path, body)
+        self.assertTrue(bv._publish_snapshot(bv._gh(transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                             ptr["namespace"], snapshot))
+        self.assertGreater(len(bodies), len(snapshot["parts"]))
+        self.assertEqual(bodies[:len(snapshot["parts"]) + 1], bodies[len(snapshot["parts"]) + 1:])
+
 
 class SessionStartTests(_Base):
     def test_silent_no_op_and_no_network_before_setup(self):

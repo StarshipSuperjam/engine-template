@@ -49,7 +49,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records  # noqa: E402 — the canonical store + the shared record-kind vocabulary
+from memory import ledger, records, snapshot_format  # noqa: E402 — the canonical store + snapshot codec
 import moment  # noqa: E402 — the trailing-Z time seam; pure stdlib leaf (epoch -> wire shape)
 
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
@@ -129,6 +129,7 @@ _SNAPSHOT_TAG_PREFIX = "engine-snapshot"
 # The tightened per-call network timeout (seconds). telemetry's shared `_http` hardcodes 30s; a SessionStart push must
 # be bounded much tighter so a flaky host cannot stall session start. Matches boot._run's 10s CLI budget.
 _TIMEOUT = 10
+_PUBLISH_DEADLINE_SECONDS = 10
 
 _GITHUB_API = "https://api.github.com"
 _USER_AGENT = "engine-template-memory-backup"
@@ -156,7 +157,7 @@ def _bounded_transport(token: str):
     failure the caller treats as 'skip'), so a SessionStart hook can never raise or hang on the network."""
 
     def transport(method: str, path: str, body=None):
-        data = json.dumps(body).encode("utf-8") if body is not None else None
+        data = _serialized_request_body(body) if body is not None else None
         req = urllib.request.Request(
             _GITHUB_API + path, data=data, method=method,
             headers={
@@ -177,6 +178,11 @@ def _bounded_transport(token: str):
             return None, None
 
     return transport
+
+
+def _serialized_request_body(body: dict) -> bytes:
+    """Canonical wire JSON; blob sizing must match snapshot_format exactly."""
+    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _gh(transport=None):
@@ -469,6 +475,82 @@ def _push_files(gh, owner: str, repo: str, branch: str, files: dict, *, retry: b
     return False
 
 
+def _deadline_send(gh, method, path, body, deadline):
+    """One bounded publication step; no later state is published after expiry."""
+    if time.monotonic() > deadline:
+        return None, None
+    return _send(gh, method, path, body)
+
+
+def _publish_snapshot(gh, owner: str, repo: str, branch: str, namespace: str, snapshot: dict,
+                      *, retry: bool = True, deadline=None) -> bool:
+    """Build and verify a whole snapshot before atomically moving the branch ref.
+
+    The tree deletes only the configured namespace and inserts its manifest and
+    parts.  A failed build leaves the old tip untouched; a tip race rebuilds
+    from the new tip once while reusing the same deterministic snapshot bytes.
+    """
+    deadline = time.monotonic() + _PUBLISH_DEADLINE_SECONDS if deadline is None else deadline
+    base = f"/repos/{owner}/{repo}"
+    status, ref = _deadline_send(gh, "GET", f"{base}/git/ref/heads/{branch}", None, deadline)
+    base_sha = (ref or {}).get("object", {}).get("sha") if status == 200 else None
+    if not isinstance(base_sha, str):
+        return False
+    status, commit = _deadline_send(gh, "GET", f"{base}/git/commits/{base_sha}", None, deadline)
+    base_tree = (commit or {}).get("tree", {}).get("sha") if status == 200 else None
+    if not isinstance(base_tree, str):
+        return False
+    status, before = _deadline_send(gh, "GET", f"{base}/git/trees/{base_tree}?recursive=1", None, deadline)
+    old_entries = (before or {}).get("tree") if status == 200 else None
+    if not isinstance(old_entries, list):
+        return False
+    manifest_bytes = json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    wanted = {f"{namespace}/manifest.json": manifest_bytes}
+    wanted.update({f"{namespace}/{entry['name']}": part
+                   for entry, part in zip(snapshot["manifest"]["parts"], snapshot["parts"])})
+    tree = [{"path": e["path"], "mode": "100644", "type": "blob", "sha": None}
+            for e in old_entries if isinstance(e, dict) and isinstance(e.get("path"), str)
+            and e["path"].startswith(namespace + "/")]
+    for path, content in wanted.items():
+        status, made = _deadline_send(gh, "POST", f"{base}/git/blobs",
+                                      {"content": base64.b64encode(content).decode("ascii"), "encoding": "base64"}, deadline)
+        sha = (made or {}).get("sha") if status in (200, 201) else None
+        if not isinstance(sha, str) or sha != _git_blob_sha1(content):
+            return False
+        status, check = _deadline_send(gh, "GET", f"{base}/git/blobs/{sha}", None, deadline)
+        if (status != 200 or (check or {}).get("sha") != sha
+                or (check or {}).get("encoding") != "base64"
+                or (check or {}).get("content") != base64.b64encode(content).decode("ascii")):
+            return False
+        tree.append({"path": path, "mode": "100644", "type": "blob", "sha": sha})
+    status, made_tree = _deadline_send(gh, "POST", f"{base}/git/trees", {"base_tree": base_tree, "tree": tree}, deadline)
+    tree_sha = (made_tree or {}).get("sha") if status in (200, 201) else None
+    if not isinstance(tree_sha, str):
+        return False
+    status, check_tree = _deadline_send(gh, "GET", f"{base}/git/trees/{tree_sha}?recursive=1", None, deadline)
+    entries = (check_tree or {}).get("tree") if status == 200 else None
+    actual = {e.get("path"): e.get("sha") for e in entries or [] if isinstance(e, dict)}
+    if any(actual.get(path) != _git_blob_sha1(content) for path, content in wanted.items()):
+        return False
+    if any(isinstance(path, str) and path.startswith(namespace + "/") and path not in wanted for path in actual):
+        return False
+    status, made_commit = _deadline_send(gh, "POST", f"{base}/git/commits",
+                                         {"message": _COMMIT_MESSAGE, "tree": tree_sha, "parents": [base_sha]}, deadline)
+    commit_sha = (made_commit or {}).get("sha") if status in (200, 201) else None
+    if not isinstance(commit_sha, str):
+        return False
+    status, check_commit = _deadline_send(gh, "GET", f"{base}/git/commits/{commit_sha}", None, deadline)
+    if status != 200 or (check_commit or {}).get("tree", {}).get("sha") != tree_sha:
+        return False
+    status, _ = _deadline_send(gh, "PATCH", f"{base}/git/refs/heads/{branch}",
+                               {"sha": commit_sha, "force": False}, deadline)
+    if status in (200, 201):
+        return True
+    if status in (409, 422) and retry:
+        return _publish_snapshot(gh, owner, repo, branch, namespace, snapshot, retry=False, deadline=deadline)
+    return False
+
+
 # ============================================================================================================
 # Retained pre-migration snapshot tags: a distinct refs/tags ref the routine rolling backup never
 # overwrites. Distinctness — a different ref — is the tier-independent guarantee; platform tag-immutability is
@@ -596,10 +678,15 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
             ledger_bytes = fh.read()
     except FileNotFoundError:
         ledger_bytes = b""                                  # the substrate ships empty — a valid empty backup
-    manifest_bytes = (json.dumps(build_manifest(ledger_path=lpath, now=when, engine_version=engine_version),
-                                 indent=2) + "\n").encode("utf-8")
-    files = {f"{namespace}/ledger.ndjson": ledger_bytes, f"{namespace}/manifest.json": manifest_bytes}
-    if not _push_files(gh, owner, repo, branch, files):
+    try:
+        snapshot = snapshot_format.encode(ledger_bytes)
+    except snapshot_format.SnapshotError:
+        return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
+    # The rolling publication preserves the legacy ledger metadata.  It shares
+    # a top-level manifest with the independent multipart v2 fields; the two
+    # version numbers deliberately describe different things.
+    snapshot["manifest"].update(build_manifest(ledger_path=lpath, now=when, engine_version=engine_version))
+    if not _publish_snapshot(gh, owner, repo, branch, namespace, snapshot):
         return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
     return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
 
@@ -1332,7 +1419,10 @@ class _FakeVault:
             base = self.trees.get(body.get("base_tree"), {})       # merge base_tree's inherited entries (the real
             merged = {e["path"]: e for e in base.get("tree", [])}  # recursive Trees API flattens them) so another
             for e in body.get("tree", []):                         # project's folders SURVIVE a later push — a real
-                merged[e["path"]] = e                              # cross-project coexistence round-trip can be tested
+                if e.get("sha") is None:                          # Git Data's deletion form
+                    merged.pop(e["path"], None)
+                else:
+                    merged[e["path"]] = e                          # cross-project coexistence round-trip can be tested
             self.trees[sha] = {"sha": sha, "tree": list(merged.values())}
             return 201, {"sha": sha}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/trees/([^?]+)", path)
