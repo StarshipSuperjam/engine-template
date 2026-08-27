@@ -38,9 +38,10 @@ re-extend a turn the platform force-ended). The clean-turn disposition summary i
 (computed here via `summary`, quiet when nothing needed action; the standing duty to relay it lives in the
 deployed floor). The POST-HOC cap-stop / fail-open notices remain best-effort whose DURABLE record is the
 logged Issue (re-surfaced at the next boot) — never dressed as a guaranteed operator surface. (The gate acts
-only on the `stop_hook_active` boolean — the platform sets it on the forced continuation after the cap of
-consecutive blocks — blocking while it is false and logging+proceeding when true; the within-turn block count
-that times the loop-line / pre-announce is legibility bookkeeping only, never the block/proceed decision.)
+only on the `stop_hook_active` boolean — providers use it for a repeated Stop after a block, with observed
+versions differing on whether that is the first continuation or final cap exhaustion. Close's finite rule is
+safe under either reading: block while false, then log+proceed when true. The within-turn block count that times
+the loop-line / pre-announce is legibility bookkeeping only, never the block/proceed decision.)
 
 CLI (the operator-runnable demo; the live gate is what the wired `Stop` hook invokes):
   python tools/close.py                                   # hook mode: run the Stop gate over stdin
@@ -422,9 +423,9 @@ def handler(payload):
       - none            -> proceed (the turn ends; the summary, if any, is assistant-narrated);
       - pending, normal -> BLOCK with the plain pushback (exit-2 stderr, fed to Claude — the reliable
                            surface), looping the model back to disposition;
-      - pending, FORCED -> (stop_hook_active: the platform is force-ending the turn at the block cap) LOG
-                           each leftover down telemetry's promotion path (degrade recorded->logged, never
-                           lost), clear the record, proceed — never re-block, so the cap can never deadlock.
+      - pending, repeated -> (`stop_hook_active` true) LOG each leftover down telemetry's promotion path
+                             (degrade recorded->logged, never lost), clear the record, proceed — never
+                             re-block, whether this is the first continuation or final cap exhaustion.
     The whole handler rides hooks.run_hook's fail-open: a crash lets the turn END and is flagged."""
     payload = payload if isinstance(payload, dict) else {}
     _trigger_ambient_capture(payload)
@@ -437,8 +438,8 @@ def handler(payload):
     if payload.get("stop_hook_active") is not True:
         count = _bump_blocks(session_id)                  # this turn's consecutive-block number (legibility only)
         return hooks.block(_pushback(open_findings, count))  # push back; loop-line on repeats, pre-announce near cap
-    # Forced continuation: degrade recorded -> logged so nothing is lost, then proceed (run_hook would
-    # downgrade a block here anyway; we never re-enter the gate THIS turn, so the loop can't deadlock).
+    # Repeated Stop: degrade recorded -> logged so nothing is lost, then proceed. The owner makes this
+    # finite decision explicitly; the shared hook harness preserves it rather than guessing its budget.
     now = moment.utc_now()
     github = _github()
     # Log each leftover; KEEP any that could NOT be durably tracked (GitHub offline/unreachable) so it
@@ -603,7 +604,7 @@ def main(argv):
     cmd = argv[0] if argv else "hook"
     if cmd == "hook":
         # Hook mode: what the wired Stop hook invokes. run_hook reads the event JSON from stdin, runs the
-        # gate, translates block() -> exit 2 + stderr, downgrades a forced-continuation block, fail-open.
+        # gate, translates block() -> exit 2 + stderr, preserves the owner's repeated-Stop decision, fail-open.
         # fail_open_notice: if the disposition gate itself CRASHES, the operator hears close's own plain line
         # (the gate fails open, and says so), not run_hook's generic wording.
         return hooks.run_hook("Stop", handler, fail_open_notice=_FAIL_OPEN_NOTICE)

@@ -165,6 +165,23 @@ class DoesNotLeak(_Library):
         self.assertIn("compare-and-swap", warned)
 
 
+class TerminalConditionContract(_Library):
+    """The withdrawn Stop evaluator cannot leave a model-authored authority channel behind."""
+
+    def test_legacy_null_placeholder_remains_readable(self):
+        self._store().create(_state(terminal_condition=None))
+        self.assertIsNone(self._store().read()["terminal_condition"])
+
+    def test_non_null_terminal_claim_is_rejected(self):
+        condition = {
+            "kind": "operator_pause",
+            "source": {"authority": "operator-command", "reference": "prompt:42",
+                       "observed_at": "2026-08-27T18:00:00Z"},
+        }
+        with self.assertRaises(core.CoordinatorError):
+            self._store().create(_state(terminal_condition=condition))
+
+
 class DoesNotDestroy(_Library):
     """IT DOES NOT DESTROY — the one store that can overwrite live Build evidence."""
 

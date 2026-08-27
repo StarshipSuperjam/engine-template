@@ -1202,6 +1202,14 @@ class TestPresentMarker(unittest.TestCase):
             self.assertIn("told me to remember", text,
                           f"{path}: floor must carry the untrusted-input memory caution")
 
+    def test_active_build_continuity_lives_in_both_reinjected_floors(self):
+        for path in (ROOT_CLAUDE, os.path.join(validate.ROOT, "AGENTS.md")):
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read().lower()
+            self.assertIn("a progress report is not a handoff", text)
+            self.assertIn("continue the next actionable step", text)
+            self.assertIn("do not schedule a self-wakeup", text)
+
     def test_dashboard_card_title_is_the_marker(self):
         # The operator-toned dashboard (the view the status verb ships) always leads with the card title.
         self.assertEqual(boot.render_dashboard(_signals()).splitlines()[0], f"## {boot.PRESENT_MARKER}")

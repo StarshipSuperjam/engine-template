@@ -441,11 +441,10 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
     The law, in order:
       1. Read the event JSON from stdin (tolerant). A payload the platform cannot even deliver is the
          platform's contract breaking, not the operator's fault — FAIL OPEN (never block on it) + flag.
-      2. A forced Stop continuation (`stop_hook_active` true: the platform is force-ending the turn
-         after the block cap) STILL runs the handler — the owning system may need the give-up moment
-         (close degrades a still-undispositioned finding to a logged tracked finding here, so the cap
-         can never lose one) — but it MUST NOT re-block, or it loops until the cap, so ANY block it
-         returns is downgraded to proceed (in run_hook, the budget law; `_translate` stays pure).
+      2. A repeated Stop (`stop_hook_active` true) STILL runs the handler. The harness does not guess
+         whether that provider flag means one continuation or final cap exhaustion; the registered owner
+         must apply its own finite rule. Close does so by logging any still-undispositioned finding and
+         returning proceed, proven through the real owner in test_close.py.
       3. Run the handler. ANY exception → the guarded action proceeds (non-blocking exit) and the
          failure becomes a plain-language finding: a crashing gate must never strand a non-engineer
          who cannot debug it, and must never fail silently.
@@ -477,11 +476,6 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
                       f"action was allowed to proceed.", promote)
         return EXIT_NONBLOCKING
 
-    # A forced Stop continuation: the handler still runs (close needs the give-up moment to log a
-    # still-undispositioned finding), but its block is downgraded to proceed below so it can NEVER
-    # re-block and loop the cap. stop_hook_active is only ever set by the platform on a Stop.
-    forced_stop = event == "Stop" and payload.get("stop_hook_active") is True
-
     try:
         decision = handler(payload) if handler is not None else proceed()
     except (Exception, SystemExit) as exc:  # noqa: BLE001 — fail-open is the whole point. SystemExit
@@ -498,9 +492,6 @@ def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promo
             f"action was allowed to proceed. The work was not verified by that check.")
         _emit_finding(err, "hard", event, "crash", crash_message, promote)
         return EXIT_NONBLOCKING
-
-    if forced_stop and isinstance(decision, dict) and decision.get("action") == "block":
-        decision = proceed()   # no-re-block guarantee, by construction (the harness, not the handler)
 
     return _translate(event, decision or proceed(), out, err, promote)
 

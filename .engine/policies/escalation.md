@@ -13,6 +13,8 @@ When a trigger fires, the AI stops acting on its own and surfaces the decision r
 
 The invariant under both: never quietly continue past a trigger.
 
+An authorized Build is not itself an escalation trigger when it still has actionable work. Status commentary, an ordinary failed check, or an engineering obstacle stays with the Build until it is solved or becomes a real authority boundary. Assistant prose and a self-labelled state are not authority. Operator pause and cancellation have their own persistent authority and are not cleared by unrelated repository progress.
+
 ## Scope
 
 Applies to all autonomous AI action, in two modes. In an interactive session (exploring or building with the operator present) the AI stops and asks. In a routine, unattended run it cannot ask, so it halts that line of work and records a tracked issue instead, which is brought back to the operator at the next start-up.

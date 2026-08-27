@@ -302,7 +302,8 @@ def _mutates(args) -> bool:
 _SNAPSHOTLESS_STATE_SUBCOMMANDS = frozenset({"where", "migrate", "supersede"})
 
 
-def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None = None) -> list[str]:
+def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None = None,
+                   allow_rewritten_head: bool = False) -> list[str]:
     """Every way this session disagrees with the snapshot it is about to mutate, in plain words.
 
     Each leg is skipped only when the snapshot never recorded the fact to compare against — a Build
@@ -322,8 +323,13 @@ def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None
     plan_state = state.get("plan") or {}
     bound_head = plan_state.get("bound_head")
     current = head if head is not None else _head()
-    if bound_head and current:
-        if not _is_ancestor(bound_head, current):
+    if bound_head and current and not allow_rewritten_head:
+        # A successful reconcile is itself a verified lineage anchor. Older snapshots did not advance
+        # `bound_head` when they recorded that event, so honor the recorded post-rebase head as well;
+        # otherwise every later mutating verb deadlocks even though reconcile already accepted the line.
+        lineage_anchors = [bound_head] + [item.get("to_commit") for item in state.get("reconciles", [])
+                                          if item.get("to_commit")]
+        if not any(_is_ancestor(anchor, current) for anchor in lineage_anchors):
             reasons.append(
                 f"the commit this Build was bound at ({bound_head[:12]}) is not an ancestor of the "
                 f"current HEAD ({current[:12]}), so this worktree has moved off the Build's line — a "
@@ -345,8 +351,12 @@ def verify_resume(store, args) -> None:
         # An unreadable snapshot is the resolving store's refusal to make, with its own remedy. Raising
         # a second, worse-worded version of it here would replace a good error with a vague one.
         return
-    reasons = resume_reasons(state)
     command, sub = _verb(args)
+    # `reconcile` exists specifically for a reviewed branch whose history was rewritten onto a new
+    # base. Its own command verifies the old/new commits, bases, and contribution before it re-anchors
+    # any evidence, so applying the ordinary ancestor check first would deadlock the recovery path.
+    # Only that expected rewritten-head mismatch is waived; a different worktree still refuses here.
+    reasons = resume_reasons(state, allow_rewritten_head=(command, sub) == ("reconcile", None))
     verb = command if not sub else f"{command} {sub}"
     if reasons:
         raise CoordinatorError(
@@ -2837,6 +2847,10 @@ def cmd_reconcile(args, store: Snapshot) -> None:
         # one side and can never reach the identical path.
         d["base_commit"] = base_after
         d["reviewed_commit"] = head if identical else base_after
+        # The rebase has been verified as this Build's legitimate new line. Advance the resume anchor
+        # with the review bindings; otherwise every mutating verb after a successful reconcile rejects
+        # the same rewritten history that reconcile just accepted.
+        s["plan"]["bound_head"] = head
         s["reconciles"] = list(s.get("reconciles", [])) + [entry]
         # `state["repair"]` is deliberately NOT cleared. It is the sole producer of the PR body's
         # reviewed-vs-submitted line, and clearing it made a Build that HAD run a repair round publish
@@ -5047,6 +5061,9 @@ def reground_pointer(state: dict) -> str:
         "Read the Build's state with `build_coordinator.py status` before changing anything. Every",
         "mutating coordinator verb re-verifies this session against that record and refuses on a",
         "mismatch, so a wrong assumption here fails closed rather than corrupting the Build.",
+        "A progress report is not a handoff. If the record shows actionable work,",
+        "continue the next planned step unless a real authority boundary requires a decision;",
+        "do not schedule a self-wakeup.",
     ]
     return "\n".join(lines)
 

@@ -45,6 +45,7 @@ class TestShippedDefaults(unittest.TestCase):
         "conduct-ground-claims", "conduct-verify-and-report", "conduct-preserve-intent",
         "conduct-smallest-safe-change", "conduct-full-capability", "conduct-stay-in-scope",
         "conduct-record-decisions", "conduct-care-with-risk", "conduct-code-over-prose",
+        "conduct-active-build-continuity",
     }
 
     def test_universal_codes_present(self):
