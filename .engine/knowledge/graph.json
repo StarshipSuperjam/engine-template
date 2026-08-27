@@ -8756,6 +8756,7 @@
           "tool:ledger",
           "tool:moment",
           "tool:records",
+          "tool:snapshot_format",
           "tool:validate"
         ],
         "provided_by": [
@@ -8764,7 +8765,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:f0d4f20dda545bda0744006c28e230f83fa3f8495a4f597c1643a5cb2de0b583",
+        "fingerprint": "sha256:396b90346ce0b9a34373b6bc36db91dffda7019442e60f60dbff7003ef13ae61",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -13820,6 +13821,7 @@
           "tool:ledger_migrations",
           "tool:module_manager",
           "tool:records",
+          "tool:snapshot_format",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -13829,7 +13831,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:f54ecb5c6397ce08fa0185d209622f26f55ac562acb14e63a1b5e9f05b0a1863",
+        "fingerprint": "sha256:b3674846cb7b6f8dad63866b7922bb497e93adcafd743b8c5bef89335b3186ac",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14352,6 +14354,26 @@
       },
       "status": "active",
       "summary": "Shared skill-discovery helper — the single home for finding the engine's own skills on disk.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:snapshot_format",
+      "name": ".engine/tools/memory/snapshot_format.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "snapshot_format",
+      "source": {
+        "fingerprint": "sha256:df98f3bfa48042f4fdd141ec2ed2929ebf98f65310b2cd2da2e1a171aa72f9b8",
+        "path": ".engine/tools/memory/snapshot_format.py"
+      },
+      "status": "active",
+      "summary": "Deterministic, plaintext, multipart representation for a memory ledger.",
       "type": "tool"
     },
     {
@@ -14879,7 +14901,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:ff9c69a20d651a237bb150d1bfa82c073afc828046a219eac01bb570f71d15e5",
+        "fingerprint": "sha256:c5429ff836202e69d74b886a23a74cb053ad5e061686d6b761110a8c792e04ae",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -18035,14 +18057,18 @@
           "module:core"
         ],
         "tests": [
+          "tool:backup_vault",
+          "tool:ledger",
           "tool:module_manager",
           "tool:release_gate",
+          "tool:restore_vault",
+          "tool:snapshot_format",
           "tool:validate"
         ]
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:b11af96830e50ff7d5d313e09c5608532ff9bc9ef992729d8b76f4135b7ea816",
+        "fingerprint": "sha256:049c3955aa4b5852344867ebf49c0f0c51028bca9f4d949d6e207f8eb7ab29e1",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -18299,7 +18325,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:8170ff8ab3ef872f0bf848a01649ccc26b4474886e71c5083245669dfe384031",
+        "fingerprint": "sha256:6fcee468c487ea8b778e7bc6c7175f74d71bfbc23eb777b43b78f4a74a359056",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
@@ -19090,6 +19116,29 @@
       },
       "status": "active",
       "summary": "Tests for the shared skill-discovery helper.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_snapshot_format",
+      "name": ".engine/tools/memory/test_snapshot_format.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:snapshot_format"
+        ]
+      },
+      "slug": "test_snapshot_format",
+      "source": {
+        "fingerprint": "sha256:ce9080b6486eada14caf7b31c2b437b5f7bdb850bb2aea1bfd09de6958c5c2ea",
+        "path": ".engine/tools/memory/test_snapshot_format.py"
+      },
+      "status": "active",
+      "summary": "Focused acceptance evidence for the v2 plaintext multipart snapshot codec.",
       "type": "tool"
     },
     {
