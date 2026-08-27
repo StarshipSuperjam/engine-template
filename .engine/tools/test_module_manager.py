@@ -990,9 +990,10 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
                 tracked_plans=pre["plans"], recovery_ref=tx["recovery_ref"])
             self.assertEqual(leaked["refusals"][0]["code"], "unsealed-change")
             restored = module_manager.checkout_health.recover_upgrade_transaction(root)
-            self.assertTrue(restored["ok"], restored)
+            self.assertFalse(restored["ok"], restored)
+            self.assertEqual(restored["code"], "in-footprint-work")
             with open(os.path.join(root, self.EXTRA), encoding="utf-8") as fh:
-                self.assertEqual(fh.read(), "before companion\n")
+                self.assertEqual(fh.read(), "unsealed")
 
     def test_transaction_refuses_foreign_work_and_corrupt_pairs_are_manual(self):
         tmp = self._repo()
@@ -1020,6 +1021,28 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
         self.assertTrue(manual["journal_path"])
         self.assertEqual(manual["recovery_ref"], "refs/engine/upgrade-recovery")
 
+    def test_prepared_crash_then_in_footprint_edit_stops_without_overwrite(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        target = {"path": self.TARGET, "operation": "replace",
+                  "before_identity": module_manager.checkout_health._tx_blob_identity(root, self.TARGET),
+                  "recovery_scope": [self.TARGET]}
+        begun = module_manager.checkout_health.begin_upgrade_transaction(
+            root, sealed_targets=[target], footprint=[self.TARGET])
+        self.assertTrue(begun["ok"], begun)
+        with open(os.path.join(root, self.TARGET), "w", encoding="utf-8") as fh:
+            fh.write("operator work after the interruption\n")
+
+        recovered = module_manager.checkout_health.recover_upgrade_transaction(root)
+
+        self.assertFalse(recovered["ok"], recovered)
+        self.assertEqual(recovered["code"], "in-footprint-work")
+        self.assertEqual(recovered["path"], self.TARGET)
+        with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "operator work after the interruption\n")
+        self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"], "active")
+
     def test_sigkill_restart_matrix_restores_or_finalizes_every_durable_boundary(self):
         helper_dir = os.path.dirname(module_manager.checkout_health.__file__)
         script = (
@@ -1033,18 +1056,21 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
             "if boundary != 'prepared':\n"
             "  assert ch.update_upgrade_transaction(root,'mutating')['ok']\n"
             "  with open(os.path.join(root,*target.split('/')),'w') as fh: fh.write('after kill boundary\\n')\n"
-            "if boundary in ('mutated','committed','pr-opened'):\n"
+            "  assert ch.checkpoint_upgrade_transaction(root)['ok']\n"
+            "if boundary in ('mutated','committed','pr-opening','pr-opened'):\n"
             "  assert ch.update_upgrade_transaction(root,'mutated',receipts=[])['ok']\n"
-            "if boundary in ('committed','pr-opened'):\n"
+            "if boundary in ('committed','pr-opening','pr-opened'):\n"
             "  subprocess.run(['git','-C',root,'checkout','-b','engine-update'],check=True,capture_output=True)\n"
             "  subprocess.run(['git','-C',root,'add','-A'],check=True)\n"
             "  subprocess.run(['git','-C',root,'commit','-m','upgrade'],check=True,capture_output=True)\n"
             "  commit=subprocess.run(['git','-C',root,'rev-parse','HEAD'],check=True,capture_output=True,text=True).stdout.strip()\n"
             "  assert ch.update_upgrade_transaction(root,'committed',pull_request={'branch':'engine-update','commit':commit})['ok']\n"
+            "if boundary in ('pr-opening','pr-opened'):\n"
+            "  assert ch.update_upgrade_transaction(root,'pr-opening',pull_request={'branch':'engine-update','commit':commit})['ok']\n"
             "if boundary == 'pr-opened':\n"
             "  assert ch.update_upgrade_transaction(root,'pr-opened',pull_request={'number':77,'url':'https://example.invalid/77'})['ok']\n"
             "os.kill(os.getpid(), signal.SIGKILL)\n")
-        for boundary in ("prepared", "mutating", "mutated", "committed", "pr-opened"):
+        for boundary in ("prepared", "mutating", "mutated", "committed", "pr-opening", "pr-opened"):
             with self.subTest(boundary=boundary):
                 tmp = self._repo()
                 root = tmp.name
@@ -1055,19 +1081,26 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
                 self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
                                  "active")
                 recovered = module_manager.checkout_health.recover_upgrade_transaction(root)
-                self.assertTrue(recovered["ok"], recovered)
-                if boundary == "pr-opened":
+                if boundary == "pr-opening":
+                    self.assertFalse(recovered["ok"], recovered)
+                    self.assertEqual(recovered["code"], "remote-pr-ambiguous")
+                    self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
+                                     "active")
+                elif boundary == "pr-opened":
+                    self.assertTrue(recovered["ok"], recovered)
                     self.assertEqual(recovered["state"], "finalized")
                     with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
                         self.assertEqual(fh.read(), "after kill boundary\n")
                 else:
+                    self.assertTrue(recovered["ok"], recovered)
                     self.assertEqual(recovered["state"], "restored")
                     self.assertEqual(self._git(root, "branch", "--show-current"), "main")
                     with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
                         self.assertEqual(fh.read(), "before record\n")
                     self.assertEqual(self._git(root, "status", "--porcelain"), "")
-                self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
-                                 "none")
+                if boundary != "pr-opening":
+                    self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
+                                     "none")
                 tmp.cleanup()
 
 
@@ -2338,6 +2371,13 @@ class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
         body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
         passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
         self.assertTrue(passed, f"minimal update PR body failed the completeness gate: {findings}")
+
+    def test_decline_guidance_names_the_remaining_local_branch_state(self):
+        body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {}).lower()
+        self.assertIn("closing it prevents the merge", body)
+        self.assertIn("does not switch the local checkout", body)
+        self.assertIn("repository's default branch", body)
+        self.assertNotIn("closing it changes nothing", body)
 
     def test_rendered_update_body_has_exactly_one_none_impact_marker(self):
         body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
@@ -3934,6 +3974,29 @@ class TestRollback(unittest.TestCase):
                 # still nothing changed by any of the read-only calls
                 self.assertNotIn("engine-rescue/", _git(live, "branch").stdout)
 
+    def test_failed_transaction_rollback_is_nonzero_and_renders_recovery_evidence(self):
+        failed = {"ok": False, "state": "manual", "code": "in-footprint-work",
+                  "reason": "operator bytes were left untouched", "path": "AGENTS.md",
+                  "journal_path": "/tmp/engine-upgrade-transaction.json",
+                  "recovery_ref": "refs/engine/upgrade-recovery", "recovery_commit": "a" * 40}
+        with mock.patch.object(module_manager, "_diagnose_undo",
+                               return_value={"state": "transaction", "transaction": {"state": "active"}}), \
+                mock.patch.object(module_manager.checkout_health, "recover_upgrade_transaction",
+                                  return_value=failed):
+            result = module_manager.rollback(confirm=True, resync=lambda: True)
+        self.assertTrue(result["refused"])
+        self.assertFalse(result["undone"])
+
+        out = io.StringIO()
+        with mock.patch.object(module_manager, "rollback", return_value=result), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(module_manager.main(["rollback", "--confirm"]), 1)
+        rendered = out.getvalue()
+        self.assertIn("AGENTS.md", rendered)
+        self.assertIn("engine-upgrade-transaction.json", rendered)
+        self.assertIn("refs/engine/upgrade-recovery", rendered)
+        self.assertIn("a" * 40, rendered)
+
 
 class TestOpenUpgradePrDiagnostics(unittest.TestCase):
     """#672: the shared PR opener surfaces a DIAGNOSABLE failure — GitHub's real reason (the nested
@@ -4016,11 +4079,13 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
             result = module_manager._open_upgrade_pr(
                 branch="engine-update-v1", title="t", body="b", repo="acme/widget", token="secret",
                 on_commit=lambda info: events.append(("commit", info)) or True,
+                on_pr_opening=lambda info: events.append(("opening", info)) or True,
                 on_pr=lambda info: events.append(("pr", info)) or True)
         self.assertEqual(result, opened)
-        self.assertEqual([kind for kind, _value in events], ["commit", "pr"])
+        self.assertEqual([kind for kind, _value in events], ["commit", "opening", "pr"])
         self.assertEqual(events[0][1]["commit"], "a" * 40)
-        self.assertEqual(events[1][1]["number"], 7)
+        self.assertEqual(events[1][1], events[0][1])
+        self.assertEqual(events[2][1]["number"], 7)
 
     def test_pull_request_receipt_failure_is_loud_after_remote_open(self):
         opened = {"number": 7, "html_url": "https://github.com/acme/widget/pull/7"}
@@ -4037,7 +4102,21 @@ class TestOpenUpgradePrDiagnostics(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "durable transaction receipt"):
                 module_manager._open_upgrade_pr(
                     branch="engine-update-v1", title="t", body="b", repo="acme/widget", token="secret",
-                    on_commit=lambda info: True, on_pr=lambda info: False)
+                    on_commit=lambda info: True, on_pr_opening=lambda info: True,
+                    on_pr=lambda info: False)
+
+    def test_remote_post_is_not_attempted_when_opening_phase_is_not_durable(self):
+        def git(args, **kwargs):
+            stdout = "c" * 40 + "\n" if args[:3] == ["git", "rev-parse", "HEAD"] else "main\n"
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+
+        with mock.patch("subprocess.run", side_effect=git), \
+                mock.patch("urllib.request.urlopen", side_effect=AssertionError("POST must not run")):
+            with self.assertRaisesRegex(RuntimeError, "no pull-request POST was attempted"):
+                module_manager._open_upgrade_pr(
+                    branch="engine-update-v1", title="t", body="b", repo="acme/widget", token="secret",
+                    on_commit=lambda info: True, on_pr_opening=lambda info: False,
+                    on_pr=lambda info: True)
 
     def test_a_checkout_collision_never_dead_ends_or_force_deletes(self):
         # #877: `checkout -b` colliding with a leftover branch from an earlier attempt. That branch may hold

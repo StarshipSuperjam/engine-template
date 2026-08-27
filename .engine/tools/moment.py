@@ -8,7 +8,7 @@ module level without a cycle and without breaking that refusal.
 
 Two laws bind every caller:
 
-1. **Determinism (the established design).** `utc_now()` and `today_utc()` READ THE REAL WALL CLOCK. They live at the
+1. **Determinism.** `utc_now()` and `today_utc()` READ THE REAL WALL CLOCK. They live at the
    IO edge — the run/main boundary — and are NEVER called inside logic that should thread an explicit
    `as_of`/`now=` reference time. The determinism law is "same inputs → same ordering, reproducibly across
    clock skew or a host change"; a wall-clock read buried in ranking or reconcile logic breaks it. When a

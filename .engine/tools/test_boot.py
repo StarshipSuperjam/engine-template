@@ -471,7 +471,7 @@ class TestHomeWorkshopGrounding(unittest.TestCase):
 
 
 class TestProductLine(unittest.TestCase):
-    """the established design: the dashboard names what the engine builds ONLY when that is an external product (a recorded
+    """The dashboard names what the engine builds ONLY when that is an external product (a recorded
     product_repository signal); a self-building deployment (no signal) gets no line, and the rendered slug is
     defanged (it can be operator/remote-supplied and lands in the model-visible briefing)."""
 
@@ -494,7 +494,7 @@ class TestProductLine(unittest.TestCase):
 
 
 class TestMechanicOrientation(unittest.TestCase):
-    """the established design Slice 3: when this engine builds a SEPARATE owned product checkout, boot orients the session.
+    """When this engine builds a SEPARATE owned product checkout, boot orients the session.
     The operator dashboard prefers the executable build target over the display-only product_repository, shows a
     short 'checkout is set' ack (never the absolute local path), and pins a guided setup offer when the local
     path is unset (suppressed while first_run is pending). The assistant gets an AI-facing grounding overlay (the
@@ -663,7 +663,7 @@ class TestMechanicOrientation(unittest.TestCase):
         self.assertIn("breaks peers", pack)
         self.assertIn("trusted origin", pack)                      # WHY the checkout is UNVERIFIED
         self.assertIn("NON-REFLEXIVITY", pack)
-        self.assertIn("same human, not an independent reviewer", pack)   # the established design's mandated framing
+        self.assertIn("same human, not an independent reviewer", pack)   # required solo-review framing
         # Per-component PROSE-growth alarm, measured at a representative checkout path (not the suite's toy
         # `/home/me/product`, whose short interpolation renders well under a real deployment and would leave this
         # unable to trip). ~828 chars for this path vs the 900 dial — so growth of the grounding PROSE trips it
@@ -1087,7 +1087,7 @@ class TestDegradedNotice(unittest.TestCase):
         self.assertFalse(failed["fast_search_unavailable"])   # a detector fault degrades quietly, never breaks
 
     def test_gather_relays_the_product_signal_and_degrades_quietly(self):
-        # the established design: the recorded external product is RELAYED from the checkout_health substrate (boot reads no
+        # The recorded external product is RELAYED from the checkout_health substrate (boot reads no
         # manifest itself); a reader fault degrades this one signal to None, never breaking the pack.
         patchers = _offline()
         try:
@@ -1172,7 +1172,7 @@ class TestPresentMarker(unittest.TestCase):
                       "the floor's verify-presence instruction must name the exact card title boot renders")
 
     def test_memory_doctrine_lives_in_both_floors(self):
-        # the established design / #787: the three-homes memory doctrine (incl. the injection-defense clause) is carried
+        # #787: the three-homes memory doctrine (including the injection-defense clause) is carried
         # ONLY by the always-loaded floor now, no longer duplicated in the boot pack's write-gate copy
         # (modes.describe_explore_scope, which keeps just the gate-coupled notebook ALLOW — test_modes pins
         # that). Since the floor is its sole home, guard that it did not silently drop from either provider's
@@ -2977,7 +2977,7 @@ class TestStanceLine(unittest.TestCase):
         self.assertNotIn(note, boot.render_dashboard(_signals()))
 
     def test_wiring_map_advert_lives_in_both_floors_not_the_capped_pack(self):
-        # #92 relocated (the established design / #787): the standing wiring-map advert (formerly KNOWLEDGE_FACULTY_NOTE in
+        # #92 relocated by #787: the standing wiring-map advert (formerly KNOWLEDGE_FACULTY_NOTE in
         # the capped pack) is STATIC orientation, so it moved to the always-loaded, uncapped CLAUDE.md /
         # AGENTS.md floor rather than spending capped budget every session. Guard it did not silently drop
         # from either provider's floor and still points at the runbook; nothing else checks this content.
@@ -2986,7 +2986,7 @@ class TestStanceLine(unittest.TestCase):
                 text = " ".join(fh.read().split())            # wrap-insensitive: prose lines wrap freely
             self.assertIn("wiring map", text.lower(), f"{path}: floor must advertise the wiring map")
             self.assertIn("knowledge-impact-check.md", text, f"{path}: advert must point at the runbook")
-            # the surface-catalog pointer relocated here too (the established design retired the per-session recognition
+            # the surface-catalog pointer relocated here too when per-session recognition
             # render); guard it did not silently drop from either floor.
             self.assertIn("surface-catalog.json", text, f"{path}: floor must point at the surface catalog")
 
@@ -3572,8 +3572,8 @@ class TestGreenfieldIntakeOffer(unittest.TestCase):
 
 
 class TestPackCapGuard(unittest.TestCase):
-    """The pack is measured before injecting and set aside per component in the briefing-budget ladder
-    (the established design): the work-neighbourhood map first, then where-we-left-off, then the pins index, then the
+    """The pack is measured before injecting and set aside per component in the briefing-budget ladder:
+    the work-neighbourhood map first, then where-we-left-off, then the pins index, then the
     status dashboard; the governance briefing never — with a relayed notice naming what was left out.
     The margin canary and the loud pin set-aside live in TestBriefingBudget."""
 
@@ -3645,7 +3645,7 @@ class TestPackCapGuard(unittest.TestCase):
 
 
 class TestBriefingBudget(unittest.TestCase):
-    """The briefing-budget reader (_briefing_values) and the component bounds it drives (the established design; #787/#899)."""
+    """The briefing-budget reader (_briefing_values) and the component bounds it drives (#787/#899)."""
 
     def test_code_fallback_equals_the_shipped_policy_values(self):
         # the never-raises fallback MUST equal the shipped policy's values, so the doc, the code, and the
@@ -3791,7 +3791,7 @@ class TestBriefingBudget(unittest.TestCase):
             "another never-shed Tier-0 block) grew — compress it KEEPING every safety clause, never by dropping one.")
 
     def test_pins_index_caps_to_newest_count_with_a_loud_disclosed_remainder(self):
-        # StarshipSuperjam/engine-template#950 + the established design: the pins index shows the newest N titles and folds the rest behind a LOUD,
+        # StarshipSuperjam/engine-template#950: the pins index shows the newest N titles and folds the rest behind a LOUD,
         # directive-aware disclosure — never the old silent rank-out, and nothing leaves storage.
         pins = [{"text": f"standing directive number {i} " + "x" * 60} for i in range(12)]
         lines = boot.render_pins(pins, 80, count_max=8, block_chars=1300)

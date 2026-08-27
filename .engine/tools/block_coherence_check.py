@@ -10,7 +10,7 @@ half of it:
 
   1. BLOCK BUDGET — only PreToolUse and Stop may hard-block.
   2. MODE DIMENSION — every block declares the stances it is active in, as DATA, not code-only
-     (the established design): a non-empty `modes` list drawn from the valid stance
+     through a non-empty `modes` list drawn from the valid stance
      vocabulary. This is the property U05b makes first-class — before it, the mode a block was active
      in lived only in modes.handler's control flow; now a missing/malformed declaration reds engine-ci.
 

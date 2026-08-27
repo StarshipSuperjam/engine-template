@@ -10,7 +10,7 @@ deliberately declared model-reachable (recall) is allowed a reachable twin, sinc
 to operator-only would ship such a capability on one runtime and silently disable it on the other.
 This check goes red when an engine Codex skill ships
 without that companion, or with the policy absent or not false — so the self-election protection
-cannot be dropped on one runtime while the other stays green (the established design). Operator-authored,
+cannot be dropped on one runtime while the other stays green. Operator-authored,
 un-prefixed product skills in the same directory are not engine-governed.
 
 Reads local committed files only. Emits finding.v1 JSON on stdout, exit 0 on a successful

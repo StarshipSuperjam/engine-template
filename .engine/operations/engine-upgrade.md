@@ -143,10 +143,12 @@ same choice — so you can always tell where you stand.
 
 When the stopped update has a tracked-content transaction, the next upgrade or rollback invocation checks the
 Git-path journal/ref pair before doing anything new. A complete pre-PR transaction is restored to the original
-branch and byte identities automatically; a transaction with a durable pull-request receipt is finalized. A
-missing, mismatched, or unreadable journal/ref pair is never guessed away: the engine stops and names the
-journal, recovery ref, and commit available for manual recovery. New work outside the sealed footprint also
-stops automatic rollback so unrelated operator changes are never overwritten.
+branch and byte identities automatically only when every path still matches the last durable updater identity
+checkpoint; a transaction with a durable pull-request receipt is finalized. A missing, mismatched, or unreadable
+journal/ref pair is never guessed away: the engine stops and names the journal, recovery ref, and commit available
+for manual recovery. New work inside or outside the sealed footprint also stops automatic rollback before any
+overwrite. If the process stopped while GitHub may have been opening the pull request, remote absence is not
+guessed either: recovery stops until the branch's pull-request state is confirmed.
 
 **Too old to update cleanly.** Before it changes anything (and in the preview), an update checks whether your engine
 is below the release's **clean-upgrade floor** — the oldest version proven to update to it in one clean pass. Below

@@ -566,7 +566,7 @@ class TestWeakeningClassifier(unittest.TestCase):
             self.assertTrue(weakening_guard.is_guardrail(p, derived_scripts=frozenset()), p)
 
     def test_mechanic_build_gate_is_floored(self):
-        # The engine-mechanic cross-repo-write gate (the established design): its fail-closed, host-anchored belt authorizes
+        # The engine-mechanic cross-repo-write gate: its fail-closed, host-anchored belt authorizes
         # running a SEPARATE checkout's own tools and opening a PR against it — a live runtime gate with NO
         # on-disk floored correlate, so it MUST route through the guardrail-ack. Pinned so a future edit that drops
         # it from _FLOOR_ENFORCEMENT_HOOKS is caught here. Its checkout_health readers stay UNGUARDED (fail-soft
@@ -2176,7 +2176,7 @@ class TestProtectionReHome(unittest.TestCase):
 
 class TestWeakeningReHome(unittest.TestCase):
     """The re-homed weakening guard emits finding.v1 JSON via the custom/script contract
-    (two tiers, the established design): [] when nothing weakens; one HARD finding (carrying the
+    (two tiers): [] when nothing weakens; one HARD finding (carrying the
     plain-language ack guidance) on an unacknowledged killswitch-tier change, DOWNGRADED
     to a soft ACKNOWLEDGED record when the ack label is present (never erased); one SOFT
     disclosure finding whenever disclosure-tier enforcement files are modified (the ack
@@ -2262,7 +2262,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertEqual(out, [])
 
     def test_soft_tier_modification_is_one_soft_disclosure(self):
-        # validate.py is DISCLOSURE tier (the established design): the check passes, the notice still names the file
+        # validate.py is DISCLOSURE tier: the check passes, the notice still names the file
         # and says plainly it needs no action.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": []}},
@@ -2294,7 +2294,7 @@ class TestWeakeningReHome(unittest.TestCase):
         self.assertIn("guardrail-ack", out[0]["message"])
 
     def test_ack_label_downgrades_hard_to_disclosure_never_erases(self):
-        # the established design + #710: the head-bound ack (engine-ack success on this head) DOWNGRADES the killswitch
+        # #710: the head-bound ack (engine-ack success on this head) DOWNGRADES the killswitch
         # finding to a soft ACKNOWLEDGED record.
         rc, out = self._main_json(
             {"pull_request": {"number": 1, "labels": [{"name": "guardrail-ack"}]}},
@@ -2954,7 +2954,7 @@ class TestWeakeningReHome(unittest.TestCase):
 
     def test_pr_controlled_values_are_sanitized_in_findings(self):
         # a crafted filename and a crafted repoint value must not carry markdown/workflow-command
-        # metacharacters into any rendered finding (the established design sanitization guarantee).
+        # metacharacters into any rendered finding (the finding renderer's sanitization guarantee).
         # under the guarded .engine/check/ prefix, so the crafted name genuinely enters the rendered
         # listing (a non-guarded evil name never reaches _listing at all — re-audit).
         evil_file = {"filename": ".engine/check/foo.json`[x](https://e)::stop-commands::",

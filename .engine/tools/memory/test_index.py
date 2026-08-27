@@ -281,7 +281,7 @@ class ResilienceTests(IndexTestCase):
 class ProjectionTests(IndexTestCase):
     def test_tags_field_is_excluded_from_the_searchable_text(self):
         # The locked law: tags are NOT indexed into the full-text body.
-        self.file({"body": "the visible narrative", "tags": ["secretxyztag", "the established design"]})
+        self.file({"body": "the visible narrative", "tags": ["secretxyztag", "release-policy"]})
         self.rebuild()
         self.assertEqual(_bodies(self.q("visible")), ["the visible narrative"])
         self.assertEqual(self.q("secretxyztag").records, [])  # fast path

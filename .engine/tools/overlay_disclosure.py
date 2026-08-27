@@ -5,7 +5,7 @@ survive the next update. It posts one plain-language comment on the pull request
 non-engineer actually reads — a soft check would land only in the Actions log). It NEVER blocks a merge.
 
 This is DISTINCT from the guardrail-weakening guard (`guardrail-ack` / `engine-guard`): that guards
-*weakening a protection* (blocking at its killswitch tier, a plain disclosure otherwise — the established design); this
+*weakening a protection* (blocking at its killswitch tier, a plain disclosure otherwise); this
 discloses *a change that won't survive an update* (a routine heads-up). The two stay separate.
 
 Deployed-only. It discloses only when this repo has an update HOME that is a DIFFERENT repo than its own
@@ -176,7 +176,7 @@ def _changed_hits(changed: list, wanted: set) -> list:
 
 def disclosure_registers(changed: list) -> dict:
     """Bucket the pull request's engine-file changes into three disclosure registers, all read from the SAME
-    single overlay source so the notice cannot disagree with what the update actually does (the established design):
+    single overlay source so the notice cannot disagree with what the update actually does:
 
     - `overwrite` — machinery the update replaces wholesale: the alarm (an edit here won't survive an update).
     - `derived` — engine-internal indexes the update REGENERATES from the reconciled tree

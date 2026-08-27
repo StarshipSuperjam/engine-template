@@ -32,7 +32,7 @@ pull-request body, never read back by any verb. Making the snapshot durable chan
 persist, so the posture is stated plainly here. They are written owner-only (0600) inside an
 owner-only folder (0700), inside a gitignored library that no path publishes; they live exactly as
 long as the plan folder does and are deleted with it; and they are covered by the same
-workstation-only trust model the plan library itself rests on (the established design). An operator who wants one
+workstation-only trust model the plan library itself rests on. An operator who wants one
 gone sooner deletes the plan folder — there is no separate place to hunt.
 
 WHAT THIS MODULE DOES NOT REIMPLEMENT. The lock, the compare-and-swap, the atomic durable write, and

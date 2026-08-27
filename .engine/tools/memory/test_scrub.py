@@ -3,7 +3,7 @@
 Run via the engine test suite: `uv run --directory .engine --frozen -- python tools/selftest.py`. Two properties carry the weight: PRECISION (every credential shape is redacted)
 and NON-CORRUPTION (ordinary conversation — prose, hashes, ids, paths, code, emails, phones — passes
 through byte-identical). The non-corruption matrix is the load-bearing one: a false positive permanently
-destroys unrecoverable memory (the established design), so any future pattern that breaks these must be justified.
+destroys unrecoverable memory, so any future pattern that breaks these must be justified.
 """
 
 import os
@@ -129,7 +129,7 @@ class NonCorruptionTests(unittest.TestCase):
         self._assert_untouched("def scrub_text(text): return text  # the fail-soft path returns input")
 
     def test_decision_record_sentence(self):
-        self._assert_untouched("the established design records that memory is a transcript-first archive scrubbed at capture")
+        self._assert_untouched("the memory policy records a transcript-first archive scrubbed at capture")
 
     def test_email_left_intact(self):
         # PII is DELIBERATELY out of scope — an email is not a credential and is often a search anchor.

@@ -668,7 +668,7 @@ def confirm(kept_optional_ids: list, tier: str, *, root: str | None = None,
     if home_repository:
         written["home_repository"] = home_repository
     # The PRODUCT coordinate — the repo this engine works ON when that differs from the repo it is deployed
-    # into (the established design's fork-native arrangement). Precedence: an explicit external override (the caller passes
+    # into in the fork-native product arrangement. Precedence: an explicit external override (the caller passes
     # it ONLY when the product is a repository distinct from self) wins; else an already-recorded product is
     # carried FORWARD, so a resumed/re-run confirm never clobbers the operator's choice (the home_repository
     # precedence at #367). NEVER a self-default: self is derivable live from origin, so storing it would only
@@ -1387,7 +1387,7 @@ _PRODUCT_VERSION_SEED = "0.0.0"
 def _seed_product_version(say, copy=None) -> str:
     """Seed the deployed repo's own PRODUCT version file (#516) at first-run, so a deployment inherits a
     working product-release lane: once deployed, the engine's release workflow cuts THIS file's version, not the
-    engine's. A product-OWNED root file (the established design — it lives in product territory and SURVIVES an engine
+    engine's. A product-OWNED root file (it lives in product territory and SURVIVES an engine
     uninstall, unlike anything under .engine/). Seed-then-own: seed-iff-absent, so a re-run, or an operator who
     already set a product version, is a no-op. BELT: skip in the engine's OWN home repo (repo_identity.is_home_
     repo — git origin == recorded home, #323); the workshop never gets a product file because there the engine
@@ -3913,7 +3913,7 @@ def main(argv: list) -> int:
         tier = _flag_value(argv, "--tier") or "solo"
         handle = _flag_value(argv, "--handle") or derive_handle()
         default_branch = _flag_value(argv, "--default-branch") or derive_default_branch()
-        # The PRODUCT override (the established design): the operator names an EXTERNAL product only when the engine builds a
+        # The PRODUCT override: the operator names an EXTERNAL product only when the engine builds a
         # repo DIFFERENT from the one it is deployed into. _external_product_or_none records it ONLY when it
         # genuinely differs from self (the deployed-into slug, compared normalized) — a self-equal override is
         # the common self-building case, left unstored (derived live), never a duplicate that could drift.

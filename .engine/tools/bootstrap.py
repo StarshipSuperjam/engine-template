@@ -164,7 +164,7 @@ def floor_ruleset(name: str = ENGINE_RULESET_NAME, *, tier: str) -> dict:
     """The ruleset object that satisfies protection_guard.missing_floor EXACTLY for the given tier (verified
     against the live evaluated floor): a pull request before merging (tier-specific review requirement above,
     plus conversation resolution), the engine's required checks WITH freshness (the head must be up to date with
-    the base so a green proven against an older base cannot merge stale — the established design as amended by
+    the base so a green proven against an older base cannot merge stale, as required by
     StarshipSuperjam/engine-template#915), no force-push, no deletion. Targets the default branch via the
     ~DEFAULT_BRANCH ref condition so it follows a rename. `tier` is keyword-only and REQUIRED — never defaulted,
     so no call site can silently build the weaker floor (the tier is resolved once, via resolve_tier, and threaded

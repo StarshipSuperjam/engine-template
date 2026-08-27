@@ -307,7 +307,7 @@ class TestCodexRegistrationDrift(unittest.TestCase):
         future mirror-everything cleanup must trip here rather than ship it. The capability is NOT
         absent on Codex — the same import runs through the acceptance envelope on UserPromptSubmit
         (below) — so this asymmetry is one of signal, not of function. Build entry stays the typed
-        verb on both runtimes either way (the established design)."""
+        verb on both runtimes either way."""
         self.assertFalse(any("modes.py" in c and "accept-hook" in c for c in self._codex_commands()),
                          "the plan-exit adapter has no Codex registration by design")
 
@@ -324,7 +324,7 @@ class TestCodexRegistrationDrift(unittest.TestCase):
                          "Claude imports at plan-exit; a second importer would mint a second plan id")
 
     def test_the_intake_asymmetries_are_each_recorded_once_in_the_ledger(self):
-        """Revised in place, not duplicated (the established design). Two entries — one per direction — and no
+        """Revised in place, not duplicated. Two entries — one per direction — and no
         third entry restating either: a ledger that accumulates near-copies of one exception stops
         being readable as a list of the differences that exist."""
         import validate
@@ -412,7 +412,7 @@ class TestProviderExceptionLedgerSchema(unittest.TestCase):
 
     def test_retired_decision_pointer_is_rejected(self):
         legacy = json.loads(json.dumps(self.ledger))
-        legacy["exceptions"][0]["contract_ref"] = "the established design"
+        legacy["exceptions"][0]["contract_ref"] = "legacy policy reference"
         self.assertNotEqual(self._errors(legacy), [],
                             "the closed ledger shape no longer accepts decorative pointers")
 

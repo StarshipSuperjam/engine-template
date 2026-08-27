@@ -1096,11 +1096,14 @@ def _scope_contains(path: str, scopes: list[str]) -> bool:
     return any(path == s.rstrip("/") or path.startswith(s.rstrip("/") + "/") for s in scopes)
 
 
-def _tracked_context(item: dict, from_versions: dict, engine_version: str) -> dict:
-    return {"root": validate.ROOT, "module_id": item["module_id"],
-            "from_version": from_versions.get(item["module_id"]), "to_version": item["version"],
-            "engine_version": engine_version, "kind": "tracked-content",
-            "scope": list(item.get("scope") or [])}
+def _tracked_context(item: dict, from_versions: dict, engine_version: str, *, checkpoint=None) -> dict:
+    context = {"root": validate.ROOT, "module_id": item["module_id"],
+               "from_version": from_versions.get(item["module_id"]), "to_version": item["version"],
+               "engine_version": engine_version, "kind": "tracked-content",
+               "scope": list(item.get("scope") or [])}
+    if checkpoint is not None:
+        context["checkpoint"] = checkpoint
+    return context
 
 
 def _validate_refusal(value) -> dict | None:
@@ -1268,9 +1271,18 @@ def _apply_tracked_content(item: dict, from_versions: dict, engine_version: str,
     before_dirty = checkout_health._tx_dirty_paths(validate.ROOT)
     tx_footprint = ((tx.get("record") or {}).get("footprint") or []) if tx.get("state") == "active" else []
     before_footprint = {p: checkout_health._tx_blob_identity(validate.ROOT, p) for p in tx_footprint}
+    checkpoint = checkout_health.checkpoint_upgrade_transaction(validate.ROOT)
+    if not checkpoint.get("ok"):
+        return {"refusal": _tracked_refusal(
+            "checkpoint-failed", protocol_path,
+            f"The tracked-content migration could not seal its apply boundary: "
+            f"{checkpoint.get('reason') or checkpoint.get('code')}.",
+            "Recover the durable transaction, settle the named paths, and run the update again.")}
     try:
         _preflight, apply = _load_tracked_migration(module_dir(item["module_id"]), item["run"])
-        raw = apply(_tracked_context(item, from_versions, engine_version), sealed_plan)
+        raw = apply(_tracked_context(
+            item, from_versions, engine_version,
+            checkpoint=lambda: checkout_health.checkpoint_upgrade_transaction(validate.ROOT)), sealed_plan)
     except Exception as exc:  # noqa: BLE001 — the transaction remains available for restart recovery
         return {"refusal": _tracked_refusal(
             "apply-failed", protocol_path, f"The tracked-content apply step failed: {exc}",
@@ -1519,7 +1531,7 @@ def _preserved_present(dest_root: "str | None" = None) -> set:
     upgrade over an existing bound value leaves it untouched. THE SINGLE refinement of `_overlay_copy_map`
     every overlay consumer applies: the copy legs (`_overlay_engine_code`, `_copy_synced`) skip these, and the
     overwrite views (`overlay_replace_paths`, `plan_upgrade`) subtract them — so the operator-facing
-    disclosure/preview stay in lockstep with what the update actually does (the established design: the overwrite set is
+    disclosure/preview stay in lockstep with what the update actually does (the overwrite set is
     `_overlay_copy_map` MINUS this). Exact repo-relative membership (never a basename), matching the map keys."""
     root = validate.ROOT if dest_root is None else dest_root
     return {rel for rel in module_coherence.PRESERVE_DATA
@@ -2098,8 +2110,9 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
     out += release_cut.pr_section(
         "Purpose",
         "This updates the engine to a newer released version, for you to review and merge.",
-        ["- Merging this applies the update; closing it changes nothing and leaves your current version in "
-         "place.",
+        ["- Merging this applies the update. Closing it prevents the merge, but it does not switch the local "
+         "checkout away from the prepared update branch; to decline locally too, close the pull request and "
+         "switch that checkout back to the repository's default branch.",
          "- An update only ever moves the engine version forward."],
         "merging is your consent to run the updated engine; nothing changes until you merge.")
     scope_summary = ("The version this update records, the shared-file blocks it refreshed, and the capabilities "
@@ -2495,7 +2508,7 @@ def _redact_credentials(text: str) -> str:
 
 
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
-                     on_commit=None, on_pr=None) -> dict:
+                     on_commit=None, on_pr_opening=None, on_pr=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
     git-automation helper existed) — branch/commit/push via subprocess (the bootstrap.py pattern), the PR
@@ -2560,6 +2573,7 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
         except Exception:  # noqa: BLE001 — a probe that cannot run fails safe to "staged"
             return False
 
+    commit_info = None
     for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
@@ -2567,8 +2581,9 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
             if args[1] == "commit" and on_commit is not None:
                 committed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=validate.ROOT,
                                            capture_output=True, text=True, check=False)
-                if committed.returncode != 0 or on_commit(
-                        {"branch": branch, "commit": committed.stdout.strip()}) is False:
+                commit_info = ({"branch": branch, "commit": committed.stdout.strip()}
+                               if committed.returncode == 0 else None)
+                if commit_info is None or on_commit(commit_info) is False:
                     raise RuntimeError("the upgrade commit was created, but its durable transaction phase "
                                        "could not be recorded; the recovery journal was retained")
         except subprocess.CalledProcessError as exc:
@@ -2645,6 +2660,15 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
                             f"and opening the pull request yourself: `gh pr create --repo {slug} --base {base} "
                             f"--head {branch}`.")
             raise RuntimeError(head + recovery) from exc
+    if on_pr_opening is not None:
+        if commit_info is None:
+            committed = subprocess.run(["git", "rev-parse", "HEAD"], cwd=validate.ROOT,
+                                       capture_output=True, text=True, check=False)
+            commit_info = ({"branch": branch, "commit": committed.stdout.strip()}
+                           if committed.returncode == 0 else None)
+        if commit_info is None or on_pr_opening(commit_info) is False:
+            raise RuntimeError("the upgrade branch was pushed, but the durable remote-opening phase could not "
+                               "be recorded, so no pull-request POST was attempted")
     path = f"/repos/{slug}/pulls"
     payload = _json.dumps({"title": title, "head": branch, "base": base, "body": body}).encode("utf-8")
     req = github_client.request(path, tok, user_agent="engine-module-manager", method="POST", data=payload)
@@ -3454,6 +3478,13 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     if any(f.get("severity") == "hard" for f in tail["findings"]):
         tail["reason"] = _reconcile_refuse_reason(tail["findings"])
         return tail
+    if transaction:
+        checkpoint = checkout_health.checkpoint_upgrade_transaction(validate.ROOT)
+        if not checkpoint.get("ok"):
+            tail["reason"] = ("The update passed its structural gate but could not make the final pre-commit "
+                              "recovery checkpoint durable, so no pull request was opened. The recovery ref "
+                              f"was retained ({checkpoint.get('reason') or checkpoint.get('code')}).")
+            return tail
     # (f) LAND as a reviewed pull request (skipped on a practice run — no git/PR boundary).
     if practice or opener is None:
         tail["notes"].append(PRACTICE_RUN_NOTE)
@@ -3469,12 +3500,16 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
                 return checkout_health.update_upgrade_transaction(
                     validate.ROOT, "committed", pull_request=info).get("ok", False)
 
+            def _on_pr_opening(info):
+                return checkout_health.update_upgrade_transaction(
+                    validate.ROOT, "pr-opening", pull_request=info).get("ok", False)
+
             def _on_pr(opened):
                 return checkout_health.update_upgrade_transaction(
                     validate.ROOT, "pr-opened", pull_request=opened).get("ok", False)
 
             tail["pr"] = opener(branch=branch, title=title, body=body,
-                                on_commit=_on_commit, on_pr=_on_pr)
+                                on_commit=_on_commit, on_pr_opening=_on_pr_opening, on_pr=_on_pr)
         else:
             tail["pr"] = opener(branch=branch, title=title, body=body)
             if transaction:
@@ -5589,6 +5624,8 @@ def rollback(*, confirm: bool = False, resync=_UNSET, transport=None) -> dict:
         restored = checkout_health.recover_upgrade_transaction(validate.ROOT)
         result = {**restored, "state": "transaction", "undone": bool(restored.get("ok")),
                   "transaction_state": restored.get("state")}
+        if not restored.get("ok"):
+            result["refused"] = True
         if restored.get("ok") and resync is not None and resync() is False:
             result["resync_failed"] = True
         if restored.get("ok"):
@@ -5613,6 +5650,13 @@ def _render_rollback(r: dict, applied: bool) -> None:
                 print("An update recovery transaction is incomplete or damaged, so I will not guess at an "
                       f"undo. Journal: {tx.get('journal_path')}; recovery ref: {tx.get('recovery_ref')}. "
                       "Ask me to inspect those two recovery records and restore the named commit manually.")
+            elif (tx.get("record") or {}).get("phase") == "pr-opening":
+                record = tx.get("record") or {}
+                pr = record.get("pull_request") or {}
+                print("The update reached GitHub's pull-request opening boundary, so I will not automatically "
+                      "undo it until the remote state is confirmed. Check whether branch "
+                      f"'{pr.get('branch')}' at {pr.get('commit')} already has a pull request. Journal: "
+                      f"{tx.get('journal_path')}; recovery ref: {tx.get('recovery_ref')}.")
             else:
                 print("An update has a durable recovery transaction in progress. I can restore the exact "
                       "sealed file footprint to its pre-update bytes and return to the original branch before "
@@ -5639,7 +5683,20 @@ def _render_rollback(r: dict, applied: bool) -> None:
                   "already merged, revert its pull request; ask me and I'll prepare that for you.")
         return
     if r.get("refused") or r.get("partial"):
-        print(r["reason"])
+        print(r.get("reason") or "The transaction could not be restored automatically; nothing was guessed.")
+        evidence = []
+        if r.get("path"):
+            evidence.append(f"affected path: {r['path']}")
+        elif r.get("paths"):
+            evidence.append("affected paths: " + ", ".join(r["paths"]))
+        if r.get("journal_path"):
+            evidence.append(f"journal: {r['journal_path']}")
+        if r.get("recovery_ref"):
+            evidence.append(f"recovery ref: {r['recovery_ref']}")
+        if r.get("recovery_commit"):
+            evidence.append(f"recovery commit: {r['recovery_commit']}")
+        if evidence:
+            print("Recovery evidence — " + "; ".join(evidence) + ".")
         return
     if state == "transaction":
         if r.get("undone"):

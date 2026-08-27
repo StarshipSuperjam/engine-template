@@ -327,9 +327,9 @@ def is_building_action(tool_name: str, tool_input) -> bool:
 
 
 # ---- the stance-independent protected-merge nudge -------------------------------------------
-# The session never merges the protected branch — that is the operator's own consent act (the established design), and
-# an AI performing it would corrupt the very gate the trust model rests on, so the established design's "may hard-fail
-# a governance-critical invariant locally" carve-out applies. It is therefore NOT part of the Explore-only
+# The session never merges the protected branch — that is the operator's own consent act, and
+# an AI performing it would corrupt the very gate the trust model rests on, so the local nudge may hard-fail this
+# governance-critical invariant. It is therefore NOT part of the Explore-only
 # building set above (which Build/Routine let through): merging is illegitimate in EVERY stance, so this is
 # a SEPARATE predicate checked before the stance short-circuit in handler(). Best-effort and fail-open like
 # the build patterns — an alias/eval/substitution, or a `gh api graphql` mergePullRequest mutation, evades
@@ -372,7 +372,7 @@ def is_merge_action(tool_name: str, tool_input) -> bool:
 
 
 # The plain-language merge refusal — "won't" (the session's choice to leave the consent act to the
-# operator), NEVER "cannot" (which would dress this fallible local nudge as the wall the established design forbids).
+# operator), NEVER "cannot" (which would dress this fallible local nudge as the binding wall it is not).
 _MERGE_DENIAL = ("I won't merge that — or schedule a merge of it. Merging the protected branch is your "
                  "consent act, never the session's, in any stance; I open the pull request and stop, and "
                  "you merge it when the evidence convinces you. (This is a nudge, not a wall — it's "

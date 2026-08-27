@@ -1529,7 +1529,7 @@ def block_budget_findings(blocks: list, tier: str, message: str, *, stances) -> 
          and Stop may HARD-BLOCK; every other event nudges or injects. The platform would let PreCompact /
          UserPromptSubmit / SubagentStop block too — the Engine declines (a local hard-block buys friction
          without proportional trust).
-      2. MODE DIMENSION (mode-awareness, the established design): every block behavior DECLARES the
+      2. MODE DIMENSION (mode-awareness): every block behavior DECLARES the
          modes it is active in — "the dimension is the law; the bindings are membership." This makes the
          mode-activeness DECLARED DATA rather than code-only: a block must carry a non-empty `modes` list
          drawn from the valid stance vocabulary (`stances`, passed in so the canonical set lives once in

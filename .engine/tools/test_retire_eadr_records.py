@@ -86,9 +86,12 @@ class RetirementMigrationTests(unittest.TestCase):
             yield
 
     @staticmethod
-    def _context(root):
-        return {"root": root, "kind": "tracked-content", "module_id": "core",
-                "from_version": "0.6.3", "to_version": "0.7.0", "engine_version": "0.7.0"}
+    def _context(root, checkpoint=None):
+        context = {"root": root, "kind": "tracked-content", "module_id": "core",
+                   "from_version": "0.6.3", "to_version": "0.7.0", "engine_version": "0.7.0"}
+        if checkpoint is not None:
+            context["checkpoint"] = checkpoint
+        return context
 
     def _preflight(self, root):
         with self._empty_plans():
@@ -267,16 +270,39 @@ class RetirementMigrationTests(unittest.TestCase):
             "closed": ({"plan_id": "pln_closed", "status": "complete",
                         "current": {"snapshot": "revisions/000003.json"}},
                        {"description": "Completed head may still say contract.v1"}),
+            "retired": ({"plan_id": "pln_retired", "status": "retired",
+                          "current": {"snapshot": "revisions/000004.json"}},
+                        {"build_plan": {"description":
+                         "Run .engine/tools/authority_reservation_check.py before reopening"}}),
+            "abandoned": ({"plan_id": "pln_abandoned", "status": "abandoned",
+                            "current": {"snapshot": "revisions/000005.json"}},
+                          {"build_plan": {"description":
+                           "Author the removed .engine/templates/contract.md artifact"}}),
         }
         records = {k: v[0] for k, v in rows.items()}
         heads = {k: v[1] for k, v in rows.items()}
         with mock.patch.object(plan_store, "PlanLibrary", return_value=Library(records, heads)), \
                 mock.patch.object(plan_store, "derived_status", side_effect=lambda r: r["status"]):
             refusals = migration._plan_refusals("unused")
-        self.assertEqual(len(refusals), 1)
-        self.assertEqual(refusals[0]["code"], "actionable-plan-incompatible")
-        self.assertIn("pln_current", refusals[0]["reason"])
-        self.assertIn("revisions/000002.json", refusals[0]["path"])
+        self.assertEqual(len(refusals), 3)
+        self.assertTrue(all(refusal["code"] == "actionable-plan-incompatible" for refusal in refusals))
+        rendered = "\n".join(refusal["reason"] for refusal in refusals)
+        for plan_id in ("pln_current", "pln_retired", "pln_abandoned"):
+            self.assertIn(plan_id, rendered)
+        self.assertNotIn("pln_closed", rendered)
+        self.assertIn("revisions/000002.json", "\n".join(r["path"] for r in refusals))
+
+    def test_tracked_engine_text_has_no_generic_authority_shortcut(self):
+        # The retirement must not replace named evidence with a new, unnamed authority sink. Construct the
+        # phrase so the test does not create the very tracked occurrence it is meant to forbid.
+        root = Path(__file__).resolve().parents[2]
+        banned = "the established " + "design"
+        result = subprocess.run(
+            ["git", "-C", str(root), "grep", "-n", "-I", "-F", banned, "--", "."],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertIn(result.returncode, (0, 1), result.stderr)
+        self.assertEqual(result.returncode, 1, result.stdout)
 
     def test_dirfd_ancestor_swap_and_leaf_race_leave_external_bytes_untouched(self):
         tmp = self._repo([])
@@ -311,18 +337,127 @@ class RetirementMigrationTests(unittest.TestCase):
         self.assertEqual(override_raced["status"], "refused")
         self.assertEqual(override_raced["refusals"][0]["code"], "override-raced")
 
+    def test_apply_time_quarantine_and_override_collisions_preserve_foreign_bytes(self):
+        tmp = self._repo(["eADR-0001.md"])
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        plan = self._preflight(root)
+        real = migration._rename_noreplace
+        inserted = {"record": None}
+
+        def collide_record(src, dst, *, src_dir_fd, dst_dir_fd):
+            if inserted["record"] is None and dst.startswith(migration._Q_PREFIX):
+                fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=dst_dir_fd)
+                try:
+                    os.write(fd, b"foreign record collision\n")
+                finally:
+                    os.close(fd)
+                inserted["record"] = dst
+            return real(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+
+        with self._empty_plans(), mock.patch.object(
+                migration, "_rename_noreplace", side_effect=collide_record):
+            with self.assertRaisesRegex(RuntimeError, "quarantine appeared"):
+                migration.apply(self._context(root), self._sealed(plan))
+        collision = os.path.join(root, ".engine", "contracts", "instance", inserted["record"])
+        with open(collision, "rb") as handle:
+            self.assertEqual(handle.read(), b"foreign record collision\n")
+
+        tmp2 = self._repo([])
+        self.addCleanup(tmp2.cleanup)
+        root2 = tmp2.name
+        plan2 = self._preflight(root2)
+
+        def collide_override(src, dst, *, src_dir_fd, dst_dir_fd):
+            if src == migration._OVERRIDE_NEXT and dst == "operator-overrides.json":
+                fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=dst_dir_fd)
+                try:
+                    os.write(fd, b'{"foreign": true}\n')
+                finally:
+                    os.close(fd)
+            return real(src, dst, src_dir_fd=src_dir_fd, dst_dir_fd=dst_dir_fd)
+
+        with self._empty_plans(), mock.patch.object(
+                migration, "_rename_noreplace", side_effect=collide_override):
+            with self.assertRaisesRegex(RuntimeError, "all colliding bytes were preserved"):
+                migration.apply(self._context(root2), self._sealed(plan2))
+        with open(os.path.join(root2, ".engine", "operator-overrides.json"), "rb") as handle:
+            self.assertEqual(handle.read(), b'{"foreign": true}\n')
+        self.assertTrue(os.path.isfile(os.path.join(root2, ".engine", migration._OVERRIDE_Q)))
+        self.assertTrue(os.path.isfile(os.path.join(root2, ".engine", migration._OVERRIDE_NEXT)))
+
+    def test_apply_time_engine_swap_refuses_before_mutating_the_replacement(self):
+        tmp = self._repo([])
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        plan = self._preflight(root)
+        real = migration._verify_bindings
+        swapped = {"done": False}
+        replacement = os.path.join(root, ".engine", "outside-sentinel.txt")
+
+        def swap_then_verify(root_links, root_fd, engine_fd, contracts_fd=None, instance_fd=None):
+            if instance_fd is not None and not swapped["done"]:
+                os.rename(os.path.join(root, ".engine"), os.path.join(root, ".engine.moved"))
+                os.makedirs(os.path.join(root, ".engine"))
+                with open(replacement, "w", encoding="utf-8") as handle:
+                    handle.write("outside replacement bytes\n")
+                swapped["done"] = True
+            return real(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
+
+        with self._empty_plans(), mock.patch.object(
+                migration, "_verify_bindings", side_effect=swap_then_verify):
+            with self.assertRaisesRegex(RuntimeError, "repository root or .engine"):
+                migration.apply(self._context(root), self._sealed(plan))
+        with open(replacement, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "outside replacement bytes\n")
+        moved_readme = os.path.join(root, ".engine.moved", "contracts", "instance", "README.md")
+        self.assertTrue(os.path.isfile(moved_readme))
+
+    def test_post_mutation_checkpoint_refuses_an_engine_swap_without_touching_replacement(self):
+        tmp = self._repo(["eADR-0001.md"])
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        plan = self._preflight(root)
+        footprint = sorted({p for target in plan["targets"] for p in target["recovery_scope"]})
+        started = checkout_health.begin_upgrade_transaction(
+            root, sealed_targets=plan["targets"], footprint=footprint)
+        self.assertTrue(started["ok"], started)
+        self.assertTrue(checkout_health.update_upgrade_transaction(root, "mutating")["ok"])
+        sentinel = os.path.join(root, ".engine", "replacement-sentinel.txt")
+        swapped = {"done": False}
+
+        def checkpoint_after_swap():
+            if not swapped["done"]:
+                os.rename(os.path.join(root, ".engine"), os.path.join(root, ".engine.moved"))
+                os.makedirs(os.path.join(root, ".engine"))
+                with open(sentinel, "w", encoding="utf-8") as handle:
+                    handle.write("replacement bytes\n")
+                swapped["done"] = True
+            return checkout_health.checkpoint_upgrade_transaction(root)
+
+        with self._empty_plans():
+            with self.assertRaisesRegex(RuntimeError, "outside the sealed rollback footprint"):
+                migration.apply(self._context(root, checkpoint_after_swap), self._sealed(plan))
+        with open(sentinel, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "replacement bytes\n")
+        self.assertTrue(os.path.isdir(os.path.join(root, ".engine.moved")))
+
     def test_kill_and_restart_recovery_matrix_restores_exact_preupgrade_tree(self):
         helper_dir = os.path.dirname(checkout_health.__file__)
         child = (
             "import importlib.util,json,os,sys\n"
             "root,mpath,plan_path,kill_at,helper=sys.argv[1:]\n"
             "sys.path.insert(0,helper)\n"
+            "import checkout_health\n"
             "spec=importlib.util.spec_from_file_location('retire_child',mpath)\n"
             "m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
             "with open(plan_path) as h: plan=json.load(h)\n"
             "os.environ['ENGINE_RETIREMENT_KILL_AT']=kill_at\n"
             "m.apply({'root':root,'kind':'tracked-content','module_id':'core','from_version':'0.6.3',"
-            "'to_version':'0.7.0','engine_version':'0.7.0'},plan)\n")
+            "'to_version':'0.7.0','engine_version':'0.7.0',"
+            "'checkpoint':lambda: checkout_health.checkpoint_upgrade_transaction(root)},plan)\n")
         boundaries = ("record-capture", "record-verified", "record-delete", "instance-delete",
                       "contracts-delete",
                       "override-capture", "override-rewrite", "override-replace", "override-delete")

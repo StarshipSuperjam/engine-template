@@ -551,7 +551,7 @@ def _codex_msg(role, text):
 
 
 class CodexTranscriptTests(CaptureTestCase):
-    """The provider-routed Codex reader and its fail-loud contract (the established design): a Codex-tagged
+    """The provider-routed Codex reader and its fail-loud contract: a Codex-tagged
     session captures through the dedicated recognizer ONLY, and every zero-yield shape a format
     change can take reads as unrecognized — a loud status, never a silent green."""
 
@@ -696,7 +696,7 @@ class ClaudeCaptureStatusTests(CaptureTestCase):
 
 
 class CaptureScrubTests(CaptureTestCase):
-    """Secret scrubbing at capture (the established design): a credential in a turn is redacted in the STORED record,
+    """Secret scrubbing at capture: a credential in a turn is redacted in the STORED record,
     ordinary text is byte-identical, and a secret in a >4KB multi-chunk turn is caught (scrub runs before
     chunking). The unit-level precision/non-corruption matrix lives in test_scrub.py — these prove the
     seam is wired into the capture write path for both runtimes' shared delta loop."""

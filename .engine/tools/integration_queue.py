@@ -8,8 +8,7 @@ no MCP merge here, exactly as `release.yml` opens a PR and stops. That guarantee
 no merge path (asserted by test) and on the protected-branch ruleset, NOT on the session merge-action hook
 (which cannot see a subprocess's internals). This is NOT the intra-Build build_coordinator: that serializes
 work-item nodes onto one PR branch against a temp-only StateStore; this serializes whole reviewed PRs against
-one another, and its durable store is GitHub itself (open PRs + labels), never an engine-private ledger
-(the established design).
+one another, and its durable store is GitHub itself (open PRs + labels), never an engine-private ledger.
 
 Durable facts, all read live from GitHub:
   - candidate set    = open PRs targeting the protected branch.
@@ -17,7 +16,7 @@ Durable facts, all read live from GitHub:
                        the last push (GitHub's require_code_owner_review is the binding code-owner gate at
                        merge, not this recognition); in SOLO identity, the PR being ready (not draft). Solo has no
                        distinct reviewer, so "reviewed" here is OPERATOR-ACKNOWLEDGED readiness, never a claim
-                       that an independent review gate passed (the established design, the established design).
+                       that an independent review gate passed.
   - admission        = a singleton `engine-integrating` label (the backend's advisory CAS).
 
 `prove_ready` is an ADVISORY pre-flight: the binding stale-green blocker is the StarshipSuperjam/engine-template#915 strict ruleset enforced
@@ -71,7 +70,7 @@ def _approval_survives_last_push(transport: Callable, repo: str, pr_number: int,
     """TEAM readiness signal: an APPROVED review whose commit is the current head — an approval that survived
     the last push. GitHub's reviews API does NOT expose whether the reviewer is a CODEOWNERS-designated owner,
     so this recognizes any surviving approval; the binding CODE-OWNER requirement is GitHub's own
-    require_code_owner_review at the merge gate (protection_guard / the established design), never this advisory pre-flight."""
+    require_code_owner_review at the merge gate (enforced by protection_guard), never this advisory pre-flight."""
     status, reviews = transport("GET", f"/repos/{repo}/pulls/{pr_number}/reviews", None)
     if status >= 400 or not isinstance(reviews, list):
         return False

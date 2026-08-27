@@ -139,7 +139,7 @@ def _strictly_greater(new: str, cur: str) -> bool:
 # --------------------------------------------------------------------------- product-release mode (StarshipSuperjam/engine-template#516)
 # Once the engine is DEPLOYED, this same machinery cuts the deployed repo's OWN product release instead of the
 # engine's version: the version is read from (and written to) a product-owned `product-version.json` at the
-# repository ROOT (product territory, the established design — so it survives an engine uninstall), the baseline is the
+# repository ROOT (product territory, so it survives an engine uninstall), the baseline is the
 # deployed repo's own last release, and the tag + GitHub Release publish into the deployed repo itself
 # (release_terminal already targets GITHUB_REPOSITORY). The CONSTRUCTION repo (where the engine IS the product)
 # keeps cutting the engine version, unchanged. A deployment inherits a working release system instead of
@@ -267,7 +267,7 @@ def _baseline_tree_for(baseline: Baseline, injected: str | None) -> tuple:
 # touch none of them. So the notes ALSO carry the plain list of pull requests merged since the last release —
 # the actual body of work — from GitHub's own generator, which lists them independently of the merge strategy
 # (merge / squash / rebase), so it holds in a generated repo too. This is a derived view of the pull requests
-# themselves (the one history store, the established design), never a second store.
+# themselves (the one history store), never a second store.
 _PR_LINE_RE = re.compile(r"^\* (.+) by @\S+ in \S+/pull/(\d+)\s*$")
 # A looser signature: ANY line that carries a `…/pull/N` link plainly names a merged pull request (capturing N).
 # The version-authority enumerator uses it to detect a line that names a PR whose number was NOT counted into the
@@ -1633,7 +1633,7 @@ def _render_proposal(p: dict) -> str:
 def change_summary(proposal: dict) -> list:
     """The plain-language "what changed since the last release" list that JUSTIFIES the version — the
     single derived view rendered into BOTH the release pull-request body and the published GitHub Release
-    notes. One renderer over one proposal, never a second history store (the established design): history routes to the
+    notes. One renderer over one proposal, never a second history store: history routes to the
     pull-request body and, as a derived view of the same signals, the Release notes.
 
     It merges the structural change inventory (a capability added or removed, a new migration) with a
@@ -1704,7 +1704,7 @@ def render_release_notes(tag: str, proposal: dict | None = None, gate_state: str
     unavailable), and an "Interface changes to read" section carrying each changed contract/interface WITH
     its plain-language description. It is a derived VIEW of the same signals the
     release pull-request body renders (one source — the proposal recomputed at publish — never a second
-    history store, the established design); it does not restate the version-by-version manifest table (that is the pull
+    history store); it does not restate the version-by-version manifest table (that is the pull
     request's job), it tells a reader of the published release what changed and why it matters. A None/empty
     proposal (the best-effort fallback when the publish-time recompute could not run) degrades to the version
     + readiness line alone. Maintainer register: 'engine version vX.Y.Z', no internal vocabulary."""

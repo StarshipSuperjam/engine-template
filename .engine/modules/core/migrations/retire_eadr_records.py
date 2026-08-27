@@ -18,6 +18,9 @@ import os
 import re
 import stat
 import subprocess
+import ctypes
+import errno
+import sys
 
 
 _INSTANCE = ".engine/contracts/instance"
@@ -27,7 +30,9 @@ _RECORD_RE = re.compile(
     r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?eADR-[0-9]{4}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.md$")
 _RETIRED_PLAN_TOKEN_RE = re.compile(
     r"(?:\beADR(?:-[0-9]{4})?\b|\.engine/contracts(?:/instance)?\b|contract\.v1\b|"
-    r"contract-threshold\b|contract-(?:frontmatter|shape)\b|DEPLOYMENT_CONTRACTS\b)")
+    r"contract-threshold\b|contract-(?:frontmatter|shape)\b|DEPLOYMENT_CONTRACTS\b|"
+    r"\.engine/templates/contract\.md\b|\.engine/check/ontology-authority-reservation\.json\b|"
+    r"authority_reservation_check(?:\.py)?\b|ontology-authority-reservation\b)")
 _Q_PREFIX = ".engine-upgrade-retirement-quarantine-"
 _OVERRIDE_Q = ".engine-upgrade-retirement-quarantine-overrides"
 _OVERRIDE_NEXT = ".engine-upgrade-retirement-next-overrides"
@@ -44,13 +49,15 @@ def _refusal(code: str, path: str, reason: str, remediation: str) -> dict:
 
 
 def _required_primitives() -> str | None:
-    required_dir_fd = (os.open, os.stat, os.rename, os.unlink, os.mkdir, os.rmdir)
+    required_dir_fd = (os.open, os.stat, os.unlink, os.mkdir, os.rmdir)
     missing = [fn.__name__ for fn in required_dir_fd if fn not in os.supports_dir_fd]
     if os.listdir not in os.supports_fd:
         missing.append("listdir(fd)")
     for name in ("O_DIRECTORY", "O_NOFOLLOW"):
         if not hasattr(os, name):
             missing.append(name)
+    if not _atomic_rename_noreplace_available():
+        missing.append("atomic rename-no-replace")
     return ", ".join(missing) if missing else None
 
 
@@ -111,6 +118,83 @@ def _same_dir(name: str, parent_fd: int, directory_fd: int) -> bool:
     return stat.S_ISDIR(now.st_mode) and (now.st_dev, now.st_ino) == (held.st_dev, held.st_ino)
 
 
+def _atomic_rename_noreplace_available() -> bool:
+    libc = ctypes.CDLL(None)
+    return ((sys.platform == "darwin" and hasattr(libc, "renameatx_np"))
+            or (sys.platform.startswith("linux") and hasattr(libc, "renameat2")))
+
+
+def _rename_noreplace(src: str, dst: str, *, src_dir_fd: int, dst_dir_fd: int) -> None:
+    """Atomically move one name only when the destination is still absent.
+
+    POSIX rename normally overwrites the destination, which makes a preflight absence check raceable.  Darwin
+    and Linux expose the same no-replace guarantee under different libc entry points; unsupported platforms
+    refuse in preflight instead of weakening the mutation.
+    """
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin" and hasattr(libc, "renameatx_np"):
+        rename = libc.renameatx_np
+        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(src_dir_fd, os.fsencode(src), dst_dir_fd, os.fsencode(dst), 0x00000004)
+    elif sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        rename = libc.renameat2
+        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(src_dir_fd, os.fsencode(src), dst_dir_fd, os.fsencode(dst), 1)
+    else:
+        raise OSError(errno.ENOTSUP, "atomic rename-no-replace is unavailable")
+    if result:
+        value = ctypes.get_errno()
+        if value == errno.EEXIST:
+            raise FileExistsError(value, os.strerror(value), dst)
+        raise OSError(value, os.strerror(value), src)
+
+
+def _open_root_chain(root: str) -> tuple[list[tuple[str, int, int]], list[int]]:
+    """Hold every directory from filesystem root through the repository without following symlinks."""
+    # macOS exposes /var as a stable compatibility symlink to /private/var; resolve the trusted repository
+    # coordinate once, then keep every real directory component held and no-follow from filesystem root.
+    absolute = os.path.realpath(root)
+    parts = [part for part in absolute.split(os.sep) if part]
+    fds = [_open_dir(os.sep)]
+    links: list[tuple[str, int, int]] = []
+    try:
+        for part in parts:
+            child = _open_dir(part, fds[-1])
+            links.append((part, fds[-1], child))
+            fds.append(child)
+        return links, fds
+    except Exception:
+        for fd in reversed(fds):
+            os.close(fd)
+        raise
+
+
+def _root_chain_same(links: list[tuple[str, int, int]]) -> bool:
+    return all(_same_dir(name, parent_fd, child_fd) for name, parent_fd, child_fd in links)
+
+
+def _verify_bindings(root_links, root_fd: int, engine_fd: int,
+                     contracts_fd: int | None = None, instance_fd: int | None = None) -> None:
+    if not _root_chain_same(root_links) or not _same_dir(".engine", root_fd, engine_fd):
+        raise RuntimeError("the repository root or .engine directory was swapped during retirement")
+    if contracts_fd is not None and not _same_dir("contracts", engine_fd, contracts_fd):
+        raise RuntimeError("the retired contract directory was swapped during retirement")
+    if instance_fd is not None and not _same_dir("instance", contracts_fd, instance_fd):
+        raise RuntimeError("the former record directory was swapped during retirement")
+
+
+def _checkpoint(context: dict) -> None:
+    checkpoint = context.get("checkpoint")
+    if checkpoint is None:
+        return
+    result = checkpoint()
+    if not isinstance(result, dict) or not result.get("ok"):
+        reason = result.get("reason") if isinstance(result, dict) else None
+        raise RuntimeError(reason or "the durable upgrade identity checkpoint failed")
+
+
 def _tracked_inventory(root: str) -> dict[str, tuple[str, str]]:
     proc = _run_git(root, "ls-files", "-s", "-z", "--", _INSTANCE)
     if proc.returncode != 0:
@@ -163,7 +247,7 @@ def _path_for_instance_name(name: str) -> str:
 
 
 def _plan_refusals(root: str) -> list[dict]:
-    """Refuse only actionable current heads. Historical revisions and closed plans are never scanned."""
+    """Refuse every reactivatable current head. Only completed history is terminal."""
     try:
         import plan_store
         library = plan_store.PlanLibrary()
@@ -179,7 +263,7 @@ def _plan_refusals(root: str) -> list[dict]:
         try:
             record = library.read_record(slug)
             status = plan_store.derived_status(record)
-            if status in {"complete", "retired", "abandoned"}:
+            if status == "complete":
                 continue
             document = library.head(slug)
             # Only the executable Build payload can strand a future update. Raw intent, revision notes,
@@ -198,13 +282,14 @@ def _plan_refusals(root: str) -> list[dict]:
                 "actionable-plan-incompatible", path,
                 f"Actionable plan {plan_id} ({status}) still names removed decision-record machinery: "
                 + ", ".join(tokens) + ".",
-                f"Revise or close plan {plan_id}, then run the update again. Historical non-head revisions "
-                "and completed plans do not need rewriting."))
+                f"Revise plan {plan_id} so its executable head no longer depends on the removed machinery, "
+                "or complete it terminally, then run the update again. Historical non-head revisions and "
+                "completed plans do not need rewriting."))
         except Exception as exc:  # noqa: BLE001 - name the exact plan rather than silently skipping it
             refusals.append(_refusal(
                 "plan-head-unreadable", f".engine/plans/{slug}/record.json",
                 f"The current head for plan {slug} could not be checked safely ({exc}).",
-                f"Repair or close plan {slug}, then run the update again."))
+                f"Repair plan {slug} or complete it terminally, then run the update again."))
     return refusals
 
 
@@ -222,7 +307,8 @@ def _discover(context: dict) -> dict:
     try:
         object_format = _object_format(root)
         tracked = _tracked_inventory(root)
-        root_fd = _open_dir(root)
+        root_links, root_fds = _open_root_chain(root)
+        root_fd = root_fds[-1]
         try:
             engine_fd = _open_dir(".engine", root_fd)
             try:
@@ -341,10 +427,16 @@ def _discover(context: dict) -> dict:
                                             "recovery_scope": [_OVERRIDES, qpath, next_path]})
                     finally:
                         os.close(override_fd)
+                if not _root_chain_same(root_links) or not _same_dir(".engine", root_fd, engine_fd):
+                    raise RetirementRefused(
+                        "ancestor-raced", ".engine",
+                        "The repository root or .engine directory changed while the update inspected it.",
+                        "Stop the concurrent filesystem change, restore the repository path, then run the update again.")
             finally:
                 os.close(engine_fd)
         finally:
-            os.close(root_fd)
+            for held_fd in reversed(root_fds):
+                os.close(held_fd)
         return {"status": "ready", "targets": targets}
     except RetirementRefused as exc:
         return {"status": "refused", "refusals": [exc.refusal]}
@@ -428,14 +520,17 @@ def apply(context: dict, sealed_plan: dict) -> dict:
     targets = _sealed_targets(sealed_plan)
     object_format = _object_format(context["root"])
     changes = []
-    root_fd = _open_dir(context["root"])
+    root_links, root_fds = _open_root_chain(context["root"])
+    root_fd = root_fds[-1]
     try:
         engine_fd = _open_dir(".engine", root_fd)
         try:
+            _verify_bindings(root_links, root_fd, engine_fd)
             contracts_fd = _open_dir("contracts", engine_fd)
             try:
                 instance_fd = _open_dir("instance", contracts_fd)
                 try:
+                    _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
                     instance_paths = sorted(p for p in targets if p.startswith(_INSTANCE + "/"))
                     expected_names = [path[len(_INSTANCE) + 1:] for path in instance_paths]
                     if sorted(os.listdir(instance_fd)) != expected_names:
@@ -458,28 +553,44 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                         name = path[len(_INSTANCE) + 1:]
                         qname = _q_name(name)
                         target = targets[path]
+                        _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
                         fd, meta = _open_regular(name, instance_fd)
                         try:
                             if _blob_identity(_read_fd(fd), object_format) != target["before_identity"] \
                                     or not _same_entry(name, instance_fd, meta):
                                 raise RuntimeError(f"sealed record changed before capture: {path}")
+                            try:
+                                _rename_noreplace(name, qname, src_dir_fd=instance_fd,
+                                                  dst_dir_fd=instance_fd)
+                            except FileExistsError as exc:
+                                raise RuntimeError(f"retirement quarantine appeared during capture: {path}") from exc
+                            if not _same_entry(qname, instance_fd, meta) \
+                                    or _blob_identity(_read_fd(fd), object_format) != target["before_identity"]:
+                                raise RuntimeError(
+                                    f"captured record identity mismatch; preserved quarantine for recovery: {path}")
+                            os.fchmod(fd, 0o600)
+                            os.fsync(fd)
+                            os.fsync(instance_fd)
+                            _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
+                            _checkpoint(context)
+                            _killpoint("record-capture:" + name)
+                            if not _same_entry(qname, instance_fd, meta):
+                                raise RuntimeError(
+                                    f"captured record changed before deletion; preserved for recovery: {path}")
+                            _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
+                            _checkpoint(context)
+                            _killpoint("record-verified:" + name)
+                            _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
+                            if not _same_entry(qname, instance_fd, meta):
+                                raise RuntimeError(
+                                    f"captured record changed before deletion; preserved for recovery: {path}")
+                            os.unlink(qname, dir_fd=instance_fd)
+                            os.fsync(instance_fd)
+                            _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
+                            _checkpoint(context)
+                            _killpoint("record-delete:" + name)
                         finally:
                             os.close(fd)
-                        os.rename(name, qname, src_dir_fd=instance_fd, dst_dir_fd=instance_fd)
-                        _killpoint("record-capture:" + name)
-                        captured_fd, captured_meta = _open_regular(qname, instance_fd)
-                        try:
-                            if _blob_identity(_read_fd(captured_fd), object_format) != target["before_identity"] \
-                                    or not _same_entry(qname, instance_fd, captured_meta):
-                                raise RuntimeError(f"captured record identity mismatch: {path}")
-                            os.fchmod(captured_fd, 0o600)
-                            os.fsync(captured_fd)
-                        finally:
-                            os.close(captured_fd)
-                        _killpoint("record-verified:" + name)
-                        os.unlink(qname, dir_fd=instance_fd)
-                        os.fsync(instance_fd)
-                        _killpoint("record-delete:" + name)
                         changes.append({"path": path, "operation": "delete",
                                         "before_identity": target["before_identity"],
                                         "after_identity": "absent", "changed_paths": [path]})
@@ -489,61 +600,95 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                         raise RuntimeError("the former record directory was swapped during retirement")
                 finally:
                     os.close(instance_fd)
+                _verify_bindings(root_links, root_fd, engine_fd, contracts_fd)
                 os.rmdir("instance", dir_fd=contracts_fd)
                 os.fsync(contracts_fd)
+                _verify_bindings(root_links, root_fd, engine_fd, contracts_fd)
+                _checkpoint(context)
                 _killpoint("instance-delete")
                 if os.listdir(contracts_fd):
                     raise RuntimeError("the retired contract directory still contains an entry")
-                if not _same_dir("contracts", engine_fd, contracts_fd):
-                    raise RuntimeError("the retired contract directory was swapped during retirement")
+                _verify_bindings(root_links, root_fd, engine_fd, contracts_fd)
             finally:
                 os.close(contracts_fd)
+            _verify_bindings(root_links, root_fd, engine_fd)
             os.rmdir("contracts", dir_fd=engine_fd)
             os.fsync(engine_fd)
+            _verify_bindings(root_links, root_fd, engine_fd)
+            _checkpoint(context)
             _killpoint("contracts-delete")
 
             if _OVERRIDES in targets:
                 target = targets[_OVERRIDES]
+                _verify_bindings(root_links, root_fd, engine_fd)
                 fd, meta = _open_regular("operator-overrides.json", engine_fd)
+                next_fd = None
                 try:
                     original = _read_fd(fd)
                     if _blob_identity(original, object_format) != target["before_identity"] \
                             or not _same_entry("operator-overrides.json", engine_fd, meta):
                         raise RuntimeError("saved settings changed before capture")
-                finally:
-                    os.close(fd)
-                os.rename("operator-overrides.json", _OVERRIDE_Q,
-                          src_dir_fd=engine_fd, dst_dir_fd=engine_fd)
-                _killpoint("override-capture")
-                captured_fd, captured_meta = _open_regular(_OVERRIDE_Q, engine_fd)
-                try:
-                    captured = _read_fd(captured_fd)
-                    if _blob_identity(captured, object_format) != target["before_identity"] \
-                            or not _same_entry(_OVERRIDE_Q, engine_fd, captured_meta):
-                        raise RuntimeError("captured settings identity mismatch")
-                    os.fchmod(captured_fd, 0o600)
-                    data = json.loads(captured)
+                    try:
+                        _rename_noreplace("operator-overrides.json", _OVERRIDE_Q,
+                                          src_dir_fd=engine_fd, dst_dir_fd=engine_fd)
+                    except FileExistsError as exc:
+                        raise RuntimeError("settings retirement quarantine appeared during capture") from exc
+                    if not _same_entry(_OVERRIDE_Q, engine_fd, meta) \
+                            or _blob_identity(_read_fd(fd), object_format) != target["before_identity"]:
+                        raise RuntimeError(
+                            "captured settings identity mismatch; preserved quarantine for recovery")
+                    os.fchmod(fd, 0o600)
+                    os.fsync(fd)
+                    os.fsync(engine_fd)
+                    _verify_bindings(root_links, root_fd, engine_fd)
+                    _checkpoint(context)
+                    _killpoint("override-capture")
+                    data = json.loads(original)
                     if _OVERRIDE_KEY not in data:
                         raise RuntimeError("the sealed top-level setting is no longer present")
                     del data[_OVERRIDE_KEY]
                     replacement = (json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
-                finally:
-                    os.close(captured_fd)
-                next_fd = os.open(_OVERRIDE_NEXT, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                                  0o600, dir_fd=engine_fd)
-                try:
+                    next_fd = os.open(_OVERRIDE_NEXT,
+                                      os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                      0o600, dir_fd=engine_fd)
                     _write_all(next_fd, replacement)
                     os.fsync(next_fd)
+                    os.fsync(engine_fd)
+                    _verify_bindings(root_links, root_fd, engine_fd)
+                    _checkpoint(context)
+                    _killpoint("override-rewrite")
+                    next_meta = os.fstat(next_fd)
+                    _verify_bindings(root_links, root_fd, engine_fd)
+                    if not _same_entry(_OVERRIDE_Q, engine_fd, meta) \
+                            or not _same_entry(_OVERRIDE_NEXT, engine_fd, next_meta):
+                        raise RuntimeError("settings capture or replacement changed before installation")
+                    try:
+                        _rename_noreplace(_OVERRIDE_NEXT, "operator-overrides.json",
+                                          src_dir_fd=engine_fd, dst_dir_fd=engine_fd)
+                    except FileExistsError as exc:
+                        raise RuntimeError(
+                            "saved settings reappeared during retirement; all colliding bytes were preserved") from exc
+                    if not _same_entry("operator-overrides.json", engine_fd, next_meta) \
+                            or _blob_identity(_read_fd(next_fd), object_format) != _blob_identity(
+                                replacement, object_format):
+                        raise RuntimeError("installed settings identity mismatch")
+                    os.fsync(engine_fd)
+                    _verify_bindings(root_links, root_fd, engine_fd)
+                    _checkpoint(context)
+                    _killpoint("override-replace")
+                    _verify_bindings(root_links, root_fd, engine_fd)
+                    if not _same_entry(_OVERRIDE_Q, engine_fd, meta):
+                        raise RuntimeError(
+                            "captured settings changed before deletion; preserved for recovery")
+                    os.unlink(_OVERRIDE_Q, dir_fd=engine_fd)
+                    os.fsync(engine_fd)
+                    _verify_bindings(root_links, root_fd, engine_fd)
+                    _checkpoint(context)
+                    _killpoint("override-delete")
                 finally:
-                    os.close(next_fd)
-                _killpoint("override-rewrite")
-                os.rename(_OVERRIDE_NEXT, "operator-overrides.json",
-                          src_dir_fd=engine_fd, dst_dir_fd=engine_fd)
-                os.fsync(engine_fd)
-                _killpoint("override-replace")
-                os.unlink(_OVERRIDE_Q, dir_fd=engine_fd)
-                os.fsync(engine_fd)
-                _killpoint("override-delete")
+                    if next_fd is not None:
+                        os.close(next_fd)
+                    os.close(fd)
                 changes.append({"path": _OVERRIDES, "operation": "replace",
                                 "before_identity": target["before_identity"],
                                 "after_identity": _blob_identity(replacement, object_format),
@@ -551,5 +696,6 @@ def apply(context: dict, sealed_plan: dict) -> dict:
         finally:
             os.close(engine_fd)
     finally:
-        os.close(root_fd)
+        for held_fd in reversed(root_fds):
+            os.close(held_fd)
     return {"status": "applied", "changes": changes}

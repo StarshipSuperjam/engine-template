@@ -440,7 +440,7 @@ class TestConfirm(unittest.TestCase):
         self.assertIn("onby", str(ctx.exception))
 
     def test_persists_an_external_product_repository(self):
-        # the established design: when the engine builds a repo DIFFERENT from the one it is deployed into, the operator's
+        # When the engine builds a repo DIFFERENT from the one it is deployed into, the operator's
         # named product is recorded. It validates against the (closed) engine schema.
         import validate as _v
         schema = _v.load_json(os.path.join(_v.SCHEMAS_DIR, "engine.v1.json"))

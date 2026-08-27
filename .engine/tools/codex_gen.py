@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Codex render tool — one renderer for BOTH Codex adapter surfaces (the established design).
+"""The Codex render tool — one renderer for BOTH Codex adapter surfaces.
 
 The canonical operator surfaces are authored ONCE, on the Claude side (.claude/agents/*.md and
 .claude/skills/engine-*/SKILL.md); Codex requires the same material in its own native homes
@@ -20,7 +20,7 @@ Render rules (the whole mapping, so review needs no second source):
     - `sandbox_mode = "read-only"` always (every current persona is a report-only reviewer). This is
       the agent's requested standalone default, not mechanical child isolation: a parent task's live
       runtime override can be reapplied by Codex (the declared provider exception).
-    - `model` is NEVER emitted (a pinned model id in a persona file rots — the established design);
+    - `model` is NEVER emitted because a pinned model id in a reviewer persona file rots;
       `model_reasoning_effort` maps the demand tier (judgment -> high, mechanical -> low), EXCEPT for the
       un-pinned reviewer roles (plan-review, pre-submission-review), whose effort is depth-scaled at spawn,
       so their twins omit it entirely (see the reviewer branch in render_agent).
@@ -163,7 +163,7 @@ def render_agent(src_path: str, root: str | None = None) -> str:
     ]
     if fm.get("role") == "worker":
         # A dispatched worker renders an EXPLICIT per-provider model + effort (single-sourced from
-        # implementation_classes) and a write-capable sandbox — the established design no-model rule is a
+        # implementation_classes) and a write-capable sandbox — the no-model rule is a
         # REVIEWER-identity guard and does not apply to a worker that only writes its own node.
         binding = _impl_binding(fm.get("implementation-class"), root)
         lines += [

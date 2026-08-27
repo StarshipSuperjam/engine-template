@@ -478,8 +478,8 @@ class StateStore(RevisionedStore):
     """A Build snapshot at a path the caller names outright.
 
     Until 2026-08-25 this constructor REFUSED any path outside the OS temporary directory, and that
-    refusal was the code embodiment of "the Build's state is never a durable leg" (the established design,
-    the established design). It is deleted here rather than quietly relaxed, because the claim it enforced is the
+    refusal encoded the claim that "the Build's state is never a durable leg." It is deleted here rather than
+    quietly relaxed, because the claim it enforced is the
     one that changed: a Build's evidence was observed to die with a forced restart, and evidence that
     cannot survive a restart is not evidence an operator can rely on. Durability now has a proper
     home — `build_state_store.DurableBuildStore`, a peer of this class rather than a subclass of it,
