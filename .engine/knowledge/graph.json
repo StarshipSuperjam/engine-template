@@ -8765,7 +8765,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:5a8e10548c59569488ad10e1a905df655ccc354608b9c3d02bdb8f1a8496075e",
+        "fingerprint": "sha256:9f8f5f48a4e717069680d6b11a2d73a66a51b8c012be18e552031efe7ebc2405",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -14901,7 +14901,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:17bf8e0fe55a5d1f6cc79f99ed055b402b3b28119bed489066aa4383b084efc8",
+        "fingerprint": "sha256:b979164d08246cc32ee06166565399baa9001287e861f5891310efd45b42cafb",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -18058,6 +18058,7 @@
         ],
         "tests": [
           "tool:backup_vault",
+          "tool:index",
           "tool:ledger",
           "tool:module_manager",
           "tool:release_gate",
@@ -18068,7 +18069,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:049c3955aa4b5852344867ebf49c0f0c51028bca9f4d949d6e207f8eb7ab29e1",
+        "fingerprint": "sha256:1922076a29d9d0f61257fcca1fe150576b8c22e6003186af297406b228ec6a10",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
