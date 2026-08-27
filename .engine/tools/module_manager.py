@@ -3566,6 +3566,10 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             if not cleared.get("ok"):
                 tail["notes"].append("(the pull request was opened, but the completed recovery transaction "
                                      "could not be cleared; the next invocation will finalize or report it)")
+        # TERMINAL: the update is committed to its own branch and proposed for review, so this working copy
+        # no longer holds a STAGED one. Retire the marker (StarshipSuperjam/engine-template#948). The failure
+        # branch below deliberately leaves it in place — there the update really is staged and un-opened.
+        clear_upgrade_staged()
     except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
         tail["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
     return tail
@@ -4255,12 +4259,18 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # (2) OVERLAY engine code (driven off the present set; containment fail-closed). This lands the new
         # release's `.engine/tools/*.py` on disk — but THIS process still holds the pre-upgrade libraries,
         # which is exactly why the version-sensitive tail below runs as a fresh child of the overlaid code.
+        # ANNOUNCE THE STAGE before the first overlaid byte lands. From here until this transaction reaches a
+        # terminal state, this working copy genuinely holds a staged update — and says so explicitly rather
+        # than leaving boot to infer it from dirtiness, which an ordinary construction tree also shows
+        # (StarshipSuperjam/engine-template#948).
+        mark_upgrade_staged({"target_ref": target_ref, "from_versions": dict(from_versions)})
         try:
             # SURVIVORS only: a dropped module has nothing to overlay, and handing the shared overlay the full
             # present set would re-trip its own missing-manifest refusal (it is also the brownfield-arrival path,
             # so its body stays untouched).
             result["copied"], candidates = _overlay_engine_code(release_tree, list(target_versions))
         except _UpgradeRefused as ur:
+            clear_upgrade_staged()   # refused before anything landed: this copy holds no staged update
             return {**result, "refused": True, "reason": ur.reason}
         # (3) RE-SYNC the tool-runtime BEFORE the tail's child boots (real path only; the injected/practice
         # run has no real venv and skips it). The child imports the just-overlaid tool code, so the runtime
@@ -5525,16 +5535,92 @@ def _upgrade_footprint() -> set:
     return paths
 
 
+# WHERE A STAGED UPGRADE ANNOUNCES ITSELF. Inside `.git/`, the same home the upgrade's own recovery journal
+# uses, and for the same two reasons: it is a fact about THIS working copy rather than about the repository,
+# and git never reports its own directory as work — so the marker cannot be mistaken for a change, cannot be
+# committed by accident, and cannot trip a migration's rollback-footprint seal (which is exactly what
+# happened when this first lived under an ignored cache directory: a fixture repository without the ignore
+# rule saw an untracked file appear mid-transaction).
+_STAGED_UPGRADE_MARKER = "engine-staged-upgrade"
+
+
+def _staged_upgrade_marker_path() -> str:
+    """Resolve the marker inside the git directory, or fall back to a repo-local ignored cache.
+
+    The fallback matters for a checkout whose git directory cannot be resolved: the marker is a notice's
+    input, so an unresolvable home degrades to no marker rather than to a hard failure.
+    """
+    resolved = _git(validate.ROOT, "rev-parse", "--git-path", _STAGED_UPGRADE_MARKER)
+    resolved = (resolved or "").strip()
+    if not resolved:
+        return os.path.join(validate.ROOT, ".engine", "boot", ".cache", "staged-upgrade.json")
+    return resolved if os.path.isabs(resolved) else os.path.normpath(
+        os.path.join(validate.ROOT, resolved))
+
+
+def mark_upgrade_staged(detail: dict) -> None:
+    """Record that an update overlaid this working copy and has not reached a terminal state.
+
+    Written immediately before the overlay and cleared when the transaction ends (committed, rolled back,
+    or refused). Best-effort: a marker that cannot be written must never stop an update, because the
+    signal it feeds is a boot NOTICE, not a gate.
+    """
+    try:
+        path = _staged_upgrade_marker_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(detail, handle)
+    except Exception:  # noqa: BLE001 — a notice's marker never blocks the transaction it describes
+        pass
+
+
+def clear_upgrade_staged() -> None:
+    """The update reached a terminal state; this working copy no longer holds a staged one."""
+    try:
+        os.remove(_staged_upgrade_marker_path())
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001 — same reason as the write
+        pass
+
+
 def _staged_upgrade_dirty() -> bool:
-    """Is an update STAGED but not committed — the precise, coherence-independent signal of a stalled/
-    half-applied update in the working tree? True iff any OVERLAY-CODE path (a module's `provides` file, a
-    module manifest, or a FOUNDATION_CODE file — files an operator never hand-edits) differs from HEAD. A
-    successfully-applied update is committed to its own branch (clean here); an operator editing their own
-    `settings.json` does NOT trip this (settings are not overlay-code). Coherence-independent by design: a
-    stall that leaves the wiring applied but the tree half-built passes `check_coherence` yet is still dirty
-    here."""
+    """COULD this working copy hold a staged update — the RECOVERY question.
+
+    True iff any OVERLAY-CODE path (a module's `provides` file, a module manifest, or a FOUNDATION_CODE
+    file — files an operator never hand-edits) differs from HEAD. Deliberately generous, and deliberately
+    NOT marker-gated: `_diagnose_undo` asks this to decide whether there is anything to offer an undo for,
+    and the two errors are not symmetric. A false positive here costs a look at an ordinary dirty tree; a
+    false negative would tell an operator sitting on a stalled update that there is nothing to undo. An
+    update staged by an ENGINE VERSION THAT PREDATES the marker below leaves no marker at all, and that
+    operator must still be able to recover.
+
+    Coherence-independent by design: a stall that leaves the wiring applied but the tree half-built passes
+    `check_coherence` yet is still dirty here.
+    """
     dirty = _git_status_paths(validate.ROOT)
     return bool(dirty and (dirty & set(overlay_replace_paths())))
+
+
+def staged_upgrade_announced() -> bool:
+    """SHOULD a staged update be announced at session start — the NOTICE question.
+
+    The narrow counterpart to `_staged_upgrade_dirty`, and the fix for
+    StarshipSuperjam/engine-template#948. Boot used the generous predicate above, which is true of every
+    ORDINARY CONSTRUCTION TREE: a session part-way through editing the engine's own tools looks exactly
+    like a half-applied update. Five separate build sessions hit the resulting boot-pack overflow and each
+    re-learned the same workaround, and worse, the false positive MASKED real cap regressions — a genuine
+    overflow looked like the familiar artifact.
+
+    So the notice keys on the update ANNOUNCING itself: a marker written before the overlay and cleared
+    when the transaction reaches a terminal state. Dirtiness is still required alongside it, so a stale
+    marker over a clean tree does not announce a stall that is not there. The asymmetry with the recovery
+    predicate is the point — this one may miss a stall (the operator still has `rollback`, which asks the
+    generous question), but it must not invent one.
+    """
+    if not os.path.isfile(_staged_upgrade_marker_path()):
+        return False
+    return _staged_upgrade_dirty()
 
 
 def _diagnose_undo() -> dict:
@@ -5640,6 +5726,9 @@ def _discard_staged_update(resync, transport) -> dict:
         return result
     result["undone"] = True
     result["branch"] = branch
+    # The staged update is gone: this working copy no longer holds one, so retire its marker
+    # (StarshipSuperjam/engine-template#948).
+    clear_upgrade_staged()
     # (e) rebuild the tool-runtime for the restored (older) code; surface a failure, never hide it.
     if resync is not None and resync() is False:
         result["resync_failed"] = True

@@ -4998,3 +4998,86 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestStagedUpgradeIsAnnouncedNotInferred(unittest.TestCase):
+    """StarshipSuperjam/engine-template#948 — the notice keys on the update announcing itself.
+
+    Two predicates, deliberately asymmetric. The RECOVERY question stays generous (dirty overlay code is
+    enough) because a false negative would strand an operator on a stalled update — including one staged
+    by an engine version that predates the marker. The NOTICE question requires the marker, because a
+    false positive is true of every ordinary construction tree and cost five sessions their time while
+    masking real boot-cap regressions.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=self.root, check=True)
+        self._saved_root = module_manager.validate.ROOT
+        module_manager.validate.ROOT = self.root
+
+    def tearDown(self):
+        module_manager.validate.ROOT = self._saved_root
+        self._tmp.cleanup()
+
+    _OVERLAY = {".engine/tools/module_manager.py"}
+
+    def _dirty_overlay(self):
+        """Make the tree look exactly like a construction session mid-edit: an overlay-code path dirty."""
+        return set(self._OVERLAY)
+
+    def _as_overlay_repo(self):
+        """Both halves of the predicate read the same overlay membership; pin it for the fixture repo."""
+        return mock.patch.object(module_manager, "overlay_replace_paths",
+                                 return_value=list(self._OVERLAY))
+
+    def test_the_notice_stays_quiet_on_an_ordinary_dirty_construction_tree(self):
+        with self._as_overlay_repo(), mock.patch.object(
+                module_manager, "_git_status_paths", return_value=self._dirty_overlay()):
+            self.assertTrue(module_manager._staged_upgrade_dirty(),
+                            "precondition: the recovery predicate sees the dirt")
+            self.assertFalse(module_manager.staged_upgrade_announced(),
+                             "no update announced itself, so the notice must stay quiet")
+
+    def test_the_notice_fires_once_an_update_announces_itself(self):
+        module_manager.mark_upgrade_staged({"target_ref": "v9.9.9"})
+        try:
+            with self._as_overlay_repo(), mock.patch.object(
+                    module_manager, "_git_status_paths", return_value=self._dirty_overlay()):
+                self.assertTrue(module_manager.staged_upgrade_announced())
+        finally:
+            module_manager.clear_upgrade_staged()
+
+    def test_a_stale_marker_over_a_clean_tree_announces_nothing(self):
+        module_manager.mark_upgrade_staged({"target_ref": "v9.9.9"})
+        try:
+            with self._as_overlay_repo(), mock.patch.object(
+                    module_manager, "_git_status_paths", return_value=set()):
+                self.assertFalse(module_manager.staged_upgrade_announced())
+        finally:
+            module_manager.clear_upgrade_staged()
+
+    def test_recovery_still_finds_an_update_staged_before_the_marker_existed(self):
+        """The asymmetry's whole point: an older engine staged it, so there is no marker to find."""
+        module_manager.clear_upgrade_staged()
+        with self._as_overlay_repo(), mock.patch.object(
+                module_manager, "_git_status_paths", return_value=self._dirty_overlay()):
+            self.assertTrue(module_manager._staged_upgrade_dirty(),
+                            "rollback must still offer to undo a marker-less staged update")
+
+    def test_the_marker_lives_where_git_never_reports_it_as_work(self):
+        module_manager.mark_upgrade_staged({"target_ref": "v9.9.9"})
+        try:
+            path = module_manager._staged_upgrade_marker_path()
+            self.assertTrue(os.path.isfile(path))
+            untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"],
+                                       cwd=self.root, capture_output=True, text=True)
+            self.assertNotIn("staged-upgrade", untracked.stdout,
+                             "the marker must never look like work a transaction could sweep up")
+        finally:
+            module_manager.clear_upgrade_staged()
+
+    def test_clearing_is_idempotent_and_never_raises(self):
+        module_manager.clear_upgrade_staged()
+        module_manager.clear_upgrade_staged()
