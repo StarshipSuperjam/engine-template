@@ -2590,9 +2590,10 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
                            "pull request.")
     base = repo_identity.resolve_default_branch()
 
-    # LAST LINE BEFORE THE BODY BECOMES PUBLIC. Every engine pull request — an update and a whole-engine
-    # removal alike — is composed upstream of here from version data, so a credential should never be in
-    # this text at all. This is the chokepoint where that stops being a thing the reader has to take on
+    # LAST LINE BEFORE THE BODY BECOMES PUBLIC, for the pull requests THIS opener opens — an engine update
+    # and a whole-engine removal, which reuses it. It is not the only opener in the tree: `tune.py` has its
+    # own and carries this same call for the same reason. Both bodies are composed upstream from version or
+    # settings data, so a credential should never be in this text at all. This is the chokepoint where that stops being a thing the reader has to take on
     # trust: the resolved token, exactly, and the documented credential shapes, cannot survive into a body
     # or a title that is about to be pushed and posted. It is narrow on purpose (see redact_credentials) —
     # mangling legitimate prose is a real cost paid against an imagined leak.
@@ -5612,6 +5613,27 @@ def mark_upgrade_staged(detail: dict) -> None:
         pass
 
 
+def staged_upgrade_detail() -> dict:
+    """What the staged-update marker RECORDED — the release that was actually consented to.
+
+    `mark_upgrade_staged` writes `{"target_ref": ..., "from_versions": ...}` immediately before the
+    overlay. Nothing read it back until the consent gate needed it, and that gap was a real defect: the
+    finishing path called `upgrade(ref)`, which re-resolves "latest" against whatever the update home
+    publishes NOW, so a release published during the interruption would be applied under the earlier
+    release's consent. Reading the recorded target is what makes finishing a genuine resume rather than a
+    fresh fetch wearing the word.
+
+    Returns {} when there is no marker or it cannot be read — never a guess. A caller that cannot learn
+    which release was consented to must refuse, not proceed.
+    """
+    try:
+        with open(_staged_upgrade_marker_path(), encoding="utf-8") as handle:
+            detail = json.load(handle)
+        return detail if isinstance(detail, dict) else {}
+    except Exception:  # noqa: BLE001 — unreadable marker is "unknown", and unknown must never mean "allowed"
+        return {}
+
+
 def clear_upgrade_staged() -> None:
     """The update reached a terminal state; this working copy no longer holds a staged one."""
     try:
@@ -5625,9 +5647,16 @@ def clear_upgrade_staged() -> None:
 def _consent_handle_arg(argv: list):
     """The `--consent-handle` value, or None when the operator did not carry one over.
 
-    Absent is not a refusal: the handle is an OPTIONAL binding an operator adds when they applied from a
-    plan they read. Making it mandatory would be a start gate, which is precisely what was ruled against —
-    an upgrade rolls back, and the friction would buy paperwork rather than safety.
+    Parsing only — this reports what was passed and decides nothing. The caller in `main` is where an
+    absent handle becomes a refusal for a fresh apply.
+
+    THIS DOCSTRING PREVIOUSLY SAID THE OPPOSITE, and said it as though quoting a ruling: that absent was
+    not a refusal, because making the handle mandatory would be the start gate that was ruled against.
+    That conflated two different things. The ruling was digest-only INSTEAD OF a start gate; requiring the
+    digest is what makes digest-only bind, since an optional one is skipped by omitting a flag. The
+    earlier wording is recorded here rather than simply deleted because a stale comment that reads like an
+    operator ruling is worse than one that reads like a stale comment — it hands the next session a
+    plausible warrant to remove the gate and believe they are restoring a decision.
     """
     for index, arg in enumerate(argv):
         if arg.startswith("--consent-handle="):
@@ -6094,33 +6123,56 @@ def main(argv: list) -> int:
             # evidence of plan identity, never of who consented — the start protections are the
             # harness-gated skill and, under everything, the pull request the operator merges.
             handle = _consent_handle_arg(argv)
+            resume_ref = None
             if handle is None:
-                # AN ABSENT HANDLE IS A REFUSAL, NOT A PASS -- but only for a FRESH apply.
+                # AN ABSENT HANDLE IS A REFUSAL, NOT A PASS -- but not for FINISHING an update that is
+                # already staged here.
                 #
-                # Optional is the same as absent here. A session that wants to update simply omits the
-                # flag, and the binding it was supposed to provide is gone at exactly the moment it
-                # mattered; the operator's standing direction is that a limit which can be talked past is
-                # not a limit. So a fresh apply must carry the handle from the plan that was read.
+                # Optional is the same as absent: a session that wants to update simply omits the flag and
+                # the binding is gone at the moment it mattered. A limit that can be talked past is not a
+                # limit, so a FRESH apply must carry the handle from the plan that was read.
                 #
-                # It does NOT apply to FINISHING an update already staged in this working copy. Three
-                # recovery messages (boot's stalled-update notice among them) tell the operator to run
-                # `upgrade --confirm` to finish one, and there is no plan to bind that to -- the plan
-                # was consented to before the interruption. Demanding a handle there would dead-end the
-                # exact operator this gate is supposed to protect. The marker is what tells the two
-                # apart, so this asks the narrow question, never the generous dirty-tree one.
-                if not staged_upgrade_announced():
+                # Finishing is different, and the difference is narrow. Documented recovery messages send
+                # the operator to a bare `upgrade --confirm`, and there is no plan to bind that to -- the
+                # release was consented to before the interruption. What binds it instead is the marker's
+                # RECORDED target: finishing applies exactly the release that was staged, never whatever
+                # the home publishes now. Without a recorded target there is nothing to bind to, so this
+                # refuses rather than falling through to a fresh resolve.
+                staged = staged_upgrade_detail() if staged_upgrade_announced() else {}
+                resume_ref = staged.get("target_ref")
+                if not resume_ref:
+                    # Do NOT claim there is nothing staged: the generous recovery predicate may well say
+                    # otherwise, and an update staged by a version predating the marker leaves none at all.
+                    # Ask the engine's own recovery diagnosis and say what is actually true.
+                    state = (_diagnose_undo() or {}).get("state")
+                    if state in ("staged", "transaction", "memory-ahead"):
+                        print("An interrupted update is present here, but this copy did not record which\n"
+                              "release it was applying, so there is nothing to bind finishing it to.\n\n"
+                              "See where you stand:\n"
+                              "    uv run --directory .engine -- python tools/transaction.py resume engine-upgrade\n\n"
+                              "Then undo it and start again cleanly:\n"
+                              "    uv run --directory .engine -- python tools/module_manager.py rollback --confirm")
+                        return 2
                     print("This update has not been shown to you yet, so there is nothing to apply your\n"
                           "consent to. See what it would change first:\n\n"
                           "    uv run --directory .engine -- python tools/transaction.py plan engine-upgrade\n\n"
-                          "then run this again with the --consent-handle it prints. (Finishing an update\n"
-                          "already staged here does not need a handle -- there is none staged.)")
+                          "then run this again with the --consent-handle it prints.")
+                    return 2
+                if ref and ref != resume_ref:
+                    # Finishing is bound to the staged release. A different one named on the command line
+                    # is a FRESH update, and a fresh update needs its own consent.
+                    print("This copy has {0} staged, not {1}. Finishing an interrupted update applies the\n"
+                          "release that was staged; it cannot be redirected to another one.\n\n"
+                          "To apply {1} instead, undo first (`module_manager.py rollback --confirm`), then\n"
+                          "plan it and apply with the handle that plan prints.".format(resume_ref, ref))
                     return 2
             else:
                 mismatch = _refuse_stale_consent(ref, handle)
                 if mismatch:
                     print(mismatch)
                     return 2
-            result = upgrade(ref)
+            # The staged path applies the RECORDED release, never a re-resolved "latest".
+            result = upgrade(resume_ref or ref)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))
             else:
@@ -6193,4 +6245,12 @@ def main(argv: list) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # DELEGATE TO THE IMPORTED MODULE, never to this one — the same fix `transaction.py` carries, for the
+    # same reason. Run as a script this file is `__main__`, while `transaction_adapters_upgrade` (reached
+    # from the consent check) does `import module_manager` and gets a SECOND, distinct copy. Today that is
+    # only wasteful, because this module holds no shared mutable state for the two copies to disagree
+    # about — but that is a property of today's code, not a guarantee, and the failure it would produce is
+    # exactly the one this build already shipped once: a green suite over a broken command, because every
+    # test imports this module normally and never as `__main__`.
+    import module_manager as _single_module
+    sys.exit(_single_module.main(sys.argv[1:]))

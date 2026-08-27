@@ -15,8 +15,15 @@ TWO HANDOFF SHAPES, AND THE JUDGMENT BEHIND THE SPLIT.
     one labelled commit, revertable as a unit.
 
 WHAT MUST BE TRUE FIRST. Every state check below runs BEFORE any mutation, and each refuses with a stable
-code and a way forward. They exist because a transaction that starts from a dirty tree, the wrong base, or
-a branch nobody can name produces a change nobody can cleanly review or revert.
+code and a way forward. They exist because a transaction that starts from a dirty tree or a branch nobody
+can name produces a change nobody can cleanly review or revert.
+
+WHAT IS NOT CHECKED, SAID PLAINLY. The approved plan also names a behind-origin / wrong-base refusal. There
+is none here, and there was none before: a `refuse_unless_current` existed but no caller ever reached it,
+so it was removed rather than left reading as coverage. The gap is therefore pre-existing and now visible
+instead of disguised. Its practical cost is small — a stale-base transaction still produces a pull request
+the operator sees and can rebase — but it is an unmet requirement, not a decision, and it should not be
+rediscovered as a surprise.
 
 STANDARD LIBRARY ONLY on the 3.9 floor: the arrival adapter reaches this module.
 """
@@ -193,8 +200,9 @@ def redact_credential_values(text, live_token=None):
     if live_token and len(str(live_token)) >= 8:
         result = result.replace(str(live_token), REDACTED)
     for prefix in _CREDENTIAL_PREFIXES:
+        start = 0
         while True:
-            at = result.find(prefix)
+            at = result.find(prefix, start)
             if at < 0:
                 break
             end = at + len(prefix)
@@ -202,7 +210,14 @@ def redact_credential_values(text, live_token=None):
             # because `github_pat_` tokens contain them.
             while end < len(result) and (result[end].isalnum() or result[end] == "_"):
                 end += 1
-            if end == at + len(prefix):   # the bare prefix as a word — nothing secret to strip
-                break
+            if end == at + len(prefix):
+                # The bare prefix as a word ("tokens look like ghp_") — nothing secret to strip HERE.
+                # Advance past it and keep scanning: this used to `break`, which abandoned the whole
+                # prefix, so a real credential appearing LATER in the same body survived untouched.
+                # Ordering was the entire bug, and every seeded test used one token in isolation, so
+                # none of them could see it.
+                start = end
+                continue
             result = result[:at] + REDACTED + result[end:]
+            start = at + len(REDACTED)
     return result

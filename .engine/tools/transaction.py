@@ -321,7 +321,19 @@ def _lift_own_flags(args) -> None:
     tool's own documented syntax puts the flag last, so the fix is to honour that rather than to
     demand callers reorder.
     """
+    # NOT `getattr(...) or -1`: a boundary at position 0 -- every operand protected -- is falsy, and that
+    # spelling silently discarded exactly the case the marker exists for.
+    protected = getattr(args, "_protected_from", -1)
+    protected = -1 if protected is None else int(protected)
     rest = list(getattr(args, "rest", None) or [])
+    if protected >= 0:
+        # Everything the operator put after `--` is an operand they deliberately protected, even if it is
+        # spelled like one of our flags. argparse strips the marker itself before REMAINDER ever sees it,
+        # so the boundary is computed in `main` and passed through here.
+        kept_tail = rest[protected:]
+        rest = rest[:protected]
+    else:
+        kept_tail = []
     kept = []
     index = 0
     while index < len(rest):
@@ -336,11 +348,22 @@ def _lift_own_flags(args) -> None:
         else:
             kept.append(token)
         index += 1
-    args.rest = kept
+    args.rest = kept + kept_tail
 
 
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    # END-OF-OPTIONS, handled BEFORE argparse. Everything after `--` is an operand the operator
+    # deliberately protected, even when it is spelled like one of our own flags. argparse strips the
+    # marker itself before REMAINDER is populated, so a protected `--json` becomes indistinguishable from
+    # a real one by the time `_lift_own_flags` runs. Removing the marker here and remembering how many
+    # tokens it shielded is the only point where that information still exists.
+    protected_count = len(raw) - raw.index("--") - 1 if "--" in raw else -1
+    if protected_count >= 0:
+        raw.remove("--")
+    args = build_parser().parse_args(raw)
+    args._protected_from = (len(args.rest) - protected_count
+                            if protected_count >= 0 and getattr(args, "rest", None) else -1)
     _lift_own_flags(args)
     load_failures = load_adapters()
     completed_by_phase = {"inspect": [], "plan": ["inspect"], "run": ["inspect"], "resume": []}
@@ -368,6 +391,17 @@ def main(argv=None) -> int:
                 lines.append("  {0}: {1}".format(name, reason))
         available = sorted(_REGISTRY)
         lines.append("Available here: {0}".format(", ".join(available) if available else "(none)"))
+        if args.json:
+            # A caller that asked for machine-readable output must not get an unparseable stream. This is
+            # deliberately NOT a transaction envelope -- an envelope has to name a real operation, and
+            # there is none -- so it is a small, clearly-different document that says so in its own shape.
+            json.dump({"schema_version": "transaction-unknown-operation.v1",
+                       "requested_operation": unknown.operation,
+                       "explanation": "No adapter implements this name; nothing was changed.",
+                       "load_failures": dict(unknown.load_failures or {}),
+                       "available_operations": available}, sys.stdout, indent=1, sort_keys=True)
+            sys.stdout.write("\n")
+            return 2
         sys.stderr.write("\n".join(lines) + "\n")
         return 2
     except TransactionRefused as refused:

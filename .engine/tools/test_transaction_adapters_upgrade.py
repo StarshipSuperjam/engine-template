@@ -2,6 +2,8 @@
 """The upgrade transaction: what its consent binds, and what it deliberately does not gate."""
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import unittest
@@ -65,8 +67,8 @@ class TestConsentBindsWhatIsApplied(unittest.TestCase):
         self.assertIsNotNone(message)
         self.assertIn("NOT applied", message)
 
-    def test_an_absent_handle_is_not_itself_a_refusal(self):
-        """Making it mandatory would be the start gate that was ruled against."""
+    def test_the_parser_reports_an_absent_handle_as_none_and_decides_nothing(self):
+        """Parsing only. Whether absent REFUSES is `main`'s decision, covered separately below -- it does."""
         self.assertIsNone(module_manager._consent_handle_arg(["upgrade", "--confirm"]))
         self.assertEqual(module_manager._consent_handle_arg(
             ["upgrade", "--confirm", "--consent-handle", "sha256:abc"]), "sha256:abc")
@@ -144,12 +146,6 @@ class TestRollbackIsHonestAboutWhatItCannotDo(unittest.TestCase):
         result = adapters.RollbackUpgrade().handoff(Args(), {"undone": False}, [])
         self.assertEqual(result["kind"], "manual-follow-up")
         self.assertIn("never rewrites your main line", result["summary"])
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestConsentIsEnforcedOnTheCommandTheOperatorTypes(unittest.TestCase):
     """The obligation names the OPERATOR-TYPED apply path, not the helper under it.
 
@@ -214,6 +210,42 @@ class TestUpgradeResumesFromWhatItRecorded(unittest.TestCase):
         self.assertIsNone(self._resume("staged", False))
 
 
+class TestResumeNeverRendersAnUnreadStateGreen(unittest.TestCase):
+    """The envelope's core rule, applied to the one place the repair had broken it."""
+
+    def _resume(self, diagnosis):
+        with mock.patch.object(module_manager, "_diagnose_undo", return_value=diagnosis), \
+             mock.patch.object(module_manager, "staged_upgrade_announced", return_value=True):
+            return adapters.UpgradeEngine().resume(Args())
+
+    def test_a_state_this_version_cannot_read_is_unavailable_not_passed(self):
+        resumed = self._resume({"state": "something-a-later-version-writes", "current": "1.0.0"})
+        te.validate(resumed)
+        self.assertEqual(resumed["verification"][0]["result"], "unavailable")
+
+    def test_a_completed_update_is_not_reported_as_mid_flight(self):
+        """`upgrade` tolerates the transaction record surviving after the pull request is open. Reading
+        that as 'mid-flight' tells an operator whose update SUCCEEDED not to touch it."""
+        resumed = self._resume({"state": "transaction", "current": "1.0.0",
+                                "transaction": {"record": {"phase": "pr-opened",
+                                                           "pull_request": {"url": "https://x/1"}}}})
+        te.validate(resumed)
+        self.assertEqual(resumed["handoff"]["kind"], "pull-request")
+        self.assertIn("nothing to resume", resumed["verification"][0]["detail"])
+
+    def test_a_genuinely_mid_flight_transaction_still_says_so(self):
+        resumed = self._resume({"state": "transaction", "current": "1.0.0",
+                                "transaction": {"record": {"phase": "mutating"}}})
+        te.validate(resumed)
+        self.assertEqual(resumed["handoff"]["kind"], "local-recovery")
+        self.assertIn("compound", resumed["verification"][0]["detail"])
+
+    def test_memory_ahead_is_reported_on_its_own_terms(self):
+        resumed = self._resume({"state": "memory-ahead", "current": "1.0.0", "tag": "t"})
+        te.validate(resumed)
+        self.assertIn("saved data", resumed["verification"][0]["detail"])
+
+
 class TestTheOtherAdaptersReplanRatherThanPretend(unittest.TestCase):
     """The differentiation is the point: only upgrade records progress, so only upgrade continues."""
 
@@ -229,8 +261,11 @@ class TestAnAbsentHandleIsARefusalNotAPass(unittest.TestCase):
     """The plan said a stale OR ABSENT handle refuses. An optional gate is the same as no gate: a session
     that wants to apply just omits the flag. But the refusal must not swallow the documented recovery."""
 
-    def _main(self, *argv, staged):
+    def _main(self, *argv, staged, detail=None, undo="none"):
         with mock.patch.object(module_manager, "staged_upgrade_announced", return_value=staged), \
+             mock.patch.object(module_manager, "staged_upgrade_detail",
+                               return_value=(detail if detail is not None else {"target_ref": "v9"})), \
+             mock.patch.object(module_manager, "_diagnose_undo", return_value={"state": undo}), \
              mock.patch.object(module_manager, "upgrade") as applied:
             code = module_manager.main(list(argv))
         return code, applied
@@ -240,15 +275,53 @@ class TestAnAbsentHandleIsARefusalNotAPass(unittest.TestCase):
         self.assertEqual(code, 2)
         applied.assert_not_called()
 
-    def test_finishing_an_already_staged_update_still_works_with_no_handle(self):
-        """boot's stalled-update notice, and two other recovery messages, tell the operator to run exactly
-        this. There is no plan to bind it to -- consent was given before the interruption."""
-        code, applied = self._main("upgrade", "--confirm", staged=True)
-        applied.assert_called_once()
+    def test_finishing_a_staged_update_applies_the_release_that_was_actually_staged(self):
+        """The defect this replaces: both branches fell through to `upgrade(ref)`, which re-resolves
+        "latest" against whatever the home publishes NOW. A release published during the interruption
+        would have been applied under the earlier release's consent -- the exact drift the handle exists
+        to catch, switched off where drift is most likely."""
+        code, applied = self._main("upgrade", "--confirm", staged=True, detail={"target_ref": "v9"})
+        applied.assert_called_once_with("v9")
         self.assertNotEqual(code, 2)
 
+    def test_a_staged_copy_that_recorded_no_target_refuses_rather_than_resolving_afresh(self):
+        code, applied = self._main("upgrade", "--confirm", staged=True, detail={}, undo="staged")
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+    def test_finishing_cannot_be_redirected_to_a_different_release(self):
+        """`upgrade --confirm some-other-tag` with no handle must not ride the staged exception."""
+        code, applied = self._main("upgrade", "--confirm", "v10", staged=True, detail={"target_ref": "v9"})
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+    def test_a_dirty_tree_with_no_marker_is_told_the_truth_not_that_nothing_is_staged(self):
+        """An update staged by a version predating the marker leaves none at all. The old message told
+        that operator "there is none staged" while `_diagnose_undo` said otherwise, and pointed them at a
+        fresh plan -- which re-applies the overlay, the one thing resume warns against."""
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code, applied = self._main("upgrade", "--confirm", staged=False, undo="staged")
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+        said = buf.getvalue()
+        self.assertIn("interrupted update is present", said)
+        self.assertIn("rollback --confirm", said)
+        self.assertNotIn("none staged", said)
+
     def test_the_recovery_opening_asks_the_narrow_question_not_the_dirty_tree_one(self):
-        """Reusing the generous predicate here would let any dirty checkout skip the gate entirely."""
-        import inspect as _inspect
-        source = _inspect.getsource(module_manager.main)
-        self.assertNotIn("_staged_upgrade_dirty()", source)
+        """Reusing the generous predicate here would let any dirty checkout skip the gate entirely.
+
+        Behavioural, not a source-text check: with the narrow predicate false, a fresh apply must refuse
+        even though the generous one would have said `staged`."""
+        code, applied = self._main("upgrade", "--confirm", staged=False, undo="staged")
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+
+# Kept LAST on purpose: this block used to sit mid-file, so every test class below it was
+# invisible to anyone running the file directly -- 19 of this build's own tests among them. CI
+# uses discovery and ran them, which is the same "green over a gap" shape as the defect repaired
+# here.
+if __name__ == "__main__":
+    unittest.main()

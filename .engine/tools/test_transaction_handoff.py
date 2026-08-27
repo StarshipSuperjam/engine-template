@@ -160,12 +160,6 @@ class TestTheOpenerStagesSelectively(unittest.TestCase):
             source = handle.read()
         self.assertIn('stage_step = ["git", "add", "-A"] if not paths else ["git", "add", "--"] + list(paths)',
                       source)
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestACredentialNeverReachesAPullRequestBody(unittest.TestCase):
     """The seam obligation: a credential-shaped value seeded into a plan input is absent from the body.
 
@@ -189,6 +183,18 @@ class TestACredentialNeverReachesAPullRequestBody(unittest.TestCase):
         redacted = th.redact_credential_values("failed pushing to https://ghp_tok@github.com/o/r")
         self.assertNotIn("ghp_tok", redacted)
         self.assertIn("github.com/o/r", redacted)   # the diagnosis survives; only the secret goes
+
+    def test_a_bare_prefix_earlier_in_the_text_does_not_shield_a_real_token_later(self):
+        """Ordering was the whole bug: the scan used to abandon a prefix entirely on its first harmless
+        occurrence, so a real credential further down survived. Every other seeded test here uses one
+        token in isolation, which is precisely why none of them could catch it."""
+        out = th.redact_credential_values("tokens look like ghp_ and here is ghp_AAAABBBBCCCCDDDD")
+        self.assertNotIn("ghp_AAAABBBBCCCCDDDD", out)
+
+    def test_several_real_tokens_in_one_body_are_all_stripped(self):
+        out = th.redact_credential_values("ghp_FIRSTONE1 then ghp_ bare then ghp_SECONDONE2")
+        self.assertNotIn("ghp_FIRSTONE1", out)
+        self.assertNotIn("ghp_SECONDONE2", out)
 
     def test_ordinary_body_prose_is_left_exactly_alone(self):
         """A scrubber that mangles legitimate text costs something real on every merge."""
@@ -239,3 +245,11 @@ class TestACredentialNeverReachesAPullRequestBody(unittest.TestCase):
         rendered = _json.dumps(posted["payload"])
         self.assertNotIn("live-tok-value", rendered)
         self.assertNotIn("ghp_16C7e42F292c69", rendered)
+
+
+# Kept LAST on purpose: this block used to sit mid-file, so every test class below it was
+# invisible to anyone running the file directly -- 19 of this build's own tests among them. CI
+# uses discovery and ran them, which is the same "green over a gap" shape as the defect repaired
+# here.
+if __name__ == "__main__":
+    unittest.main()

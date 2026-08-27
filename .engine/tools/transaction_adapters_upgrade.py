@@ -52,7 +52,11 @@ class UpgradeEngine(transaction.Adapter):
         if not (preview.get("available") or preview.get("target")):
             raise transaction.TransactionRefused(
                 "already-current", "This engine is already on the newest version its update home offers.",
-                ["Nothing to do."], retryable=True)
+                ["Nothing to do. Check again when a new version has been released."],
+                # NOT retryable. Re-running right now returns this identical answer, and the envelope
+                # renders `retryable` as "Retrying could help." beside "Nothing to do." -- a refusal that
+                # tells the caller to go round in a circle is the exact thing the field exists to prevent.
+                retryable=False)
 
         consequences = ["Moves this engine to {0}.".format(preview.get("available") or preview.get("target")),
                         "Your own settings and saved data are kept; the engine's own files are replaced."]
@@ -144,16 +148,56 @@ class UpgradeEngine(transaction.Adapter):
         if state == "none":
             return None
 
+        # A COMPLETED update whose bookkeeping did not get cleared is NOT mid-flight. `upgrade` tolerates
+        # `finish_upgrade_transaction` failing AFTER the pull request is open ("the next invocation will
+        # finalize or report it"), and `_diagnose_undo` checks that record first -- so without this the
+        # operator whose update actually succeeded is told applying again "would compound it".
+        record = ((diagnosis.get("transaction") or {}).get("record") or {})
+        if state == "transaction" and record.get("phase") == "pr-opened":
+            return transaction._envelope(
+                self.operation, "resume", ["inspect"], "ok",
+                facts={"summary": "The interrupted update had already finished.",
+                       "fingerprints": {"undo_state": str(state), "phase": "pr-opened",
+                                        "current_version": str(diagnosis.get("current") or "")}},
+                verification=[{
+                    "check": "prior progress",
+                    "result": "passed",
+                    "detail": ("This update completed and its pull request is open; only the internal "
+                               "bookkeeping was left behind. There is nothing to resume."),
+                }],
+                handoff={"kind": "pull-request",
+                         "summary": "The update is already proposed for your review. Merging it is what "
+                                    "applies it; nothing here needs re-running.",
+                         "reference": str((record.get("pull_request") or {}).get("url") or "")})
+
         remaining = {
             "staged": ("An update is already written into this working copy but was never opened for "
                        "review. The overlay is applied; what remains is your decision to finish it or "
-                       "undo it — not re-applying it."),
+                       "undo it -- not re-applying it."),
             "transaction": ("An update is mid-flight at the git level. What remains is finishing or "
                             "unwinding that transaction; applying again on top of it would compound it."),
             "memory-ahead": ("The code is back on an older version while your saved data is still on the "
                              "newer one. What remains is putting the saved data back, not re-applying."),
-        }.get(state, "An interrupted update was recorded in a state this version does not know how to "
-                     "continue automatically.")
+        }.get(state)
+
+        if remaining is None:
+            # UNKNOWN STATE. The contract is explicit: a check that could not run is `unavailable`, never
+            # quietly `passed`. Reporting a state this version cannot interpret as a green check is the
+            # precise failure the envelope was built to prevent, so it is reported as unread.
+            return transaction._envelope(
+                self.operation, "resume", ["inspect"], "ok",
+                facts={"summary": "Interrupted update found in an unrecognised state: {0}.".format(state),
+                       "fingerprints": {"undo_state": str(state),
+                                        "current_version": str(diagnosis.get("current") or "")}},
+                verification=[{
+                    "check": "prior progress",
+                    "result": "unavailable",
+                    "detail": ("This copy records an interrupted update in a state this version does not "
+                               "know how to read, so how far it got could not be determined."),
+                }],
+                handoff={"kind": "local-recovery",
+                         "summary": "Do not apply again on top of this. Undo it "
+                                    "(`module_manager.py rollback --confirm`) and start from a fresh plan."})
 
         return transaction._envelope(
             self.operation, "resume", ["inspect"], "ok",
