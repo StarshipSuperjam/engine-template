@@ -9257,7 +9257,7 @@
       },
       "slug": "checkout_health",
       "source": {
-        "fingerprint": "sha256:c37c96fa25b3b04c629c9003f5c0c5880b94124091e4a0d1b32ea30b42a10bcf",
+        "fingerprint": "sha256:eadf2b2871fb3a5e15aaa2c81d5e37a860851a275c18ef9b66d2d80b6e4e5ac1",
         "path": ".engine/tools/checkout_health.py"
       },
       "status": "active",
@@ -17084,7 +17084,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:f229a810821b7d07bf16c2a33e02e85e42b4d965b81ab5e9ef5f67f481465650",
+        "fingerprint": "sha256:f55bb7ec7a3b03d56380673c6c32e54a9981b97093cafe24fba5d1100ea5b7b7",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
