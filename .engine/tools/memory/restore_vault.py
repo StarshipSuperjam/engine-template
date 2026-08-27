@@ -17,8 +17,8 @@ swap pipeline, differing only in which ref the fetch resolves. Two operator floo
     path knowledge — bounded honestly: it needs the project repo present (the committed pointer is what it reads).
   Floor 4 — degrade-and-disclose: every failure names a consequence + ONE recovery action, never a git/HTTP error.
 
-Posture (the backup_vault precedent): pure GitHub API over the same 10s-bounded transport; the restore ACT is a
-FOREGROUND, consent-gated command (it OVERWRITES local memory, so it must never run unattended). The detector is
+Posture (the backup_vault precedent): pure GitHub API within one 180-second foreground deadline; the restore ACT is
+consent-gated (it OVERWRITES local memory, so it must never run unattended). The detector is
 LOCAL-ONLY (no network) so it adds nothing to session-start cost. The swap is crash-safe and serialized behind the
 single-writer lock; the canonical ledger is untouched until the atomic rename.
 
@@ -50,6 +50,7 @@ _RESTORE_TMP = "ledger.ndjson.restore-tmp"
 _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_NAMESPACE_BYTES = 255
 _MAX_VAULT_PATH_BYTES = 1024
+_FOREGROUND_DEADLINE_SECONDS = 180
 
 
 def _valid_namespace(value) -> bool:
@@ -63,13 +64,15 @@ def _valid_namespace(value) -> bool:
 # Fetch — the GET/read side the export tool lacks (Git Data: ref -> commit -> tree -> blob).
 # ============================================================================================================
 
-def _fetch_blob(gh, owner: str, repo: str, sha, *, max_bytes=None) -> "bytes | None":
+def _fetch_blob(gh, owner: str, repo: str, sha, *, max_bytes=None, deadline=None,
+                deadline_state=None) -> "bytes | None":
     """GET one blob and decode it, VERIFYING the bytes against the tree's object id (git's content-addressing) and
     the API's `size` — so a truncated/corrupt download is rejected before it can ever overwrite memory. None on any
     doubt."""
     if not (isinstance(sha, str) and sha):
         return None
-    obj = bv._get(gh, f"/repos/{owner}/{repo}/git/blobs/{sha}")
+    obj = bv._get(gh, f"/repos/{owner}/{repo}/git/blobs/{sha}", deadline=deadline,
+                  deadline_state=deadline_state)
     if not isinstance(obj, dict) or obj.get("encoding") != "base64" or not isinstance(obj.get("content"), str):
         return None
     text = obj["content"]
@@ -104,7 +107,7 @@ def _fetch_blob(gh, owner: str, repo: str, sha, *, max_bytes=None) -> "bytes | N
     return raw
 
 
-def fetch_snapshot(*, transport=None, ref=None) -> dict:
+def fetch_snapshot(*, transport=None, ref=None, deadline=None, deadline_state=None) -> dict:
     """Fetch the backed-up ledger bytes + manifest from the configured vault. Pure GitHub API over the bounded
     transport; cheap-probe-first (a repo GET bounds a dead host). Never raises. Returns {ok, error, ledger_bytes,
     manifest, ...}; error in {not-configured, no-token, unreachable, no-backup-data, snapshot-missing,
@@ -124,22 +127,27 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
         return {"ok": False, "error": "corrupt"}
     ref_kind, ref_name = ref if ref is not None else ("heads", branch)
     try:
-        if bv._get(gh, f"/repos/{owner}/{repo}") is None:               # cheap probe: reachability
-            return {"ok": False, "error": "unreachable"}
-        ref_obj = bv._get(gh, f"/repos/{owner}/{repo}/git/ref/{ref_kind}/{ref_name}")
+        if bv._get(gh, f"/repos/{owner}/{repo}", deadline=deadline, deadline_state=deadline_state) is None:
+            return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "unreachable"}
+        ref_obj = bv._get(gh, f"/repos/{owner}/{repo}/git/ref/{ref_kind}/{ref_name}", deadline=deadline,
+                          deadline_state=deadline_state)
         base_sha = (ref_obj or {}).get("object", {}).get("sha")
         if not (isinstance(base_sha, str) and base_sha):
             # A HEADS miss is "nothing backed up yet" (no-backup-data). A TAGS miss is a CITED snapshot that is
             # gone — a hand-deletion in the operator's own vault — a DISTINCT plain-language finding the operator
             # must see, never collapsed into the rolling "run a backup first" message.
+            if (deadline_state or {}).get("expired"):
+                return {"ok": False, "error": "deadline"}
             return {"ok": False, "error": "snapshot-missing" if ref_kind == "tags" else "no-backup-data"}
-        commit = bv._get(gh, f"/repos/{owner}/{repo}/git/commits/{base_sha}")
+        commit = bv._get(gh, f"/repos/{owner}/{repo}/git/commits/{base_sha}", deadline=deadline,
+                         deadline_state=deadline_state)
         tree_sha = (commit or {}).get("tree", {}).get("sha")
         if not (isinstance(tree_sha, str) and tree_sha):
-            return {"ok": False, "error": "corrupt"}
-        tree = bv._get(gh, f"/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1")
+            return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "corrupt"}
+        tree = bv._get(gh, f"/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1", deadline=deadline,
+                       deadline_state=deadline_state)
         if not isinstance(tree, dict) or tree.get("truncated") is True:  # a truncated tree could hide the ledger entry
-            return {"ok": False, "error": "corrupt"}
+            return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "corrupt"}
         raw_entries = tree.get("tree")
         if not isinstance(raw_entries, list):
             return {"ok": False, "error": "corrupt"}
@@ -161,9 +169,10 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
                          and not (e.get("path") or "").startswith(mine)
                          for e in entries.values() if isinstance(e, dict))
             return {"ok": False, "error": "namespace-missing" if others else "no-backup-data"}
-        manifest_raw = _fetch_blob(gh, owner, repo, man_entry.get("sha"), max_bytes=_MAX_MANIFEST_BYTES)
+        manifest_raw = _fetch_blob(gh, owner, repo, man_entry.get("sha"), max_bytes=_MAX_MANIFEST_BYTES,
+                                   deadline=deadline, deadline_state=deadline_state)
         if manifest_raw is None:
-            return {"ok": False, "error": "corrupt"}
+            return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "corrupt"}
         try:
             manifest = json.loads(manifest_raw.decode("utf-8"))
         except Exception:  # noqa: BLE001
@@ -179,9 +188,10 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
             if set(manifest) not in (legacy_keys, migration_keys):
                 return {"ok": False, "error": "corrupt"}
             ledger_bytes = _fetch_blob(gh, owner, repo, led_entry.get("sha"),
-                                       max_bytes=snapshot_format.MAX_UNCOMPRESSED_BYTES) if isinstance(led_entry, dict) else None
+                                       max_bytes=snapshot_format.MAX_UNCOMPRESSED_BYTES, deadline=deadline,
+                                       deadline_state=deadline_state) if isinstance(led_entry, dict) else None
             if ledger_bytes is None:
-                return {"ok": False, "error": "corrupt"}
+                return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "corrupt"}
             return {"ok": True, "error": None, "ledger_bytes": ledger_bytes, "manifest": manifest,
                     "owner": owner, "repo": repo, "namespace": namespace}
 
@@ -205,9 +215,9 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
         parts = []
         for item in part_entries:
             raw = _fetch_blob(gh, owner, repo, entries[f"{namespace}/{item['name']}"].get("sha"),
-                              max_bytes=item["bytes"])
+                              max_bytes=item["bytes"], deadline=deadline, deadline_state=deadline_state)
             if raw is None or len(raw) != item["bytes"]:
-                return {"ok": False, "error": "corrupt"}
+                return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "corrupt"}
             parts.append(raw)
         try:
             ledger_bytes = snapshot_format.decode(codec_manifest, parts,
@@ -217,7 +227,7 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
         return {"ok": True, "error": None, "ledger_bytes": ledger_bytes, "manifest": manifest,
                 "owner": owner, "repo": repo, "namespace": namespace}
     except Exception:  # noqa: BLE001 — any transport fault degrades to a clean failure, never a raise
-        return {"ok": False, "error": "unreachable"}
+        return {"ok": False, "error": "deadline" if (deadline_state or {}).get("expired") else "unreachable"}
 
 
 # ============================================================================================================
@@ -440,6 +450,8 @@ _MSG_SNAPSHOT_MISSING = ("The saved copy of your memory from before the last upd
 _MSG_CORRUPT = ("I couldn't read a complete copy of your memory from the backup, so I did NOT change anything on "
                 "this computer — better to keep what you have than risk a half copy. Try the restore again in a "
                 "little while.")
+_MSG_DEADLINE = ("I stopped the restore at its 180-second limit, before changing memory on this computer. Try again "
+                 "when GitHub is responding normally.")
 _MSG_VERSION_MISMATCH = ("This backup was made by a different version of the engine, and this version has no safe "
                          "way to bring its saved notes forward, so I left your memory on this computer unchanged. "
                          "If you need this older backup, ask me for help.")
@@ -465,7 +477,7 @@ def _floor4_fetch(error: "str | None") -> str:
         import boot  # noqa: E402 — lazy
         return ("I couldn't reach your backup just now, so I didn't restore anything. Your memory on this "
                 "computer is unchanged. " + boot.gh_unreachable_note())
-    return {"not-configured": _MSG_NOT_CONFIGURED, "unreachable": _MSG_UNREACHABLE,
+    return {"not-configured": _MSG_NOT_CONFIGURED, "unreachable": _MSG_UNREACHABLE, "deadline": _MSG_DEADLINE,
             "no-backup-data": _MSG_NO_BACKUP_DATA, "snapshot-missing": _MSG_SNAPSHOT_MISSING,
             "namespace-missing": _MSG_NAMESPACE_MISSING, "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
 
@@ -493,18 +505,26 @@ def _ask_restore_consent(local_count: int, backup_count: int) -> str:
 
 
 def restore_now(*, transport=None, consent: "str | None" = None, override: bool = False,
-                now: "int | None" = None, github=_UNSET) -> dict:
+                now: "int | None" = None, github=_UNSET,
+                deadline_seconds: float = _FOREGROUND_DEADLINE_SECONDS) -> dict:
     """Restore the local ledger + index from the ROLLING backup head. Fetch -> format guard -> resurrection guard ->
     consent -> apply (under the writer lock). OVERWRITES local memory, so it is foreground + consent-gated. Fail-SAFE:
     the canonical ledger is untouched until the atomic rename, and every failure is a plain Floor-4 message, never a
     raise. `consent` ('y'/'n') bypasses the prompt for tests/demo; `override` proceeds past the resurrection guard;
     `github` is forwarded to surfacing (None => offline). Result: {ok, error, restored, message}."""
-    fetch = fetch_snapshot(transport=transport)
-    return _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github)
+    state = {"expired": False}
+    try:
+        deadline = time.monotonic() + max(0.0, float(deadline_seconds))
+    except (TypeError, ValueError):
+        deadline = time.monotonic()
+    fetch = fetch_snapshot(transport=transport, deadline=deadline, deadline_state=state)
+    return _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github,
+                               deadline=deadline, deadline_state=state)
 
 
 def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = None, override: bool = False,
-                          now: "int | None" = None, github=_UNSET) -> dict:
+                          now: "int | None" = None, github=_UNSET,
+                          deadline_seconds: float = _FOREGROUND_DEADLINE_SECONDS) -> dict:
     """Restore the local ledger from a retained PRE-MIGRATION snapshot TAG — the migration-revert recovery:
     after an engine upgrade pull request is reverted, engine code goes back but a `data` migration that already
     reshaped the gitignored store is not, so the store is ahead of the code; this restores the true pre-migration
@@ -519,8 +539,14 @@ def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = N
     message}."""
     if not (isinstance(tag, str) and tag.strip()):
         return {"ok": False, "error": "snapshot-missing", "restored": False, "message": _MSG_SNAPSHOT_MISSING}
-    fetch = fetch_snapshot(transport=transport, ref=("tags", tag))
-    result = _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github)
+    state = {"expired": False}
+    try:
+        deadline = time.monotonic() + max(0.0, float(deadline_seconds))
+    except (TypeError, ValueError):
+        deadline = time.monotonic()
+    fetch = fetch_snapshot(transport=transport, ref=("tags", tag), deadline=deadline, deadline_state=state)
+    result = _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github,
+                                 deadline=deadline, deadline_state=state)
     if result.get("ok"):
         # The store now holds the pre-update copy, so it is no longer ahead of the code — clear the reversibility
         # stamp so the code-older-than-data offer self-clears. Scoped to the migration-revert mode ONLY: a rolling
@@ -530,7 +556,7 @@ def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = N
 
 
 def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: bool = False,
-                        now: "int | None" = None, github=_UNSET) -> dict:
+                        now: "int | None" = None, github=_UNSET, deadline=None, deadline_state=None) -> dict:
     """The shared post-fetch restore pipeline BOTH restore modes run: format guard -> resurrection guard -> consent
     -> apply (under the writer lock). Takes an already-fetched `{ok, manifest, ledger_bytes, ...}` (from a rolling
     head OR a snapshot tag — the only difference is upstream, in which ref the fetch read). A failed fetch degrades
@@ -580,6 +606,11 @@ def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: 
     answer = consent if consent is not None else _ask_restore_consent(local_count, backup_count)
     if str(answer).strip().lower() not in ("y", "yes"):
         return {"ok": False, "declined": True, "restored": False, "message": _MSG_DECLINED}
+
+    if deadline is not None and time.monotonic() >= deadline:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
+        return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
 
     return _apply_restore(ledger_bytes, backup_gen, backup_count)
 
