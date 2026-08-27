@@ -35,6 +35,11 @@ These are your obligations, not a form to fill. Answer them; do not recite them.
 - What does a successful fix look like, concretely — and does the operator agree with that vision? If you
   cannot state the success condition in a sentence they would recognize, you are not ready to author.
 
+Planning is deliberative, not form filling. Before you commit to a shape, put the strongest case you can
+build AGAINST it: what a smaller change would achieve, what no change at all would cost, how this is most
+likely to fail, and — the one easiest to miss — whether the plan quietly turns your uncertainty into
+certainty by writing a guess down as a fact.
+
 ### 3. Ask with suggested answers, never with a bare need
 
 When an answer is genuinely the operator's to give, ask for it — and carry the work of the question. Offer
@@ -73,10 +78,11 @@ already recorded.
   delivered in one breath is not a stop, it is a formality wearing one.
 - **Then, once they are satisfied, the approval.** Offer only the review depths worth offering for this
   repository's installed reviewers — no reviewer installed is a disclosed no-extra-review result, never a
-  false green — and show the risk assessment in plain language: the headline, what it affects, what review
-  and validation will run or is unavailable, the care level the risk suggests, and any guardrail weakened.
-  Take the operator's approval in their own words. That single choice covers both the plan's cold review and
-  the Build's later one; consent is given once, here.
+  false green — and fill `.engine/templates/risk-assessment.md` in plain language. Follow that template
+  rather than paraphrasing it: it carries the rules this stop turns on, including that a care level follows
+  the risk and is never lowered to a depth the operator preferred earlier, that no time or cost is invented,
+  and how a weakened guardrail must be worded. Take the operator's approval in their own words. That single
+  choice covers both the plan's cold review and the Build's later one; consent is given once, here.
 - **One cold review, then its findings.** A plan gets exactly one cold panel. Adjudicate it yourself:
   accepting a concern is not accepting its remedy, and severity is advice that never selects a remedy for
   you. Synthesize the panel into one recommended call rather than relaying raw reviewer output, and return

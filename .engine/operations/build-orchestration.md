@@ -70,26 +70,33 @@ a `compact`-matcher hook re-grounds the fresh context (Claude only — see the p
 
 ### Where the plan lives
 
-In the local plan library, on this workstation, never on GitHub, and never reconstructed from a summary,
-transcript fragments, or implementation — see [Plan orchestration](plan-orchestration.md). An Issue may
-AUTHORIZE a Build, which is what `--issue` records, but authorization and plan authority are two artifacts
-and neither stands in for the other; no lifecycle event is a GitHub comment, and GitHub or network loss does
-not stop same-session local work.
+In the local plan library, on this workstation, and never on GitHub — see
+[Plan orchestration](plan-orchestration.md). Never reconstruct an approved plan from a summary, transcript
+fragments, or implementation. An Issue may AUTHORIZE a Build, which is what `--issue` records, but
+authorization and plan authority are two artifacts and neither stands in for the other; no lifecycle event is
+a GitHub comment, and GitHub or network loss does not stop same-session local work.
 
 The Build's own snapshot is durable and lives beside that sealed plan, so a killed Build resumes with its
 evidence intact — one atomically replaced, lock-protected document of current evidence, carrying no
-authority, found from the worktree or named outright with `--state <path>`. `status` derives the phase from
-it, and every checkpoint, review packet and submission preview receives the payload again and refuses a
-mismatch. Cold continuation is anchored on the sealed plan RECORD, so a Build whose executed plan was revised
-away from its seal cannot hand off cold at all: finish it in the session that holds it, or re-plan.
+authority, found from the worktree or named outright with `--state <path>`. It keeps the plan's id and
+digests, never the plan's content. `status` derives the phase from it, and every checkpoint, review packet
+and submission preview receives the payload again and refuses a mismatch.
+
+Cold continuation is anchored on the sealed plan RECORD. `handoff export --output <file>` writes the Build's
+own evidence, redacted, to a file; `handoff restore --input <file>` reads it back and re-verifies the plan in
+the library — same id, same sealed digest, same payload. Gone, unsealed or changed, and continuation is
+blocked rather than guessed at. A Build whose executed plan was revised away from its seal cannot hand off
+cold at all: finish it in the session that holds it, or re-plan.
 
 ### 2. Assess risk and approve the Build gate
 
 **Risk and depth are settled on the plan side, before the seal**, and
-[Plan orchestration](plan-orchestration.md) runs that stop: Run the knowledge impact check, offer only the
+[Plan orchestration](plan-orchestration.md) runs that stop: run the knowledge impact check, offer only the
 depths worth offering for this repository's installed reviewers (only Quick when no reviewers,
-StarshipSuperjam/engine-template#763), show the risk assessment in plain language, and take the operator's
-approval in their own words. No installed reviewer is a disclosed no-extra-review result, never a false green.
+StarshipSuperjam/engine-template#763), fill `.engine/templates/risk-assessment.md` in plain language, and
+take the operator's approval in their own words. No installed reviewer is a disclosed no-extra-review result,
+never a false green.
+
 **That one choice covers both gates**: it names the lenses the seal will require, and it is the depth this
 Build's deliverable review runs at, so consent is given once and given there. Depth scales EFFORT, not model
 (see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the
@@ -106,6 +113,7 @@ against the approved revision before the seal, and the seal refuses while the re
 approved depth's roster. A bound plan is a reviewed plan by construction, which is why this side has no
 plan-review gate and no waiver for one. Approve, seal and bind each refuse without the operator's decision in
 their own words; the trail is published in the pull request — a record of what was said, not proof that it was.
+
 Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
 be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
 escalated — with whether it still blocks recorded separately. Severity alone never blocks. Before involving the

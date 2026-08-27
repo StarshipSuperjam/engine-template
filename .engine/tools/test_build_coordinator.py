@@ -3567,15 +3567,23 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # agreement to begin, and the /autocompact recommendation is made once here rather than
         # nagged at every seal. Earlier revisions spent this same budget on a boundary detector and
         # then a required-answer gate, both cut; the cap is the file's exact measurement each time.
-        # 286 -> 251, the first RATCHET DOWN. The plan lifecycle's judgment half moved to its own
+        # 286 -> 259, the first RATCHET DOWN. The plan lifecycle's judgment half moved to its own
         # runbook (plan-orchestration.md, StarshipSuperjam/engine-template#1097 finding 1): the seal
         # hand-back, the depths/risk/approve gate detail, the plan-review narration and the
         # plan-library seam now live there, and what stays here is a pointer carrying the Build-side
         # consequence. The operator priced that move as a SWAP — the new runbook's raised ceiling was
         # bought with these lines — so leaving the cap at 286 would have handed the traded lines
         # straight back as slack. Lowering it is what makes the trade hold.
+        # The number is 259 and not the 251 first committed because a deliverable reviewer caught the
+        # compression going too far: reaching that figure had also deleted BUILD-side discipline —
+        # `handoff export`/`handoff restore` and their sealed-plan re-verification, which after the cut
+        # appeared in no runbook at all while routine-entry.md still sent a cold session to "the
+        # exported handoff", and the data-minimisation rule that the snapshot keeps digests and never
+        # the plan's content. Those are restored here, which is what a ratchet measured against real
+        # content costs when the content comes back. Do not read the raise as slack: it is 8 lines of
+        # Build-side rules with a named home, not room to grow into.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 251)
+        self.assertLessEqual(len(text.splitlines()), 259)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -3655,13 +3663,15 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # operator's four rules — six lines, an offer, never /clear, recommend /autocompact once) both
         # ship, and the file measures exactly this. Neither side's prose was trimmed to fit the other's
         # cap.
-        # 4058 -> 3614, the word half of the same ratchet DOWN as the line cap above: the plan-side
+        # 4058 -> 3666, the word half of the same ratchet DOWN as the line cap above: the plan-side
         # prose that left for plan-orchestration.md took its words with it, and the operator's swap is
         # only real if the ceiling follows the file down. The preservation-source ratio (448/6296) is
         # unchanged, and every phrase pinned below still reads from this file — the hand-back's
         # "an offer, not a gate" among them, kept here because the Build-side consequence stays even
-        # though the pause itself is now taught upstream.
-        self.assertLessEqual(len(text.split()), 3608)
+        # though the pause itself is now taught upstream. Like the line cap, this settled ABOVE the
+        # figure first committed (3614): the same reviewer finding restored the cold-handoff and
+        # data-minimisation rules, and both numbers are the file's exact measurement with them back.
+        self.assertLessEqual(len(text.split()), 3666)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
