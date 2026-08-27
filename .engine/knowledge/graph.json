@@ -5039,7 +5039,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:e15bc33b5166cd96a82e476f9216e353b7611d6861946fba5b2048292888b93b",
+        "fingerprint": "sha256:2f67d9147473b7d751b1b0051d82bf34d16994a785951c1bf39251910a7dab40",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -5591,7 +5591,7 @@
       },
       "slug": "close-turn",
       "source": {
-        "fingerprint": "sha256:106fcd5fe70b4ff780e4b6c99428ef1898cf126a7f112b45c9def17340d5fad9",
+        "fingerprint": "sha256:cdc9060189a693670e30dfb7a3776b862c8fce341b8f1069c972ddb7ea3ae492",
         "path": ".engine/operations/close-turn.md"
       },
       "status": "active",
@@ -6234,7 +6234,7 @@
       },
       "slug": "escalation",
       "source": {
-        "fingerprint": "sha256:11a0007dc70b69d7bb86c637d8662c69027cd9e966ed6f10fa019834e020e006",
+        "fingerprint": "sha256:62c967d0e68909999a43d9e16713068ea5a944f3e12c21436490c73158fb88c3",
         "path": ".engine/policies/escalation.md"
       },
       "status": "active",
@@ -6379,7 +6379,7 @@
       },
       "slug": "session-economy",
       "source": {
-        "fingerprint": "sha256:ce16c9b86f62e47ed4df7ac68044fc0edf523be6a8e2f2d9c306dd3fc5376280",
+        "fingerprint": "sha256:f3a790078d6208defcb296b11477cd39c63b954bc4469ff448f7ab2c418c47dc",
         "path": ".engine/policies/session-economy.md"
       },
       "status": "active",
@@ -6518,6 +6518,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:build-continuity-state.v1",
+      "name": ".engine/schemas/build-continuity-state.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-continuity-state.v1",
+      "source": {
+        "fingerprint": "sha256:2c07ac418349c8e12c209f3886536b77c10cddc4f389d898668c68ae145fc030",
+        "path": ".engine/schemas/build-continuity-state.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:build-findings-batch.v1",
       "name": ".engine/schemas/build-findings-batch.v1.json",
       "owner": "core",
@@ -6647,7 +6664,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:059a25d09c398239c1ba6a39587a319e6cf7fa9708f25f5173bc0cf5dc6e0653",
+        "fingerprint": "sha256:775f429f85dae30a8278cdb8993c5d71fcdabdefe73f8faf18a4db754555bb0d",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -8947,6 +8964,31 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:build_continuity",
+      "name": ".engine/tools/build_continuity.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator_core",
+          "tool:build_state_store",
+          "tool:plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_continuity",
+      "source": {
+        "fingerprint": "sha256:b945309b5186ae3752edc696d51b728abeb609120895cfc617e4753a7662793f",
+        "path": ".engine/tools/build_continuity.py"
+      },
+      "status": "active",
+      "summary": "One atomic corrective Stop continuation for an actionable Build epoch.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": false,
       "id": "tool:build_coordinator",
@@ -8985,7 +9027,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c004b09335e39922e2bf3c9b86bf28c893543459968e2ae1adcf94bbe0eb814e",
+        "fingerprint": "sha256:92c9279ce0ba4678ba928535b16f9fc679ac9a3cd30c454a4033514328a636e5",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9476,6 +9518,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:build_continuity",
           "tool:capture",
           "tool:hooks",
           "tool:ledger",
@@ -9490,7 +9533,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:966ea02f11a3cc7251099dd80458eda770301efc6d7d9124eeaef25490a5cd60",
+        "fingerprint": "sha256:0f11b594314df7318c04ad1c68ff46ca26a028705b6c09ccca45de2eab1c4c0e",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -11740,7 +11783,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:85732e9ac8a4d1fa747af7d764640fbabd9b2fb3d312834ffeef1ac5ca16347f",
+        "fingerprint": "sha256:f954c170f83351a497e8247c67e20bb2e128e3acbf30a2c8459e954fb793e39f",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -14222,7 +14265,7 @@
       },
       "slug": "session_economy",
       "source": {
-        "fingerprint": "sha256:11560305898d87593be3f002b3fd590509003903f5643f9e5c860d125fa4af95",
+        "fingerprint": "sha256:9fe1889d6f49eefe017079188053022f45f3c70f0fa0999432449dfff6e41e99",
         "path": ".engine/tools/session_economy.py"
       },
       "status": "active",
@@ -15311,7 +15354,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:31d8cc7174fc07092e7b0785f903b27e106b07420ed0e431b8ba075f63a944ce",
+        "fingerprint": "sha256:8d33147cd42b167e357d0cc4fed6d8aa4ea6defb35ad9df38130ee570f2e8d9f",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -16326,7 +16369,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:bfb22eb716926290be989532015fca020d517b1d31bfe692eb3433d96873c267",
+        "fingerprint": "sha256:a67ae9ba34cb7beeaeabcd3cb4f7c569b772461aeff6b4589d028db99500b04e",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -18965,7 +19008,7 @@
       },
       "slug": "test_session_economy",
       "source": {
-        "fingerprint": "sha256:ebb6aca238af1320bfd9e5a02a5c9873dbde4004dbcd244f124f6c8045237453",
+        "fingerprint": "sha256:54f09144bf7fcc6cc92a464631c3c5bb464f66e9aa465436e9c758365ace738f",
         "path": ".engine/tools/test_session_economy.py"
       },
       "status": "active",
