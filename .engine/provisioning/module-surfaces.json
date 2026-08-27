@@ -999,9 +999,6 @@
   ".engine/schemas/audit-finding.v1.json": [
    "core"
   ],
-  ".engine/schemas/build-continuity-state.v1.json": [
-   "core"
-  ],
   ".engine/schemas/build-findings-batch.v1.json": [
    "core"
   ],
@@ -1230,9 +1227,6 @@
   ".engine/tools/bootstrap.py": [
    "core"
   ],
-  ".engine/tools/build_continuity.py": [
-   "core"
-  ],
   ".engine/tools/build_coordinator.py": [
    "core"
   ],
@@ -1354,9 +1348,6 @@
    "core"
   ],
   ".engine/tools/demo_actionlint.py": [
-   "core"
-  ],
-  ".engine/tools/demo_active_build_continuity.py": [
    "core"
   ],
   ".engine/tools/demo_attention_live_dials.py": [
