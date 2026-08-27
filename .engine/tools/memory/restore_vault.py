@@ -33,7 +33,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 
 _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -71,6 +73,10 @@ def _fetch_blob(gh, owner: str, repo: str, sha, *, max_bytes=None, deadline=None
     doubt."""
     if not (isinstance(sha, str) and sha):
         return None
+    if deadline is not None and time.monotonic() >= deadline:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
+        return None
     obj = bv._get(gh, f"/repos/{owner}/{repo}/git/blobs/{sha}", deadline=deadline,
                   deadline_state=deadline_state)
     if not isinstance(obj, dict) or obj.get("encoding") != "base64" or not isinstance(obj.get("content"), str):
@@ -96,6 +102,10 @@ def _fetch_blob(gh, owner: str, repo: str, sha, *, max_bytes=None, deadline=None
     try:
         raw = base64.b64decode(compact, validate=True)
     except Exception:  # noqa: BLE001 — undecodable -> reject (never a partial write)
+        return None
+    if deadline is not None and time.monotonic() >= deadline:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
         return None
     if bv._git_blob_sha1(raw) != sha:                    # Merkle integrity: the bytes ARE what the tree points at
         return None
@@ -187,6 +197,10 @@ def fetch_snapshot(*, transport=None, ref=None, deadline=None, deadline_state=No
             migration_keys = legacy_keys | {"migration-id", "kind"}
             if set(manifest) not in (legacy_keys, migration_keys):
                 return {"ok": False, "error": "corrupt"}
+            expected = {f"{namespace}/manifest.json", f"{namespace}/ledger.ndjson"}
+            mine = {path for path in entries if isinstance(path, str) and path.startswith(namespace + "/")}
+            if mine != expected:
+                return {"ok": False, "error": "corrupt"}
             ledger_bytes = _fetch_blob(gh, owner, repo, led_entry.get("sha"),
                                        max_bytes=snapshot_format.MAX_UNCOMPRESSED_BYTES, deadline=deadline,
                                        deadline_state=deadline_state) if isinstance(led_entry, dict) else None
@@ -221,7 +235,12 @@ def fetch_snapshot(*, transport=None, ref=None, deadline=None, deadline_state=No
             parts.append(raw)
         try:
             ledger_bytes = snapshot_format.decode(codec_manifest, parts,
-                                                  request_limit=snapshot_format.PART_REQUEST_BYTES)
+                                                  request_limit=snapshot_format.PART_REQUEST_BYTES,
+                                                  deadline=deadline)
+        except snapshot_format.SnapshotDeadlineError:
+            if deadline_state is not None:
+                deadline_state["expired"] = True
+            return {"ok": False, "error": "deadline"}
         except snapshot_format.SnapshotError:
             return {"ok": False, "error": "corrupt"}
         return {"ok": True, "error": None, "ledger_bytes": ledger_bytes, "manifest": manifest,
@@ -567,6 +586,16 @@ def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: 
     when = int(time.time()) if now is None else int(now)
     manifest, ledger_bytes = fetch["manifest"], fetch["ledger_bytes"]
 
+    def deadline_check():
+        if deadline is not None and time.monotonic() >= deadline:
+            if deadline_state is not None:
+                deadline_state["expired"] = True
+            return True
+        return False
+
+    if deadline_check():
+        return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
+
     backup_version = manifest.get("ledger-version")
     # Proceed only on a genuine exact match with the current record shape (an int, never a bool coerced to 1). Any
     # other value — an older or newer shape, or a malformed one — routes through the migrations home, which declines
@@ -587,6 +616,8 @@ def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: 
             print(f"restore: a saved-memory format step failed and was not applied ({exc}); leaving memory unchanged",
                   file=sys.stderr)
             return {"ok": False, "error": "migration-failed", "restored": False, "message": _MSG_VERSION_MISMATCH}
+        if deadline_check():
+            return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
     backup_gen = manifest.get("ledger-generation")
     if not (isinstance(backup_gen, int) and not isinstance(backup_gen, bool) and backup_gen >= 0):
         return {"ok": False, "error": "bad-manifest", "restored": False, "message": _MSG_BAD_MANIFEST}
@@ -603,6 +634,8 @@ def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: 
 
     local_count = _local_record_count()
     backup_count = _count_lines(ledger_bytes)
+    if deadline_check():
+        return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
     answer = consent if consent is not None else _ask_restore_consent(local_count, backup_count)
     if str(answer).strip().lower() not in ("y", "yes"):
         return {"ok": False, "declined": True, "restored": False, "message": _MSG_DECLINED}
@@ -612,10 +645,12 @@ def _restore_from_fetch(fetch: dict, *, consent: "str | None" = None, override: 
             deadline_state["expired"] = True
         return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
 
-    return _apply_restore(ledger_bytes, backup_gen, backup_count)
+    return _apply_restore(ledger_bytes, backup_gen, backup_count,
+                          deadline=deadline, deadline_state=deadline_state)
 
 
-def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int) -> dict:
+def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
+                   deadline=None, deadline_state=None) -> dict:
     """The crash-safe, serialized swap. Under the single-writer lock: write a validated sibling temp -> remove the
     existing index (so once it is gone, any concurrent query scans the live ledger and cannot trust a stale index
     over the swapped one, for any generation relationship) -> atomic replace -> stamp the backup's generation ->
@@ -629,23 +664,46 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int) -> d
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:                                  # a live capture / compaction holds it — restore can't retry
         return {"ok": False, "error": "busy", "restored": False, "message": _MSG_BUSY}
-    tmp = os.path.join(data_dir, _RESTORE_TMP)
+    staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=data_dir)
+    tmp = os.path.join(staging, _RESTORE_TMP)
+    staged_index = os.path.join(staging, os.path.basename(index.index_path()))
+
+    def deadline_check():
+        if deadline is not None and time.monotonic() >= deadline:
+            if deadline_state is not None:
+                deadline_state["expired"] = True
+            raise snapshot_format.SnapshotDeadlineError("restore deadline expired")
+
     try:
         with open(tmp, "wb") as fh:
-            fh.write(ledger_bytes)
+            for offset in range(0, len(ledger_bytes), snapshot_format._COPY_CHUNK_BYTES):
+                deadline_check()
+                fh.write(ledger_bytes[offset:offset + snapshot_format._COPY_CHUNK_BYTES])
+            fh.flush()
+            os.fsync(fh.fileno())
+        deadline_check()
         chk = ledger.read(path=tmp)                      # completeness: a complete, parseable ledger only
+        deadline_check()
         if chk.torn_trailing or chk.malformed or (ledger_bytes and not chk.records):
-            _quiet_remove(tmp)
             return {"ok": False, "error": "corrupt", "restored": False, "message": _MSG_CORRUPT}
+        # Build every expensive derived byte before touching the canonical store.
+        ledger.set_generation(backup_gen, for_path=tmp)
+        report = index.rebuild(ledger_file=tmp, index_file=staged_index)
+        deadline_check()
+        # From this point onward only bounded atomic swaps remain. Until this
+        # check passes, a deadline refusal has made no canonical mutation.
         _quiet_remove(index.index_path())                # drop the stale index for the swap window
         ledger.replace_ledger(tmp, path=ledger.ledger_path())   # fsync temp -> atomic rename -> fsync dir
         ledger.set_generation(backup_gen)                # the restored content carries the backup's TRUE generation
-        index.rebuild()                                  # rebuild from the restored ledger, re-stamp the generation
+        if report.fts5 and os.path.exists(staged_index):
+            os.replace(staged_index, index.index_path())
         return {"ok": True, "error": None, "restored": True, "message": _restored_msg(backup_count)}
+    except snapshot_format.SnapshotDeadlineError:
+        return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
     except Exception:  # noqa: BLE001 — any fault leaves the canonical ledger as it was before the rename
-        _quiet_remove(tmp)
         return {"ok": False, "error": "apply-failed", "restored": False, "message": _MSG_APPLY_FAILED}
     finally:
+        shutil.rmtree(staging, ignore_errors=True)
         capture._release_lock(lock_fd)
 
 

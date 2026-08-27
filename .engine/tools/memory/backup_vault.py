@@ -437,7 +437,8 @@ def _create_blob(gh, base: str, content: bytes) -> "str | None":
     return sha if isinstance(sha, str) and sha else None
 
 
-def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, message: str) -> "str | None":
+def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, message: str,
+                  replace_namespace: "str | None" = None) -> "str | None":
     """Build a commit carrying `files` (path -> bytes) on top of `branch`'s current tip, preserving every other path
     via base_tree — the shared blob -> tree -> commit machinery. Returns the new commit sha, NOT yet referenced by any
     ref, or None on any failure. The rolling push then advances refs/heads to it; the retained pre-migration snapshot
@@ -452,6 +453,15 @@ def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, messag
     if not (isinstance(base_tree, str) and base_tree):
         return None
     tree = []
+    if replace_namespace is not None:
+        before = _get(gh, f"{base}/git/trees/{base_tree}?recursive=1")
+        old_entries = (before or {}).get("tree") if isinstance(before, dict) else None
+        if not isinstance(old_entries, list):
+            return None
+        tree.extend({"path": entry["path"], "mode": "100644", "type": "blob", "sha": None}
+                    for entry in old_entries if isinstance(entry, dict)
+                    and isinstance(entry.get("path"), str)
+                    and entry["path"].startswith(replace_namespace + "/"))
     for path, content in files.items():
         blob_sha = _create_blob(gh, base, content)
         if blob_sha is None:
@@ -498,6 +508,53 @@ def _deadline_send(gh, method, path, body, deadline, *, deadline_state=None):
     return result
 
 
+def _deadline_check(deadline, deadline_state=None):
+    if deadline is not None and time.monotonic() >= deadline:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
+        raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
+
+
+def _read_ledger_bytes(path: str, *, deadline, deadline_state) -> bytes:
+    """Read the canonical ledger in bounded chunks under the publication deadline."""
+    out = bytearray()
+    try:
+        with open(path, "rb") as source:
+            while True:
+                _deadline_check(deadline, deadline_state)
+                chunk = source.read(snapshot_format._COPY_CHUNK_BYTES)
+                if not chunk:
+                    break
+                out.extend(chunk)
+                if len(out) > snapshot_format.MAX_UNCOMPRESSED_BYTES:
+                    raise snapshot_format.SnapshotLimitError("ledger size exceeds the v2 limit")
+    except FileNotFoundError:
+        return b""
+    _deadline_check(deadline, deadline_state)
+    return bytes(out)
+
+
+def _verified_blob_response(blob, sha: str, expected: bytes) -> bool:
+    """Verify GitHub's blob bytes, accepting its documented whitespace wrapping."""
+    if not isinstance(blob, dict) or blob.get("sha") != sha or blob.get("encoding") != "base64":
+        return False
+    text = blob.get("content")
+    if not isinstance(text, str):
+        return False
+    encoded_limit = 4 * ((len(expected) + 2) // 3)
+    wrapped_limit = encoded_limit + 2 * ((encoded_limit + 59) // 60) + 2
+    if len(text) > wrapped_limit:
+        return False
+    compact = "".join(ch for ch in text if ch not in " \t\r\n")
+    if len(compact) != encoded_limit:
+        return False
+    try:
+        actual = base64.b64decode(compact, validate=True)
+    except Exception:  # noqa: BLE001 — malformed readback never advances the ref
+        return False
+    return actual == expected and _git_blob_sha1(actual) == sha
+
+
 def _publish_snapshot(gh, owner: str, repo: str, branch: str, namespace: str, snapshot: dict,
                       *, retry: bool = True, deadline=None, deadline_state=None) -> bool:
     """Build and verify a whole snapshot before atomically moving the branch ref.
@@ -539,9 +596,7 @@ def _publish_snapshot(gh, owner: str, repo: str, branch: str, namespace: str, sn
             return False
         status, check = _deadline_send(gh, "GET", f"{base}/git/blobs/{sha}", None, deadline,
                                        deadline_state=deadline_state)
-        if (status != 200 or (check or {}).get("sha") != sha
-                or (check or {}).get("encoding") != "base64"
-                or (check or {}).get("content") != base64.b64encode(content).decode("ascii")):
+        if status != 200 or not _verified_blob_response(check, sha, content):
             return False
         tree.append({"path": path, "mode": "100644", "type": "blob", "sha": sha})
     status, made_tree = _deadline_send(gh, "POST", f"{base}/git/trees", {"base_tree": base_tree, "tree": tree},
@@ -683,7 +738,7 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
     migration-time version); None stamps the live `engine.json` value.
 
     Result: {ok, error, pushed, namespace}. error in {None, not-configured, no-token, unreachable, public,
-    deadline, push-failed}; namespace is the vault path the snapshot landed under (None on failure)."""
+    deadline, snapshot-too-large, push-failed}; namespace is the vault path the snapshot landed under (None on failure)."""
     when = int(time.time()) if now is None else int(now)
     deadline_state = {"expired": False}
     try:
@@ -708,12 +763,13 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
 
     lpath = ledger.ledger_path()
     try:
-        with open(lpath, "rb") as fh:
-            ledger_bytes = fh.read()
-    except FileNotFoundError:
-        ledger_bytes = b""                                  # the substrate ships empty — a valid empty backup
-    try:
-        snapshot = snapshot_format.encode(ledger_bytes)
+        ledger_bytes = _read_ledger_bytes(lpath, deadline=deadline, deadline_state=deadline_state)
+        snapshot = snapshot_format.encode(ledger_bytes, deadline=deadline)
+    except snapshot_format.SnapshotDeadlineError:
+        deadline_state["expired"] = True
+        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+    except snapshot_format.SnapshotLimitError:
+        return {"ok": False, "error": "snapshot-too-large", "pushed": False, "namespace": None}
     except snapshot_format.SnapshotError:
         return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
     # The rolling publication preserves the legacy ledger metadata.  It shares
@@ -776,7 +832,8 @@ def snapshot_for_migration(store, engine_version, *, migration_id=None, reversib
     manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
     files = {f"{namespace}/ledger.ndjson": ledger_bytes, f"{namespace}/manifest.json": manifest_bytes}
 
-    commit_sha = _build_commit(gh, owner, repo, branch, files, message=_SNAPSHOT_COMMIT_MESSAGE)
+    commit_sha = _build_commit(gh, owner, repo, branch, files, message=_SNAPSHOT_COMMIT_MESSAGE,
+                               replace_namespace=namespace)
     if commit_sha is None:
         return None
     tag_name = _snapshot_tag_name(namespace, disc)
@@ -963,6 +1020,12 @@ _HEADS_UP_DEADLINE = (
     "INFORM THE USER, in plain language: the memory backup stopped at its 10-second session-start limit, so the "
     "prior complete backup remains current and the session could continue. Your memory on this computer is safe "
     "and complete. One thing to try: ask me to \"back up memory now\" for the longer foreground attempt.")
+
+_HEADS_UP_TOO_LARGE = (
+    "INFORM THE USER, in plain language: this project's saved memory is larger than the backup format supports "
+    "(512 MiB before compression or 128 MiB after compression), so the prior complete backup remains current and "
+    "may be behind the latest notes. Your memory on this computer is safe and complete. One thing to try: ask me "
+    "to inspect and compact saved memory before backing it up again.")
 
 
 def _heads_up_public() -> str:
@@ -1237,6 +1300,8 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
                     msg = _heads_up_public()
             elif err == "deadline":
                 msg = _HEADS_UP_DEADLINE
+            elif err == "snapshot-too-large":
+                msg = _HEADS_UP_TOO_LARGE
             elif err in ("push-failed", "unreachable"):
                 msg = _HEADS_UP_PUSH_FAILED
         if msg:
@@ -1268,6 +1333,10 @@ def _now_message(result: dict) -> str:
     if err == "deadline":
         return ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains current, "
                 "and your memory on this computer is safe and complete. Try again when GitHub is responding normally.")
+    if err == "snapshot-too-large":
+        return ("I couldn't update the backup because this project's saved memory is larger than the supported "
+                "512 MiB uncompressed or 128 MiB compressed snapshot limit. The prior complete backup remains "
+                "current and your local memory is safe. Ask me to inspect and compact saved memory, then retry.")
     if err in ("push-failed", "unreachable"):
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. Try "
                 "again when you have a steady internet connection.")

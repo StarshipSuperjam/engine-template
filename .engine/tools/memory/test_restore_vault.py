@@ -27,6 +27,16 @@ from memory import ledger_migrations as lm  # noqa: E402
 from memory import restore_vault as rv  # noqa: E402
 
 
+# Literal bytes from the original single-blob v1 wire format. These are not
+# produced by current helpers: changing a writer cannot silently rewrite the
+# compatibility oracle.
+_LEGACY_V1_LEDGER = b'{"kind":"turn-delta","text":"legacy fixture"}\n'
+_LEGACY_V1_MANIFEST = (
+    b'{"engine-version":"1.2.3","ledger-generation":0,"ledger-version":1,'
+    b'"timestamp":"1970-01-01T00:00:00Z"}'
+)
+
+
 def _rb(path: str) -> bytes:
     with open(path, "rb") as fh:
         return fh.read()
@@ -125,20 +135,60 @@ class RoundTripTests(_Base):
         self.assertEqual(_rb(ledger.ledger_path()), original)
 
     def test_immutable_legacy_v1_fixture_remains_readable(self):
-        ledger.append({"kind": "turn-delta", "text": "legacy fixture"})
-        original = _rb(ledger.ledger_path())
         fake = bv._FakeVault()
         self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
         pointer = bv.read_pointer()
-        manifest = bv.build_manifest(ledger_path=ledger.ledger_path(), now=0)
         self._install_files(fake, {
-            f"{pointer['namespace']}/ledger.ndjson": original,
-            f"{pointer['namespace']}/manifest.json": json.dumps(manifest, sort_keys=True).encode(),
+            f"{pointer['namespace']}/ledger.ndjson": _LEGACY_V1_LEDGER,
+            f"{pointer['namespace']}/manifest.json": _LEGACY_V1_MANIFEST,
         })
         self._wipe_local()
         result = rv.restore_now(transport=fake.transport, consent="y", github=None)
         self.assertTrue(result["ok"])
-        self.assertEqual(_rb(ledger.ledger_path()), original)
+        self.assertEqual(_rb(ledger.ledger_path()), _LEGACY_V1_LEDGER)
+
+    def test_legacy_v1_refuses_extra_and_traversal_paths_without_mutation(self):
+        for extra in ("extra.bin", "../escape"):
+            with self.subTest(extra=extra):
+                self._wipe_local()
+                rv._quiet_remove(bv._pointer_path())
+                ledger.append({"kind": "turn-delta", "text": "local survives"})
+                before = _rb(ledger.ledger_path())
+                fake = bv._FakeVault()
+                self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+                pointer = bv.read_pointer()
+                self._install_files(fake, {
+                    f"{pointer['namespace']}/ledger.ndjson": _LEGACY_V1_LEDGER,
+                    f"{pointer['namespace']}/manifest.json": _LEGACY_V1_MANIFEST,
+                    f"{pointer['namespace']}/{extra}": b"must not be accepted",
+                })
+                result = rv.restore_now(transport=fake.transport, consent="y", github=None)
+                self.assertEqual(result["error"], "corrupt")
+                self.assertEqual(_rb(ledger.ledger_path()), before)
+
+    def test_deadline_during_staged_index_build_refuses_before_local_mutation(self):
+        ledger.append({"kind": "turn-delta", "text": "local survives deadline"})
+        before = _rb(ledger.ledger_path())
+        fetch = {
+            "ok": True,
+            "manifest": {"ledger-version": 1, "ledger-generation": 0,
+                         "timestamp": "1970-01-01T00:00:00Z", "engine-version": "1.2.3"},
+            "ledger_bytes": _LEGACY_V1_LEDGER,
+        }
+        expired = {"now": 0.0}
+        real_rebuild = index.rebuild
+
+        def delayed_rebuild(*args, **kwargs):
+            report = real_rebuild(*args, **kwargs)
+            expired["now"] = 2.0
+            return report
+
+        with mock.patch.object(rv.time, "monotonic", side_effect=lambda: expired["now"]), \
+                mock.patch.object(index, "rebuild", side_effect=delayed_rebuild):
+            result = rv._restore_from_fetch(fetch, consent="y", override=True, github=None, deadline=1.0,
+                                            deadline_state={"expired": False})
+        self.assertEqual(result["error"], "deadline")
+        self.assertEqual(_rb(ledger.ledger_path()), before)
 
 
 class MultipartRefusalTests(_Base):

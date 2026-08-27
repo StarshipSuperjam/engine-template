@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import io
 import json
+import time
 from typing import Iterable, Sequence
 
 SNAPSHOT_FORMAT = 2
@@ -41,12 +42,21 @@ class SnapshotValidationError(SnapshotError):
     code = "snapshot-invalid"
 
 
+class SnapshotDeadlineError(SnapshotError):
+    code = "snapshot-deadline"
+
+
 def _refuse(kind, message: str):
     raise kind(message)
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _check_deadline(deadline, clock=None) -> None:
+    if deadline is not None and (time.monotonic() if clock is None else clock()) >= deadline:
+        _refuse(SnapshotDeadlineError, "snapshot deadline expired")
 
 
 def part_name(index: int) -> str:
@@ -127,7 +137,8 @@ def _validate_manifest(manifest, *, request_limit: int) -> list[dict]:
     return parts
 
 
-def encode_snapshot(ledger_bytes: bytes, *, request_limit: int = PART_REQUEST_BYTES) -> dict:
+def encode_snapshot(ledger_bytes: bytes, *, request_limit: int = PART_REQUEST_BYTES,
+                    deadline=None, clock=None) -> dict:
     """Return deterministic ``{'manifest': ..., 'parts': [...]}`` for ledger bytes.
 
     The encoder keeps one compressed buffer while splitting it.  The decoder
@@ -138,8 +149,19 @@ def encode_snapshot(ledger_bytes: bytes, *, request_limit: int = PART_REQUEST_BY
         _refuse(SnapshotValidationError, "ledger bytes are required")
     if len(ledger_bytes) > MAX_UNCOMPRESSED_BYTES:
         _refuse(SnapshotLimitError, "ledger size exceeds the v2 limit")
+    _check_deadline(deadline, clock)
     raw_limit = _validate_limit(request_limit)
-    compressed = gzip.compress(ledger_bytes, compresslevel=6, mtime=0)
+    compressed_file = io.BytesIO()
+    try:
+        with gzip.GzipFile(fileobj=compressed_file, mode="wb", compresslevel=6, mtime=0) as target:
+            for offset in range(0, len(ledger_bytes), _COPY_CHUNK_BYTES):
+                _check_deadline(deadline, clock)
+                target.write(ledger_bytes[offset:offset + _COPY_CHUNK_BYTES])
+                _check_deadline(deadline, clock)
+    except SnapshotError:
+        raise
+    compressed = compressed_file.getvalue()
+    _check_deadline(deadline, clock)
     if len(compressed) > MAX_COMPRESSED_BYTES:
         _refuse(SnapshotLimitError, "compressed size exceeds the v2 limit")
     count = max(1, (len(compressed) + raw_limit - 1) // raw_limit)
@@ -188,7 +210,8 @@ class _PartReader(io.RawIOBase):
         return 0
 
 
-def decode_snapshot(manifest, parts: Iterable[bytes], *, request_limit: int = PART_REQUEST_BYTES) -> bytes:
+def decode_snapshot(manifest, parts: Iterable[bytes], *, request_limit: int = PART_REQUEST_BYTES,
+                    deadline=None, clock=None) -> bytes:
     """Strictly validate and decode a v1 snapshot without joining its parts."""
     entries = _validate_manifest(manifest, request_limit=request_limit)
     # Do not turn an untrusted iterable into an unbounded tuple: a caller can
@@ -210,6 +233,7 @@ def decode_snapshot(manifest, parts: Iterable[bytes], *, request_limit: int = PA
     supplied = tuple(supplied_list)
     whole = hashlib.sha256()
     for entry, part in zip(entries, supplied):
+        _check_deadline(deadline, clock)
         if not isinstance(part, bytes) or len(part) != entry["bytes"] or _sha256(part) != entry["sha256"]:
             _refuse(SnapshotValidationError, "part bytes do not match manifest")
         if encoded_request_size(part) > request_limit:
@@ -222,17 +246,20 @@ def decode_snapshot(manifest, parts: Iterable[bytes], *, request_limit: int = PA
     try:
         with gzip.GzipFile(fileobj=reader, mode="rb") as source:
             while True:
+                _check_deadline(deadline, clock)
                 chunk = source.read(_COPY_CHUNK_BYTES)
                 if not chunk:
                     break
                 if output.tell() + len(chunk) > MAX_UNCOMPRESSED_BYTES:
                     _refuse(SnapshotLimitError, "decompression exceeds the v2 limit")
                 output.write(chunk)
+                _check_deadline(deadline, clock)
     except SnapshotError:
         raise
     except (OSError, EOFError):
         _refuse(SnapshotValidationError, "gzip payload is invalid")
     ledger_bytes = output.getvalue()
+    _check_deadline(deadline, clock)
     if len(ledger_bytes) != manifest["ledger-bytes"] or _sha256(ledger_bytes) != manifest["ledger-sha256"]:
         _refuse(SnapshotValidationError, "ledger digest does not match manifest")
     return ledger_bytes

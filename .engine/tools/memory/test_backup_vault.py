@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools
 import validate  # noqa: E402
@@ -219,6 +220,16 @@ class PushTests(_Base):
         self.assertFalse(fake.pushed_ledger_via_contents)            # the ledger NEVER goes via the 1MB Contents API
         self.assertTrue(fake.blobs)                                  # it went via Git Data blobs
 
+    def test_local_ledger_read_observes_the_same_absolute_deadline(self):
+        with open(ledger.ledger_path(), "wb") as fh:
+            fh.write(b"x" * (bv.snapshot_format._COPY_CHUNK_BYTES * 3))
+        state = {"expired": False}
+        ticks = iter((0.0, 2.0))
+        with mock.patch.object(bv.time, "monotonic", side_effect=lambda: next(ticks, 2.0)):
+            with self.assertRaises(bv.snapshot_format.SnapshotDeadlineError):
+                bv._read_ledger_bytes(ledger.ledger_path(), deadline=1.0, deadline_state=state)
+        self.assertTrue(state["expired"])
+
     def test_throttle_gates_on_last_success(self):
         self.assertTrue(bv._should_push(10_000))                    # no state -> push now
         bv._record_state(now=100_000, success=True, privacy_ok=True)
@@ -256,6 +267,38 @@ class PushTests(_Base):
         self.assertEqual(len(make(raw)), bv.snapshot_format.encoded_request_size(b"x" * raw))
         self.assertLessEqual(len(make(raw)), bv.snapshot_format.PART_REQUEST_BYTES)
         self.assertGreater(len(make(raw + 1)), bv.snapshot_format.PART_REQUEST_BYTES)
+
+    def test_publisher_accepts_github_wrapped_base64_readback(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer()
+
+        def transport(method, path, body=None):
+            status, response = fake.transport(method, path, body)
+            if method == "GET" and "/git/blobs/" in path and isinstance(response, dict):
+                response = dict(response)
+                text = response.get("content", "")
+                response["content"] = "\n".join(text[i:i + 60] for i in range(0, len(text), 60))
+            return status, response
+
+        snapshot = bv.snapshot_format.encode(b"wrapped base64 remains the same bytes")
+        self.assertTrue(bv._publish_snapshot(bv._gh(transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                             ptr["namespace"], snapshot))
+
+    def test_snapshot_limit_has_typed_operator_guidance_and_keeps_prior_head(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        before = fake.refs[key]
+        with mock.patch.object(bv.snapshot_format, "MAX_UNCOMPRESSED_BYTES", 1):
+            ledger.append({"kind": "turn-delta", "text": "too large"})
+            result = bv.push_now(transport=fake.transport)
+        self.assertEqual(result["error"], "snapshot-too-large")
+        self.assertEqual(fake.refs[key], before)
+        message = bv._now_message(result)
+        self.assertIn("512 MiB", message)
+        self.assertIn("compact", message)
+        self.assertNotIn("internet", message)
 
     def test_multipart_publication_preserves_foreign_and_removes_only_its_stale_paths(self):
         fake = bv._FakeVault()

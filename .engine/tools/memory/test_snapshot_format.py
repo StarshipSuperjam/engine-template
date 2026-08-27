@@ -21,6 +21,17 @@ class RoundTrips(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(sf.decode(first["manifest"], first["parts"], request_limit=32768), ledger)
 
+    def test_encode_and_decode_observe_absolute_deadlines_between_chunks(self):
+        payload = b"x" * (sf._COPY_CHUNK_BYTES * 3)
+        ticks = iter((0.0, 0.0, 2.0))
+        with self.assertRaises(sf.SnapshotDeadlineError):
+            sf.encode(payload, deadline=1.0, clock=lambda: next(ticks, 2.0))
+        snapshot = sf.encode(payload)
+        ticks = iter((0.0, 0.0, 0.0, 2.0))
+        with self.assertRaises(sf.SnapshotDeadlineError):
+            sf.decode(snapshot["manifest"], snapshot["parts"], deadline=1.0,
+                      clock=lambda: next(ticks, 2.0))
+
     def test_boundary_round_trip_and_actual_serialized_request_cap(self):
         # Incompressible bytes force genuine multipart behaviour under the injected cap.
         ledger = bytes(range(256)) * 100
