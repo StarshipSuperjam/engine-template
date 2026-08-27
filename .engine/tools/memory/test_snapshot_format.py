@@ -1,4 +1,4 @@
-"""Focused acceptance evidence for the v1 plaintext multipart snapshot codec."""
+"""Focused acceptance evidence for the v2 plaintext multipart snapshot codec."""
 from __future__ import annotations
 
 import hashlib
@@ -26,6 +26,7 @@ class RoundTrips(unittest.TestCase):
         ledger = bytes(range(256)) * 100
         cap = 512
         encoded = sf.encode(ledger, request_limit=cap)
+        self.assertEqual(encoded["manifest"]["snapshot-format"], 2)
         self.assertGreater(len(encoded["parts"]), 1)
         self.assertTrue(all(sf.encoded_request_size(part) <= cap for part in encoded["parts"]))
         self.assertEqual(sf.decode(encoded["manifest"], encoded["parts"], request_limit=cap), ledger)

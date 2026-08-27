@@ -1,7 +1,7 @@
 """Deterministic, plaintext, multipart representation for a memory ledger.
 
 This module is deliberately a pure codec.  Backup owns publication and restore
-owns selecting a namespace; both can use this v1 representation without making
+owns selecting a namespace; both can use this v2 representation without making
 network or filesystem policy part of the format.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ import io
 import json
 from typing import Iterable, Sequence
 
-SNAPSHOT_FORMAT = 1
+SNAPSHOT_FORMAT = 2
 COMPRESSION = "gzip"
 MAX_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
 MAX_COMPRESSED_BYTES = 128 * 1024 * 1024
@@ -99,18 +99,18 @@ def _validate_manifest(manifest, *, request_limit: int) -> list[dict]:
     """Validate all attacker-controlled layout facts before any decompression."""
     raw_limit = _validate_limit(request_limit)
     if not isinstance(manifest, dict) or set(manifest) != MANIFEST_KEYS:
-        _refuse(SnapshotValidationError, "manifest shape is not v1")
+        _refuse(SnapshotValidationError, "manifest shape is not v2")
     if manifest["snapshot-format"] != SNAPSHOT_FORMAT or manifest["compression"] != COMPRESSION:
         _refuse(SnapshotValidationError, "unsupported snapshot format or compression")
     if not _is_count(manifest["ledger-bytes"]) or manifest["ledger-bytes"] > MAX_UNCOMPRESSED_BYTES:
-        _refuse(SnapshotLimitError, "ledger size exceeds the v1 limit")
+        _refuse(SnapshotLimitError, "ledger size exceeds the v2 limit")
     if not _is_count(manifest["compressed-bytes"]) or manifest["compressed-bytes"] > MAX_COMPRESSED_BYTES:
-        _refuse(SnapshotLimitError, "compressed size exceeds the v1 limit")
+        _refuse(SnapshotLimitError, "compressed size exceeds the v2 limit")
     if not _is_digest(manifest["ledger-sha256"]) or not _is_digest(manifest["compressed-sha256"]):
         _refuse(SnapshotValidationError, "manifest digest is malformed")
     parts = manifest["parts"]
     if not isinstance(parts, list) or not 1 <= len(parts) <= MAX_PARTS:
-        _refuse(SnapshotLimitError, "part count is outside the v1 limit")
+        _refuse(SnapshotLimitError, "part count is outside the v2 limit")
     total = 0
     for index, entry in enumerate(parts):
         if not isinstance(entry, dict) or set(entry) != PART_KEYS:
@@ -137,11 +137,11 @@ def encode_snapshot(ledger_bytes: bytes, *, request_limit: int = PART_REQUEST_BY
     if not isinstance(ledger_bytes, bytes):
         _refuse(SnapshotValidationError, "ledger bytes are required")
     if len(ledger_bytes) > MAX_UNCOMPRESSED_BYTES:
-        _refuse(SnapshotLimitError, "ledger size exceeds the v1 limit")
+        _refuse(SnapshotLimitError, "ledger size exceeds the v2 limit")
     raw_limit = _validate_limit(request_limit)
     compressed = gzip.compress(ledger_bytes, compresslevel=6, mtime=0)
     if len(compressed) > MAX_COMPRESSED_BYTES:
-        _refuse(SnapshotLimitError, "compressed size exceeds the v1 limit")
+        _refuse(SnapshotLimitError, "compressed size exceeds the v2 limit")
     count = max(1, (len(compressed) + raw_limit - 1) // raw_limit)
     if count > MAX_PARTS:
         _refuse(SnapshotLimitError, "snapshot needs more than 32 parts")
@@ -226,7 +226,7 @@ def decode_snapshot(manifest, parts: Iterable[bytes], *, request_limit: int = PA
                 if not chunk:
                     break
                 if output.tell() + len(chunk) > MAX_UNCOMPRESSED_BYTES:
-                    _refuse(SnapshotLimitError, "decompression exceeds the v1 limit")
+                    _refuse(SnapshotLimitError, "decompression exceeds the v2 limit")
                 output.write(chunk)
     except SnapshotError:
         raise
