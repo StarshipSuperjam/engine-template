@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "transaction-envelope.v1 — one lifecycle transaction's typed result, at one phase",
+  "description": "What every lifecycle transaction returns, at every phase, from one stateless CLI (`transaction.py`). A lifecycle transaction is an operation that changes the engine's own installation — updating it, adding or removing a capability, removing it entirely — and the envelope is that operation's typed account of itself: what it found, what it would do, what it did, and what it can prove. IT IS PROCESS OUTPUT, NEVER A STORE. Nothing here is authority: the durable history of a transaction that ends in a pull request is that pull request, and there is deliberately no transaction ledger — a second durable record would fork authority over what the change is, and the pull request must win that. Two properties this shape exists to make impossible: a verification that could not run must never render as green (`unavailable` is its own outcome, never folded into `passed`), and a refusal must never be freeform prose a caller has to pattern-match (every refusal carries a stable code, a plain explanation, whether retrying can help, and what to do next). The consent handle is the digest of the plan the operator was shown, checked immediately before any mutation; it proves the plan's IDENTITY — that what runs is what was previewed — and never proves WHO consented. STANDARD LIBRARY ONLY, and loaded EAGERLY: whole-engine removal deletes this file mid-transaction and must still validate and render its own receipt afterward, so the loader holds this schema in memory from import time and reads no file during validate or render.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "operation", "requested_phase", "completed_phases", "outcome"],
+  "properties": {
+    "schema_version": { "const": "transaction-envelope.v1" },
+    "operation": {
+      "description": "Which lifecycle transaction this envelope belongs to. Closed: a caller can only ask for an operation an adapter implements, so an unknown name is a refusal rather than an empty result.",
+      "enum": ["engine-upgrade", "engine-upgrade-rollback", "module-add", "module-remove", "engine-remove", "control-plane-bootstrap", "control-plane-finalize", "engine-arrival"]
+    },
+    "requested_phase": {
+      "description": "The phase the caller asked for. `inspect` reads and derives only; `plan` additionally resolves choices and mints the consent handle; `run` performs apply, verify, and handoff in one process (one process because whole-engine removal deletes the protocol's own files during apply and could not be re-entered); `resume` picks up an interrupted transaction.",
+      "enum": ["inspect", "plan", "run", "resume"]
+    },
+    "completed_phases": {
+      "description": "Which phases actually completed, in the order they ran. This is what makes a resume safe: a resumed transaction re-fingerprints only the effects it has NOT yet applied, and anything else refuses with a fresh plan rather than re-applying consented work against a world that has since moved.",
+      "type": "array",
+      "items": { "enum": ["inspect", "plan", "apply", "verify", "handoff"] }
+    },
+    "outcome": {
+      "description": "How this phase ended. `refused` means nothing was changed — every refusal path in this protocol is a clean stop. `partial` means apply began and did not finish, which is the state `resume` exists for.",
+      "enum": ["ok", "refused", "partial"]
+    },
+    "facts": {
+      "description": "What the transaction observed before deciding anything: read-only, and fingerprinted so a later phase can tell whether the world moved underneath it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprints"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "fingerprints": {
+          "description": "Stable digests of the inputs this transaction depends on — the checkout's base commit, the release identity, the manifests, whatever the operation reads. A fingerprint changing is what makes a consent handle stale.",
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "plan": {
+      "description": "What this transaction would do, resolved and priced, as it was put in front of the operator. Present from the `plan` phase onward.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "consequences", "effects", "reversibility", "digest", "consent_handle"],
+      "properties": {
+        "inputs": {
+          "description": "The operation's resolved inputs — the version actually chosen, the module actually named — after defaults and discovery, never the raw arguments.",
+          "type": "object"
+        },
+        "choices": {
+          "description": "Decisions belonging to the operator that this plan has resolved, each with what was chosen and what the alternatives were. An unresolved required choice means no consent handle is minted at all.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "chosen", "options"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "chosen": { "type": "string", "minLength": 1 },
+              "options": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+              "consequence": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "consequences": {
+          "description": "What this transaction means for the operator, in plain language — the half a machine cannot decide, carried here so the same words reach both the terminal and the pull request.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "effects": {
+          "description": "What would change, typed by kind so a reader can weigh a settings flip differently from a file edit.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/effect" }
+        },
+        "reversibility": {
+          "description": "How this comes back if it turns out wrong: `reverted-pull-request` (undo the merge), `local-recovery` (a recovery point on this machine), `external-reapply` (a setting to put back), or `irreversible` — stated honestly, never softened.",
+          "enum": ["reverted-pull-request", "local-recovery", "external-reapply", "irreversible"]
+        },
+        "manual_steps": {
+          "description": "Steps a person must perform that no adapter may do for them — obtaining and running a pinned release before an engine exists, merging, marking ready. Named here so the runbook does not have to narrate them.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "digest": { "$ref": "#/$defs/digest" },
+        "consent_handle": {
+          "description": "The digest of this plan's canonical form, which the operator carries back to the apply step. Canonicalisation deliberately EXCLUDES timestamps, credentials, temporary paths, and presentation-only ordering, so re-planning an unchanged world yields the same handle and only a real change invalidates it.",
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "refusal": {
+      "description": "Why this transaction stopped without changing anything. Typed, because the failure this replaces is two freeform strings giving a caller contradictory advice.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "explanation", "retryable", "next_actions"],
+      "properties": {
+        "code": {
+          "description": "A stable identifier for this refusal, safe to branch on and safe to grep for. It never changes wording with the message.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "explanation": { "type": "string", "minLength": 1 },
+        "retryable": {
+          "description": "Whether retrying the same command could succeed. Honest here matters: an environment-gated skip that re-runs identically is NOT retryable, and saying otherwise sends a caller in a circle.",
+          "type": "boolean"
+        },
+        "next_actions": {
+          "description": "What to actually do about it — at least one, because a refusal with no way forward is the dead end this protocol exists to remove.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "verification": {
+      "description": "What was checked after applying, and what each check actually returned.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/receipt" }
+    },
+    "handoff": {
+      "description": "Where the finished transaction leaves the operator. Present only when the transaction reached a terminal state.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "summary"],
+      "properties": {
+        "kind": {
+          "description": "`pull-request` — the change is proposed for review and the operator's merge decides it. `in-tree-commit` — the engine changed its own installation directly, as one discrete labelled commit; used where pull-request ceremony would buy nothing (the engine acting on itself) and cost the operator a working flow. `verified-external-state` — a repository setting was changed and CONFIRMED by reading it back; a point-in-time claim, never standing state. `checkless-confirmed` — protection was applied during setup while the engine's own checks do not yet exist on the branch, so the floor is deliberately partial and must not be reported as fully verified. `local-recovery` — the machine was put back. `manual-follow-up` — the next step is a person's, named here.",
+          "enum": ["pull-request", "in-tree-commit", "verified-external-state", "checkless-confirmed", "local-recovery", "manual-follow-up"]
+        },
+        "summary": { "type": "string", "minLength": 1 },
+        "reference": {
+          "description": "Where to look: a pull-request URL, a commit, a recovery point.",
+          "type": "string", "minLength": 1
+        },
+        "observed_at": {
+          "description": "When external state was read back. Required for the external-state kinds precisely because such a claim goes stale the moment someone edits the setting — it is evidence of a reading, not of standing protection.",
+          "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "point_in_time": {
+          "description": "Marks a claim that was true when read and may not be now. Always true for the external-state kinds; the live read remains the only answer to whether a gate is currently on.",
+          "type": "boolean"
+        },
+        "follow_up": {
+          "description": "A transaction that must run later, named but deliberately NOT pre-planned: its consent handle cannot be minted now because the intervening event (a merge) changes the very state it must inspect.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "when"],
+          "properties": {
+            "operation": { "type": "string", "minLength": 1 },
+            "when": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "description": "An external-state claim must say when it was read and must mark itself point-in-time.",
+          "if": { "properties": { "kind": { "enum": ["verified-external-state", "checkless-confirmed"] } }, "required": ["kind"] },
+          "then": { "required": ["observed_at", "point_in_time"] }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "description": "A refusal must say why. Without this, `outcome: refused` could carry no refusal object and a caller would have nothing to act on.",
+      "if": { "properties": { "outcome": { "const": "refused" } }, "required": ["outcome"] },
+      "then": { "required": ["refusal"] }
+    },
+    {
+      "description": "A plan phase must produce a plan. This is what makes 'no handle until every required choice is resolved' checkable rather than aspirational.",
+      "if": { "properties": { "requested_phase": { "const": "plan" }, "outcome": { "const": "ok" } }, "required": ["requested_phase", "outcome"] },
+      "then": { "required": ["plan"] }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": {
+          "description": "What sort of change this is. `tracked-files` rides a commit; `shared-settings` and `saved-data` are the engine's own configuration and store; `external-settings` is repository state no pull request can carry; `capability` is a module gained or retired — something the operator could ask for before and now cannot, or the reverse; `review-artifact` is a pull request or its evidence.",
+          "enum": ["tracked-files", "shared-settings", "saved-data", "external-settings", "capability", "review-artifact"]
+        },
+        "description": { "type": "string", "minLength": 1 },
+        "paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "reversible": { "type": "boolean" }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "result"],
+      "properties": {
+        "check": { "type": "string", "minLength": 1 },
+        "result": {
+          "description": "`unavailable` is a first-class outcome and is NEVER rendered as green: a check that could not run leaves its area unverified, and saying so is the whole point of typing this.",
+          "enum": ["passed", "failed", "unavailable"]
+        },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
