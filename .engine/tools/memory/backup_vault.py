@@ -34,12 +34,15 @@ CLI: setup | now | status | session-start | demo [--live]. Run the demo (fully o
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
 import re
 import secrets
+import signal
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -515,6 +518,36 @@ def _deadline_check(deadline, deadline_state=None):
         raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
 
 
+@contextlib.contextmanager
+def _hard_deadline(deadline):
+    """Interrupt synchronous local work at the same absolute deadline.
+
+    Python can deliver SIGALRM only on the main thread. A caller that cannot
+    arm the guard refuses immediately rather than silently weakening the
+    advertised wall-clock bound. Existing process alarms are likewise left
+    untouched and cause a safe refusal.
+    """
+    _deadline_check(deadline)
+    if (threading.current_thread() is not threading.main_thread()
+            or not hasattr(signal, "setitimer") or not hasattr(signal, "ITIMER_REAL")):
+        raise snapshot_format.SnapshotDeadlineError("hard deadline cannot be armed safely")
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    if previous_timer[0] > 0 or previous_timer[1] > 0:
+        raise snapshot_format.SnapshotDeadlineError("another process deadline is already armed")
+    previous_handler = signal.getsignal(signal.SIGALRM)
+
+    def expire(_signum, _frame):
+        raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
+
+    signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, max(0.001, deadline - time.monotonic()))
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+
+
 def _read_ledger_bytes(path: str, *, deadline, deadline_state) -> bytes:
     """Read the canonical ledger in bounded chunks under the publication deadline."""
     out = bytearray()
@@ -730,8 +763,8 @@ def _migration_manifest(*, ledger_path, now, engine_version, migration_id) -> di
     return m
 
 
-def push_now(*, transport=None, now: "int | None" = None, engine_version: "str | None" = None,
-             deadline_seconds: float = _FOREGROUND_DEADLINE_SECONDS) -> dict:
+def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
+                             engine_version: "str | None" = None, deadline) -> dict:
     """Push the latest ledger + snapshot manifest to the configured vault. Requires setup (a pointer). CHEAP-PROBE
     FIRST: a single repo GET re-verifies the repo is still PRIVATE (and confirms reachability) before any blob work —
     so a public flip or a dead host costs one bounded call, never the full sequence. On a public flip it DECLINES to
@@ -743,10 +776,6 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
     deadline, snapshot-too-large, push-failed}; namespace is the vault path the snapshot landed under (None on failure)."""
     when = int(time.time()) if now is None else int(now)
     deadline_state = {"expired": False}
-    try:
-        deadline = time.monotonic() + max(0.0, float(deadline_seconds))
-    except (TypeError, ValueError):
-        deadline = time.monotonic()
     pointer = read_pointer()
     if pointer is None:
         return {"ok": False, "error": "not-configured", "pushed": False, "namespace": None}
@@ -786,6 +815,21 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
             return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
         return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
     return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
+
+
+def push_now(*, transport=None, now: "int | None" = None, engine_version: "str | None" = None,
+             deadline_seconds: float = _FOREGROUND_DEADLINE_SECONDS) -> dict:
+    """Run the complete publication under an interrupting wall-clock bound."""
+    try:
+        deadline = time.monotonic() + max(0.0, float(deadline_seconds))
+    except (TypeError, ValueError):
+        deadline = time.monotonic()
+    try:
+        with _hard_deadline(deadline):
+            return _push_now_under_deadline(transport=transport, now=now, engine_version=engine_version,
+                                            deadline=deadline)
+    except snapshot_format.SnapshotDeadlineError:
+        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
 
 
 def snapshot_for_migration(store, engine_version, *, migration_id=None, reversibility_floor=False,

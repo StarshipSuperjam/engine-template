@@ -213,6 +213,26 @@ class PointerCommitTests(_Base):
 
 
 class PushTests(_Base):
+    def test_push_now_interrupts_blocked_local_work_at_wall_clock_deadline(self):
+        ledger.append({"kind": "turn-delta", "text": "bounded backup"})
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        pointer = bv.read_pointer()
+        ref_key = f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"
+        prior_head = fake.refs[ref_key]
+
+        def blocked_read(*args, **kwargs):
+            time.sleep(1)
+            return b"should never finish"
+
+        started = time.monotonic()
+        with mock.patch.object(bv, "_read_ledger_bytes", side_effect=blocked_read):
+            result = bv.push_now(transport=fake.transport, deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result["error"], "deadline")
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(fake.refs[ref_key], prior_head)
+
     def test_ledger_pushed_via_git_data_not_contents(self):
         ledger.append({"kind": "turn-delta", "text": "hello"})
         fake = bv._FakeVault()

@@ -13,8 +13,10 @@ import gzip
 import hashlib
 import json
 import os
+import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -110,6 +112,98 @@ class _Base(unittest.TestCase):
 
 
 class RoundTripTests(_Base):
+    def test_restore_now_interrupts_blocked_index_build_at_wall_clock_deadline(self):
+        ledger.append({"kind": "turn-delta", "text": "local survives wall clock"})
+        before = _rb(ledger.ledger_path())
+        fetch = {
+            "ok": True,
+            "manifest": {"ledger-version": 1, "ledger-generation": 0,
+                         "timestamp": "1970-01-01T00:00:00Z", "engine-version": "1.2.3"},
+            "ledger_bytes": _LEGACY_V1_LEDGER,
+        }
+
+        def blocked_rebuild(*args, **kwargs):
+            time.sleep(1)
+
+        started = time.monotonic()
+        with mock.patch.object(rv, "fetch_snapshot", return_value=fetch), \
+                mock.patch.object(index, "rebuild", side_effect=blocked_rebuild):
+            result = rv.restore_now(consent="y", override=True, github=None, deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result["error"], "deadline")
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+
+    def test_each_publication_fault_restores_the_prior_complete_file_set(self):
+        for failing_target in ("index", "ledger", "meta"):
+            with self.subTest(failing_target=failing_target):
+                self._wipe_local()
+                ledger.append({"kind": "turn-delta", "text": f"prior {failing_target}"})
+                with open(ledger.meta_path(), "w", encoding="utf-8") as fh:
+                    json.dump({"generation": 4, "index_epoch": 7}, fh)
+                index.rebuild()
+                paths = {"ledger": ledger.ledger_path(), "meta": ledger.meta_path(),
+                         "index": index.index_path()}
+                before = {name: _rb(path) for name, path in paths.items()}
+                real_replace = os.replace
+                failed = {"done": False}
+
+                def fail_once(src, dst):
+                    if dst == paths[failing_target] and not failed["done"]:
+                        failed["done"] = True
+                        raise OSError("injected publication fault")
+                    return real_replace(src, dst)
+
+                with mock.patch.object(rv.os, "replace", side_effect=fail_once):
+                    result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+                self.assertEqual(result["error"], "apply-failed")
+                self.assertIn("prior live files were put back", result["message"])
+                self.assertEqual({name: _rb(path) for name, path in paths.items()}, before)
+
+    def test_rollback_failure_reports_uncertain_state_without_unchanged_claim(self):
+        ledger.append({"kind": "turn-delta", "text": "prior uncertain"})
+        with open(ledger.meta_path(), "w", encoding="utf-8") as fh:
+            json.dump({"generation": 4, "index_epoch": 7}, fh)
+        index.rebuild()
+        live_ledger = ledger.ledger_path()
+        real_replace = os.replace
+
+        def fail_ledger_replaces(src, dst):
+            if dst == live_ledger:
+                raise OSError("publication and rollback both fail")
+            return real_replace(src, dst)
+
+        with mock.patch.object(rv.os, "replace", side_effect=fail_ledger_replaces):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertEqual(result["error"], "apply-uncertain")
+        self.assertNotIn("unchanged", result["message"].lower())
+        self.assertIn("Do not retry", result["message"])
+
+    def test_staging_creation_failure_releases_writer_lock(self):
+        from memory import capture
+        with mock.patch.object(rv.tempfile, "mkdtemp", side_effect=OSError("disk fault")):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertEqual(result["error"], "apply-failed")
+        lock_path = os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)
+        lock_fd = capture._acquire_lock(lock_path)
+        self.assertIsNotNone(lock_fd)
+        capture._release_lock(lock_fd)
+
+    def test_restore_preserves_nonzero_index_epoch_and_publishes_a_trusted_index(self):
+        ledger.append({"kind": "turn-delta", "text": "prior epoch"})
+        with open(ledger.meta_path(), "w", encoding="utf-8") as fh:
+            json.dump({"generation": 4, "index_epoch": 7}, fh)
+        result = rv._apply_restore(_LEGACY_V1_LEDGER, 2, 1)
+        self.assertTrue(result["ok"])
+        self.assertEqual(ledger.index_epoch(), 7)
+        if index.fts5_available():
+            with sqlite3.connect(index.index_path()) as conn:
+                row = conn.execute("SELECT generation, index_epoch FROM meta WHERE rowid = 1").fetchone()
+            self.assertEqual(row, (2, 7))
+            query = index.query("legacy")
+            self.assertFalse(query.degraded)
+            self.assertEqual(len(query.records), 1)
+
     def test_v2_multipart_fixture_restores_byte_exactly(self):
         fake = self._seed_and_backup(["v2 fixture payload"])
         original = _rb(ledger.ledger_path())
