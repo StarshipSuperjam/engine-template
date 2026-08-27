@@ -108,18 +108,54 @@ class Adapter:
 
 _REGISTRY = {}
 
+# The adapter modules, loaded at CLI ENTRY rather than at import. Two reasons it must be lazy: the
+# adapters import this module (importing them here would be circular), and `transaction.py` has to stay
+# importable on the Python 3.9 arrival floor, where the domain modules an adapter reaches are not all
+# available. A library caller registers what it needs; the CLI loads them all.
+_ADAPTER_MODULES = ("transaction_adapters_upgrade", "transaction_adapters_module",
+                    "transaction_adapters_remove")
+
+
+def load_adapters():
+    """Import every adapter module so the registry is populated. Returns the ones that failed.
+
+    A failure is REPORTED, never swallowed: an adapter that cannot import means its operation genuinely
+    is not available here, and answering `unknown-operation` for it would send the caller looking for a
+    typo that does not exist.
+    """
+    failed = {}
+    for name in _ADAPTER_MODULES:
+        try:
+            __import__(name)
+        except Exception as exc:  # noqa: BLE001 — one broken adapter must not take the whole CLI down
+            failed[name] = "{0}: {1}".format(type(exc).__name__, exc)
+    return failed
+
 
 def register(adapter: Adapter) -> Adapter:
     _REGISTRY[adapter.operation] = adapter
     return adapter
 
 
-def _adapter_for(operation: str) -> Adapter:
+class UnknownOperation(Exception):
+    """No adapter implements the requested name.
+
+    Deliberately NOT a TransactionRefused: a refusal is reported inside a transaction envelope, and an
+    envelope must name a real operation. Rendering an unrecognised name as some default operation would
+    tell the caller their typo was about a transaction they never asked for — and the default was
+    `engine-upgrade`, the single most sensitive one. There is no transaction here, so there is no
+    envelope; this prints a plain refusal instead.
+    """
+
+    def __init__(self, operation: str, load_failures=None):
+        super().__init__(operation)
+        self.operation = operation
+        self.load_failures = dict(load_failures or {})
+
+
+def _adapter_for(operation: str, load_failures=None) -> Adapter:
     if operation not in _REGISTRY:
-        raise TransactionRefused(
-            "unknown-operation",
-            "No adapter implements {0!r}.".format(operation),
-            ["Run `transaction.py --help` to see the operations this engine implements."])
+        raise UnknownOperation(operation, load_failures)
     return _REGISTRY[operation]
 
 
@@ -276,11 +312,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _lift_own_flags(args) -> None:
+    """Pull this CLI's own flags back out of the operation's trailing arguments.
+
+    `REMAINDER` swallows everything after the operation, including flags that belong to us — so
+    `plan module-add x --json` parsed with `json=False` and silently printed prose to a caller who
+    asked for machine-readable output. That is worse than an error, because nothing signals it. The
+    tool's own documented syntax puts the flag last, so the fix is to honour that rather than to
+    demand callers reorder.
+    """
+    rest = list(getattr(args, "rest", None) or [])
+    kept = []
+    index = 0
+    while index < len(rest):
+        token = rest[index]
+        if token == "--json":
+            args.json = True
+        elif token.startswith("--consent-handle="):
+            args.consent_handle = token.split("=", 1)[1]
+        elif token == "--consent-handle" and index + 1 < len(rest):
+            args.consent_handle = rest[index + 1]
+            index += 1
+        else:
+            kept.append(token)
+        index += 1
+    args.rest = kept
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    _lift_own_flags(args)
+    load_failures = load_adapters()
     completed_by_phase = {"inspect": [], "plan": ["inspect"], "run": ["inspect"], "resume": []}
     try:
-        adapter = _adapter_for(args.operation)
+        adapter = _adapter_for(args.operation, load_failures)
         if args.phase == "inspect":
             result = do_inspect(adapter, args)
         elif args.phase == "plan":
@@ -291,13 +356,33 @@ def main(argv=None) -> int:
             result = do_resume(adapter, args)
     except StalePlan as stale:
         return _emit(stale.envelope, args.json)
+    except UnknownOperation as unknown:
+        # No envelope: there is no transaction to describe, and naming a real operation here would
+        # misreport what the caller asked for.
+        lines = ["Refused (unknown-operation) — nothing was changed.",
+                 "No adapter implements {0!r}.".format(unknown.operation)]
+        if unknown.load_failures:
+            lines.append("Some adapters could not be loaded, so their operations are unavailable here "
+                         "rather than misspelled:")
+            for name, reason in sorted(unknown.load_failures.items()):
+                lines.append("  {0}: {1}".format(name, reason))
+        available = sorted(_REGISTRY)
+        lines.append("Available here: {0}".format(", ".join(available) if available else "(none)"))
+        sys.stderr.write("\n".join(lines) + "\n")
+        return 2
     except TransactionRefused as refused:
-        operation = args.operation if args.operation in _REGISTRY else "engine-upgrade"
-        result = _refusal_envelope(operation, args.phase,
+        result = _refusal_envelope(args.operation, args.phase,
                                    completed_by_phase.get(args.phase, []), refused)
         return _emit(result, args.json)
     return _emit(result, args.json)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # DELEGATE TO THE IMPORTED MODULE, never to this one. Run as a script, this file is `__main__`,
+    # while every adapter does `import transaction` — which loads a SECOND copy of it. The adapters then
+    # register into that copy's registry while `__main__` checks its own, so the CLI answers
+    # "no adapter implements ..." for every operation it ships. Importing ourselves by name first means
+    # there is exactly one module object, and one registry, for adapters and CLI alike.
+    import transaction as _single_module
+
+    sys.exit(_single_module.main())

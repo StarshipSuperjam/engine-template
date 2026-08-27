@@ -148,3 +148,107 @@ class TestRollbackIsHonestAboutWhatItCannotDo(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConsentIsEnforcedOnTheCommandTheOperatorTypes(unittest.TestCase):
+    """The obligation names the OPERATOR-TYPED apply path, not the helper under it.
+
+    `_refuse_stale_consent` being correct proves nothing about whether `main` ever calls it: a dispatch
+    that read the flag and fell through would pass every helper-level test while applying a stale plan.
+    These drive `module_manager.main([...])` — the exact argv the skill types — and assert on whether the
+    mutating `upgrade()` was reached at all.
+    """
+
+    def _main(self, *argv, stale):
+        refusal = "This is not the update you read." if stale else None
+        with mock.patch.object(module_manager, "_refuse_stale_consent", return_value=refusal), \
+             mock.patch.object(module_manager, "upgrade") as applied:
+            code = module_manager.main(list(argv))
+        return code, applied
+
+    def test_a_stale_handle_refuses_without_ever_reaching_the_apply(self):
+        code, applied = self._main("upgrade", "--confirm", "--consent-handle", "sha256:" + "9" * 64,
+                                   stale=True)
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+    def test_a_matching_handle_reaches_the_apply(self):
+        code, applied = self._main("upgrade", "--confirm", "--consent-handle", "sha256:" + "0" * 64,
+                                   stale=False)
+        applied.assert_called_once()
+        self.assertNotEqual(code, 2)
+
+    def test_the_equals_form_the_skill_may_emit_is_enforced_the_same_way(self):
+        code, applied = self._main("upgrade", "--confirm", "--consent-handle=sha256:" + "9" * 64,
+                                   stale=True)
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+
+class TestUpgradeResumesFromWhatItRecorded(unittest.TestCase):
+    """Upgrade is the one adapter with durable progress, so its resume must NOT be the generic re-plan."""
+
+    def _resume(self, state, announced):
+        with mock.patch.object(module_manager, "_diagnose_undo",
+                               return_value={"state": state, "current": "1.0.0"}), \
+             mock.patch.object(module_manager, "staged_upgrade_announced", return_value=announced):
+            return adapters.UpgradeEngine().resume(Args())
+
+    def test_a_recorded_staged_update_is_reported_rather_than_re_planned(self):
+        resumed = self._resume("staged", True)
+        self.assertIsNotNone(resumed)
+        te.validate(resumed)
+        self.assertEqual(resumed["handoff"]["kind"], "local-recovery")
+        self.assertEqual(resumed["verification"][0]["result"], "passed")
+
+    def test_nothing_recorded_falls_through_to_the_honest_fresh_plan(self):
+        self.assertIsNone(self._resume("none", False))
+
+    def test_a_merely_dirty_tree_is_not_mistaken_for_a_staged_update(self):
+        """StarshipSuperjam/engine-template#948's failure shape, in resume's clothing.
+
+        `_diagnose_undo` answers `staged` for ANY dirty overlay tree on purpose — generosity is right
+        where it offers an undo. Resume withholds the fresh plan when it claims progress, so inheriting
+        that generosity would tell an operator with nothing staged not to apply.
+        """
+        self.assertIsNone(self._resume("staged", False))
+
+
+class TestTheOtherAdaptersReplanRatherThanPretend(unittest.TestCase):
+    """The differentiation is the point: only upgrade records progress, so only upgrade continues."""
+
+    def test_add_remove_and_engine_removal_have_no_progress_to_read_back(self):
+        import transaction_adapters_module as module_adapters
+        import transaction_adapters_remove as remove_adapters
+        for adapter in (module_adapters.AddModule(), module_adapters.RemoveModule(),
+                        remove_adapters.RemoveEngine()):
+            self.assertIsNone(adapter.resume(Args()), adapter.operation)
+
+
+class TestAnAbsentHandleIsARefusalNotAPass(unittest.TestCase):
+    """The plan said a stale OR ABSENT handle refuses. An optional gate is the same as no gate: a session
+    that wants to apply just omits the flag. But the refusal must not swallow the documented recovery."""
+
+    def _main(self, *argv, staged):
+        with mock.patch.object(module_manager, "staged_upgrade_announced", return_value=staged), \
+             mock.patch.object(module_manager, "upgrade") as applied:
+            code = module_manager.main(list(argv))
+        return code, applied
+
+    def test_a_fresh_apply_with_no_handle_refuses_without_mutating(self):
+        code, applied = self._main("upgrade", "--confirm", staged=False)
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+    def test_finishing_an_already_staged_update_still_works_with_no_handle(self):
+        """boot's stalled-update notice, and two other recovery messages, tell the operator to run exactly
+        this. There is no plan to bind it to -- consent was given before the interruption."""
+        code, applied = self._main("upgrade", "--confirm", staged=True)
+        applied.assert_called_once()
+        self.assertNotEqual(code, 2)
+
+    def test_the_recovery_opening_asks_the_narrow_question_not_the_dirty_tree_one(self):
+        """Reusing the generous predicate here would let any dirty checkout skip the gate entirely."""
+        import inspect as _inspect
+        source = _inspect.getsource(module_manager.main)
+        self.assertNotIn("_staged_upgrade_dirty()", source)

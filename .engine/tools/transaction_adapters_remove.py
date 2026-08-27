@@ -107,7 +107,14 @@ class RemoveEngine(transaction.Adapter):
         # PRELOAD, then delete. Everything the later phases need must be resident now: the envelope schema
         # (already read at import), this module, and the handoff renderers. Nothing below may read a file
         # under .engine/ — it will not be there.
-        assert envelope.SCHEMA, "the envelope schema must be resident before the engine tree is deleted"
+        if not envelope.SCHEMA:
+            # Not an `assert`: assertions are stripped under `python -O`, and this guard has to hold in
+            # every run — it is the one thing standing between a deleted tree and an unrenderable receipt.
+            raise transaction.TransactionRefused(
+                "envelope-not-resident",
+                "The receipt machinery is not loaded, so this removal could not report what it did after "
+                "deleting the engine. Nothing was changed.",
+                ["Report this: it is a defect in how the removal transaction loads its own schema."])
         result = module_manager.remove_engine(choice=plan["inputs"]["protection"])
         if result.get("refused"):
             raise transaction.TransactionRefused(

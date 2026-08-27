@@ -2590,6 +2590,16 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
                            "pull request.")
     base = repo_identity.resolve_default_branch()
 
+    # LAST LINE BEFORE THE BODY BECOMES PUBLIC. Every engine pull request — an update and a whole-engine
+    # removal alike — is composed upstream of here from version data, so a credential should never be in
+    # this text at all. This is the chokepoint where that stops being a thing the reader has to take on
+    # trust: the resolved token, exactly, and the documented credential shapes, cannot survive into a body
+    # or a title that is about to be pushed and posted. It is narrow on purpose (see redact_credentials) —
+    # mangling legitimate prose is a real cost paid against an imagined leak.
+    import transaction_handoff as _handoff   # local: only the real open composes public text
+    title = _handoff.redact_credential_values(title, tok)
+    body = _handoff.redact_credential_values(body, tok)
+
     def _run_step(step):
         # Run one staged git step. The push is the only step that can hit a transient missing origin (StarshipSuperjam/engine-template#704), so
         # retry it a bounded number of times; checkout/add/commit run once. On a persistent push failure the
@@ -2627,11 +2637,14 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
         except Exception:  # noqa: BLE001 — a probe that cannot run fails safe to "staged"
             return False
 
-    # WHAT GETS STAGED. `paths=None` keeps the historical whole-tree stage, which the upgrade and removal
-    # callers rely on: they own a clean tree by precondition and their change is "whatever the overlay wrote".
-    # A typed transaction passes its DECLARED paths instead, so the commit carries exactly the transaction's
-    # own file set and nothing a session happened to leave lying around — the difference between a discrete,
-    # revertable change and a commit that quietly absorbs unrelated work.
+    # WHAT GETS STAGED, and why the two callers differ. Upgrade and whole-engine removal pass `paths=None`
+    # and stage the whole tree DELIBERATELY: both refuse unless the tree is clean, so "everything that
+    # changed" IS their change, and enumerating it instead would risk an INCOMPLETE commit if the overlay
+    # wrote a path the caller's list missed — a worse failure than the one selectivity prevents. Module add
+    # and remove are the opposite case: they run against a tree that may legitimately hold the operator's
+    # own work in progress, so they never come through here at all — they commit exactly their declared
+    # file set through `transaction_handoff.commit_in_tree`. `paths` exists for a future caller that needs
+    # selectivity on this path; today none does, and that is stated rather than implied.
     stage_step = ["git", "add", "-A"] if not paths else ["git", "add", "--"] + list(paths)
 
     commit_info = None
@@ -6081,7 +6094,28 @@ def main(argv: list) -> int:
             # evidence of plan identity, never of who consented — the start protections are the
             # harness-gated skill and, under everything, the pull request the operator merges.
             handle = _consent_handle_arg(argv)
-            if handle is not None:
+            if handle is None:
+                # AN ABSENT HANDLE IS A REFUSAL, NOT A PASS -- but only for a FRESH apply.
+                #
+                # Optional is the same as absent here. A session that wants to update simply omits the
+                # flag, and the binding it was supposed to provide is gone at exactly the moment it
+                # mattered; the operator's standing direction is that a limit which can be talked past is
+                # not a limit. So a fresh apply must carry the handle from the plan that was read.
+                #
+                # It does NOT apply to FINISHING an update already staged in this working copy. Three
+                # recovery messages (boot's stalled-update notice among them) tell the operator to run
+                # `upgrade --confirm` to finish one, and there is no plan to bind that to -- the plan
+                # was consented to before the interruption. Demanding a handle there would dead-end the
+                # exact operator this gate is supposed to protect. The marker is what tells the two
+                # apart, so this asks the narrow question, never the generous dirty-tree one.
+                if not staged_upgrade_announced():
+                    print("This update has not been shown to you yet, so there is nothing to apply your\n"
+                          "consent to. See what it would change first:\n\n"
+                          "    uv run --directory .engine -- python tools/transaction.py plan engine-upgrade\n\n"
+                          "then run this again with the --consent-handle it prints. (Finishing an update\n"
+                          "already staged here does not need a handle -- there is none staged.)")
+                    return 2
+            else:
                 mismatch = _refuse_stale_consent(ref, handle)
                 if mismatch:
                     print(mismatch)

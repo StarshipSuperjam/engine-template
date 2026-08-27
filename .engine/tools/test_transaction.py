@@ -6,7 +6,9 @@ absent handle must leave that record empty. Everything else in this protocol res
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 import sys
 import unittest
 
@@ -228,11 +230,19 @@ class TestResume(ProtocolTestCase):
 
 
 class TestUnknownOperation(ProtocolTestCase):
-    def test_an_unimplemented_operation_refuses_with_a_way_forward(self):
-        with self.assertRaises(transaction.TransactionRefused) as caught:
+    def test_an_unimplemented_operation_raises_its_own_kind_not_a_refusal(self):
+        """Deliberately not a TransactionRefused: a refusal rides inside an envelope, and an envelope
+        must name a REAL operation. Reporting a typo under some default operation told the caller their
+        mistake was about a transaction they never asked for."""
+        with self.assertRaises(transaction.UnknownOperation) as caught:
             transaction._adapter_for("engine-do-whatever")
-        self.assertEqual(caught.exception.code, "unknown-operation")
-        self.assertTrue(caught.exception.next_actions)
+        self.assertEqual(caught.exception.operation, "engine-do-whatever")
+
+    def test_an_adapter_that_cannot_load_is_reported_rather_than_called_a_typo(self):
+        with self.assertRaises(transaction.UnknownOperation) as caught:
+            transaction._adapter_for("never-registered-here",
+                                     {"transaction_adapters_remove": "ImportError: boom"})
+        self.assertIn("transaction_adapters_remove", caught.exception.load_failures)
 
 
 class TestStaysOnTheArrivalFloor(unittest.TestCase):
@@ -248,3 +258,53 @@ class TestStaysOnTheArrivalFloor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheRealCommandLineWorks(unittest.TestCase):
+    """The gap that let a dead CLI ship green.
+
+    Every other test in this file registers its adapter in-process — either by installing a stub or by
+    importing the adapter module, which registers as a side effect. The shipped entry point reproduces
+    neither: run as a script, `transaction.py` is `__main__`, while each adapter does `import
+    transaction` and loads a SECOND copy of it, registering into a registry `__main__` never reads. So
+    94 tests passed over a command that answered "no adapter implements ..." for every operation it
+    ships. These tests drive the real command as a subprocess, which is the only arrangement that would
+    have caught it.
+    """
+
+    TOOLS = os.path.dirname(os.path.abspath(__file__))
+    ENGINE = os.path.dirname(TOOLS)
+
+    def _run(self, *argv):
+        return subprocess.run([sys.executable, os.path.join(self.TOOLS, "transaction.py")] + list(argv),
+                              cwd=self.ENGINE, capture_output=True, text=True)
+
+    def test_every_shipped_operation_is_reachable_from_the_command_line(self):
+        for operation in ("engine-upgrade", "engine-upgrade-rollback", "module-add", "module-remove",
+                          "engine-remove"):
+            result = self._run("inspect", operation)
+            self.assertNotIn("No adapter implements", result.stdout + result.stderr,
+                             "{0} is unreachable from the real CLI".format(operation))
+
+    def test_the_documented_flag_position_actually_produces_json(self):
+        """`--json` after the operation was swallowed by REMAINDER and silently printed prose."""
+        result = self._run("plan", "module-add", "some-module", "--json")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["operation"], "module-add")
+
+    def test_an_unknown_operation_is_not_reported_as_a_real_one(self):
+        result = self._run("plan", "module-frobnicate")
+        combined = result.stdout + result.stderr
+        self.assertIn("module-frobnicate", combined)
+        self.assertNotIn("engine-upgrade — plan", combined,
+                         "a typo must not be reported as the most sensitive transaction")
+        self.assertIn("Available here:", combined)
+
+    def test_the_module_stays_importable_as_a_library_on_the_arrival_floor(self):
+        """Adapters load at CLI entry, not at import: arrival reaches this module before the domain."""
+        script = ("import sys; sys.path.insert(0, {tools!r});"
+                  " import transaction;"
+                  " print('imported-clean')").format(tools=self.TOOLS)
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("imported-clean", result.stdout)

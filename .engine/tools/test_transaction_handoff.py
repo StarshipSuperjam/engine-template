@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -145,7 +146,13 @@ class TestStaysOnTheArrivalFloor(unittest.TestCase):
 
 
 class TestTheOpenerStagesSelectively(unittest.TestCase):
-    """The pull-request path must respect declared paths too, not sweep the tree."""
+    """The opener CAN stage selectively when given paths.
+
+    No production caller passes them today: upgrade and whole-engine removal deliberately stage the whole
+    tree because they refuse unless it is clean, so everything changed IS their change. The operations
+    that run against a possibly-dirty tree — module add and remove — do not use this path at all; they
+    commit their declared set through commit_in_tree. This pins the capability, not a claim that the
+    pull-request path is selective today."""
 
     def test_module_manager_stages_declared_paths_when_given_them(self):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "module_manager.py")
@@ -157,3 +164,78 @@ class TestTheOpenerStagesSelectively(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestACredentialNeverReachesAPullRequestBody(unittest.TestCase):
+    """The seam obligation: a credential-shaped value seeded into a plan input is absent from the body.
+
+    The narrower envelope test (`a credential in a plan never reaches the canonical form`) proves a
+    DIFFERENT property — that a credential does not move the consent-handle hash. Nothing there says the
+    value stays out of the pull-request text an operator publishes. This covers that.
+    """
+
+    def test_the_exact_live_token_cannot_survive_even_in_an_unknown_format(self):
+        body = "the update pushed using xyzzy-not-a-known-shape-42 as its credential"
+        redacted = th.redact_credential_values(body, "xyzzy-not-a-known-shape-42")
+        self.assertNotIn("xyzzy-not-a-known-shape-42", redacted)
+        self.assertIn(th.REDACTED, redacted)
+
+    def test_documented_credential_shapes_are_stripped_without_a_live_token_to_compare_against(self):
+        for seeded in ("ghp_16C7e42F292c69", "github_pat_11ABCDE_xYz09", "gho_abc123", "ghs_deadbeef"):
+            redacted = th.redact_credential_values("Scope: applied {0} here.".format(seeded))
+            self.assertNotIn(seeded, redacted, seeded)
+
+    def test_a_token_carried_in_a_remote_url_is_stripped_too(self):
+        redacted = th.redact_credential_values("failed pushing to https://ghp_tok@github.com/o/r")
+        self.assertNotIn("ghp_tok", redacted)
+        self.assertIn("github.com/o/r", redacted)   # the diagnosis survives; only the secret goes
+
+    def test_ordinary_body_prose_is_left_exactly_alone(self):
+        """A scrubber that mangles legitimate text costs something real on every merge."""
+        for kept in ("Moves this engine to 1.2.0.",
+                     "Retires a capability you have now: design-review.",
+                     "The ghp_ prefix is what a GitHub token starts with.",
+                     "sha256:" + "a" * 64):
+            self.assertEqual(th.redact_credential_values(kept), kept, kept)
+
+    def test_the_real_boundary_redacts_what_it_actually_posts(self):
+        """Proves the CALL, not the function.
+
+        A boundary that imported the redactor and never applied it would pass every test above while
+        publishing the secret, so this drives `_open_upgrade_pr` itself with the git steps stubbed and
+        captures the payload that would really be POSTed.
+        """
+        import json as _json
+        import module_manager
+        posted = {}
+
+        def capture(path, tok, user_agent=None, method=None, data=None):
+            posted["payload"] = _json.loads(data.decode("utf-8") if isinstance(data, bytes) else data)
+            raise RuntimeError("stop here: the payload is what this test is about")
+
+        # `_open_upgrade_pr` imports these INSIDE the function, so they resolve from sys.modules at call
+        # time -- patching module attributes would miss them entirely.
+        fake_client = mock.Mock()
+        fake_client.request.side_effect = capture
+        fake_subprocess = mock.Mock()
+        fake_subprocess.CalledProcessError = subprocess.CalledProcessError
+        fake_boot = mock.Mock()
+        fake_boot.repo_slug.return_value = "o/r"
+        fake_boot.gh_token.return_value = "live-tok-value"
+        fake_identity = mock.Mock()
+        fake_identity.resolve_default_branch.return_value = "main"
+        with mock.patch.dict(sys.modules, {"github_client": fake_client,
+                                           "subprocess": fake_subprocess,
+                                           "boot": fake_boot,
+                                           "repo_identity": fake_identity}):
+            try:
+                module_manager._open_upgrade_pr(
+                    "b", "Update using live-tok-value",
+                    "Scope: pushed with ghp_16C7e42F292c69 and live-tok-value.")
+            except Exception:   # noqa: BLE001 - the capture above stops the real POST on purpose
+                pass
+
+        self.assertIn("payload", posted, "the boundary never reached its POST; the test proved nothing")
+        rendered = _json.dumps(posted["payload"])
+        self.assertNotIn("live-tok-value", rendered)
+        self.assertNotIn("ghp_16C7e42F292c69", rendered)

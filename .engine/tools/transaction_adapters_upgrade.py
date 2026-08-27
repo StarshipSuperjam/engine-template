@@ -119,6 +119,64 @@ class UpgradeEngine(transaction.Adapter):
             }
         return handoff.pull_request_handoff(pr, "The update is proposed for your review.")
 
+    def resume(self, args):
+        """Upgrade is the one adapter with a DURABLE progress record, so it does not re-plan blindly.
+
+        `module_manager._diagnose_undo()` reads back how far an interrupted update actually got — a
+        staged overlay in the working copy, a git-level transaction still in flight, or saved data left
+        ahead of the code. When it names one of those, the remaining effects are NOT the whole update:
+        the overlay is already written, so re-planning and applying again would re-derive work that has
+        already landed. This returns what was read back plus the named recovery instead.
+
+        When nothing is recorded (`state == "none"`) this returns None and the generic re-inspect-and-
+        re-plan runs — which is the truthful answer, because then there is genuinely no interrupted
+        attempt to continue.
+        """
+        diagnosis = module_manager._diagnose_undo()
+        state = diagnosis.get("state")
+        # The `staged` reading comes from the deliberately GENEROUS dirty-only predicate, which is right
+        # where it is asked (offering an undo must not miss a real one) and wrong here. Resume WITHHOLDS
+        # the fresh plan when it claims progress, so on an ordinary dirty working copy that generosity
+        # would tell an operator with nothing staged not to apply -- StarshipSuperjam/engine-template#948's failure shape in a new
+        # place. Here the narrow marker-gated reading is the honest one; every other state stands as read.
+        if state == "staged" and not module_manager.staged_upgrade_announced():
+            state = "none"
+        if state == "none":
+            return None
+
+        remaining = {
+            "staged": ("An update is already written into this working copy but was never opened for "
+                       "review. The overlay is applied; what remains is your decision to finish it or "
+                       "undo it — not re-applying it."),
+            "transaction": ("An update is mid-flight at the git level. What remains is finishing or "
+                            "unwinding that transaction; applying again on top of it would compound it."),
+            "memory-ahead": ("The code is back on an older version while your saved data is still on the "
+                             "newer one. What remains is putting the saved data back, not re-applying."),
+        }.get(state, "An interrupted update was recorded in a state this version does not know how to "
+                     "continue automatically.")
+
+        return transaction._envelope(
+            self.operation, "resume", ["inspect"], "ok",
+            facts={
+                "summary": "Interrupted update found: {0}.".format(state),
+                "fingerprints": {
+                    "undo_state": str(state),
+                    "current_version": str(diagnosis.get("current") or ""),
+                    "head": handoff.working_tree_state()["head"],
+                },
+            },
+            verification=[{
+                "check": "prior progress",
+                "result": "passed",
+                "detail": remaining,
+            }],
+            handoff={
+                "kind": "local-recovery",
+                "summary": ("Run the undo (`transaction.py plan engine-upgrade-rollback`) to see how this "
+                            "is unwound, or finish the update by opening it for review. Do not apply the "
+                            "update again on top of this state."),
+            })
+
 
 class RollbackUpgrade(transaction.Adapter):
     """Undoing an update. Three states, and only one of them is something a machine can do locally."""

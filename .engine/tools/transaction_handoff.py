@@ -23,6 +23,7 @@ STANDARD LIBRARY ONLY on the 3.9 floor: the arrival adapter reaches this module.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 
 import transaction
@@ -108,23 +109,6 @@ def _dirty_within(dirty_paths, declared_paths):
     return claimed
 
 
-def refuse_unless_current(base_ref: str = "origin/main", root=None) -> None:
-    """Refuse a transaction whose base has moved on. Advisory-free: it either is current or it is not."""
-    root = root or _root()
-    fetched = _git(["fetch", "--quiet", "origin"], root)
-    if fetched.returncode != 0:
-        # A fetch that could not run leaves this unverified; say so rather than assume current.
-        return
-    behind = _git(["rev-list", "--count", "HEAD..{0}".format(base_ref)], root)
-    if behind.returncode == 0 and behind.stdout.strip().isdigit() and int(behind.stdout.strip()) > 0:
-        raise transaction.TransactionRefused(
-            "base-moved",
-            "{0} has moved on by {1} commit(s) since this checkout, so this change would be built on a "
-            "stale base.".format(base_ref, behind.stdout.strip()),
-            ["Bring the checkout up to date, then run this again."],
-            retryable=True)
-
-
 def commit_in_tree(declared_paths, label: str, root=None) -> dict:
     """Commit exactly the declared paths as one discrete, labelled, revertable commit.
 
@@ -178,3 +162,47 @@ def pull_request_handoff(pr: dict, what: str) -> dict:
         "summary": "{0} Nothing about the running engine changes until you merge it.".format(what),
         "reference": pr.get("url") or pr.get("html_url") or str(pr.get("number", "")),
     }
+
+
+# CREDENTIAL SHAPES. Deliberately narrow — a scrubber that guesses would mangle legitimate body prose,
+# and a mangled body is a real cost paid against an imagined leak. These are the prefixes GitHub itself
+# documents for its own credential formats, plus the Authorization header shape.
+_CREDENTIAL_PREFIXES = ("ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_")
+REDACTED = "[redacted]"
+
+
+def redact_credential_values(text, live_token=None):
+    """Strip credential-shaped values out of operator-facing text bound for a pull request.
+
+    NOT the same job as `module_manager._redact_credentials`, and named apart from it deliberately: that
+    one strips the userinfo out of a URL in git's own error output. This one strips credential VALUES out
+    of text the engine composed. Both rules are applied here, because a composed body can carry either.
+
+    Two rules, and the split matters. The STRONG one is exact: whatever the live token actually is, that
+    exact string never survives — no pattern-guessing, no false positives, and it holds for a credential
+    format this code has never heard of. The SHAPE rules are the backstop for a credential that reached
+    the text from somewhere other than the resolved token (a plan input the operator typed, a value read
+    out of a release payload), where there is nothing exact to compare against.
+
+    This is a last line, not the design. Credentials are passed as parameters and never composed into a
+    body in the first place; this exists so that stops being something a reader has to take on trust.
+    """
+    if not text:
+        return text
+    result = re.sub(r"(https?://)[^/\s@]+@", r"\1***@", str(text))
+    if live_token and len(str(live_token)) >= 8:
+        result = result.replace(str(live_token), REDACTED)
+    for prefix in _CREDENTIAL_PREFIXES:
+        while True:
+            at = result.find(prefix)
+            if at < 0:
+                break
+            end = at + len(prefix)
+            # A credential runs to the first character that cannot be part of one. Underscores are kept
+            # because `github_pat_` tokens contain them.
+            while end < len(result) and (result[end].isalnum() or result[end] == "_"):
+                end += 1
+            if end == at + len(prefix):   # the bare prefix as a word — nothing secret to strip
+                break
+            result = result[:at] + REDACTED + result[end:]
+    return result

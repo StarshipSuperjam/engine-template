@@ -36,9 +36,11 @@ merged — or the update refused, and you were told plainly which refusal it was
 **How far the typed-command limit actually goes.** Three layers, named honestly, because a limit you
 misjudge is worse than one you know the shape of. The `/engine-upgrade` command **cannot be started by the
 engine on its own** — that is enforced by the harness, not by an instruction. Beneath it,
-`module_manager.py upgrade --confirm` is an ordinary command with no such lock, so the layer that matters
-there is different: applying takes the consent handle from a plan you were shown, so an update cannot
-quietly become a different update. And under both, applying only ever opens a pull request — nothing about
+`module_manager.py upgrade --confirm` carries no harness lock, so the layer that matters there is
+different: it refuses to apply at all without the consent handle from a plan you were shown, so an update
+cannot quietly become a different update — and cannot be applied without one being put in front of you.
+Finishing an update already staged in your copy is the deliberate exception: consent was given before the
+interruption, and demanding a fresh handle would strand the recovery. And under both, applying only ever opens a pull request — nothing about
 the running engine changes until you merge it. So even if the middle layer were slipped, the worst outcome
 is a pull request you can reject.
 
@@ -58,8 +60,12 @@ data it cannot restore. If an update is undone *after* it changed saved data, th
 next start and gives you the exact command to restore the backup.
 
 **If an update stops half-applied.** The working copy is changed but nothing was opened for review or
-merged — safe either way, and you have two clean choices. **Finish it**: run the apply again; the second
-run uses the just-installed version's own logic to complete the stalled step. **Undo it**:
+merged — safe either way, and you have two clean choices. To see which state you are actually in first,
+`transaction.py resume engine-upgrade` reads back how far the interrupted attempt got and names the
+recovery for that state; it changes nothing, and when nothing was left half-done it simply plans afresh.
+**Finish it**: run the apply again; the second
+run uses the just-installed version's own logic to complete the stalled step. Finishing does not need a
+consent handle — your consent was given before the interruption; a *fresh* update does. **Undo it**:
 `module_manager.py rollback --confirm` puts the engine back, saving a recovery point of your current state
 first, refusing if you have unrelated unsaved work of your own, and putting back any saved memory the update
 changed. A bare check reports a half-finished tree as *unfinished* rather than "up to date", so you can

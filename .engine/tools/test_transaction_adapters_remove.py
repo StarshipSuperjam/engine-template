@@ -92,16 +92,51 @@ class TestVerifyNeverInventsGreen(unittest.TestCase):
             Args(), {"deleted": [".engine/"], "de_bootstrap": {"ok": True}, "pr": {"url": "x"}})
         self.assertTrue(all(r["result"] == "passed" for r in receipts))
 
-    def test_verify_reads_no_file(self):
-        """After apply there is no .engine to read; the receipts come from what apply returned."""
-        source_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                   "transaction_adapters_remove.py")
-        with open(source_path, encoding="utf-8") as handle:
-            source = handle.read()
-        verify_body = source.split("def verify(", 1)[1].split("def handoff(", 1)[0]
-        for forbidden in ("open(", "load_json", "os.path.isfile"):
-            self.assertNotIn(forbidden, verify_body,
-                             "{0} in verify would read a tree that has just been deleted".format(forbidden))
+    def test_verify_and_handoff_still_work_with_the_engine_tree_actually_deleted(self):
+        """The behaviour, not the wording.
+
+        This replaces a source-text check that asserted the string `open(` did not appear inside verify —
+        which proves how the file is written, never what it does. Here the engine tree is genuinely
+        deleted in a throwaway copy and the adapter is then asked for its receipts and its handoff, which
+        is the situation whole-engine removal actually creates.
+        """
+        import shutil
+        import subprocess
+        import tempfile
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        engine_dir = os.path.dirname(here)
+        with tempfile.TemporaryDirectory() as tmp:
+            copy_root = os.path.join(tmp, "copy")
+            shutil.copytree(engine_dir, os.path.join(copy_root, ".engine"),
+                            # Do NOT exclude 'memory': .engine/tools/memory is a package the adapter's
+                            # import chain needs, and excluding it fails the copy for the wrong reason.
+                            ignore=shutil.ignore_patterns(".venv", ".uv", "plans", "__pycache__"))
+            copied_engine = os.path.join(copy_root, ".engine")
+            script = (
+                "import json, os, shutil, sys\n"
+                "sys.path.insert(0, {tools!r})\n"
+                "import transaction_adapters_remove as adapter_module\n"
+                "import transaction_envelope as te\n"
+                "shutil.rmtree({engine!r})\n"
+                "assert not os.path.exists({engine!r})\n"
+                "adapter = adapter_module.RemoveEngine()\n"
+                "class A:\n"
+                "    rest = ['--keep-protection']\n"
+                "applied = {{'deleted': ['.engine/'], 'de_bootstrap': {{'ok': True}},\n"
+                "           'pr': {{'url': 'https://example.invalid/pr/1'}}}}\n"
+                "receipts = adapter.verify(A(), applied)\n"
+                "handoff = adapter.handoff(A(), applied, receipts)\n"
+                "env = {{'schema_version': te.SCHEMA_VERSION, 'operation': 'engine-remove',\n"
+                "       'requested_phase': 'run',\n"
+                "       'completed_phases': ['inspect', 'plan', 'apply', 'verify', 'handoff'],\n"
+                "       'outcome': 'ok', 'verification': receipts, 'handoff': handoff}}\n"
+                "te.validate(env)\n"
+                "print('RECEIPT-OK' if te.render(env) else 'RENDER-FAILED')\n"
+            ).format(tools=os.path.join(copied_engine, "tools"), engine=copied_engine)
+            result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("RECEIPT-OK", result.stdout)
 
 
 class TestHandoff(unittest.TestCase):
