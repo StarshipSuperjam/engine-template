@@ -51,6 +51,37 @@ def _live_entities():
     return knowledge_gen.derive_entities(*knowledge_gen.load_sources())
 
 
+class ImmutableLiveDerivationFixture(unittest.TestCase):
+    """One immutable live-tree derivation per explicitly read-only test class.
+
+    The serialized snapshot is owned by the class rather than this module.  Each test receives a
+    fresh decoded value, so one assertion cannot mutate another's view.  Tests that alter sources,
+    roots, generation, determinism, or deployment shape keep calling _live_entities directly.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._live_entities_snapshot = json.dumps(_live_entities(), sort_keys=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._live_entities_snapshot = None
+        super().tearDownClass()
+
+    def live_entities(self):
+        return json.loads(self._live_entities_snapshot)
+
+
+class TestImmutableLiveDerivationFixture(unittest.TestCase):
+    def test_each_consumer_decodes_an_isolated_value(self):
+        snapshot = json.dumps([{"id": "tool:example", "predicates": {"tests": ["tool:other"]}}])
+        first = json.loads(snapshot)
+        second = json.loads(snapshot)
+        first[0]["predicates"]["tests"].append("tool:mutated")
+        self.assertEqual(second[0]["predicates"]["tests"], ["tool:other"])
+
+
 class TestHelpers(unittest.TestCase):
     def test_slug_is_the_filename_stem(self):
         self.assertEqual(knowledge_gen._slug(".engine/check/state-cursor.json"), "state-cursor")
@@ -151,11 +182,11 @@ class TestSchema(unittest.TestCase):
         validate.Draft202012Validator.check_schema(KNOWLEDGE_SCHEMA)
 
 
-class TestLiveDerivation(unittest.TestCase):
+class TestLiveDerivation(ImmutableLiveDerivationFixture):
     """derive_entities over the real catalog/inventory/manifests/claims."""
 
     def setUp(self):
-        self.entities = _live_entities()
+        self.entities = self.live_entities()
         self.by_id = {e["id"]: e for e in self.entities}
 
     def test_canonical_graph_conforms_to_its_schema(self):
@@ -666,13 +697,13 @@ class TestPass4Attributes(unittest.TestCase):
                 _live_entities()
 
 
-class TestPass4LiveEdges(unittest.TestCase):
+class TestPass4LiveEdges(ImmutableLiveDerivationFixture):
     """Pass-4 edges + attributes over the REAL graph — the non-fingerprint correlate that the DERIVED edges
     are correct (the fingerprint gate proves only that the graph matches its sources, never that its edges
     are right)."""
 
     def setUp(self):
-        self.by_id = {e["id"]: e for e in _live_entities()}
+        self.by_id = {e["id"]: e for e in self.live_entities()}
 
     def test_imports_are_real_dependency_edges_no_self_edge(self):
         boot = self.by_id["tool:boot"]
@@ -714,12 +745,12 @@ class TestPass4LiveEdges(unittest.TestCase):
         self.assertNotIn("entrypoint", sh)
 
 
-class TestLiveDerivationAttributes(unittest.TestCase):
+class TestLiveDerivationAttributes(ImmutableLiveDerivationFixture):
     """The declared attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is
     RIGHT (the gate proves the committed graph MATCHES the sources, never that the values are correct)."""
 
     def setUp(self):
-        self.by_id = {e["id"]: e for e in _live_entities()}
+        self.by_id = {e["id"]: e for e in self.live_entities()}
 
     def test_check_carries_tier_kind_suites_status_and_no_title(self):
         c = self.by_id["check:catalog-coverage"]
