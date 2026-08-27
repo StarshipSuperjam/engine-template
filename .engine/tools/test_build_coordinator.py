@@ -4505,6 +4505,8 @@ class TestEvidenceDurability(CoordinatorCase):
         state = self.state()
         self.assertEqual(state["reviews"]["deliverable"]["reviewed_commit"], head)
         self.assertEqual(state["reviews"]["deliverable"]["base_commit"], base_after)
+        self.assertEqual(state["plan"]["bound_head"], head,
+                         "the accepted rewrite must advance the resume anchor")
         self.assertEqual(len(state["reconciles"]), 1)
         self.assertTrue(state["reconciles"][0]["contribution_identical"])
         self.assertEqual(state["reconciles"][0]["divergent_paths"], [])
@@ -4527,6 +4529,8 @@ class TestEvidenceDurability(CoordinatorCase):
         # the weaker outcome carries MORE scrutiny: reviewed != head, so a repair judgment is still owed.
         self.assertEqual(state["reviews"]["deliverable"]["reviewed_commit"], base_after)
         self.assertNotEqual(state["reviews"]["deliverable"]["reviewed_commit"], head)
+        self.assertEqual(state["plan"]["bound_head"], head,
+                         "a divergent rewrite is still the Build's verified new line")
         self.assertIn("repair assess", message)
 
     def test_patch_id_would_have_called_the_reindent_identical(self):
@@ -4997,6 +5001,18 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         state["plan"]["bound_head"] = HEAD_A
         with mock.patch.object(bc, "_is_ancestor", return_value=True):
             self.assertEqual(bc.resume_reasons(state), [])
+
+    def test_a_recorded_reconcile_is_a_resume_anchor_for_legacy_snapshots(self):
+        state = self.seed()
+        state["build"]["worktree"] = str(bc.ROOT)
+        state["plan"]["bound_head"] = HEAD_A
+        state["reconciles"] = [{"to_commit": HEAD_B}]
+
+        def ancestor(candidate, current):
+            return candidate == HEAD_B and current == HEAD_C
+
+        with mock.patch.object(bc, "_is_ancestor", side_effect=ancestor):
+            self.assertEqual(bc.resume_reasons(state, head=HEAD_C), [])
 
     def test_a_legacy_snapshot_makes_no_new_demands(self):
         # Bound before either field existed. It must resume, not be told it is broken.

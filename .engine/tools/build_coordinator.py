@@ -324,7 +324,12 @@ def resume_reasons(state: dict, *, worktree: Path | str = None, head: str | None
     bound_head = plan_state.get("bound_head")
     current = head if head is not None else _head()
     if bound_head and current and not allow_rewritten_head:
-        if not _is_ancestor(bound_head, current):
+        # A successful reconcile is itself a verified lineage anchor. Older snapshots did not advance
+        # `bound_head` when they recorded that event, so honor the recorded post-rebase head as well;
+        # otherwise every later mutating verb deadlocks even though reconcile already accepted the line.
+        lineage_anchors = [bound_head] + [item.get("to_commit") for item in state.get("reconciles", [])
+                                          if item.get("to_commit")]
+        if not any(_is_ancestor(anchor, current) for anchor in lineage_anchors):
             reasons.append(
                 f"the commit this Build was bound at ({bound_head[:12]}) is not an ancestor of the "
                 f"current HEAD ({current[:12]}), so this worktree has moved off the Build's line — a "
@@ -2842,6 +2847,10 @@ def cmd_reconcile(args, store: Snapshot) -> None:
         # one side and can never reach the identical path.
         d["base_commit"] = base_after
         d["reviewed_commit"] = head if identical else base_after
+        # The rebase has been verified as this Build's legitimate new line. Advance the resume anchor
+        # with the review bindings; otherwise every mutating verb after a successful reconcile rejects
+        # the same rewritten history that reconcile just accepted.
+        s["plan"]["bound_head"] = head
         s["reconciles"] = list(s.get("reconciles", [])) + [entry]
         # `state["repair"]` is deliberately NOT cleared. It is the sole producer of the PR body's
         # reviewed-vs-submitted line, and clearing it made a Build that HAD run a repair round publish
