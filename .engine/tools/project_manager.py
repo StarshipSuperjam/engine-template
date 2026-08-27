@@ -440,8 +440,11 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                 f"    project_manager.py review record {plan} --packet-digest <digest from the packet> "
                 f"--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
     if status == "awaiting-approval":
-        return (f"present the full revision, then choose a depth and approve:\n"
+        return (f"present the full revision, and stop there — invite the operator's questions and take "
+                f"their revisions:\n"
                 f"    project_manager.py preview {plan}\n"
+                f"  the depth choice and the approval are a LATER, separate move, once they are "
+                f"satisfied with the plan. Do not offer them in the same breath as the plan itself:\n"
                 f"    project_manager.py depths {plan}\n"
                 f"    project_manager.py approve {plan} --depth <quick|standard|thorough> "
                 "--operator-decision \"<what the operator said>\"")
