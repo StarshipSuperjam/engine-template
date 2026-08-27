@@ -35,26 +35,18 @@ be one session. An Issue is never created merely because a Build exists — not 
 Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold recovers its
 plan from the local plan library (see "Where the plan lives").
 
-The plan is not authored here. It is authored, reviewed and SEALED through the Project Manager first, and a
-Build binds that sealed plan's `build-plan.v2` payload. The discipline below is what that lifecycle enforces
-on the way to a seal. Present a readable projection generated from that exact document; it is a view, not a
-second authority, and must never be edited or translated back into JSON after approval. Keep raw intent
-distinct from the AI's interpretation. Record observed evidence separately from inference, mark assumptions as
-verified, accepted risk, or unresolved, and state the objective, checkable success obligations, scope,
-non-goals, important risks, implementation outline, and review strategy. Include settled-spec mapping when
-one exists. Otherwise disclose that there is no settled spec; the plan's success obligations still govern
-conformance review.
+The plan is not authored here. It is authored, reviewed and SEALED through the Project Manager first, and
+[Plan orchestration](plan-orchestration.md) is that half: the deliberation, the operator's stops, and
+everything the lifecycle demands on the way to a seal. A Build binds the sealed plan's `build-plan.v2`
+payload and presents a readable projection generated from that exact document — a view, not a second
+authority, never edited or translated back into JSON. Where no settled spec exists the plan discloses it, and
+its success obligations still govern conformance review. The coordinator can prove only that the plan's
+reasoning is present and that later work uses the same plan; it cannot prove that reasoning is sound.
 
 Follow [Build product grounding](build-product-grounding.md): retain advisory milestone and readiness
 evidence, resolve settled descriptions without degrading failed reads to no-spec, map every selected
 canonical criterion, and derive its review steps. Build consumes settled intent; missing product description
 work returns through product intake instead of being improvised here.
-
-Planning is deliberative, not form filling. Check the strongest case against the change, smaller or no-build
-alternatives, likely failure modes, and whether the plan quietly turns uncertainty into certainty. Use the
-active codes of conduct: preserve intent, ground claims, prefer the smallest safe change, deliver the full
-agreed capability, and do not expand scope without authority. The coordinator can prove only that this
-reasoning is present and that later work uses the same plan. It cannot prove the reasoning is sound.
 
 Bind the plan once:
 
@@ -67,80 +59,53 @@ build_coordinator.py plan bind --plan <plan-id> \
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
-**The seal hands back before the Build starts.** Sealing and building are different jobs that often want
-different settings, so the seal prints a six-line hand-back: settle what lives only in the conversation,
-offer the operator a `/compact` and their model and effort choice for the BUILD, wait for their go. Always
-`/compact`, never `/clear` — the one session that cleared at this boundary is the one that lost its thread.
-It is an offer, not a gate — the bind's own `--operator-decision` consent is the operator's agreement to
-begin, nothing mechanical checks the hand-back's steps, and the engine neither reads nor records what the
-session runs on. Recommend once, not per seal: the operator's own user-level `/autocompact` threshold
-(around 75%), which survives engine updates; the engine writes no auto-compact setting in any scope.
+**The seal hands back before the Build starts**, and [Plan orchestration](plan-orchestration.md) carries what
+that pause asks for. It is an offer, not a gate: the bind's own `--operator-decision` consent is the
+operator's agreement to begin, nothing mechanical checks the hand-back's steps, and the engine neither reads
+nor records what the session runs on.
 
 Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this
 session against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and
 a `compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
 
-The snapshot is durable and lives beside its sealed plan, so a killed Build resumes with its evidence
-intact; a later command finds it from the worktree, and `--state <path>` still names one outright. It is one
-atomically replaced, lock-protected document of current evidence, carrying no authority — not an event
-ledger and not repository state. `status` derives the phase from evidence.
-
 ### Where the plan lives
 
-In the local plan library, on this workstation. The snapshot keeps the plan's id, the digest its seal
-minted, and the payload digest — never the plan's content. Every checkpoint, review packet, and submission
-preview receives the payload again and refuses a mismatch.
+In the local plan library, on this workstation, never on GitHub, and never reconstructed from a summary,
+transcript fragments, or implementation — see [Plan orchestration](plan-orchestration.md). An Issue may
+AUTHORIZE a Build, which is what `--issue` records, but authorization and plan authority are two artifacts
+and neither stands in for the other; no lifecycle event is a GitHub comment, and GitHub or network loss does
+not stop same-session local work.
 
-No plan is published to GitHub: no promotion step, no plan block in an Issue or PR body. An Issue may still
-AUTHORIZE a Build, which is what `--issue` records, but authorization and plan authority are two artifacts and
-neither stands in for the other.
-
-Cold continuation is anchored on the sealed plan RECORD. `handoff export --output <file>` writes the Build's
-own evidence, redacted, to a file; `handoff restore --input <file>` reads it back and re-verifies the plan in
-the library — same id, same sealed digest, same payload. Gone, unsealed or changed, and continuation is
-blocked rather than guessed at. A Build whose executed plan was revised away from its seal cannot hand off
-cold at all, since a cold session would recover the sealed payload rather than the one being built: finish it
-in the session that holds it, or re-plan into a new plan.
-
-No lifecycle event is a GitHub comment. GitHub or network loss does not stop same-session local work. Never
-reconstruct an approved plan from a summary, transcript fragments, or implementation.
+The Build's own snapshot is durable and lives beside that sealed plan, so a killed Build resumes with its
+evidence intact — one atomically replaced, lock-protected document of current evidence, carrying no
+authority, found from the worktree or named outright with `--state <path>`. `status` derives the phase from
+it, and every checkpoint, review packet and submission preview receives the payload again and refuses a
+mismatch. Cold continuation is anchored on the sealed plan RECORD, so a Build whose executed plan was revised
+away from its seal cannot hand off cold at all: finish it in the session that holds it, or re-plan.
 
 ### 2. Assess risk and approve the Build gate
 
-**Risk and depth are settled on the plan side, before the seal.** Run the knowledge impact check, then
-`project_manager.py depths <plan>`: it lists only the depths worth offering for this repository's installed
-reviewers, dropping any that would run what a lighter one does (only Quick when no reviewers,
-StarshipSuperjam/engine-template#763), with each depth's resolved reviewer EFFORT.
-No installed reviewer is a disclosed no-extra-review result, never a false green.
-Fill `.engine/templates/risk-assessment.md` in plain language: headline, affected areas, what review and validation will run or is unavailable, suggested care level (following risk, not a prior preference; no time or cost estimate), guardrail weakening. Depth scales EFFORT, not model (see
-`model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the Review
-record.
-
-The operator approves plan and depth together with `project_manager.py approve <plan> --depth
-quick|standard|thorough --operator-decision "<their words>"`, which refuses without their recorded decision. **That one choice covers both gates**: it names the lenses the seal will require, and
-it is the depth the Build's deliverable review runs at. Consent is given once, here. On the Build side,
-`approve --plan <plan.json> --depth …` records the same depth against the bound payload; changing approved
-depth clears review coverage, and progress prose does not. A sealed plan's revision is always the operator's
-call, recorded with `--operator-change` and disclosed at merge.
+**Risk and depth are settled on the plan side, before the seal**, and
+[Plan orchestration](plan-orchestration.md) runs that stop: Run the knowledge impact check, offer only the
+depths worth offering for this repository's installed reviewers (only Quick when no reviewers,
+StarshipSuperjam/engine-template#763), show the risk assessment in plain language, and take the operator's
+approval in their own words. No installed reviewer is a disclosed no-extra-review result, never a false green.
+**That one choice covers both gates**: it names the lenses the seal will require, and it is the depth this
+Build's deliverable review runs at, so consent is given once and given there. Depth scales EFFORT, not model
+(see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the
+Review record. On the Build side, `approve --plan <plan.json> --depth …` records the same depth against the
+bound payload; changing approved depth clears review coverage, and progress prose does not. A sealed plan's
+revision is always the operator's call, recorded with `--operator-change` and disclosed at merge.
 
 The `trivial` profile is the one-entry fast path: its reduced plan needs raw intent, objective, one success obligation, one reversible work item, and no-spec disclosure—none of the normal profile's evidence, assumption, risk, scope, interpretation, or review-strategy fields. Same-session, quick depth, no cold lenses, and one commit keep one headline plus plan/depth approval as its only operator ceremony; validation and merge remain. A guarded-enforcement change, guardrail weakening, second item or commit, settled referent, or cold continuation requires revision to `normal` and renewed approval.
 
 ### 3. The plan review already happened
 
 There is no plan review on this side. There is exactly one cold plan review per plan, run on the plan side
-against the approved revision before the seal — `review packet` cuts it, `review record` files the one receipt
-(re-rendering the packet and refusing a mismatched digest), `finding dispose` answers each finding, and `seal`
-refuses while the recorded lenses do not cover the approved depth's roster. A bound plan is a reviewed plan by
-construction, which is why this side has no plan-review gate and no waiver for one.
-
-Recording is fallible, so it is correctable up to a named moment: `review amend` completes a partial record
-until its first finding is dispositioned, `finding amend` corrects one finding until that finding is, and the
-approval is fixed the moment any review is recorded against it, which pins the depth from panel time. Nothing
-is correctable after a seal. And the seal refuses until the panel's outcome was SHOWN to the operator —
-`present-findings <plan> --operator-decision "<their words>"` records that it was. Approve, seal and bind each
-refuse without the operator's decision in their own words; the trail is published in the pull request. It is a
-record of what was said, not proof that it was.
-
+against the approved revision before the seal, and the seal refuses while the recorded lenses do not cover the
+approved depth's roster. A bound plan is a reviewed plan by construction, which is why this side has no
+plan-review gate and no waiver for one. Approve, seal and bind each refuse without the operator's decision in
+their own words; the trail is published in the pull request — a record of what was said, not proof that it was.
 Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
 be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
 escalated — with whether it still blocks recorded separately. Severity alone never blocks. Before involving the
