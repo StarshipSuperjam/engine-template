@@ -1851,7 +1851,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:92170145641d796c313910b70f464c9487a009ffa895263b0cfcc91cf1b32e5d",
+        "fingerprint": "sha256:a6b9839d9f6b3b1f3a3be2b84e96a92f8e178bc7396d3719d46b45e49ff75224",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5491,7 +5491,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:dcb68c616a5b7e11d42e93379accf043a93d2492c195983ed4d8aaf74e46100d",
+        "fingerprint": "sha256:5e5316fef7ca530cbff43aa33617326de9bdbf470cd6aaf6c592ed2a66af852b",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6031,7 +6031,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:0c67d6cf433d5ceb5348fed2b8046b263c38f1e0719a8ed0e032a869cfb10b78",
+        "fingerprint": "sha256:b8067c9724b861b192721e7ade87321ab35765a878da96954645119505b20d6d",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -13295,7 +13295,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:6550f120721c1ccdb33a8c174852d6eaad18f34d2f2bd23f1ea100cf91424c40",
+        "fingerprint": "sha256:ed7076c1188c97e0cab958adc55e2777183e19215757a958f0d3951033db5882",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15055,7 +15055,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:f38e28fb6b2d6a115ce0c8c72483853723d0be78554dc247afc1df6eea549bfa",
+        "fingerprint": "sha256:c8bc1c241fd955d78fae90e594ef2d66d9d5c6820c500082a3dfec6baae22a1f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
