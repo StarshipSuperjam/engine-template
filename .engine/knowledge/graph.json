@@ -15100,7 +15100,11 @@
       },
       "slug": "test_build_coordinator",
       "source": {
+<<<<<<< HEAD
         "fingerprint": "sha256:aff16377e783c53edd369199ca41371a81aa27ef0cdf97dd8520b01c7e27256d",
+=======
+        "fingerprint": "sha256:6a8322cbf62b8ee25ef81a944f22fdd01bc31d4d8638814aad04e324bb6a1d52",
+>>>>>>> 9d67cc86 (Maintenance: synchronize self-test knowledge graph)
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16324,7 +16328,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:12e605241d10ebcba41e76fbac84e8aea370ed5ffea7a012b4da7ae99bbb1289",
+        "fingerprint": "sha256:4cbe72ddf77cf41650e544b59bd21296bcaa4576afdf36f6ded8fc2d9a6d1771",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -16756,7 +16760,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:a08c0b6a450abdedd62b650c10f732dd8fada6dcd13845ce6b78dadb5216f8f7",
+        "fingerprint": "sha256:934fa3184607c5d0d6c7f296cfa6f73b15432368c0876d40d59fde87b77f56e5",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -19604,7 +19608,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:89bb9dc1734c3a81f49a6ae9c1aa4ab42be75359d0f1f9c63509c4930f1611b7",
+        "fingerprint": "sha256:b2fcadd0984041beeef1e2e6f1ffcd7a3747ffcef345d0756d72521bafe6534b",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
