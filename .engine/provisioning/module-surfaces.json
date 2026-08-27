@@ -90,6 +90,12 @@
   ".agents/skills/engine-manage-addons/agents/openai.yaml": [
    "core"
   ],
+  ".agents/skills/engine-manage-plans/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-manage-plans/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-manage-setup/SKILL.md": [
    "core"
   ],
@@ -361,6 +367,9 @@
    "core"
   ],
   ".claude/skills/engine-manage-addons/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-manage-plans/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-manage-setup/SKILL.md": [
@@ -1039,6 +1048,9 @@
    "core"
   ],
   ".engine/operations/owned-product-build.md": [
+   "core"
+  ],
+  ".engine/operations/plan-orchestration.md": [
    "core"
   ],
   ".engine/operations/product-intake.md": [
