@@ -8765,7 +8765,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:9f8f5f48a4e717069680d6b11a2d73a66a51b8c012be18e552031efe7ebc2405",
+        "fingerprint": "sha256:52c588acbdd8302be880146aa45be68172443a369f7bd6149aa017d59b702116",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -13831,7 +13831,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:cabd5ba2ea9e2ab1f08474ee4d977b2fffa58aee0a2323a87ce83a8b2d4693ff",
+        "fingerprint": "sha256:4023e6864b027edb7babdce495017bae1a120b943c75168b615633a3a7709faf",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14901,7 +14901,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:b979164d08246cc32ee06166565399baa9001287e861f5891310efd45b42cafb",
+        "fingerprint": "sha256:a3358eb886f43f1847422dffcfc039cd1778bacf92ab744f03d8e8311822dbbe",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -18069,7 +18069,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:1922076a29d9d0f61257fcca1fe150576b8c22e6003186af297406b228ec6a10",
+        "fingerprint": "sha256:78c3343d4e8afd52e5cd95fb223b10f35eca96b40dfcd583ae79bb24a75418a4",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -18326,7 +18326,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:4549ec5511699d1f8e62cf24bbede7a9146e1cebcaa0196bd76b518daeeb73de",
+        "fingerprint": "sha256:2cae695c9010c3f9c7a357b75c4c58f3e70da60e2777279614a3bbe5294e0139",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
