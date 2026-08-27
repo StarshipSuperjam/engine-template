@@ -245,6 +245,67 @@ class TestApplyUsesTheReleaseThePlanNamed(unittest.TestCase):
         applied.assert_called_once_with("v1")
 
 
+class TestTheTypedCommandAppliesTheReleaseItsHandleApproved(unittest.TestCase):
+    """The path the SKILL documents, and the one the obligation names.
+
+    `_refuse_stale_consent` resolved "latest" to a concrete tag, compared the handle against it, and threw
+    the plan away -- then `main` ran `upgrade(None)`, resolving latest a SECOND time. So the handle was
+    verified against release X while release Y could be applied, on the route whose own notes promise the
+    handle guarantees the thing applied is the thing you read. The adapter-level fix did not reach here.
+    """
+
+    def test_the_verified_plans_release_is_what_main_applies(self):
+        def fake_check(ref, handle, on_release=None):
+            if on_release is not None:
+                on_release("v7.7.7")
+            return None
+
+        with mock.patch.object(module_manager, "_refuse_stale_consent", side_effect=fake_check), \
+             mock.patch.object(module_manager, "upgrade") as applied:
+            module_manager.main(["upgrade", "--confirm", "--consent-handle", "sha256:" + "0" * 64])
+        applied.assert_called_once_with("v7.7.7")
+
+    def test_a_stale_handle_still_refuses_before_anything_is_applied(self):
+        with mock.patch.object(module_manager, "_refuse_stale_consent", return_value="no match"), \
+             mock.patch.object(module_manager, "upgrade") as applied:
+            code = module_manager.main(["upgrade", "--confirm", "--consent-handle", "sha256:" + "9" * 64])
+        self.assertEqual(code, 2)
+        applied.assert_not_called()
+
+
+class TestPlanNeverCallsAnUnreadableStateAlreadyCurrent(unittest.TestCase):
+    """`upgrade_preview` reports these with a `status` and a `reason` and no `refused` key, so treating
+    any preview without a target as already-current told an operator with a stalled update, a half-built
+    tree, or no network that nothing was wrong -- and non-retryably, so it read as final."""
+
+    def _refusal(self, preview):
+        with mock.patch.object(module_manager, "upgrade_preview", return_value=preview):
+            try:
+                adapters.UpgradeEngine().plan(Args(), {"fingerprints": {}})
+            except transaction.TransactionRefused as refused:
+                return refused
+        self.fail("expected a refusal for " + repr(preview))
+
+    def test_an_interrupted_update_is_named_as_one(self):
+        refused = self._refusal({"status": "transaction-incomplete", "current": "1.0.0",
+                                 "reason": "An earlier update is in progress."})
+        self.assertEqual(refused.code, "unfinished-update")
+        self.assertFalse(refused.retryable)
+        self.assertTrue(any("resume" in step or "rollback" in step for step in refused.next_actions))
+
+    def test_being_offline_is_named_as_one_and_is_the_only_retryable_case(self):
+        refused = self._refusal({"status": "unreachable", "current": "1.0.0", "reason": "No network."})
+        self.assertEqual(refused.code, "update-home-unreachable")
+        self.assertTrue(refused.retryable, "the network case is the one that gets better on its own")
+
+    def test_an_inconsistent_engine_is_named_as_one(self):
+        self.assertEqual(self._refusal({"status": "inconsistent", "current": "1.0.0",
+                                        "reason": "Half-built."}).code, "engine-inconsistent")
+
+    def test_genuinely_current_still_says_so(self):
+        self.assertEqual(self._refusal({"current": "1.0.0"}).code, "already-current")
+
+
 class TestTheRecordedTargetIsShapeChecked(unittest.TestCase):
     """The recorded tag flows into `/repos/{slug}/tarball/{ref}`, deciding what code is overlaid, on the
     one path that skips the consent handle."""

@@ -61,7 +61,11 @@ class UpgradeEngine(transaction.Adapter):
                 # states the summary line beside it composes prose for, so the method contradicted itself.
                 "current_version": str(current or "unreadable"),
                 "target_version": str(available or "none-available"),
-                "head": handoff.working_tree_state()["head"],
+                # `head` is "" whenever `git rev-parse HEAD` cannot answer — no git binary, an unborn
+                # HEAD, a non-repository deployment. The NEVER-BLANK rule above applies to it too; the
+                # previous version guarded the two version fields and let this one through, so the
+                # comment overclaimed and the test written to prove it failed in a non-git tree.
+                "head": handoff.working_tree_state()["head"] or "unknown",
             },
         }
 
@@ -71,6 +75,35 @@ class UpgradeEngine(transaction.Adapter):
             raise transaction.TransactionRefused(
                 "upgrade-refused", preview.get("reason", "This update cannot proceed."),
                 ["Resolve what the reason above names, then check again."])
+        # A PREVIEW THAT COULD NOT LOOK IS NOT "ALREADY CURRENT". `upgrade_preview` reports these states
+        # with a `status` and a `reason` and NO `refused` key, so treating any preview lacking a target as
+        # already-current told an operator with a stalled update, an inconsistent tree, or no network that
+        # nothing was wrong — and round 3 made that refusal non-retryable, so it read as final. That is
+        # the consent surface making a false claim about precisely the state the no-handle exception
+        # exists to serve.
+        _CANNOT_LOOK = {
+            "transaction-incomplete": "unfinished-update",
+            "inconsistent": "engine-inconsistent",
+            "unreachable": "update-home-unreachable",
+            "missing-release": "no-such-release",
+        }
+        status = preview.get("status")
+        if status in _CANNOT_LOOK:
+            raise transaction.TransactionRefused(
+                _CANNOT_LOOK[status],
+                preview.get("reason") or "This update could not be planned.",
+                {"transaction-incomplete": [
+                    "See where the interrupted update got to: `transaction.py resume engine-upgrade`.",
+                    "Or undo it: `module_manager.py rollback --confirm`."],
+                 "inconsistent": [
+                     "Resolve what the reason above names, then check again."],
+                 "unreachable": [
+                     "Check again when the update home can be reached."],
+                 "missing-release": [
+                     "Check the release name, or plan the latest instead."],
+                 }[status],
+                # Only the network case gets better on its own; the others need something done first.
+                retryable=(status == "unreachable"))
         if not (preview.get("available") or preview.get("target")):
             raise transaction.TransactionRefused(
                 "already-current", "This engine is already on the newest version its update home offers.",
@@ -232,7 +265,11 @@ class UpgradeEngine(transaction.Adapter):
                 "fingerprints": {
                     "undo_state": str(state),
                     "current_version": str(diagnosis.get("current") or ""),
-                    "head": handoff.working_tree_state()["head"],
+                    # `head` is "" whenever `git rev-parse HEAD` cannot answer — no git binary, an unborn
+                # HEAD, a non-repository deployment. The NEVER-BLANK rule above applies to it too; the
+                # previous version guarded the two version fields and let this one through, so the
+                # comment overclaimed and the test written to prove it failed in a non-git tree.
+                "head": handoff.working_tree_state()["head"] or "unknown",
                 },
             },
             verification=[{

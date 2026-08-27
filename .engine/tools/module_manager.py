@@ -5679,11 +5679,18 @@ def _consent_handle_arg(argv: list):
     return None
 
 
-def _refuse_stale_consent(ref, handle: str):
+def _refuse_stale_consent(ref, handle: str, on_release=None):
     """Compare the carried handle against a freshly-derived one. Returns a message to print, or None.
 
     Derived through the transaction adapter so the comparison uses the SAME plan the operator was shown —
     not a second notion of what an update means, which would drift.
+
+    AND HANDS BACK THE RELEASE THAT PLAN NAMED, via `on_release`. This function resolved "latest" to a
+    concrete tag, compared the handle against it, and then threw the plan away — after which the caller
+    ran `upgrade(None)` and resolved latest a SECOND time. So the handle was checked against release X
+    and release Y could be applied, on the operator-typed path the skill documents and whose notes promise
+    "the handle you carry from the plan to the apply is what guarantees the thing applied is the thing you
+    read". Returning the resolved release is what makes that sentence true.
     """
     try:
         import transaction
@@ -5702,6 +5709,8 @@ def _refuse_stale_consent(ref, handle: str):
         return ("Couldn't check the consent handle you passed, so this update was NOT applied and nothing "
                 "was changed. Re-run `transaction.py plan engine-upgrade` for a fresh plan and handle. "
                 "({0})".format(exc))
+    if handle == fresh and on_release is not None:
+        on_release((plan.get("inputs") or {}).get("release"))
     if handle != fresh:
         return ("The consent handle does not match this update. Something moved since the plan you read — "
                 "the release, what it turns on or retires, or your checkout — so applying now would apply "
@@ -6145,12 +6154,20 @@ def main(argv: list) -> int:
                 # the binding is gone at the moment it mattered. A limit that can be talked past is not a
                 # limit, so a FRESH apply must carry the handle from the plan that was read.
                 #
-                # Finishing is different, and the difference is narrow. Documented recovery messages send
-                # the operator to a bare `upgrade --confirm`, and there is no plan to bind that to -- the
-                # release was consented to before the interruption. What binds it instead is the marker's
-                # RECORDED target: finishing applies exactly the release that was staged, never whatever
-                # the home publishes now. Without a recorded target there is nothing to bind to, so this
-                # refuses rather than falling through to a fresh resolve.
+                # Finishing is different, and the warrant is MECHANICAL, not editorial. An earlier
+                # version of this comment justified the exception by where the documentation points --
+                # which any later session defeats by editing the documentation, so it was no warrant at
+                # all. The load-bearing fact is this: while a durable recovery transaction is active,
+                # `upgrade_preview` refuses with `transaction-incomplete`, so `transaction.py plan
+                # engine-upgrade` CANNOT mint a handle -- while `upgrade --confirm` still works, because
+                # `upgrade()` recovers that transaction first. Requiring a handle would therefore make
+                # that operator's only route out unreachable. That is the whole of the justification, and
+                # it is narrower than the "plan can't mint a handle for a staged tree" claim recorded
+                # before it: tree dirtiness alone does NOT stop a plan.
+                #
+                # What binds the exception is the marker's RECORDED target: finishing applies exactly the
+                # release that was staged, never whatever the home publishes now. Without a recorded
+                # target there is nothing to bind to, so this refuses rather than resolving afresh.
                 staged = staged_upgrade_detail() if staged_upgrade_announced() else {}
                 resume_ref = staged.get("target_ref")
                 if not resume_ref:
@@ -6180,10 +6197,14 @@ def main(argv: list) -> int:
                           "plan it and apply with the handle that plan prints.".format(resume_ref, ref))
                     return 2
             else:
-                mismatch = _refuse_stale_consent(ref, handle)
+                consented = {}
+                mismatch = _refuse_stale_consent(ref, handle,
+                                                 on_release=lambda r: consented.update(release=r))
                 if mismatch:
                     print(mismatch)
                     return 2
+                # Apply the release the VERIFIED plan named, not a second resolve of the operand.
+                resume_ref = consented.get("release") or ref
             # The staged path applies the RECORDED release, never a re-resolved "latest".
             result = upgrade(resume_ref or ref)
             if "--json" in argv:

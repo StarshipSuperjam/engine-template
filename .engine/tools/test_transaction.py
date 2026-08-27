@@ -316,15 +316,23 @@ class TestTheRealCommandLineWorks(unittest.TestCase):
 
     def test_the_end_of_options_boundary_never_goes_negative(self):
         """`--` before the operation makes the boundary arithmetic negative, and negative used to read as
-        "no protection at all" -- dropping the guard in the case where it was asked for most loudly."""
-        raw = ["run", "--", "engine-upgrade", "--consent-handle=x"]
-        protected_count = len(raw) - raw.index("--") - 1
-        parsed = transaction.build_parser().parse_args([a for a in raw if a != "--"])
-        parsed._protected_from = (max(0, len(parsed.rest) - protected_count)
-                                  if protected_count >= 0 and parsed.rest else -1)
-        transaction._lift_own_flags(parsed)
-        self.assertEqual(parsed.consent_handle, "",
-                         "an explicitly protected --consent-handle was lifted anyway")
+        "no protection at all" -- dropping the guard where the operator asked for it most loudly.
+
+        Drives the REAL command. The previous version re-implemented `max(0, ...)` inside the test, so
+        reverting the production line left it green -- the third time this build wrote a test that could
+        not fail, and the reason its siblings here run as subprocesses.
+        """
+        # `--json` is the discriminator, because its effect is VISIBLE. A protected `--json` must stay an
+        # operand and leave the output as prose; if the boundary collapses to "no protection", it is
+        # lifted and the output becomes JSON. A protected `--consent-handle` would not do: both the
+        # protected and the unprotected case end in a refusal, so the test could not tell them apart --
+        # which is exactly how the first two versions of this test managed to pass either way.
+        result = self._run("plan", "--", "engine-upgrade", "--json")
+        said = result.stdout + result.stderr
+        self.assertTrue(said.strip(), "the command produced no output at all")
+        self.assertNotIn("Traceback", said)
+        self.assertNotEqual(result.stdout.strip()[:1], "{",
+                            "the protected --json was lifted, so the boundary collapsed: " + said)
 
     def test_an_unknown_operation_still_answers_in_json_when_json_was_asked_for(self):
         """No envelope -- an envelope must name a real operation -- but a caller that asked for
