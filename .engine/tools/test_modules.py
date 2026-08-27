@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import subprocess
+from unittest import mock
 import sys
 import tempfile
 import unittest
@@ -972,9 +973,11 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         status = module_coherence.wiring_status(module_coherence.discover_manifests())
         mcp = [s for s in status if s[1] == "mcp"]
         self.assertTrue(mcp, "core declares an mcp wire to exercise")
-        self.assertTrue(all(applied for _id, _seam, _t, applied in mcp),
+        # Entries carry a 5th element — why an unapplied wire is unapplied, when the seam knows
+        # (StarshipSuperjam/engine-template#893) — so index rather than unpack a fixed arity.
+        self.assertTrue(all(entry[3] for entry in mcp),
                         "the mcp wire is applied from the committed .mcp.json definition (approval-blind)")
-        self.assertTrue(all(applied for _id, _seam, _t, applied in status),
+        self.assertTrue(all(entry[3] for entry in status),
                         f"every committed wire must be applied: {status}")
         self.assertEqual(validate.wiring_findings(status, "hard", "m"), [])
 
@@ -1329,3 +1332,45 @@ class TestUntrackedSurfaceGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEnvironmentGatedWireDoesNotContradictItself(unittest.TestCase):
+    """StarshipSuperjam/engine-template#893 — two remedies that sent the operator in a circle.
+
+    The applier's own message says "re-run on Python 3.11+"; the generic coherence remedy said "re-run the
+    install / wiring step", which on the 3.9 floor reproduces the identical skip. They rendered
+    back-to-back on module-add, and a reader who followed the more official-looking generic line looped.
+    """
+
+    def test_an_environment_gated_skip_reports_a_stable_code_not_prose(self):
+        directive = {"type": "codex-mcp", "name": "engine-memory", "definition": {}}
+        with mock.patch.object(wiring, "tomllib", None), \
+                mock.patch.object(wiring, "_read_text", return_value="[servers.someone_elses]\n"), \
+                mock.patch.object(wiring, "_codex_config_is_engine_owned", return_value=False):
+            self.assertEqual(wiring.unapplied_skip_code(directive), wiring.ENV_GATED_SKIP)
+
+    def test_an_ordinary_unapplied_wire_reports_no_code(self):
+        directive = {"type": "codex-mcp", "name": "engine-memory", "definition": {}}
+        with mock.patch.object(wiring, "tomllib", object()):
+            self.assertIsNone(wiring.unapplied_skip_code(directive))
+        self.assertIsNone(wiring.unapplied_skip_code({"type": "mcp", "name": "x"}))
+
+    def test_the_generic_remedy_is_withheld_when_re_running_would_reproduce_the_skip(self):
+        gated = validate.wiring_findings(
+            [("core", "codex-mcp", ".codex/config.toml", False, wiring.ENV_GATED_SKIP)], "hard", "m")
+        self.assertEqual(len(gated), 1)
+        message = gated[0]["message"]
+        self.assertNotIn("re-run the install / wiring step", message,
+                         "the circular instruction must not be emitted for an environment-gated skip")
+        self.assertIn("cannot apply it", message)
+        self.assertIn("not a plain re-run", message)
+
+    def test_the_ordinary_remedy_still_says_re_run(self):
+        plain = validate.wiring_findings(
+            [("core", "mcp", ".mcp.json", False)], "hard", "m")
+        self.assertIn("re-run the install / wiring step", plain[0]["message"],
+                      "an ordinary not-yet-applied wire keeps the remedy that actually works")
+
+    def test_four_element_entries_still_work(self):
+        """The status tuple grew; callers that supply the old arity must not break."""
+        self.assertEqual(validate.wiring_findings([("core", "mcp", ".mcp.json", True)], "hard", "m"), [])

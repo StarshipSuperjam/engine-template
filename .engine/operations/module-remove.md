@@ -1,73 +1,56 @@
 ---
-title: Remove an engine module — undo its settings and delete its files, safely
+title: Remove an engine module — what you lose, and what is deliberately left behind
 ---
 
 ## Purpose
 
-How the engine removes one installed module cleanly: it reverses the shared-file settings that module
-added, deletes the files it owns, drops it from the engine's record, and re-checks that what remains is
-consistent — while refusing to remove a module another module still needs, and being honest about the one
-thing it deliberately leaves behind. Enter this runbook to understand or perform an ordinary module
-removal. The tool is `tools/module_manager.py`. An ordinary removal needs no special permission and never
-touches the branch-protection setting — it changes only what runs *inside* the engine's existing checks,
-not the checks themselves. (Removing the *entire* engine is a different, larger step a separate capability
-owns — the `remove-engine` verb and its own `engine-remove.md` runbook; this runbook is for removing one
-module.)
+What removing one capability means, and the two things about it that are judgment rather than mechanics:
+the residue removal will not touch, and the notice a released engine owes downstream operators. The
+transaction carries the rest — `transaction.py plan module-remove <module>` reports whether it would be
+refused and why, before anything changes.
 
 ## Steps
 
-The operation is safe to inspect first and safe to re-run — removing a module that is already gone simply
-reports that there is nothing to remove.
+1. **Ask the tool what it would do.** `transaction.py plan module-remove <module>` names what the operator
+   would lose and whether the removal is refused — another installed module still needs this one, or it is
+   foundational and cannot be removed on its own. Nothing is changed by asking.
+2. **Apply what was shown.** `transaction.py run module-remove <module> --consent-handle <handle>` reverses
+   the module's shared-file settings, deletes its files, drops it from the engine's record, updates the
+   tool-runtime's dependency groups, and commits exactly that as one labelled commit.
+3. **Read what it left in place, and disclose it.** Anything the removal could not prove was the engine's
+   alone is left and named — see the residue note below. Pass this on to the operator; it is the one part of
+   the result they may need to act on by hand.
 
-1. **See what is installed and what depends on what.** `module_manager.py status` lists the installed
-   modules, which modules each one needs, and which ones need it — so it is clear up front whether a module
-   can be removed on its own.
-2. **Check that removal is safe (read-only).** `module_manager.py plan-remove <module>` reports whether the
-   removal would be refused and why. It is refused, in plain language, if another installed module still
-   needs the one being removed (remove that one first) — and a required, foundational module cannot be
-   removed on its own at all. Nothing is changed by this step.
-3. **Remove it.** `module_manager.py remove <module>` reverses the module's shared-file settings (the hooks,
-   the dependency-cache ignore lines, an MCP server it registered), deletes the module's own files and its
-   folder, drops it from the engine's record, and updates which dependency groups the tool-runtime installs.
-   Identical re-runs change nothing. **If this engine publishes releases**, pass
-   `remove <module> --removal-notice "…what an operator could ask for before and no longer can…"` — that
-   records the plain-language line the engine will show downstream operators when a future release drops the
-   module, and the release cut *refuses to cut* a release that drops a whole module without one (see the Note
-   below). A local operator uninstalling a module in their own deployment omits it — no release is cut there.
-4. **Read what it left in place.** If the module had added a permission, the engine leaves that permission
-   alone and says so plainly — it cannot be sure the permission is the engine's alone and not also the
-   operator's, so it never removes a shared one. The operator can remove it by hand if it was only for that
-   module.
-5. **Confirm what remains is consistent.** The engine re-checks the remaining set and reports it in plain
-   language. A clean result means the remaining modules are consistent; any problem is surfaced with the
-   next step to take.
+**If this engine publishes releases**, author the removal notice at removal time (`--removal-notice "…what
+an operator could ask for before and no longer can…"`). A local operator uninstalling in their own
+deployment omits it — no release is cut there.
 
 ## Done when
 
-The module's shared-file settings are reversed, its files and its folder are gone, the engine's record no
-longer lists it, the tool-runtime's dependency-group selection matches the remaining modules, and the
-remaining set is reported consistent — or, if removal was refused, the operator has been told plainly which
-module blocks it and what to do, with nothing changed. Any permission deliberately left behind has been
-disclosed, not hidden.
+The capability is gone, its files are one revertable commit, the remaining set is reported consistent, and
+any residue the removal deliberately left has been named to the operator — or the removal was refused,
+plainly, with nothing changed.
 
 ## Notes
 
+**Not gated by review, deliberately.** Like adding one, removing a module is the engine changing its own
+installation rather than your product code, so it takes effect immediately and lands as one labelled commit
+you can revert.
+
 **Ordinary removal touches no branch-protection setting.** A module's checks flow in and out of the engine's
-stable required check by which check files are present, so removing a module changes only what runs inside
-that check, not its name — no operator-privileged step is needed. Removing the *entire* engine is different:
-it must also turn off the engine's required-check binding (an operator-privileged step) so a leftover
-binding to a deleted check cannot deadlock the repository's own pull requests. That whole-engine removal,
-and adding a module back (which fetches it from a release), are separate capabilities with their own
-runbooks — see `engine-remove.md` and `module-add.md`.
+stable required check by which check files are present, so removing one changes only what runs inside that
+check, not its name. Removing the *whole engine* is different — it must also unbind the engine's required
+check, an operator-privileged step, so a leftover binding to a deleted check cannot deadlock the
+repository's own pull requests. That, and adding a module back, are separate capabilities with their own
+runbooks.
 
 **The honest residue.** A bare permission a module added cannot be proven to belong to the engine alone, so
-removal leaves it rather than risk removing one the operator wanted — the accepted cost of never removing
-the wrong thing. It is always disclosed, never silently left.
+removal leaves it rather than risk removing one the operator wanted. That is the accepted cost of never
+removing the wrong thing, and it is always disclosed, never silently left.
 
 **Dropping a module from the product needs a removal notice.** When a *release* drops a whole module, a
-downstream engine that still has it reconciles it away on update and shows the operator, in plain language,
-what they can no longer ask for. That line lives in the release's own record (engine.json
-`removed_capabilities`), and `--removal-notice` above is how you author it at removal time; forget it and the
-release cut refuses until you add it to `removed_capabilities` by hand (the module is already gone by then, so
-it is an edit, not another `remove`). This is the whole-module sibling of a module's own in-place
-`retired_capabilities` notice.
+downstream engine that still has it reconciles it away on update and shows its operator, in plain language,
+what they can no longer ask for. That line lives in the release's own record (`engine.json`
+`removed_capabilities`); `--removal-notice` is how it is authored at removal time. Forget it and the release
+cut refuses until it is added by hand — the module is gone by then, so that is an edit, not another removal.
+This is the whole-module sibling of a module's own in-place retirement notice.

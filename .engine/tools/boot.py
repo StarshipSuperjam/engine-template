@@ -1697,7 +1697,10 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # (overlay-code dirty vs HEAD, NOT a coherence pass), so a stall that leaves the wiring applied but the
         # tree half-built is still caught. Degrades QUIETLY to None — a clean tree is the normal state.
         import module_manager as _mm
-        staged_update = bool(_mm._staged_upgrade_dirty())
+        # The NOTICE question, not the recovery one: an ordinary construction tree is dirty in exactly the
+        # same places a half-applied update is, so the notice keys on the update having announced itself
+        # (StarshipSuperjam/engine-template#948). `rollback` still asks the generous question.
+        staged_update = bool(_mm.staged_upgrade_announced())
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         staged_update = None
     try:
