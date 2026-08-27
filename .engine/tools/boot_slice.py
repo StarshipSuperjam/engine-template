@@ -221,7 +221,7 @@ def read(slice_path: str | None = None, graph_path: str | None = None):
         # already fresh — only a committed slice is ever fresh, a live one never is, line 105-109). Both live
         # rungs mean orientation ran on the rebuilt fallback; they are carried SEPARATELY so boot names the
         # cause honestly: 'live' = committed map ABSENT (regenerate), 'live-corrupt' = present but DAMAGED
-        # (regenerate to replace it) — a distinct repair the operator relies on (eADR-0004 'name what is reduced').
+        # (regenerate to replace it) — a distinct repair because the briefing must name what is reduced.
         s.from_live = (source == "live")
         s.from_corrupt = (source == "live-corrupt")
         return s

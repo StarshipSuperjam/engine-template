@@ -3,7 +3,7 @@
 WHAT A PIN IS FOR. Most of what a project decides has a better home than memory: a merged pull request, a
 decision record, the code itself. A pin is for the residue — a standing preference, a way of working, a "never
 do that again" — that has no canonical artifact to live in and would otherwise survive only as a sentence in a
-conversation nobody thinks to search for. eADR-0038 puts it in the one substrate as a record-type rather than a
+conversation nobody thinks to search for. It lives in the same substrate as a distinct record type rather than a
 sixth store, and that is exactly what this is: an ordinary ledger record that ordinary recall surfaces.
 
 WHAT A PIN IS NOT FOR (StarshipSuperjam/engine-template#650, StarshipSuperjam/engine-template#766). An assistant's own material is different in kind and does not belong

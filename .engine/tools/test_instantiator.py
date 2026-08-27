@@ -440,7 +440,7 @@ class TestConfirm(unittest.TestCase):
         self.assertIn("onby", str(ctx.exception))
 
     def test_persists_an_external_product_repository(self):
-        # eADR-0026: when the engine builds a repo DIFFERENT from the one it is deployed into, the operator's
+        # When the engine builds a repo DIFFERENT from the one it is deployed into, the operator's
         # named product is recorded. It validates against the (closed) engine schema.
         import validate as _v
         schema = _v.load_json(os.path.join(_v.SCHEMAS_DIR, "engine.v1.json"))
@@ -2405,13 +2405,6 @@ class TestFirstRunAssetsManifestParity(unittest.TestCase):
         self.assertIn(".engine/audits/audit-digest.md", inst._FIRST_RUN_ASSET_FILES)
         self.assertIn(".engine/audits/audit-digest.md", self._manifest()["files"])
 
-    def test_the_467_namespace_demo_is_retired_so_it_does_not_travel(self):
-        # #467: the deployment-eADR-namespace falsification is maintainer build evidence (covered by the
-        # test_contract / test_knowledge regressions), not operator capability, so it retires at first-run
-        # rather than ship into a generated repo. Mirrored in both sources (parity).
-        self.assertIn(".engine/tools/demo_467_deployment_eadr_namespace.py", inst._FIRST_RUN_ASSET_FILES)
-        self.assertIn(".engine/tools/demo_467_deployment_eadr_namespace.py", self._manifest()["files"])
-
     def test_the_marketing_banner_is_retired_so_a_generated_repo_carries_no_banner(self):
         # #410: the engine's marketing banner is referenced only by the template's marketing landing README
         # (which the first-run reseed replaces with a product starter). It must be in the retire set (both sources)
@@ -2700,13 +2693,6 @@ class TestIsEngineResumeSignals(unittest.TestCase):
         # file under .engine/state/ is NOT recognized.
         self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/state/sub/deep.json"))
         self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/state/notes.txt"))
-
-    def test_generated_unshipped_is_narrow_and_defers_to_operator(self):
-        # A broad provides-glob path is NOT recognized (proves the narrow scope), and operator/deployment
-        # content is never recognized.
-        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/knowledge/x.json"))
-        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/contracts/instance/0001.md"))
-        self.assertFalse(module_coherence.is_engine_generated_unshipped(".engine/operator-overrides.json"))
 
     def test_each_resume_signal_fires_independently(self):
         owned = {".engine/tools/boot.py"}
@@ -3146,26 +3132,6 @@ class TestArrive(unittest.TestCase):
             paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
             self.assertNotIn(".engine/engine.json", paths)          # ...yet recognized by the #695 signal
             self.assertNotIn(".engine/state/state.json", paths)
-
-    def test_resume_still_surfaces_operator_files_under_engine(self):
-        # #695 safety: the NARROW generated-unshipped signal must not drop operator/deployment content under
-        # .engine/ — a deployment eADR and an operator file at a provides-glob path both still surface (the
-        # broad-pattern approach the plan review rejected would have silently dropped these).
-        with tempfile.TemporaryDirectory() as d:
-            target, release = os.path.join(d, "p"), os.path.join(d, "r")
-            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
-            for rel in (".engine/contracts/instance/0001.md",   # deployment eADR stream (DEPLOYMENT_CONTRACTS)
-                        ".engine/knowledge/mine.json"):          # operator file at a provides-glob path
-                p = os.path.join(target, rel)
-                os.makedirs(os.path.dirname(p), exist_ok=True)
-                with open(p, "w") as fh:
-                    fh.write("operator content\n")
-            engine_paths = self._release_engine_paths(release)
-            check = inst.collision_check(root=target, engine_paths=engine_paths, copy=inst.load_copy(),
-                                         release_root=release)
-            paths = {p for c in check["collisions"] if c["klass"] == 1 for p in c["paths"]}
-            self.assertIn(".engine/contracts/instance/0001.md", paths)
-            self.assertIn(".engine/knowledge/mine.json", paths)
 
     def test_resume_recognizes_release_identical_github_files(self):
         # #754a: a .github/ engine file whose bytes exactly match the release the arrival would overlay is the

@@ -118,7 +118,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   offer for a contributor's fork of the engine home (not an adopter); offline the offer still shows — read-only
   and low-harm.
 - **An engine-mechanic with no usable product checkout — setup (`checkout_health.mechanic_orientation`,
-  eADR-0026).** This engine records an executable `product_build_target`, so it builds a SEPARATE owned checkout,
+  product/build boundary).** This engine records an executable `product_build_target`, so it builds a SEPARATE owned checkout,
   but this machine's path to that checkout is missing or points at nothing. The reader classifies it OFFLINE
   (`path-unset` / `path-unreachable`); boot pins the setup offer and **suppresses it while first-run setup is
   pending**, so onboarding asks once, not twice. Like the fresh-copy offer above and unlike the repairs below,

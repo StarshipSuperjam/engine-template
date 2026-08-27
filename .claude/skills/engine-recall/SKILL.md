@@ -27,9 +27,10 @@ engine-targets:
 Reach for this whenever a request leans on an earlier session — "what did we decide about…", "why did we do it
 that way", "have we hit this before", "what did you say about…", or anything referring to last time, earlier,
 or months ago — and before answering from your own recollection of this project, which does not carry between
-sessions. Canonical artifacts still outrank memory: a merged pull request, a decision record, or the code
-itself is stronger evidence than a memory of it, so use recall to find the narrative and *which* artifact to
-read.
+sessions. Current artifacts still outrank memory: a merged pull request, a current specification or policy,
+or the code itself is stronger evidence than a memory of it. Historical records returned by recall stay
+attributed history; never infer current authority from them. Use recall to find the narrative and *which live
+artifact* to inspect.
 
 Nothing in the project is changed or removed by this, and nothing is written either: searching your memory and
 reading a conversation back are both pure reads.

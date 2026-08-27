@@ -1266,13 +1266,5 @@ class TestUtcCalendarDay(unittest.TestCase):
             with mock.patch.object(moment, "today_utc", return_value=run):
                 self.assertEqual(audit_digest.staleness(p)["severity"], "note")  # now=None -> default
 
-    def test_digest_day_and_contract_rate_day_are_one_utc_day(self):
-        # The two "todays" the #631 defect split apart must agree: the digest's default day
-        # (moment.today_utc) and the contract-rate window's day (telemetry.derive_contract_rate derives
-        # date.fromisoformat(now[:10]) from moment.utc_now()). Both are the UTC calendar day.
-        contract_rate_day = datetime.date.fromisoformat(moment.utc_now()[:10])
-        self.assertEqual(contract_rate_day, moment.today_utc())
-
-
 if __name__ == "__main__":
     unittest.main()

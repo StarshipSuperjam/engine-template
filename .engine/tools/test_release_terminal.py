@@ -241,7 +241,7 @@ class Prose(unittest.TestCase):
     def test_release_notes_are_human_readable_with_sections_and_descriptions(self):
         proposal = {"engine_floor_level": "major",
                     "change_inventory": ["Added the 'x' capability.", "Removed the 'legacy' capability."],
-                    "impacts": [{"what": "the contract surface 'c.md' changed",
+                    "impacts": [{"what": "the interface surface 'c.json' changed",
                                  "why": "read it against consumers before confirming."}]}
         notes = rt._release_notes("v1.0.0", proposal=proposal)
         self.assertIn("v1.0.0", notes)
@@ -249,7 +249,7 @@ class Prose(unittest.TestCase):
         self.assertIn("## What changed since the last release", notes)  # a section header, not a flat list
         self.assertIn("- Added the 'x' capability.", notes)             # bulleted structural changes
         self.assertIn("## Interface changes to read", notes)            # a distinct section
-        self.assertIn("**The contract surface 'c.md' changed.**", notes)  # bold heading
+        self.assertIn("**The interface surface 'c.json' changed.**", notes)  # bold heading
         self.assertIn("Read it against consumers", notes)               # WITH its description (own sentence)
 
     def test_release_notes_degrade_to_minimal_without_a_proposal(self):

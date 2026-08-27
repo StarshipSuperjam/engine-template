@@ -32,7 +32,7 @@ report at every cut.
    Present the **Release preview** block, translated into plain words (the JSON's field names are for you,
    never for the report): the derived next version and what forces it (`engine_floor_version` with
    `baseline_note`; a product cut floors at a patch bump), what changed since the last release (the
-   merged-pull-request list, by kind), any contract-surface impacts, and the violation gates — all must be
+   merged-pull-request list, by kind), any interface-surface impacts, and the violation gates — all must be
    empty; a violation is a refusal to cut, so stop and present the tool's own reason. A first-ever cut has
    no baseline: the operator must name the starting version.
 3. **Dispatch.** `gh workflow run release.yml --ref <default branch>` — leave the version blank to take the

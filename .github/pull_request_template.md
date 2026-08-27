@@ -123,6 +123,6 @@
 
 **<one-line summary: AI tool(s) used (for example Claude Code or Codex), what each did, and which choices vs edits were AI-driven — or "No AI was used">**
 
-- <the specifics, with references to the decision/contract surface>
+- <the specifics, with references to the relevant decision or interface>
 
 *Impact: <where AI judgment is load-bearing vs mechanical>*

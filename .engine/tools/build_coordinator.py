@@ -366,7 +366,7 @@ def _empty_review() -> dict:
 # into the ground is panels, not the kind of file the last fix moved.
 #
 # Two bounds, both attention stops backed by the operator's merge -- neither caps review coverage or lens
-# count within a round, and neither chooses a judgment (eADR-0041 BC-16):
+# count within a round, and neither chooses a judgment:
 _REPAIR_ROUND_ESCALATION = 3   # counted rounds before the next counted round stops for --guidance
 _REPAIR_ROUND_CEILING = 6      # rounds of ANY kind before the next round of any kind stops for --guidance
 _COUNTED_LENS_FLOOR = 2        # lenses a round must dispatch to count as spent
@@ -2454,7 +2454,7 @@ def cmd_validate(args, store: Snapshot) -> None:
                 + ". Integrate every node first — focused verification is the tool for a partial graph.")
     # Fail-fast pre-gate (read-only), BEFORE the expensive StableCommit run: if a derived artifact is stale,
     # refuse naming the exact remedy rather than spending the full CI suite + self-tests only to go red on a
-    # drift check. This is NOT a new hard hold (eADR-0041) — it is a cheap early refusal; CI's drift checks
+    # drift check. This is NOT a new hard hold — it is a cheap early refusal; CI's drift checks
     # remain the authority, and the sync-artifacts step is what a session runs to clear it.
     drift = _derived_drift()
     if drift:

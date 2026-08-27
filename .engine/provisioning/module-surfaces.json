@@ -573,15 +573,6 @@
   ".engine/check/conduct-weakening-guard.json": [
    "validators-core"
   ],
-  ".engine/check/contract-frontmatter.json": [
-   "validators-core"
-  ],
-  ".engine/check/contract-shape.json": [
-   "validators-core"
-  ],
-  ".engine/check/contract-threshold.json": [
-   "validators-core"
-  ],
   ".engine/check/dependency-pinning.json": [
    "dependency-discipline"
   ],
@@ -655,9 +646,6 @@
    "validators-core"
   ],
   ".engine/check/module-surfaces-drift.json": [
-   "validators-core"
-  ],
-  ".engine/check/ontology-authority-reservation.json": [
    "validators-core"
   ],
   ".engine/check/operation-frontmatter.json": [
@@ -768,135 +756,6 @@
   ".engine/conduct/defaults.md": [
    "core"
   ],
-  ".engine/contracts/eADR-0001-versioned-template.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0002-repo-authoritative-truth.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0003-ship-the-substrate-not-the-data.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0004-degrade-to-git-native.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0005-nudge-locally-hardgate-at-review.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0006-three-enforcement-tiers.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0007-engine-product-wall.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0008-fault-containment-at-the-seams.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0009-modules-declare-files-and-wiring.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0010-derived-binding-by-presence.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0011-guardrail-integrity.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0012-deferral-seams.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0013-one-trust-gate-evidence.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0014-one-history-living-documents.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0015-remediation-loop-not-self-healing.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0016-ontology-surfaces-catalogued-ranked.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0017-engine-namespaced-identifiers.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0018-cognitive-substrate-one-workflow.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0019-memory-knowledge-distinct-substrates.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0020-thin-dispatcher-kind-registry.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0021-control-plane-enforcement-layer.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0022-hooks-lifecycle-bindings-block-budget.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0023-one-manifest-grammar-provisioning.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0024-modes-three-stances-two-axes.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0025-draft-pr-is-the-claim.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0026-external-contribution-fork-native.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0027-execution-substrate-uv-runtime.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0028-cold-adversarial-audit.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0029-contract-threshold-standing-rule-tier.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0030-operator-stance-floor.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0031-state-cursor-pointers-and-counts.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0032-attention-policy-plus-function.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0033-boot-refresh-family.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0034-dual-provider-adapter-core.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0035-deferred-work-marker.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0037-upgrade-overwrite-disclosure.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0038-memory-transcript-first-recall.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0039-whole-module-removal-reconcile.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0040-guardrail-ack-two-tier.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0041-build-coordinator-behavior.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0042-multi-writer-integration.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0043-default-on-clean-checkout-catch-up.md": [
-   "core"
-  ],
-  ".engine/contracts/eADR-0044-plan-coordinator-local-library.md": [
-   "core"
-  ],
   ".engine/docs/ci-assurance.md": [
    "core"
   ],
@@ -923,6 +782,9 @@
   ],
   ".engine/memory-backup/pointer.json": [
    "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/modules/core/migrations/retire_eadr_records.py": [
+   "core"
   ],
   ".engine/modules/core/migrations/retire_scent_threshold.py": [
    "core"
@@ -1065,9 +927,6 @@
   ".engine/policies/briefing-budget.md": [
    "core"
   ],
-  ".engine/policies/contract-threshold.md": [
-   "core"
-  ],
   ".engine/policies/dependency-discipline.md": [
    "dependency-discipline"
   ],
@@ -1171,9 +1030,6 @@
    "core"
   ],
   ".engine/schemas/conformance-verdicts.v1.json": [
-   "core"
-  ],
-  ".engine/schemas/contract.v1.json": [
    "core"
   ],
   ".engine/schemas/doc.v1.json": [
@@ -1290,9 +1146,6 @@
   ".engine/templates/conduct.md": [
    "core"
   ],
-  ".engine/templates/contract.md": [
-   "core"
-  ],
   ".engine/templates/control-plane-bootstrap.md": [
    "core"
   ],
@@ -1342,9 +1195,6 @@
    "core"
   ],
   ".engine/tools/audit_soft_promote.py": [
-   "core"
-  ],
-  ".engine/tools/authority_reservation_check.py": [
    "core"
   ],
   ".engine/tools/block_coherence_check.py": [
@@ -1446,9 +1296,6 @@
   ".engine/tools/conformance_sweep.py": [
    "core"
   ],
-  ".engine/tools/demo_467_deployment_eadr_namespace.py": [
-   "core"
-  ],
   ".engine/tools/demo_594_rollback_discard.py": [
    "core"
   ],
@@ -1485,9 +1332,6 @@
   ".engine/tools/demo_959_finalize_ready_transition.py": [
    "core"
   ],
-  ".engine/tools/demo_ack_authority.py": [
-   "core"
-  ],
   ".engine/tools/demo_actionlint.py": [
    "core"
   ],
@@ -1522,9 +1366,6 @@
    "core"
   ],
   ".engine/tools/demo_context_control.py": [
-   "core"
-  ],
-  ".engine/tools/demo_contract_rate.py": [
    "core"
   ],
   ".engine/tools/demo_control_plane_labels.py": [
@@ -2304,12 +2145,6 @@
   ".engine/tools/test_context_control_end_to_end.py": [
    "core"
   ],
-  ".engine/tools/test_contract.py": [
-   "core"
-  ],
-  ".engine/tools/test_contract_canon.py": [
-   "core"
-  ],
   ".engine/tools/test_demonstration_corpus.py": [
    "core"
   ],
@@ -2551,6 +2386,9 @@
    "core"
   ],
   ".engine/tools/test_repo_identity.py": [
+   "core"
+  ],
+  ".engine/tools/test_retire_eadr_records.py": [
    "core"
   ],
   ".engine/tools/test_retired_settings.py": [

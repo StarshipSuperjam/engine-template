@@ -31,7 +31,7 @@ value is marker-safe by construction (an enum member carries no `<`, `>`, or `--
 LAST marker so body prose forged before the genuine trailer cannot hijack it. HONEST RESIDUAL: last-match does
 not defend a marker appended AFTER the genuine one by someone who can edit the pull-request body. That is only
 PARTLY bounded: a body edited to UNDER-declare is caught by refuse-until-corrected ONLY where the diff proves a
-higher STRUCTURAL floor (a contract surface added/removed, a module added/removed) — a behaviour-only break that
+higher structural floor (an interface surface added/removed, a module added/removed) — a behaviour-only break that
 touches no such surface has NO mechanical backstop, so a post-merge downgrade of its marker would pass unnoticed.
 The residual is disclosed and tracked (a StarshipSuperjam/engine-template#710-style head-bound impact status is the durable fix); the human merge
 gate on the release pull request bounds it today.

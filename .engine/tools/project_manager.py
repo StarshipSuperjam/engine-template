@@ -11,9 +11,9 @@ across build phases through the program object — so the operator retitled it o
 it actually does. The retitle is of the COMPONENT, deliberately not of the data: the schema ids
 (`engine-plan.v1`, `plan-record.v1`, `engine-program.v1`) and the `plan` verb namespace name the
 artifacts rather than the component, and renaming a schema id would invalidate every record already
-stored in every deployed project. Stored records and history — merged pull-request titles, the
-decision record's own filename — keep the name they were written under, because that is what they
-were written under. eADR-0044 carries the reasoning.
+stored in every deployed project. Stored records and history — merged pull-request titles and an
+artifact's own filename — keep the name they were written under, because that is what they were
+written under. Merge history carries the reasoning.
 
 Its shape mirrors the Build side deliberately, because an operator should not have to learn two
 vocabularies: read verbs derive and never write, governance verbs record evidence, and status is
@@ -1321,7 +1321,7 @@ def cmd_close(args) -> int:
 
 
 def cmd_reopen(args) -> int:
-    """Undo a retirement or an abandonment. Deliberately CANNOT undo a seal.
+    """Undo a retirement or an abandonment. Completion and a seal are terminal.
 
     Retiring and abandoning are bookkeeping about attention, and an operator may change their mind.
     A seal is a promise that a specific plan, at a specific digest, was reviewed and handed to a
@@ -1333,6 +1333,9 @@ def cmd_reopen(args) -> int:
     record = library.read_record(slug)
     if not record.get("closure"):
         raise ProjectManagerError("this plan is not closed, so there is nothing to reopen")
+    if record["closure"]["state"] == "complete":
+        raise ProjectManagerError(
+            "this plan is complete, and completed Build history is terminal. Start a new plan for new work.")
     if record.get("seal"):
         raise ProjectManagerError(
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
@@ -1343,6 +1346,9 @@ def cmd_reopen(args) -> int:
         previous["state"] = current["closure"]["state"]   # read under the lock, not before it
         if not current.get("closure"):   # re-asserted inside the lock
             raise ProjectManagerError("another session reopened this plan already")
+        if current["closure"]["state"] == "complete":
+            raise ProjectManagerError(
+                "this plan is complete, and completed Build history is terminal")
         if current.get("seal"):
             raise ProjectManagerError("this plan is sealed, and a seal is terminal")
         current["closure"] = None
@@ -1998,7 +2004,7 @@ def build_parser() -> argparse.ArgumentParser:
                             state={"retire": "retired", "abandon": "abandoned",
                                    "complete": "complete"}[state])
 
-    reopen = sub.add_parser("reopen", help="undo a retirement or abandonment (never a seal)")
+    reopen = sub.add_parser("reopen", help="undo a retirement or abandonment (never completion or a seal)")
     reopen.add_argument("plan")
     reopen.set_defaults(func=cmd_reopen)
 

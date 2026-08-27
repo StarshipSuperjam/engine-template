@@ -81,8 +81,7 @@ class TestHomeTravelClassification(unittest.TestCase):
                   ".engine/memory-backup/pointer.json", ".engine/audits/concern-list.json",
                   ".engine/erasures/proposal.json",
                   ".engine/operator-overrides.json", ".engine/conduct/operator.md",       # operator tuning
-                  ".engine/provisioning/conduct-seed.md",                                   # maintainer seed
-                  ".engine/contracts/instance/acme-eADR-0001.md"):                          # deployment records
+                  ".engine/provisioning/conduct-seed.md"):                                  # maintainer seed
             self.assertFalse(mc.travels_to_engine_home(p), f"{p} must NEVER travel (instance/operator content)")
 
     def test_no_owned_path_is_left_ambiguous(self):
@@ -90,7 +89,7 @@ class TestHomeTravelClassification(unittest.TestCase):
         # path outside the known instance locations fails here — forcing an explicit classification rather than
         # a silent travel/flag. (Runtime already default-flags the unknown, so this guards the over-flag side.)
         INSTANCE_PREFIXES = (".engine/state/", ".engine/audits/", ".engine/erasures/", ".engine/memory-backup/",
-                             ".engine/memory/", ".engine/projects-sync/", ".engine/contracts/instance/")
+                             ".engine/memory/", ".engine/projects-sync/")
         INSTANCE_FILES = {".engine/engine.json", ".engine/product-spec-matrix.json"}
         for p in self.owned:
             travels = mc.travels_to_engine_home(p)

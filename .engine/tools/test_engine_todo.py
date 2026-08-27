@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for the deferred-work marker parser and its form check (eADR-0035).
+"""Tests for the deferred-work marker parser and its form check.
 
 Every trigger below is ASSEMBLED FROM PARTS rather than written literally. A literal would be a real marker
 in a real tracked file, so this file would show up in `list` forever and the check would grade the test

@@ -45,8 +45,8 @@
           "minLength": 1
         },
         "authority": {
-          "description": "Which statement wins when two disagree, from strongest to weakest: decisions, standing-rules, mechanics-and-guidance, derived-observational. The top two are reserved — `contract` is the only decisions surface and `policy` the only standing-rules surface; every other surface is mechanics-and-guidance. derived-observational covers the engine's own outputs (reports, self-monitoring, the knowledge map), which are not listed in this catalog; it is included here only to complete the set.",
-          "enum": ["decisions", "standing-rules", "mechanics-and-guidance", "derived-observational"]
+          "description": "Which statement wins when two disagree, from strongest to weakest: standing-rules, mechanics-and-guidance, derived-observational. derived-observational covers the engine's own outputs (reports, self-monitoring, the knowledge map), which are not listed in this catalog; it is included here only to complete the set.",
+          "enum": ["standing-rules", "mechanics-and-guidance", "derived-observational"]
         },
         "lifecycle": {
           "description": "Which set of states a surface's instances move through. decision = proposed -> accepted -> superseded (a newer decision replaces an older one); artifact = active -> deprecated -> retired.",

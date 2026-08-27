@@ -11,5 +11,5 @@
   "suites": [
     "CI"
   ],
-  "message": "The provider-exception ledger (.engine/policies/provider-exceptions.json) does not match its format — an entry is missing its reason, its sanctioning decision record, or its missing-or-weaker declaration (the exact problem is named just above). The ledger is the only sanctioned home for a runtime difference, so a malformed entry would let an undeclared gap ride; every entry carries a plain-language reason and the decision record that sanctions it (see provider-exceptions.v1.json)."
+  "message": "The provider-exception ledger (.engine/policies/provider-exceptions.json) does not match its format — an entry is missing its reason or its missing-or-weaker declaration (the exact problem is named just above). The ledger is the only sanctioned home for a runtime difference, so a malformed entry would let an undeclared gap ride; every entry carries a plain-language reason that explains why the difference is deliberate or platform-inherent (see provider-exceptions.v1.json)."
 }

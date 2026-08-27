@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-tests for the provider-normalization seam (providers.py) — the laws eADR-0034 rest on:
+"""Self-tests for the provider-normalization seam (providers.py) — the invariants the adapters rest on:
 normalize is the IDENTITY for a Claude payload (the byte-stability pin); a Codex edit is rewritten
 with EVERY path its batch patch names; session resolution is payload-first and the live-session
 marker REFUSES on any ambiguity (stale, foreign-owned, future-stamped) rather than guessing; and the
@@ -307,7 +307,7 @@ class TestCodexRegistrationDrift(unittest.TestCase):
         future mirror-everything cleanup must trip here rather than ship it. The capability is NOT
         absent on Codex — the same import runs through the acceptance envelope on UserPromptSubmit
         (below) — so this asymmetry is one of signal, not of function. Build entry stays the typed
-        verb on both runtimes either way (eADR-0034)."""
+        verb on both runtimes either way."""
         self.assertFalse(any("modes.py" in c and "accept-hook" in c for c in self._codex_commands()),
                          "the plan-exit adapter has no Codex registration by design")
 
@@ -324,7 +324,7 @@ class TestCodexRegistrationDrift(unittest.TestCase):
                          "Claude imports at plan-exit; a second importer would mint a second plan id")
 
     def test_the_intake_asymmetries_are_each_recorded_once_in_the_ledger(self):
-        """Revised in place, not duplicated (eADR-0034). Two entries — one per direction — and no
+        """Revised in place, not duplicated. Two entries — one per direction — and no
         third entry restating either: a ledger that accumulates near-copies of one exception stops
         being readable as a list of the differences that exist."""
         import validate
@@ -389,6 +389,32 @@ class TestParityCheckSelfIntegrity(unittest.TestCase):
                                                  "first-run-assets.json"))
         everything = list(assets.get("files", [])) + list(assets.get("directories", []))
         self.assertFalse(any("provider-exceptions" in entry for entry in everything))
+
+
+class TestProviderExceptionLedgerSchema(unittest.TestCase):
+    def setUp(self):
+        self.schema = validate.load_json(
+            os.path.join(validate.ROOT, ".engine", "schemas", "provider-exceptions.v1.json"))
+        self.ledger = validate.load_json(
+            os.path.join(validate.ROOT, ".engine", "policies", "provider-exceptions.json"))
+
+    def _errors(self, instance):
+        return list(validate.Draft202012Validator(self.schema).iter_errors(instance))
+
+    def test_schema_is_well_formed_and_committed_ledger_conforms(self):
+        validate.Draft202012Validator.check_schema(self.schema)
+        self.assertEqual(self._errors(self.ledger), [])
+
+    def test_reason_remains_required(self):
+        legacy = json.loads(json.dumps(self.ledger))
+        legacy["exceptions"][0].pop("reason")
+        self.assertNotEqual(self._errors(legacy), [])
+
+    def test_retired_decision_pointer_is_rejected(self):
+        legacy = json.loads(json.dumps(self.ledger))
+        legacy["exceptions"][0]["contract_ref"] = "legacy policy reference"
+        self.assertNotEqual(self._errors(legacy), [],
+                            "the closed ledger shape no longer accepts decorative pointers")
 
 
 class TestCaptureStatusPathSingleHomed(unittest.TestCase):

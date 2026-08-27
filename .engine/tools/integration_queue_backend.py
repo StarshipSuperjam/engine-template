@@ -37,8 +37,8 @@ INTEGRATING_LABEL = "engine-integrating"
 READY_LABEL = "engine-integrate-ready"
 PRIORITY_LABEL = "engine-integrate-priority"
 
-# The labels this subsystem owns — the control plane provisions them (eADR-0021's provisioning law: producers
-# apply, consumers read, provisioning creates), so no first-run gate blocks waiting on a hand-created label.
+# The labels this subsystem owns — producers apply them, consumers read them, and control-plane provisioning
+# creates them, so no first-run gate blocks waiting on a hand-created label.
 INTEGRATION_LABELS = [
     (READY_LABEL, "1d76db",
      "A reviewed pull request ready to enter the serialized integration path."),

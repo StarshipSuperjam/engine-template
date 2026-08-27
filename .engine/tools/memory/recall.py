@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """recall.py — the transcript-window reader (memory-substrate-sqlite-fts5).
 
-The read side of eADR-0038's transcript-first recall: memory's canonical record is the exact user/assistant
+The read side of transcript-first recall: memory's canonical record is the exact user/assistant
 conversation, so recall must be able to READ IT BACK. `index.search` now REACHES that conversation and ranks
 it, but what it returns is one record — and a message longer than the chunk size was stored as several. So a
 search hit is a fragment, positioned but not whole. This module is the fetch that makes it whole: given a
@@ -23,7 +23,7 @@ own definition: it is belt-and-braces over explicit path threading, not the prot
   - COMPLETENESS IS NOT PROVABLE. A >4KB message is split into chunks that share one `seq`, and physical
     erasure is per-record-id — so a message CAN lose a middle chunk with no way to detect it. This module
     never claims verbatim completeness it cannot verify: it reports what it found and says the wording is
-    reconstructed from stored chunks. Honest degradation (eADR-0034), not a false guarantee.
+    reconstructed from stored chunks. Honest degradation, not a false guarantee.
   - TOLERATE THE LEGACY STORE WITHOUT INVENTING. Real ledgers hold turn-deltas predating parts of the
     envelope (no `id`, no `session_id`, no `seq`). Reading one never crashes and never drops it: a record with
     no `session_id` is simply unreachable (nothing names its session), and one missing `seq`/`speaker` is
@@ -253,7 +253,7 @@ def session_cards(*, limit: int = DEFAULT_CARDS, exclude: "str | None" = None,
     the conversation itself.
 
     DERIVED, never stored: a pure function of the ledger, recomputed on every read. Nothing is written, no new
-    record kind exists, and a card can never drift from the conversation it describes (eADR-0019's read-time
+    record kind exists, and a card can never drift from the conversation it describes (the read-time
     join, and the reason this is not a sixth store). Each card carries `session_id`, `started`/`ended` epochs,
     the genuine turn `count`, and short excerpts of the FIRST and LAST things the OPERATOR asked — the two turns
     that place a session: the first names what it was for, the last names what was in flight when it stopped,

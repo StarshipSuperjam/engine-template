@@ -152,7 +152,7 @@ class TheGuaranteeDoesNotRestOnTheHook(unittest.TestCase):
         because main() resolves no store for them. Asserting the predicate alone read as if it proved
         the obligation while the gate was skipped, which is how the divergence survived a review.
 
-        So this drives main() and watches for the call. The carve-out is deliberate (eADR-0045: both
+        So this drives main() and watches for the call. The carve-out is deliberate (both
         exist to handle a snapshot this session does not match, so gating them deadlocks recovery) —
         what must not happen is it being deliberate and invisible.
         """

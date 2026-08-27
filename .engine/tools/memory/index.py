@@ -572,7 +572,7 @@ def query(
 #
 # There used to be a second term — how often a record had been recalled — and a rounding step that grouped
 # near-equal matches into one relevance bucket so that usage could reorder inside it. Both are gone with
-# reinforcement-on-read (eADR-0038 ends per-record scoring). Removing the usage term alone would have left the
+# reinforcement-on-read (per-record scoring is gone). Removing the usage term alone would have left the
 # rounding as pure information loss AND left the final tiebreak deciding on its own: ledger position ascending,
 # which is OLDEST first. On a store that is overwhelmingly conversation, and on exactly the broad query where
 # bm25's separating term collapses and every match ties, that would have answered every such question with the

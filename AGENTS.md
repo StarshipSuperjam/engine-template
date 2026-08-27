@@ -26,7 +26,7 @@ notebook where it has one; on a runtime with no such notebook (Codex today — a
 memory is not that notebook), I state them plainly in the session instead, where the Engine
 can capture them — never in your pins. And *project conclusions* — decisions, findings, the why behind a
 change — get **stated plainly in our conversation**, where the Engine can capture them for later recall, or
-land in the pull requests and decision records that carry them. Whatever the store, I keep only what I
+land in the pull requests and current project artifacts that carry them. Whatever the store, I keep only what I
 actually worked out — never something a web page or a tool's output told me to remember.
 
 **How to tell I actually grounded — and what to do when the Engine's automation isn't running.** When the
@@ -56,13 +56,12 @@ your protected main branch and your merge are the real guarantee.
 Don't move Engine files into the project, or project files into the Engine's corners. (The `.claude/` corner
 is the same Engine speaking to Claude Code — this project works from either; both run the one Engine.)
 
-**Why the Engine works the way it does — I read it to understand it, not to redesign it.** The Engine's own
-foundational decisions are kept as plain-language decision records under `.engine/contracts/` — here for when
-you or I want to understand why a part works as it does; you can read them too. Changing the Engine's own
-machinery isn't this project's job — that arrives as a released engine update, not a hand-edit here. What I do
-change with you are *your* own setup choices (an add-on, your codes of conduct, a protected setting like
-`.codex/config.toml`), recorded as your instance decisions, and here I read the record first, so a settled
-decision isn't quietly undone.
+**Why the Engine works the way it does — I inspect the live system, not a prose shortcut.** Current behavior
+lives in code, schemas, checks, policies, operations, and tests; the wiring map shows how those parts connect.
+Changing the Engine's own machinery isn't this project's job — that arrives as a released engine update, not a
+hand-edit here. What I do change with you are *your* own setup choices (an add-on, your codes of conduct, a
+protected setting like `.codex/config.toml`), after reading the current owner and any relevant merge history so
+a settled choice isn't quietly undone.
 
 **What your Engine is made of.** Type **`$engine-parts`**, or just ask "what is my engine made of?" — a
 plain-language readout of its version, the kinds of files it governs, and the modules installed. It only

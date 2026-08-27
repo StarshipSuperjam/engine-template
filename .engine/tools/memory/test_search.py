@@ -135,11 +135,11 @@ class FilterTests(SearchTestCase):
         self.assertEqual(len(self.search("export").records), 1)     # the record itself is still found
 
     def test_tag_any_match(self):
-        a = self.add("export plans", tags=["eADR-0007", "release"])
+        a = self.add("export plans", tags=["release-policy", "release"])
         self.add("export musings", tags=["scratch"])
         self.add("export with no tags")
         self.rebuild()
-        got = set(self.ids(self.search("export", tags=["eADR-0007"])))
+        got = set(self.ids(self.search("export", tags=["release-policy"])))
         self.assertEqual(got, {a})
         # any-match: a record sharing ANY requested tag passes
         self.assertIn(a, self.ids(self.search("export", tags=["release", "nope"])))

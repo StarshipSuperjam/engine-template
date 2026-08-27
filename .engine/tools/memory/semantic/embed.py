@@ -15,7 +15,7 @@ what it costs.
 WHAT THE TABLE KNOWS, AND WHAT IT DOES NOT. The geometry it carries is general English: it places "cron"
 near "scheduled" and "copy" near "text" because that is a property of the language, the same in every
 repository. It has never seen a particular project's own vocabulary. Those terms are not lost — the
-tokenizer splits an unknown word into known word-pieces, so `eADR` still lands somewhere — but their
+tokenizer splits an unknown word into known word-pieces, so an unfamiliar identifier still lands somewhere — but their
 placement is approximate. Meaning-based recall is therefore strongest on ordinary phrasing and weakest on
 coined jargon, which is the opposite of the keyword path's bias and the reason both are offered.
 

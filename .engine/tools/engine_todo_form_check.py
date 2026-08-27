@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deferred-work marker form — the custom/script entry for engine/check/engine-todo-form (eADR-0035).
+"""Deferred-work marker form — the custom/script entry for engine/check/engine-todo-form.
 
 A marker that records nothing is worse than no marker: it occupies the sanctioned form, so it reads as a
 recorded deferral to every later reader and to `list`, while saying nothing about what is unbuilt. This check
