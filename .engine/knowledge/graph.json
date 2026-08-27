@@ -4719,7 +4719,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:0a030ec4843759d4842b6a7df13488449956ba6cc61bd52e98df3623ad26c4e2",
+        "fingerprint": "sha256:08b373e02d41374f0f41fc6cf4b54f0b703f5d544030e41e7738fb74e39dff51",
         "path": ".agents/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -5039,7 +5039,7 @@
       },
       "slug": "defaults",
       "source": {
-        "fingerprint": "sha256:2f67d9147473b7d751b1b0051d82bf34d16994a785951c1bf39251910a7dab40",
+        "fingerprint": "sha256:2d22ea139260d4ae8899d07e8a95db3e616c3ead7872a105a19ee5e11f49b31a",
         "path": ".engine/conduct/defaults.md"
       },
       "status": "active",
@@ -5591,7 +5591,7 @@
       },
       "slug": "close-turn",
       "source": {
-        "fingerprint": "sha256:cdc9060189a693670e30dfb7a3776b862c8fce341b8f1069c972ddb7ea3ae492",
+        "fingerprint": "sha256:106fcd5fe70b4ff780e4b6c99428ef1898cf126a7f112b45c9def17340d5fad9",
         "path": ".engine/operations/close-turn.md"
       },
       "status": "active",
@@ -6234,7 +6234,7 @@
       },
       "slug": "escalation",
       "source": {
-        "fingerprint": "sha256:62c967d0e68909999a43d9e16713068ea5a944f3e12c21436490c73158fb88c3",
+        "fingerprint": "sha256:65b2ac8b7aeafca5eca853186c0a3639fc10b94ee6ba4a5e9ee334d5ec01a26e",
         "path": ".engine/policies/escalation.md"
       },
       "status": "active",
@@ -6513,23 +6513,6 @@
       "source": {
         "fingerprint": "sha256:792f40706e0ee10408bf308d7a17fd52d6fe6f5b32f7117bc095b91e416bab0f",
         "path": ".engine/schemas/audit-finding.v1.json"
-      },
-      "status": "active",
-      "type": "schema"
-    },
-    {
-      "id": "schema:build-continuity-state.v1",
-      "name": ".engine/schemas/build-continuity-state.v1.json",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "build-continuity-state.v1",
-      "source": {
-        "fingerprint": "sha256:2c07ac418349c8e12c209f3886536b77c10cddc4f389d898668c68ae145fc030",
-        "path": ".engine/schemas/build-continuity-state.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -8310,7 +8293,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:7da11c5cad8b131459f0ee6cd674e242ffdbf43820d7dcd517030057bd9acfd7",
+        "fingerprint": "sha256:430061c37dfec091d73a600d4971c4b33e76b07d886d99d3c704f4c74e8ecf0f",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -8964,31 +8947,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:build_continuity",
-      "name": ".engine/tools/build_continuity.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:build_coordinator_core",
-          "tool:build_state_store",
-          "tool:plan_store"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "build_continuity",
-      "source": {
-        "fingerprint": "sha256:b945309b5186ae3752edc696d51b728abeb609120895cfc617e4753a7662793f",
-        "path": ".engine/tools/build_continuity.py"
-      },
-      "status": "active",
-      "summary": "One atomic corrective Stop continuation for an actionable Build epoch.",
-      "type": "tool"
-    },
-    {
       "entrypoint": "hook",
       "guarded": false,
       "id": "tool:build_coordinator",
@@ -9027,7 +8985,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:92c9279ce0ba4678ba928535b16f9fc679ac9a3cd30c454a4033514328a636e5",
+        "fingerprint": "sha256:0a3f069ee4cfb1d8bcdde44ca751778e16065fb59f2d2ac633103d30dd430659",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9518,7 +9476,6 @@
       "predicates": {
         "imports": [
           "tool:boot",
-          "tool:build_continuity",
           "tool:capture",
           "tool:hooks",
           "tool:ledger",
@@ -9533,7 +9490,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:0f11b594314df7318c04ad1c68ff46ca26a028705b6c09ccca45de2eab1c4c0e",
+        "fingerprint": "sha256:966ea02f11a3cc7251099dd80458eda770301efc6d7d9124eeaef25490a5cd60",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -10121,29 +10078,6 @@
       },
       "status": "active",
       "summary": "Operator-runnable demo: the committed actionlint floor catches a broken workflow file, leaves a",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
-      "id": "tool:demo_active_build_continuity",
-      "name": ".engine/tools/demo_active_build_continuity.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:build_continuity"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_active_build_continuity",
-      "source": {
-        "fingerprint": "sha256:529080cf4ce50c2d4b45c168d3d7525a1172c7cea0f5a978ebc8c0a9acc57545",
-        "path": ".engine/tools/demo_active_build_continuity.py"
-      },
-      "status": "active",
-      "summary": "Operator-runnable proof of the continuity decision vocabulary.",
       "type": "tool"
     },
     {
@@ -15142,7 +15076,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:c8bc1c241fd955d78fae90e594ef2d66d9d5c6820c500082a3dfec6baae22a1f",
+        "fingerprint": "sha256:fc7fe1f3f105a6de6abe374bc6cbe74b2e804c217d1505e98eaf99fb2d5ab1ac",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15711,7 +15645,7 @@
       },
       "slug": "test_conduct",
       "source": {
-        "fingerprint": "sha256:b369a1782d7d775a51b60d2254124c47ccba595d86bf813aa5d38a0c9550bd71",
+        "fingerprint": "sha256:495397201b9466fe484bd024b5ea31b163d11f80d3d62a9bc167beceeaa9c44f",
         "path": ".engine/tools/test_conduct.py"
       },
       "status": "active",
