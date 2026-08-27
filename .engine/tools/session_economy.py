@@ -114,12 +114,8 @@ def subagent_denial(tool_name, tool_input):
 def wakeup_denial(tool_name):
     if disabled(WAKEUP_OFF_SWITCH) or tool_name not in WAKEUP_TOOLS:
         return None
-    return ("This session should not schedule its own wake-up. Each one re-reads the whole context, and "
-            "observed builds spent consecutive wake-ups reporting nothing. Wait on a blocking check, or end "
-            "the turn and let the operator resume; unattended work is fired by the platform scheduler, not "
-            f"arranged from inside a session. To switch this rule off, set {WAKEUP_OFF_SWITCH}=off in the "
-            f"environment (or the project settings' env block); {OFF_SWITCH}=off turns off the subagent "
-            "model rule too. Either applies to sessions started after it is set.")
+    return ("Do not schedule a self-wakeup. Continue the next actionable step, or wait for a registered "
+            "external event. This action reloads the full conversation without doing Build work.")
 
 
 def handler(payload: dict) -> dict:
