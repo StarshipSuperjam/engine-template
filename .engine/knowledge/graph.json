@@ -15100,11 +15100,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-<<<<<<< HEAD
-        "fingerprint": "sha256:aff16377e783c53edd369199ca41371a81aa27ef0cdf97dd8520b01c7e27256d",
-=======
-        "fingerprint": "sha256:6a8322cbf62b8ee25ef81a944f22fdd01bc31d4d8638814aad04e324bb6a1d52",
->>>>>>> 9d67cc86 (Maintenance: synchronize self-test knowledge graph)
+        "fingerprint": "sha256:b154ab67f15692b1fb66392aa800af42ba75f7953ff31b1d9a04d8e471abbdc6",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
