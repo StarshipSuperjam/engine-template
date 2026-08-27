@@ -5471,7 +5471,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:2178306f6e98414cdf37f00c991a88c32c7f4a759e4997d24e5dc7e411130e3c",
+        "fingerprint": "sha256:e556cca73fbf9515c3fd2f999799e684e8a793a4142d69544acb61592edb0b34",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6359,7 +6359,7 @@
       },
       "slug": "provider-exceptions",
       "source": {
-        "fingerprint": "sha256:d34d3f57b805bfd7b4153111d25a08e28a034481d0f232237c79581849be6c7a",
+        "fingerprint": "sha256:17d9a81b9fbafab6fa3a01581e7dd080418bfd495b4d7c50a048ef0f60b5294b",
         "path": ".engine/policies/provider-exceptions.json"
       },
       "status": "active",
@@ -6379,7 +6379,7 @@
       },
       "slug": "session-economy",
       "source": {
-        "fingerprint": "sha256:f3a790078d6208defcb296b11477cd39c63b954bc4469ff448f7ab2c418c47dc",
+        "fingerprint": "sha256:0abe5d8b71429e7e24f9d124d29c3600d7500293756161dcf6e1cf2d75f38ae2",
         "path": ".engine/policies/session-economy.md"
       },
       "status": "active",
@@ -6647,7 +6647,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:775f429f85dae30a8278cdb8993c5d71fcdabdefe73f8faf18a4db754555bb0d",
+        "fingerprint": "sha256:f583d7c6561afb19e897af46e9fc0f08d81a9e8ab56ed8de29f12cc228f69495",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -8859,7 +8859,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:6605f8a50eacb2e2eeb667ddfbb125c5f3aab7ae81f76f767aa05fd6f00d2e0f",
+        "fingerprint": "sha256:371d71c5789587646221196c0d370ed243579d080ad693f0ca6e793c60d6f7f3",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8985,7 +8985,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:0a3f069ee4cfb1d8bcdde44ca751778e16065fb59f2d2ac633103d30dd430659",
+        "fingerprint": "sha256:b46322bad9afebb82ba83fe95c70b6865d5f4d74f9e4862e0b16bc66af613e1d",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9490,7 +9490,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:966ea02f11a3cc7251099dd80458eda770301efc6d7d9124eeaef25490a5cd60",
+        "fingerprint": "sha256:28bda0ffce8f53362c97758588f69bb7eceae9ecccd93197bd92d63090da935a",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -10078,6 +10078,30 @@
       },
       "status": "active",
       "summary": "Operator-runnable demo: the committed actionlint floor catches a broken workflow file, leaves a",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_active_build_continuity",
+      "name": ".engine/tools/demo_active_build_continuity.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_coordinator",
+          "tool:session_economy"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_active_build_continuity",
+      "source": {
+        "fingerprint": "sha256:889a28598a6b86fa973f32a1dbe4c6198c6d2e4a56de87182b198c0261dfac00",
+        "path": ".engine/tools/demo_active_build_continuity.py"
+      },
+      "status": "active",
+      "summary": "Operator-runnable falsification of the quiet active-Build continuity surfaces.",
       "type": "tool"
     },
     {
@@ -11740,7 +11764,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:f954c170f83351a497e8247c67e20bb2e128e3acbf30a2c8459e954fb793e39f",
+        "fingerprint": "sha256:ba4b6988622950b21a00b143f0600cfbd1673933414f1b3355aebf2f1cf595c5",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -11848,7 +11872,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:083cd81ba8860dba044218636b47170987d1a3420d9cd5ae81fb237564a08fde",
+        "fingerprint": "sha256:b34cc7f32637b877e76eb645509922d902f328b7dc24afac2bc6d5e2c9eaebd5",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -14222,7 +14246,7 @@
       },
       "slug": "session_economy",
       "source": {
-        "fingerprint": "sha256:9fe1889d6f49eefe017079188053022f45f3c70f0fa0999432449dfff6e41e99",
+        "fingerprint": "sha256:30c379ebd0a3f124699f58b6f23ec8ad86c3916a99ee9411547d3aba096ad918",
         "path": ".engine/tools/session_economy.py"
       },
       "status": "active",
@@ -14956,7 +14980,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:1ca9e16c457d1821027608d2833d24ae75599064ca0385a39b4e6fead9d8e88a",
+        "fingerprint": "sha256:c18de030f587afcd91c2285226176c50dd3b9700ee81de73a69ac7ac227dc032",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -15311,7 +15335,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:8d33147cd42b167e357d0cc4fed6d8aa4ea6defb35ad9df38130ee570f2e8d9f",
+        "fingerprint": "sha256:35f581e8947e7ff926ca40b843c5604bc8216cdc7f4931315a487850751ea9ca",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -16326,7 +16350,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:a67ae9ba34cb7beeaeabcd3cb4f7c569b772461aeff6b4589d028db99500b04e",
+        "fingerprint": "sha256:1a73afce4ef0cbf93c3d1cb64839c8b920c160df7ad2338137a0fd356faa4ea9",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
