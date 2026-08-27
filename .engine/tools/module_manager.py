@@ -2540,7 +2540,7 @@ def _redact_credentials(text: str) -> str:
 
 
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
-                     on_commit=None, on_pr_opening=None, on_pr=None) -> dict:
+                     on_commit=None, on_pr_opening=None, on_pr=None, paths=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
     git-automation helper existed) — branch/commit/push via subprocess (the bootstrap.py pattern), the PR
@@ -2605,8 +2605,15 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
         except Exception:  # noqa: BLE001 — a probe that cannot run fails safe to "staged"
             return False
 
+    # WHAT GETS STAGED. `paths=None` keeps the historical whole-tree stage, which the upgrade and removal
+    # callers rely on: they own a clean tree by precondition and their change is "whatever the overlay wrote".
+    # A typed transaction passes its DECLARED paths instead, so the commit carries exactly the transaction's
+    # own file set and nothing a session happened to leave lying around — the difference between a discrete,
+    # revertable change and a commit that quietly absorbs unrelated work.
+    stage_step = ["git", "add", "-A"] if not paths else ["git", "add", "--"] + list(paths)
+
     commit_info = None
-    for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
+    for args in (["git", "checkout", "-b", branch], stage_step,
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
             _run_step(args)
