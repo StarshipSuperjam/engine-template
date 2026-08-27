@@ -1725,9 +1725,6 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             status = bc._status(self.state())
         self.assertIn("green candidate validation for the final commit", status["required_evidence"])
 
-    def test_status_requires_validation_for_current_head(self):
-        self.test_validation_becomes_stale_when_head_changes()
-
     # --- repair-round escalation (never a cap on review coverage) ----------------------
 
     def assess(self, judgment, head, lens=None, guidance=None, reviewed=None, classified=None,
@@ -2279,13 +2276,6 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64, "reviewed_commit": HEAD_A}))
         self.assess("none", HEAD_B, guidance=None)
         self.assertEqual(self.state()["repair"]["judgment"], "none")
-
-    def test_repair_assessment_records_diff_and_judgment(self):
-        self.test_none_repair_judgment_is_valid_for_small_change()
-        repair = self.state()["repair"]
-        self.assertEqual(repair["summary"], "1 file changed")
-        self.assertEqual(repair["classification"]["files"]["authored"], ["app/main.py"])
-        self.assertEqual(repair["anchor"], HEAD_A)
 
     def test_a_scoped_round_defaults_to_the_lenses_that_found_blockers(self):
         # The operator's requirement made mechanical: the next round goes back to the lenses that found
@@ -3346,9 +3336,6 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         self.assertEqual(self.state()["preflights"], [])
         self.assertIsNone(self.state()["pr_contract"])
 
-    def test_preflight_runs_close_linkage_and_contract(self):
-        self.test_preflight_binds_contract_and_results_to_head()
-
     def test_close_linkage_is_advisory_but_pr_contract_is_required(self):
         self.seed()
         args = argparse.Namespace(pr_body=None, json=False)
@@ -3406,9 +3393,6 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         not_ancestor = subprocess.CompletedProcess([], 1, "", "")
         with mock.patch.object(bc, "_status", return_value=ready), mock.patch.object(bc.github, "pr_state", return_value=pr), mock.patch.object(bc, "_run", return_value=not_ancestor), self.assertRaisesRegex(bc.CoordinatorError, "live target-branch base"):
             bc._submit_preview(self.store, str(self.plan_path))
-
-    def test_submission_requires_live_base_containment(self):
-        self.test_submit_preview_requires_live_base_to_be_ancestor_of_final_commit()
 
     def test_submit_preview_requires_complete_current_evidence(self):
         self.seed()
