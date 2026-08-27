@@ -16324,7 +16324,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:4cbe72ddf77cf41650e544b59bd21296bcaa4576afdf36f6ded8fc2d9a6d1771",
+        "fingerprint": "sha256:22c4e8438cd0832fb39da45e454763efdbf88c63b3dc2be411c8d30ce2dacdaa",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -16756,7 +16756,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:03613fc25bc677e6ae6b00e991774476fad72ff539897330bb039cd1adabff58",
+        "fingerprint": "sha256:03b567cacf102ce93371748241fbe7a5797d47321baaca0f7e0dbb636229b2e3",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -19604,7 +19604,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:b2fcadd0984041beeef1e2e6f1ffcd7a3747ffcef345d0756d72521bafe6534b",
+        "fingerprint": "sha256:36e6bdd7f1b639f442125e115b77e20cedd0bb3583b75ce3091a21b2aa68e1aa",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",

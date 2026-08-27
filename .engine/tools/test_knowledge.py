@@ -75,21 +75,62 @@ class ImmutableLiveDerivationFixture(unittest.TestCase):
 
 class TestImmutableLiveDerivationFixture(unittest.TestCase):
     def test_each_consumer_decodes_an_isolated_value(self):
-        class Probe(ImmutableLiveDerivationFixture):
+        eligible_groups = (TestLiveDerivation, TestPass4LiveEdges, TestLiveDerivationAttributes)
+        fresh_groups = (
+            TestOptionalModuleSubtreeCarveOut,
+            TestOptionalModuleSubtrees,
+            TestPass4Attributes,
+            TestCommittedGraph,
+            TestGenerateCheckIO,
+            TestCoverageFingerprintMode,
+            TestCommitBoundaryRegen,
+            TestSourceDeterminismRoundTrip,
+        )
+        self.assertTrue(all(issubclass(group, ImmutableLiveDerivationFixture)
+                            for group in eligible_groups))
+        self.assertTrue(all(not issubclass(group, ImmutableLiveDerivationFixture)
+                            for group in fresh_groups))
+
+        class SharedProbe(ImmutableLiveDerivationFixture):
             pass
 
-        entities = [{"id": "tool:example", "predicates": {"tests": ["tool:other"]}}]
-        with mock.patch.object(sys.modules[__name__], "_live_entities", return_value=entities) as derive:
-            Probe.setUpClass()
-            try:
-                first = Probe().live_entities()
-                second = Probe().live_entities()
-                first[0]["predicates"]["tests"].append("tool:mutated")
-                self.assertEqual(second[0]["predicates"]["tests"], ["tool:other"])
-                self.assertEqual(derive.call_count, 1, "the eligible class owns one derivation")
-            finally:
-                Probe.tearDownClass()
-        self.assertIsNone(Probe._live_entities_snapshot, "the class releases its snapshot deterministically")
+        class FreshProbe:
+            @staticmethod
+            def live_entities():
+                return _live_entities()
+
+        for order in ("shared-first", "fresh-first"):
+            serial = iter(range(1, 4))
+
+            def derive():
+                n = next(serial)
+                return [{"id": f"tool:example-{n}", "predicates": {"tests": ["tool:other"]}}]
+
+            shared = []
+            fresh = []
+            with self.subTest(order=order), \
+                    mock.patch.object(sys.modules[__name__], "_live_entities", side_effect=derive) as called:
+                def consume_shared():
+                    SharedProbe.setUpClass()
+                    try:
+                        shared.extend((SharedProbe().live_entities(), SharedProbe().live_entities()))
+                    finally:
+                        SharedProbe.tearDownClass()
+
+                def consume_fresh():
+                    fresh.extend((FreshProbe.live_entities(), FreshProbe.live_entities()))
+
+                (consume_shared if order == "shared-first" else consume_fresh)()
+                (consume_fresh if order == "shared-first" else consume_shared)()
+
+                shared[0][0]["predicates"]["tests"].append("tool:mutated")
+                self.assertEqual(shared[1][0]["predicates"]["tests"], ["tool:other"])
+                self.assertEqual(shared[0][0]["id"], shared[1][0]["id"])
+                self.assertNotEqual(fresh[0][0]["id"], fresh[1][0]["id"])
+                self.assertEqual(called.call_count, 3,
+                                 "one shared derivation plus one per fresh consumer in either order")
+            self.assertIsNone(SharedProbe._live_entities_snapshot,
+                              "the eligible class releases its snapshot deterministically")
 
 
 class TestHelpers(unittest.TestCase):

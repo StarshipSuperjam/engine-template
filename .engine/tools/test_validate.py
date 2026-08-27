@@ -368,7 +368,8 @@ class TestCustomScriptCarriesMarker(unittest.TestCase):
 class TestCollectExposesWitnessDeferred(unittest.TestCase):
     """Goal-3-lite (StarshipSuperjam/engine-template#761): the witness_deferred marker rides collect() so an
     orchestrator can read "validated except for N CI-only checks" from the structured seam, no new
-    exit code. Run the real CI suite locally (no credentials) and confirm the marker is present."""
+    exit code. Run the real CI collection path locally (no credentials), filtered to the protection rule,
+    and confirm the marker is present."""
 
     def test_collect_carries_the_marker_locally(self):
         env = {k: v for k, v in os.environ.items()

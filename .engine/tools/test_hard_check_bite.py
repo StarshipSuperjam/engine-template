@@ -564,12 +564,12 @@ class TestFailedBiteApplicability(unittest.TestCase):
                if k not in ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "GITHUB_ACTIONS", "CI")}
         with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(validate, "ROOT", root):
             found = hcb._cover_script_instance(rule, fix, root, "hard")
-        self.assertTrue(any(f["severity"] == "hard" for f in found), found)
+        self.assertTrue(any(f["severity"] == "hard" and "produced unreadable output" in f["message"]
+                            for f in found), found)
         # The crash must never be EXCUSED as inert — collapsed to a soft "NOT APPLICABLE HERE" note. Scope the
-        # negative to SOFT findings: the stand-in script (validate.py) run against a deployed-shape root emits
-        # that root's own deployed-only N/A notes, which the kind captures verbatim into the HARD finding's
-        # message. That captured output is not the meta-check excusing anything, so matching the raw substring
-        # across every severity gave a false failure once the root reads as a deployed copy (#646).
+        # negative to SOFT findings: the disposable script's malformed stdout must remain a HARD unreadable-output
+        # failure from the real subprocess boundary, never be replaced by the declaration's soft applicability
+        # note merely because the ambient root reads as a deployed copy (#646).
         self.assertFalse(any(f["severity"] == "soft" and "NOT APPLICABLE HERE" in (f.get("message") or "")
                              for f in found), found)
 
