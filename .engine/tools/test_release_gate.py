@@ -975,16 +975,17 @@ class TestMultipartMemoryReleaseEvidence(unittest.TestCase):
         readme = bv._readme_text("project")
         for text in (setup_message, readme):
             normalized = " ".join(text.split())
-            self.assertIn("not encrypted", normalized)
-            self.assertIn("Git history", normalized)
+            self.assertIn("does not add encryption", normalized)
+            self.assertIn("repository history", normalized)
             self.assertIn("private", normalized.lower())
         fake, _ = self._configured()
         self.assertIsNotNone(fake)
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.assertEqual(bv.status(now=0), 0)
-        self.assertIn("not encrypted", output.getvalue())
-        self.assertIn("unreachable objects", output.getvalue())
+        self.assertIn("does not add encryption", output.getvalue())
+        self.assertIn("earlier copies are no longer recoverable", output.getvalue())
+        self.assertNotIn("unreachable objects", output.getvalue())
 
 
 if __name__ == "__main__":

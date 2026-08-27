@@ -924,6 +924,10 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
             "    limit any single slip to this project.)\n"
             "  - PRIVATE, WATCHED HONESTLY: the engine creates it private, verifies it, and keeps checking — but it\n"
             "    can't stop you or GitHub from flipping it public later, which is why the point above matters.\n"
+            "  - NO EXTRA ENCRYPTION: the engine does not encrypt this backup before sending it. GitHub repository\n"
+            "    access is the protection, so anyone who can read the repository can read the saved memory.\n"
+            "  - EARLIER COPIES CAN LINGER: a new backup replaces the visible project folder, but older copies may\n"
+            "    remain recoverable from repository history for an unknown period.\n"
             "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day.\n\n"
             "Nothing leaves your computer until you say yes.\n\n"
             "Use the shared backup for this project now? [y/N]: ")
@@ -938,6 +942,10 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
         "    just for this project, that only you can see.\n"
         "  - PRIVATE, WATCHED HONESTLY: the engine creates it private, verifies it, and keeps checking — but it\n"
         "    can't stop a later flip to public out of its control.\n"
+        "  - NO EXTRA ENCRYPTION: the engine does not encrypt this backup before sending it. GitHub repository\n"
+        "    access is the protection, so anyone who can read the repository can read the saved memory.\n"
+        "  - EARLIER COPIES CAN LINGER: a new backup replaces the visible project folder, but older copies may\n"
+        "    remain recoverable from repository history for an unknown period.\n"
         "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day.\n\n"
         "Nothing leaves your computer until you say yes.\n\n"
         "Create the private backup now? [y/N]: ")
@@ -993,9 +1001,9 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
             "hand-edit anything here — even items that look old or unused are saved restore points the engine may need\n"
             "to undo a bad update. To remove or fix a project's memory, ask the engine; deleting a folder that is the\n"
             "only remaining copy loses that project's memory.\n\n"
-            "A new backup replaces that project's live folder, but older copies can remain in Git history or\n"
-            "unreachable objects until GitHub removes them. Keep this repository private; the backup is not\n"
-            "encrypted.\n")
+            "A new backup replaces that project's visible folder, but earlier copies may remain recoverable from\n"
+            "repository history for an unknown period. Keep this repository private; the engine does not add\n"
+            "encryption to the backup.\n")
     return (
         f"{_VAULT_README_MARKER}\n"
         f"# {project_name} — AI memory backup\n\n"
@@ -1007,8 +1015,9 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
         "anything here — even items that look old or unused are saved restore points the engine may need to undo a\n"
         "bad update. To remove or fix this project's memory, ask the engine; this is the off-site copy, so deleting\n"
         "from it changes what can be restored, and it may be the only copy of some of this project's memory.\n\n"
-        "A new backup replaces this project's live folder, but older copies can remain in Git history or unreachable\n"
-        "objects until GitHub removes them. Keep the repository private; this backup is not encrypted.\n")
+        "A new backup replaces this project's visible folder, but earlier copies may remain recoverable from\n"
+        "repository history for an unknown period. Keep the repository private; the engine does not add encryption\n"
+        "to the backup.\n")
 
 
 _HEADS_UP_PUSH_FAILED = (
@@ -1075,10 +1084,13 @@ def _is_shared(repo: str) -> bool:
     return repo == _SHARED_VAULT_NAME
 
 
-def _setup_done_msg(owner: str, repo: str) -> str:
+def _setup_done_msg(owner: str, repo: str, *, first_push: bool = True) -> str:
     residual = (" The repository must stay private. Its live project folder is replaced cleanly, but older copies "
-                "may remain in Git history or unreachable objects until GitHub removes them; the backup is not "
-                "encrypted.")
+                "may remain recoverable from repository history for an unknown period; the engine does not add "
+                "encryption to the backup.")
+    if not first_push:
+        return (f"The private backup destination (\"{owner}/{repo}\") is set up, but no first off-site copy was "
+                "created, so the only complete memory may still be on this computer." + residual)
     if _is_shared(repo):
         return (f"Your project's AI memory is now backed up to your shared private repository (\"{owner}/{repo}\"), in "
                 "this project's own folder — and I'll keep it up to date automatically, about once a day. Your other "
@@ -1263,9 +1275,9 @@ def setup(*, scope: "str | None" = None, transport=None, consent: "str | None" =
     pointer_commit = commit_pointer_to_project(gh, project.split("/")[0], project_name, pointer)
     result = push_now(transport=transport, now=when)
     _record_state(now=when, success=result.get("ok", False), privacy_ok=result.get("error") != "public")
-    msg = _setup_done_msg(owner, repo)
+    msg = _setup_done_msg(owner, repo, first_push=result.get("ok", False))
     if not result.get("ok"):
-        msg += " (The first copy will finish on the next backup.)"
+        msg += " " + _now_message(result)
     if not pointer_commit.get("ok"):                            # the local pointer stands; name the one residual step
         msg += (" One more step to let the scheduled review find your backup: I saved its location on this "
                 "computer but couldn't record it in this project automatically, so commit "
@@ -1334,7 +1346,8 @@ def _now_message(result: dict) -> str:
                 + boot.gh_unreachable_note())
     if err == "deadline":
         return ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains current, "
-                "and your memory on this computer is safe and complete. Try again when GitHub is responding normally.")
+                "and your memory on this computer is safe and complete. Ask me to diagnose what consumed the time "
+                "and retry the backup.")
     if err == "snapshot-too-large":
         return ("I couldn't update the backup because this project's saved memory is larger than the supported "
                 "512 MiB uncompressed or 128 MiB compressed snapshot limit. The prior complete backup remains "
@@ -1360,8 +1373,9 @@ def status(*, now: "int | None" = None) -> int:
               "project's own folder. Your other projects each have their own folder in there and weren't touched.")
     else:
         print(f"Memory backup: ON — your private repository \"{pointer['owner']}/{pointer['repo']}\".")
-    print("Privacy limit: the backup is not encrypted. Replacing the live project folder does not guarantee that "
-          "older copies have disappeared from Git history or unreachable objects; keep the repository private.")
+    print("Privacy limit: the engine does not add encryption to the backup. Replacing the visible project folder "
+          "does not guarantee that earlier copies are no longer recoverable from repository history; keep the "
+          "repository private.")
     if last is None:
         print("Last successful backup: none yet (the next backup will make the first copy).")
     else:

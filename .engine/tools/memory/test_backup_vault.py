@@ -511,6 +511,8 @@ class SharedVaultScopeTests(_Base):
         consent = bv._consent_prompt("engine-memory-vault", "shared")
         self.assertIn("every project's notes", consent)
         self.assertIn("expose every project at once", consent)             # the read + flip blast radius
+        self.assertIn("does not encrypt", consent)
+        self.assertIn("remain recoverable from repository history", consent)
         chooser = bv._choice_prompt()
         self.assertIn("more private than your others", chooser)            # a concrete why-per-repo, not just a consequence
 
@@ -519,6 +521,16 @@ class SharedVaultScopeTests(_Base):
         self.assertTrue(r.startswith(bv._VAULT_README_MARKER))
         self.assertIn("unique id", r)                                     # the folder ids are stated accurately
         self.assertIn("loses that project's memory", r)                   # the delete-a-folder cost is named, not forbidden
+        self.assertNotIn("unreachable objects", r)
+
+    def test_setup_does_not_claim_a_backup_exists_when_first_push_fails(self):
+        fake = bv._FakeVault(fail_blob=True)
+        result = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["first_push"])
+        self.assertIn("no first off-site copy", result["message"])
+        self.assertNotIn("is now backed up", result["message"])
+        self.assertIn("Try again", result["message"])
 
 
 class AdoptTests(_Base):

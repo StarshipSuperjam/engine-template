@@ -450,8 +450,9 @@ _MSG_NOT_CONFIGURED = ("No backup is set up yet for this project, so there's not
                        "up to keep an off-site copy of this project's AI memory.")
 _MSG_UNREACHABLE = ("I couldn't reach your backup just now, so I didn't restore anything. Your memory on this "
                     "computer is unchanged. Check your internet connection and ask me to try the restore again.")
-_MSG_NO_BACKUP_DATA = ("The backup is set up, but I couldn't find a saved memory in it to restore yet (it may not "
-                       "have finished its first backup). Your memory on this computer is unchanged.")
+_MSG_NO_BACKUP_DATA = ("The backup is set up, but it contains no saved memory to restore. Your memory on this "
+                       "computer is unchanged. Run a backup from another machine that still has the memory; if no "
+                       "such copy exists, restoration is not available.")
 _MSG_NAMESPACE_MISSING = ("Your project's saved-memory folder is no longer in the backup — it looks like it was "
                           "removed from the backup by hand. Nothing on this computer changed. If your memory is still "
                           "here, ask me to set up the backup again and I'll rebuild it from this computer. If this "
@@ -466,16 +467,19 @@ _MSG_NAMESPACE_MISSING = ("Your project's saved-memory folder is no longer in th
 _MSG_SNAPSHOT_MISSING = ("The saved copy of your memory from before the last update isn't in your backup anymore. "
                          "Nothing on this computer changed. The one-step undo isn't available, so I can re-run the "
                          "update to get things working again, or you can ask me for help.")
-_MSG_CORRUPT = ("I couldn't read a complete copy of your memory from the backup, so I did NOT change anything on "
-                "this computer — better to keep what you have than risk a half copy. Try the restore again in a "
-                "little while.")
+_MSG_CORRUPT_LOCAL = ("The saved backup is incomplete or invalid, so I did NOT change memory on this computer. "
+                      "This computer still has memory; ask me to publish a fresh backup from this intact copy.")
+_MSG_CORRUPT_EMPTY = ("The saved backup is incomplete or invalid, so I did NOT write partial memory onto this empty "
+                      "computer. Keep the backup repository unchanged and ask me to diagnose recovery before "
+                      "anything overwrites the remaining evidence.")
 _MSG_DEADLINE = ("I stopped the restore at its 180-second limit, before changing memory on this computer. Try again "
-                 "when GitHub is responding normally.")
+                 "by asking me to diagnose what consumed the time and retry safely.")
 _MSG_VERSION_MISMATCH = ("This backup was made by a different version of the engine, and this version has no safe "
                          "way to bring its saved notes forward, so I left your memory on this computer unchanged. "
                          "If you need this older backup, ask me for help.")
 _MSG_BAD_MANIFEST = ("I couldn't make sense of this backup's details, so I left your memory on this computer "
-                     "unchanged rather than risk restoring something wrong.")
+                     "unchanged rather than risk restoring something wrong. Ask me to diagnose the saved copy "
+                     "before retrying or replacing it.")
 _MSG_RESURRECTION = ("Your memory on this computer is MORE RECENT than this backup. Restoring it would undo edits "
                      "and removals you've made since the backup was taken — so I did NOT restore it. If you truly "
                      "want the older copy, tell me explicitly and I'll restore it.")
@@ -496,9 +500,11 @@ def _floor4_fetch(error: "str | None") -> str:
         import boot  # noqa: E402 — lazy
         return ("I couldn't reach your backup just now, so I didn't restore anything. Your memory on this "
                 "computer is unchanged. " + boot.gh_unreachable_note())
+    if error == "corrupt":
+        return _MSG_CORRUPT_EMPTY if _local_structurally_empty() else _MSG_CORRUPT_LOCAL
     return {"not-configured": _MSG_NOT_CONFIGURED, "unreachable": _MSG_UNREACHABLE, "deadline": _MSG_DEADLINE,
             "no-backup-data": _MSG_NO_BACKUP_DATA, "snapshot-missing": _MSG_SNAPSHOT_MISSING,
-            "namespace-missing": _MSG_NAMESPACE_MISSING, "corrupt": _MSG_CORRUPT}.get(error or "", _MSG_UNREACHABLE)
+            "namespace-missing": _MSG_NAMESPACE_MISSING}.get(error or "", _MSG_UNREACHABLE)
 
 
 def _restore_consent_prompt(local_count: int, backup_count: int) -> str:
@@ -685,7 +691,8 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
         chk = ledger.read(path=tmp)                      # completeness: a complete, parseable ledger only
         deadline_check()
         if chk.torn_trailing or chk.malformed or (ledger_bytes and not chk.records):
-            return {"ok": False, "error": "corrupt", "restored": False, "message": _MSG_CORRUPT}
+            return {"ok": False, "error": "corrupt", "restored": False,
+                    "message": _MSG_CORRUPT_EMPTY if _local_structurally_empty() else _MSG_CORRUPT_LOCAL}
         # Build every expensive derived byte before touching the canonical store.
         ledger.set_generation(backup_gen, for_path=tmp)
         report = index.rebuild(ledger_file=tmp, index_file=staged_index)

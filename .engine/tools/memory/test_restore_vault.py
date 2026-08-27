@@ -791,6 +791,23 @@ class NamespaceMissingTests(_Base):
         snap = rv.fetch_snapshot(transport=fake.transport)            # repo exists but holds NO project folders yet
         self.assertFalse(snap["ok"])
         self.assertEqual(snap["error"], "no-backup-data")            # "no backup yet", never "your folder was deleted"
+        msg = rv._floor4_fetch("no-backup-data")
+        self.assertIn("another machine that still has the memory", msg)
+        self.assertIn("restoration is not available", msg)
+
+    def test_corrupt_restore_guidance_depends_on_whether_local_memory_survives(self):
+        ledger.append({"kind": "turn-delta", "text": "intact local copy"})
+        local = rv._floor4_fetch("corrupt")
+        self.assertIn("publish a fresh backup", local)
+        self.assertNotIn("little while", local)
+        self._wipe_local()
+        empty = rv._floor4_fetch("corrupt")
+        self.assertIn("Keep the backup repository unchanged", empty)
+        self.assertIn("diagnose recovery", empty)
+
+    def test_deadline_guidance_does_not_guess_that_github_was_slow(self):
+        self.assertNotIn("GitHub", rv._MSG_DEADLINE)
+        self.assertIn("diagnose what consumed the time", rv._MSG_DEADLINE)
 
 
 class CoexistenceTests(_Base):
