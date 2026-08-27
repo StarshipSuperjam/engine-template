@@ -3560,7 +3560,7 @@
       },
       "slug": "engine-coordinate-build",
       "source": {
-        "fingerprint": "sha256:7814b569a2778ec020b10e7a2057805c0726325698f41a0eaddf7d25500b5d9b",
+        "fingerprint": "sha256:6aff18788fd95940ca5bc60bb7740999e8b110bfae5d88da27ba105ca7983597",
         "path": ".agents/skills/engine-coordinate-build/SKILL.md"
       },
       "status": "active",
@@ -4000,7 +4000,7 @@
       },
       "slug": "engine-manage-plans",
       "source": {
-        "fingerprint": "sha256:4fc236d6a4161b0dd10bf08f1b6050695bbc55c4b57c2ea6b513296fe1a61ad1",
+        "fingerprint": "sha256:286a73888eb82266ba8c6c8b149cc02309253b4d5da44d0e3590286397bb05e4",
         "path": ".agents/skills/engine-manage-plans/SKILL.md"
       },
       "status": "active",
@@ -8556,7 +8556,7 @@
       },
       "slug": "engine-coordinate-build",
       "source": {
-        "fingerprint": "sha256:a87251f56f9e58d133c0a0f6c27e7fae56e35b3f80046ecc2423b94358c63ac0",
+        "fingerprint": "sha256:bf0aa4d74a62c040f1c50175892f0821842f8fed55697d0986396f857d98f66b",
         "path": ".claude/skills/engine-coordinate-build/SKILL.md"
       },
       "status": "active",
@@ -8827,7 +8827,7 @@
       },
       "slug": "engine-manage-plans",
       "source": {
-        "fingerprint": "sha256:f2fae3a857de0542c2bc56db8de29f5db1c1d0fc0ee4aaba54faf65fe014b703",
+        "fingerprint": "sha256:444270c50192098a4b07b3ec9548eb0d15f8847dfa3e510d69da1ae5145b00bd",
         "path": ".claude/skills/engine-manage-plans/SKILL.md"
       },
       "status": "active",
