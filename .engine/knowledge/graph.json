@@ -8765,7 +8765,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:52c588acbdd8302be880146aa45be68172443a369f7bd6149aa017d59b702116",
+        "fingerprint": "sha256:ec067f004a933d30d231bf9c7a8f05b4149fefab52ef997c3766bf09c5cd6c9f",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -13831,7 +13831,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:4023e6864b027edb7babdce495017bae1a120b943c75168b615633a3a7709faf",
+        "fingerprint": "sha256:267fa4f1dec892e11f2ec27ff82b23bde3f56a3757530f84814b159f262c7c39",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14901,7 +14901,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:a3358eb886f43f1847422dffcfc039cd1778bacf92ab744f03d8e8311822dbbe",
+        "fingerprint": "sha256:bbd8ee3083ecad7888c383c507dcac10450a0ec70128f59f80ff61c3bd433904",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -18315,6 +18315,7 @@
         ],
         "tests": [
           "tool:backup_vault",
+          "tool:capture",
           "tool:index",
           "tool:ledger",
           "tool:ledger_migrations",
@@ -18326,7 +18327,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:2cae695c9010c3f9c7a357b75c4c58f3e70da60e2777279614a3bbe5294e0139",
+        "fingerprint": "sha256:283d6b9e8abbb9086776d5b76081475d3b723bb0fb22f9e99b15286a4b8ec24e",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
