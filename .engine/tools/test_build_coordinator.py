@@ -2275,7 +2275,11 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
     def test_none_repair_judgment_is_valid_for_small_change(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64, "reviewed_commit": HEAD_A}))
         self.assess("none", HEAD_B, guidance=None)
-        self.assertEqual(self.state()["repair"]["judgment"], "none")
+        repair = self.state()["repair"]
+        self.assertEqual(repair["judgment"], "none")
+        self.assertEqual(repair["summary"], "1 file changed")
+        self.assertEqual(repair["classification"]["files"]["authored"], ["app/main.py"])
+        self.assertEqual(repair["anchor"], HEAD_A)
 
     def test_a_scoped_round_defaults_to_the_lenses_that_found_blockers(self):
         # The operator's requirement made mechanical: the next round goes back to the lenses that found
