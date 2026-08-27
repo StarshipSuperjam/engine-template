@@ -15,9 +15,11 @@ Two ways a session spends heavily are refused mechanically, at the moment they a
   A strong model is never valid here: an expensive search agent is spin-up cost for work the orchestrator
   should have done inline, and if a task genuinely needs stronger judgment the orchestrator should do it
   itself rather than delegate it.
-- **A session does not schedule its own wake-up.** Nothing in the engine ever instructed this. Unattended
-  work is fired by the platform's scheduler, not arranged from inside a session, and observed builds spent
-  consecutive wake-ups re-reading their whole context to report that nothing had changed.
+- **A session model does not invoke the recognized self-wakeup action.** `ScheduleWakeup`, and only an
+  exact provider alias normalized to that action, is denied. Unattended work is fired by the platform's
+  scheduler, not arranged from inside a session, and observed builds spent consecutive wake-ups re-reading
+  their whole context to report that nothing had changed. This does not claim to recognize every possible
+  shell loop or poll; Engine changes must not introduce one as a workaround.
 
 Both are enforced by `.engine/tools/session_economy.py`, a PreToolUse gate registered under its own narrow
 matcher so it never costs a subprocess on unrelated tool calls.

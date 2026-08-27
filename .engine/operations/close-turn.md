@@ -16,6 +16,8 @@ The mechanism is `.engine/tools/close.py`, wired as the `Stop` hook in `.claude/
 disposition gate reads an ephemeral, session-scoped checklist of the concerns raised this turn; the
 lifecycle:
 
+For an authorized active Build, the same Stop path also checks Build continuity. A plain progress update is not terminal: it gets one immediate, progress-bounded correction so the next actionable step can run. That correction is not a scheduled wakeup and does not create a polling loop. It is available once per unchanged substantive-progress epoch, never once per bookkeeping write. The evaluator proceeds only for submission ready or a typed terminal condition backed by its own source record; it fails open rather than guessing when the active Build cannot be resolved. Operator pause and cancellation persist until their trusted lifecycle event changes them; other conditions have source-specific lifetimes.
+
 1. **Raising a concern records it.** Under the standing pushback habit, a concern the session surfaces is
    written to the checklist, undispositioned (`close.py record`). The checklist lives outside the
    repository, only for this session, and is never committed — it is a working list, not an archive.

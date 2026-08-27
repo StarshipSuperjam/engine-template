@@ -59,6 +59,8 @@
     "assumption_dispositions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["claim", "resolved_as", "basis"], "properties": {"claim": {"type": "string", "minLength": 1}, "resolved_as": {"enum": ["verified", "accepted-risk"]}, "basis": {"type": "string", "minLength": 1}}}},
     "artifact_sync": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["commit", "results"], "properties": {"commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "results": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["path", "status", "changed"], "properties": {"path": {"type": "string"}, "status": {"type": "string"}, "changed": {"type": "boolean"}}}}}}]},
     "checkpoint": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/checkpoint"}]},
+    "terminal_condition": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/terminal_condition"}],
+      "description": "A typed reference to the authoritative record that makes an active Build terminal. It is optional so snapshots written before continuity state shipped remain readable; a missing value means no stored terminal condition."},
     "progress": {
       "type": "object", "additionalProperties": false, "required": ["current_item", "completed"],
       "properties": {
@@ -261,6 +263,29 @@
         "judgment": {"enum": ["aligned", "plan_revision_required", "operator_decision_required"]},
         "progress": {"type": "string", "minLength": 1}
       }
+    },
+    "terminal_source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authority", "reference", "observed_at"],
+      "properties": {
+        "authority": {"enum": ["operator-command", "checkpoint", "hook-receipt", "finding-record", "validation-receipt", "provider-background"]},
+        "reference": {"type": "string", "minLength": 1},
+        "observed_at": {"type": "string", "minLength": 1}
+      }
+    },
+    "terminal_condition": {
+      "description": "No free-form reason is authority. The Stop evaluator resolves this source reference against the current Build or normalized provider payload and applies the lifetime defined for the kind.",
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "source"],
+      "properties": {
+        "kind": {"enum": ["operator_pause", "operator_cancel", "operator_decision", "permission", "guardrail", "repair_guidance", "external_blocker", "background_wait"]},
+        "source": {"$ref": "#/$defs/terminal_source"},
+        "requested_action": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "operator_decision"}}, "required": ["kind"]},
+         "then": {"required": ["requested_action"]}}
+      ]
     },
     "result": {
       "type": "object", "additionalProperties": false,

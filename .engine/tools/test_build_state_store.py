@@ -165,6 +165,38 @@ class DoesNotLeak(_Library):
         self.assertIn("compare-and-swap", warned)
 
 
+class TerminalConditionContract(_Library):
+    """A terminal handoff names evidence; it is never a free-form status sentence."""
+
+    def test_typed_terminal_condition_round_trips_with_its_authoritative_reference(self):
+        condition = {
+            "kind": "operator_pause",
+            "source": {"authority": "operator-command", "reference": "prompt:42",
+                       "observed_at": "2026-08-27T18:00:00Z"},
+        }
+        self._store().create(_state(terminal_condition=condition))
+        self.assertEqual(self._store().read()["terminal_condition"], condition)
+
+    def test_operator_decision_requires_the_actual_requested_action(self):
+        condition = {
+            "kind": "operator_decision",
+            "source": {"authority": "checkpoint", "reference": "checkpoint:1",
+                       "observed_at": "2026-08-27T18:00:00Z"},
+        }
+        with self.assertRaises(core.CoordinatorError):
+            self._store().create(_state(terminal_condition=condition))
+
+    def test_free_form_terminal_reason_is_rejected(self):
+        condition = {
+            "kind": "operator_pause",
+            "reason": "I feel done",
+            "source": {"authority": "operator-command", "reference": "prompt:42",
+                       "observed_at": "2026-08-27T18:00:00Z"},
+        }
+        with self.assertRaises(core.CoordinatorError):
+            self._store().create(_state(terminal_condition=condition))
+
+
 class DoesNotDestroy(_Library):
     """IT DOES NOT DESTROY — the one store that can overwrite live Build evidence."""
 
