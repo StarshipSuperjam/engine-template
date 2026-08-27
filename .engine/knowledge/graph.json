@@ -8765,7 +8765,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:396b90346ce0b9a34373b6bc36db91dffda7019442e60f60dbff7003ef13ae61",
+        "fingerprint": "sha256:5a8e10548c59569488ad10e1a905df655ccc354608b9c3d02bdb8f1a8496075e",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -13831,7 +13831,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:b3674846cb7b6f8dad63866b7922bb497e93adcafd743b8c5bef89335b3186ac",
+        "fingerprint": "sha256:cabd5ba2ea9e2ab1f08474ee4d977b2fffa58aee0a2323a87ce83a8b2d4693ff",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14369,7 +14369,7 @@
       },
       "slug": "snapshot_format",
       "source": {
-        "fingerprint": "sha256:df98f3bfa48042f4fdd141ec2ed2929ebf98f65310b2cd2da2e1a171aa72f9b8",
+        "fingerprint": "sha256:096e7496a5677378192eccb53e4cbcc546349ae56120a3633c8d109534528cc4",
         "path": ".engine/tools/memory/snapshot_format.py"
       },
       "status": "active",
@@ -14901,7 +14901,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:c5429ff836202e69d74b886a23a74cb053ad5e061686d6b761110a8c792e04ae",
+        "fingerprint": "sha256:17bf8e0fe55a5d1f6cc79f99ed055b402b3b28119bed489066aa4383b084efc8",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -18325,7 +18325,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:6fcee468c487ea8b778e7bc6c7175f74d71bfbc23eb777b43b78f4a74a359056",
+        "fingerprint": "sha256:4549ec5511699d1f8e62cf24bbede7a9146e1cebcaa0196bd76b518daeeb73de",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
@@ -19134,7 +19134,7 @@
       },
       "slug": "test_snapshot_format",
       "source": {
-        "fingerprint": "sha256:ce9080b6486eada14caf7b31c2b437b5f7bdb850bb2aea1bfd09de6958c5c2ea",
+        "fingerprint": "sha256:2065bd606290d83d4b97f15c58338a83f85daeca0bbf2901a143258f01b3fa4e",
         "path": ".engine/tools/memory/test_snapshot_format.py"
       },
       "status": "active",
