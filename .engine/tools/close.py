@@ -604,7 +604,7 @@ def main(argv):
     cmd = argv[0] if argv else "hook"
     if cmd == "hook":
         # Hook mode: what the wired Stop hook invokes. run_hook reads the event JSON from stdin, runs the
-        # gate, translates block() -> exit 2 + stderr, downgrades a forced-continuation block, fail-open.
+        # gate, translates block() -> exit 2 + stderr, preserves the owner's repeated-Stop decision, fail-open.
         # fail_open_notice: if the disposition gate itself CRASHES, the operator hears close's own plain line
         # (the gate fails open, and says so), not run_hook's generic wording.
         return hooks.run_hook("Stop", handler, fail_open_notice=_FAIL_OPEN_NOTICE)

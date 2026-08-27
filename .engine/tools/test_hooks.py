@@ -15,10 +15,9 @@ These lock the laws hooks owns:
     python.exe), never bare python / uv run.
   - the harness FAILS OPEN: a crashing handler, a malformed event payload, or a block requested on a
     non-eligible event all PROCEED (a non-2 exit) and emit a plain-language finding — never a hard block;
-    only a handler that returns block() on PreToolUse/Stop exits 2; on a forced Stop continuation
-    (stop_hook_active) the handler STILL runs but its block is downgraded to proceed, so it can never
-    re-block and loop the cap (close needs the give-up moment to log; the guarantee is the
-    harness's, by construction, not the handler's).
+    only a handler that returns block() on PreToolUse/Stop exits 2; on a repeated Stop
+    (stop_hook_active) the handler STILL runs and its decision is preserved. The registered owner,
+    close, owns the finite log-and-proceed rule; the shared harness does not guess another owner's budget.
   - the static block-budget leg flags a block declared on a non-eligible event, is silent on an empty set,
     and agrees with the runtime BLOCK_ELIGIBLE_EVENTS (a drift guard). The leg is built + fixture-tested
     with no live rule (the interface_resolution_findings / agent_coherence_findings precedent); the live
