@@ -375,7 +375,10 @@ class TestCollectExposesWitnessDeferred(unittest.TestCase):
                if k not in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_EVENT_PATH",
                             "GITHUB_ACTIONS", "CI")}
         with mock.patch.dict(os.environ, env, clear=True):
-            findings = validate.collect("CI", validate.local_ctx(), with_source=True)
+            findings = validate.collect(
+                "CI", validate.local_ctx(), with_source=True,
+                rule_filter=lambda rule: rule.get("id") == "engine/check/protection",
+            )
         deferred = [f for f in findings if f.get("witness_deferred")]
         # branch-protection is a core check present in every deployment; locally it has no token, so
         # its witness_deferred no-op must be visible in the structured collect() output.
