@@ -10126,6 +10126,29 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_active_build_continuity",
+      "name": ".engine/tools/demo_active_build_continuity.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:build_continuity"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_active_build_continuity",
+      "source": {
+        "fingerprint": "sha256:529080cf4ce50c2d4b45c168d3d7525a1172c7cea0f5a978ebc8c0a9acc57545",
+        "path": ".engine/tools/demo_active_build_continuity.py"
+      },
+      "status": "active",
+      "summary": "Operator-runnable proof of the continuity decision vocabulary.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_attention_live_dials",
       "name": ".engine/tools/demo_attention_live_dials.py",
       "owner": "core",
