@@ -75,11 +75,21 @@ class ImmutableLiveDerivationFixture(unittest.TestCase):
 
 class TestImmutableLiveDerivationFixture(unittest.TestCase):
     def test_each_consumer_decodes_an_isolated_value(self):
-        snapshot = json.dumps([{"id": "tool:example", "predicates": {"tests": ["tool:other"]}}])
-        first = json.loads(snapshot)
-        second = json.loads(snapshot)
-        first[0]["predicates"]["tests"].append("tool:mutated")
-        self.assertEqual(second[0]["predicates"]["tests"], ["tool:other"])
+        class Probe(ImmutableLiveDerivationFixture):
+            pass
+
+        entities = [{"id": "tool:example", "predicates": {"tests": ["tool:other"]}}]
+        with mock.patch.object(sys.modules[__name__], "_live_entities", return_value=entities) as derive:
+            Probe.setUpClass()
+            try:
+                first = Probe().live_entities()
+                second = Probe().live_entities()
+                first[0]["predicates"]["tests"].append("tool:mutated")
+                self.assertEqual(second[0]["predicates"]["tests"], ["tool:other"])
+                self.assertEqual(derive.call_count, 1, "the eligible class owns one derivation")
+            finally:
+                Probe.tearDownClass()
+        self.assertIsNone(Probe._live_entities_snapshot, "the class releases its snapshot deterministically")
 
 
 class TestHelpers(unittest.TestCase):

@@ -15100,7 +15100,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:b154ab67f15692b1fb66392aa800af42ba75f7953ff31b1d9a04d8e471abbdc6",
+        "fingerprint": "sha256:151866f99b51f81c721ea9c0de87d459e2219d88d64102228e2ac5d652b88721",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16756,7 +16756,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:934fa3184607c5d0d6c7f296cfa6f73b15432368c0876d40d59fde87b77f56e5",
+        "fingerprint": "sha256:03613fc25bc677e6ae6b00e991774476fad72ff539897330bb039cd1adabff58",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",

@@ -1621,6 +1621,29 @@ class TestCandidateInventorySnapshot(unittest.TestCase):
             _candidate_inventory_snapshot("/tmp/two")
         self.assertEqual(seen, [os.path.realpath("/tmp/one"), os.path.realpath("/tmp/two")])
 
+    def test_each_eligible_class_owns_injects_and_releases_one_snapshot(self):
+        class FirstEligibleGroup(CandidateInventoryFixture):
+            pass
+
+        class SecondEligibleGroup(CandidateInventoryFixture):
+            pass
+
+        observations = iter(((3, "sha256:first"), (4, "sha256:second")))
+        with mock.patch.object(bc.ci_gatekeeper, "inventory_digest", side_effect=observations) as derive, \
+                mock.patch.object(sys.modules[__name__], "_candidate_validation_fake",
+                                  return_value=mock.sentinel.validation) as fake:
+            for group, expected_count in ((SecondEligibleGroup, 3), (FirstEligibleGroup, 4)):
+                group.setUpClass()
+                try:
+                    self.assertIs(group().candidate_validation_fake(), mock.sentinel.validation)
+                    injected = fake.call_args.kwargs["inventory_snapshot"]
+                    self.assertEqual(injected[1], expected_count)
+                finally:
+                    group.tearDownClass()
+                self.assertIsNone(group._candidate_inventory_snapshot,
+                                  "the eligible class releases its snapshot deterministically")
+        self.assertEqual(derive.call_count, 2, "each eligible class derives once, never once per test")
+
 
 class CandidateInventoryFixture(CoordinatorCase):
     """One immutable inventory observation per named candidate-validation test class."""
