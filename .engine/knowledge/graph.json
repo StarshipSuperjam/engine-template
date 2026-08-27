@@ -823,6 +823,7 @@
           "codex-skill:engine-help",
           "codex-skill:engine-install-engine",
           "codex-skill:engine-manage-addons",
+          "codex-skill:engine-manage-plans",
           "codex-skill:engine-manage-setup",
           "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
@@ -896,6 +897,7 @@
           "codex-skill:engine-help",
           "codex-skill:engine-install-engine",
           "codex-skill:engine-manage-addons",
+          "codex-skill:engine-manage-plans",
           "codex-skill:engine-manage-setup",
           "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
@@ -1776,6 +1778,7 @@
           "operation:onboarding-read",
           "operation:operating-modes",
           "operation:owned-product-build",
+          "operation:plan-orchestration",
           "operation:product-intake",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
@@ -1837,6 +1840,7 @@
           "operation:onboarding-read",
           "operation:operating-modes",
           "operation:owned-product-build",
+          "operation:plan-orchestration",
           "operation:product-intake",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
@@ -1847,7 +1851,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:091f1b5a47142cbb3200e1b9880f48c2f94b6001420673d014306177b37f254b",
+        "fingerprint": "sha256:a6b9839d9f6b3b1f3a3be2b84e96a92f8e178bc7396d3719d46b45e49ff75224",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -2644,6 +2648,7 @@
           "skill:engine-help",
           "skill:engine-install-engine",
           "skill:engine-manage-addons",
+          "skill:engine-manage-plans",
           "skill:engine-manage-setup",
           "skill:engine-onboard-project",
           "skill:engine-parts",
@@ -2717,6 +2722,7 @@
           "skill:engine-help",
           "skill:engine-install-engine",
           "skill:engine-manage-addons",
+          "skill:engine-manage-plans",
           "skill:engine-manage-setup",
           "skill:engine-onboard-project",
           "skill:engine-parts",
@@ -3313,7 +3319,7 @@
       },
       "slug": "engine-coordinate-build",
       "source": {
-        "fingerprint": "sha256:161f371785271f1c649aa1e3dc14e4d953c9af7aacb3bf0afb346c1604f8dc09",
+        "fingerprint": "sha256:6aff18788fd95940ca5bc60bb7740999e8b110bfae5d88da27ba105ca7983597",
         "path": ".agents/skills/engine-coordinate-build/SKILL.md"
       },
       "status": "active",
@@ -3735,6 +3741,46 @@
       "source": {
         "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
         "path": ".agents/skills/engine-manage-addons/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-plans",
+      "name": ".agents/skills/engine-manage-plans/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-plans",
+      "source": {
+        "fingerprint": "sha256:286a73888eb82266ba8c6c8b149cc02309253b4d5da44d0e3590286397bb05e4",
+        "path": ".agents/skills/engine-manage-plans/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-plans.policy",
+      "name": ".agents/skills/engine-manage-plans/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-plans.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-manage-plans/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -5194,7 +5240,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:ff049d208df6fb01f66956018a7f80f8a6edbd87f3635b743c6456a873042df0",
+        "fingerprint": "sha256:43355d5adc990b0c5583085987a3805ec7274b827176ae1ccfd2178a54a4b255",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5445,7 +5491,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:b8b716a9aca898d08f4d0d0e513a900bee3e12f6adf163cda76c3f1eb2150587",
+        "fingerprint": "sha256:5e5316fef7ca530cbff43aa33617326de9bdbf470cd6aaf6c592ed2a66af852b",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5945,7 +5991,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:33f3f607ddd5db17f42a52d7c0236da42df43d9f221060be0a5ce710f062ec9c",
+        "fingerprint": "sha256:b959fd94b5588d083289caffa9a0d051a8f326a1032b822ee12084fedffbcd65",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -5967,6 +6013,26 @@
       "source": {
         "fingerprint": "sha256:520d4c220d0998a8f13ff7d59478660ab528a92399b377ac5394c6113ab43626",
         "path": ".engine/operations/owned-product-build.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:plan-orchestration",
+      "name": ".engine/operations/plan-orchestration.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "plan-orchestration",
+      "source": {
+        "fingerprint": "sha256:b8067c9724b861b192721e7ade87321ab35765a878da96954645119505b20d6d",
+        "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
       "type": "operation"
@@ -7351,7 +7417,7 @@
       },
       "slug": "engine-coordinate-build",
       "source": {
-        "fingerprint": "sha256:0bc71f4e6646ec0e6a96ab3dbd8039f2f869b9795dcc6a821637853e110684a1",
+        "fingerprint": "sha256:bf0aa4d74a62c040f1c50175892f0821842f8fed55697d0986396f857d98f66b",
         "path": ".claude/skills/engine-coordinate-build/SKILL.md"
       },
       "status": "active",
@@ -7602,6 +7668,31 @@
       },
       "status": "active",
       "title": "engine-manage-addons",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-manage-plans",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-manage-plans/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:plan-orchestration"
+        ]
+      },
+      "slug": "engine-manage-plans",
+      "source": {
+        "fingerprint": "sha256:444270c50192098a4b07b3ec9548eb0d15f8847dfa3e510d69da1ae5145b00bd",
+        "path": ".claude/skills/engine-manage-plans/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-manage-plans",
       "type": "skill"
     },
     {
@@ -13204,7 +13295,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:105f562990e83de21eebe1071fd7f063142a7ae4a28a9d3f972eddd9ec756867",
+        "fingerprint": "sha256:ed7076c1188c97e0cab958adc55e2777183e19215757a958f0d3951033db5882",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -14964,7 +15055,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:f7ee66f69f146793aa7f4ad2c800d314ea9eaeb64d8237d682065119e697c6fd",
+        "fingerprint": "sha256:c8bc1c241fd955d78fae90e594ef2d66d9d5c6820c500082a3dfec6baae22a1f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",

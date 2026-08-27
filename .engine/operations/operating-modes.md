@@ -55,8 +55,8 @@ The stance lifecycle:
 4. **Accepting a plan imports it; it does not start building it.** This changed: accepting a plan used to
    flip the stance straight to build, which skipped every gate the plan side exists to run. Now the
    acceptance is caught by an intake adapter — Claude's plan-exit completion, or on Codex a message whose
-   very first characters are `PLEASE IMPLEMENT THIS PLAN:` — and the accepted document lands in the Plan
-   Coordinator as an **unapproved draft**: no approval, no review, no seal, no build authority. The session
+   very first characters are `PLEASE IMPLEMENT THIS PLAN:` — and the accepted document lands in the Project
+   Manager as an **unapproved draft**: no approval, no review, no seal, no build authority. The session
    then reports the plan's id, the revision it created, and the exact next command, so an acceptance is
    never followed by an unexplained refusal. Nothing is invented on the way in: the text is kept verbatim,
    the payload is empty, and the things an import cannot know — what this is asking for, the problem, the
