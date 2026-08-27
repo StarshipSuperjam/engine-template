@@ -1061,19 +1061,45 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
         self.assertTrue(health.checkpoint_upgrade_transaction(root)["ok"])
         self.assertTrue(health.update_upgrade_transaction(root, "mutated", receipts=[])["ok"])
 
-        with mock.patch.object(health, "_tx_identity_snapshot", wraps=health._tx_identity_snapshot) as snapshots:
+        with mock.patch.object(health, "_tx_identity_snapshot", wraps=health._tx_identity_snapshot) as snapshots, \
+                mock.patch.object(health, "_tx_write_journal", wraps=health._tx_write_journal) as journal_writes:
             restored = health.recover_upgrade_transaction(root)
 
         self.assertTrue(restored["ok"], restored)
-        # One complete comparison at entry is load-bearing.  Repeating it after each restored path turns a
-        # deployed rollback into quadratic Git work and breached the release gate's 600-second phase budget.
-        self.assertEqual(snapshots.call_count, 1)
+        # One complete comparison at entry and one final seal are load-bearing. Repeating either after every
+        # restored path turns deployed rollback into quadratic work and breached the release phase budget.
+        self.assertEqual(snapshots.call_count, 2)
+        self.assertLessEqual(journal_writes.call_count, 2)
         with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
             self.assertEqual(fh.read(), "before record\n")
         with open(os.path.join(root, self.EXTRA), encoding="utf-8") as fh:
             self.assertEqual(fh.read(), "before companion\n")
 
-    def test_sigkill_after_one_rollback_path_checkpoint_resumes_byte_identically(self):
+    def test_expected_checkpoint_refuses_unattributed_or_mismatched_bytes(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        health = module_manager.checkout_health
+        target = {"path": self.TARGET, "operation": "replace",
+                  "before_identity": health._tx_blob_identity(root, self.TARGET),
+                  "recovery_scope": [self.TARGET]}
+        begun = health.begin_upgrade_transaction(
+            root, sealed_targets=[target], footprint=[self.TARGET, self.EXTRA])
+        self.assertTrue(begun["ok"], begun)
+        self.assertTrue(health.update_upgrade_transaction(root, "mutating")["ok"])
+        with open(os.path.join(root, self.TARGET), "w", encoding="utf-8") as fh:
+            fh.write("expected updater bytes\n")
+        identity = health._tx_blob_identity(root, self.TARGET)
+        refused = health.checkpoint_upgrade_transaction(root, {self.TARGET: target["before_identity"]})
+        self.assertEqual(refused["code"], "checkpoint-identity-mismatch")
+        self.assertTrue(health.checkpoint_upgrade_transaction(root, {self.TARGET: identity})["ok"])
+        with open(os.path.join(root, self.EXTRA), "w", encoding="utf-8") as fh:
+            fh.write("concurrent bytes\n")
+        refused = health.checkpoint_upgrade_transaction(root, {self.TARGET: identity})
+        self.assertEqual(refused["code"], "unattributed-checkpoint-drift")
+        self.assertIn(self.EXTRA, refused["paths"])
+
+    def test_sigkill_after_one_path_restore_before_checkpoint_resumes_byte_identically(self):
         tmp = self._repo()
         self.addCleanup(tmp.cleanup)
         root = tmp.name
@@ -1097,14 +1123,15 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
             f"sys.path.insert(0, {helper_dir!r})\n"
             "import checkout_health as ch\n"
             "root=sys.argv[1]\n"
-            "real=ch._tx_write_journal\n"
+            "real=ch._tx_run\n"
             "calls={'n':0}\n"
-            "def write_then_stop(path, record):\n"
-            "  ok=real(path, record)\n"
-            "  calls['n'] += 1\n"
-            "  if ok and calls['n'] == 2: os.kill(os.getpid(), signal.SIGKILL)\n"
-            "  return ok\n"
-            "ch._tx_write_journal=write_then_stop\n"
+            "def restore_then_stop(root, args, **kwargs):\n"
+            "  result=real(root, args, **kwargs)\n"
+            "  if args and args[0] == 'restore' and result is not None and result.returncode == 0:\n"
+            "    calls['n'] += 1\n"
+            "    if calls['n'] == 1: os.kill(os.getpid(), signal.SIGKILL)\n"
+            "  return result\n"
+            "ch._tx_run=restore_then_stop\n"
             "ch.recover_upgrade_transaction(root)\n")
         killed = subprocess.run([sys.executable, "-c", script, root], capture_output=True, text=True,
                                 check=False)
@@ -1166,6 +1193,12 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
                     self.assertEqual(recovered["code"], "remote-pr-ambiguous")
                     self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
                                      "active")
+                    reconciled = module_manager.checkout_health.reconcile_upgrade_pr(
+                        root, outcome="absent")
+                    self.assertTrue(reconciled["ok"], reconciled)
+                    recovered = module_manager.checkout_health.recover_upgrade_transaction(root)
+                    self.assertTrue(recovered["ok"], recovered)
+                    self.assertEqual(recovered["state"], "restored")
                 elif boundary == "pr-opened":
                     self.assertTrue(recovered["ok"], recovered)
                     self.assertEqual(recovered["state"], "finalized")
@@ -1178,9 +1211,8 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
                     with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
                         self.assertEqual(fh.read(), "before record\n")
                     self.assertEqual(self._git(root, "status", "--porcelain"), "")
-                if boundary != "pr-opening":
-                    self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
-                                     "none")
+                self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"],
+                                 "none")
                 tmp.cleanup()
 
 

@@ -1096,13 +1096,16 @@ def _scope_contains(path: str, scopes: list[str]) -> bool:
     return any(path == s.rstrip("/") or path.startswith(s.rstrip("/") + "/") for s in scopes)
 
 
-def _tracked_context(item: dict, from_versions: dict, engine_version: str, *, checkpoint=None) -> dict:
+def _tracked_context(item: dict, from_versions: dict, engine_version: str, *, checkpoint=None,
+                     repository_binding=None) -> dict:
     context = {"root": validate.ROOT, "module_id": item["module_id"],
                "from_version": from_versions.get(item["module_id"]), "to_version": item["version"],
                "engine_version": engine_version, "kind": "tracked-content",
                "scope": list(item.get("scope") or [])}
     if checkpoint is not None:
         context["checkpoint"] = checkpoint
+    if repository_binding is not None:
+        context["repository_binding"] = repository_binding
     return context
 
 
@@ -1122,7 +1125,17 @@ def preflight_tracked_content_migrations(selected: list, from_versions: dict, en
     """Seal exact tracked-content targets before mutation. Malformed, duplicate, out-of-scope, untracked,
     drifted, or discarded results become typed refusals; no partial target set is accepted."""
     module_dir = module_dir or _modules_dir
-    out = {"plans": {}, "targets": [], "footprint": [], "refusals": []}
+    has_tracked = any(i.get("kind") == "tracked-content" for i in selected)
+    repository_binding = checkout_health._tx_repository_binding(validate.ROOT) if has_tracked else None
+    out = {"plans": {}, "targets": [], "footprint": [], "refusals": [],
+           "repository_binding": repository_binding}
+    if has_tracked and repository_binding is None:
+        item = next(i for i in selected if i.get("kind") == "tracked-content")
+        out["refusals"].append(_tracked_refusal(
+            "repository-binding-unavailable", _tracked_protocol_path(item),
+            "The repository and .engine directories could not be bound to stable identities.",
+            "Repair the repository directory tree, then run the update again."))
+        return out
     tracked = module_coherence._tracked_paths()
     if tracked is None and any(i.get("kind") == "tracked-content" for i in selected):
         item = next(i for i in selected if i.get("kind") == "tracked-content")
@@ -1148,7 +1161,8 @@ def preflight_tracked_content_migrations(selected: list, from_versions: dict, en
             continue
         try:
             preflight, _apply = _load_tracked_migration(module_dir(item["module_id"]), item["run"])
-            raw = preflight(_tracked_context(item, from_versions, engine_version))
+            raw = preflight(_tracked_context(item, from_versions, engine_version,
+                                             repository_binding=repository_binding))
         except Exception as exc:  # noqa: BLE001 — typed refusal, never a raw traceback
             out["refusals"].append(_tracked_refusal(
                 "preflight-failed", protocol_path, f"The migration preflight failed: {exc}",
@@ -1224,9 +1238,17 @@ def preflight_tracked_content_migrations(selected: list, from_versions: dict, en
             recovery.update(target["recovery_scope"])
         plan = {"schema_version": "tracked-content-plan.v1", "migration_id": midver,
                 "module_id": item["module_id"], "version": item["version"], "run": item["run"],
-                "scope": scopes, "targets": sealed}
+                "scope": scopes, "targets": sealed, "repository_binding": repository_binding}
         out["plans"][midver] = plan
         out["targets"].extend(sealed)
+    if has_tracked and not checkout_health._tx_repository_binding_matches(validate.ROOT, repository_binding):
+        out["plans"], out["targets"], out["footprint"] = {}, [], []
+        out["refusals"].append(_tracked_refusal(
+            "repository-binding-changed", _tracked_protocol_path(
+                next(i for i in selected if i.get("kind") == "tracked-content")),
+            "The repository or .engine directory changed while tracked-content preflight was running.",
+            "Stop the concurrent directory change, restore the repository path, then run the update again."))
+        return out
     out["footprint"] = sorted(recovery)
     return out
 
@@ -1236,7 +1258,8 @@ def _apply_tracked_content(item: dict, from_versions: dict, engine_version: str,
     """Apply one sealed plan and bind its typed receipt to actual resulting bytes."""
     midver = f"{item['module_id']}@{item['version']}"
     protocol_path = _tracked_protocol_path(item)
-    expected_plan_keys = {"schema_version", "migration_id", "module_id", "version", "run", "scope", "targets"}
+    expected_plan_keys = {"schema_version", "migration_id", "module_id", "version", "run", "scope", "targets",
+                          "repository_binding"}
     if not isinstance(sealed_plan, dict) or set(sealed_plan) != expected_plan_keys \
             or sealed_plan.get("schema_version") != "tracked-content-plan.v1" \
             or sealed_plan.get("migration_id") != midver or not isinstance(sealed_plan.get("targets"), list):
@@ -1257,6 +1280,13 @@ def _apply_tracked_content(item: dict, from_versions: dict, engine_version: str,
             "The tracked-content migration has no matching live recovery transaction.",
             "Recover any earlier transaction, rerun preflight, and apply the update again.")}
     tx_record = tx.get("record") or {}
+    if sealed_plan.get("repository_binding") != tx_record.get("repository_binding") \
+            or not checkout_health._tx_repository_binding_matches(
+                validate.ROOT, sealed_plan.get("repository_binding")):
+        return {"refusal": _tracked_refusal(
+            "repository-binding-changed", protocol_path,
+            "Apply is no longer operating on the repository directories inspected by preflight.",
+            "Restore the original repository path and rerun the update from preflight.")}
     if not isinstance(targets_list, list) or any(t not in (tx_record.get("sealed_targets") or [])
                                                 for t in targets_list):
         return {"refusal": _tracked_refusal(
@@ -1282,7 +1312,8 @@ def _apply_tracked_content(item: dict, from_versions: dict, engine_version: str,
         _preflight, apply = _load_tracked_migration(module_dir(item["module_id"]), item["run"])
         raw = apply(_tracked_context(
             item, from_versions, engine_version,
-            checkpoint=lambda: checkout_health.checkpoint_upgrade_transaction(validate.ROOT)), sealed_plan)
+            checkpoint=lambda expected: checkout_health.checkpoint_upgrade_transaction(
+                validate.ROOT, expected), repository_binding=sealed_plan["repository_binding"]), sealed_plan)
     except Exception as exc:  # noqa: BLE001 — the transaction remains available for restart recovery
         return {"refusal": _tracked_refusal(
             "apply-failed", protocol_path, f"The tracked-content apply step failed: {exc}",
@@ -2114,7 +2145,8 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          "checkout away from the prepared update branch; to decline locally too, close the pull request and "
          "switch that checkout back to the repository's default branch.",
          "- An update only ever moves the engine version forward."],
-        "merging is your consent to run the updated engine; nothing changes until you merge.")
+        "the prepared update checkout already contains these changes for review; merging is your consent to "
+        "put them on the default branch and run the updated engine there.")
     scope_summary = ("The version this update records, the shared-file blocks it refreshed, and the capabilities "
                      "it retires." if caps_lost else
                      "The version this update records and the shared-file blocks it refreshed.")
@@ -3231,7 +3263,8 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
                 return tail
             transaction = checkout_health.begin_upgrade_transaction(
                 validate.ROOT, sealed_targets=adopted_preflight["targets"],
-                footprint=sorted(dynamic_footprint), adopt_existing=True)
+                footprint=sorted(dynamic_footprint), adopt_existing=True,
+                repository_binding=adopted_preflight["repository_binding"])
             tail["transaction"] = transaction
             if not transaction.get("ok"):
                 tail["reason"] = ("The update could not adopt the older parent's staged overlay into its "
@@ -4200,7 +4233,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                         "reason": f"The update could not seal its rollback footprint ({exc}); nothing changed."}
             transaction = checkout_health.begin_upgrade_transaction(
                 validate.ROOT, sealed_targets=tracked_preflight["targets"],
-                footprint=sorted(dynamic_footprint))
+                footprint=sorted(dynamic_footprint),
+                repository_binding=tracked_preflight["repository_binding"])
             result["transaction"] = transaction
             if not transaction.get("ok"):
                 return {**result, "refused": True,
@@ -5414,7 +5448,8 @@ def remove_engine_demo() -> bool:
 # memory; and the operator-typed skill (disable-model-invocation) plus the conduct routing are the
 # pre-execution gates. No false "never" — the same honesty as slice 2's routing posture.
 
-_ROLLBACK_USAGE = ("usage: module_manager.py rollback [--confirm] [--json]\n"
+_ROLLBACK_USAGE = ("usage: module_manager.py rollback [--confirm] [--json] "
+                   "[--pr-absent | --pr-opened=<number-or-url>]\n"
                    "  Without --confirm it only CHECKS what undoing would do and changes nothing.\n"
                    "  With --confirm it undoes a staged/stalled update (using its durable transaction, or\n"
                    "  saving a recovery point first for an older staged update),\n"
@@ -5609,7 +5644,8 @@ def _discard_staged_update(resync, transport) -> dict:
     return result
 
 
-def rollback(*, confirm: bool = False, resync=_UNSET, transport=None) -> dict:
+def rollback(*, confirm: bool = False, resync=_UNSET, transport=None,
+             pr_absent: bool = False, pr_opened: str | None = None) -> dict:
     """Undo an engine update — the deliberate counterpart to `upgrade`, surfaced through `/engine-upgrade`.
     Read-only unless `confirm`. Three states: a STAGED/stalled update (discard it, saving a recovery point
     first); memory AHEAD of the code after a reverted/merged update (put the saved copy back); or nothing to
@@ -5621,6 +5657,23 @@ def rollback(*, confirm: bool = False, resync=_UNSET, transport=None) -> dict:
     if not confirm:
         return diag
     if diag["state"] == "transaction":
+        if pr_absent and pr_opened:
+            return {"state": "transaction", "undone": False, "refused": True,
+                    "reason": "Confirm either that the pull request is absent/closed or identify the one that "
+                              "opened, not both."}
+        if pr_opened:
+            value = int(pr_opened) if pr_opened.isdigit() else pr_opened
+            reconciled = checkout_health.reconcile_upgrade_pr(
+                validate.ROOT, outcome="opened",
+                pull_request={"number": value} if isinstance(value, int) else {"url": value})
+            return {**reconciled, "state": "transaction", "undone": False,
+                    "refused": not bool(reconciled.get("ok")),
+                    "reason": ("Done — I recorded the confirmed pull request and cleared the local recovery "
+                               "transaction." if reconciled.get("ok") else reconciled.get("reason"))}
+        if pr_absent:
+            reconciled = checkout_health.reconcile_upgrade_pr(validate.ROOT, outcome="absent")
+            if not reconciled.get("ok"):
+                return {**reconciled, "state": "transaction", "undone": False, "refused": True}
         restored = checkout_health.recover_upgrade_transaction(validate.ROOT)
         result = {**restored, "state": "transaction", "undone": bool(restored.get("ok")),
                   "transaction_state": restored.get("state")}
@@ -5655,7 +5708,9 @@ def _render_rollback(r: dict, applied: bool) -> None:
                 pr = record.get("pull_request") or {}
                 print("The update reached GitHub's pull-request opening boundary, so I will not automatically "
                       "undo it until the remote state is confirmed. Check whether branch "
-                      f"'{pr.get('branch')}' at {pr.get('commit')} already has a pull request. Journal: "
+                      f"'{pr.get('branch')}' at {pr.get('commit')} already has a pull request. Then run "
+                      "`rollback --confirm --pr-opened=<number-or-url>` to record it, or after confirming no "
+                      "live pull request remains run `rollback --confirm --pr-absent`. Journal: "
                       f"{tx.get('journal_path')}; recovery ref: {tx.get('recovery_ref')}.")
             else:
                 print("An update has a durable recovery transaction in progress. I can restore the exact "
@@ -5685,10 +5740,10 @@ def _render_rollback(r: dict, applied: bool) -> None:
     if r.get("refused") or r.get("partial"):
         print(r.get("reason") or "The transaction could not be restored automatically; nothing was guessed.")
         evidence = []
-        if r.get("path"):
-            evidence.append(f"affected path: {r['path']}")
-        elif r.get("paths"):
+        if r.get("paths"):
             evidence.append("affected paths: " + ", ".join(r["paths"]))
+        elif r.get("path"):
+            evidence.append(f"affected path: {r['path']}")
         if r.get("journal_path"):
             evidence.append(f"journal: {r['journal_path']}")
         if r.get("recovery_ref"):
@@ -5833,7 +5888,8 @@ def main(argv: list) -> int:
             if "--help" in argv or "-h" in argv:
                 print(_UPGRADE_USAGE)
                 return 0
-            unknown = [a for a in argv[1:] if a.startswith("-") and a not in ("--confirm", "--json")]
+            unknown = [a for a in argv[1:] if a.startswith("-") and a not in (
+                "--confirm", "--json", "--pr-absent") and not a.startswith("--pr-opened=")]
             if unknown:
                 print(f"CONFIG ERROR: unknown option(s) for upgrade: {' '.join(unknown)}\n{_UPGRADE_USAGE}",
                       file=sys.stderr)
@@ -5872,8 +5928,15 @@ def main(argv: list) -> int:
                       file=sys.stderr)
                 return 2
             confirm = "--confirm" in argv
+            pr_absent = "--pr-absent" in argv
+            opened_values = [a.split("=", 1)[1] for a in argv[1:] if a.startswith("--pr-opened=")]
+            if len(opened_values) > 1 or (opened_values and not opened_values[0]):
+                print(f"CONFIG ERROR: --pr-opened needs exactly one pull request number or URL.\n"
+                      f"{_ROLLBACK_USAGE}", file=sys.stderr)
+                return 2
             try:
-                result = rollback(confirm=confirm)
+                result = rollback(confirm=confirm, pr_absent=pr_absent,
+                                  pr_opened=opened_values[0] if opened_values else None)
             except Exception as exc:   # noqa: BLE001 — the check/undo must never crash into a traceback
                 print(f"Couldn't complete that — your engine is unchanged. ({exc})")
                 return 1

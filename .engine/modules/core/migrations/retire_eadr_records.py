@@ -29,10 +29,13 @@ _OVERRIDE_KEY = "contract-threshold"
 _RECORD_RE = re.compile(
     r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*-)?eADR-[0-9]{4}(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.md$")
 _RETIRED_PLAN_TOKEN_RE = re.compile(
-    r"(?:\beADR(?:-[0-9]{4})?\b|\.engine/contracts(?:/instance)?\b|contract\.v1\b|"
+    r"(?:\beadr(?:-[0-9]{4})?\b|\.engine/contracts(?:/instance)?\b|contract\.v1\b|"
     r"contract-threshold\b|contract-(?:frontmatter|shape)\b|DEPLOYMENT_CONTRACTS\b|"
     r"\.engine/templates/contract\.md\b|\.engine/check/ontology-authority-reservation\.json\b|"
-    r"authority_reservation_check(?:\.py)?\b|ontology-authority-reservation\b)")
+    r"authority_reservation_check(?:\.py)?\b|ontology-authority-reservation\b|"
+    r"\b(?:contract_ref|established_by)\b|"
+    r"\b(?:demo_ack_authority|demo_contract_rate|test_contract|test_contract_canon|"
+    r"demo_467_deployment_eadr_namespace)(?:\.py)?\b)", re.IGNORECASE)
 _Q_PREFIX = ".engine-upgrade-retirement-quarantine-"
 _OVERRIDE_Q = ".engine-upgrade-retirement-quarantine-overrides"
 _OVERRIDE_NEXT = ".engine-upgrade-retirement-next-overrides"
@@ -113,6 +116,14 @@ def _same_entry(name: str, parent_fd: int, meta: os.stat_result) -> bool:
     return stat.S_ISREG(now.st_mode) and (now.st_dev, now.st_ino) == (meta.st_dev, meta.st_ino)
 
 
+def _entry_absent(name: str, parent_fd: int) -> bool:
+    try:
+        os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        return False
+    except FileNotFoundError:
+        return True
+
+
 def _same_dir(name: str, parent_fd: int, directory_fd: int) -> bool:
     now, held = os.stat(name, dir_fd=parent_fd, follow_symlinks=False), os.fstat(directory_fd)
     return stat.S_ISDIR(now.st_mode) and (now.st_dev, now.st_ino) == (held.st_dev, held.st_ino)
@@ -185,11 +196,20 @@ def _verify_bindings(root_links, root_fd: int, engine_fd: int,
         raise RuntimeError("the former record directory was swapped during retirement")
 
 
-def _checkpoint(context: dict) -> None:
+def _verify_repository_binding(context: dict, root_fd: int, engine_fd: int) -> None:
+    binding = context.get("repository_binding")
+    root_stat, engine_stat = os.fstat(root_fd), os.fstat(engine_fd)
+    if not isinstance(binding, dict) or binding.get("realpath") != os.path.realpath(context.get("root", "")) \
+            or (binding.get("root_dev"), binding.get("root_ino")) != (root_stat.st_dev, root_stat.st_ino) \
+            or (binding.get("engine_dev"), binding.get("engine_ino")) != (engine_stat.st_dev, engine_stat.st_ino):
+        raise RuntimeError("the repository does not match the directory identities sealed by preflight")
+
+
+def _checkpoint(context: dict, expected: dict[str, str]) -> None:
     checkpoint = context.get("checkpoint")
     if checkpoint is None:
         return
-    result = checkpoint()
+    result = checkpoint(expected)
     if not isinstance(result, dict) or not result.get("ok"):
         reason = result.get("reason") if isinstance(result, dict) else None
         raise RuntimeError(reason or "the durable upgrade identity checkpoint failed")
@@ -477,6 +497,7 @@ def _sealed_targets(sealed_plan: dict) -> dict[str, dict]:
             or sealed_plan.get("migration_id") != "core@0.7.0" \
             or sealed_plan.get("module_id") != "core" or sealed_plan.get("version") != "0.7.0" \
             or sealed_plan.get("run") != "migrations/retire_eadr_records.py" \
+            or not isinstance(sealed_plan.get("repository_binding"), dict) \
             or not isinstance(sealed_plan.get("targets"), list):
         raise RuntimeError("the sealed retirement plan is malformed")
     targets = {}
@@ -525,6 +546,7 @@ def apply(context: dict, sealed_plan: dict) -> dict:
     try:
         engine_fd = _open_dir(".engine", root_fd)
         try:
+            _verify_repository_binding(context, root_fd, engine_fd)
             _verify_bindings(root_links, root_fd, engine_fd)
             contracts_fd = _open_dir("contracts", engine_fd)
             try:
@@ -564,7 +586,7 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                                                   dst_dir_fd=instance_fd)
                             except FileExistsError as exc:
                                 raise RuntimeError(f"retirement quarantine appeared during capture: {path}") from exc
-                            if not _same_entry(qname, instance_fd, meta) \
+                            if not _same_entry(qname, instance_fd, meta) or not _entry_absent(name, instance_fd) \
                                     or _blob_identity(_read_fd(fd), object_format) != target["before_identity"]:
                                 raise RuntimeError(
                                     f"captured record identity mismatch; preserved quarantine for recovery: {path}")
@@ -572,22 +594,26 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                             os.fsync(fd)
                             os.fsync(instance_fd)
                             _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
-                            _checkpoint(context)
+                            _checkpoint(context, {path: "absent",
+                                                  _path_for_instance_name(qname): target["before_identity"]})
                             _killpoint("record-capture:" + name)
-                            if not _same_entry(qname, instance_fd, meta):
+                            if not _same_entry(qname, instance_fd, meta) or not _entry_absent(name, instance_fd) \
+                                    or _blob_identity(_read_fd(fd), object_format) != target["before_identity"]:
                                 raise RuntimeError(
                                     f"captured record changed before deletion; preserved for recovery: {path}")
                             _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
-                            _checkpoint(context)
+                            _checkpoint(context, {path: "absent",
+                                                  _path_for_instance_name(qname): target["before_identity"]})
                             _killpoint("record-verified:" + name)
                             _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
-                            if not _same_entry(qname, instance_fd, meta):
+                            if not _same_entry(qname, instance_fd, meta) or not _entry_absent(name, instance_fd) \
+                                    or _blob_identity(_read_fd(fd), object_format) != target["before_identity"]:
                                 raise RuntimeError(
                                     f"captured record changed before deletion; preserved for recovery: {path}")
                             os.unlink(qname, dir_fd=instance_fd)
                             os.fsync(instance_fd)
                             _verify_bindings(root_links, root_fd, engine_fd, contracts_fd, instance_fd)
-                            _checkpoint(context)
+                            _checkpoint(context, {path: "absent", _path_for_instance_name(qname): "absent"})
                             _killpoint("record-delete:" + name)
                         finally:
                             os.close(fd)
@@ -604,7 +630,7 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                 os.rmdir("instance", dir_fd=contracts_fd)
                 os.fsync(contracts_fd)
                 _verify_bindings(root_links, root_fd, engine_fd, contracts_fd)
-                _checkpoint(context)
+                _checkpoint(context, {})
                 _killpoint("instance-delete")
                 if os.listdir(contracts_fd):
                     raise RuntimeError("the retired contract directory still contains an entry")
@@ -615,7 +641,7 @@ def apply(context: dict, sealed_plan: dict) -> dict:
             os.rmdir("contracts", dir_fd=engine_fd)
             os.fsync(engine_fd)
             _verify_bindings(root_links, root_fd, engine_fd)
-            _checkpoint(context)
+            _checkpoint(context, {})
             _killpoint("contracts-delete")
 
             if _OVERRIDES in targets:
@@ -634,6 +660,7 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                     except FileExistsError as exc:
                         raise RuntimeError("settings retirement quarantine appeared during capture") from exc
                     if not _same_entry(_OVERRIDE_Q, engine_fd, meta) \
+                            or not _entry_absent("operator-overrides.json", engine_fd) \
                             or _blob_identity(_read_fd(fd), object_format) != target["before_identity"]:
                         raise RuntimeError(
                             "captured settings identity mismatch; preserved quarantine for recovery")
@@ -641,7 +668,9 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                     os.fsync(fd)
                     os.fsync(engine_fd)
                     _verify_bindings(root_links, root_fd, engine_fd)
-                    _checkpoint(context)
+                    _checkpoint(context, {_OVERRIDES: "absent",
+                                          ".engine/" + _OVERRIDE_Q: target["before_identity"],
+                                          ".engine/" + _OVERRIDE_NEXT: "absent"})
                     _killpoint("override-capture")
                     data = json.loads(original)
                     if _OVERRIDE_KEY not in data:
@@ -655,7 +684,10 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                     os.fsync(next_fd)
                     os.fsync(engine_fd)
                     _verify_bindings(root_links, root_fd, engine_fd)
-                    _checkpoint(context)
+                    replacement_identity = _blob_identity(replacement, object_format)
+                    _checkpoint(context, {_OVERRIDES: "absent",
+                                          ".engine/" + _OVERRIDE_Q: target["before_identity"],
+                                          ".engine/" + _OVERRIDE_NEXT: replacement_identity})
                     _killpoint("override-rewrite")
                     next_meta = os.fstat(next_fd)
                     _verify_bindings(root_links, root_fd, engine_fd)
@@ -674,16 +706,23 @@ def apply(context: dict, sealed_plan: dict) -> dict:
                         raise RuntimeError("installed settings identity mismatch")
                     os.fsync(engine_fd)
                     _verify_bindings(root_links, root_fd, engine_fd)
-                    _checkpoint(context)
+                    _checkpoint(context, {_OVERRIDES: replacement_identity,
+                                          ".engine/" + _OVERRIDE_Q: target["before_identity"],
+                                          ".engine/" + _OVERRIDE_NEXT: "absent"})
                     _killpoint("override-replace")
                     _verify_bindings(root_links, root_fd, engine_fd)
-                    if not _same_entry(_OVERRIDE_Q, engine_fd, meta):
+                    if not _same_entry(_OVERRIDE_Q, engine_fd, meta) \
+                            or _blob_identity(_read_fd(fd), object_format) != target["before_identity"] \
+                            or not _same_entry("operator-overrides.json", engine_fd, next_meta) \
+                            or _blob_identity(_read_fd(next_fd), object_format) != replacement_identity:
                         raise RuntimeError(
                             "captured settings changed before deletion; preserved for recovery")
                     os.unlink(_OVERRIDE_Q, dir_fd=engine_fd)
                     os.fsync(engine_fd)
                     _verify_bindings(root_links, root_fd, engine_fd)
-                    _checkpoint(context)
+                    _checkpoint(context, {_OVERRIDES: replacement_identity,
+                                          ".engine/" + _OVERRIDE_Q: "absent",
+                                          ".engine/" + _OVERRIDE_NEXT: "absent"})
                     _killpoint("override-delete")
                 finally:
                     if next_fd is not None:

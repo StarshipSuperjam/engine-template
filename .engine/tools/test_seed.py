@@ -696,7 +696,7 @@ def _write_check_json(path, obj):
 
 
 class TestWeakeningTiers(unittest.TestCase):
-    """The established design tier machinery: classify() and the four directional detectors. The hard criterion is
+    """The current tier machinery: classify() and the four directional detectors. The hard criterion is
     a property (a weakening with no mechanical correlate and no readable diff, plus the guard's own
     machinery); everything else guarded discloses. Fail-safe direction: unclassifiable input resolves HARD."""
 

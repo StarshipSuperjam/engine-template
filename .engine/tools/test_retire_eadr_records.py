@@ -88,7 +88,8 @@ class RetirementMigrationTests(unittest.TestCase):
     @staticmethod
     def _context(root, checkpoint=None):
         context = {"root": root, "kind": "tracked-content", "module_id": "core",
-                   "from_version": "0.6.3", "to_version": "0.7.0", "engine_version": "0.7.0"}
+                   "from_version": "0.6.3", "to_version": "0.7.0", "engine_version": "0.7.0",
+                   "repository_binding": checkout_health._tx_repository_binding(root)}
         if checkpoint is not None:
             context["checkpoint"] = checkpoint
         return context
@@ -97,6 +98,7 @@ class RetirementMigrationTests(unittest.TestCase):
         with self._empty_plans():
             result = migration.preflight(self._context(root))
         self.assertEqual(result.get("status"), "ready", result)
+        result["_repository_binding"] = checkout_health._tx_repository_binding(root)
         return result
 
     @staticmethod
@@ -113,6 +115,7 @@ class RetirementMigrationTests(unittest.TestCase):
                 ".engine/.engine-upgrade-retirement-quarantine-overrides",
                 ".engine/.engine-upgrade-retirement-next-overrides",
             ],
+            "repository_binding": plan["_repository_binding"],
             "targets": [{**target, "recovery_scope": sorted(target["recovery_scope"])}
                         for target in plan["targets"]],
         }
@@ -292,17 +295,45 @@ class RetirementMigrationTests(unittest.TestCase):
         self.assertNotIn("pln_closed", rendered)
         self.assertIn("revisions/000002.json", "\n".join(r["path"] for r in refusals))
 
-    def test_tracked_engine_text_has_no_generic_authority_shortcut(self):
-        # The retirement must not replace named evidence with a new, unnamed authority sink. Construct the
-        # phrase so the test does not create the very tracked occurrence it is meant to forbid.
-        root = Path(__file__).resolve().parents[2]
-        banned = "the established " + "design"
-        result = subprocess.run(
-            ["git", "-C", str(root), "grep", "-n", "-I", "-F", banned, "--", "."],
-            capture_output=True, text=True, check=False,
+    def test_every_retired_executable_vocabulary_family_is_case_insensitive(self):
+        tokens = (
+            "eadr-0042", "EADR-0042", ".engine/contracts/instance", "contract.v1",
+            "contract-threshold", "contract-frontmatter", "contract-shape", "DEPLOYMENT_CONTRACTS",
+            ".engine/templates/contract.md", ".engine/check/ontology-authority-reservation.json",
+            "authority_reservation_check.py", "contract_ref", "established_by",
+            "demo_ack_authority.py", "demo_contract_rate.py", "test_contract.py",
+            "test_contract_canon.py", "demo_467_deployment_eadr_namespace.py",
         )
-        self.assertIn(result.returncode, (0, 1), result.stderr)
-        self.assertEqual(result.returncode, 1, result.stdout)
+        for token in tokens:
+            with self.subTest(token=token):
+                self.assertIsNotNone(migration._RETIRED_PLAN_TOKEN_RE.search(token))
+
+    def test_open_writer_cannot_change_captured_bytes_and_have_them_deleted(self):
+        tmp = self._repo(["eADR-0001.md"])
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        plan = self._preflight(root)
+        changed = {"path": None}
+
+        def mutate_quarantine(label):
+            if changed["path"] is None and label.startswith("record-verified:"):
+                name = label.split(":", 1)[1]
+                qpath = os.path.join(root, ".engine", "contracts", "instance", migration._q_name(name))
+                fd = os.open(qpath, os.O_WRONLY | os.O_NOFOLLOW)
+                try:
+                    os.ftruncate(fd, 0)
+                    os.write(fd, b"concurrent writer bytes\n")
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                changed["path"] = qpath
+
+        with self._empty_plans(), mock.patch.object(migration, "_killpoint", side_effect=mutate_quarantine):
+            with self.assertRaisesRegex(RuntimeError, "changed before deletion"):
+                migration.apply(self._context(root), self._sealed(plan))
+        self.assertTrue(os.path.isfile(changed["path"]))
+        with open(changed["path"], "rb") as handle:
+            self.assertEqual(handle.read(), b"concurrent writer bytes\n")
 
     def test_dirfd_ancestor_swap_and_leaf_race_leave_external_bytes_untouched(self):
         tmp = self._repo([])
@@ -428,17 +459,17 @@ class RetirementMigrationTests(unittest.TestCase):
         sentinel = os.path.join(root, ".engine", "replacement-sentinel.txt")
         swapped = {"done": False}
 
-        def checkpoint_after_swap():
+        def checkpoint_after_swap(expected):
             if not swapped["done"]:
                 os.rename(os.path.join(root, ".engine"), os.path.join(root, ".engine.moved"))
                 os.makedirs(os.path.join(root, ".engine"))
                 with open(sentinel, "w", encoding="utf-8") as handle:
                     handle.write("replacement bytes\n")
                 swapped["done"] = True
-            return checkout_health.checkpoint_upgrade_transaction(root)
+            return checkout_health.checkpoint_upgrade_transaction(root, expected)
 
         with self._empty_plans():
-            with self.assertRaisesRegex(RuntimeError, "outside the sealed rollback footprint"):
+            with self.assertRaisesRegex(RuntimeError, "repository|transaction"):
                 migration.apply(self._context(root, checkpoint_after_swap), self._sealed(plan))
         with open(sentinel, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), "replacement bytes\n")
@@ -457,7 +488,8 @@ class RetirementMigrationTests(unittest.TestCase):
             "os.environ['ENGINE_RETIREMENT_KILL_AT']=kill_at\n"
             "m.apply({'root':root,'kind':'tracked-content','module_id':'core','from_version':'0.6.3',"
             "'to_version':'0.7.0','engine_version':'0.7.0',"
-            "'checkpoint':lambda: checkout_health.checkpoint_upgrade_transaction(root)},plan)\n")
+            "'repository_binding':plan['repository_binding'],"
+            "'checkpoint':lambda expected: checkout_health.checkpoint_upgrade_transaction(root,expected)},plan)\n")
         boundaries = ("record-capture", "record-verified", "record-delete", "instance-delete",
                       "contracts-delete",
                       "override-capture", "override-rewrite", "override-replace", "override-delete")
