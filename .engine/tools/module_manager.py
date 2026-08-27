@@ -432,7 +432,18 @@ def plan_add(module_id: str, candidate: dict, manifests: list | None = None) -> 
             "version": candidate.get("version"), "wires": list(candidate.get("wires") or [])}
 
 
-def add(module_id: str, release_tree: str | None = None, ref: str | None = None) -> dict:
+def preview_add(module_id: str, release_tree: str | None = None, ref: str | None = None) -> dict:
+    """READ-ONLY: what would `add(module_id)` do, and would it be refused?
+
+    Runs `add`'s own resolution — the same home, ref, fetch, candidate-manifest and `plan_add` legs — with
+    `dry_run` set, so the answer comes from the domain rather than from a second copy of its rules. A typed
+    transaction's plan phase calls this; nothing is written on this path.
+    """
+    return add(module_id, release_tree=release_tree, ref=ref, dry_run=True)
+
+
+def add(module_id: str, release_tree: str | None = None, ref: str | None = None,
+        dry_run: bool = False) -> dict:
     """Add (install) one module at the current engine release: fetch the module's
     files from the tagged release, copy its `provides` into their surface homes, copy in its manifest, apply
     its `wires`, record it in the engine manifest, re-derive the tool-runtime dependency-group selection,
@@ -494,6 +505,17 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
         if plan["refused"]:
             plan["applied"] = False
             return plan
+        if dry_run:
+            # PREVIEW STOPS HERE. Every refusal path above has been exercised against the real fetched
+            # candidate; everything below this line writes. `preview_add` is this same code, which is why a
+            # plan phase can trust it rather than re-deriving the rules.
+            return {**plan, "module_id": module_id, "refused": False, "applied": False,
+                    "version": (candidate or {}).get("version"),
+                    "would_provide": sorted(
+                        p for _kind, provided in ((candidate or {}).get("provides") or {}).items()
+                        for p in (provided if isinstance(provided, list) else [provided])
+                        if isinstance(p, str)),
+                    "notes": list(plan.get("notes") or [])}
 
         # (1) collect the module's provided files from the release tree (same relpaths). The `provides`
         #     contract scopes a module's globs to its own files (the ownership leg enforces non-overlap).

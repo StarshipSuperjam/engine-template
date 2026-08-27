@@ -570,7 +570,11 @@ def wiring_status(manifests: list) -> list:
         for directive in (m.get("wires") or []):
             seam = directive.get("type") if isinstance(directive, dict) else None
             target = WIRING_TARGETS.get(seam, "its shared target file")
-            out.append((mid, seam, target, wiring.is_applied(directive)))
+            applied = wiring.is_applied(directive)
+            # Carry WHY an unapplied wire is unapplied, as a stable code rather than as prose the
+            # consumer would have to recognise (StarshipSuperjam/engine-template#893).
+            skip = None if applied else wiring.unapplied_skip_code(directive)
+            out.append((mid, seam, target, applied, skip))
     return out
 
 

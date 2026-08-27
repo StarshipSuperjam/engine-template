@@ -1192,11 +1192,26 @@ def wiring_findings(declared: list, tier: str, message: str) -> list:
     REVERSE direction (nothing engine-identified applied that no manifest declares) is the companion
     `orphan_wire_findings` below, over the module-coherence consumer's per-seam applied-wire enumerator."""
     findings = []
-    for module_id, seam_type, target_label, applied in declared:
-        if not applied:
-            findings.append(finding(tier, f"Module '{module_id}' declares a {seam_type} wire that is "
-                            f"not applied in {target_label}; re-run the install / wiring step to apply "
-                            f"it, then re-check. {message}"))
+    for entry in declared:
+        # A 5th element carries WHY an unapplied wire is unapplied, when the seam knows
+        # (StarshipSuperjam/engine-template#893). Four-element entries stay valid: no reason known.
+        module_id, seam_type, target_label, applied = entry[:4]
+        skip_code = entry[4] if len(entry) > 4 else None
+        if applied:
+            continue
+        if skip_code:
+            # DEFER, never contradict. "Re-run the install / wiring step" is circular advice for a wire
+            # this interpreter cannot apply — re-running reproduces the identical skip — so the finding
+            # states the fact and points at the applier's own specific remedy rather than inventing a
+            # second one that sends the operator in a loop.
+            findings.append(finding(tier, f"Module '{module_id}' declares a {seam_type} wire that is not "
+                            f"applied in {target_label}, and this environment cannot apply it. The step "
+                            f"that skipped it explains why and what clears it — follow that, not a plain "
+                            f"re-run, which would reproduce the same skip. {message}"))
+            continue
+        findings.append(finding(tier, f"Module '{module_id}' declares a {seam_type} wire that is "
+                        f"not applied in {target_label}; re-run the install / wiring step to apply "
+                        f"it, then re-check. {message}"))
     return findings
 
 
