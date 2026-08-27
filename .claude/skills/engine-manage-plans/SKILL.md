@@ -1,6 +1,6 @@
 ---
 name: engine-manage-plans
-description: Recognize a request to turn agreed work into a plan a later build can pick up, or to work the shelf of plans already written — what is waiting, picking one back up, retiring or abandoning one — and name the Engine's planning procedure to run.
+description: Recognize a request to plan work for a later build, or to see, resume or retire waiting plans.
 invocation: model-only
 user-invocable: false
 engine-targets:
