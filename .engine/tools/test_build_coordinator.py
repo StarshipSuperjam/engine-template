@@ -1586,7 +1586,66 @@ class TestArtifactSync(CoordinatorCase):
         self.assertIsNone(self.state().get("artifact_sync"))
 
 
-def _candidate_validation_fake(payload="complete validation output\n", rc=0, record_mutator=None):
+def _candidate_inventory_snapshot(root=None):
+    """Return one immutable inventory observation for a deliberately bounded test group.
+
+    This is not a cache: every caller that needs a fresh referent calls this function again.  A
+    class fixture owns any returned snapshot and injects it into its fake validator, which keeps
+    patched, mutating, and unrelated-root cases from accidentally sharing a stale observation.
+    """
+    observed_root = os.path.realpath(str(root or bc.ROOT))
+    count, digest = bc.ci_gatekeeper.inventory_digest(observed_root)
+    return (observed_root, count, digest)
+
+
+class TestCandidateInventorySnapshot(unittest.TestCase):
+    def test_same_path_equal_count_content_drift_derives_fresh(self):
+        """An explicit group fixture is not a root-keyed cache in disguise."""
+        observations = iter(((7, "sha256:first"), (7, "sha256:changed")))
+        with mock.patch.object(bc.ci_gatekeeper, "inventory_digest", side_effect=observations) as derive:
+            before = _candidate_inventory_snapshot("/tmp/same-referent")
+            after = _candidate_inventory_snapshot("/tmp/same-referent")
+        self.assertEqual(before[:2], after[:2], "the referent and count deliberately stayed the same")
+        self.assertNotEqual(before[2], after[2], "content drift must be observed, never reused")
+        self.assertEqual(derive.call_count, 2)
+
+    def test_unrelated_roots_derive_independently(self):
+        seen = []
+
+        def derive(root):
+            seen.append(root)
+            return 1, f"sha256:{len(seen)}"
+
+        with mock.patch.object(bc.ci_gatekeeper, "inventory_digest", side_effect=derive):
+            _candidate_inventory_snapshot("/tmp/one")
+            _candidate_inventory_snapshot("/tmp/two")
+        self.assertEqual(seen, [os.path.realpath("/tmp/one"), os.path.realpath("/tmp/two")])
+
+
+class CandidateInventoryFixture(CoordinatorCase):
+    """One immutable inventory observation per named candidate-validation test class."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._candidate_inventory_snapshot = _candidate_inventory_snapshot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._candidate_inventory_snapshot = None
+        super().tearDownClass()
+
+    def candidate_validation_fake(self, payload="complete validation output\n", rc=0, record_mutator=None):
+        return _candidate_validation_fake(
+            payload=payload,
+            rc=rc,
+            record_mutator=record_mutator,
+            inventory_snapshot=self._candidate_inventory_snapshot,
+        )
+
+
+def _candidate_validation_fake(payload="complete validation output\n", rc=0, record_mutator=None,
+                               inventory_snapshot=None):
     """A fake `_run_validation` for the candidate protocol: writes the log, and — for the command
     carrying `--run-record-path` — a run record consistent with everything the coordinator checks
     against its own derivations (tree, cleanliness, inventory count, log digest). `record_mutator`
@@ -1596,7 +1655,8 @@ def _candidate_validation_fake(payload="complete validation output\n", rc=0, rec
         if "--run-record-path" in command:
             record_path = command[command.index("--run-record-path") + 1]
             tree = bc._run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
-            count, _ = bc.ci_gatekeeper.inventory_digest(str(bc.ROOT))
+            snapshot = inventory_snapshot or _candidate_inventory_snapshot()
+            _root, count, _digest = snapshot
             record = {"attests": "engine-selftest", "scope": "full", "tree": tree,
                       "worktree_dirty": False, "inventory": {"module_count": count},
                       "log": {"path": str(path), "sha256": bc._digest(payload.encode())}}
@@ -1607,14 +1667,14 @@ def _candidate_validation_fake(payload="complete validation output\n", rc=0, rec
     return validation
 
 
-class TestValidationRepairAndStatus(CoordinatorCase):
+class TestValidationRepairAndStatus(CandidateInventoryFixture):
     def setUp(self):
         super().setUp()
         self.seed(); self.approve("quick")
         self.integrate_all()
 
     def test_validation_records_every_result_against_head(self):
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
         candidate = self.state()["validation"]["candidate"]
         self.assertEqual({r["commit"] for r in candidate["results"]}, {HEAD_A})
@@ -1622,7 +1682,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_validation_runs_only_registered_commands(self):
         seen = []
-        inner = _candidate_validation_fake()
+        inner = self.candidate_validation_fake()
         def validation(command, path):
             seen.append(command); return inner(command, path)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
@@ -1639,7 +1699,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_validation_preserves_complete_logs(self):
         payload = "x" * 5000
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake(payload=payload)), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake(payload=payload)), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
         for result in self.state()["validation"]["candidate"]["results"]:
             self.assertEqual(Path(result["log_path"]).read_text(), payload)
@@ -2574,7 +2634,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertEqual(status["progress"], {"completed": [], "total": 2, "current": None, "next": "W1"})
 
 
-class TestCandidateEvidenceAndCache(CoordinatorCase):
+class TestCandidateEvidenceAndCache(CandidateInventoryFixture):
     """The split evidence model: the cache's content-addressed identity, the downgrade seams that can
     never mint final evidence, and the run record's refusal paths — each corruption driven singly."""
 
@@ -2585,7 +2645,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
 
     def _validate(self, fake=None, **over):
         calls = []
-        inner = fake or _candidate_validation_fake()
+        inner = fake or self.candidate_validation_fake()
         def counting(command, path):
             calls.append(command); return inner(command, path)
         args = {"plan": str(self.plan_path)}
@@ -2633,7 +2693,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
 
     def test_a_red_candidate_never_hits_the_cache(self):
         with self.assertRaises(bc.CoordinatorError):
-            self._validate(fake=_candidate_validation_fake(rc=1))
+            self._validate(fake=self.candidate_validation_fake(rc=1))
         calls, _ = self._validate()
         self.assertEqual(len(calls), 2, "only a green candidate may satisfy a repeat")
 
@@ -2702,7 +2762,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
             with self.subTest(corruption=name):
                 self.store.mutate(lambda s: s.update({"validation": None}))
                 with self.assertRaisesRegex(bc.CoordinatorError, "failed"):
-                    self._validate(fake=_candidate_validation_fake(record_mutator=mutator))
+                    self._validate(fake=self.candidate_validation_fake(record_mutator=mutator))
                 candidate = bc._split_validation(self.state())["candidate"]
                 refused = [r for r in candidate["results"] if not r["passed"]]
                 self.assertTrue(refused, f"{name}: the corrupted record must fail its result")
@@ -2744,7 +2804,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
                           "a restored candidate has null identity and can never be a cache hit")
 
 
-class TestFinalImportAndRollupGate(CoordinatorCase):
+class TestFinalImportAndRollupGate(CandidateInventoryFixture):
     """`validate final import` — the only writer of final evidence — and the live rollup wall at
     submission. Every refusal is driven singly, with its distinct, actionable message."""
 
@@ -2756,7 +2816,7 @@ class TestFinalImportAndRollupGate(CoordinatorCase):
         self.integrate_all()
         with mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_derived_drift", return_value=[]), \
-                mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), \
+                mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake()), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
 
