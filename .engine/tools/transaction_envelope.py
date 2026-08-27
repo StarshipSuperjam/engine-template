@@ -138,6 +138,12 @@ def validate(envelope: dict) -> dict:
 def _validate_plan(plan) -> None:
     _require(isinstance(plan, dict), "plan must be an object")
     _require(isinstance(plan.get("inputs"), dict), "plan.inputs must be an object")
+    prints = plan.get("bound_fingerprints")
+    _require(isinstance(prints, dict),
+             "plan.bound_fingerprints must record the world this plan was derived against — without it "
+             "the consent handle would not cover repository state and staleness would be decorative")
+    for key, value in prints.items():
+        _nonblank(value, "plan.bound_fingerprints[{0}]".format(key))
 
     consequences = plan.get("consequences")
     _require(isinstance(consequences, list) and consequences,

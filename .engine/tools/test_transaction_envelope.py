@@ -32,6 +32,7 @@ def plan(**over):
         "consequences": ["The engine moves to v1.2.3."],
         "effects": [{"kind": "tracked-files", "description": "engine files replaced"}],
         "reversibility": "reverted-pull-request",
+        "bound_fingerprints": {"base": "abc123"},
         "digest": "sha256:" + "a" * 64,
         "consent_handle": "sha256:" + "b" * 64,
     }

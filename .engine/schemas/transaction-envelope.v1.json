@@ -42,8 +42,13 @@
       "description": "What this transaction would do, resolved and priced, as it was put in front of the operator. Present from the `plan` phase onward.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["inputs", "consequences", "effects", "reversibility", "digest", "consent_handle"],
+      "required": ["inputs", "consequences", "effects", "reversibility", "bound_fingerprints", "digest", "consent_handle"],
       "properties": {
+        "bound_fingerprints": {
+          "description": "The world this plan was derived against, copied from the facts it was computed from, so the consent handle covers the STATE as well as the wording. Without this a plan whose prose happened not to change would keep a valid handle across a moved repository — the staleness guarantee would be decorative. A fingerprint changing here is what makes a handle stale.",
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
         "inputs": {
           "description": "The operation's resolved inputs — the version actually chosen, the module actually named — after defaults and discovery, never the raw arguments.",
           "type": "object"
