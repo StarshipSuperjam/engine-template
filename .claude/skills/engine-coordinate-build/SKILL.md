@@ -1,6 +1,6 @@
 ---
 name: engine-coordinate-build
-description: Recognize a request to build something and name the Engine's build procedure to run.
+description: Recognize a request to build or change something now and name the Engine's build procedure to run; a request to turn work into a plan for a later build, or to work the shelf of waiting plans, belongs to engine-manage-plans instead.
 invocation: model-only
 user-invocable: false
 engine-targets:
