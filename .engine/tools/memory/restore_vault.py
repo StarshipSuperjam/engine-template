@@ -32,6 +32,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 
@@ -40,19 +41,29 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 from memory import backup_vault as bv  # noqa: E402 — the shared vault surface (pointer/transport/manifest/helpers)
-from memory import ledger              # noqa: E402 — the canonical store + its restore primitive + generation stamp
+from memory import ledger, snapshot_format  # noqa: E402 — canonical store + v2 codec
 
 _UNSET = object()
 
 # A restore temp written in the SAME dir as the ledger (replace_ledger requires a sibling for an atomic rename).
 _RESTORE_TMP = "ledger.ndjson.restore-tmp"
+_MAX_MANIFEST_BYTES = 64 * 1024
+_MAX_NAMESPACE_BYTES = 255
+_MAX_VAULT_PATH_BYTES = 1024
+
+
+def _valid_namespace(value) -> bool:
+    """Accept legacy safe single-segment ids as well as current uuid-hex ids."""
+    return (isinstance(value, str) and value not in (".", "..")
+            and len(value.encode("utf-8")) <= _MAX_NAMESPACE_BYTES
+            and re.fullmatch(r"[A-Za-z0-9._-]+", value) is not None)
 
 
 # ============================================================================================================
 # Fetch — the GET/read side the export tool lacks (Git Data: ref -> commit -> tree -> blob).
 # ============================================================================================================
 
-def _fetch_blob(gh, owner: str, repo: str, sha) -> "bytes | None":
+def _fetch_blob(gh, owner: str, repo: str, sha, *, max_bytes=None) -> "bytes | None":
     """GET one blob and decode it, VERIFYING the bytes against the tree's object id (git's content-addressing) and
     the API's `size` — so a truncated/corrupt download is rejected before it can ever overwrite memory. None on any
     doubt."""
@@ -61,14 +72,34 @@ def _fetch_blob(gh, owner: str, repo: str, sha) -> "bytes | None":
     obj = bv._get(gh, f"/repos/{owner}/{repo}/git/blobs/{sha}")
     if not isinstance(obj, dict) or obj.get("encoding") != "base64" or not isinstance(obj.get("content"), str):
         return None
+    text = obj["content"]
+    if max_bytes is not None:
+        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 0:
+            return None
+        # GitHub may wrap base64 at 60 columns.  Remove only ASCII whitespace
+        # before applying the encoded-size ceiling, and use validate=True so
+        # arbitrary ignored characters cannot sneak through the precheck.
+        encoded_limit = 4 * ((max_bytes + 2) // 3)
+        # Bound the source string before allocating its whitespace-normalized
+        # copy.  GitHub wraps at 60 columns; allow CRLF at every wrap.
+        wrapped_limit = encoded_limit + 2 * ((encoded_limit + 59) // 60) + 2
+        if len(text) > wrapped_limit:
+            return None
+        compact = "".join(ch for ch in text if ch not in " \t\r\n")
+        if len(compact) > encoded_limit:
+            return None
+    else:
+        compact = text
     try:
-        raw = base64.b64decode(obj["content"])          # b64decode tolerates the API's 60-char line wraps
+        raw = base64.b64decode(compact, validate=True)
     except Exception:  # noqa: BLE001 — undecodable -> reject (never a partial write)
         return None
     if bv._git_blob_sha1(raw) != sha:                    # Merkle integrity: the bytes ARE what the tree points at
         return None
     size = obj.get("size")
     if isinstance(size, int) and not isinstance(size, bool) and size != len(raw):
+        return None
+    if max_bytes is not None and len(raw) > max_bytes:
         return None
     return raw
 
@@ -89,6 +120,8 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
     if gh is None:
         return {"ok": False, "error": "no-token"}
     owner, repo, branch, namespace = pointer["owner"], pointer["repo"], pointer["branch"], pointer["namespace"]
+    if not _valid_namespace(namespace):
+        return {"ok": False, "error": "corrupt"}
     ref_kind, ref_name = ref if ref is not None else ("heads", branch)
     try:
         if bv._get(gh, f"/repos/{owner}/{repo}") is None:               # cheap probe: reachability
@@ -107,10 +140,19 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
         tree = bv._get(gh, f"/repos/{owner}/{repo}/git/trees/{tree_sha}?recursive=1")
         if not isinstance(tree, dict) or tree.get("truncated") is True:  # a truncated tree could hide the ledger entry
             return {"ok": False, "error": "corrupt"}
-        entries = {e.get("path"): e for e in tree.get("tree", []) if isinstance(e, dict)}
-        led_entry = entries.get(f"{namespace}/ledger.ndjson")
+        raw_entries = tree.get("tree")
+        if not isinstance(raw_entries, list):
+            return {"ok": False, "error": "corrupt"}
+        entries = {}
+        for entry in raw_entries:
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if not isinstance(path, str) or path in entries:
+                return {"ok": False, "error": "corrupt"}
+            if path.startswith(namespace + "/") and len(path.encode("utf-8")) > _MAX_VAULT_PATH_BYTES:
+                return {"ok": False, "error": "corrupt"}
+            entries[path] = entry
         man_entry = entries.get(f"{namespace}/manifest.json")
-        if not isinstance(led_entry, dict) or not isinstance(man_entry, dict):
+        if not isinstance(man_entry, dict):
             # A now-MISSING namespace (the vault is populated — it holds OTHER projects' folders — but mine is gone,
             # i.e. my folder was removed by hand) is a DISTINCT finding the operator must see (floor 2), never the
             # silent "no backup yet" no-restore. A truly fresh vault (no other folders) stays `no-backup-data`.
@@ -119,15 +161,58 @@ def fetch_snapshot(*, transport=None, ref=None) -> dict:
                          and not (e.get("path") or "").startswith(mine)
                          for e in entries.values() if isinstance(e, dict))
             return {"ok": False, "error": "namespace-missing" if others else "no-backup-data"}
-        ledger_bytes = _fetch_blob(gh, owner, repo, led_entry.get("sha"))
-        manifest_raw = _fetch_blob(gh, owner, repo, man_entry.get("sha"))
-        if ledger_bytes is None or manifest_raw is None:
+        manifest_raw = _fetch_blob(gh, owner, repo, man_entry.get("sha"), max_bytes=_MAX_MANIFEST_BYTES)
+        if manifest_raw is None:
             return {"ok": False, "error": "corrupt"}
         try:
             manifest = json.loads(manifest_raw.decode("utf-8"))
         except Exception:  # noqa: BLE001
             return {"ok": False, "error": "corrupt"}
         if not isinstance(manifest, dict):
+            return {"ok": False, "error": "corrupt"}
+        # The historic v1 layout remains a read-only compatibility fixture:
+        # plain ledger plus exactly the four legacy metadata fields.
+        if "snapshot-format" not in manifest:
+            led_entry = entries.get(f"{namespace}/ledger.ndjson")
+            legacy_keys = {"ledger-version", "ledger-generation", "timestamp", "engine-version"}
+            migration_keys = legacy_keys | {"migration-id", "kind"}
+            if set(manifest) not in (legacy_keys, migration_keys):
+                return {"ok": False, "error": "corrupt"}
+            ledger_bytes = _fetch_blob(gh, owner, repo, led_entry.get("sha"),
+                                       max_bytes=snapshot_format.MAX_UNCOMPRESSED_BYTES) if isinstance(led_entry, dict) else None
+            if ledger_bytes is None:
+                return {"ok": False, "error": "corrupt"}
+            return {"ok": True, "error": None, "ledger_bytes": ledger_bytes, "manifest": manifest,
+                    "owner": owner, "repo": repo, "namespace": namespace}
+
+        # v2 top-level manifests retain legacy safety metadata but the strict
+        # codec owns only its declared keys.  Validate its shape and limits
+        # before fetching any part, then allow-list exactly those canonical
+        # files so a hand-added/traversal path is never read or reconstructed.
+        try:
+            codec_manifest = {key: manifest[key] for key in snapshot_format.MANIFEST_KEYS}
+            part_entries = snapshot_format._validate_manifest(codec_manifest,
+                                                               request_limit=snapshot_format.PART_REQUEST_BYTES)
+        except (KeyError, snapshot_format.SnapshotError):
+            return {"ok": False, "error": "corrupt"}
+        legacy = {"ledger-version", "ledger-generation", "timestamp", "engine-version"}
+        if set(manifest) != set(snapshot_format.MANIFEST_KEYS) | legacy:
+            return {"ok": False, "error": "corrupt"}
+        expected = {f"{namespace}/manifest.json"} | {f"{namespace}/{p['name']}" for p in part_entries}
+        mine = {path for path in entries if isinstance(path, str) and path.startswith(namespace + "/")}
+        if mine != expected:
+            return {"ok": False, "error": "corrupt"}
+        parts = []
+        for item in part_entries:
+            raw = _fetch_blob(gh, owner, repo, entries[f"{namespace}/{item['name']}"].get("sha"),
+                              max_bytes=item["bytes"])
+            if raw is None or len(raw) != item["bytes"]:
+                return {"ok": False, "error": "corrupt"}
+            parts.append(raw)
+        try:
+            ledger_bytes = snapshot_format.decode(codec_manifest, parts,
+                                                  request_limit=snapshot_format.PART_REQUEST_BYTES)
+        except snapshot_format.SnapshotError:
             return {"ok": False, "error": "corrupt"}
         return {"ok": True, "error": None, "ledger_bytes": ledger_bytes, "manifest": manifest,
                 "owner": owner, "repo": repo, "namespace": namespace}

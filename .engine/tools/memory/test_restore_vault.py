@@ -9,6 +9,8 @@ through `backup_vault` and reads back through `restore_vault`, so the two halves
 from __future__ import annotations
 
 import base64
+import gzip
+import hashlib
 import json
 import os
 import sys
@@ -67,8 +69,184 @@ class _Base(unittest.TestCase):
         rv._quiet_remove(ledger.ledger_path())
         rv._quiet_remove(ledger.meta_path())
 
+    def _install_files(self, fake, files, *, extra_entries=()):
+        """Replace the configured ref with an exact synthetic namespace tree."""
+        pointer = bv.read_pointer()
+        tree = []
+        for path, raw in files.items():
+            sha = bv._git_blob_sha1(raw)
+            fake.blobs[sha] = base64.b64encode(raw).decode("ascii")
+            tree.append({"path": path, "type": "blob", "sha": sha})
+        tree.extend(extra_entries)
+        tree_sha, commit_sha = fake._next("t"), fake._next("c")
+        fake.trees[tree_sha] = {"sha": tree_sha, "tree": tree}
+        fake.commits[commit_sha] = {"sha": commit_sha, "tree": {"sha": tree_sha}}
+        fake.refs[f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"] = commit_sha
+        return tree
+
+    def _v2_snapshot(self, payload, *, request_limit=512):
+        snapshot = rv.snapshot_format.encode(payload, request_limit=request_limit)
+        snapshot["manifest"].update(bv.build_manifest(ledger_path=ledger.ledger_path(), now=0))
+        return snapshot
+
+    def _install_v2(self, fake, snapshot, *, parts=None, extra_entries=()):
+        pointer = bv.read_pointer()
+        supplied = snapshot["parts"] if parts is None else parts
+        files = {f"{pointer['namespace']}/manifest.json":
+                 json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode()}
+        files.update({f"{pointer['namespace']}/{entry['name']}": part
+                      for entry, part in zip(snapshot["manifest"].get("parts", []), supplied)})
+        return self._install_files(fake, files, extra_entries=extra_entries)
+
 
 class RoundTripTests(_Base):
+    def test_v2_multipart_fixture_restores_byte_exactly(self):
+        fake = self._seed_and_backup(["v2 fixture payload"])
+        original = _rb(ledger.ledger_path())
+        pointer = bv.read_pointer(); slug = f"{pointer['owner']}/{pointer['repo']}"
+        snapshot = rv.snapshot_format.encode(original)
+        snapshot["manifest"].update(bv.build_manifest(ledger_path=ledger.ledger_path(), now=0))
+        files = {f"{pointer['namespace']}/manifest.json":
+                 json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode()}
+        files.update({f"{pointer['namespace']}/{entry['name']}": part
+                      for entry, part in zip(snapshot["manifest"]["parts"], snapshot["parts"])})
+        tree = []
+        for path, raw in files.items():
+            sha = bv._git_blob_sha1(raw)
+            fake.blobs[sha] = base64.b64encode(raw).decode("ascii")
+            tree.append({"path": path, "type": "blob", "sha": sha})
+        tree_sha, commit_sha = fake._next("t"), fake._next("c")
+        fake.trees[tree_sha] = {"sha": tree_sha, "tree": tree}
+        fake.commits[commit_sha] = {"sha": commit_sha, "tree": {"sha": tree_sha}}
+        fake.refs[f"{slug}@{pointer['branch']}"] = commit_sha
+        self._wipe_local()
+        result = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(result["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), original)
+
+    def test_immutable_legacy_v1_fixture_remains_readable(self):
+        ledger.append({"kind": "turn-delta", "text": "legacy fixture"})
+        original = _rb(ledger.ledger_path())
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        pointer = bv.read_pointer()
+        manifest = bv.build_manifest(ledger_path=ledger.ledger_path(), now=0)
+        self._install_files(fake, {
+            f"{pointer['namespace']}/ledger.ndjson": original,
+            f"{pointer['namespace']}/manifest.json": json.dumps(manifest, sort_keys=True).encode(),
+        })
+        self._wipe_local()
+        result = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(result["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), original)
+
+
+class MultipartRefusalTests(_Base):
+    def _configured(self):
+        ledger.append({"kind": "turn-delta", "text": "local must survive"})
+        rv._quiet_remove(bv._pointer_path())
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        return fake, _rb(ledger.ledger_path())
+
+    def _assert_corrupt_without_mutation(self, fake, before, *, pre_part=False):
+        blob_gets = []
+
+        def transport(method, path, body=None):
+            if method == "GET" and "/git/blobs/" in path:
+                blob_gets.append(path)
+            return fake.transport(method, path, body)
+
+        result = rv.restore_now(transport=transport, consent="y", github=None)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "corrupt")
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+        if pre_part:
+            self.assertLessEqual(len(blob_gets), 1, "no part may be fetched before layout refusal")
+
+    def test_manifest_limit_matrix_refuses_before_part_fetch(self):
+        mutations = {
+            "missing-key": lambda m: m.pop("compression"),
+            "extra-key": lambda m: m.__setitem__("unexpected", True),
+            "reordered": lambda m: m["parts"].reverse(),
+            "33rd-part": lambda m: m.__setitem__("parts", m["parts"] * 33),
+            "plain-over": lambda m: m.__setitem__("ledger-bytes", rv.snapshot_format.MAX_UNCOMPRESSED_BYTES + 1),
+            "compressed-over": lambda m: m.__setitem__("compressed-bytes", rv.snapshot_format.MAX_COMPRESSED_BYTES + 1),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                fake, before = self._configured()
+                snapshot = self._v2_snapshot(bytes(range(256)) * 100)
+                mutate(snapshot["manifest"])
+                self._install_v2(fake, snapshot)
+                self._assert_corrupt_without_mutation(fake, before, pre_part=True)
+
+    def test_namespace_file_path_and_duplicate_matrix_refuses_before_parts(self):
+        for name in ("missing", "extra", "traversal", "overlong", "duplicate"):
+            with self.subTest(name=name):
+                fake, before = self._configured()
+                snapshot = self._v2_snapshot(bytes(range(256)) * 100)
+                tree = self._install_v2(fake, snapshot)
+                pointer = bv.read_pointer()
+                part_path = f"{pointer['namespace']}/{snapshot['manifest']['parts'][0]['name']}"
+                if name == "missing":
+                    tree[:] = [entry for entry in tree if entry["path"] != part_path]
+                elif name == "extra":
+                    tree.append({"path": f"{pointer['namespace']}/part-99.gz", "type": "blob", "sha": "unused"})
+                elif name == "traversal":
+                    tree.append({"path": f"{pointer['namespace']}/../escape", "type": "blob", "sha": "unused"})
+                elif name == "overlong":
+                    tree.append({"path": f"{pointer['namespace']}/" + "x" * rv._MAX_VAULT_PATH_BYTES,
+                                 "type": "blob", "sha": "unused"})
+                else:
+                    tree.append(dict(next(entry for entry in tree if entry["path"] == part_path)))
+                self._assert_corrupt_without_mutation(fake, before, pre_part=True)
+
+    def test_corrupt_part_and_gzip_expansion_leave_destination_unchanged(self):
+        fake, before = self._configured()
+        snapshot = self._v2_snapshot(bytes(range(256)) * 100)
+        tree = self._install_v2(fake, snapshot)
+        pointer = bv.read_pointer()
+        first = snapshot["manifest"]["parts"][0]
+        path = f"{pointer['namespace']}/{first['name']}"
+        entry = next(item for item in tree if item["path"] == path)
+        corrupt = snapshot["parts"][0] + b"x"
+        entry["sha"] = bv._git_blob_sha1(corrupt)
+        fake.blobs[entry["sha"]] = base64.b64encode(corrupt).decode("ascii")
+        self._assert_corrupt_without_mutation(fake, before)
+
+        fake, before = self._configured()
+        old_limit = rv.snapshot_format.MAX_UNCOMPRESSED_BYTES
+        try:
+            rv.snapshot_format.MAX_UNCOMPRESSED_BYTES = 100
+            compressed = gzip.compress(b"x" * 101, mtime=0)
+            part = {"name": rv.snapshot_format.part_name(0), "bytes": len(compressed),
+                    "sha256": hashlib.sha256(compressed).hexdigest()}
+            manifest = {
+                "snapshot-format": 2,
+                "compression": "gzip",
+                "ledger-sha256": hashlib.sha256(b"x").hexdigest(),
+                "ledger-bytes": 1,
+                "compressed-sha256": hashlib.sha256(compressed).hexdigest(),
+                "compressed-bytes": len(compressed),
+                "parts": [part],
+            }
+            manifest.update(bv.build_manifest(ledger_path=ledger.ledger_path(), now=0))
+            self._install_v2(fake, {"manifest": manifest, "parts": [compressed]})
+            self._assert_corrupt_without_mutation(fake, before)
+        finally:
+            rv.snapshot_format.MAX_UNCOMPRESSED_BYTES = old_limit
+
+    def test_unsafe_pointer_namespace_refuses_without_network_or_mutation(self):
+        fake, before = self._configured()
+        pointer = bv.read_pointer()
+        bv.write_pointer(pointer["owner"], pointer["repo"], pointer["branch"], "../escape")
+        calls = []
+        result = rv.restore_now(transport=lambda *args, **kwargs: calls.append(args), consent="y", github=None)
+        self.assertEqual(result["error"], "corrupt")
+        self.assertEqual(calls, [])
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+
     def test_round_trip_restores_identical_and_searchable(self):
         fake = self._seed_and_backup(["banner ships in the spring release", "never deploy on a friday ZQXWORD"])
         original = _rb(ledger.ledger_path())
