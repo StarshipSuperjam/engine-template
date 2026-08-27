@@ -1043,6 +1043,86 @@ class TestTrackedContentMigrationProtocol(unittest.TestCase):
             self.assertEqual(fh.read(), "operator work after the interruption\n")
         self.assertEqual(module_manager.checkout_health.inspect_upgrade_transaction(root)["state"], "active")
 
+    def test_multi_path_rollback_checkpoints_one_restored_path_without_full_footprint_rescans(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        health = module_manager.checkout_health
+        target = {"path": self.TARGET, "operation": "replace",
+                  "before_identity": health._tx_blob_identity(root, self.TARGET),
+                  "recovery_scope": [self.TARGET]}
+        begun = health.begin_upgrade_transaction(
+            root, sealed_targets=[target], footprint=[self.TARGET, self.EXTRA])
+        self.assertTrue(begun["ok"], begun)
+        self.assertTrue(health.update_upgrade_transaction(root, "mutating")["ok"])
+        for rel in (self.TARGET, self.EXTRA):
+            with open(os.path.join(root, *rel.split("/")), "w", encoding="utf-8") as fh:
+                fh.write(f"upgraded {rel}\n")
+        self.assertTrue(health.checkpoint_upgrade_transaction(root)["ok"])
+        self.assertTrue(health.update_upgrade_transaction(root, "mutated", receipts=[])["ok"])
+
+        with mock.patch.object(health, "_tx_identity_snapshot", wraps=health._tx_identity_snapshot) as snapshots:
+            restored = health.recover_upgrade_transaction(root)
+
+        self.assertTrue(restored["ok"], restored)
+        # One complete comparison at entry is load-bearing.  Repeating it after each restored path turns a
+        # deployed rollback into quadratic Git work and breached the release gate's 600-second phase budget.
+        self.assertEqual(snapshots.call_count, 1)
+        with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "before record\n")
+        with open(os.path.join(root, self.EXTRA), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "before companion\n")
+
+    def test_sigkill_after_one_rollback_path_checkpoint_resumes_byte_identically(self):
+        tmp = self._repo()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        health = module_manager.checkout_health
+        target = {"path": self.TARGET, "operation": "replace",
+                  "before_identity": health._tx_blob_identity(root, self.TARGET),
+                  "recovery_scope": [self.TARGET]}
+        begun = health.begin_upgrade_transaction(
+            root, sealed_targets=[target], footprint=[self.TARGET, self.EXTRA])
+        self.assertTrue(begun["ok"], begun)
+        self.assertTrue(health.update_upgrade_transaction(root, "mutating")["ok"])
+        for rel in (self.TARGET, self.EXTRA):
+            with open(os.path.join(root, *rel.split("/")), "w", encoding="utf-8") as fh:
+                fh.write(f"upgraded {rel}\n")
+        self.assertTrue(health.checkpoint_upgrade_transaction(root)["ok"])
+        self.assertTrue(health.update_upgrade_transaction(root, "mutated", receipts=[])["ok"])
+
+        helper_dir = os.path.dirname(health.__file__)
+        script = (
+            "import os, signal, sys\n"
+            f"sys.path.insert(0, {helper_dir!r})\n"
+            "import checkout_health as ch\n"
+            "root=sys.argv[1]\n"
+            "real=ch._tx_write_journal\n"
+            "calls={'n':0}\n"
+            "def write_then_stop(path, record):\n"
+            "  ok=real(path, record)\n"
+            "  calls['n'] += 1\n"
+            "  if ok and calls['n'] == 2: os.kill(os.getpid(), signal.SIGKILL)\n"
+            "  return ok\n"
+            "ch._tx_write_journal=write_then_stop\n"
+            "ch.recover_upgrade_transaction(root)\n")
+        killed = subprocess.run([sys.executable, "-c", script, root], capture_output=True, text=True,
+                                check=False)
+        self.assertEqual(killed.returncode, -signal.SIGKILL)
+        interrupted = health.inspect_upgrade_transaction(root)
+        self.assertEqual(interrupted["state"], "active")
+        self.assertEqual(interrupted["record"]["phase"], "rolling-back")
+
+        restored = health.recover_upgrade_transaction(root)
+
+        self.assertTrue(restored["ok"], restored)
+        self.assertEqual(restored["state"], "restored")
+        with open(os.path.join(root, self.TARGET), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "before record\n")
+        with open(os.path.join(root, self.EXTRA), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "before companion\n")
+        self.assertEqual(self._git(root, "status", "--porcelain"), "")
+
     def test_sigkill_restart_matrix_restores_or_finalizes_every_durable_boundary(self):
         helper_dir = os.path.dirname(module_manager.checkout_health.__file__)
         script = (

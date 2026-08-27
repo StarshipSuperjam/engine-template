@@ -825,6 +825,32 @@ def checkpoint_upgrade_transaction(root: str) -> dict:
     return {"ok": True, "phase": record["phase"], "checkpoint": snapshot}
 
 
+def _checkpoint_recovered_path(root: str, journal_path: str, record: dict, rel: str) -> dict:
+    """Durably advance one path in an in-process rollback without rescanning the whole footprint.
+
+    ``recover_upgrade_transaction`` has already validated the journal/ref pair, rejected foreign work, and
+    compared every live path with the last durable checkpoint.  Re-running that whole proof after each
+    restored file makes rollback quadratic in the upgrade footprint (and can exceed the release gate's
+    ten-minute boundary).  At this point the only new fact is the identity of ``rel`` after its restore.  Seal
+    exactly that fact into the already-validated record.  A stop before this journal write leaves live bytes
+    different from the previous checkpoint and therefore fails closed on restart; a stop after it can resume.
+    """
+    if rel not in record.get("checkpoint", {}) or record.get("phase") != "rolling-back":
+        return {"ok": False, "code": "checkpoint-path-invalid", "path": rel,
+                "reason": "The rollback path is not part of the active durable checkpoint."}
+    identity = _tx_blob_identity(root, rel)
+    if identity is None:
+        return {"ok": False, "code": "checkpoint-unreadable", "path": rel,
+                "reason": "The restored path could not be identified for restart recovery."}
+    checkpoint = dict(record["checkpoint"])
+    checkpoint[rel] = identity
+    record["checkpoint"] = checkpoint
+    if not _tx_write_journal(journal_path, record):
+        return {"ok": False, "code": "journal-write-failed", "path": rel,
+                "reason": "The restored path's recovery checkpoint could not be made durable."}
+    return {"ok": True, "path": rel, "identity": identity}
+
+
 def finish_upgrade_transaction(root: str) -> dict:
     """Clear the pair only after the caller has made a durable PR state, or after verified rollback. Ref first,
     journal second: a kill between them leaves a loud one-sided pair, never a false clean state."""
@@ -901,6 +927,9 @@ def recover_upgrade_transaction(root: str) -> dict:
     advanced = update_upgrade_transaction(root, "rolling-back")
     if not advanced.get("ok"):
         return {"ok": False, "state": "manual", **advanced}
+    # ``update_upgrade_transaction`` writes its own validated copy.  Keep this in-process copy aligned before
+    # the per-path checkpoint writer below; otherwise its first durable write would regress the phase.
+    record["phase"] = "rolling-back"
     commit = record["recovery_commit"]
     checkpoint = dict(record["checkpoint"])
     for rel in record["footprint"]:
@@ -935,11 +964,11 @@ def recover_upgrade_transaction(root: str) -> dict:
                 indexed = _tx_run(root, ["ls-files", "--error-unmatch", "--", rel])
                 if indexed is None or indexed.returncode == 0:
                     return {"ok": False, "state": "manual", "code": "path-stage-failed", "path": rel}
-        checkpointed = checkpoint_upgrade_transaction(root)
+        checkpointed = _checkpoint_recovered_path(root, current["journal_path"], record, rel)
         if not checkpointed.get("ok"):
             return {"ok": False, "state": "manual", **checkpointed,
                     "journal_path": current["journal_path"], "recovery_ref": _UPGRADE_TX_REF}
-        checkpoint = checkpointed["checkpoint"]
+        checkpoint[rel] = checkpointed["identity"]
     for rel, expected in record["before"].items():
         if _tx_blob_identity(root, rel) != expected:
             return {"ok": False, "state": "manual", "code": "rollback-identity-mismatch", "path": rel,
