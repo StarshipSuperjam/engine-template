@@ -1248,12 +1248,39 @@ def _program_check(library: plan_store.PlanLibrary, record: dict, document: dict
     for entry in membership["unreadable"]:
         if entry["slug"] == membership["slug"] or membership["claims_unreadable"]:
             continue                      # already refused above; not disclosed twice
-        disclosures.append(
-            f"the program record at `{entry['slug']}` could not be read ({entry['error']}). It does "
-            "not name this plan, so it does not stand in the way of this seal — but it is broken, and "
-            "no program it holds can be re-checked until it is repaired.")
-    if membership["slug"] is None and not claimed and any(
-            not entry["names_this_plan"] for entry in membership["unreadable"]):
+        # THREE cases, because the record can be broken in two ways and each supports a different
+        # honest sentence. Collapsing them printed a claim about membership the inputs contradicted.
+        if entry["names_this_plan"]:
+            # Parseable, and its children name this plan — the lookup resolved elsewhere only because
+            # a readable record claimed it first. Saying "it does not name this plan" would state as
+            # fact something the code two lines up already computed to be false.
+            disclosures.append(
+                f"the program record at `{entry['slug']}` could not be read ({entry['error']}), AND "
+                "it names this plan as one of its children — so this plan is claimed by more than "
+                "one program and that claim cannot be re-checked. Repair the record before relying "
+                "on this seal's carry-forward evidence.")
+        elif _record_parses(library, entry["slug"]):
+            # Parseable but schema-invalid: its children ARE readable, so membership is genuinely
+            # settled and this plan is genuinely not in it.
+            disclosures.append(
+                f"the program record at `{entry['slug']}` could not be read ({entry['error']}). It "
+                "does not name this plan, so it does not stand in the way of this seal — but it is "
+                "broken, and no program it holds can be re-checked until it is repaired.")
+        else:
+            # Will not parse at all. "It does not name this plan" is an overstatement here for the
+            # same reason the opposite would be: nothing can be read out of it either way.
+            disclosures.append(
+                f"the program record at `{entry['slug']}` could not be parsed at all "
+                f"({entry['error']}), so whether it names this plan cannot be determined. This seal "
+                "is proceeding on the plan's own program back-link; repair the record before relying "
+                "on the library's carry-forward evidence.")
+    # ONLY the unparseable class leaves a genuine gap. A record that fails its schema still yields its
+    # children, so membership in it is knowable and was already settled above; saying "nothing here
+    # could tell" about such a record contradicts the disclosure printed one line earlier and sends
+    # the operator looking for a corrupt file that parses perfectly well.
+    unknowable = [entry for entry in membership["unreadable"]
+                  if not entry["names_this_plan"] and not _record_parses(library, entry["slug"])]
+    if membership["slug"] is None and not claimed and unknowable:
         # The one gap two sources cannot close, stated rather than assumed away: a child added before
         # the back-link was required, under a record that will not parse, is indistinguishable from a
         # standalone plan. Named here so the operator can judge it, not silently resolved as "no
@@ -1264,6 +1291,20 @@ def _program_check(library: plan_store.PlanLibrary, record: dict, document: dict
             "tell. It is being treated as a standalone plan. Repair the record, or add the plan's "
             "`program.program_id` back-link, to close that gap.")
     return refusals, disclosures
+
+
+def _record_parses(library: plan_store.PlanLibrary, slug: str) -> bool:
+    """Whether a program record is readable JSON, regardless of whether it satisfies its schema.
+
+    The two corruption classes differ in exactly this, and the disclosures must not conflate them: a
+    schema-invalid record still says whose children it holds, so nothing about membership is unknown.
+    """
+    try:
+        programs = plan_program.ProgramLibrary(library)
+        core.json_file(programs.program_dir(slug) / plan_program.RECORD_FILENAME)
+        return True
+    except Exception:  # noqa: BLE001 — unreadable is the answer, not an error to raise
+        return False
 
 
 def seal_disclosures(library: plan_store.PlanLibrary, slug: str) -> list:

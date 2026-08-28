@@ -662,11 +662,30 @@ def render(library: ProgramLibrary, record: dict) -> str:
             out += ["", "What the readable branches still owe:"]
     if report["obligations"]:
         status_of = {child["plan_id"]: child["status"] for child in view}
-        stopped_after = {}
+        successors_of: dict = {}
         for child in record["children"]:
             predecessor = child.get("predecessor_plan_id")
-            if predecessor and status_of.get(child["plan_id"]) in DEAD_BRANCH_STATES:
-                stopped_after.setdefault(predecessor, []).append(child["plan_id"])
+            if predecessor:
+                successors_of.setdefault(predecessor, []).append(child["plan_id"])
+
+        def dead_chain_after(plan_id: str) -> list:
+            """Every stopped plan downstream of here, not merely the first one.
+
+            A branch usually dies more than one plan deep — the live shelf's own case is B abandoned
+            and then C abandoned after it — and naming only the immediate successor left an operator
+            reading about one stopped plan while the table showed two, with nothing connecting them.
+            """
+            found, seen, stack = [], set(), list(successors_of.get(plan_id, []))
+            while stack:
+                successor = stack.pop(0)
+                if successor in seen or status_of.get(successor) not in DEAD_BRANCH_STATES:
+                    continue
+                seen.add(successor)
+                found.append(successor)
+                stack.extend(successors_of.get(successor, []))
+            return found
+
+        stopped_after = {plan_id: dead_chain_after(plan_id) for plan_id in report["by_leaf"]}
         for leaf, obligations in sorted(report["by_leaf"].items()):
             # Attributed per leaf, because on a forked chain "what is still owed" and "who owes it"
             # are different questions, and only the second one can be answered by a successor.
@@ -675,7 +694,7 @@ def render(library: ProgramLibrary, record: dict) -> str:
             # otherwise meets a debt that appeared from nowhere and has to infer the reason from a
             # status column two sections up — the reasoning lived only in this module's docstring,
             # which is not somewhere they read.
-            dead = [name for name in stopped_after.get(leaf, [])]
+            dead = stopped_after.get(leaf) or []
             if dead:
                 out.append(
                     f"- Carried at `{leaf}`, which is where that branch now ends — "

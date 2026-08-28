@@ -650,7 +650,9 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
         code, _, err = self.run_command("seal", victim, "--operator-decision", "Seal")
         self.assertEqual(code, 0)
         self.assertIn("worth knowing", err)
-        self.assertIn("could not be read", err)
+        # An unparseable record gets the honest wording: nothing can be read out of it, so whether it
+        # names this plan is undetermined rather than answered in either direction.
+        self.assertIn("could not be parsed at all", err)
 
     def test_a_standalone_plan_seals_while_an_unrelated_record_fails_its_schema(self):
         victim = self._sealable()
@@ -747,10 +749,14 @@ class D13UnknownDebtMustNotReadAsZeroInTheOneLineSummary(_Ceremony):
 class D14TheAddMessageSpeaksForOneBranch(_Ceremony):
     """`program add` reports what the NEXT child must answer for, and on a fork that is branch-local.
 
-    The wording changed and nothing ran the verb to see it. Once the chain forks, "what the program
-    still owes" and "what the next child on THIS branch must answer for" are different questions, and
-    a successor can only ever answer the second — so printing the program-wide union here would
-    attribute one branch's debts to a plan on the other.
+    WHAT THIS DOES AND DOES NOT PROVE, stated because the first version of this class claimed more
+    than it earned. This is NOT a fix to prior behaviour: the old code read the last child by stored
+    position, and `add_child` always appends, so the old message already named the added child's own
+    carries and was right. What changed underneath is `outstanding_obligations`, which now returns the
+    UNION over every open branch end — so had `cmd_program_add` gone on calling it, a fork would have
+    started attributing the other branch's debts to a successor that can never answer them. This class
+    guards that regression, not a historical defect, and its discriminating assertion is the last one:
+    the union genuinely contains both branches while the message names one.
     """
 
     def _program(self):
@@ -781,6 +787,13 @@ class D14TheAddMessageSpeaksForOneBranch(_Ceremony):
         self.assertIn("OB-B", out)
         self.assertNotIn("OB-A", out,
                          "the other branch's debt must not be attributed to this branch's successor")
+        # The assertion that discriminates. The program-wide union really does hold BOTH branches'
+        # debts here, so a message built from it would have named OB-A too; that it does not is the
+        # property under test, and it would fail the moment this verb went back to the union.
+        programs = plan_program.ProgramLibrary(self.lib)
+        union = {o["id"] for o in programs.outstanding_obligations(programs.read(slug))}
+        self.assertEqual(union, {"OB-A", "OB-B"},
+                         "precondition: the union spans both branches, so naming one is a real choice")
 
     def test_a_child_carrying_nothing_says_nothing(self):
         programs, slug, program_id = self._program()
@@ -809,3 +822,68 @@ class D15TheUnknownSummaryDoesNotBlameTheWrongCause(_Ceremony):
         listing = self.run_command("program", "list")[1]
         self.assertNotIn("unreadable", listing,
                          "the record parses; only its edge is broken")
+
+
+class D16TheDisclosuresDoNotStateThingsTheCodeKnowsAreFalse(_Ceremony):
+    """Two sentences the seal printed that its own inputs contradicted.
+
+    A disclosure is the operator's only view of a record they cannot read, so a wrong one is worse
+    than none: it sends them somewhere the fault is not.
+    """
+
+    def _broken(self, text, plan_ids):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Broken", "A record that will not validate.")
+        program_id = programs.read(slug)["program_id"]
+        for plan_id in plan_ids:
+            self.plan(plan_id=plan_id, title=plan_id[-4:], program={"program_id": program_id})
+            programs.add_child(slug, plan_id)
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(text, encoding="utf-8")
+        return programs, slug, program_id
+
+    def test_a_schema_broken_record_that_DOES_name_the_plan_is_not_said_to_disown_it(self):
+        # Parseable, so its children ARE readable and the code computed names_this_plan = True — then
+        # printed "it does not name this plan" anyway.
+        programs = plan_program.ProgramLibrary(self.lib)
+        first = programs.create("Claims it", "Broken, but its children are readable.")
+        first_id = programs.read(first)["program_id"]
+        self.plan(plan_id="pln_ffffffffff30", title="Child", program={"program_id": first_id})
+        programs.add_child(first, "pln_ffffffffff30")
+        record = programs.read(first)
+        record["schema_version"] = "engine-program.v99"          # parseable, schema-invalid
+        (programs.program_dir(first) / plan_program.RECORD_FILENAME).write_text(
+            json.dumps(record), encoding="utf-8")
+
+        disclosures = project_manager.seal_disclosures(self.lib, self.lib.resolve("pln_ffffffffff30"))
+        self.assertFalse(any("does not name this plan" in line for line in disclosures),
+                         "the code computed that it DOES name this plan")
+
+    def test_an_unparseable_record_is_not_said_to_disown_a_plan_either(self):
+        # Nothing can be read out of it, so "it does not name this plan" is exactly as unfounded as
+        # the opposite claim would be.
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Unreadable", "Will not parse.")
+        program_id = programs.read(slug)["program_id"]
+        self.plan(plan_id="pln_ffffffffff31", title="Theirs", program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff31")
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(
+            "{not json", encoding="utf-8")
+        standalone = self.plan(plan_id="pln_ffffffffff32", title="Standalone")
+
+        disclosures = project_manager.seal_disclosures(self.lib, standalone)
+        self.assertFalse(any("does not name this plan" in line for line in disclosures),
+                         "nothing can be read out of an unparseable record, in either direction")
+        self.assertTrue(any("cannot be determined" in line for line in disclosures))
+
+    def test_a_schema_broken_record_is_not_described_as_unparseable(self):
+        # It parses. Only its schema fails, so its children are readable and membership is knowable —
+        # telling the operator "nothing here could tell" contradicts the line printed above it.
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Schema broken", "Parses; fails its schema.")
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(
+            json.dumps({"schema_version": "engine-program.v99", "children": []}), encoding="utf-8")
+        standalone = self.plan(plan_id="pln_ffffffffff33", title="Standalone")
+
+        disclosures = project_manager.seal_disclosures(self.lib, standalone)
+        self.assertFalse(any("cannot be parsed" in line for line in disclosures),
+                         "a schema-invalid record parses; only its schema fails")

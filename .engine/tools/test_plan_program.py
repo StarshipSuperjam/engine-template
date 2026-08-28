@@ -864,6 +864,35 @@ class ADebtOffTheChainIsUnknownNotAbsent(_Program):
         self.assertIn("stopped without doing so", rendered)
         self.assertIn("pln_730000000002", rendered.split("Obligations still carried")[1])
 
+    def test_the_whole_dead_sub_chain_is_named_not_just_the_first(self):
+        """A branch usually dies more than one plan deep.
+
+        The live shelf's own case is B abandoned and then C abandoned after it. Naming only the
+        immediate successor left an operator reading about one stopped plan while the table above
+        showed two, with nothing in the narrative connecting them.
+        """
+        slug = self._program("Two deep", "The branch died over two plans.")
+        self._plan("pln_770000000001", "Still open", _obligation("OB-2D", "Never answered."))
+        self.programs.add_child(slug, "pln_770000000001")
+        previous = "pln_770000000001"
+        for plan_id in ("pln_770000000002", "pln_770000000003"):
+            self._plan(plan_id, "Stopped", _obligation("OB-2D", "Never answered."),
+                       predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            self.plans.update_record(
+                self.plans.resolve(plan_id),
+                lambda current: current.__setitem__(
+                    "closure", {"state": "abandoned", "at": "2026-01-01T00:00:00Z",
+                                "reason": "stopped"}))
+            previous = plan_id
+
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        narrative = rendered.split("Obligations still carried")[1]
+        self.assertIn("pln_770000000002", narrative)
+        self.assertIn("pln_770000000003", narrative,
+                      "the second stopped plan is in the table; the narrative must account for it")
+        self.assertIn("were meant to answer", narrative)   # plural, since two plans stopped
+
     def test_an_ordinary_branch_end_is_not_given_a_reason_it_does_not_have(self):
         slug = self._program("Ordinary", "Nothing stopped; this is just the end.")
         self._plan("pln_740000000001", "Tip", _obligation("OB-TIP", "Owed at the tip."))
