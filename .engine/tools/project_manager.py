@@ -1910,7 +1910,10 @@ def cmd_program_add(args) -> int:
     plan_slug = programs.plans.resolve(args.plan)
     outstanding = sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
                          key=lambda o: o["id"])
-    print(f"added {args.plan} as child {len(record['children'])} of {record['program_id']}")
+    ordinal = next((child["chain_ordinal"] for child in programs.child_view(record)
+                    if child["plan_id"] == programs.plans.read_record(plan_slug)["plan_id"]),
+                   len(record["children"]))
+    print(f"added {args.plan} as child {ordinal} of {record['program_id']}")
     if outstanding:
         print(f"\n{len(outstanding)} obligation(s) are now carried into the next child ON THIS BRANCH:")
         for obligation in outstanding:

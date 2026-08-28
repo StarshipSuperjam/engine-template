@@ -488,6 +488,14 @@ class ProgramLibrary:
         for child in view.values():
             if child["status"] in ("missing", "unreadable"):
                 unknown.append(f"{child['plan_id']} is {child['status']}")
+            elif child.get("anomaly") and child["outstanding"]:
+                # It carries a debt and sits off the chain, so it is nobody's predecessor and nobody's
+                # leaf: the union would simply never see it. Silence here is the same silent drop this
+                # object exists to prevent, arriving through a broken edge instead of a missing word.
+                unknown.append(
+                    f"{child['plan_id']} carries {len(child['outstanding'])} obligation(s) but is "
+                    f"{child['anomaly']}, so they sit on no branch and cannot be attributed: "
+                    + ", ".join(o["id"] for o in child["outstanding"]))
         for plan_id in analysis["leaves"]:
             child = view.get(plan_id)
             if child is None or child["status"] in ("missing", "unreadable"):

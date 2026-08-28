@@ -411,6 +411,10 @@ class TheChainIsAuthoritative(_Program):
     exactly such a test, because `child_view` already sorted by the stored `position` field, so array
     order never mattered and the assertion was green before the fix and after it. The fixtures below
     permute the position VALUES instead, which is what the old sort actually read.
+
+    One exception, stated rather than glossed: `test_duplicate_positions_do_not_disturb_the_order`
+    passes against the prior code too, because a stable sort left the array order intact. It is kept
+    as a supplementary assertion, not as evidence — the reversal fixture is the one that discriminates.
     """
 
     def _chain(self, *ids):
@@ -687,44 +691,102 @@ class TheSeamHoldsAtModuleLevel(_Program):
     by omission, including any added later, which a denylist cannot do.
     """
 
-    PERMITTED = {"resolve", "read_record", "head", "plan_dir", "root", "slugs"}
+    # Exactly the agreed read set — no wider. `slugs` was in here defensively and plan_program never
+    # calls it; carrying an unused permission is how an allowlist quietly turns back into a denylist.
+    # Exactly what plan_program actually calls on its PlanLibrary handle. `slugs` and `plan_dir` were
+    # in here defensively and the module calls neither; carrying an unused permission is how an
+    # allowlist quietly turns back into a denylist.
+    PERMITTED = {"resolve", "read_record", "head", "root"}
+    # Module-level reads of plan_store itself — a different namespace from the library HANDLE, and the
+    # one the seam is about. Enumerated rather than exempted by a shape rule, so adding a call here is
+    # a visible edit to this list.
+    PERMITTED_MODULE = {"PlanStoreError", "PlanLibrary", "derived_status", "FILE_MODE", "slug_for",
+                        "ensure_dir"}
 
-    @staticmethod
-    def _library_attributes(source: str) -> set:
+    def _forbidden(self, source: str) -> set:
+        """Every plan-library access this source makes that the allowlist does not permit.
+
+        THE ONE function the guard rests on, so a seeded violation is proven to turn the real
+        assertion red rather than merely being visible to a detector standing next to it.
+        """
         import ast
-        names = set()
+        forbidden = set()
         for node in ast.walk(ast.parse(source)):
             if not isinstance(node, ast.Attribute):
                 continue
             value = node.value
-            # self.plans.<x> and library.plans.<x>
-            if isinstance(value, ast.Attribute) and value.attr == "plans":
-                names.add(node.attr)
-            # plan_store.<x> called as a module function
-            if isinstance(value, ast.Name) and value.id == "plan_store":
-                names.add(node.attr)
-        return names
+            if isinstance(value, ast.Attribute) and value.attr == "plans":   # self.plans.<x>
+                if node.attr not in self.PERMITTED:
+                    forbidden.add(node.attr)
+            elif isinstance(value, ast.Name) and value.id == "plan_store":   # plan_store.<x>
+                if node.attr not in self.PERMITTED_MODULE:
+                    forbidden.add(node.attr)
+        return forbidden
 
     def _source(self):
         return (Path(plan_program.__file__)).read_text(encoding="utf-8")
 
-    def test_the_module_only_reads_the_plan_library(self):
-        used = self._library_attributes(self._source())
-        forbidden = {name for name in used
-                     if name not in self.PERMITTED and not name[0].isupper()
-                     and name not in {"PlanStoreError", "derived_status", "FILE_MODE", "slug_for",
-                                      "ensure_dir"}}
+    def _assert_pin_holds(self, source):
+        forbidden = self._forbidden(source)
         self.assertEqual(forbidden, set(),
                          f"plan_program reached {sorted(forbidden)} on the plan library; it may only "
                          f"read ({sorted(self.PERMITTED)}). Minting or stamping a plan record is the "
                          "Project Manager's act, and plan_store has no seal check of its own.")
 
+    def test_the_module_only_reads_the_plan_library(self):
+        self._assert_pin_holds(self._source())
+
     def test_the_pin_goes_red_when_a_revision_would_be_minted(self):
         seeded = self._source() + "\ndef _seeded(self):\n    self.plans.append_revision(1, 2)\n"
-        self.assertIn("append_revision", self._library_attributes(seeded))
+        with self.assertRaises(AssertionError):        # the GUARD fails, not merely a detector
+            self._assert_pin_holds(seeded)
 
     def test_the_pin_goes_red_when_a_record_would_be_stamped(self):
         # The spelling a literal grep for `append_revision` would sail straight past: no revision is
         # minted at all, and a seal could be written directly onto the plan record.
         seeded = self._source() + "\ndef _seeded(self):\n    self.plans.update_record(1, 2)\n"
-        self.assertIn("update_record", self._library_attributes(seeded))
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+    def test_the_pin_goes_red_on_a_mutating_module_function(self):
+        seeded = self._source() + "\ndef _seeded():\n    plan_store.atomic_write('x', 'y')\n"
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+
+class ADebtOffTheChainIsUnknownNotAbsent(_Program):
+    """A detached cycle beside a healthy root printed "None outstanding" and "lead in a circle" on
+    the same page — the obligations on the loop belonged to no branch, so the union never saw them
+    and the no-leaf guard never fired because the healthy branch still had a leaf."""
+
+    def _detached_loop(self):
+        slug = self._program("Detached", "A healthy root, plus a loop that carries a real debt.")
+        self._plan("pln_600000000001", "Root")
+        self.programs.add_child(slug, "pln_600000000001")
+        self._plan("pln_600000000002", "In the loop",
+                   _obligation("OB-LOST", "This debt sits off the chain."),
+                   predecessor="pln_600000000001")
+        self.programs.add_child(slug, "pln_600000000002", predecessor="pln_600000000001")
+        self._plan("pln_600000000003", "Also in the loop",
+                   _obligation("OB-LOST", "This debt sits off the chain."),
+                   predecessor="pln_600000000002")
+        self.programs.add_child(slug, "pln_600000000003", predecessor="pln_600000000002")
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_600000000003"   # 2 -> 3 -> 2, detached
+        self.programs._write(slug, record)
+        return record
+
+    def test_the_debt_is_reported_as_unknown_rather_than_absent(self):
+        report = self.programs.obligation_report(self._detached_loop())
+        self.assertTrue(report["unknown"], "a debt that sits on no branch must not simply vanish")
+        self.assertIn("OB-LOST", " ".join(report["unknown"]))
+
+    def test_the_render_never_says_none_outstanding_while_a_debt_is_stranded(self):
+        rendered = plan_program.render(self.programs, self._detached_loop())
+        self.assertIn("lead in a circle", rendered)
+        self.assertNotIn("_None outstanding._", rendered)
+        self.assertIn("Cannot be computed", rendered)
+
+    def test_the_one_line_summary_agrees(self):
+        record = self._detached_loop()
+        self.assertTrue(self.programs.obligation_report(record)["unknown"])

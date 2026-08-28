@@ -742,3 +742,49 @@ class D13UnknownDebtMustNotReadAsZeroInTheOneLineSummary(_Ceremony):
                   program={"program_id": program_id})
         programs.add_child(slug, "pln_ffffffffff11")
         self.assertIn("0 obligation(s) outstanding", self.run_command("program", "list")[1])
+
+
+class D14TheAddMessageSpeaksForOneBranch(_Ceremony):
+    """`program add` reports what the NEXT child must answer for, and on a fork that is branch-local.
+
+    The wording changed and nothing ran the verb to see it. Once the chain forks, "what the program
+    still owes" and "what the next child on THIS branch must answer for" are different questions, and
+    a successor can only ever answer the second — so printing the program-wide union here would
+    attribute one branch's debts to a plan on the other.
+    """
+
+    def _program(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Forked", "One root, two branches.")
+        return programs, slug, programs.read(slug)["program_id"]
+
+    def _child(self, programs, program_id, plan_id, obligation_id=None, predecessor=None):
+        program = {"program_id": program_id}
+        if obligation_id:
+            program["carried_obligations"] = [
+                {"id": obligation_id, "statement": f"{obligation_id} is still owed.", "state": "carried"}]
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        self.plan(plan_id=plan_id, title=plan_id[-4:], program=program)
+        return plan_id
+
+    def test_the_message_names_only_the_added_childs_own_carries(self):
+        programs, slug, program_id = self._program()
+        root = self._child(programs, program_id, "pln_aaaaaaaa0001")
+        programs.add_child(slug, root)
+        self._child(programs, program_id, "pln_aaaaaaaa0002", "OB-A", predecessor=root)
+        self._child(programs, program_id, "pln_aaaaaaaa0003", "OB-B", predecessor=root)
+        programs.add_child(slug, "pln_aaaaaaaa0002", predecessor=root)
+
+        out = self.run_command("program", "add", slug, "pln_aaaaaaaa0003", "--after", root)[1]
+        self.assertIn("ON THIS BRANCH", out)
+        self.assertIn("OB-B", out)
+        self.assertNotIn("OB-A", out,
+                         "the other branch's debt must not be attributed to this branch's successor")
+
+    def test_a_child_carrying_nothing_says_nothing(self):
+        programs, slug, program_id = self._program()
+        root = self._child(programs, program_id, "pln_bbbbbbbb0001")
+        out = self.run_command("program", "add", slug, root)[1]
+        self.assertIn("as child 1", out)
+        self.assertNotIn("carried into the next child", out)
