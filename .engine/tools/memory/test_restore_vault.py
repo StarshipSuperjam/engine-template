@@ -45,6 +45,15 @@ def _rb(path: str) -> bytes:
         return fh.read()
 
 
+def _recovery_marker(staging: str, existed: dict) -> dict:
+    identities = {}
+    for name, was_present in existed.items():
+        prior = os.path.join(staging, f"prior-{name}")
+        identities[name] = rv._regular_file_identity(prior) if was_present else None
+    return {"version": 2, "staging": os.path.basename(staging), "existed": existed,
+            "prior_identity": identities}
+
+
 class _Base(unittest.TestCase):
     def setUp(self):
         self._root = tempfile.TemporaryDirectory()
@@ -142,6 +151,39 @@ class RoundTripTests(_Base):
         self.assertEqual(result["error"], "deadline")
         self.assertLess(elapsed, 0.5)
         self.assertEqual(_rb(ledger.ledger_path()), before)
+
+    def test_restore_now_counts_interrupted_recovery_inside_its_wall_clock_deadline(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(os.path.join(staging, "prior-ledger"), "wb") as target:
+            target.write(b"prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+
+        started = time.monotonic()
+        with mock.patch.object(rv, "_restore_prior_set", side_effect=lambda *a, **k: time.sleep(1)), \
+                mock.patch.object(rv, "fetch_snapshot",
+                                  side_effect=AssertionError("fetch must wait for recovery")):
+            result = rv.restore_now(consent="y", github=None, deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result["error"], "apply-uncertain")
+        self.assertLess(elapsed, 0.5)
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_startup_recovery_stops_at_its_own_wall_clock_deadline(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(os.path.join(staging, "prior-ledger"), "wb") as target:
+            target.write(b"prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+
+        started = time.monotonic()
+        with mock.patch.object(rv, "_restore_prior_set", side_effect=lambda *a, **k: time.sleep(1)):
+            result = rv.reconcile_interrupted_restore(deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["pending"])
+        self.assertLess(elapsed, 0.5)
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
 
     def test_each_publication_fault_restores_the_prior_complete_file_set(self):
         for failing_target in ("index", "ledger", "meta"):
@@ -327,6 +369,33 @@ class RoundTripTests(_Base):
         self.assertEqual(cleanup, {"removed": [], "failed": []})
         self.assertTrue(os.path.isdir(orphan))
 
+    @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "POSIX writer-lock test")
+    def test_startup_cleanup_cannot_delete_markerless_staging_owned_by_foreground_restore(self):
+        from memory import capture
+        parent, child = multiprocessing.get_context("fork").Pipe()
+
+        def hold_foreground_lock(connection):
+            lock_fd = capture._acquire_lock(
+                os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME),
+                allow_restore_quarantine=True)
+            orphan = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+            connection.send(orphan)
+            connection.recv()
+            capture._release_lock(lock_fd)
+
+        process = multiprocessing.get_context("fork").Process(target=hold_foreground_lock, args=(child,))
+        process.start()
+        orphan = parent.recv()
+        try:
+            result = rv.reconcile_interrupted_restore()
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["busy"])
+            self.assertTrue(os.path.isdir(orphan))
+        finally:
+            parent.send("release")
+            process.join(5)
+        self.assertEqual(process.exitcode, 0)
+
     def test_success_discloses_deferred_staging_cleanup_and_next_start_reaps_it(self):
         real_rmtree = rv.shutil.rmtree
         failed = {"done": False}
@@ -368,15 +437,49 @@ class RoundTripTests(_Base):
         os.symlink(external, os.path.join(staging, "prior-ledger"))
         with open(ledger.ledger_path(), "wb") as target:
             target.write(b"published")
-        marker = {"version": 1, "staging": os.path.basename(staging),
-                  "existed": {"ledger": True, "meta": False, "index": False}}
+        marker = {"version": 2, "staging": os.path.basename(staging),
+                  "existed": {"ledger": True, "meta": False, "index": False},
+                  "prior_identity": {
+                      "ledger": {"device": 0, "inode": 0, "size": 0, "mtime_ns": 0},
+                      "meta": None, "index": None}}
         rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
         status = rv.read_restore_recovery_status()
         self.assertEqual(status["error"], "recovery-invalid")
         self.assertFalse(status["verified"])
         self.assertEqual(_rb(external), b"outside")
 
-    def test_success_disarms_deadline_before_quarantine_marker_is_removed(self):
+    def test_missing_prior_backup_requires_the_live_target_to_match_journaled_identity(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.write(b"verified prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        os.remove(prior)
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"unrelated partial replacement")
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+
+        status = rv.read_restore_recovery_status()
+        self.assertEqual(status["error"], "recovery-invalid")
+        self.assertFalse(status["verified"])
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_missing_prior_backup_is_idempotent_when_live_target_matches_journaled_identity(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.write(b"verified prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        os.replace(prior, ledger.ledger_path())
+
+        self.assertTrue(rv.read_restore_recovery_status()["verified"])
+        result = rv.reconcile_interrupted_restore()
+        self.assertTrue(result["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), b"verified prior")
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_success_keeps_deadline_armed_through_quarantine_retirement(self):
         events = []
 
         class Guard:
@@ -402,7 +505,7 @@ class RoundTripTests(_Base):
             result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1, deadline_guard=Guard())
         self.assertTrue(result["ok"])
         marker = events.index("remove-marker")
-        self.assertEqual(events[marker - 3:marker], ["block", "suspend", "unblock"])
+        self.assertNotIn("suspend", events[:marker])
 
     def test_maximum_supported_sparse_ledger_recovers_by_atomic_move(self):
         data_dir = ledger.ledger_dir()
@@ -412,8 +515,7 @@ class RoundTripTests(_Base):
             target.truncate(rv.snapshot_format.MAX_UNCOMPRESSED_BYTES)
         with open(ledger.ledger_path(), "wb") as target:
             target.write(b"partially published replacement")
-        marker = {"version": 1, "staging": os.path.basename(staging),
-                  "existed": {"ledger": True, "meta": False, "index": False}}
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
         rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
         started = time.monotonic()
         with mock.patch.object(rv.shutil, "copy2", side_effect=AssertionError("recovery must not recopy")):

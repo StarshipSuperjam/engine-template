@@ -2715,6 +2715,9 @@ def present_marker_line(s: dict) -> str:
     # falls through to the calm `▸ Project status` marker below rather than reading as a governance alarm.
     if s["refused"]:
         return f"⚠ {PRESENT_MARKER}: couldn't read where the project stands"
+    recovery = s.get("restore_recovery")
+    if isinstance(recovery, dict) and recovery.get("pending"):
+        return f"⚠ {PRESENT_MARKER}: memory writes are paused while an interrupted restore is recovered"
     if s["strand"]:   # ranked after the governance alarms; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
     behind = s.get("behind_origin")
@@ -2825,6 +2828,20 @@ def _pushed_alarms(s: dict) -> list:
         alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
             f"unknown until it re-grounds.")})
+    recovery = s.get("restore_recovery")
+    if isinstance(recovery, dict) and recovery.get("pending"):
+        if recovery.get("verified"):
+            full = (f"{RELAY_MARKER} memory writes are paused after an interrupted restore; the prior local "
+                    "file set is verified and retained for automatic recovery. Tell them to restart the Engine "
+                    "session once, or ask me to diagnose the retained recovery set if it remains paused.")
+        else:
+            full = (f"{RELAY_MARKER} memory writes are paused after an interrupted restore because the local "
+                    "recovery set could not be verified; the condition of the earlier files is unknown. Tell "
+                    "them to ask me to diagnose the local recovery files before capturing new notes or retrying "
+                    "the restore.")
+        alarms.append({"key": "restore-recovery",
+                       "value": [recovery.get("error"), bool(recovery.get("verified"))],
+                       "collapsible": False, "full": full})
     # ONLY blocking engine findings relay here — the never-shed governance tier. A routine (unrated /
     # sub-threshold) finding count no longer pushes at all: it is a quiet dashboard fact (the engine's own
     # housekeeping, the operator's lowest priority), never a must-relay alarm. But a genuinely BLOCKING finding
@@ -3368,7 +3385,8 @@ def handler(payload: dict) -> dict:
     # set or reports that it cannot verify it.
     try:
         from memory import restore_vault
-        restore_recovery = restore_vault.reconcile_interrupted_restore()
+        restore_recovery = restore_vault.reconcile_interrupted_restore(
+            deadline_seconds=restore_vault._STARTUP_RECOVERY_DEADLINE_SECONDS)
     except Exception:  # noqa: BLE001 — SessionStart still fail-opens; gather performs a read-only status check
         restore_recovery = None
     if isinstance(restore_recovery, dict):

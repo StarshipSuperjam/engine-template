@@ -3058,7 +3058,8 @@ class TestStanceLine(unittest.TestCase):
              mock.patch.object(boot.providers, "write_live_session"), \
              mock.patch.object(boot, "assemble_pack", return_value="brief") as pack:
             boot.handler({"session_id": "recovery-case"})
-        reconcile.assert_called_once_with()
+        reconcile.assert_called_once_with(
+            deadline_seconds=restore_vault._STARTUP_RECOVERY_DEADLINE_SECONDS)
         self.assertIs(pack.call_args.kwargs["payload"]["_restore_recovery"], recovery)
 
     def test_unverified_recovery_status_never_claims_prior_files_are_preserved(self):
@@ -3067,6 +3068,21 @@ class TestStanceLine(unittest.TestCase):
         dashboard = boot.render_dashboard(_signals(restore_recovery=recovery))
         self.assertIn("could not verify", dashboard.lower())
         self.assertNotIn("preserv", dashboard.lower())
+
+    def test_verified_and_unverified_quarantine_are_never_shed_from_must_push(self):
+        verified = {"ok": False, "pending": True, "verified": True,
+                    "error": "apply-uncertain"}
+        unverified = {"ok": False, "pending": True, "verified": False,
+                      "error": "recovery-invalid"}
+
+        verified_lines = "\n".join(boot.must_push(_signals(restore_recovery=verified)))
+        unverified_lines = "\n".join(boot.must_push(_signals(restore_recovery=unverified)))
+        self.assertIn(boot.RELAY_MARKER, verified_lines)
+        self.assertIn("verified and retained", verified_lines)
+        self.assertIn("condition of the earlier files is unknown", unverified_lines)
+        self.assertNotIn("preserv", unverified_lines.lower())
+        self.assertIn("memory writes are paused", boot.present_marker_line(
+            _signals(restore_recovery=verified)).lower())
 
     def test_startup_cleanup_failure_is_visible_without_pausing_capture(self):
         recovery = {"ok": True, "recovered": False, "cleanup_pending": True}
@@ -3688,6 +3704,16 @@ class TestPackCapGuard(unittest.TestCase):
     def test_pinned_tier_survives_even_an_impossible_cap(self):
         pack = self._pack(10)                                        # smaller than the pinned tier itself
         self.assertIn("Project status", pack)                        # never truncated, even oversize
+
+    def test_quarantine_alarm_survives_even_an_impossible_cap(self):
+        recovery = {"ok": False, "pending": True, "verified": False,
+                    "error": "recovery-invalid"}
+        signals = _signals(restore_recovery=recovery)
+        with mock.patch.object(boot, "gather_signals", return_value=signals), \
+             mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10):
+            pack = boot.assemble_pack()
+        self.assertIn("memory writes are paused after an interrupted restore", pack)
+        self.assertIn("condition of the earlier files is unknown", pack)
 
 
 class TestBriefingBudget(unittest.TestCase):
