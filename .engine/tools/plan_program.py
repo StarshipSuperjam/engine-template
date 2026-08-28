@@ -500,10 +500,35 @@ class ProgramLibrary:
 
         # A live child that no LIVE child succeeds. Not `analysis["leaves"]`, which is structural and
         # cannot see that a branch's only successor is retired.
-        succeeded = {child.get("predecessor_plan_id") for child in record["children"]
-                     if live(child["plan_id"]) and child.get("predecessor_plan_id")}
+        live_successors: dict = {}
+        for child in record["children"]:
+            predecessor = child.get("predecessor_plan_id")
+            if predecessor and live(child["plan_id"]):
+                live_successors.setdefault(predecessor, []).append(child["plan_id"])
         ends = [plan_id for plan_id in analysis["order"]
-                if live(plan_id) and plan_id not in succeeded]
+                if live(plan_id) and plan_id not in live_successors]
+
+        def reaches_an_end(start: str) -> bool:
+            """Whether following LIVE successors from here arrives at a branch end.
+
+            The rule says a debt is unknown when it can be neither placed nor ended — and "not itself
+            an end" is not that test. A child whose own predecessor edge is broken but which still has
+            a live successor is fine: its carries flow forward exactly as they always did, and the end
+            that receives them already answers for them. Testing only for end-ness printed such a debt
+            twice, and resurrected one the end had already SATISFIED. Cycle-safe by the seen set: a
+            child that can only ever revisit itself reaches nothing, which is precisely the case that
+            is genuinely unknown.
+            """
+            seen, stack = set(), [start]
+            while stack:
+                plan_id = stack.pop()
+                if plan_id in seen:
+                    continue
+                seen.add(plan_id)
+                if plan_id in ends:
+                    return True
+                stack.extend(live_successors.get(plan_id, []))
+            return False
 
         unknown, by_leaf, obligations = [], {}, {}
         for child in view.values():
@@ -519,12 +544,19 @@ class ProgramLibrary:
             # Carries a debt, is live, is not an end, and cannot be placed: a cycle member. Its debt
             # is real and belongs nowhere the chain reaches, so it is named rather than dropped — and
             # named ONCE, since it was not attributed above.
-            if child.get("anomaly") and live(plan_id) and child["outstanding"] and plan_id not in ends:
+            if (child.get("anomaly") and live(plan_id) and child["outstanding"]
+                    and not reaches_an_end(plan_id)):
                 unknown.append(
                     f"{plan_id} carries {len(child['outstanding'])} obligation(s) but is "
                     f"{child['anomaly']}, so they sit on no branch and cannot be attributed: "
                     + ", ".join(o["id"] for o in child["outstanding"]))
-        if record["children"] and not ends and not unknown:
+        if record["children"] and not ends and not unknown and any(
+                live(child["plan_id"]) for child in record["children"]):
+            # ONLY when live children exist and yet none of them ends anything: that is a cycle. A
+            # program whose every child was retired or abandoned has no live end either, and it is
+            # not corrupt — it is finished. Keying the message on "no ends" alone made a normal fully
+            # closed program report as damaged, which is the false alarm side of the same coin as the
+            # silent zero: both tell the operator something the record does not say.
             unknown.append("no live branch of this chain ends — every open child is succeeded by "
                            "another, which means the predecessor edges form a cycle")
         return {"obligations": sorted(obligations.values(), key=lambda o: o["id"]),
@@ -629,10 +661,29 @@ def render(library: ProgramLibrary, record: dict) -> str:
         if report["obligations"]:
             out += ["", "What the readable branches still owe:"]
     if report["obligations"]:
+        status_of = {child["plan_id"]: child["status"] for child in view}
+        stopped_after = {}
+        for child in record["children"]:
+            predecessor = child.get("predecessor_plan_id")
+            if predecessor and status_of.get(child["plan_id"]) in DEAD_BRANCH_STATES:
+                stopped_after.setdefault(predecessor, []).append(child["plan_id"])
         for leaf, obligations in sorted(report["by_leaf"].items()):
             # Attributed per leaf, because on a forked chain "what is still owed" and "who owes it"
             # are different questions, and only the second one can be answered by a successor.
-            out.append(f"- Carried at `{leaf}`, where that branch currently ends:")
+            #
+            # And when this plan is an end only BECAUSE its successors stopped, say so. The operator
+            # otherwise meets a debt that appeared from nowhere and has to infer the reason from a
+            # status column two sections up — the reasoning lived only in this module's docstring,
+            # which is not somewhere they read.
+            dead = [name for name in stopped_after.get(leaf, [])]
+            if dead:
+                out.append(
+                    f"- Carried at `{leaf}`, which is where that branch now ends — "
+                    + ", ".join(f"`{name}` ({status_of.get(name, 'closed')})" for name in dead)
+                    + (" was" if len(dead) == 1 else " were")
+                    + " meant to answer for these and stopped without doing so:")
+            else:
+                out.append(f"- Carried at `{leaf}`, where that branch currently ends:")
             for obligation in obligations:
                 out.append(f"  - **{obligation['id']}** — {obligation['statement']}")
         out += ["", "Each must be answered by the next child on ITS OWN branch — satisfied, still "

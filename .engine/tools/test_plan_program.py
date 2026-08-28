@@ -841,6 +841,87 @@ class ADebtOffTheChainIsUnknownNotAbsent(_Program):
         self.assertEqual(list(report["by_leaf"]), ["pln_710000000001"],
                          "the live ancestor is the branch's end once its successor is dead")
 
+    def test_the_render_says_WHY_a_debt_is_unresolved(self):
+        """A debt that appears because a successor was abandoned must say so on the page.
+
+        Attributing it correctly is not enough: an operator meets a number that moved and has to
+        infer the reason from a status column in another section. The reasoning existed only in this
+        module's docstring, which is not somewhere they read.
+        """
+        slug = self._program("Stopped", "The successor stopped without answering.")
+        self._plan("pln_730000000001", "Still open",
+                   _obligation("OB-OPEN", "Never answered."))
+        self.programs.add_child(slug, "pln_730000000001")
+        self._plan("pln_730000000002", "Abandoned successor",
+                   _obligation("OB-OPEN", "Never answered."), predecessor="pln_730000000001")
+        self.programs.add_child(slug, "pln_730000000002", predecessor="pln_730000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_730000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "abandoned", "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("stopped without doing so", rendered)
+        self.assertIn("pln_730000000002", rendered.split("Obligations still carried")[1])
+
+    def test_an_ordinary_branch_end_is_not_given_a_reason_it_does_not_have(self):
+        slug = self._program("Ordinary", "Nothing stopped; this is just the end.")
+        self._plan("pln_740000000001", "Tip", _obligation("OB-TIP", "Owed at the tip."))
+        self.programs.add_child(slug, "pln_740000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("where that branch currently ends", rendered)
+        self.assertNotIn("stopped without doing so", rendered)
+
+    def test_a_broken_edge_mid_chain_does_not_resurrect_an_answered_debt(self):
+        """"Not an end" is not the same test as "cannot reach an end", and the difference is a debt.
+
+        A child whose own predecessor edge is broken but which still has a live successor is fine:
+        its carries flow forward exactly as they always did, and the end that receives them already
+        answers for them. Testing only for end-ness printed such a debt twice — once attributed at the
+        real end, once as unattributable — and, when the end had SATISFIED it, brought it back from
+        the dead as an outstanding unknown.
+        """
+        slug = self._program("Mid-chain dangle", "Broken edge, but the chain continues past it.")
+        self._plan("pln_750000000001", "Root")
+        self.programs.add_child(slug, "pln_750000000001")
+        self._plan("pln_750000000002", "Broken edge",
+                   _obligation("OB-M", "Handed forward."), predecessor="pln_750000000001")
+        self.programs.add_child(slug, "pln_750000000002", predecessor="pln_750000000001")
+        self._plan("pln_750000000003", "The real end",
+                   _obligation("OB-M", "Handed forward.", state="satisfied"),
+                   predecessor="pln_750000000002")
+        self.programs.add_child(slug, "pln_750000000003", predecessor="pln_750000000002")
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_759999999999"
+        self.programs._write(slug, record)
+
+        report = self.programs.obligation_report(record)
+        self.assertEqual(report["obligations"], [], "the end satisfied it; nothing is owed")
+        self.assertEqual(report["unknown"], [],
+                         "a debt that reaches an end is accounted for, not unattributable")
+        self.assertIn("no such child is in this program",
+                      plan_program.render(self.programs, record))   # the edge, still disclosed
+
+    def test_a_debt_that_can_reach_no_end_is_still_unknown(self):
+        # The case the unknown path exists for must survive the narrowing.
+        record = self._detached_loop() if hasattr(self, "_detached_loop") else None
+        if record is None:
+            slug = self._program("Detached", "A loop that carries a debt.")
+            self._plan("pln_760000000001", "Root")
+            self.programs.add_child(slug, "pln_760000000001")
+            self._plan("pln_760000000002", "In the loop",
+                       _obligation("OB-L", "Off the chain."), predecessor="pln_760000000001")
+            self.programs.add_child(slug, "pln_760000000002", predecessor="pln_760000000001")
+            self._plan("pln_760000000003", "Also in the loop",
+                       _obligation("OB-L", "Off the chain."), predecessor="pln_760000000002")
+            self.programs.add_child(slug, "pln_760000000003", predecessor="pln_760000000002")
+            record = self.programs.read(slug)
+            record["children"][1]["predecessor_plan_id"] = "pln_760000000003"
+            self.programs._write(slug, record)
+        report = self.programs.obligation_report(record)
+        self.assertTrue(report["unknown"])
+        self.assertTrue(any("OB-L" in reason for reason in report["unknown"]))
+
     def test_a_dead_child_off_the_chain_contributes_nothing(self):
         """A stopped branch's carries stopped with it — including when its edge is also broken. The
         unknown path must not resurrect them by another door."""
@@ -863,3 +944,53 @@ class ADebtOffTheChainIsUnknownNotAbsent(_Program):
         self.assertFalse(any("OB-DEAD" in reason for reason in report["unknown"]),
                          "a stopped branch's debt must not come back as 'unknown'")
         self.assertNotIn("pln_720000000002", report["by_leaf"])
+
+
+class AFinishedProgramIsNotACorruptOne(_Program):
+    """The false-alarm side of the silent-zero coin, and a regression this repair introduced.
+
+    The cycle message keyed on "no live branch ends", which is true of a genuine cycle AND of a
+    program whose every child was legitimately retired or abandoned. The second is not damage — it is
+    a finished program — and reporting it as corruption tells the operator something the record does
+    not say, exactly as reporting a corrupt program's debt as zero did.
+    """
+
+    def _closed(self, *states):
+        slug = self._program("Closed", "Every child stopped.")
+        previous = None
+        for index, state in enumerate(states, start=1):
+            plan_id = f"pln_a0000000000{index}"
+            self._plan(plan_id, f"Child {index}", predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            if state:
+                self.plans.update_record(
+                    self.plans.resolve(plan_id),
+                    lambda current, s=state: current.__setitem__(
+                        "closure", {"state": s, "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+            previous = plan_id
+        return slug
+
+    def test_a_single_retired_child_is_not_reported_as_a_cycle(self):
+        record = self.programs.read(self._closed("retired"))
+        report = self.programs.obligation_report(record)
+        self.assertEqual(report["unknown"], [], "a finished program is not a corrupt one")
+        self.assertEqual(report["obligations"], [])
+        self.assertNotIn("form a cycle", plan_program.render(self.programs, record))
+
+    def test_a_wholly_abandoned_chain_is_not_reported_as_a_cycle(self):
+        report = self.programs.obligation_report(self.programs.read(
+            self._closed("abandoned", "abandoned")))
+        self.assertEqual(report["unknown"], [])
+
+    def test_a_chain_with_one_live_child_is_still_quiet(self):
+        report = self.programs.obligation_report(self.programs.read(self._closed("retired", None)))
+        self.assertEqual(report["unknown"], [])
+
+    def test_a_genuine_all_live_cycle_still_warns(self):
+        slug = self._closed(None, None)
+        record = self.programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_a00000000002"
+        self.programs._write(slug, record)
+        report = self.programs.obligation_report(record)
+        self.assertTrue(any("form a cycle" in reason for reason in report["unknown"]),
+                        "the warning must survive for the case it was written for")
