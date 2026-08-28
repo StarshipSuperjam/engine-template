@@ -248,9 +248,16 @@ def withheld_report(path: "str | None" = None) -> dict:
     for record in ledger.iter_records(path=src):
         rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
         if isinstance(rid, str) and rid in withheld_ids:
-            kinds[rid] = record.get("kind") or "note"
+            valid, _reason = records.validate_primary_evidence(record)
+            # This report is intentionally content-free, but it must preserve the control handle's evidence
+            # cohort so a Claude/Codex/unknown record is never silently reclassified from its wording.
+            kinds[rid] = {"kind": record.get("kind") or "note"}
+            if valid:
+                kinds[rid].update({"provider": record["provider"], "authority": record["authority"],
+                                   "source_type": record["source_type"]})
     return {
-        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid)}
+        "notes": sorted(({"id": rid, **kinds.get(rid, {"kind": "note"}),
+                           "withheld_at": when.get(rid)}
                          for rid in withheld_ids), key=lambda r: r["id"]),
         "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid)}
                             for sid in withheld_sessions), key=lambda r: r["session_id"]),

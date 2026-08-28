@@ -107,6 +107,14 @@ def _cost_for(record: dict, now: int) -> str:
     oversight: the proposal is committed to a branch and read on a pull-request page, and neither is a place
     for the operator's own words. Checking that these are the right records happens on their own terminal
     before this file is ever written (`preview`)."""
+    candidate = {key: value for key, value in record.items() if key != records.SCORE_KEY}
+    valid, _reason = records.validate_primary_evidence(candidate)
+    if valid:
+        # Content-free consent copy still tells the operator the evidence class being acted on.  Provider is
+        # copied verbatim from the sealed envelope, never guessed from text.
+        role = "something you said" if record["role"] == "user" else f"{record['role']} evidence"
+        return (f"{role} from {record['source_type']} (provider {record['provider']}) — withheld from recall "
+                "already, and fully recoverable until this is merged.")
     ts = record.get("ts")
     age = now - ts if isinstance(ts, int) and not isinstance(ts, bool) else 0
     if record.get("kind") == records.AMBIENT_CAPTURE_KIND:
@@ -378,7 +386,11 @@ def preview(targets: list) -> str:
     for record in targets[:_PREVIEW_MAX]:
         when = record.get("ts")
         stamp = time.strftime("%Y-%m-%d", time.localtime(when)) if isinstance(when, int) else "unknown date"
-        speaker = record.get("speaker") or record.get("role") or record.get("kind") or "record"
+        candidate = {key: value for key, value in record.items() if key != records.SCORE_KEY}
+        valid, _reason = records.validate_primary_evidence(candidate)
+        speaker = (f"untrusted recalled evidence · {record['source_type']} · "
+                   f"{'operator' if record['role'] == 'user' else record['role']} · provider {record['provider']}"
+                   if valid else record.get("speaker") or record.get("role") or record.get("kind") or "record")
         text = " ".join(str(record.get("text") or "").split())
         if len(text) > _PREVIEW_CHARS:
             text = text[:_PREVIEW_CHARS].rstrip() + "…"

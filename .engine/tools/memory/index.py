@@ -61,7 +61,9 @@ INDEX_FILENAME = "index.sqlite3"
 #   4 — the archived-tier age-out removed, so records an older index left out are now members.
 #   5 — the operator's withholds are members of the index's own state: it stamps what was withheld when it
 #       was built, so the incremental update can honour a withhold it did not itself see.
-INDEX_SCHEMA_VERSION = 5
+#   6 — primary-evidence v2's provenance envelope is excluded from the body, and current project artifacts
+#       are ordered ahead of recalled evidence without changing membership.
+INDEX_SCHEMA_VERSION = 6
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -90,7 +92,11 @@ _NON_BODY_KEYS = frozenset(
      # A withhold marker's session target and a pin's source session are both uuid hex — the same
      # fragments-are-real-words problem every id field has. A pin's route is worse still: "assistant" and
      # "cli" are ordinary words, so indexing that field would make every pin match a search for either.
-     records.TARGET_SESSION_KEY, records.PIN_SOURCE_SESSION_KEY, records.PIN_VIA_KEY}
+     records.TARGET_SESSION_KEY, records.PIN_SOURCE_SESSION_KEY, records.PIN_VIA_KEY,
+     # Primary-evidence v2 is a closed envelope.  These fields say where a record came from; searching
+     # them would turn provenance labels (and opaque ids) into fabricated topical evidence.
+     "v", "event", "provider", "authority", "source_type", "source_name", "sequence", "item_id",
+     "terminal"}
 )
 
 
@@ -422,7 +428,7 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
     Appends at the next free ordinal. Ledger order is append-only, so a row added here keeps `ord` monotone in
     ledger position — which is all the ranking tiebreak asks of it.
 
-    NARROW CONTRACT, deliberately: this accepts CAPTURED TURNS ONLY and rejects any other kind outright. A full
+    NARROW CONTRACT, deliberately: this accepts captured legacy turns and valid primary evidence only. A full
     `rebuild` streams `forget.live_records`, which ORs together four exclusions (injected capture, crash-orphan
     retirement, gist-orphan + supersession, and the bookkeeping markers); this applies the one that can apply to a turn just
     written. Passing anything else would let the fast path hold a record `rebuild` and the plain scan both drop
@@ -461,9 +467,11 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
             row = conn.execute("SELECT MAX(ord) FROM entries").fetchone()
             ordinal = (row[0] + 1) if row and isinstance(row[0], int) else 0
             for record in new_records:
-                if not isinstance(record, dict) or record.get("kind") != records.AMBIENT_CAPTURE_KIND:
-                    continue          # the narrow contract: captured turns only (see the docstring)
-                if forget._is_excluded_capture(record):
+                primary = _is_primary_evidence(record)
+                legacy_turn = isinstance(record, dict) and record.get("kind") == records.AMBIENT_CAPTURE_KIND
+                if not (primary or legacy_turn):
+                    continue          # the narrow contract: capture output only (see the docstring)
+                if legacy_turn and forget._is_excluded_capture(record):
                     continue
                 if forget.is_withheld(record, w_ids, w_sessions):
                     continue          # the operator took this conversation out of recall; a new turn in it is
@@ -626,7 +634,10 @@ def _rank_slice_score(candidates: list, limit: "int | None") -> list:
     ledger/index). Each candidate is `(rel, ord, record)` with `rel` the positive lexical relevance
     (higher = better). Sort key: relevance DESC, then ledger `ord` DESC — newest of equally-good matches first,
     a total and deterministic order."""
-    candidates.sort(key=lambda c: (-c[0], -c[1]))
+    # Current checked-in project artifacts are the only evidence class that may outrank recalled material.
+    # This is deliberately a presentation/read ordering, not a curation decision: recalled evidence remains
+    # available below it, and neither provider nor wording is used to invent an authority cohort.
+    candidates.sort(key=lambda c: (-c[0], _authority_rank(c[2]), -c[1]))
     if limit is not None:
         candidates = candidates[:limit]
     out = []
@@ -636,6 +647,25 @@ def _rank_slice_score(candidates: list, limit: "int | None") -> list:
             scored[records.SCORE_KEY] = rel
         out.append(scored)
     return out
+
+
+def _authority_rank(record) -> int:
+    """Return the explicit authority ordering for an already-retrieved record.
+
+    Only a structurally valid v2 current artifact gets the higher rank.  Legacy records and malformed
+    envelopes stay recalled evidence; content is never inspected to infer provider or authority.
+    """
+    valid = _is_primary_evidence(record)
+    return 0 if valid and record.get("authority") == records.AUTHORITY_CURRENT_ARTIFACT else 1
+
+
+def _is_primary_evidence(record) -> bool:
+    """Validate a ledger envelope while tolerating this index's derived score projection."""
+    if not isinstance(record, dict):
+        return False
+    candidate = {key: value for key, value in record.items() if key != records.SCORE_KEY}
+    valid, _reason = records.validate_primary_evidence(candidate)
+    return valid
 
 
 # SQLite fts5's own bm25 constants, so the plain-Python scan scores identically to the FTS5 index rather than
@@ -691,7 +721,7 @@ def _fast_candidates(conn, match, *, tags, session, limit):
         "SELECT rowid, bm25(entries_fts) AS relevance FROM entries_fts "
         "WHERE entries_fts MATCH ? ORDER BY relevance", [match])
     span = _HYDRATE_CHUNK if limit is None else min(_HYDRATE_CHUNK, max(2 * limit, _HYDRATE_MIN))
-    keys: list = []                      # (relevance, ord) — deliberately NOT the record
+    keys: list = []                      # (relevance, (authority, ord)) — deliberately NOT the record
     boundary = None                      # the raw bm25 of the limit-th kept row; more-positive is worse
     done = False
     while not done:
@@ -715,7 +745,7 @@ def _fast_candidates(conn, match, *, tags, session, limit):
             if not _passes_filters(record, tags, session):
                 continue
             # bm25 is more-negative for a better match; flip to a positive relevance (higher = better).
-            keys.append((-raw, ordinal))
+            keys.append((-raw, (_authority_rank(record), ordinal)))
             if limit is not None and boundary is None and len(keys) >= limit:
                 boundary = raw
         bodies = None                    # release the chunk before reading the next one
@@ -726,7 +756,7 @@ def _hydrate_winners(conn, keys, limit):
     """Turn the surviving sort keys back into the `(rel, ord, record)` candidates `_rank_slice_score`
     expects, reading ONLY the records that can still make the answer. Sorts and slices by the same key that
     function does — doing it twice costs nothing and is what lets the walk above keep no record bodies at all."""
-    keys.sort(key=lambda c: (-c[0], -c[1]))
+    keys.sort(key=lambda c: (-c[0], c[1][0], -c[1][1]))
     if limit is not None:
         keys = keys[:limit]
     if not keys:
@@ -738,12 +768,12 @@ def _hydrate_winners(conn, keys, limit):
     # times slower and reported only as `degraded`. Reproduced at 33,000 matches before this loop existed.
     bodies = {}
     for start in range(0, len(keys), _HYDRATE_CHUNK):
-        ords = [k[1] for k in keys[start:start + _HYDRATE_CHUNK]]
+        ords = [k[1][1] for k in keys[start:start + _HYDRATE_CHUNK]]
         bodies.update(conn.execute(
             "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(ords)),
             ords).fetchall())
     out = []
-    for rel, ordinal in keys:
+    for rel, (_authority, ordinal) in keys:
         record_json = bodies.get(ordinal)
         if record_json is not None:
             out.append((rel, ordinal, json.loads(record_json)))

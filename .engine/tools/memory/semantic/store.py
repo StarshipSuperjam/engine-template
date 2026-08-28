@@ -383,11 +383,15 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
         return {"records": [], "scores": [], "passages": [], "searched": scanned,
                 "embedded": reconciled["embedded"]}
 
-    ranked = sorted(best.items(), key=lambda pair: -pair[1][0])[:max(int(limit), 1)]
+    # Keep semantic and lexical retrieval aligned: an explicit current artifact leads recalled evidence,
+    # while all historical evidence remains in the candidate set.  This uses the sealed envelope only,
+    # never content-derived provider or authority guesses.
+    ranked = sorted(
+        ((rid, match) for rid, match in best.items() if match[0] >= MIN_SIMILARITY),
+        key=lambda pair: (-pair[1][0], index._authority_rank(live[pair[0]][0])),
+    )[:max(int(limit), 1)]
     records, scores_out, matched = [], [], []
     for rid, (score, ordinal) in ranked:
-        if score < MIN_SIMILARITY:
-            break                              # sorted best-first, so everything after this is further away
         # The passage that actually matched — recomputed from the same text, never stored twice. Without it
         # a caller sees a record's opening and judges relevance on words that had nothing to do with the hit.
         found = passages(live[rid][1])

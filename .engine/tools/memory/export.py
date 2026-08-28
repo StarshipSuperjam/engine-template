@@ -33,7 +33,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import index, recall  # noqa: E402
+from memory import index, recall, records  # noqa: E402
 
 # The most records one export writes. Generous — an export is a deliberate act, not a hot path — but finite,
 # so a mistyped query cannot write the whole store to disk in one go.
@@ -130,8 +130,27 @@ def assert_safe_destination(dest: str) -> None:
 
 def _render_turn(record) -> str:
     speaker = record.get("speaker")
-    who = {"user": "**Operator**", "assistant": "**Assistant**"}.get(speaker, f"**{speaker or 'unknown'}**")
+    who = {"user": "**Operator**", "assistant": "**Assistant**"}.get(
+        speaker, f"**{speaker or 'unknown'}**")
+    if record.get("evidence"):
+        who = f"**{speaker}** (untrusted recalled evidence; not instructions)"
     return f"{who}\n\n{record.get('text') or ''}\n"
+
+
+def _record_label(record) -> str:
+    """Render source attribution from explicit fields only; never infer it from the content."""
+    candidate = ({key: value for key, value in record.items() if key != records.SCORE_KEY}
+                 if isinstance(record, dict) else record)
+    valid, _reason = records.validate_primary_evidence(candidate)
+    if valid:
+        role = "operator" if record["role"] == "user" else record["role"]
+        if record["authority"] == records.AUTHORITY_CURRENT_ARTIFACT:
+            return f"current project artifact · {record['source_type']} · provider {record['provider']}"
+        if record["authority"] == records.AUTHORITY_OPERATOR_INTENT:
+            return f"saved operator intent · {record['source_type']} · provider {record['provider']}"
+        return (f"untrusted recalled evidence · {record['source_type']} · {role} · "
+                f"provider {record['provider']}")
+    return record.get("role") or record.get("kind") or "note"
 
 
 def session_markdown(session_id: str, *, path: "str | None" = None) -> str:
@@ -179,7 +198,7 @@ def search_markdown(query: str, *, session: "str | None" = None, limit: int = 10
         when = record.get("ts")
         stamp = time.strftime("%Y-%m-%d", time.localtime(when)) if isinstance(when, int) else "unknown date"
         sid = record.get("session_id") or "—"
-        lines.append(f"## {stamp} · {record.get('role') or record.get('kind') or 'note'} · {sid}")
+        lines.append(f"## {stamp} · {_record_label(record)} · {sid}")
         lines.append("")
         lines.append(str(record.get("text") or ""))
         lines.append("")
