@@ -491,6 +491,39 @@ class MigrationWindowTests(unittest.TestCase):
         self.assertFalse(capture.open_migration_window(self.tmp))
         self.assertIsNone(capture._read_marker(self.tmp))          # nothing written
 
+    @unittest.skipUnless(capture._HAVE_FCNTL, "POSIX advisory lock test")
+    def test_async_exception_after_flock_closes_the_descriptor(self):
+        lock_path = os.path.join(self.tmp, capture.LOCK_FILENAME)
+        real_flock = capture.fcntl.flock
+
+        def acquire_then_interrupt(fd, operation):
+            real_flock(fd, operation)
+            raise RuntimeError("simulated asynchronous deadline")
+
+        with mock.patch.object(capture.fcntl, "flock", side_effect=acquire_then_interrupt):
+            with self.assertRaises(RuntimeError):
+                capture._acquire_lock(lock_path)
+        lock_fd = capture._acquire_lock(lock_path)
+        self.assertIsNotNone(lock_fd)
+        capture._release_lock(lock_fd)
+
+    @unittest.skipUnless(capture._HAVE_FCNTL, "POSIX advisory lock test")
+    def test_waiting_writer_rechecks_restore_quarantine_before_retry(self):
+        lock_path = os.path.join(self.tmp, capture.LOCK_FILENAME)
+        transaction_path = os.path.join(self.tmp, ledger.RESTORE_TRANSACTION_FILENAME)
+        calls = {"count": 0}
+
+        def contend_then_quarantine(fd, operation):
+            calls["count"] += 1
+            with open(transaction_path, "w", encoding="utf-8") as target:
+                target.write("{}")
+            raise OSError("restore owns the writer lock")
+
+        with mock.patch.object(capture.fcntl, "flock", side_effect=contend_then_quarantine), \
+                mock.patch.object(capture.time, "sleep", return_value=None):
+            self.assertIsNone(capture._acquire_lock(lock_path))
+        self.assertEqual(calls["count"], 1)
+
     def test_a_dead_pid_marker_is_orphaned_not_in_flight(self):
         self._write_marker({"pid": _a_dead_pid(), "started_at": time.time()})
         self.assertFalse(capture.migration_in_flight(self.tmp))    # orphaned => compaction may proceed

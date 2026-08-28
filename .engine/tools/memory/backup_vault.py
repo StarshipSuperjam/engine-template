@@ -34,7 +34,6 @@ CLI: setup | now | status | session-start | demo [--live]. Run the demo (fully o
 from __future__ import annotations
 
 import base64
-import contextlib
 import hashlib
 import json
 import os
@@ -518,8 +517,11 @@ def _deadline_check(deadline, deadline_state=None):
         raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
 
 
-@contextlib.contextmanager
-def _hard_deadline(deadline):
+class HardDeadlineUnavailable(Exception):
+    """The host cannot safely provide the promised interrupting deadline."""
+
+
+class _HardDeadlineGuard:
     """Interrupt synchronous local work at the same absolute deadline.
 
     Python can deliver SIGALRM only on the main thread. A caller that cannot
@@ -527,25 +529,56 @@ def _hard_deadline(deadline):
     advertised wall-clock bound. Existing process alarms are likewise left
     untouched and cause a safe refusal.
     """
-    _deadline_check(deadline)
-    if (threading.current_thread() is not threading.main_thread()
-            or not hasattr(signal, "setitimer") or not hasattr(signal, "ITIMER_REAL")):
-        raise snapshot_format.SnapshotDeadlineError("hard deadline cannot be armed safely")
-    previous_timer = signal.getitimer(signal.ITIMER_REAL)
-    if previous_timer[0] > 0 or previous_timer[1] > 0:
-        raise snapshot_format.SnapshotDeadlineError("another process deadline is already armed")
-    previous_handler = signal.getsignal(signal.SIGALRM)
+    def __init__(self, deadline):
+        self.deadline = deadline
+        self.active = False
+        self.previous_handler = None
 
-    def expire(_signum, _frame):
+    def expire(self, _signum, _frame):
         raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
 
-    signal.signal(signal.SIGALRM, expire)
-    signal.setitimer(signal.ITIMER_REAL, max(0.001, deadline - time.monotonic()))
-    try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
+    def __enter__(self):
+        _deadline_check(self.deadline)
+        if (threading.current_thread() is not threading.main_thread()
+                or not hasattr(signal, "setitimer") or not hasattr(signal, "ITIMER_REAL")
+                or not hasattr(signal, "pthread_sigmask")):
+            raise HardDeadlineUnavailable("interrupting deadline is unavailable on this execution thread")
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        if previous_timer[0] > 0 or previous_timer[1] > 0:
+            raise HardDeadlineUnavailable("another process timer is already active")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        signal.signal(signal.SIGALRM, self.expire)
+        self.resume()
+        return self
+
+    def suspend(self):
+        if self.active:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            self.active = False
+
+    def block_interrupt(self):
+        """Keep the timer running but defer delivery across a resource handoff."""
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+
+    def unblock_interrupt(self):
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+
+    def resume(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
+        signal.setitimer(signal.ITIMER_REAL, max(0.001, remaining))
+        self.active = True
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        self.suspend()
+        if self.previous_handler is not None:
+            signal.signal(signal.SIGALRM, self.previous_handler)
+
+
+def _hard_deadline(deadline):
+    """Interrupt local work, with a pause seam for safe resource handoff."""
+    return _HardDeadlineGuard(deadline)
 
 
 def _read_ledger_bytes(path: str, *, deadline, deadline_state) -> bytes:
@@ -764,7 +797,7 @@ def _migration_manifest(*, ledger_path, now, engine_version, migration_id) -> di
 
 
 def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
-                             engine_version: "str | None" = None, deadline) -> dict:
+                             engine_version: "str | None" = None, deadline, deadline_guard=None) -> dict:
     """Push the latest ledger + snapshot manifest to the configured vault. Requires setup (a pointer). CHEAP-PROBE
     FIRST: a single repo GET re-verifies the repo is still PRIVATE (and confirms reachability) before any blob work —
     so a public flip or a dead host costs one bounded call, never the full sequence. On a public flip it DECLINES to
@@ -814,6 +847,8 @@ def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
         if deadline_state["expired"]:
             return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
         return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
+    if deadline_guard is not None:
+        deadline_guard.suspend()  # the ref is current; prevent a late alarm from claiming the prior ref remains
     return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
 
 
@@ -825,9 +860,11 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
     except (TypeError, ValueError):
         deadline = time.monotonic()
     try:
-        with _hard_deadline(deadline):
+        with _hard_deadline(deadline) as deadline_guard:
             return _push_now_under_deadline(transport=transport, now=now, engine_version=engine_version,
-                                            deadline=deadline)
+                                            deadline=deadline, deadline_guard=deadline_guard)
+    except HardDeadlineUnavailable:
+        return {"ok": False, "error": "deadline-unavailable", "pushed": False, "namespace": None}
     except snapshot_format.SnapshotDeadlineError:
         return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
 
@@ -1075,6 +1112,11 @@ _HEADS_UP_DEADLINE = (
     "INFORM THE USER, in plain language: the memory backup stopped at its 10-second session-start limit, so the "
     "prior complete backup remains current and the session could continue. Your memory on this computer is safe "
     "and complete. One thing to try: ask me to \"back up memory now\" for the longer foreground attempt.")
+
+_HEADS_UP_DEADLINE_UNAVAILABLE = (
+    "INFORM THE USER, in plain language: this runtime could not safely enforce the memory backup's time limit, so "
+    "no backup was attempted and the prior complete backup remains current. One fix: ask me to back up memory from "
+    "the main Engine session without another process timer active.")
 
 _HEADS_UP_TOO_LARGE = (
     "INFORM THE USER, in plain language: this project's saved memory is larger than the backup format supports "
@@ -1358,6 +1400,8 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
                     msg = _heads_up_public()
             elif err == "deadline":
                 msg = _HEADS_UP_DEADLINE
+            elif err == "deadline-unavailable":
+                msg = _HEADS_UP_DEADLINE_UNAVAILABLE
             elif err == "snapshot-too-large":
                 msg = _HEADS_UP_TOO_LARGE
             elif err in ("push-failed", "unreachable"):
@@ -1392,6 +1436,9 @@ def _now_message(result: dict) -> str:
         return ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains current, "
                 "and your memory on this computer is safe and complete. Ask me to diagnose what consumed the time "
                 "and retry the backup.")
+    if err == "deadline-unavailable":
+        return ("This runtime could not safely enforce the backup's wall-clock limit, so I refused before starting. "
+                "Ask me to retry from the main Engine session without another process timer active.")
     if err == "snapshot-too-large":
         return ("I couldn't update the backup because this project's saved memory is larger than the supported "
                 "512 MiB uncompressed or 128 MiB compressed snapshot limit. The prior complete backup remains "

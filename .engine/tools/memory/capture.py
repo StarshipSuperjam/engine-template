@@ -390,26 +390,41 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
     os.replace(tmp, path)
 
 
-def _acquire_lock(lock_path: str):
+def _acquire_lock(lock_path: str, *, allow_restore_quarantine: bool = False, deadline=None):
     """Acquire the capture transaction lock, NON-blocking with a bounded ~1s retry. Returns the held
     fd, or None on contention (=> a clean no-op; the delta is caught at the next Stop). Bounding the
     wait is what guarantees capture can never stall turn-end behind a stuck holder."""
+    transaction_path = os.path.join(os.path.dirname(lock_path), ledger.RESTORE_TRANSACTION_FILENAME)
+    if not allow_restore_quarantine and os.path.exists(transaction_path):
+        return None
     if not _HAVE_FCNTL:  # pragma: no cover - POSIX target; no cross-process lock available
         try:
             return os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
         except OSError:
             return None
     for attempt in range(_LOCK_ATTEMPTS):
+        # Recheck on every retry. A restore may create its quarantine marker
+        # while this writer is waiting on the same lock.
+        if not allow_restore_quarantine and os.path.exists(transaction_path):
+            return None
+        if deadline is not None and time.monotonic() >= deadline:
+            return None
         fd = None
         try:
             fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return fd
-        except OSError:
+        except BaseException as exc:
             if fd is not None:
                 os.close(fd)
+            if not isinstance(exc, OSError):
+                raise
             if attempt < _LOCK_ATTEMPTS - 1:
-                time.sleep(_LOCK_INTERVAL)
+                delay = _LOCK_INTERVAL if deadline is None else min(
+                    _LOCK_INTERVAL, max(0.0, deadline - time.monotonic()))
+                if delay <= 0:
+                    return None
+                time.sleep(delay)
     return None
 
 
@@ -717,6 +732,9 @@ def _capture(payload, *, cwd) -> int:
 
     data_dir = ledger.ledger_dir(cwd)
     os.makedirs(data_dir, exist_ok=True)
+    if os.path.exists(ledger.restore_transaction_path(cwd)):
+        _write_capture_status("failed", session_id, detail={"reason": "restore-quarantine"})
+        return 0
     lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))
     if lock_fd is None:
         return 0  # contended ~1s; the delta is caught at the next Stop

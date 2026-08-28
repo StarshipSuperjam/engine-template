@@ -1383,6 +1383,10 @@ def capture_status_line() -> "str | None":
     state = record.get("state") if isinstance(record, dict) else None
     if state in (None, "captured"):
         return None
+    detail = record.get("detail") if isinstance(record, dict) else None
+    if isinstance(detail, dict) and detail.get("reason") == "restore-quarantine":
+        return ("**Memory capture is paused while an interrupted restore is recovered.** The prior files are "
+                "preserved; restart the Engine session once so automatic recovery can retry before new notes resume.")
     return ("**Last session's conversation wasn't saved to this project's memory** — the session "
             "record couldn't be read, so that conversation won't be recallable later. Nothing in "
             "your project was lost, and everything else still works. If this keeps happening the "
@@ -1671,8 +1675,11 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # backup_vault -> boot is a back-edge that is only safe lazily (pr_reconcile has no such edge). Degrades
         # QUIETLY to None — a fresh project with no backup, or one whose memory is present, is the normal state.
         from memory import restore_vault
-        restore_offer = restore_vault.detect_restore_offer()
+        restore_recovery = restore_vault.reconcile_interrupted_restore(
+            deadline_seconds=restore_vault._STARTUP_RECOVERY_DEADLINE_SECONDS)
+        restore_offer = restore_vault.detect_restore_offer() if restore_recovery.get("ok") else None
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        restore_recovery = None
         restore_offer = None
     try:
         # The code-older-than-data restore offer, RELAYED from memory's own OFFLINE detector
@@ -1794,6 +1801,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # One plain line when the last capture attempt could NOT save a session's conversation to
         # memory (the loud half of the fail-soft capture); None when fine or no marker.
         "capture_status_line": capture_status_line(),
+        "restore_recovery": restore_recovery,
         # One plain line when there is no recent evidence of the hooks running (the silently-off
         # detector — Codex trust-pending, unapproved hooks, or a pre-hooks version); None when fresh.
         "hooks_health_line": hooks_health_line(),
@@ -2255,6 +2263,15 @@ def render_dashboard(s: dict) -> str:
             "engine's internal index files, which I can clear in one step while keeping both pieces of work. "
             "Say **reconcile it** and I'll check: I'll either clear it for you, or — if the clash is in real "
             "content — tell you plainly that it needs your decision.")
+
+    recovery = s.get("restore_recovery")
+    if isinstance(recovery, dict) and recovery.get("recovered"):
+        pinned.append("↩️ **Recovered an interrupted memory restore.** The prior complete memory is back in place, "
+                      "and normal capture can continue.")
+    elif isinstance(recovery, dict) and not recovery.get("ok"):
+        pinned.append("⚠️ **Memory is quarantined after an interrupted restore.** The prior files are preserved and "
+                      "new notes will not be captured. Restart the Engine session once; if this remains, ask me to "
+                      "diagnose the preserved recovery set.")
 
     # The memory auto-restore OFFER, surfaced read-only at the strand/pr_conflict tier — a
     # recovery OPPORTUNITY, not a governance alarm, so it pins below them. boot OFFERS; the assistant runs the

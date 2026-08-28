@@ -213,6 +213,13 @@ class PointerCommitTests(_Base):
 
 
 class PushTests(_Base):
+    def test_push_now_distinguishes_unavailable_deadline_enforcement(self):
+        with mock.patch.object(bv.threading, "current_thread", return_value=object()):
+            result = bv.push_now(transport=bv._FakeVault().transport)
+        self.assertEqual(result["error"], "deadline-unavailable")
+        self.assertIn("could not safely enforce", bv._now_message(result))
+        self.assertNotIn("180-second limit", bv._now_message(result))
+
     def test_push_now_interrupts_blocked_local_work_at_wall_clock_deadline(self):
         ledger.append({"kind": "turn-delta", "text": "bounded backup"})
         fake = bv._FakeVault()

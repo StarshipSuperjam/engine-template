@@ -12,6 +12,7 @@ import base64
 import gzip
 import hashlib
 import json
+import multiprocessing
 import os
 import sqlite3
 import sys
@@ -80,6 +81,7 @@ class _Base(unittest.TestCase):
     def _wipe_local(self):
         rv._quiet_remove(ledger.ledger_path())
         rv._quiet_remove(ledger.meta_path())
+        rv._quiet_remove(index.index_path())
 
     def _install_files(self, fake, files, *, extra_entries=()):
         """Replace the configured ref with an exact synthetic namespace tree."""
@@ -112,6 +114,13 @@ class _Base(unittest.TestCase):
 
 
 class RoundTripTests(_Base):
+    def test_restore_distinguishes_unavailable_deadline_enforcement(self):
+        with mock.patch.object(bv.threading, "current_thread", return_value=object()):
+            result = rv.restore_now(consent="y", github=None)
+        self.assertEqual(result["error"], "deadline-unavailable")
+        self.assertIn("cannot safely enforce", result["message"])
+        self.assertNotIn("180-second limit", result["message"])
+
     def test_restore_now_interrupts_blocked_index_build_at_wall_clock_deadline(self):
         ledger.append({"kind": "turn-delta", "text": "local survives wall clock"})
         before = _rb(ledger.ledger_path())
@@ -177,7 +186,113 @@ class RoundTripTests(_Base):
             result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
         self.assertEqual(result["error"], "apply-uncertain")
         self.assertNotIn("unchanged", result["message"].lower())
-        self.assertIn("Do not retry", result["message"])
+        self.assertIn("quarantined", result["message"])
+        self.assertTrue(os.path.isdir(result["recovery_path"]))
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_failed_rollback_to_prior_absence_is_quarantined_then_recovered(self):
+        from memory import capture
+        self._wipe_local()
+        real_replace, real_remove = os.replace, os.remove
+        failed_publish = {"done": False}
+
+        def fail_index_publish(src, dst):
+            if dst == index.index_path() and not failed_publish["done"]:
+                failed_publish["done"] = True
+                raise OSError("fail after ledger and metadata publication")
+            return real_replace(src, dst)
+
+        def fail_absence_restore(path):
+            if path == ledger.ledger_path():
+                raise OSError("cannot restore prior absence")
+            return real_remove(path)
+
+        with mock.patch.object(rv.os, "replace", side_effect=fail_index_publish), \
+                mock.patch.object(rv.os, "remove", side_effect=fail_absence_restore):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 0, 1)
+        self.assertEqual(result["error"], "apply-uncertain")
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+        self.assertTrue(os.path.isdir(result["recovery_path"]))
+        lock_path = os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)
+        self.assertIsNone(capture._acquire_lock(lock_path), "ordinary writers stay quarantined")
+
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertTrue(recovered["recovered"])
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+        self.assertFalse(os.path.exists(ledger.ledger_path()))
+        self.assertFalse(os.path.exists(ledger.meta_path()))
+        self.assertFalse(os.path.exists(index.index_path()))
+        self.assertFalse(os.path.exists(result["recovery_path"]))
+
+    def test_equal_lineage_never_trusts_new_index_before_ledger_swap(self):
+        ledger.append({"kind": "turn-delta", "text": "prior equal lineage"})
+        index.rebuild()
+        real_replace_ledger = ledger.replace_ledger
+        observed = {}
+
+        def inspect_disabled_fast_path(temp, *, path=None):
+            query = index.query("prior")
+            observed["degraded"] = query.degraded
+            observed["texts"] = [record.get("text") for record in query.records]
+            return real_replace_ledger(temp, path=path)
+
+        with mock.patch.object(ledger, "replace_ledger", side_effect=inspect_disabled_fast_path):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 0, 1)
+        self.assertTrue(result["ok"])
+        self.assertTrue(observed["degraded"])
+        self.assertIn("prior equal lineage", observed["texts"])
+
+    @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "POSIX crash-recovery test")
+    def test_real_process_death_is_reconciled_at_every_publication_boundary(self):
+        from memory import capture
+        for boundary in ("index-invalidated", "ledger", "meta", "index"):
+            with self.subTest(boundary=boundary):
+                self._wipe_local()
+                ledger.append({"kind": "turn-delta", "text": f"prior at {boundary}"})
+                with open(ledger.meta_path(), "w", encoding="utf-8") as target:
+                    json.dump({"generation": 0, "index_epoch": 0}, target)
+                index.rebuild()
+                paths = {"ledger": ledger.ledger_path(), "meta": ledger.meta_path(),
+                         "index": index.index_path()}
+                before = {name: _rb(path) for name, path in paths.items()}
+                real_remove, real_replace, real_ledger_replace = os.remove, os.replace, ledger.replace_ledger
+
+                def crash_child():
+                    def crash_remove(path):
+                        result = real_remove(path)
+                        if boundary == "index-invalidated" and path == paths["index"]:
+                            os._exit(91)
+                        return result
+
+                    def crash_replace(src, dst):
+                        result = real_replace(src, dst)
+                        if ((boundary == "meta" and dst == paths["meta"])
+                                or (boundary == "index" and dst == paths["index"])):
+                            os._exit(91)
+                        return result
+
+                    def crash_ledger(temp, *, path=None):
+                        result = real_ledger_replace(temp, path=path)
+                        if boundary == "ledger":
+                            os._exit(91)
+                        return result
+
+                    with mock.patch.object(rv.os, "remove", side_effect=crash_remove), \
+                            mock.patch.object(rv.os, "replace", side_effect=crash_replace), \
+                            mock.patch.object(ledger, "replace_ledger", side_effect=crash_ledger):
+                        rv._apply_restore(_LEGACY_V1_LEDGER, 0, 1)
+                    os._exit(92)
+
+                process = multiprocessing.get_context("fork").Process(target=crash_child)
+                process.start()
+                process.join(10)
+                self.assertEqual(process.exitcode, 91)
+                self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+                self.assertIsNone(capture._acquire_lock(os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)))
+                recovered = rv.reconcile_interrupted_restore()
+                self.assertTrue(recovered["ok"])
+                self.assertEqual({name: _rb(path) for name, path in paths.items()}, before)
 
     def test_staging_creation_failure_releases_writer_lock(self):
         from memory import capture
