@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -67,7 +68,8 @@ RECORD_VERSION = 1                       # stamped as `v` on each record: the sh
                                          # migration on ledger.LEDGER_FORMAT_VERSION, not on this.
 RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
                                              # leaf `forget` also reads); aliased here so the string never drifts
-CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-message-count}; gitignored sibling
+CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-source-item-count}; gitignored sibling
+PENDING_FILENAME = "capture-pending.json"  # content-free deferred source positions only
 LOCK_FILENAME = ".capture.lock"          # the capture transaction lock; gitignored sibling
 
 CHUNK_MAX_CHARS = 4_000                  # per-record body cap (paragraph-preferred, LOSSLESS split)
@@ -302,6 +304,162 @@ def _codex_messages(transcript_path: str):
     return messages, True, None
 
 
+# --- Closed primary-evidence source classification ---------------------------------------------
+
+_CLAUDE_IGNORED_TYPES = frozenset(("queue-operation", "attachment", "system", "meta"))
+_CODEX_IGNORED_TYPES = frozenset(("session_meta", "turn_context", "compacted"))
+_TASK_RESULT_RE = re.compile(r"<result>(.*?)</result>", re.DOTALL)
+_TASK_STATUS_RE = re.compile(r"<status>([^<]+)</status>")
+_TASK_ID_RE = re.compile(r"<task-id>([^<]+)</task-id>")
+
+
+def _event(event, text=None, *, source_name=None):
+    """A staged source item.  No source text is persisted until scrub succeeds."""
+    return {"event": event, "text": text, "source_name": source_name}
+
+
+def _text_blocks(content):
+    if isinstance(content, str):
+        return [content]
+    if not isinstance(content, list):
+        return None
+    parts = []
+    for block in content:
+        if not isinstance(block, dict):
+            return None
+        kind = block.get("type")
+        if kind in ("text", "output_text") and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+        elif kind in ("tool_use", "function_call", "input_text"):
+            continue                         # arguments/input are never evidence
+        elif kind in ("image", "image_url", "audio", "file"):
+            continue                         # media/resource-only
+        else:
+            return None
+    return parts
+
+
+def _terminal_event(value, *, agent=False):
+    """Map explicit terminal status to the closed result event, or refuse."""
+    if value in ("success", "completed", "ok"):
+        return "agent-result-success-text" if agent else "tool-result-success-text"
+    if value in ("failure", "failed", "error", "cancelled", "killed", "stopped"):
+        return "agent-result-failure-text" if agent else "tool-result-failure-text"
+    return "unknown-event"
+
+
+def _classify_claude(rec):
+    """Classify one Claude structural record into ordered source items.
+
+    This is deliberately closed: a new wrapper is not a harmless skip, because
+    it might contain terminal evidence.  It therefore becomes ``unknown-event``
+    and blocks the suffix.
+    """
+    if not isinstance(rec, dict):
+        return [_event("unknown-event")]
+    typ = rec.get("type")
+    if typ in _CLAUDE_IGNORED_TYPES:
+        return [_event("wrapper-notification")]
+    msg = rec.get("message") if isinstance(rec.get("message"), dict) else rec
+    role = msg.get("role") if isinstance(msg, dict) else None
+    content = msg.get("content") if isinstance(msg, dict) else None
+    if typ in ("user", "assistant") or (isinstance(msg, dict) and role in ("user", "assistant")):
+        pieces = _text_blocks(content)
+        if pieces is None:
+            return [_event("unknown-event")]
+        event = "conversation-user" if role == "user" or typ == "user" else "conversation-assistant"
+        text = "\n".join(part for part in pieces if part)
+        if not text.strip():
+            return [_event("resource-only")]
+        if _is_noise(text):
+            return [_event("wrapper-notification")]
+        if records.is_injected_pseudo_turn_text(text):
+            if text.strip().startswith("<task-notification>"):
+                result = _TASK_RESULT_RE.search(text)
+                status = _TASK_STATUS_RE.search(text)
+                task = _TASK_ID_RE.search(text)
+                if result is None or status is None or not result.group(1).strip():
+                    return [_event("wrapper-notification")]
+                event = _terminal_event(status.group(1).strip(), agent=True)
+                return [_event(event, result.group(1),
+                               source_name="background-agent" if task is not None else None)]
+            return [_event("compaction-continuation")]
+        return [_event(event, text)]
+    if typ in ("tool_result", "tool-result"):
+        text = rec.get("content") if isinstance(rec.get("content"), str) else rec.get("text")
+        return [_event(_terminal_event(rec.get("status", "failure" if rec.get("is_error") else "success")),
+                       text, source_name=rec.get("name") if isinstance(rec.get("name"), str) else None)]
+    if typ in ("agent_result", "agent-result"):
+        text = rec.get("result") if isinstance(rec.get("result"), str) else rec.get("text")
+        return [_event(_terminal_event(rec.get("status"), agent=True), text,
+                       source_name=rec.get("name") if isinstance(rec.get("name"), str) else None)]
+    return [_event("unknown-event")]
+
+
+def _classify_codex(rec):
+    if not isinstance(rec, dict):
+        return [_event("unknown-event")]
+    typ = rec.get("type")
+    if typ in _CODEX_IGNORED_TYPES:
+        return [_event("wrapper-notification")]
+    if typ == "event_msg":              # byte-identical multi-agent echo; never duplicate it
+        return [_event("duplicate-item")]
+    payload = rec.get("payload") if typ == "response_item" and isinstance(rec.get("payload"), dict) else rec
+    if not isinstance(payload, dict):
+        return [_event("unknown-event")]
+    ptype = payload.get("type")
+    if ptype == "message" or (typ == "message" and ptype in (None, "message")):
+        role = payload.get("role")
+        pieces = _text_blocks(payload.get("content"))
+        if role not in ("user", "assistant") or pieces is None:
+            return [_event("unknown-event")]
+        text = "\n".join(part for part in pieces if part)
+        if not text.strip():
+            return [_event("resource-only")]
+        if text.startswith(_CODEX_NOISE_PREFIXES) or records.is_injected_pseudo_turn_text(text):
+            return [_event("compaction-continuation")]
+        return [_event("conversation-user" if role == "user" else "conversation-assistant", text)]
+    if ptype in ("function_call", "tool_call"):
+        return [_event("tool-arguments")]
+    if ptype in ("function_call_output", "tool_result"):
+        text = payload.get("output") if isinstance(payload.get("output"), str) else payload.get("text")
+        # Codex's function_call_output envelope is itself the terminal success
+        # record and currently carries no status field; an explicit failure wins.
+        return [_event(_terminal_event(payload.get("status", "success")), text,
+                       source_name=payload.get("name") if isinstance(payload.get("name"), str) else None)]
+    if ptype in ("agent_result", "agent_message"):
+        # ``agent_message`` is a duplicate only when it is explicitly marked as one.
+        if ptype == "agent_message" and payload.get("duplicate") is True:
+            return [_event("duplicate-item")]
+        text = payload.get("result") if isinstance(payload.get("result"), str) else payload.get("text")
+        return [_event(_terminal_event(payload.get("status"), agent=True), text,
+                       source_name=payload.get("name") if isinstance(payload.get("name"), str) else None)]
+    return [_event("unknown-event")]
+
+
+def _source_items(transcript_path: str, provider: str):
+    recs = _extract_records(transcript_path)
+    if provider == records.PROVIDER_CODEX:
+        if not recs:
+            try:
+                non_empty = os.path.getsize(transcript_path) > 0
+            except OSError:
+                non_empty = False
+            if non_empty:
+                return [], False, _codex_shape_detail("no-json-records", recs)
+            return [], True, None
+        if not any(r.get("type") in _CODEX_KNOWN_TYPES for r in recs):
+            return [], False, _codex_shape_detail("no-known-record-type", recs)
+        items = [item for rec in recs for item in _classify_codex(rec)]
+        retained = {name for name, rule in records.SOURCE_EVENT_TABLE.items()
+                    if rule["decision"] == records.DECISION_RETAIN}
+        if not any(item.get("event") in retained for item in items) \
+                and any(item.get("event") == "unknown-event" for item in items):
+            return [], False, _codex_shape_detail("no-conversation-messages", recs)
+        return items, True, None
+    return [item for rec in recs for item in _classify_claude(rec)], True, None
+
+
 # --- Transcript-path safety (defense-in-depth) ------------------------------------------------
 
 def _allowed_roots(cwd=None) -> list:
@@ -388,6 +546,63 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh, separators=(",", ":"))
     os.replace(tmp, path)
+
+
+def _pending_path(data_dir: str) -> str:
+    return os.path.join(data_dir, PENDING_FILENAME)
+
+
+def _write_pending(data_dir: str, session_id: str, item: int, reason: str) -> None:
+    """Persist only retry routing metadata — never source text, ids, paths, or errors.
+
+    This is not a quarantine: it contains no recoverable input and cannot become a
+    second secret-bearing store.  The transcript remains the sole retry source.
+    """
+    path = _pending_path(data_dir)
+    try:
+        state = {}
+        try:
+            with open(path, encoding="utf-8") as fh:
+                state = json.load(fh)
+        except (OSError, ValueError):
+            pass
+        if not isinstance(state, dict):
+            state = {}
+        state[session_id] = {"item": item, "reason": reason}
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, separators=(",", ":"))
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def _clear_pending(data_dir: str, session_id: str) -> None:
+    path = _pending_path(data_dir)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            state = json.load(fh)
+        if not isinstance(state, dict) or session_id not in state:
+            return
+        state.pop(session_id, None)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, separators=(",", ":"))
+        os.replace(tmp, path)
+    except (OSError, ValueError):
+        pass
+
+
+def pending_capture_report(*, ledger_file: "str | None" = None, cwd=None) -> dict:
+    """Return source-neutral pending status, never session ids, positions, reasons, or text."""
+    try:
+        data_dir = os.path.dirname(ledger_file) if ledger_file is not None else ledger.ledger_dir(cwd)
+        with open(_pending_path(data_dir), encoding="utf-8") as fh:
+            state = json.load(fh)
+        count = len(state) if isinstance(state, dict) else 0
+    except (OSError, ValueError):
+        count = 0
+    return {"pending": count > 0, "session_count": count}
 
 
 def _restore_quarantine_present(transaction_path: str) -> bool:
@@ -630,6 +845,31 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     }
 
 
+def _make_primary_record(session_id: str, sequence: int, item: dict, provider: str) -> dict:
+    """Materialize a single staged retained item in B01's closed envelope."""
+    rule = records.SOURCE_EVENT_TABLE[item["event"]]
+    record = {
+        "v": records.PRIMARY_EVIDENCE_VERSION,
+        "kind": records.PRIMARY_EVIDENCE_KIND,
+        "id": records.new_record_id(),
+        "event": item["event"],
+        "provider": provider,
+        "authority": rule["authority"],
+        "source_type": rule["source_type"],
+        "source_name": item.get("source_name"),
+        "session_id": session_id,
+        "sequence": sequence,
+        "item_id": f"{session_id}:{sequence}",
+        "role": rule["role"],
+        "terminal": rule["terminal"],
+        "text": item["text"],
+    }
+    valid, reason = records.validate_primary_evidence(record)
+    if not valid:
+        raise ValueError(reason)
+    return record
+
+
 # --- The capture-status marker (loud degradation) ----------------------------------------------
 # The one intended Claude-side behavioral delta of the dual-runtime work: capture used to no-op
 # SILENTLY on a fault. Now every capture attempt records its outcome to a gitignored marker —
@@ -759,48 +999,70 @@ def _capture(payload, *, cwd) -> int:
     if lock_fd is None:
         return 0  # contended ~1s; the delta is caught at the next Stop
     try:
-        # PROVIDER-ROUTED parsing: a Codex session's transcript goes ONLY through the
-        # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
-        # fall-through to the tolerant Claude parser below, which could capture fragments.
-        import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path
-        if providers.detect(payload) == providers.CODEX:
-            messages, recognized, detail = _codex_messages(transcript_path)
-            if not recognized:
-                _write_capture_status("unparseable", session_id, detail=detail)
-                return 0
-        else:
-            messages = [r for r in _extract_records(transcript_path) if _is_message(r)]
+        # Provenance comes only from explicit payload/launcher/runtime metadata.
+        # No transcript, path, session-id, or tool-name heuristic participates;
+        # when that metadata proves neither runtime, unknown is a valid fact.
+        declared_provider = payload.get("provider") if "provider" in payload else os.environ.get("ENGINE_PROVIDER")
+        if declared_provider not in records.VALID_PROVIDERS:
+            # The existing provider seam reads explicit launcher/runtime metadata
+            # (environment and payload), never transcript prose, ids, or paths.
+            import providers  # lazy: tools-dir seam
+            declared_provider = providers.detect(payload)
+        provider = records.provider_or_unknown(declared_provider)
+        items, recognized, detail = _source_items(transcript_path, provider)
+        if not recognized:
+            _write_capture_status("unparseable", session_id, detail=detail)
+            return 0
         cursor = _read_cursor(data_dir, session_id)
-        delta = messages[cursor:]
+        delta = items[cursor:]
         if not delta:
+            _clear_pending(data_dir, session_id)
             _write_capture_status("captured", session_id)
             return 0
         ledger_file = ledger.ledger_path(cwd)
         appended = 0
         fresh: list = []          # what landed this turn, for the incremental index extend below
-        for offset, rec in enumerate(delta):
-            text = _message_text(rec)
-            if not text or not text.strip():
+        # The ledger scan is only an idempotence repair for a crash after append but
+        # before the cursor sidecar swap.  It is keyed solely by deterministic,
+        # content-free source position ids.
+        committed_ids = {r.get("item_id") for r in ledger.read(path=ledger_file).records
+                         if isinstance(r, dict) and isinstance(r.get("item_id"), str)}
+        deferred = None
+        for offset, item in enumerate(delta):
+            sequence = cursor + offset
+            rule = records.SOURCE_EVENT_TABLE.get(item.get("event"))
+            if rule is None or rule["decision"] == records.DECISION_UNRESOLVED:
+                deferred = (sequence, "unknown-event")
+                break
+            if rule["decision"] == records.DECISION_DROP:
+                _write_cursor(data_dir, session_id, sequence + 1)
                 continue
-            if _is_noise(text):
-                continue
-            # Redact secret-shaped content AFTER the empty/noise discard — large machine-output noise
-            # (command stdout: hex, base64, minified) is dropped without being scrubbed — but BEFORE
-            # chunking, so a credential straddling the >4KB chunk boundary is still caught as one unit
-            # (scrubbed at capture; precision-biased, fail-soft).
-            text = scrub.scrub_text(text)
-            speaker = _speaker(rec)
-            # Recognise a harness-injected pseudo-turn on the WHOLE message, before chunking, so every chunk of a
-            # multi-chunk block (e.g. the >4 KB /compact continuation summary) is tagged — not just the first
-            # (issue StarshipSuperjam/engine-template#274). The record still lands + stays recoverable; consolidation skips it as fuel.
-            injected = records.is_injected_pseudo_turn_text(text)
-            for chunk in chunk_text(text):
-                record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)
-                ledger.append(record, path=ledger_file)
+            text, certain = scrub.scrub_text_checked(item.get("text"))
+            if not certain or not isinstance(text, str) or not text.strip():
+                deferred = (sequence, "scrub-uncertain")
+                break
+            item = dict(item)
+            item["text"] = text
+            item_id = f"{session_id}:{sequence}"
+            if item_id not in committed_ids:
+                try:
+                    record = _make_primary_record(session_id, sequence, item, provider)
+                    ledger.append(record, path=ledger_file)
+                except Exception:  # noqa: BLE001 — leave this item and suffix for retry
+                    deferred = (sequence, "append-failed")
+                    break
+                committed_ids.add(item_id)
                 fresh.append(record)
                 appended += 1
-        _write_cursor(data_dir, session_id, len(messages))
-        _write_capture_status("captured", session_id)
+            # Advance only after this source item is durably committed (or after
+            # replay observes its exact prior commit); never jump across a suffix.
+            _write_cursor(data_dir, session_id, sequence + 1)
+        if deferred is not None:
+            _write_pending(data_dir, session_id, deferred[0], deferred[1])
+            _write_capture_status("failed", session_id, detail={"reason": deferred[1]})
+        else:
+            _clear_pending(data_dir, session_id)
+            _write_capture_status("captured", session_id)
         # The conversation is recall content, and nothing else refreshes the fast index between full rebuilds
         # (`ledger.append` does not move the generation stamp — only compaction does). Without this a turn would
         # be in the ledger, absent from the index, and the index would still look CURRENT — so the fast path

@@ -15,7 +15,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools on path
-from memory import capture, index, ledger, records  # noqa: E402
+from memory import capture, index, ledger, records, scrub  # noqa: E402
 
 
 def _msg(role, text):
@@ -72,8 +72,8 @@ class RoundTripTests(CaptureTestCase):
         n = capture.capture_turn_delta(self.payload(t))
         self.assertEqual(n, 2)
         recs = self.records()
-        self.assertEqual([r["speaker"] for r in recs], ["user", "assistant"])
-        self.assertEqual([r["kind"] for r in recs], ["turn-delta", "turn-delta"])
+        self.assertEqual([r["role"] for r in recs], ["user", "assistant"])
+        self.assertEqual([r["kind"] for r in recs], ["primary-evidence", "primary-evidence"])
 
     def test_captured_notes_land_in_the_ledger_with_their_content(self):
         # Captured turn-deltas are durability fuel + the consolidation sweep's input, NOT recall content
@@ -87,14 +87,15 @@ class RoundTripTests(CaptureTestCase):
         t = self.transcript("s.jsonl", [_msg("user", "hello there")])
         capture.capture_turn_delta(self.payload(t, session_id="sess-XYZ"))
         rec = self.records()[0]
-        self.assertEqual(rec["v"], capture.RECORD_VERSION)
-        self.assertEqual(rec["kind"], "turn-delta")
+        self.assertEqual(rec["v"], records.PRIMARY_EVIDENCE_VERSION)
+        self.assertEqual(rec["kind"], records.PRIMARY_EVIDENCE_KIND)
         self.assertEqual(rec["session_id"], "sess-XYZ")
-        self.assertEqual(rec["seq"], 0)
+        self.assertEqual(rec["sequence"], 0)
+        self.assertEqual(rec["item_id"], "sess-XYZ:0")
+        self.assertEqual(rec["event"], "conversation-user")
+        self.assertEqual(rec["role"], "user")
         self.assertEqual(rec["text"], "hello there")
-        self.assertEqual(rec["tags"], ["transcript", "stop"])
-        self.assertIsInstance(rec["ts"], int)   # integers stay out of the FTS body (see ProjectionTests)
-        self.assertIsInstance(rec["seq"], int)
+        self.assertTrue(records.validate_primary_evidence(rec)[0])
 
 
 class CursorTests(CaptureTestCase):
@@ -128,17 +129,17 @@ class CursorTests(CaptureTestCase):
         capture.capture_turn_delta(self.payload(t))
         with open(os.path.join(self.data_dir, capture.CURSOR_FILENAME), "w", encoding="utf-8") as fh:
             fh.write("{not json at all")
-        n = capture.capture_turn_delta(self.payload(t))   # cursor unreadable -> re-capture from 0
-        self.assertEqual(n, 1)              # re-captured (duplicate-over-loss), did not crash
-        self.assertEqual(self.texts(), ["only turn", "only turn"])
+        n = capture.capture_turn_delta(self.payload(t))   # cursor unreadable -> scan deterministic item ids
+        self.assertEqual(n, 0)
+        self.assertEqual(self.texts(), ["only turn"])
 
     def test_deleted_cursor_file_is_treated_as_zero(self):
         t = self.transcript("s.jsonl", [_msg("user", "only turn")])
         capture.capture_turn_delta(self.payload(t))
         os.remove(os.path.join(self.data_dir, capture.CURSOR_FILENAME))
         n = capture.capture_turn_delta(self.payload(t))
-        self.assertEqual(n, 1)
-        self.assertEqual(len(self.records()), 2)
+        self.assertEqual(n, 0)
+        self.assertEqual(len(self.records()), 1)
 
     def test_cursor_is_monotonic_never_rewinds(self):
         t = self.transcript("s.jsonl", [_msg("user", "a"), _msg("assistant", "b")])
@@ -232,14 +233,14 @@ class PathSafetyTests(CaptureTestCase):
 
 
 class ContentTests(CaptureTestCase):
-    def test_long_message_is_chunked_losslessly_never_elided(self):
+    def test_long_message_is_retained_exactly_without_elision(self):
         tokens = [f"tok{i}" for i in range(2000)]
         big = "\n".join(tokens)                       # ~ 14k chars, well over the 4k chunk cap
         self.assertGreater(len(big), capture.CHUNK_MAX_CHARS * 2)
         t = self.transcript("s.jsonl", [_msg("user", big)])
         n = capture.capture_turn_delta(self.payload(t))
-        self.assertGreater(n, 1)                       # the one message became several records
-        joined = " ".join(self.texts())
+        self.assertEqual(n, 1)
+        joined = self.texts()[0]
         for tok in ("tok0", "tok1000", "tok1999"):     # head, MIDDLE, and tail all survive — no elision
             self.assertIn(tok, joined)
 
@@ -270,12 +271,13 @@ class ContentTests(CaptureTestCase):
         # ...but the cursor still advanced past it, so a re-trigger adds nothing
         self.assertEqual(capture.capture_turn_delta(self.payload(self.transcript("s.jsonl", lines))), 0)
 
-    def test_all_chunks_of_one_message_share_one_seq(self):
+    def test_one_source_message_has_one_sequence_and_item_identity(self):
         big = "\n".join(f"word{i}" for i in range(2000))   # one message, many chunks
         capture.capture_turn_delta(self.payload(self.transcript("s.jsonl", [_msg("user", big)])))
         recs = self.records()
-        self.assertGreater(len(recs), 1)
-        self.assertEqual({r["seq"] for r in recs}, {0})   # all chunks of message 0 carry seq 0
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["sequence"], 0)
+        self.assertEqual(recs[0]["item_id"], "sess-A:0")
 
     def test_boundary_free_message_chunks_losslessly(self):
         # the worst case for the chunker: a long message with NO whitespace boundary (the hard-cut path).
@@ -299,13 +301,15 @@ class EnvAndShapeTests(CaptureTestCase):
         self.assertEqual(n, 1)
         self.assertEqual(self.records()[0]["session_id"], "env-session")
 
-    def test_speaker_falls_back_to_top_level_role_then_unknown(self):
+    def test_unknown_role_refuses_before_append_and_defers_the_suffix(self):
         lines = [
             {"type": "user", "role": "human", "content": "top-level role only"},  # no message dict
             {"message": {"content": "no role anywhere"}},                          # message, but no role -> unknown
         ]
         capture.capture_turn_delta(self.payload(self.transcript("s.jsonl", lines)))
-        self.assertEqual([r["speaker"] for r in self.records()], ["human", "unknown"])
+        self.assertEqual([r["role"] for r in self.records()], ["user"])
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 1)
+        self.assertTrue(capture.pending_capture_report(ledger_file=self.ledger)["pending"])
 
 
 class ProjectionTests(CaptureTestCase):
@@ -381,37 +385,34 @@ class CloseSeamTests(CaptureTestCase):
 
 
 class InjectedTagTests(CaptureTestCase):
-    """Capture TAGS a harness-injected pseudo-turn (issue #274) instead of dropping it: it stays resident +
-    recoverable in the ledger (the #333 durability decision), but carries `records.INJECTED_TAG` so the
-    consolidation sweep skips it. Tagging is decided on the WHOLE message before chunking, so every chunk of a
-    multi-chunk block (the >4 KB /compact continuation summary) is tagged — not just the first."""
+    """The evidence writer extracts terminal agent text and excludes wrapper/continuation scaffolding."""
 
-    def test_a_task_notification_is_tagged_but_still_lands(self):
+    def test_a_task_notification_retains_only_its_terminal_result(self):
         t = self.transcript("s.jsonl", [
             _msg("user", "redesign the export to write a manifest first"),
-            _msg("user", "<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n</task-notification>"),
+            _msg("user", "<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>\n"
+                         "<result>manifest written</result>\n</task-notification>"),
         ])
         n = capture.capture_turn_delta(self.payload(t))
-        self.assertEqual(n, 2)                                          # both land — injected is RESIDENT, not dropped
+        self.assertEqual(n, 2)
         recs = self.records()
-        normal = next(r for r in recs if "redesign" in r["text"])
-        injected = next(r for r in recs if r["text"].startswith("<task-notification>"))
-        self.assertEqual(normal["tags"], ["transcript", "stop"])       # a real turn is untouched
-        self.assertIn(records.INJECTED_TAG, injected["tags"])          # the injected turn is tagged
+        self.assertEqual([r["event"] for r in recs],
+                         ["conversation-user", "agent-result-success-text"])
+        self.assertEqual(recs[1]["text"], "manifest written")
+        self.assertNotIn("task-notification", json.dumps(recs))
 
-    def test_a_multi_chunk_continuation_summary_tags_every_chunk(self):
+    def test_a_compaction_continuation_is_excluded_whole(self):
         body = "\n\n".join(f"Section {i}: " + ("detail " * 40) for i in range(40))   # ~12 KB > the 4 KB chunk cap
         summary = "This session is being continued from a previous conversation that ran out of context.\n\n" + body
         t = self.transcript("s.jsonl", [_msg("user", summary)])
         n = capture.capture_turn_delta(self.payload(t))
-        recs = self.records()
-        self.assertGreater(n, 1)                                       # genuinely chunked, not a single record
-        self.assertTrue(all(records.INJECTED_TAG in r["tags"] for r in recs))   # EVERY chunk tagged, not just the first
+        self.assertEqual(n, 0)
+        self.assertEqual(self.records(), [])
 
     def test_a_real_turn_mentioning_a_marker_is_not_tagged(self):
         t = self.transcript("s.jsonl", [_msg("user", "what does <task-notification> mean in my transcript?")])
         capture.capture_turn_delta(self.payload(t))
-        self.assertEqual(self.records()[0]["tags"], ["transcript", "stop"])   # start-anchored: a mention is kept
+        self.assertEqual(self.records()[0]["event"], "conversation-user")
 
 
 class NoiseFilterTests(CaptureTestCase):
@@ -776,17 +777,120 @@ class CaptureScrubTests(CaptureTestCase):
         self.assertEqual(capture.capture_turn_delta(self.payload(path)), 1)
         self.assertEqual(self.texts(), [turn])
 
-    def test_a_secret_in_a_large_multichunk_turn_is_redacted(self):
-        """A >4KB turn is split into multiple chunks; scrubbing BEFORE the split means a secret is caught
-        whole regardless of where the chunk boundary lands."""
+    def test_a_secret_in_a_large_exact_turn_is_redacted(self):
+        """A large turn is scrubbed before its exact text is committed."""
         filler = "detail line here. " * 300
         pem = "-----BEGIN RSA PRIVATE KEY-----\n" + "MIIEbase64body\n" * 4 + "-----END RSA PRIVATE KEY-----"
         turn = filler + pem + filler
         appended = capture.capture_turn_delta(self.payload(self.transcript("big.jsonl", [_msg("user", turn)])))
-        self.assertGreater(appended, 1)                        # >4KB → multiple chunks
-        joined = "\n".join(self.texts())
+        self.assertEqual(appended, 1)
+        joined = self.texts()[0]
         self.assertNotIn("PRIVATE KEY", joined)
         self.assertIn("[redacted:private-key]", joined)
+
+
+class PrimaryEvidenceCaptureTests(CaptureTestCase):
+    """B02's sealed source matrix and exact-once retry boundary.
+
+    These tests use only the fixture ledger/transcripts provided by
+    ``CaptureTestCase``.  In particular, the pending marker is inspected as
+    bytes to prove it is routing metadata rather than a raw-input quarantine.
+    """
+
+    def test_claude_matrix_retains_textual_conversation_and_terminal_results(self):
+        path = self.transcript("claude-primary.jsonl", [
+            _msg("user", "operator request"),
+            _msg("assistant", "assistant reply"),
+            {"type": "tool_result", "name": "shell", "status": "success", "content": "tool stdout"},
+            {"type": "agent_result", "name": "worker", "status": "failed", "result": "agent failed"},
+            {"type": "queue-operation", "op": "progress"},
+        ])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path, "claude-primary")), 4)
+        recs = self.records()
+        self.assertEqual([r["event"] for r in recs], [
+            "conversation-user", "conversation-assistant", "tool-result-success-text",
+            "agent-result-failure-text",
+        ])
+        self.assertTrue(all(records.validate_primary_evidence(r)[0] for r in recs))
+        self.assertEqual({r["provider"] for r in recs}, {"claude"})
+
+    def test_codex_matrix_excludes_arguments_echoes_and_resources(self):
+        path = self.transcript("codex-primary.jsonl", [
+            {"type": "session_meta", "payload": {"id": "s"}},
+            _codex_msg("user", "codex request"),
+            {"type": "response_item", "payload": {"type": "function_call", "name": "shell",
+                                                        "arguments": "SECRET_ARGUMENT"}},
+            {"type": "response_item", "payload": {"type": "function_call_output", "name": "shell",
+                                                        "status": "failure", "output": "stderr result"}},
+            {"type": "response_item", "payload": {"type": "function_call_output", "name": "read_file",
+                                                        "output": "terminal output"}},
+            {"type": "event_msg", "text": "duplicate assistant echo"},
+            {"type": "response_item", "payload": {"type": "message", "role": "assistant",
+                                                        "content": [{"type": "image", "url": "x"}]}},
+        ])
+        payload = self.payload(path, "codex-primary") | {"provider": "codex"}
+        self.assertEqual(capture.capture_turn_delta(payload), 3)
+        self.assertEqual([r["event"] for r in self.records()],
+                         ["conversation-user", "tool-result-failure-text", "tool-result-success-text"])
+        self.assertNotIn("SECRET_ARGUMENT", json.dumps(self.records()))
+
+    def test_failure_at_each_item_commits_once_then_recovers_in_source_order(self):
+        path = self.transcript("retry.jsonl", [
+            _msg("user", "first"), _msg("assistant", "second"), _msg("user", "third"),
+        ])
+        payload = self.payload(path, "retry")
+        for failure_position in range(3):
+            with self.subTest(failure_position=failure_position):
+                shutil.rmtree(self.mem, ignore_errors=True)
+                calls = 0
+                real_append = ledger.append
+
+                def fail_once(record, *, path=None):
+                    nonlocal calls
+                    if calls == failure_position:
+                        calls += 1
+                        raise OSError("fixture failure")
+                    calls += 1
+                    return real_append(record, path=path)
+
+                with mock.patch.object(ledger, "append", side_effect=fail_once):
+                    self.assertEqual(capture.capture_turn_delta(payload), failure_position)
+                self.assertEqual(capture._read_cursor(self.data_dir, "retry"), failure_position)
+                self.assertEqual(self.texts(), ["first", "second", "third"][:failure_position])
+                self.assertEqual(capture.capture_turn_delta(payload), 3 - failure_position)
+                self.assertEqual(self.texts(), ["first", "second", "third"])
+                self.assertEqual(len({r["item_id"] for r in self.records()}), 3)
+
+    def test_unknown_event_defers_it_and_every_later_item(self):
+        path = self.transcript("unknown.jsonl", [
+            _msg("user", "prefix"), {"type": "future-wrapper", "body": "not classified"},
+            _msg("assistant", "must wait"),
+        ])
+        self.assertEqual(capture.capture_turn_delta(self.payload(path, "unknown")), 1)
+        self.assertEqual(self.texts(), ["prefix"])
+        self.assertEqual(capture._read_cursor(self.data_dir, "unknown"), 1)
+        self.assertNotIn("must wait", json.dumps(self.records()))
+
+    def test_pending_marker_is_content_free_and_scrubbed_secret_never_lands(self):
+        secret = "AKIAIOSFODNN7EXAMPLE"
+        path = self.transcript("secret-retry.jsonl", [_msg("user", "prefix"),
+                                                       _msg("assistant", "key " + secret)])
+        with mock.patch.object(scrub, "scrub_text_checked", return_value=(None, False)):
+            self.assertEqual(capture.capture_turn_delta(self.payload(path, "secret-retry")), 0)
+        pending = os.path.join(self.data_dir, capture.PENDING_FILENAME)
+        with open(pending, "rb") as fh:
+            raw = fh.read()
+        self.assertNotIn(secret.encode(), raw)
+        self.assertNotIn(b"prefix", raw)
+        self.assertEqual(json.loads(raw)["secret-retry"], {"item": 0, "reason": "scrub-uncertain"})
+        self.assertEqual(capture.pending_capture_report(ledger_file=self.ledger),
+                         {"pending": True, "session_count": 1})
+        self.assertEqual(capture.capture_turn_delta(self.payload(path, "secret-retry")), 2)
+        self.assertEqual(capture.pending_capture_report(ledger_file=self.ledger),
+                         {"pending": False, "session_count": 0})
+        stored = json.dumps(self.records())
+        self.assertNotIn(secret, stored)
+        self.assertIn("[redacted:aws-key]", stored)  # known shape only; not a universal-removal claim
 
 
 class CaptureDiagnosticsTests(CaptureTestCase):

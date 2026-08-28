@@ -91,6 +91,24 @@ _PATTERNS = [
 ]
 
 
+def scrub_text_checked(text):
+    """Return ``(scrubbed_text, certain)`` without ever retaining a failed result.
+
+    Capture needs a fail-closed seam: if the deterministic scrubber itself cannot
+    complete, the caller must defer the source item rather than append its raw
+    bytes.  The public ``scrub_text`` compatibility wrapper below intentionally
+    keeps its historical fail-soft API for existing callers.
+    """
+    if not isinstance(text, str):
+        return text, False
+    try:
+        for pattern, replacement in _PATTERNS:
+            text = pattern.sub(replacement, text)
+        return text, True
+    except Exception:  # noqa: BLE001 — capture must defer, never retain raw text
+        return None, False
+
+
 def scrub_text(text):
     """Redact high-confidence secret/credential shapes from a captured turn's text, replacing each with
     a typed, idempotent placeholder (`[redacted:<kind>]`).
@@ -103,9 +121,5 @@ def scrub_text(text):
     input is returned unchanged, biasing to under-redaction over corruption or a crash."""
     if not text:
         return text
-    try:
-        for pattern, replacement in _PATTERNS:
-            text = pattern.sub(replacement, text)
-        return text
-    except Exception:  # noqa: BLE001 — capture is fail-soft; never corrupt or crash on a redaction fault
-        return text
+    scrubbed, certain = scrub_text_checked(text)
+    return scrubbed if certain else text
