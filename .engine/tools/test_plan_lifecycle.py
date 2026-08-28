@@ -788,3 +788,24 @@ class D14TheAddMessageSpeaksForOneBranch(_Ceremony):
         out = self.run_command("program", "add", slug, root)[1]
         self.assertIn("as child 1", out)
         self.assertNotIn("carried into the next child", out)
+
+
+class D15TheUnknownSummaryDoesNotBlameTheWrongCause(_Ceremony):
+    """A dangling or cyclic edge sits in a record that parses perfectly well.
+
+    The summary called every unknown cause 'unreadable', which would send an operator looking for a
+    corrupt file when the record is fine and the edge is the problem.
+    """
+
+    def test_a_dangling_edge_is_not_reported_as_unreadable(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Dangling", "A readable record with a broken edge.")
+        program_id = programs.read(slug)["program_id"]
+        self.plan(plan_id="pln_ffffffffff20", title="Root", program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff20")
+        record = programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_ffffffffff99"
+        programs._write(slug, record)
+        listing = self.run_command("program", "list")[1]
+        self.assertNotIn("unreadable", listing,
+                         "the record parses; only its edge is broken")

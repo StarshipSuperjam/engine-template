@@ -691,10 +691,8 @@ class TheSeamHoldsAtModuleLevel(_Program):
     by omission, including any added later, which a denylist cannot do.
     """
 
-    # Exactly the agreed read set — no wider. `slugs` was in here defensively and plan_program never
-    # calls it; carrying an unused permission is how an allowlist quietly turns back into a denylist.
-    # Exactly what plan_program actually calls on its PlanLibrary handle. `slugs` and `plan_dir` were
-    # in here defensively and the module calls neither; carrying an unused permission is how an
+    # Exactly what plan_program actually calls on its PlanLibrary handle — `slugs` and `plan_dir`
+    # were in here defensively and the module calls neither. Carrying an unused permission is how an
     # allowlist quietly turns back into a denylist.
     PERMITTED = {"resolve", "read_record", "head", "root"}
     # Module-level reads of plan_store itself — a different namespace from the library HANDLE, and the
@@ -790,3 +788,78 @@ class ADebtOffTheChainIsUnknownNotAbsent(_Program):
     def test_the_one_line_summary_agrees(self):
         record = self._detached_loop()
         self.assertTrue(self.programs.obligation_report(record)["unknown"])
+
+    def test_a_dangling_end_still_owes_what_it_carries_and_says_so_once(self):
+        """A broken edge is a fact about ORDER, not about whether the debt is owed.
+
+        The first repair over-corrected: it excluded every off-chain child from the union, which
+        turned a real, live, unanswered obligation into silence. And the repair before that reported
+        it twice — attributed as a branch carry AND named as unattributable. The rule that settles
+        both: nothing live succeeds this child, so it IS an end and its debt is owed there; the
+        broken edge is disclosed on its own, once.
+        """
+        slug = self._program("Dangling", "A child whose predecessor is not in this program.")
+        self._plan("pln_700000000001", "Root")
+        self.programs.add_child(slug, "pln_700000000001")
+        self._plan("pln_700000000002", "Dangling",
+                   _obligation("OB-X", "Owed at a place the chain cannot reach."),
+                   predecessor="pln_700000000001")
+        self.programs.add_child(slug, "pln_700000000002", predecessor="pln_700000000001")
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_799999999999"
+        self.programs._write(slug, record)
+
+        report = self.programs.obligation_report(record)
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-X"],
+                         "a live end's debt is owed even when its predecessor edge is broken")
+        self.assertEqual(list(report["by_leaf"]), ["pln_700000000002"])
+        self.assertFalse(any("OB-X" in reason for reason in report["unknown"]),
+                         "attributed and unattributable are two answers to one question")
+        rendered = plan_program.render(self.programs, record)
+        self.assertEqual(rendered.count("OB-X"), 1, "the same obligation must not be reported twice")
+        self.assertIn("no such child is in this program", rendered)   # the edge, disclosed separately
+
+    def test_a_live_child_whose_only_successor_died_is_the_branch_end(self):
+        """The shape that still lost a debt silently: an open child carrying an unanswered obligation
+        whose only successor was retired. It is not a structural leaf, and the dead leaf is excluded,
+        so the program reported nothing outstanding while genuinely still owing it."""
+        slug = self._program("Dead successor", "The branch's end was retired; its ancestor lives.")
+        self._plan("pln_710000000001", "Still open",
+                   _obligation("OB-LIVE", "Never answered; the successor was retired."))
+        self.programs.add_child(slug, "pln_710000000001")
+        self._plan("pln_710000000002", "Retired successor",
+                   _obligation("OB-LIVE", "Never answered; the successor was retired."),
+                   predecessor="pln_710000000001")
+        self.programs.add_child(slug, "pln_710000000002", predecessor="pln_710000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_710000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+
+        report = self.programs.obligation_report(self.programs.read(slug))
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-LIVE"])
+        self.assertEqual(list(report["by_leaf"]), ["pln_710000000001"],
+                         "the live ancestor is the branch's end once its successor is dead")
+
+    def test_a_dead_child_off_the_chain_contributes_nothing(self):
+        """A stopped branch's carries stopped with it — including when its edge is also broken. The
+        unknown path must not resurrect them by another door."""
+        slug = self._program("Dead and dangling", "An abandoned child with a broken edge.")
+        self._plan("pln_720000000001", "Root")
+        self.programs.add_child(slug, "pln_720000000001")
+        self._plan("pln_720000000002", "Abandoned",
+                   _obligation("OB-DEAD", "Let go when the branch stopped."),
+                   predecessor="pln_720000000001")
+        self.programs.add_child(slug, "pln_720000000002", predecessor="pln_720000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_720000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "abandoned", "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_729999999999"
+        self.programs._write(slug, record)
+
+        report = self.programs.obligation_report(record)
+        self.assertFalse(any("OB-DEAD" in reason for reason in report["unknown"]),
+                         "a stopped branch's debt must not come back as 'unknown'")
+        self.assertNotIn("pln_720000000002", report["by_leaf"])

@@ -465,50 +465,68 @@ class ProgramLibrary:
         return view
 
     def obligation_report(self, record: dict) -> dict:
-        """What this program still owes, per LEAF, and honestly when it cannot tell.
+        """What this program still owes, per branch end, and honestly when it cannot tell.
 
-        Three corrections to reading the last array element, each of which was wrong on a real shelf:
+        ONE RULE, stated whole, because answering it in pieces produced four wrong answers in a row:
 
-        1. A leaf, not the tail. `view[-1]` is the last child by stored position; once the chain forks
-           the other branch's debts vanished from the only number an operator reads. The answer is the
-           union over every branch end.
-        2. OPEN leaves only. A retired or abandoned branch is a decision to stop, and its carries died
-           with it — a live program on this workstation has exactly that shape, with a debt the
-           surviving branch deliberately RELEASED still sitting on the dead leaf. Unioning it back in
-           would resurrect an obligation someone consciously let go, which is a new wrong answer, not
-           a fix.
-        3. Unknown is never zero. A missing or unreadable child, or a cycle leaving no leaf at all,
-           means the debt cannot be computed — and printing `0 outstanding` for exactly the corrupted
-           programs this reporting exists to expose is the same silent decay one level up. Those cases
-           populate `unknown`, and every caller renders it instead of a count.
+            A program owes what its LIVE branch ends still carry.
+            A child is LIVE if its plan reads and it is not retired or abandoned.
+            A live child is a BRANCH END if no live child declares it as predecessor.
+            A live child carrying a debt that is not a branch end and cannot be placed on the chain
+            is UNKNOWN — the debt is real, its position is not.
+
+        Each clause was a defect found by review, and each is here rather than in a caller:
+
+        - `view[-1]` answered "what does the last row carry". Once the chain forked, the other
+          branch's debts left the only number an operator reads.
+        - Retired and abandoned branches are not ends: a live shelf holds exactly that shape, with a
+          debt the surviving branch deliberately RELEASED still sitting on the dead leaf. Unioning it
+          back would resurrect an obligation someone consciously let go.
+        - But a dead END does not kill its live ANCESTOR's debt. An open child whose only successor
+          was retired is itself the live end of that branch, and reporting `None outstanding` while it
+          carries an unanswered obligation is the same silent drop wearing a different mask.
+        - A child off the chain still carries what it carries. If nothing live succeeds it, it IS an
+          end and its debt is owed there; the broken edge is disclosed separately. Only when it can be
+          neither placed nor ended — a cycle member — is the debt unknown rather than owed.
+        - Unknown is never zero, and never also a count: a debt is reported once, in one place.
         """
         analysis = chain_analysis(record)
         view = {child["plan_id"]: child for child in self.child_view(record)}
+
+        def live(plan_id: str) -> bool:
+            child = view.get(plan_id)
+            return bool(child) and child["status"] not in DEAD_BRANCH_STATES \
+                and child["status"] not in ("missing", "unreadable")
+
+        # A live child that no LIVE child succeeds. Not `analysis["leaves"]`, which is structural and
+        # cannot see that a branch's only successor is retired.
+        succeeded = {child.get("predecessor_plan_id") for child in record["children"]
+                     if live(child["plan_id"]) and child.get("predecessor_plan_id")}
+        ends = [plan_id for plan_id in analysis["order"]
+                if live(plan_id) and plan_id not in succeeded]
+
         unknown, by_leaf, obligations = [], {}, {}
         for child in view.values():
             if child["status"] in ("missing", "unreadable"):
                 unknown.append(f"{child['plan_id']} is {child['status']}")
-            elif child.get("anomaly") and child["outstanding"]:
-                # It carries a debt and sits off the chain, so it is nobody's predecessor and nobody's
-                # leaf: the union would simply never see it. Silence here is the same silent drop this
-                # object exists to prevent, arriving through a broken edge instead of a missing word.
-                unknown.append(
-                    f"{child['plan_id']} carries {len(child['outstanding'])} obligation(s) but is "
-                    f"{child['anomaly']}, so they sit on no branch and cannot be attributed: "
-                    + ", ".join(o["id"] for o in child["outstanding"]))
-        for plan_id in analysis["leaves"]:
-            child = view.get(plan_id)
-            if child is None or child["status"] in ("missing", "unreadable"):
-                continue
-            if child["status"] in DEAD_BRANCH_STATES:
-                continue          # a branch someone stopped; its carries stopped with it
+        for plan_id in ends:
+            child = view[plan_id]
             if child["outstanding"]:
                 by_leaf[plan_id] = child["outstanding"]
                 for obligation in child["outstanding"]:
                     obligations[obligation["id"]] = obligation
-        if not analysis["leaves"] and record["children"]:
-            unknown.append("no branch of this chain ends — every child is succeeded by another, "
-                           "which means the predecessor edges form a cycle")
+        for plan_id, child in view.items():
+            # Carries a debt, is live, is not an end, and cannot be placed: a cycle member. Its debt
+            # is real and belongs nowhere the chain reaches, so it is named rather than dropped — and
+            # named ONCE, since it was not attributed above.
+            if child.get("anomaly") and live(plan_id) and child["outstanding"] and plan_id not in ends:
+                unknown.append(
+                    f"{plan_id} carries {len(child['outstanding'])} obligation(s) but is "
+                    f"{child['anomaly']}, so they sit on no branch and cannot be attributed: "
+                    + ", ".join(o["id"] for o in child["outstanding"]))
+        if record["children"] and not ends and not unknown:
+            unknown.append("no live branch of this chain ends — every open child is succeeded by "
+                           "another, which means the predecessor edges form a cycle")
         return {"obligations": sorted(obligations.values(), key=lambda o: o["id"]),
                 "by_leaf": by_leaf, "unknown": unknown, "analysis": analysis}
 
