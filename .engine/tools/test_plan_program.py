@@ -38,17 +38,31 @@ class _Program(unittest.TestCase):
         self.programs = plan_program.ProgramLibrary(self.plans)
         self.addCleanup(self._tmp.cleanup)
 
-    def _plan(self, plan_id, title, *obligations, program_id="prg_aaaaaaaaaaaa", predecessor=None):
+    def _plan(self, plan_id, title, *obligations, program_id=None, predecessor=None):
+        """A plan document, always carrying the program back-link `add_child` now requires.
+
+        The back-link used to be written only when the fixture declared obligations, which was fine
+        while membership was read from the program record alone. It is now load-bearing — it is the
+        only evidence of membership that survives a program record that will not parse — so every
+        fixture plan carries it, defaulting to the program this test case created.
+        """
         document = _document(plan_id=plan_id, title=title)
+        program = {"program_id": program_id or getattr(self, "program_id", "prg_aaaaaaaaaaaa")}
         if obligations:
-            program = {"program_id": program_id, "carried_obligations": list(obligations)}
-            if predecessor:
-                program["predecessor_plan_id"] = predecessor
-            document["program"] = program
+            program["carried_obligations"] = list(obligations)
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        document["program"] = program
         return self.plans.create(document), document
 
+    def _program(self, title, objective):
+        """Create a program and remember its minted id, so fixture plans can declare it."""
+        slug = self.programs.create(title, objective)
+        self.program_id = self.programs.read(slug)["program_id"]
+        return slug
+
     def _two_pr_program(self):
-        slug = self.programs.create("Plan Coordinator", "A coordinator delivered across two PRs.")
+        slug = self._program("Plan Coordinator", "A coordinator delivered across two PRs.")
         self._plan("pln_aaaaaaaaaaaa", "PR A",
                    _obligation("OB-1", "PR B cuts the Build Coordinator over to sealed handoffs."),
                    _obligation("OB-2", "PR B updates the plan-authority documentation and tests."))
@@ -58,7 +72,7 @@ class _Program(unittest.TestCase):
 
 class Creation(_Program):
     def test_a_program_starts_empty_and_says_so(self):
-        slug = self.programs.create("A program", "Deliver a thing across PRs.")
+        slug = self._program("A program", "Deliver a thing across PRs.")
         record = self.programs.read(slug)
         self.assertEqual(record["children"], [])
         self.assertEqual(self.programs.derived_status(record), "empty")
@@ -73,7 +87,7 @@ class Creation(_Program):
             self.programs.add_child(slug, "pln_bbbbbbbbbbbb")
 
     def test_declaring_a_predecessor_on_the_first_child_is_refused(self):
-        slug = self.programs.create("A program", "Objective.")
+        slug = self._program("A program", "Objective.")
         self._plan("pln_aaaaaaaaaaaa", "PR A")
         with self.assertRaisesRegex(plan_program.ProgramError, "no predecessor to declare"):
             self.programs.add_child(slug, "pln_aaaaaaaaaaaa", predecessor="pln_aaaaaaaaaaaa")
@@ -84,7 +98,7 @@ class Creation(_Program):
             self.programs.add_child(slug, "pln_aaaaaaaaaaaa", predecessor="pln_aaaaaaaaaaaa")
 
     def test_nothing_auto_selects_a_program(self):
-        self.programs.create("Only program", "Objective.")
+        self._program("Only program", "Objective.")
         with self.assertRaisesRegex(plan_program.ProgramError, "nothing is selected by default"):
             self.programs.resolve("")
 
@@ -282,14 +296,14 @@ class Rendering(_Program):
         self.assertIn("None of them can be dropped by saying nothing", rendered)
 
     def test_a_program_with_nothing_outstanding_says_so(self):
-        slug = self.programs.create("Small program", "One PR after all.")
+        slug = self._program("Small program", "One PR after all.")
         self._plan("pln_aaaaaaaaaaaa", "The only PR")
         self.programs.add_child(slug, "pln_aaaaaaaaaaaa")
         rendered = plan_program.render(self.programs, self.programs.read(slug))
         self.assertIn("None outstanding", rendered)
 
     def test_a_pipe_in_a_child_title_does_not_break_the_table(self):
-        slug = self.programs.create("A program", "Objective.")
+        slug = self._program("A program", "Objective.")
         self._plan("pln_aaaaaaaaaaaa", "Before | after")
         self.programs.add_child(slug, "pln_aaaaaaaaaaaa")
         self.assertIn("Before \\| after", plan_program.render(self.programs, self.programs.read(slug)))
@@ -351,9 +365,9 @@ class ReleasedImpliesAReason(_Program):
         # There is no predecessor on a first child, so the carry-forward check cannot see this one —
         # which is exactly why the release check is separate and runs for every child. A first plan
         # can release something it inherited from outside the program.
-        slug = self.programs.create("Plan Coordinator", "Delivered across PRs.")
+        slug = self._program("Plan Coordinator", "Delivered across PRs.")
         document = _document(plan_id="pln_eeeeeeeeeeee", title="First child")
-        document["program"] = {"program_id": "prg_aaaaaaaaaaaa",
+        document["program"] = {"program_id": self.program_id,
                                "carried_obligations": [self._released("a real reason")]}
         plan_slug = self.plans.create(document)
         # Reach past the schema on purpose, to prove the program gate stands on its own rather than
@@ -386,3 +400,626 @@ class ReleasedImpliesAReason(_Program):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheChainIsAuthoritative(_Program):
+    """Order comes from the predecessor edges, never from the stored `position` numbering.
+
+    Each test here is written to fail against the code that preceded it. That matters more than usual:
+    the defect being fixed is a REPORT that was wrong, and a test which passes either way vouches for
+    nothing. The obvious fixture — permute the children array and assert the render is unchanged — is
+    exactly such a test, because `child_view` already sorted by the stored `position` field, so array
+    order never mattered and the assertion was green before the fix and after it. The fixtures below
+    permute the position VALUES instead, which is what the old sort actually read.
+
+    One exception, stated rather than glossed: `test_duplicate_positions_do_not_disturb_the_order`
+    passes against the prior code too, because a stable sort left the array order intact. It is kept
+    as a supplementary assertion, not as evidence — the reversal fixture is the one that discriminates.
+    """
+
+    def _chain(self, *ids):
+        """A linear chain a -> b -> c ..., every child declaring the one before it."""
+        slug = self._program("Chained", "Delivered across several PRs.")
+        previous = None
+        for plan_id in ids:
+            self._plan(plan_id, f"Child {plan_id[-1]}", predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            previous = plan_id
+        return slug
+
+    def test_order_follows_the_edges_when_the_positions_contradict_them(self):
+        slug = self._chain("pln_aaaaaaaaaaa1", "pln_aaaaaaaaaaa2", "pln_aaaaaaaaaaa3")
+        record = self.programs.read(slug)
+        # Reverse the stored numbering so it disagrees with the edges. The old ordering read these
+        # numbers and would render 3, 2, 1; the chain still says 1, 2, 3 and that is what must win.
+        for child, number in zip(record["children"], [3, 2, 1]):
+            child["position"] = number
+        self.programs._write(slug, record)
+        self.assertEqual([child["plan_id"] for child in self.programs.child_view(record)],
+                         ["pln_aaaaaaaaaaa1", "pln_aaaaaaaaaaa2", "pln_aaaaaaaaaaa3"])
+        self.assertEqual([child["chain_ordinal"] for child in self.programs.child_view(record)],
+                         [1, 2, 3])
+
+    def test_duplicate_positions_do_not_disturb_the_order(self):
+        slug = self._chain("pln_bbbbbbbbbbb1", "pln_bbbbbbbbbbb2", "pln_bbbbbbbbbbb3")
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            child["position"] = 1
+        self.programs._write(slug, record)
+        self.assertEqual([child["plan_id"] for child in self.programs.child_view(record)],
+                         ["pln_bbbbbbbbbbb1", "pln_bbbbbbbbbbb2", "pln_bbbbbbbbbbb3"])
+
+    def test_every_stored_child_appears_exactly_once_even_when_unreachable(self):
+        slug = self._chain("pln_ccccccccccc1", "pln_ccccccccccc2")
+        record = self.programs.read(slug)
+        # A predecessor that is not a child of this program: the edge dangles, so nothing reaches
+        # this row from the start of the chain. Dropping it would make the program look shorter than
+        # it is — the exact lie `child_view` was written to refuse for missing plans.
+        record["children"][1]["predecessor_plan_id"] = "pln_dddddddddddd"
+        self.programs._write(slug, record)
+        view = self.programs.child_view(record)
+        self.assertEqual([child["plan_id"] for child in view],
+                         ["pln_ccccccccccc1", "pln_ccccccccccc2"])
+        self.assertEqual(view[1]["anomaly"], "dangling-predecessor")
+        self.assertIn("no such child is in this program",
+                      plan_program.render(self.programs, record))
+
+    def test_a_cycle_is_reported_rather_than_looped_on(self):
+        slug = self._chain("pln_eeeeeeeeeee1", "pln_eeeeeeeeeee2")
+        record = self.programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_eeeeeeeeeee2"   # 1 -> 2 -> 1
+        self.programs._write(slug, record)
+        view = self.programs.child_view(record)
+        self.assertEqual(len(view), 2)
+        self.assertTrue(all(child.get("anomaly") == "unreachable" for child in view))
+        rendered = plan_program.render(self.programs, record)
+        self.assertIn("lead in a circle", rendered)
+        # No leaf exists, so the debt is UNKNOWN — and unknown must never print as a clean zero.
+        self.assertIn("Cannot be computed", rendered)
+        self.assertTrue(self.programs.obligation_report(record)["unknown"])
+
+
+class ForkedChainsOweBothBranches(_Program):
+    """`view[-1]` answered "what does the last row carry", not "what does this program still owe"."""
+
+    def _fork(self, tail_state=None):
+        """root -> (branch_a, branch_b). Both branches end; each carries its own debt."""
+        slug = self._program("Forked", "One root, two branches.")
+        self._plan("pln_100000000001", "Root")
+        self.programs.add_child(slug, "pln_100000000001")
+        self._plan("pln_100000000002", "Branch A",
+                   _obligation("OB-A", "Branch A still owes this."), predecessor="pln_100000000001")
+        self.programs.add_child(slug, "pln_100000000002", predecessor="pln_100000000001")
+        self._plan("pln_100000000003", "Branch B",
+                   _obligation("OB-B", "Branch B still owes this."), predecessor="pln_100000000001")
+        self.programs.add_child(slug, "pln_100000000003", predecessor="pln_100000000001")
+        if tail_state:
+            # Branch B deliberately, because it is the LAST row: the code this replaces answered with
+            # `view[-1]`, so retiring any earlier branch would let the old answer come out right by
+            # accident and the fixture would pin nothing. Retiring the last row makes the two answers
+            # disagree — old code reports the dead branch's debt, the fix reports the living one's.
+            self.plans.update_record(
+                self.plans.resolve("pln_100000000003"),
+                lambda current: current.__setitem__(
+                    "closure", {"state": tail_state, "at": "2026-01-01T00:00:00Z", "reason": "done"}))
+        return slug
+
+    def test_both_branches_debts_are_reported_not_only_the_last_row(self):
+        record = self.programs.read(self._fork())
+        self.assertEqual([o["id"] for o in self.programs.outstanding_obligations(record)],
+                         ["OB-A", "OB-B"])
+
+    def test_each_debt_says_which_branch_end_carries_it(self):
+        record = self.programs.read(self._fork())
+        by_leaf = self.programs.obligation_report(record)["by_leaf"]
+        self.assertEqual({leaf: [o["id"] for o in obligations]
+                          for leaf, obligations in by_leaf.items()},
+                         {"pln_100000000002": ["OB-A"], "pln_100000000003": ["OB-B"]})
+
+    def test_the_fork_itself_is_disclosed(self):
+        rendered = plan_program.render(self.programs, self.programs.read(self._fork()))
+        # Under "Where the chain branches" — a structural fact — never under the corruption heading.
+        self.assertIn("Where the chain branches", rendered)
+        self.assertIn("is the declared predecessor of", rendered)
+        self.assertNotIn("What does not add up", rendered)
+
+    def test_a_retired_branchs_debts_died_with_it(self):
+        # The shape observed on a live shelf: one branch retired, still carrying obligations, one of
+        # which the surviving branch deliberately RELEASED with a reason. Unioning it back in would
+        # resurrect a debt someone consciously let go — a new wrong answer, not a fix.
+        record = self.programs.read(self._fork(tail_state="retired"))
+        self.assertEqual([o["id"] for o in self.programs.outstanding_obligations(record)], ["OB-A"])
+
+    def test_an_abandoned_branchs_debts_died_with_it(self):
+        record = self.programs.read(self._fork(tail_state="abandoned"))
+        self.assertEqual([o["id"] for o in self.programs.outstanding_obligations(record)], ["OB-A"])
+
+
+class UnknownIsNeverZero(_Program):
+    """A corrupt program is the one case where "0 outstanding" would be worst, so it is refused."""
+
+    def test_a_missing_child_makes_the_debt_unknown_not_zero(self):
+        slug = self._program("Broken", "A child that is not in this library.")
+        self._plan("pln_200000000001", "Present")
+        self.programs.add_child(slug, "pln_200000000001")
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_200000000009", "position": 2,
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_200000000001"})
+        self.programs._write(slug, record)
+        report = self.programs.obligation_report(record)
+        self.assertEqual(report["obligations"], [])
+        self.assertTrue(report["unknown"], "a missing child must make the debt unknown, not zero")
+        self.assertIn("Cannot be computed", plan_program.render(self.programs, record))
+
+
+class AForkIsNotADefect(_Program):
+    """A fork is how a branch gets superseded. Filing it under corruption made the shelf's one real
+    forked program read as damaged every time an operator looked at it."""
+
+    def _superseded_fork(self):
+        slug = self._program("Superseded", "One branch retired, one carried on.")
+        self._plan("pln_500000000001", "Root")
+        self.programs.add_child(slug, "pln_500000000001")
+        for plan_id, title in (("pln_500000000002", "Abandoned branch"),
+                               ("pln_500000000003", "Surviving branch")):
+            self._plan(plan_id, title, predecessor="pln_500000000001")
+            self.programs.add_child(slug, plan_id, predecessor="pln_500000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_500000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "superseded"}))
+        return self.programs.read(slug)
+
+    def test_a_superseded_fork_is_not_reported_as_corruption(self):
+        rendered = plan_program.render(self.programs, self._superseded_fork())
+        self.assertIn("Where the chain branches", rendered)
+        self.assertNotIn("What does not add up", rendered)
+        self.assertIn("Nothing here needs fixing", rendered)
+
+    def test_a_fork_with_two_live_branches_says_the_program_has_two_ends(self):
+        slug = self._program("Live fork", "Two branches, both open.")
+        self._plan("pln_510000000001", "Root")
+        self.programs.add_child(slug, "pln_510000000001")
+        for plan_id in ("pln_510000000002", "pln_510000000003"):
+            self._plan(plan_id, "Branch", predecessor="pln_510000000001")
+            self.programs.add_child(slug, plan_id, predecessor="pln_510000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("more than one of these branches is still open", rendered)
+        self.assertNotIn("Nothing here needs fixing", rendered)
+
+    def test_real_corruption_still_gets_the_alarming_heading(self):
+        slug = self._program("Broken", "A dangling edge.")
+        self._plan("pln_520000000001", "Root")
+        self.programs.add_child(slug, "pln_520000000001")
+        record = self.programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_529999999999"
+        self.programs._write(slug, record)
+        self.assertIn("What does not add up", plan_program.render(self.programs, record))
+
+
+class TheBackLinkIsRequiredToJoin(_Program):
+    """Membership must survive a program record that will not parse; the back-link is how."""
+
+    def test_a_plan_that_does_not_declare_the_program_is_refused(self):
+        slug = self._program("Strict", "Every child declares its program.")
+        document = _document(plan_id="pln_300000000001", title="No back-link")
+        self.plans.create(document)
+        with self.assertRaisesRegex(plan_program.ProgramError, "does not declare that it belongs"):
+            self.programs.add_child(slug, "pln_300000000001")
+
+    def test_the_refusal_names_the_fix(self):
+        slug = self._program("Strict", "Every child declares its program.")
+        self.plans.create(_document(plan_id="pln_300000000002", title="No back-link"))
+        with self.assertRaisesRegex(plan_program.ProgramError, "program.program_id"):
+            self.programs.add_child(slug, "pln_300000000002")
+
+    def test_the_sealed_refusal_names_the_revise_step_a_clone_still_needs(self):
+        # `clone` deliberately drops the program block, so "clone it" alone leaves the operator
+        # failing this very check a second time. The message has to name the middle step.
+        slug = self._program("Strict", "Every child declares its program.")
+        plan_slug = self.plans.create(_document(plan_id="pln_300000000004", title="Sealed, no link"))
+        self.plans.update_record(plan_slug, lambda current: current.__setitem__(
+            "seal", {"revision": 1, "reviewed_digest": "sha256:" + "0" * 64,
+                     "sealed_digest": "sha256:" + "0" * 64,
+                     "build_plan_digest": "sha256:" + "0" * 64,
+                     "at": "2026-01-01T00:00:00Z", "delta_judgment": "none"}))
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.add_child(slug, "pln_300000000004")
+        self.assertIn("revise", str(caught.exception).lower())
+        self.assertIn("clone", str(caught.exception).lower())
+
+    def test_a_plan_declaring_this_program_joins(self):
+        slug = self._program("Strict", "Every child declares its program.")
+        self._plan("pln_300000000003", "Declares it")
+        self.assertEqual(len(self.programs.add_child(slug, "pln_300000000003")["children"]), 1)
+
+
+class OneBrokenRecordDoesNotHideTheRest(_Program):
+    """`program_for_plan` validated every record and let any failure escape — so one malformed file
+    refused the seal of every plan in the library, including plans in no program at all."""
+
+    def _corrupt(self, slug, text):
+        (self.programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(
+            text, encoding="utf-8")
+
+    def test_a_schema_broken_record_still_owns_its_children(self):
+        # Parseable but invalid: the children array is still readable, so ownership is attributable
+        # and the owner's seal must still refuse. Fail CLOSED.
+        slug = self._program("Owner", "Broken but readable.")
+        self._plan("pln_400000000001", "Child")
+        self.programs.add_child(slug, "pln_400000000001")
+        record = self.programs.read(slug)
+        record["schema_version"] = "engine-program.v99"
+        self._corrupt(slug, json.dumps(record))
+        membership = self.programs.program_membership("pln_400000000001")
+        self.assertEqual(membership["slug"], slug)
+        self.assertTrue(membership["unreadable"])
+
+    def test_an_unrelated_broken_record_does_not_claim_a_standalone_plan(self):
+        slug = self._program("Unrelated", "Nothing to do with the other plan.")
+        self._plan("pln_400000000002", "Child")
+        self.programs.add_child(slug, "pln_400000000002")
+        self._corrupt(slug, "{not json at all")
+        self.plans.create(_document(plan_id="pln_400000000003", title="Standalone"))
+        membership = self.programs.program_membership("pln_400000000003")
+        self.assertIsNone(membership["slug"])
+        self.assertTrue(membership["unreadable"], "the broken record is still reported, not hidden")
+
+    def test_an_unparseable_record_is_still_claimed_by_the_plans_own_back_link(self):
+        # The fail-OPEN this split exists to prevent: without the back-link, a plan whose own program
+        # cannot be parsed looks exactly like a plan in no program, and its carry-forward re-check
+        # would be skipped in silence.
+        slug = self._program("Claimed", "Unparseable, but the child says whose it is.")
+        program_id = self.program_id
+        self._plan("pln_400000000004", "Child")
+        self.programs.add_child(slug, "pln_400000000004")
+        self._corrupt(slug, "{not json at all")
+        membership = self.programs.program_membership("pln_400000000004",
+                                                      claimed_program_id=program_id)
+        self.assertTrue(membership["claims_unreadable"],
+                        "a plan whose own program cannot be read must not look standalone")
+
+
+class TheSeamHoldsAtModuleLevel(_Program):
+    """plan_program may READ the plan library. It may never write to it.
+
+    Pinned as an ALLOWLIST over the syntax tree, not a search for two forbidden spellings. A literal
+    grep for `plan_store.append_revision` would miss `self.plans.append_revision(...)`, which is how
+    this module would actually reach it — and it would miss `update_record` entirely, which can stamp
+    gate evidence onto a plan record without minting a revision at all. Every mutating door is closed
+    by omission, including any added later, which a denylist cannot do.
+    """
+
+    # Exactly what plan_program actually calls on its PlanLibrary handle — `slugs` and `plan_dir`
+    # were in here defensively and the module calls neither. Carrying an unused permission is how an
+    # allowlist quietly turns back into a denylist.
+    PERMITTED = {"resolve", "read_record", "head", "root"}
+    # Module-level reads of plan_store itself — a different namespace from the library HANDLE, and the
+    # one the seam is about. Enumerated rather than exempted by a shape rule, so adding a call here is
+    # a visible edit to this list.
+    PERMITTED_MODULE = {"PlanStoreError", "PlanLibrary", "derived_status", "FILE_MODE", "slug_for",
+                        "ensure_dir"}
+
+    def _forbidden(self, source: str) -> set:
+        """Every plan-library access this source makes that the allowlist does not permit.
+
+        THE ONE function the guard rests on, so a seeded violation is proven to turn the real
+        assertion red rather than merely being visible to a detector standing next to it.
+        """
+        import ast
+        forbidden = set()
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Attribute):
+                continue
+            value = node.value
+            if isinstance(value, ast.Attribute) and value.attr == "plans":   # self.plans.<x>
+                if node.attr not in self.PERMITTED:
+                    forbidden.add(node.attr)
+            elif isinstance(value, ast.Name) and value.id == "plan_store":   # plan_store.<x>
+                if node.attr not in self.PERMITTED_MODULE:
+                    forbidden.add(node.attr)
+        return forbidden
+
+    def _source(self):
+        return (Path(plan_program.__file__)).read_text(encoding="utf-8")
+
+    def _assert_pin_holds(self, source):
+        forbidden = self._forbidden(source)
+        self.assertEqual(forbidden, set(),
+                         f"plan_program reached {sorted(forbidden)} on the plan library; it may only "
+                         f"read ({sorted(self.PERMITTED)}). Minting or stamping a plan record is the "
+                         "Project Manager's act, and plan_store has no seal check of its own.")
+
+    def test_the_module_only_reads_the_plan_library(self):
+        self._assert_pin_holds(self._source())
+
+    def test_the_pin_goes_red_when_a_revision_would_be_minted(self):
+        seeded = self._source() + "\ndef _seeded(self):\n    self.plans.append_revision(1, 2)\n"
+        with self.assertRaises(AssertionError):        # the GUARD fails, not merely a detector
+            self._assert_pin_holds(seeded)
+
+    def test_the_pin_goes_red_when_a_record_would_be_stamped(self):
+        # The spelling a literal grep for `append_revision` would sail straight past: no revision is
+        # minted at all, and a seal could be written directly onto the plan record.
+        seeded = self._source() + "\ndef _seeded(self):\n    self.plans.update_record(1, 2)\n"
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+    def test_the_pin_goes_red_on_a_mutating_module_function(self):
+        seeded = self._source() + "\ndef _seeded():\n    plan_store.atomic_write('x', 'y')\n"
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+
+class ADebtOffTheChainIsUnknownNotAbsent(_Program):
+    """A detached cycle beside a healthy root printed "None outstanding" and "lead in a circle" on
+    the same page — the obligations on the loop belonged to no branch, so the union never saw them
+    and the no-leaf guard never fired because the healthy branch still had a leaf."""
+
+    def _detached_loop(self):
+        slug = self._program("Detached", "A healthy root, plus a loop that carries a real debt.")
+        self._plan("pln_600000000001", "Root")
+        self.programs.add_child(slug, "pln_600000000001")
+        self._plan("pln_600000000002", "In the loop",
+                   _obligation("OB-LOST", "This debt sits off the chain."),
+                   predecessor="pln_600000000001")
+        self.programs.add_child(slug, "pln_600000000002", predecessor="pln_600000000001")
+        self._plan("pln_600000000003", "Also in the loop",
+                   _obligation("OB-LOST", "This debt sits off the chain."),
+                   predecessor="pln_600000000002")
+        self.programs.add_child(slug, "pln_600000000003", predecessor="pln_600000000002")
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_600000000003"   # 2 -> 3 -> 2, detached
+        self.programs._write(slug, record)
+        return record
+
+    def test_the_debt_is_reported_as_unknown_rather_than_absent(self):
+        report = self.programs.obligation_report(self._detached_loop())
+        self.assertTrue(report["unknown"], "a debt that sits on no branch must not simply vanish")
+        self.assertIn("OB-LOST", " ".join(report["unknown"]))
+
+    def test_the_render_never_says_none_outstanding_while_a_debt_is_stranded(self):
+        rendered = plan_program.render(self.programs, self._detached_loop())
+        self.assertIn("lead in a circle", rendered)
+        self.assertNotIn("_None outstanding._", rendered)
+        self.assertIn("Cannot be computed", rendered)
+
+    def test_the_one_line_summary_agrees(self):
+        record = self._detached_loop()
+        self.assertTrue(self.programs.obligation_report(record)["unknown"])
+
+    def test_a_dangling_end_still_owes_what_it_carries_and_says_so_once(self):
+        """A broken edge is a fact about ORDER, not about whether the debt is owed.
+
+        The first repair over-corrected: it excluded every off-chain child from the union, which
+        turned a real, live, unanswered obligation into silence. And the repair before that reported
+        it twice — attributed as a branch carry AND named as unattributable. The rule that settles
+        both: nothing live succeeds this child, so it IS an end and its debt is owed there; the
+        broken edge is disclosed on its own, once.
+        """
+        slug = self._program("Dangling", "A child whose predecessor is not in this program.")
+        self._plan("pln_700000000001", "Root")
+        self.programs.add_child(slug, "pln_700000000001")
+        self._plan("pln_700000000002", "Dangling",
+                   _obligation("OB-X", "Owed at a place the chain cannot reach."),
+                   predecessor="pln_700000000001")
+        self.programs.add_child(slug, "pln_700000000002", predecessor="pln_700000000001")
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_799999999999"
+        self.programs._write(slug, record)
+
+        report = self.programs.obligation_report(record)
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-X"],
+                         "a live end's debt is owed even when its predecessor edge is broken")
+        self.assertEqual(list(report["by_leaf"]), ["pln_700000000002"])
+        self.assertFalse(any("OB-X" in reason for reason in report["unknown"]),
+                         "attributed and unattributable are two answers to one question")
+        rendered = plan_program.render(self.programs, record)
+        self.assertEqual(rendered.count("OB-X"), 1, "the same obligation must not be reported twice")
+        self.assertIn("no such child is in this program", rendered)   # the edge, disclosed separately
+
+    def test_a_live_child_whose_only_successor_died_is_the_branch_end(self):
+        """The shape that still lost a debt silently: an open child carrying an unanswered obligation
+        whose only successor was retired. It is not a structural leaf, and the dead leaf is excluded,
+        so the program reported nothing outstanding while genuinely still owing it."""
+        slug = self._program("Dead successor", "The branch's end was retired; its ancestor lives.")
+        self._plan("pln_710000000001", "Still open",
+                   _obligation("OB-LIVE", "Never answered; the successor was retired."))
+        self.programs.add_child(slug, "pln_710000000001")
+        self._plan("pln_710000000002", "Retired successor",
+                   _obligation("OB-LIVE", "Never answered; the successor was retired."),
+                   predecessor="pln_710000000001")
+        self.programs.add_child(slug, "pln_710000000002", predecessor="pln_710000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_710000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+
+        report = self.programs.obligation_report(self.programs.read(slug))
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-LIVE"])
+        self.assertEqual(list(report["by_leaf"]), ["pln_710000000001"],
+                         "the live ancestor is the branch's end once its successor is dead")
+
+    def test_the_render_says_WHY_a_debt_is_unresolved(self):
+        """A debt that appears because a successor was abandoned must say so on the page.
+
+        Attributing it correctly is not enough: an operator meets a number that moved and has to
+        infer the reason from a status column in another section. The reasoning existed only in this
+        module's docstring, which is not somewhere they read.
+        """
+        slug = self._program("Stopped", "The successor stopped without answering.")
+        self._plan("pln_730000000001", "Still open",
+                   _obligation("OB-OPEN", "Never answered."))
+        self.programs.add_child(slug, "pln_730000000001")
+        self._plan("pln_730000000002", "Abandoned successor",
+                   _obligation("OB-OPEN", "Never answered."), predecessor="pln_730000000001")
+        self.programs.add_child(slug, "pln_730000000002", predecessor="pln_730000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_730000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "abandoned", "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("stopped without doing so", rendered)
+        self.assertIn("pln_730000000002", rendered.split("Obligations still carried")[1])
+
+    def test_the_whole_dead_sub_chain_is_named_not_just_the_first(self):
+        """A branch usually dies more than one plan deep.
+
+        The live shelf's own case is B abandoned and then C abandoned after it. Naming only the
+        immediate successor left an operator reading about one stopped plan while the table above
+        showed two, with nothing in the narrative connecting them.
+        """
+        slug = self._program("Two deep", "The branch died over two plans.")
+        self._plan("pln_770000000001", "Still open", _obligation("OB-2D", "Never answered."))
+        self.programs.add_child(slug, "pln_770000000001")
+        previous = "pln_770000000001"
+        for plan_id in ("pln_770000000002", "pln_770000000003"):
+            self._plan(plan_id, "Stopped", _obligation("OB-2D", "Never answered."),
+                       predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            self.plans.update_record(
+                self.plans.resolve(plan_id),
+                lambda current: current.__setitem__(
+                    "closure", {"state": "abandoned", "at": "2026-01-01T00:00:00Z",
+                                "reason": "stopped"}))
+            previous = plan_id
+
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        narrative = rendered.split("Obligations still carried")[1]
+        self.assertIn("pln_770000000002", narrative)
+        self.assertIn("pln_770000000003", narrative,
+                      "the second stopped plan is in the table; the narrative must account for it")
+        self.assertIn("were meant to answer", narrative)   # plural, since two plans stopped
+
+    def test_an_ordinary_branch_end_is_not_given_a_reason_it_does_not_have(self):
+        slug = self._program("Ordinary", "Nothing stopped; this is just the end.")
+        self._plan("pln_740000000001", "Tip", _obligation("OB-TIP", "Owed at the tip."))
+        self.programs.add_child(slug, "pln_740000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("where that branch currently ends", rendered)
+        self.assertNotIn("stopped without doing so", rendered)
+
+    def test_a_broken_edge_mid_chain_does_not_resurrect_an_answered_debt(self):
+        """"Not an end" is not the same test as "cannot reach an end", and the difference is a debt.
+
+        A child whose own predecessor edge is broken but which still has a live successor is fine:
+        its carries flow forward exactly as they always did, and the end that receives them already
+        answers for them. Testing only for end-ness printed such a debt twice — once attributed at the
+        real end, once as unattributable — and, when the end had SATISFIED it, brought it back from
+        the dead as an outstanding unknown.
+        """
+        slug = self._program("Mid-chain dangle", "Broken edge, but the chain continues past it.")
+        self._plan("pln_750000000001", "Root")
+        self.programs.add_child(slug, "pln_750000000001")
+        self._plan("pln_750000000002", "Broken edge",
+                   _obligation("OB-M", "Handed forward."), predecessor="pln_750000000001")
+        self.programs.add_child(slug, "pln_750000000002", predecessor="pln_750000000001")
+        self._plan("pln_750000000003", "The real end",
+                   _obligation("OB-M", "Handed forward.", state="satisfied"),
+                   predecessor="pln_750000000002")
+        self.programs.add_child(slug, "pln_750000000003", predecessor="pln_750000000002")
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_759999999999"
+        self.programs._write(slug, record)
+
+        report = self.programs.obligation_report(record)
+        self.assertEqual(report["obligations"], [], "the end satisfied it; nothing is owed")
+        self.assertEqual(report["unknown"], [],
+                         "a debt that reaches an end is accounted for, not unattributable")
+        self.assertIn("no such child is in this program",
+                      plan_program.render(self.programs, record))   # the edge, still disclosed
+
+    def test_a_debt_that_can_reach_no_end_is_still_unknown(self):
+        # The case the unknown path exists for must survive the narrowing.
+        record = self._detached_loop() if hasattr(self, "_detached_loop") else None
+        if record is None:
+            slug = self._program("Detached", "A loop that carries a debt.")
+            self._plan("pln_760000000001", "Root")
+            self.programs.add_child(slug, "pln_760000000001")
+            self._plan("pln_760000000002", "In the loop",
+                       _obligation("OB-L", "Off the chain."), predecessor="pln_760000000001")
+            self.programs.add_child(slug, "pln_760000000002", predecessor="pln_760000000001")
+            self._plan("pln_760000000003", "Also in the loop",
+                       _obligation("OB-L", "Off the chain."), predecessor="pln_760000000002")
+            self.programs.add_child(slug, "pln_760000000003", predecessor="pln_760000000002")
+            record = self.programs.read(slug)
+            record["children"][1]["predecessor_plan_id"] = "pln_760000000003"
+            self.programs._write(slug, record)
+        report = self.programs.obligation_report(record)
+        self.assertTrue(report["unknown"])
+        self.assertTrue(any("OB-L" in reason for reason in report["unknown"]))
+
+    def test_a_dead_child_off_the_chain_contributes_nothing(self):
+        """A stopped branch's carries stopped with it — including when its edge is also broken. The
+        unknown path must not resurrect them by another door."""
+        slug = self._program("Dead and dangling", "An abandoned child with a broken edge.")
+        self._plan("pln_720000000001", "Root")
+        self.programs.add_child(slug, "pln_720000000001")
+        self._plan("pln_720000000002", "Abandoned",
+                   _obligation("OB-DEAD", "Let go when the branch stopped."),
+                   predecessor="pln_720000000001")
+        self.programs.add_child(slug, "pln_720000000002", predecessor="pln_720000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_720000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "abandoned", "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+        record = self.programs.read(slug)
+        record["children"][1]["predecessor_plan_id"] = "pln_729999999999"
+        self.programs._write(slug, record)
+
+        report = self.programs.obligation_report(record)
+        self.assertFalse(any("OB-DEAD" in reason for reason in report["unknown"]),
+                         "a stopped branch's debt must not come back as 'unknown'")
+        self.assertNotIn("pln_720000000002", report["by_leaf"])
+
+
+class AFinishedProgramIsNotACorruptOne(_Program):
+    """The false-alarm side of the silent-zero coin, and a regression this repair introduced.
+
+    The cycle message keyed on "no live branch ends", which is true of a genuine cycle AND of a
+    program whose every child was legitimately retired or abandoned. The second is not damage — it is
+    a finished program — and reporting it as corruption tells the operator something the record does
+    not say, exactly as reporting a corrupt program's debt as zero did.
+    """
+
+    def _closed(self, *states):
+        slug = self._program("Closed", "Every child stopped.")
+        previous = None
+        for index, state in enumerate(states, start=1):
+            plan_id = f"pln_a0000000000{index}"
+            self._plan(plan_id, f"Child {index}", predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            if state:
+                self.plans.update_record(
+                    self.plans.resolve(plan_id),
+                    lambda current, s=state: current.__setitem__(
+                        "closure", {"state": s, "at": "2026-01-01T00:00:00Z", "reason": "stopped"}))
+            previous = plan_id
+        return slug
+
+    def test_a_single_retired_child_is_not_reported_as_a_cycle(self):
+        record = self.programs.read(self._closed("retired"))
+        report = self.programs.obligation_report(record)
+        self.assertEqual(report["unknown"], [], "a finished program is not a corrupt one")
+        self.assertEqual(report["obligations"], [])
+        self.assertNotIn("form a cycle", plan_program.render(self.programs, record))
+
+    def test_a_wholly_abandoned_chain_is_not_reported_as_a_cycle(self):
+        report = self.programs.obligation_report(self.programs.read(
+            self._closed("abandoned", "abandoned")))
+        self.assertEqual(report["unknown"], [])
+
+    def test_a_chain_with_one_live_child_is_still_quiet(self):
+        report = self.programs.obligation_report(self.programs.read(self._closed("retired", None)))
+        self.assertEqual(report["unknown"], [])
+
+    def test_a_genuine_all_live_cycle_still_warns(self):
+        slug = self._closed(None, None)
+        record = self.programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_a00000000002"
+        self.programs._write(slug, record)
+        report = self.programs.obligation_report(record)
+        self.assertTrue(any("form a cycle" in reason for reason in report["unknown"]),
+                        "the warning must survive for the case it was written for")

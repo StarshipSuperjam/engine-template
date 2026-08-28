@@ -19,6 +19,7 @@ import unittest
 
 import project_manager
 import plan_lifecycle
+import plan_program
 import plan_store
 from test_plan_store import _document
 
@@ -338,11 +339,13 @@ class D7CarryForwardDecayIsRechecked(_Ceremony):
     """The B2 shape: a predecessor mints obligations AFTER its successor has joined."""
 
     def _program_with_two_children(self):
-        import plan_program
         programs = plan_program.ProgramLibrary(self.lib)
         program = programs.create("A program", "Two plans, one after the other")
-        first = self.plan(plan_id="pln_aaaaaaaaaaaa", title="First")
-        second = self.plan(plan_id="pln_bbbbbbbbbbbb", title="Second")
+        self.program_id = programs.read(program)["program_id"]
+        first = self.plan(plan_id="pln_aaaaaaaaaaaa", title="First",
+                          program={"program_id": self.program_id})
+        second = self.plan(plan_id="pln_bbbbbbbbbbbb", title="Second",
+                           program={"program_id": self.program_id})
         programs.add_child(program, "pln_aaaaaaaaaaaa")
         programs.add_child(program, "pln_bbbbbbbbbbbb", predecessor="pln_aaaaaaaaaaaa")
         return programs, program, first, second
@@ -352,7 +355,7 @@ class D7CarryForwardDecayIsRechecked(_Ceremony):
         document["revision"] = 2
         document["revised_at"] = "2026-08-25T00:00:00Z"
         document["revision_note"] = "Carry an obligation the successor has never seen."
-        document["program"] = {"program_id": "prg_0123456789ab", "carried_obligations": [
+        document["program"] = {"program_id": self.program_id, "carried_obligations": [
             {"id": "OB-LATE", "statement": "The late obligation.", "state": "carried"}]}
         self.lib.append_revision(slug, document, expected_revision=1)
 
@@ -605,3 +608,282 @@ class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
+    """The seal reached every program record, validated each, and let any failure become a refusal.
+
+    So a single malformed file on the shelf refused the seal of EVERY plan in the library — including
+    plans belonging to no program at all — and `show`, which renders the same set, went with it. The
+    obvious repair is the except-continue discipline the decay re-check already uses, and taken alone
+    it is a fail-OPEN: a plan whose OWN program record is unreadable would look exactly like a plan in
+    no program, the carry-forward re-check would be skipped, and a debt would slip past the one gate
+    that catches it. Both directions are pinned here, in both corruption classes.
+    """
+
+    def _program_with_child(self, plan_slug):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("A program", "Delivered across PRs.")
+        program_id = programs.read(slug)["program_id"]
+        document = self.lib.head(plan_slug)
+        document["revision"] = 2
+        document["program"] = {"program_id": program_id}
+        self.lib.append_revision(plan_slug, document, expected_revision=1)
+        programs.add_child(slug, self.lib.read_record(plan_slug)["plan_id"])
+        return programs, slug, program_id
+
+    def _corrupt(self, programs, slug, text):
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(text, encoding="utf-8")
+
+    def _sealable(self):
+        slug = self.reviewed()
+        self.run_command("present-findings", slug, "--operator-decision", "Nothing was found.")
+        return slug
+
+    def test_a_standalone_plan_seals_while_an_unrelated_record_is_unparseable(self):
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff01", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        self._corrupt(programs, program_slug, "{not json at all")
+        self.assertEqual(project_manager.seal_refusals(self.lib, victim), [],
+                         "a plan in no program must not be held hostage by someone else's record")
+        code, _, err = self.run_command("seal", victim, "--operator-decision", "Seal")
+        self.assertEqual(code, 0)
+        self.assertIn("worth knowing", err)
+        # An unparseable record gets the honest wording: nothing can be read out of it, so whether it
+        # names this plan is undetermined rather than answered in either direction.
+        self.assertIn("could not be parsed at all", err)
+
+    def test_a_standalone_plan_seals_while_an_unrelated_record_fails_its_schema(self):
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff02", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        record = programs.read(program_slug)
+        record["schema_version"] = "engine-program.v99"
+        self._corrupt(programs, program_slug, json.dumps(record))
+        self.assertEqual(project_manager.seal_refusals(self.lib, victim), [])
+        self.assertEqual(self.run_command("seal", victim, "--operator-decision", "Seal")[0], 0)
+
+    def test_the_owning_plan_still_refuses_when_its_record_fails_its_schema(self):
+        slug = self._sealable()
+        programs, program_slug, _ = self._program_with_child(slug)
+        record = programs.read(program_slug)
+        record["schema_version"] = "engine-program.v99"
+        self._corrupt(programs, program_slug, json.dumps(record))
+        # Two independent sources would each catch this one — the record still parses, so its
+        # children array names the plan, AND the plan's back-link names the record. Either is enough;
+        # what matters here is that the seal refuses. (That the ownership half works on its own, for a
+        # legacy child carrying no back-link, is pinned at unit level in test_plan_program.)
+        refusals = project_manager.seal_refusals(self.lib, slug)
+        self.assertTrue(refusals, "the plan's OWN broken program must still stop its seal")
+        self.assertIn("cannot be read", " ".join(refusals))
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal")[0], 1)
+
+    def test_the_owning_plan_still_refuses_when_its_record_will_not_parse(self):
+        # The fail-open. Nothing in the record can say whose it is, so membership rests entirely on
+        # the plan's own back-link — which is why joining requires one.
+        slug = self._sealable()
+        programs, program_slug, _ = self._program_with_child(slug)
+        self._corrupt(programs, program_slug, "{not json at all")
+        refusals = project_manager.seal_refusals(self.lib, slug)
+        self.assertTrue(refusals, "a plan whose own program cannot be parsed must not seal in silence")
+        self.assertIn("declares that it belongs to program", " ".join(refusals))
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal")[0], 1)
+
+    def test_the_legacy_gap_is_disclosed_rather_than_resolved(self):
+        # A child added before the back-link was required, under a record that will not parse, is
+        # genuinely indistinguishable from a standalone plan. That is stated, not assumed away.
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff03", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        self._corrupt(programs, program_slug, "{not json at all")
+        disclosures = project_manager.seal_disclosures(self.lib, victim)
+        self.assertTrue(any("nothing here could tell" in line for line in disclosures))
+
+    def test_show_prints_exactly_what_seal_discloses(self):
+        # D9's rule, extended: the two commands agree about disclosures as well as refusals, so a
+        # plan never reads differently depending on which one the operator happened to run.
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff04", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        self._corrupt(programs, program_slug, "{not json at all")
+        shown = self.run_command("show", victim)[1]
+        for disclosure in project_manager.seal_disclosures(self.lib, victim):
+            self.assertIn(disclosure.splitlines()[0], shown)
+
+
+class D13UnknownDebtMustNotReadAsZeroInTheOneLineSummary(_Ceremony):
+    """`program list` is what an operator scans first, and it printed a bare count.
+
+    The unknown rendering reached `program show` and stopped there, so a program whose debt could not
+    be computed still summarised as '0 obligation(s) outstanding' on the line most likely to be read —
+    the one place a corrupt program most needed not to look clean.
+    """
+
+    def test_a_program_with_an_unreadable_child_does_not_summarise_as_zero(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Broken", "One child is not in this library.")
+        program_id = programs.read(slug)["program_id"]
+        plan_slug = self.plan(plan_id="pln_ffffffffff10", title="Present",
+                              program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff10")
+        record = programs.read(slug)
+        record["children"].append({"plan_id": "pln_ffffffffff99", "position": 2,
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_ffffffffff10"})
+        programs._write(slug, record)
+        listing = self.run_command("program", "list")[1]
+        self.assertIn("obligations unknown", listing)
+        self.assertNotIn("0 obligation(s) outstanding", listing)
+
+    def test_a_healthy_program_still_shows_its_count(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Healthy", "Nothing broken here.")
+        program_id = programs.read(slug)["program_id"]
+        self.plan(plan_id="pln_ffffffffff11", title="Only child",
+                  program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff11")
+        self.assertIn("0 obligation(s) outstanding", self.run_command("program", "list")[1])
+
+
+class D14TheAddMessageSpeaksForOneBranch(_Ceremony):
+    """`program add` reports what the NEXT child must answer for, and on a fork that is branch-local.
+
+    WHAT THIS DOES AND DOES NOT PROVE, stated because the first version of this class claimed more
+    than it earned. This is NOT a fix to prior behaviour: the old code read the last child by stored
+    position, and `add_child` always appends, so the old message already named the added child's own
+    carries and was right. What changed underneath is `outstanding_obligations`, which now returns the
+    UNION over every open branch end — so had `cmd_program_add` gone on calling it, a fork would have
+    started attributing the other branch's debts to a successor that can never answer them. This class
+    guards that regression, not a historical defect, and its discriminating assertion is the last one:
+    the union genuinely contains both branches while the message names one.
+    """
+
+    def _program(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Forked", "One root, two branches.")
+        return programs, slug, programs.read(slug)["program_id"]
+
+    def _child(self, programs, program_id, plan_id, obligation_id=None, predecessor=None):
+        program = {"program_id": program_id}
+        if obligation_id:
+            program["carried_obligations"] = [
+                {"id": obligation_id, "statement": f"{obligation_id} is still owed.", "state": "carried"}]
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        self.plan(plan_id=plan_id, title=plan_id[-4:], program=program)
+        return plan_id
+
+    def test_the_message_names_only_the_added_childs_own_carries(self):
+        programs, slug, program_id = self._program()
+        root = self._child(programs, program_id, "pln_aaaaaaaa0001")
+        programs.add_child(slug, root)
+        self._child(programs, program_id, "pln_aaaaaaaa0002", "OB-A", predecessor=root)
+        self._child(programs, program_id, "pln_aaaaaaaa0003", "OB-B", predecessor=root)
+        programs.add_child(slug, "pln_aaaaaaaa0002", predecessor=root)
+
+        out = self.run_command("program", "add", slug, "pln_aaaaaaaa0003", "--after", root)[1]
+        self.assertIn("ON THIS BRANCH", out)
+        self.assertIn("OB-B", out)
+        self.assertNotIn("OB-A", out,
+                         "the other branch's debt must not be attributed to this branch's successor")
+        # The assertion that discriminates. The program-wide union really does hold BOTH branches'
+        # debts here, so a message built from it would have named OB-A too; that it does not is the
+        # property under test, and it would fail the moment this verb went back to the union.
+        programs = plan_program.ProgramLibrary(self.lib)
+        union = {o["id"] for o in programs.outstanding_obligations(programs.read(slug))}
+        self.assertEqual(union, {"OB-A", "OB-B"},
+                         "precondition: the union spans both branches, so naming one is a real choice")
+
+    def test_a_child_carrying_nothing_says_nothing(self):
+        programs, slug, program_id = self._program()
+        root = self._child(programs, program_id, "pln_bbbbbbbb0001")
+        out = self.run_command("program", "add", slug, root)[1]
+        self.assertIn("as child 1", out)
+        self.assertNotIn("carried into the next child", out)
+
+
+class D15TheUnknownSummaryDoesNotBlameTheWrongCause(_Ceremony):
+    """A dangling or cyclic edge sits in a record that parses perfectly well.
+
+    The summary called every unknown cause 'unreadable', which would send an operator looking for a
+    corrupt file when the record is fine and the edge is the problem.
+    """
+
+    def test_a_dangling_edge_is_not_reported_as_unreadable(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Dangling", "A readable record with a broken edge.")
+        program_id = programs.read(slug)["program_id"]
+        self.plan(plan_id="pln_ffffffffff20", title="Root", program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff20")
+        record = programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_ffffffffff99"
+        programs._write(slug, record)
+        listing = self.run_command("program", "list")[1]
+        self.assertNotIn("unreadable", listing,
+                         "the record parses; only its edge is broken")
+
+
+class D16TheDisclosuresDoNotStateThingsTheCodeKnowsAreFalse(_Ceremony):
+    """Two sentences the seal printed that its own inputs contradicted.
+
+    A disclosure is the operator's only view of a record they cannot read, so a wrong one is worse
+    than none: it sends them somewhere the fault is not.
+    """
+
+    def _broken(self, text, plan_ids):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Broken", "A record that will not validate.")
+        program_id = programs.read(slug)["program_id"]
+        for plan_id in plan_ids:
+            self.plan(plan_id=plan_id, title=plan_id[-4:], program={"program_id": program_id})
+            programs.add_child(slug, plan_id)
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(text, encoding="utf-8")
+        return programs, slug, program_id
+
+    def test_a_schema_broken_record_that_DOES_name_the_plan_is_not_said_to_disown_it(self):
+        # Parseable, so its children ARE readable and the code computed names_this_plan = True — then
+        # printed "it does not name this plan" anyway.
+        programs = plan_program.ProgramLibrary(self.lib)
+        first = programs.create("Claims it", "Broken, but its children are readable.")
+        first_id = programs.read(first)["program_id"]
+        self.plan(plan_id="pln_ffffffffff30", title="Child", program={"program_id": first_id})
+        programs.add_child(first, "pln_ffffffffff30")
+        record = programs.read(first)
+        record["schema_version"] = "engine-program.v99"          # parseable, schema-invalid
+        (programs.program_dir(first) / plan_program.RECORD_FILENAME).write_text(
+            json.dumps(record), encoding="utf-8")
+
+        disclosures = project_manager.seal_disclosures(self.lib, self.lib.resolve("pln_ffffffffff30"))
+        self.assertFalse(any("does not name this plan" in line for line in disclosures),
+                         "the code computed that it DOES name this plan")
+
+    def test_an_unparseable_record_is_not_said_to_disown_a_plan_either(self):
+        # Nothing can be read out of it, so "it does not name this plan" is exactly as unfounded as
+        # the opposite claim would be.
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Unreadable", "Will not parse.")
+        program_id = programs.read(slug)["program_id"]
+        self.plan(plan_id="pln_ffffffffff31", title="Theirs", program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff31")
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(
+            "{not json", encoding="utf-8")
+        standalone = self.plan(plan_id="pln_ffffffffff32", title="Standalone")
+
+        disclosures = project_manager.seal_disclosures(self.lib, standalone)
+        self.assertFalse(any("does not name this plan" in line for line in disclosures),
+                         "nothing can be read out of an unparseable record, in either direction")
+        self.assertTrue(any("cannot be determined" in line for line in disclosures))
+
+    def test_a_schema_broken_record_is_not_described_as_unparseable(self):
+        # It parses. Only its schema fails, so its children are readable and membership is knowable —
+        # telling the operator "nothing here could tell" contradicts the line printed above it.
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Schema broken", "Parses; fails its schema.")
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(
+            json.dumps({"schema_version": "engine-program.v99", "children": []}), encoding="utf-8")
+        standalone = self.plan(plan_id="pln_ffffffffff33", title="Standalone")
+
+        disclosures = project_manager.seal_disclosures(self.lib, standalone)
+        self.assertFalse(any("cannot be parsed" in line for line in disclosures),
+                         "a schema-invalid record parses; only its schema fails")

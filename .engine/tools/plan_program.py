@@ -89,6 +89,70 @@ def dropped_obligations(predecessor: dict, successor: dict) -> list:
             if identifier not in named]
 
 
+DEAD_BRANCH_STATES = ("retired", "abandoned")
+
+
+def chain_analysis(record: dict) -> dict:
+    """Order the children by their DECLARED predecessor edges, and name every anomaly found.
+
+    `position` is NOT consulted. It is display-only — assigned at add, printed in the table, and read
+    by nothing else in the engine — so ordering by it made the stored array's numbering authoritative
+    over the edges that actually record the decision. The edges are the decision; the number is a
+    label. Siblings of one fork tie-break on (added_at, plan_id), never on position, so a record whose
+    numbering has been permuted or duplicated still renders in the order its edges declare.
+
+    EVERY stored child appears in `order` exactly once. A child unreachable from a root — because its
+    predecessor edge dangles, or because it sits in a cycle — is appended and named in `unreachable`
+    rather than dropped, holding the invariant `child_view` was written for: quietly omitting a child
+    would make the program look shorter than it is, and a corrupt record is the case where that lie
+    would matter most.
+    """
+    children = record["children"]
+    by_id = {child["plan_id"]: child for child in children}
+
+    def key(child):
+        return (child.get("added_at", ""), child["plan_id"])
+
+    ordered_children = sorted(children, key=key)
+    successors: dict = {}
+    dangling = []
+    for child in ordered_children:
+        predecessor = child.get("predecessor_plan_id")
+        if predecessor is None:
+            continue
+        if predecessor not in by_id:
+            dangling.append({"plan_id": child["plan_id"], "predecessor_plan_id": predecessor})
+            continue
+        successors.setdefault(predecessor, []).append(child["plan_id"])
+
+    roots = [child["plan_id"] for child in ordered_children if not child.get("predecessor_plan_id")]
+    order, seen = [], set()
+    stack = list(reversed(roots))
+    while stack:                      # iterative depth-first: a deep chain cannot blow the stack,
+        plan_id = stack.pop()         # and each branch renders contiguously rather than interleaved
+        if plan_id in seen:
+            continue
+        seen.add(plan_id)
+        order.append(plan_id)
+        for successor in reversed(successors.get(plan_id, [])):
+            stack.append(successor)
+    unreachable = [child["plan_id"] for child in ordered_children if child["plan_id"] not in seen]
+    order.extend(unreachable)
+
+    return {
+        "order": order,
+        "roots": roots,
+        "forks": [{"predecessor_plan_id": predecessor, "successors": list(names)}
+                  for predecessor, names in sorted(successors.items()) if len(names) > 1],
+        "dangling": dangling,
+        "unreachable": unreachable,
+        # A leaf is a child no other child declares as its predecessor: where a branch of the chain
+        # currently ends, and therefore where an unanswered obligation still sits.
+        "leaves": [child["plan_id"] for child in ordered_children
+                   if child["plan_id"] not in successors],
+    }
+
+
 class ProgramLibrary:
     """Programs live beside plans, in the same durable library and under the same lock discipline."""
 
@@ -180,6 +244,31 @@ class ProgramLibrary:
             if any(child["plan_id"] == plan_id for child in record["children"]):
                 raise ProgramError(f"{plan_id} is already a child of this program")
 
+            # The back-link is load-bearing, so it is required at the join rather than hoped for. It
+            # is the ONLY evidence of membership that survives a program record which will not parse:
+            # without it, a plan whose own program is corrupt is indistinguishable from a standalone
+            # plan, and its seal would skip the carry-forward re-check entirely. Required going
+            # forward only — children added before this cannot be retro-fitted without revising
+            # sealed plans, and that residual gap is disclosed at their seals instead.
+            declared = (self.plans.head(plan_slug).get("program") or {}).get("program_id")
+            if declared != record["program_id"]:
+                sealed = bool(self.plans.read_record(plan_slug).get("seal"))
+                raise ProgramError(
+                    f"{plan_id} does not declare that it belongs to this program. Its document must "
+                    f"carry `program.program_id` = {record['program_id']}"
+                    + (f", and it currently says {declared}." if declared else ".")
+                    + " That back-link is what lets this plan's seal find its program even when the "
+                      "program record cannot be read, so it is required before the plan can join."
+                    + (" This plan is already SEALED, and a seal is terminal, so the back-link can "
+                       "no longer be added to it. The way through is three steps, and the middle one "
+                       "is easy to miss: `clone` it, then `revise` the CLONE to add "
+                       f"`program.program_id` = {record['program_id']} — a clone deliberately carries "
+                       "no program block, because it carries none of the original's evidence either — "
+                       "then add the clone here. A plan is normally added to its program before it is "
+                       "sealed, which is when this is a one-line revision."
+                       if sealed else
+                       " Revise the plan to add it, then add it here."))
+
             # Checked for EVERY child, including the first, and before the carry-forward comparison.
             # A release is a decision to stop answering for something, and it costs a reason wherever
             # it is made — the first plan in a program can release an obligation it inherited from
@@ -259,12 +348,66 @@ class ProgramLibrary:
                               "obligations": dropped})
         return decay
 
-    def program_for_plan(self, plan_id: str) -> str | None:
-        """The program slug this plan is a child of, or None. Nothing auto-selects; this is a lookup."""
+    def program_membership(self, plan_id: str, *, claimed_program_id: str | None = None) -> dict:
+        """Which program this plan belongs to, read from TWO sources, and what could not be read.
+
+        Ownership used to be answered by validating every record in the library and letting any
+        failure escape. One malformed record then refused the seal of EVERY plan on the shelf,
+        including plans in no program at all — and `show`, which renders the same refusals, went with
+        it. The obvious repair is the except-continue discipline `carry_forward_decay` already uses,
+        and taken alone it is a fail-OPEN: a plan whose OWN program record is unreadable would look
+        exactly like a plan in no program, the carry-forward re-check would be skipped, and a debt
+        would slip past the one gate that catches it.
+
+        So membership is established from two independent sources, and neither alone is trusted:
+
+        1. **The program records.** A record that parses but fails its schema can still say whose it
+           is — the children array is readable — so it OWNS its children even while broken, and their
+           seals refuse. Only a record that will not parse at all hides its membership.
+        2. **The plan's own back-link.** `program.program_id` lives in the sealed plan document and
+           survives a program record that cannot be read. A slug carries its program id's last six
+           characters, so a claim can be matched against an unreadable record without parsing it.
+
+        What the two sources cannot settle between them is the one honest gap: a LEGACY child added
+        before the back-link was required, under a record that will not parse. It is reported as an
+        unreadable record rather than silently resolved, so the caller discloses it instead of
+        pretending the question was answered.
+
+        Returns `slug` (the owning program, or None), `unreadable` (every record that could not be
+        validated, each saying whether it still names this plan), and `claims_unreadable` (this plan's
+        own back-link names a program whose record cannot be parsed).
+        """
+        found, unreadable = None, []
         for slug in self.slugs():
-            if any(child["plan_id"] == plan_id for child in self.read(slug)["children"]):
-                return slug
-        return None
+            try:
+                record = self.read(slug)
+            except Exception as exc:  # noqa: BLE001 — one bad record must not hide the rest
+                names_this_plan = False
+                try:
+                    raw = core.json_file(self._record_path(slug))
+                    names_this_plan = any(
+                        isinstance(child, dict) and child.get("plan_id") == plan_id
+                        for child in (raw.get("children") or []))
+                except Exception:  # noqa: BLE001 — unparseable: membership genuinely unknowable here
+                    names_this_plan = False
+                unreadable.append({"slug": slug, "error": str(exc), "names_this_plan": names_this_plan})
+                if names_this_plan and found is None:
+                    found = slug      # fail CLOSED: a broken record that names this plan still owns it
+                continue
+            if found is None and any(child["plan_id"] == plan_id for child in record["children"]):
+                found = slug
+        claims_unreadable = False
+        if claimed_program_id:
+            suffix = f"--{claimed_program_id[-6:]}"
+            claims_unreadable = any(entry["slug"].endswith(suffix) for entry in unreadable)
+        return {"slug": found, "unreadable": unreadable, "claims_unreadable": claims_unreadable}
+
+    def program_for_plan(self, plan_id: str) -> str | None:
+        """The program slug this plan is a child of, or None. Nothing auto-selects; this is a lookup.
+
+        Guarded: see `program_membership`, which this delegates to. A caller that needs to know what
+        could not be read must ask that instead — this shape cannot say."""
+        return self.program_membership(plan_id)["slug"]
 
     def close(self, slug: str, state: str, reason: str) -> dict:
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
@@ -286,15 +429,28 @@ class ProgramLibrary:
 
     # -- derivation --
     def child_view(self, record: dict) -> list:
-        """Each child with its plan's derived status, in declared order. Missing plans are reported
-        as missing rather than skipped: a child that is not in this library is a fact about the
-        program, and quietly omitting it would make the program look shorter than it is."""
+        """Each child with its plan's derived status, in CHAIN order, every stored child exactly once.
+
+        Missing plans are reported as missing rather than skipped: a child that is not in this library
+        is a fact about the program, and quietly omitting it would make the program look shorter than
+        it is. Each entry carries `chain_ordinal` — its computed place in the declared order — and,
+        where the record is malformed, an `anomaly` naming why it could not be reached.
+        """
+        analysis = chain_analysis(record)
+        by_id = {child["plan_id"]: child for child in record["children"]}
+        anomaly_of = {entry["plan_id"]: "dangling-predecessor" for entry in analysis["dangling"]}
+        for plan_id in analysis["unreachable"]:
+            anomaly_of.setdefault(plan_id, "unreachable")
         view = []
-        for child in sorted(record["children"], key=lambda c: c["position"]):
+        for ordinal, plan_id in enumerate(analysis["order"], start=1):
+            child = by_id[plan_id]
+            entry = {**child, "chain_ordinal": ordinal}
+            if plan_id in anomaly_of:
+                entry["anomaly"] = anomaly_of[plan_id]
             try:
                 plan_slug = self.plans.resolve(child["plan_id"])
             except ProgramError:
-                view.append({**child, "slug": None, "title": "(not in this library)",
+                view.append({**entry, "slug": None, "title": "(not in this library)",
                              "status": "missing", "outstanding": []})
                 continue
             plan_record = self.plans.read_record(plan_slug)
@@ -304,17 +460,112 @@ class ProgramLibrary:
                 status = plan_store.derived_status(plan_record)
             except ProgramError:
                 outstanding, status = [], "unreadable"
-            view.append({**child, "slug": plan_slug, "title": plan_record["title"],
+            view.append({**entry, "slug": plan_slug, "title": plan_record["title"],
                          "status": status, "outstanding": outstanding})
         return view
 
+    def obligation_report(self, record: dict) -> dict:
+        """What this program still owes, per branch end, and honestly when it cannot tell.
+
+        ONE RULE, stated whole, because answering it in pieces produced four wrong answers in a row:
+
+            A program owes what its LIVE branch ends still carry.
+            A child is LIVE if its plan reads and it is not retired or abandoned.
+            A live child is a BRANCH END if no live child declares it as predecessor.
+            A live child carrying a debt that is not a branch end and cannot be placed on the chain
+            is UNKNOWN — the debt is real, its position is not.
+
+        Each clause was a defect found by review, and each is here rather than in a caller:
+
+        - `view[-1]` answered "what does the last row carry". Once the chain forked, the other
+          branch's debts left the only number an operator reads.
+        - Retired and abandoned branches are not ends: a live shelf holds exactly that shape, with a
+          debt the surviving branch deliberately RELEASED still sitting on the dead leaf. Unioning it
+          back would resurrect an obligation someone consciously let go.
+        - But a dead END does not kill its live ANCESTOR's debt. An open child whose only successor
+          was retired is itself the live end of that branch, and reporting `None outstanding` while it
+          carries an unanswered obligation is the same silent drop wearing a different mask.
+        - A child off the chain still carries what it carries. If nothing live succeeds it, it IS an
+          end and its debt is owed there; the broken edge is disclosed separately. Only when it can be
+          neither placed nor ended — a cycle member — is the debt unknown rather than owed.
+        - Unknown is never zero, and never also a count: a debt is reported once, in one place.
+        """
+        analysis = chain_analysis(record)
+        view = {child["plan_id"]: child for child in self.child_view(record)}
+
+        def live(plan_id: str) -> bool:
+            child = view.get(plan_id)
+            return bool(child) and child["status"] not in DEAD_BRANCH_STATES \
+                and child["status"] not in ("missing", "unreadable")
+
+        # A live child that no LIVE child succeeds. Not `analysis["leaves"]`, which is structural and
+        # cannot see that a branch's only successor is retired.
+        live_successors: dict = {}
+        for child in record["children"]:
+            predecessor = child.get("predecessor_plan_id")
+            if predecessor and live(child["plan_id"]):
+                live_successors.setdefault(predecessor, []).append(child["plan_id"])
+        ends = [plan_id for plan_id in analysis["order"]
+                if live(plan_id) and plan_id not in live_successors]
+
+        def reaches_an_end(start: str) -> bool:
+            """Whether following LIVE successors from here arrives at a branch end.
+
+            The rule says a debt is unknown when it can be neither placed nor ended — and "not itself
+            an end" is not that test. A child whose own predecessor edge is broken but which still has
+            a live successor is fine: its carries flow forward exactly as they always did, and the end
+            that receives them already answers for them. Testing only for end-ness printed such a debt
+            twice, and resurrected one the end had already SATISFIED. Cycle-safe by the seen set: a
+            child that can only ever revisit itself reaches nothing, which is precisely the case that
+            is genuinely unknown.
+            """
+            seen, stack = set(), [start]
+            while stack:
+                plan_id = stack.pop()
+                if plan_id in seen:
+                    continue
+                seen.add(plan_id)
+                if plan_id in ends:
+                    return True
+                stack.extend(live_successors.get(plan_id, []))
+            return False
+
+        unknown, by_leaf, obligations = [], {}, {}
+        for child in view.values():
+            if child["status"] in ("missing", "unreadable"):
+                unknown.append(f"{child['plan_id']} is {child['status']}")
+        for plan_id in ends:
+            child = view[plan_id]
+            if child["outstanding"]:
+                by_leaf[plan_id] = child["outstanding"]
+                for obligation in child["outstanding"]:
+                    obligations[obligation["id"]] = obligation
+        for plan_id, child in view.items():
+            # Carries a debt, is live, is not an end, and cannot be placed: a cycle member. Its debt
+            # is real and belongs nowhere the chain reaches, so it is named rather than dropped — and
+            # named ONCE, since it was not attributed above.
+            if (child.get("anomaly") and live(plan_id) and child["outstanding"]
+                    and not reaches_an_end(plan_id)):
+                unknown.append(
+                    f"{plan_id} carries {len(child['outstanding'])} obligation(s) but is "
+                    f"{child['anomaly']}, so they sit on no branch and cannot be attributed: "
+                    + ", ".join(o["id"] for o in child["outstanding"]))
+        if record["children"] and not ends and not unknown and any(
+                live(child["plan_id"]) for child in record["children"]):
+            # ONLY when live children exist and yet none of them ends anything: that is a cycle. A
+            # program whose every child was retired or abandoned has no live end either, and it is
+            # not corrupt — it is finished. Keying the message on "no ends" alone made a normal fully
+            # closed program report as damaged, which is the false alarm side of the same coin as the
+            # silent zero: both tell the operator something the record does not say.
+            unknown.append("no live branch of this chain ends — every open child is succeeded by "
+                           "another, which means the predecessor edges form a cycle")
+        return {"obligations": sorted(obligations.values(), key=lambda o: o["id"]),
+                "by_leaf": by_leaf, "unknown": unknown, "analysis": analysis}
+
     def outstanding_obligations(self, record: dict) -> list:
-        """Every obligation still declared as carried by the LAST child, which is where the chain
-        currently ends. Earlier children's carries were already answered for by their successors —
-        that is exactly what add_child enforced — so reporting them again would double-count debts
-        that have in fact moved forward."""
-        view = self.child_view(record)
-        return view[-1]["outstanding"] if view else []
+        """The union of every OPEN leaf's carried obligations. See `obligation_report`, which also
+        says whose debt each one is and when the answer is not computable."""
+        return self.obligation_report(record)["obligations"]
 
     def derived_status(self, record: dict) -> str:
         """Programs have no seal and no separate completion act.
@@ -339,32 +590,124 @@ class ProgramLibrary:
 
 
 def render(library: ProgramLibrary, record: dict) -> str:
-    """The program as an operator reads it: what it is for, its children and where each stands, and
-    every obligation still owed."""
+    """The program as an operator reads it: what it is for, its children and where each stands, every
+    obligation still owed and whose it is, and anything about the record that does not add up."""
     view = library.child_view(record)
+    report = library.obligation_report(record)
+    analysis = report["analysis"]
     out = [f"# {record['title']}", "",
            "<!-- generated from the program record and its children; edits here are overwritten -->", "",
            f"- **Program**: `{record['program_id']}`",
            f"- **Status**: {library.derived_status(record)} — derived from the children, never stored",
            f"- **Children**: {len(view)}", ""]
     out += ["## Objective", "", record["objective"], ""]
-    out += ["## Children, in the order they were decided", "",
+    out += ["## Children, in the order their predecessor edges declare", "",
             "| # | Plan | Status | Succeeds |", "|---:|---|---|---|"]
     for child in view:
         title = child["title"].replace("|", "\\|")
         succeeds = f"`{child['predecessor_plan_id']}`" if child.get("predecessor_plan_id") else "—"
-        out.append(f"| {child['position']} | {title} (`{child['plan_id']}`) | {child['status']} "
-                   f"| {succeeds} |")
+        flag = f" ⚠ {child['anomaly']}" if child.get("anomaly") else ""
+        # The ordinal is COMPUTED from the chain, not the stored `position` field: a record whose
+        # numbering was permuted or duplicated still reads in the order its edges actually declare.
+        out.append(f"| {child['chain_ordinal']} | {title} (`{child['plan_id']}`){flag} | "
+                   f"{child['status']} | {succeeds} |")
     out += ["", "_Order records a decision. Nothing here selects, starts, or advances a child._", ""]
 
-    outstanding = library.outstanding_obligations(record)
+    if analysis["forks"]:
+        # Its own section, deliberately NOT filed under the corruption heading below. A fork is how a
+        # branch gets superseded or abandoned — the ordinary shape of a program that changed its mind
+        # — and reporting it as something that "does not add up" made the one genuinely forked program
+        # on this shelf read as damaged every time an operator looked at it.
+        status_of = {child["plan_id"]: child["status"] for child in view}
+        out += ["## Where the chain branches", ""]
+        for fork in analysis["forks"]:
+            live = [name for name in fork["successors"]
+                    if status_of.get(name) not in DEAD_BRANCH_STATES]
+            out.append(f"- `{fork['predecessor_plan_id']}` is the declared predecessor of "
+                       + ", ".join(f"`{name}` ({status_of.get(name, 'unknown')})"
+                                   for name in fork["successors"])
+                       + ("." if len(live) <= 1 else
+                          " — more than one of these branches is still open, so the program has more "
+                          "than one end and more than one set of obligations still owed."))
+        if all(len([name for name in fork["successors"]
+                    if status_of.get(name) not in DEAD_BRANCH_STATES]) <= 1
+               for fork in analysis["forks"]):
+            out.append("")
+            out.append("_Nothing here needs fixing: every branch but one has been retired or "
+                       "abandoned, which is what superseding a plan looks like in the record._")
+        out.append("")
+
+    if analysis["dangling"] or analysis["unreachable"] or len(analysis["roots"]) > 1:
+        out += ["## What does not add up in this record", ""]
+        for entry in analysis["dangling"]:
+            out.append(f"- `{entry['plan_id']}` declares `{entry['predecessor_plan_id']}` as its "
+                       "predecessor, and no such child is in this program.")
+        for plan_id in analysis["unreachable"]:
+            if any(entry["plan_id"] == plan_id for entry in analysis["dangling"]):
+                continue
+            out.append(f"- `{plan_id}` cannot be reached from the start of the chain; its predecessor "
+                       "edges lead in a circle.")
+        if len(analysis["roots"]) > 1:
+            out.append("- More than one child declares no predecessor: "
+                       + ", ".join(f"`{name}`" for name in analysis["roots"])
+                       + " — so this record holds several disconnected chains rather than one.")
+        out.append("")
+
     out += ["## Obligations still carried", ""]
-    if outstanding:
-        for obligation in outstanding:
-            out.append(f"- **{obligation['id']}** — {obligation['statement']}")
-        out += ["", "Each must appear in the next child as satisfied, still carried, or released with "
-                    "a reason. None of them can be dropped by saying nothing."]
-    else:
+    if report["unknown"]:
+        out.append("_Cannot be computed from this record._ Nothing here should be read as a debt of "
+                   "zero — what is owed is unknown until these are resolved:")
+        out += [f"- {reason}" for reason in report["unknown"]]
+        if report["obligations"]:
+            out += ["", "What the readable branches still owe:"]
+    if report["obligations"]:
+        status_of = {child["plan_id"]: child["status"] for child in view}
+        successors_of: dict = {}
+        for child in record["children"]:
+            predecessor = child.get("predecessor_plan_id")
+            if predecessor:
+                successors_of.setdefault(predecessor, []).append(child["plan_id"])
+
+        def dead_chain_after(plan_id: str) -> list:
+            """Every stopped plan downstream of here, not merely the first one.
+
+            A branch usually dies more than one plan deep — the live shelf's own case is B abandoned
+            and then C abandoned after it — and naming only the immediate successor left an operator
+            reading about one stopped plan while the table showed two, with nothing connecting them.
+            """
+            found, seen, stack = [], set(), list(successors_of.get(plan_id, []))
+            while stack:
+                successor = stack.pop(0)
+                if successor in seen or status_of.get(successor) not in DEAD_BRANCH_STATES:
+                    continue
+                seen.add(successor)
+                found.append(successor)
+                stack.extend(successors_of.get(successor, []))
+            return found
+
+        stopped_after = {plan_id: dead_chain_after(plan_id) for plan_id in report["by_leaf"]}
+        for leaf, obligations in sorted(report["by_leaf"].items()):
+            # Attributed per leaf, because on a forked chain "what is still owed" and "who owes it"
+            # are different questions, and only the second one can be answered by a successor.
+            #
+            # And when this plan is an end only BECAUSE its successors stopped, say so. The operator
+            # otherwise meets a debt that appeared from nowhere and has to infer the reason from a
+            # status column two sections up — the reasoning lived only in this module's docstring,
+            # which is not somewhere they read.
+            dead = stopped_after.get(leaf) or []
+            if dead:
+                out.append(
+                    f"- Carried at `{leaf}`, which is where that branch now ends — "
+                    + ", ".join(f"`{name}` ({status_of.get(name, 'closed')})" for name in dead)
+                    + (" was" if len(dead) == 1 else " were")
+                    + " meant to answer for these and stopped without doing so:")
+            else:
+                out.append(f"- Carried at `{leaf}`, where that branch currently ends:")
+            for obligation in obligations:
+                out.append(f"  - **{obligation['id']}** — {obligation['statement']}")
+        out += ["", "Each must be answered by the next child on ITS OWN branch — satisfied, still "
+                    "carried, or released with a reason. None of them can be dropped by saying nothing."]
+    elif not report["unknown"]:
         out.append("_None outstanding._")
     released = _released(library, record)
     if released:

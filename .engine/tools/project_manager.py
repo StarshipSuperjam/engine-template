@@ -366,6 +366,9 @@ def cmd_show(args) -> int:
             print(f"\nnext: {_next_step(status, record, blockers)}")
         else:
             print(f"\nready to seal: {_next_step(status, record, blockers)}")
+        # Beside the refusals, never inside them: what the operator should know but which is not a
+        # reason to stop. `show` prints exactly what `seal` refuses AND exactly what it discloses.
+        _print_disclosures(seal_disclosures(library, slug), stream=sys.stdout)
     return 0
 
 
@@ -1102,6 +1105,15 @@ def cmd_finding_dispose(args) -> int:
     return 0
 
 
+def _print_disclosures(disclosures: list, *, stream) -> None:
+    """One wording for both commands. A disclosure is not a refusal and must never read like one."""
+    if not disclosures:
+        return
+    print("\nworth knowing, but not blocking this seal:", file=stream)
+    for disclosure in disclosures:
+        print(f"  - {disclosure}", file=stream)
+
+
 def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
     """Every reason this plan may not be sealed, together, in operator-facing language.
 
@@ -1183,27 +1195,134 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
                 "finding(s) were recorded and dispositioned, and a seal is the last moment anyone can "
                 "act on them. Show the operator what was found and what was done about each, then:\n"
                 "      project_manager.py present-findings <plan> --operator-decision \"<what they said>\"")
-    # The carry-forward decay, re-derived from CURRENT heads rather than trusted from join time. A
-    # successor that joined a program before its predecessor minted an obligation has been claiming
-    # to answer for a set that grew underneath it, and the seal is the last moment that can be fixed
-    # without a clone. Advisory everywhere else, a refusal here.
+    refusals.extend(_program_check(library, record, document)[0])
+    return refusals
+
+
+def _program_check(library: plan_store.PlanLibrary, record: dict, document: dict) -> tuple:
+    """(refusals, disclosures) about this plan's program — the carry-forward re-check and its edges.
+
+    The decay is re-derived from CURRENT heads rather than trusted from join time: a successor that
+    joined before its predecessor minted an obligation has been claiming to answer for a set that grew
+    underneath it, and the seal is the last moment that can be fixed without a clone. Advisory
+    everywhere else, a refusal here.
+
+    Split into two lists because the two halves answer to different rules. A plan whose OWN program
+    cannot be re-checked must not seal — that is the guarantee. A plan that has nothing to do with a
+    malformed record elsewhere in the library must not be held hostage by it, but the operator should
+    still be TOLD the library has a broken record, because a silent skip is how the next one hides.
+    """
+    refusals, disclosures = [], []
     try:
         programs = plan_program.ProgramLibrary(library)
-        program_slug = programs.program_for_plan(record["plan_id"])
-        for entry in (programs.carry_forward_decay(program_slug, plan_id=record["plan_id"])
-                      if program_slug else []):
-            refusals.append(
-                f"this plan no longer answers for {len(entry['obligations'])} obligation(s) its "
-                f"predecessor {entry['predecessor_plan_id']} carries — "
-                + ", ".join(o["id"] for o in entry["obligations"])
-                + ". They were minted after this plan joined the program, so the join-time check "
-                  "never saw them. Revise to answer for each: satisfied, still carried, or released "
-                  "with a reason.")
-    except Exception as exc:  # noqa: BLE001 — an unreadable program must not block a plan's seal
-        refusals.append(f"the program this plan belongs to could not be read to re-check its "
-                        f"carry-forward obligations ({exc}); resolve that before sealing, because "
-                        "an unchecked carry-forward is the decay the program object exists to stop.")
-    return refusals
+        claimed = (document.get("program") or {}).get("program_id")
+        membership = programs.program_membership(record["plan_id"], claimed_program_id=claimed)
+    except Exception as exc:  # noqa: BLE001 — the lookup itself failing is not a licence to proceed
+        return ([f"the plan library's programs could not be enumerated to re-check this plan's "
+                 f"carry-forward obligations ({exc}); resolve that before sealing, because an "
+                 "unchecked carry-forward is the decay the program object exists to stop."], [])
+
+    if membership["claims_unreadable"]:
+        # The plan says which program it belongs to and that program's record cannot be parsed. Fail
+        # CLOSED on the plan's own word: this is exactly the case the back-link exists to catch.
+        refusals.append(
+            f"this plan declares that it belongs to program {claimed}, and that program's record "
+            "cannot be read, so the obligations it carries forward cannot be re-checked. Repair the "
+            "program record before sealing — an unchecked carry-forward is the decay the program "
+            "object exists to stop.")
+    elif membership["slug"]:
+        try:
+            for entry in programs.carry_forward_decay(membership["slug"], plan_id=record["plan_id"]):
+                refusals.append(
+                    f"this plan no longer answers for {len(entry['obligations'])} obligation(s) its "
+                    f"predecessor {entry['predecessor_plan_id']} carries — "
+                    + ", ".join(o["id"] for o in entry["obligations"])
+                    + ". They were minted after this plan joined the program, so the join-time check "
+                      "never saw them. Revise to answer for each: satisfied, still carried, or "
+                      "released with a reason.")
+        except Exception as exc:  # noqa: BLE001 — this plan's OWN program: refuse, never skip
+            refusals.append(f"the program this plan belongs to could not be read to re-check its "
+                            f"carry-forward obligations ({exc}); resolve that before sealing, because "
+                            "an unchecked carry-forward is the decay the program object exists to stop.")
+
+    for entry in membership["unreadable"]:
+        if entry["slug"] == membership["slug"] or membership["claims_unreadable"]:
+            continue                      # already refused above; not disclosed twice
+        # THREE cases, because the record can be broken in two ways and each supports a different
+        # honest sentence. Collapsing them printed a claim about membership the inputs contradicted.
+        if entry["names_this_plan"]:
+            # Parseable, and its children name this plan — the lookup resolved elsewhere only because
+            # a readable record claimed it first. Saying "it does not name this plan" would state as
+            # fact something the code two lines up already computed to be false.
+            disclosures.append(
+                f"the program record at `{entry['slug']}` could not be read ({entry['error']}), AND "
+                "it names this plan as one of its children — so this plan is claimed by more than "
+                "one program and that claim cannot be re-checked. Repair the record before relying "
+                "on this seal's carry-forward evidence.")
+        elif _record_parses(library, entry["slug"]):
+            # Parseable but schema-invalid: its children ARE readable, so membership is genuinely
+            # settled and this plan is genuinely not in it.
+            disclosures.append(
+                f"the program record at `{entry['slug']}` could not be read ({entry['error']}). It "
+                "does not name this plan, so it does not stand in the way of this seal — but it is "
+                "broken, and no program it holds can be re-checked until it is repaired.")
+        else:
+            # Will not parse at all. "It does not name this plan" is an overstatement here for the
+            # same reason the opposite would be: nothing can be read out of it either way.
+            disclosures.append(
+                f"the program record at `{entry['slug']}` could not be parsed at all "
+                f"({entry['error']}), so whether it names this plan cannot be determined. This seal "
+                "is proceeding on the plan's own program back-link; repair the record before relying "
+                "on the library's carry-forward evidence.")
+    # ONLY the unparseable class leaves a genuine gap. A record that fails its schema still yields its
+    # children, so membership in it is knowable and was already settled above; saying "nothing here
+    # could tell" about such a record contradicts the disclosure printed one line earlier and sends
+    # the operator looking for a corrupt file that parses perfectly well.
+    unknowable = [entry for entry in membership["unreadable"]
+                  if not entry["names_this_plan"] and not _record_parses(library, entry["slug"])]
+    if membership["slug"] is None and not claimed and unknowable:
+        # The one gap two sources cannot close, stated rather than assumed away: a child added before
+        # the back-link was required, under a record that will not parse, is indistinguishable from a
+        # standalone plan. Named here so the operator can judge it, not silently resolved as "no
+        # program" — which is precisely the fail-open this whole split exists to avoid.
+        disclosures.append(
+            "this plan carries no program back-link, and the library holds a program record that "
+            "cannot be parsed — so if this plan were a child of THAT program, nothing here could "
+            "tell. It is being treated as a standalone plan. Repair the record, or add the plan's "
+            "`program.program_id` back-link, to close that gap.")
+    return refusals, disclosures
+
+
+def _record_parses(library: plan_store.PlanLibrary, slug: str) -> bool:
+    """Whether a program record is readable JSON, regardless of whether it satisfies its schema.
+
+    The two corruption classes differ in exactly this, and the disclosures must not conflate them: a
+    schema-invalid record still says whose children it holds, so nothing about membership is unknown.
+    """
+    try:
+        programs = plan_program.ProgramLibrary(library)
+        core.json_file(programs.program_dir(slug) / plan_program.RECORD_FILENAME)
+        return True
+    except Exception:  # noqa: BLE001 — unreadable is the answer, not an error to raise
+        return False
+
+
+def seal_disclosures(library: plan_store.PlanLibrary, slug: str) -> list:
+    """What the operator should know at a seal that is NOT a reason to refuse it.
+
+    A companion to `seal_refusals` rather than a second return value from it, because that function is
+    a pure predicate that thirteen call sites and a test ("show prints exactly what seal refuses")
+    depend on: a refusal list that quietly grew non-refusals would break the one thing every caller
+    trusts about it.
+    """
+    record = library.read_record(slug)
+    if record.get("seal") or record.get("closure"):
+        return []
+    try:
+        document = library.head(slug)
+    except ProjectManagerError:
+        return []
+    return _program_check(library, record, document)[1]
 
 
 def cmd_seal(args) -> int:
@@ -1216,12 +1335,17 @@ def cmd_seal(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     refusals = seal_refusals(library, slug)
+    disclosures = seal_disclosures(library, slug)
     if refusals:
         print(f"not sealing {library.read_record(slug)['plan_id']}; it remains an editable draft:",
               file=sys.stderr)
         for refusal in refusals:
             print(f"  - {refusal}", file=sys.stderr)
+        _print_disclosures(disclosures, stream=sys.stderr)
         return 1
+    # Printed BEFORE the seal is minted, because a seal is terminal: the last moment this can reach
+    # the operator while it is still actionable is now.
+    _print_disclosures(disclosures, stream=sys.stderr)
 
     record = library.read_record(slug)
     document = library.head(slug)
@@ -1797,10 +1921,14 @@ def cmd_program_list(args) -> int:
         return 0
     for slug in slugs:
         record = programs.read(slug)
-        outstanding = programs.outstanding_obligations(record)
+        report = programs.obligation_report(record)
+        # "unknown", never "0". This one-line summary is what an operator scans first, so it is the
+        # LAST place a corrupt program should be able to read as a clean zero — which is exactly what
+        # it did while the unknown rendering existed only in `show`.
+        owed = (f"{len(report['obligations'])} obligation(s) outstanding" if not report["unknown"]
+                else f"obligations unknown ({len(report['unknown'])} reason(s) — run `program show`)")
         print(f"{record['program_id']}  {programs.derived_status(record):<15} "
-              f"{len(record['children'])} child(ren), {len(outstanding)} obligation(s) outstanding  "
-              f"{record['title']}")
+              f"{len(record['children'])} child(ren), {owed}  {record['title']}")
     return 0
 
 
@@ -1816,14 +1944,23 @@ def cmd_program_add(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
     record = programs.add_child(slug, args.plan, predecessor=args.after)
-    outstanding = programs.outstanding_obligations(record)
-    print(f"added {args.plan} as child {len(record['children'])} of {record['program_id']}")
+    # THIS child's own carries, not the program-wide union. Once the chain forks, "what the program
+    # still owes" and "what the next child on THIS branch must answer for" are different questions,
+    # and only the second one is what an operator adding to a branch is being told. Printing the union
+    # here would attribute another branch's debts to a successor that can never answer for them.
+    plan_slug = programs.plans.resolve(args.plan)
+    outstanding = sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
+                         key=lambda o: o["id"])
+    ordinal = next((child["chain_ordinal"] for child in programs.child_view(record)
+                    if child["plan_id"] == programs.plans.read_record(plan_slug)["plan_id"]),
+                   len(record["children"]))
+    print(f"added {args.plan} as child {ordinal} of {record['program_id']}")
     if outstanding:
-        print(f"\n{len(outstanding)} obligation(s) are now carried into the next child:")
+        print(f"\n{len(outstanding)} obligation(s) are now carried into the next child ON THIS BRANCH:")
         for obligation in outstanding:
             print(f"  - {obligation['id']}: {obligation['statement']}")
-        print("\nThe next child must answer for each — satisfied, still carried, or released with a "
-              "stated reason. None of them can be dropped by saying nothing.")
+        print("\nThe next child on this branch must answer for each — satisfied, still carried, or "
+              "released with a stated reason. None of them can be dropped by saying nothing.")
     _report_decay(programs, slug)
     return 0
 
