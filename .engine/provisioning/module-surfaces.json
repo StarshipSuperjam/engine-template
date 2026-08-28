@@ -1737,6 +1737,9 @@
   ".engine/tools/memory/semantic/wordpiece.py": [
    "memory-semantic-recall"
   ],
+  ".engine/tools/memory/snapshot_format.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/test_backup_vault.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1798,6 +1801,9 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_search.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/test_snapshot_format.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory_pointer_public_safety_check.py": [

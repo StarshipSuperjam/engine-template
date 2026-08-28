@@ -12,9 +12,13 @@ into the gate or fail against a tag-less projected tree.
 """
 from __future__ import annotations
 
+import base64
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
+import random
 import subprocess
 import sys
 import tempfile
@@ -25,6 +29,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate                              # noqa: E402
 import module_manager as mm                  # noqa: E402  (the shared PRACTICE_RUN_NOTE constant)
 import release_gate as rg                    # noqa: E402
+from memory import backup_vault as bv        # noqa: E402
+from memory import index as memory_index     # noqa: E402
+from memory import ledger                    # noqa: E402
+from memory import restore_vault as rv       # noqa: E402
+from memory import snapshot_format as sf     # noqa: E402
 
 _CONSTRUCTION = rg._ccc._in_home_repo() and not os.environ.get(rg._NESTED_ENV)
 _SKIP = "runs where a release is cut (the home repo, not a nested projection run)"
@@ -810,6 +819,173 @@ class TestOperateArmReporting(unittest.TestCase):
             res = rg._validate_in("/tmp/proj", "operate/default")
         self.assertTrue(res["passed"])
         self.assertEqual(res["detail"], "")
+
+
+@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+class TestMultipartMemoryReleaseEvidence(unittest.TestCase):
+    """Cut-time evidence for #822's supported envelope, deadlines, and disclosed privacy limits."""
+
+    def setUp(self):
+        self._root = tempfile.TemporaryDirectory()
+        self._cab = tempfile.TemporaryDirectory()
+        self._old_root = validate.ROOT
+        self._old_engine = getattr(validate, "ENGINE_DIR", None)
+        self._old_slug = bv._project_slug
+        validate.ROOT = self._root.name
+        validate.ENGINE_DIR = os.path.join(self._root.name, ".engine")
+        os.makedirs(validate.ENGINE_DIR, exist_ok=True)
+        with open(os.path.join(validate.ENGINE_DIR, "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump({"engine_release": "1.2.3"}, fh)
+        os.environ["ENGINE_MEMORY_DIR"] = self._cab.name
+        bv._project_slug = lambda: "test-org/release-evidence"
+
+    def tearDown(self):
+        validate.ROOT = self._old_root
+        if self._old_engine is not None:
+            validate.ENGINE_DIR = self._old_engine
+        os.environ.pop("ENGINE_MEMORY_DIR", None)
+        bv._project_slug = self._old_slug
+        self._root.cleanup()
+        self._cab.cleanup()
+
+    def _configured(self):
+        ledger.append({"kind": "turn-delta", "text": "deadline witness"})
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        pointer = bv.read_pointer()
+        key = f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"
+        return fake, key
+
+    def test_observed_size_multipart_round_trip(self):
+        # A literal, valid 76 MiB ledger driven through the real publisher,
+        # boundary-faithful wrapped blob responses, total local loss, fetch,
+        # strict decode, and atomic restore.
+        text = base64.b64encode(random.Random(822).randbytes(57 * 1024 * 1024))
+        payload = b'{"kind":"turn-delta","text":"' + text + b'"}\n'
+        self.assertGreater(len(payload), 75 * 1024 * 1024)
+        Path(ledger.ledger_path()).write_bytes(payload)
+        fake = bv._FakeVault()
+
+        def wrapped_transport(method, path, body=None, **kwargs):
+            status, response = fake.transport(method, path, body)
+            if method == "GET" and "/git/blobs/" in path and isinstance(response, dict):
+                response = dict(response)
+                encoded = response["content"]
+                response["content"] = "\n".join(encoded[i:i + 60] for i in range(0, len(encoded), 60))
+            return status, response
+
+        self.assertTrue(bv.setup(scope="shared", transport=wrapped_transport, consent="y")["ok"])
+        pointer = bv.read_pointer(); key = f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"
+        tree = fake.trees[fake.commits[fake.refs[key]]["tree"]["sha"]]["tree"]
+        self.assertGreater(sum(e["path"].startswith(pointer["namespace"] + "/part-") for e in tree), 1)
+        rv._quiet_remove(ledger.ledger_path())
+        rv._quiet_remove(ledger.meta_path())
+        rv._quiet_remove(memory_index.index_path())
+        with mock.patch.object(memory_index, "fts5_available", return_value=False):
+            restored = rv.restore_now(transport=wrapped_transport, consent="y", github=None)
+        self.assertTrue(restored["ok"])
+        self.assertEqual(Path(ledger.ledger_path()).read_bytes(), payload)
+
+    def test_declared_support_envelope_and_one_over_refusals(self):
+        self.assertEqual(sf.MAX_UNCOMPRESSED_BYTES, 512 * 1024 * 1024)
+        self.assertEqual(sf.MAX_COMPRESSED_BYTES, 128 * 1024 * 1024)
+        self.assertEqual(sf.MAX_PARTS, 32)
+        self.assertEqual(sf.PART_REQUEST_BYTES, 8 * 1024 * 1024)
+        raw_limit = sf.max_part_bytes()
+        remaining = sf.MAX_COMPRESSED_BYTES
+        entries = []
+        while remaining:
+            size = min(raw_limit, remaining)
+            entries.append({"name": sf.part_name(len(entries)), "bytes": size, "sha256": "0" * 64})
+            remaining -= size
+        manifest = {"snapshot-format": 2, "compression": "gzip", "ledger-sha256": "0" * 64,
+                    "ledger-bytes": sf.MAX_UNCOMPRESSED_BYTES, "compressed-sha256": "0" * 64,
+                    "compressed-bytes": sf.MAX_COMPRESSED_BYTES, "parts": entries}
+        self.assertEqual(sf._validate_manifest(manifest, request_limit=sf.PART_REQUEST_BYTES), entries)
+        for key, limit in (("ledger-bytes", sf.MAX_UNCOMPRESSED_BYTES),
+                           ("compressed-bytes", sf.MAX_COMPRESSED_BYTES)):
+            excessive = json.loads(json.dumps(manifest))
+            excessive[key] = limit + 1
+            with self.assertRaises(sf.SnapshotLimitError):
+                sf._validate_manifest(excessive, request_limit=sf.PART_REQUEST_BYTES)
+        self.assertLessEqual(sf.encoded_request_size(b"x" * raw_limit), sf.PART_REQUEST_BYTES)
+        self.assertGreater(sf.encoded_request_size(b"x" * (raw_limit + 1)), sf.PART_REQUEST_BYTES)
+
+    def test_session_deadline_preserves_prior_ref_and_foreground_restore_refuses_before_mutation(self):
+        fake, key = self._configured()
+        before_ref = fake.refs[key]
+        before_ledger = Path(ledger.ledger_path()).read_bytes()
+        clock = [0.0]
+
+        def delayed(method, path, body=None, *, timeout=None):
+            delay = 6.0
+            if timeout is not None and delay >= timeout:
+                clock[0] += timeout
+                return None, None
+            clock[0] += delay
+            return fake.transport(method, path, body)
+
+        delayed._engine_timeout_capable = True
+        with mock.patch.object(bv.time, "monotonic", side_effect=lambda: clock[0]):
+            result = bv.push_now(transport=delayed, deadline_seconds=bv._SESSION_START_DEADLINE_SECONDS)
+        self.assertEqual(result["error"], "deadline")
+        self.assertLessEqual(clock[0], bv._SESSION_START_DEADLINE_SECONDS)
+        self.assertEqual(fake.refs[key], before_ref)
+        self.assertIn("prior complete backup remains current", bv._HEADS_UP_DEADLINE)
+        with mock.patch.object(bv, "_setup_done", return_value=True), \
+             mock.patch.object(bv, "_should_push", return_value=True), \
+             mock.patch.object(bv, "_read_state", return_value={"last_privacy_ok": True}), \
+             mock.patch.object(bv, "_record_state"), \
+             mock.patch.object(bv, "push_now", return_value={"ok": False, "error": "deadline"}) as push:
+            hook_result = bv._session_start_handler({}, now=100)
+        push.assert_called_once_with(now=100, deadline_seconds=bv._SESSION_START_DEADLINE_SECONDS)
+        self.assertIn("10-second session-start limit", json.dumps(hook_result))
+
+        restored = rv.restore_now(transport=fake.transport, consent="y", github=None, deadline_seconds=0)
+        self.assertEqual(restored["error"], "deadline")
+        self.assertIn("180-second", restored["message"])
+        self.assertEqual(Path(ledger.ledger_path()).read_bytes(), before_ledger)
+
+        ticks = iter((0.0, 0.0, 2.0))
+        with self.assertRaises(sf.SnapshotDeadlineError):
+            sf.encode(b"x" * (sf._COPY_CHUNK_BYTES * 3), deadline=1.0,
+                      clock=lambda: next(ticks, 2.0))
+
+        fetch = {"ok": True,
+                 "manifest": {"ledger-version": 1, "ledger-generation": ledger.generation(),
+                              "timestamp": "1970-01-01T00:00:00Z", "engine-version": "1.2.3"},
+                 "ledger_bytes": b'{"kind":"turn-delta","text":"replacement"}\n'}
+        local_clock = {"now": 0.0}
+        real_rebuild = memory_index.rebuild
+
+        def delayed_rebuild(*args, **kwargs):
+            report = real_rebuild(*args, **kwargs)
+            local_clock["now"] = 2.0
+            return report
+
+        with mock.patch.object(rv.time, "monotonic", side_effect=lambda: local_clock["now"]), \
+                mock.patch.object(memory_index, "rebuild", side_effect=delayed_rebuild):
+            local_result = rv._restore_from_fetch(fetch, consent="y", override=True, github=None,
+                                                  deadline=1.0, deadline_state={"expired": False})
+        self.assertEqual(local_result["error"], "deadline")
+        self.assertEqual(Path(ledger.ledger_path()).read_bytes(), before_ledger)
+
+    def test_private_vault_and_git_history_limits_are_operator_visible(self):
+        setup_message = bv._setup_done_msg("owner", "engine-memory-vault")
+        readme = bv._readme_text("project")
+        for text in (setup_message, readme):
+            normalized = " ".join(text.split())
+            self.assertIn("does not add encryption", normalized)
+            self.assertIn("repository history", normalized)
+            self.assertIn("private", normalized.lower())
+        fake, _ = self._configured()
+        self.assertIsNotNone(fake)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(bv.status(now=0), 0)
+        self.assertIn("does not add encryption", output.getvalue())
+        self.assertIn("earlier copies are no longer recoverable", output.getvalue())
+        self.assertNotIn("unreachable objects", output.getvalue())
 
 
 if __name__ == "__main__":

@@ -9,10 +9,16 @@ through `backup_vault` and reads back through `restore_vault`, so the two halves
 from __future__ import annotations
 
 import base64
+import gzip
+import hashlib
 import json
+import multiprocessing
 import os
+import shutil
+import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -25,9 +31,28 @@ from memory import ledger_migrations as lm  # noqa: E402
 from memory import restore_vault as rv  # noqa: E402
 
 
+# Literal bytes from the original single-blob v1 wire format. These are not
+# produced by current helpers: changing a writer cannot silently rewrite the
+# compatibility oracle.
+_LEGACY_V1_LEDGER = b'{"kind":"turn-delta","text":"legacy fixture"}\n'
+_LEGACY_V1_MANIFEST = (
+    b'{"engine-version":"1.2.3","ledger-generation":0,"ledger-version":1,'
+    b'"timestamp":"1970-01-01T00:00:00Z"}'
+)
+
+
 def _rb(path: str) -> bytes:
     with open(path, "rb") as fh:
         return fh.read()
+
+
+def _recovery_marker(staging: str, existed: dict) -> dict:
+    identities = {}
+    for name, was_present in existed.items():
+        prior = os.path.join(staging, f"prior-{name}")
+        identities[name] = rv._regular_file_identity(prior) if was_present else None
+    return {"version": 2, "staging": os.path.basename(staging), "existed": existed,
+            "prior_identity": identities}
 
 
 class _Base(unittest.TestCase):
@@ -66,9 +91,763 @@ class _Base(unittest.TestCase):
     def _wipe_local(self):
         rv._quiet_remove(ledger.ledger_path())
         rv._quiet_remove(ledger.meta_path())
+        rv._quiet_remove(index.index_path())
+
+    def _install_files(self, fake, files, *, extra_entries=()):
+        """Replace the configured ref with an exact synthetic namespace tree."""
+        pointer = bv.read_pointer()
+        tree = []
+        for path, raw in files.items():
+            sha = bv._git_blob_sha1(raw)
+            fake.blobs[sha] = base64.b64encode(raw).decode("ascii")
+            tree.append({"path": path, "type": "blob", "sha": sha})
+        tree.extend(extra_entries)
+        tree_sha, commit_sha = fake._next("t"), fake._next("c")
+        fake.trees[tree_sha] = {"sha": tree_sha, "tree": tree}
+        fake.commits[commit_sha] = {"sha": commit_sha, "tree": {"sha": tree_sha}}
+        fake.refs[f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"] = commit_sha
+        return tree
+
+    def _v2_snapshot(self, payload, *, request_limit=512):
+        snapshot = rv.snapshot_format.encode(payload, request_limit=request_limit)
+        snapshot["manifest"].update(bv.build_manifest(ledger_path=ledger.ledger_path(), now=0))
+        return snapshot
+
+    def _install_v2(self, fake, snapshot, *, parts=None, extra_entries=()):
+        pointer = bv.read_pointer()
+        supplied = snapshot["parts"] if parts is None else parts
+        files = {f"{pointer['namespace']}/manifest.json":
+                 json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode()}
+        files.update({f"{pointer['namespace']}/{entry['name']}": part
+                      for entry, part in zip(snapshot["manifest"].get("parts", []), supplied)})
+        return self._install_files(fake, files, extra_entries=extra_entries)
 
 
 class RoundTripTests(_Base):
+    def test_restore_distinguishes_unavailable_deadline_enforcement(self):
+        with mock.patch.object(bv.threading, "current_thread", return_value=object()):
+            result = rv.restore_now(consent="y", github=None)
+        self.assertEqual(result["error"], "deadline-unavailable")
+        self.assertIn("cannot safely enforce", result["message"])
+        self.assertNotIn("180-second limit", result["message"])
+
+    def test_restore_now_interrupts_blocked_index_build_at_wall_clock_deadline(self):
+        ledger.append({"kind": "turn-delta", "text": "local survives wall clock"})
+        before = _rb(ledger.ledger_path())
+        fetch = {
+            "ok": True,
+            "manifest": {"ledger-version": 1, "ledger-generation": 0,
+                         "timestamp": "1970-01-01T00:00:00Z", "engine-version": "1.2.3"},
+            "ledger_bytes": _LEGACY_V1_LEDGER,
+        }
+
+        def blocked_rebuild(*args, **kwargs):
+            time.sleep(1)
+
+        started = time.monotonic()
+        with mock.patch.object(rv, "fetch_snapshot", return_value=fetch), \
+                mock.patch.object(index, "rebuild", side_effect=blocked_rebuild):
+            result = rv.restore_now(consent="y", override=True, github=None, deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result["error"], "deadline")
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+
+    def test_restore_now_counts_interrupted_recovery_inside_its_wall_clock_deadline(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(os.path.join(staging, "prior-ledger"), "wb") as target:
+            target.write(b"prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+
+        started = time.monotonic()
+        with mock.patch.object(rv, "_restore_prior_set", side_effect=lambda *a, **k: time.sleep(1)), \
+                mock.patch.object(rv, "fetch_snapshot",
+                                  side_effect=AssertionError("fetch must wait for recovery")):
+            result = rv.restore_now(consent="y", github=None, deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result["error"], "apply-uncertain")
+        self.assertLess(elapsed, 0.5)
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_startup_recovery_stops_at_its_own_wall_clock_deadline(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(os.path.join(staging, "prior-ledger"), "wb") as target:
+            target.write(b"prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+
+        started = time.monotonic()
+        with mock.patch.object(rv, "_restore_prior_set", side_effect=lambda *a, **k: time.sleep(1)):
+            result = rv.reconcile_interrupted_restore(deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["pending"])
+        self.assertLess(elapsed, 0.5)
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_each_publication_fault_restores_the_prior_complete_file_set(self):
+        for failing_target in ("index", "ledger", "meta"):
+            with self.subTest(failing_target=failing_target):
+                self._wipe_local()
+                ledger.append({"kind": "turn-delta", "text": f"prior {failing_target}"})
+                with open(ledger.meta_path(), "w", encoding="utf-8") as fh:
+                    json.dump({"generation": 4, "index_epoch": 7}, fh)
+                index.rebuild()
+                paths = {"ledger": ledger.ledger_path(), "meta": ledger.meta_path(),
+                         "index": index.index_path()}
+                before = {name: _rb(path) for name, path in paths.items()}
+                real_replace = os.replace
+                failed = {"done": False}
+
+                def fail_once(src, dst):
+                    if dst == paths[failing_target] and not failed["done"]:
+                        failed["done"] = True
+                        raise OSError("injected publication fault")
+                    return real_replace(src, dst)
+
+                with mock.patch.object(rv.os, "replace", side_effect=fail_once):
+                    result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+                self.assertEqual(result["error"], "apply-failed")
+                self.assertIn("prior live files were put back", result["message"])
+                self.assertEqual({name: _rb(path) for name, path in paths.items()}, before)
+
+    def test_rollback_failure_reports_uncertain_state_without_unchanged_claim(self):
+        ledger.append({"kind": "turn-delta", "text": "prior uncertain"})
+        with open(ledger.meta_path(), "w", encoding="utf-8") as fh:
+            json.dump({"generation": 4, "index_epoch": 7}, fh)
+        index.rebuild()
+        live_ledger = ledger.ledger_path()
+        real_replace = os.replace
+
+        def fail_ledger_replaces(src, dst):
+            if dst == live_ledger:
+                raise OSError("publication and rollback both fail")
+            return real_replace(src, dst)
+
+        with mock.patch.object(rv.os, "replace", side_effect=fail_ledger_replaces):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertEqual(result["error"], "apply-uncertain")
+        self.assertNotIn("unchanged", result["message"].lower())
+        self.assertIn("quarantined", result["message"])
+        self.assertTrue(os.path.isdir(result["recovery_path"]))
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_failed_rollback_to_prior_absence_is_quarantined_then_recovered(self):
+        from memory import capture
+        self._wipe_local()
+        real_replace, real_remove = os.replace, os.remove
+        failed_publish = {"done": False}
+
+        def fail_index_publish(src, dst):
+            if dst == index.index_path() and not failed_publish["done"]:
+                failed_publish["done"] = True
+                raise OSError("fail after ledger and metadata publication")
+            return real_replace(src, dst)
+
+        def fail_absence_restore(path):
+            if path == ledger.ledger_path():
+                raise OSError("cannot restore prior absence")
+            return real_remove(path)
+
+        with mock.patch.object(rv.os, "replace", side_effect=fail_index_publish), \
+                mock.patch.object(rv.os, "remove", side_effect=fail_absence_restore):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 0, 1)
+        self.assertEqual(result["error"], "apply-uncertain")
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+        self.assertTrue(os.path.isdir(result["recovery_path"]))
+        lock_path = os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)
+        self.assertIsNone(capture._acquire_lock(lock_path), "ordinary writers stay quarantined")
+
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertTrue(recovered["recovered"])
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+        self.assertFalse(os.path.exists(ledger.ledger_path()))
+        self.assertFalse(os.path.exists(ledger.meta_path()))
+        self.assertFalse(os.path.exists(index.index_path()))
+        self.assertFalse(os.path.exists(result["recovery_path"]))
+
+    def test_equal_lineage_never_trusts_new_index_before_ledger_swap(self):
+        ledger.append({"kind": "turn-delta", "text": "prior equal lineage"})
+        index.rebuild()
+        real_replace_ledger = ledger.replace_ledger
+        observed = {}
+
+        def inspect_disabled_fast_path(temp, *, path=None):
+            query = index.query("prior")
+            observed["degraded"] = query.degraded
+            observed["texts"] = [record.get("text") for record in query.records]
+            return real_replace_ledger(temp, path=path)
+
+        with mock.patch.object(ledger, "replace_ledger", side_effect=inspect_disabled_fast_path):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 0, 1)
+        self.assertTrue(result["ok"])
+        self.assertTrue(observed["degraded"])
+        self.assertIn("prior equal lineage", observed["texts"])
+
+    @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "POSIX crash-recovery test")
+    def test_real_process_death_is_reconciled_at_every_publication_boundary(self):
+        from memory import capture
+        for boundary in ("index-invalidated", "ledger", "meta", "index"):
+            with self.subTest(boundary=boundary):
+                self._wipe_local()
+                ledger.append({"kind": "turn-delta", "text": f"prior at {boundary}"})
+                with open(ledger.meta_path(), "w", encoding="utf-8") as target:
+                    json.dump({"generation": 0, "index_epoch": 0}, target)
+                index.rebuild()
+                paths = {"ledger": ledger.ledger_path(), "meta": ledger.meta_path(),
+                         "index": index.index_path()}
+                before = {name: _rb(path) for name, path in paths.items()}
+                real_remove, real_replace, real_ledger_replace = os.remove, os.replace, ledger.replace_ledger
+
+                def crash_child():
+                    def crash_remove(path):
+                        result = real_remove(path)
+                        if boundary == "index-invalidated" and path == paths["index"]:
+                            os._exit(91)
+                        return result
+
+                    def crash_replace(src, dst):
+                        result = real_replace(src, dst)
+                        if ((boundary == "meta" and dst == paths["meta"])
+                                or (boundary == "index" and dst == paths["index"])):
+                            os._exit(91)
+                        return result
+
+                    def crash_ledger(temp, *, path=None):
+                        result = real_ledger_replace(temp, path=path)
+                        if boundary == "ledger":
+                            os._exit(91)
+                        return result
+
+                    with mock.patch.object(rv.os, "remove", side_effect=crash_remove), \
+                            mock.patch.object(rv.os, "replace", side_effect=crash_replace), \
+                            mock.patch.object(ledger, "replace_ledger", side_effect=crash_ledger):
+                        rv._apply_restore(_LEGACY_V1_LEDGER, 0, 1)
+                    os._exit(92)
+
+                process = multiprocessing.get_context("fork").Process(target=crash_child)
+                process.start()
+                process.join(10)
+                self.assertEqual(process.exitcode, 91)
+                self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+                self.assertIsNone(capture._acquire_lock(os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)))
+                recovered = rv.reconcile_interrupted_restore()
+                self.assertTrue(recovered["ok"])
+                self.assertEqual({name: _rb(path) for name, path in paths.items()}, before)
+
+    def test_staging_creation_failure_releases_writer_lock(self):
+        from memory import capture
+        with mock.patch.object(rv.tempfile, "mkdtemp", side_effect=OSError("disk fault")):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertEqual(result["error"], "apply-failed")
+        lock_path = os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME)
+        lock_fd = capture._acquire_lock(lock_path)
+        self.assertIsNotNone(lock_fd)
+        capture._release_lock(lock_fd)
+
+    def test_data_directory_creation_failure_is_a_typed_apply_failure(self):
+        with mock.patch.object(rv.os, "makedirs", side_effect=OSError("cabinet unavailable")):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertEqual(result["error"], "apply-failed")
+        self.assertFalse(result["restored"])
+
+    def test_markerless_restore_staging_is_reaped_at_startup(self):
+        orphan = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(os.path.join(orphan, "prior-ledger"), "wb") as target:
+            target.write(b"sensitive prior memory")
+        result = rv.reconcile_interrupted_restore()
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["cleanup_pending"])
+        self.assertFalse(os.path.exists(orphan))
+
+    def test_active_marker_prevents_orphan_staging_cleanup(self):
+        orphan = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(ledger.restore_transaction_path(), "w", encoding="utf-8") as target:
+            target.write("not a valid transaction")
+        cleanup = rv._cleanup_orphan_restore_staging(ledger.ledger_dir())
+        self.assertEqual(cleanup, {"removed": [], "failed": []})
+        self.assertTrue(os.path.isdir(orphan))
+
+    @unittest.skipUnless("fork" in multiprocessing.get_all_start_methods(), "POSIX writer-lock test")
+    def test_startup_cleanup_cannot_delete_markerless_staging_owned_by_foreground_restore(self):
+        from memory import capture
+        parent, child = multiprocessing.get_context("fork").Pipe()
+
+        def hold_foreground_lock(connection):
+            lock_fd = capture._acquire_lock(
+                os.path.join(ledger.ledger_dir(), capture.LOCK_FILENAME),
+                allow_restore_quarantine=True)
+            orphan = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+            connection.send(orphan)
+            connection.recv()
+            capture._release_lock(lock_fd)
+
+        process = multiprocessing.get_context("fork").Process(target=hold_foreground_lock, args=(child,))
+        process.start()
+        orphan = parent.recv()
+        try:
+            result = rv.reconcile_interrupted_restore()
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["busy"])
+            self.assertTrue(os.path.isdir(orphan))
+        finally:
+            parent.send("release")
+            process.join(5)
+        self.assertEqual(process.exitcode, 0)
+
+    def test_success_discloses_deferred_staging_cleanup_and_next_start_reaps_it(self):
+        real_rmtree = rv.shutil.rmtree
+        failed = {"done": False}
+
+        def fail_restore_stage_once(path, *args, **kwargs):
+            if os.path.basename(path).startswith(".restore-stage-") and not failed["done"]:
+                failed["done"] = True
+                raise OSError("temporary cleanup fault")
+            return real_rmtree(path, *args, **kwargs)
+
+        with mock.patch.object(rv.shutil, "rmtree", side_effect=fail_restore_stage_once):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["cleanup_pending"])
+        self.assertIn("next session start", result["message"])
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+        self.assertTrue(any(name.startswith(".restore-stage-") for name in os.listdir(ledger.ledger_dir())))
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertFalse(recovered["cleanup_pending"])
+        self.assertFalse(any(name.startswith(".restore-stage-") for name in os.listdir(ledger.ledger_dir())))
+
+    def test_invalid_recovery_marker_makes_no_preservation_claim(self):
+        with open(ledger.restore_transaction_path(), "w", encoding="utf-8") as target:
+            target.write("not-json")
+        status = rv.read_restore_recovery_status()
+        self.assertFalse(status["ok"])
+        self.assertTrue(status["pending"])
+        self.assertFalse(status["verified"])
+        self.assertEqual(status["error"], "recovery-invalid")
+        self.assertNotIn("preserved", status["message"].lower())
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()), "the status read is non-mutating")
+
+    def test_recovery_refuses_a_symlinked_prior_file(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        external = os.path.join(self._root.name, "outside-ledger")
+        with open(external, "wb") as target:
+            target.write(b"outside")
+        os.symlink(external, os.path.join(staging, "prior-ledger"))
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"published")
+        marker = {"version": 2, "staging": os.path.basename(staging),
+                  "existed": {"ledger": True, "meta": False, "index": False},
+                  "prior_identity": {
+                      "ledger": {"device": 0, "inode": 0, "size": 0, "mtime_ns": 0},
+                      "meta": None, "index": None}}
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        status = rv.read_restore_recovery_status()
+        self.assertEqual(status["error"], "recovery-invalid")
+        self.assertFalse(status["verified"])
+        self.assertEqual(_rb(external), b"outside")
+
+    def test_missing_prior_backup_requires_the_live_target_to_match_journaled_identity(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.write(b"verified prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        os.remove(prior)
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"unrelated partial replacement")
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+
+        status = rv.read_restore_recovery_status()
+        self.assertEqual(status["error"], "recovery-invalid")
+        self.assertFalse(status["verified"])
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_missing_prior_backup_is_idempotent_when_live_target_matches_journaled_identity(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.write(b"verified prior")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        os.replace(prior, ledger.ledger_path())
+
+        self.assertTrue(rv.read_restore_recovery_status()["verified"])
+        result = rv.reconcile_interrupted_restore()
+        self.assertTrue(result["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), b"verified prior")
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_recovery_retry_preserves_an_already_restored_prior_index(self):
+        self._wipe_local()
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        prior_index = os.path.join(staging, "prior-index")
+        with open(prior_index, "wb") as target:
+            target.write(b"verified prior index")
+        marker = _recovery_marker(staging, {"ledger": False, "meta": False, "index": True})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        os.replace(prior_index, index.index_path())
+
+        result = rv.reconcile_interrupted_restore()
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["recovered"])
+        self.assertEqual(_rb(index.index_path()), b"verified prior index")
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_completion_phase_is_durable_before_forward_restore_reports_success(self):
+        real_write = rv._write_restore_transaction
+
+        def fail_before_completion_is_durable(path, marker):
+            if marker.get("phase") == "complete":
+                raise rv.snapshot_format.SnapshotDeadlineError("completion fsync interrupted")
+            return real_write(path, marker)
+
+        with mock.patch.object(rv, "_write_restore_transaction", side_effect=fail_before_completion_is_durable):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "apply-uncertain")
+        with open(ledger.restore_transaction_path(), encoding="utf-8") as source:
+            self.assertEqual(json.load(source).get("phase"), "active")
+
+    def test_resurrected_completed_marker_never_rolls_a_successful_restore_back(self):
+        data_dir = ledger.ledger_dir()
+        marker_path = ledger.restore_transaction_path()
+        saved = {}
+        real_remove = rv.os.remove
+        real_fsync_dir = ledger._fsync_dir
+
+        def remember_completed_marker(path):
+            if path == marker_path:
+                saved["marker"] = _rb(path)
+            return real_remove(path)
+
+        def interrupt_post_unlink_sync(path):
+            if path == data_dir and "marker" in saved and not os.path.lexists(marker_path):
+                raise rv.snapshot_format.SnapshotDeadlineError("post-unlink sync interrupted")
+            return real_fsync_dir(path)
+
+        with mock.patch.object(rv.os, "remove", side_effect=remember_completed_marker), \
+                mock.patch.object(ledger, "_fsync_dir", side_effect=interrupt_post_unlink_sync):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+
+        self.assertTrue(result["ok"])
+        completed = json.loads(saved["marker"])
+        self.assertEqual(completed["phase"], "complete")
+        before = {"ledger": _rb(ledger.ledger_path()), "meta": _rb(ledger.meta_path())}
+        if os.path.exists(index.index_path()):
+            before["index"] = _rb(index.index_path())
+
+        for name in os.listdir(data_dir):
+            if name.startswith(".restore-stage-"):
+                shutil.rmtree(os.path.join(data_dir, name))
+        with open(marker_path, "wb") as target:
+            target.write(saved["marker"])
+
+        status = rv.read_restore_recovery_status()
+        self.assertEqual(status["error"], "recovery-finalizing")
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertFalse(os.path.exists(marker_path))
+        self.assertEqual(_rb(ledger.ledger_path()), before["ledger"])
+        self.assertEqual(_rb(ledger.meta_path()), before["meta"])
+        if "index" in before:
+            self.assertEqual(_rb(index.index_path()), before["index"])
+
+    def test_prior_set_recovery_is_complete_before_its_marker_can_be_retired(self):
+        self._wipe_local()
+        data_dir = ledger.ledger_dir()
+        marker_path = ledger.restore_transaction_path()
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=data_dir)
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.write(b"durable prior ledger")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(marker_path, marker)
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"partial replacement")
+        transaction = rv._load_restore_transaction(data_dir)
+        saved = {}
+        real_remove = rv.os.remove
+        real_fsync_dir = ledger._fsync_dir
+
+        def remember_completed_marker(path):
+            if path == marker_path:
+                saved["marker"] = _rb(path)
+            return real_remove(path)
+
+        def interrupt_post_unlink_sync(path):
+            if path == data_dir and "marker" in saved and not os.path.lexists(marker_path):
+                raise rv.snapshot_format.SnapshotDeadlineError("post-unlink sync interrupted")
+            return real_fsync_dir(path)
+
+        with mock.patch.object(rv.os, "remove", side_effect=remember_completed_marker), \
+                mock.patch.object(ledger, "_fsync_dir", side_effect=interrupt_post_unlink_sync):
+            self.assertTrue(rv._restore_prior_set(transaction, index_path=index.index_path()))
+
+        self.assertEqual(_rb(ledger.ledger_path()), b"durable prior ledger")
+        self.assertEqual(json.loads(saved["marker"])["phase"], "complete")
+        shutil.rmtree(staging)
+        with open(marker_path, "wb") as target:
+            target.write(saved["marker"])
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), b"durable prior ledger")
+        self.assertFalse(os.path.exists(marker_path))
+
+    def test_success_keeps_deadline_armed_through_quarantine_retirement(self):
+        events = []
+
+        class Guard:
+            deadline = time.monotonic() + 10
+
+            def block_interrupt(self):
+                events.append("block")
+
+            def unblock_interrupt(self):
+                events.append("unblock")
+
+            def suspend(self):
+                events.append("suspend")
+
+        real_remove = rv.os.remove
+
+        def observe_marker_removal(path):
+            if path == ledger.restore_transaction_path():
+                events.append("remove-marker")
+            return real_remove(path)
+
+        with mock.patch.object(rv.os, "remove", side_effect=observe_marker_removal):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1, deadline_guard=Guard())
+        self.assertTrue(result["ok"])
+        marker = events.index("remove-marker")
+        self.assertNotIn("suspend", events[:marker])
+
+    def test_maximum_supported_sparse_ledger_recovers_by_atomic_move(self):
+        data_dir = ledger.ledger_dir()
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=data_dir)
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.truncate(rv.snapshot_format.MAX_UNCOMPRESSED_BYTES)
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"partially published replacement")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        started = time.monotonic()
+        with mock.patch.object(rv.shutil, "copy2", side_effect=AssertionError("recovery must not recopy")):
+            result = rv.reconcile_interrupted_restore()
+        elapsed = time.monotonic() - started
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["recovered"])
+        self.assertLess(elapsed, 3.0)
+        self.assertEqual(os.path.getsize(ledger.ledger_path()), rv.snapshot_format.MAX_UNCOMPRESSED_BYTES)
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+        self.assertFalse(os.path.exists(staging))
+
+    def test_restore_preserves_nonzero_index_epoch_and_publishes_a_trusted_index(self):
+        ledger.append({"kind": "turn-delta", "text": "prior epoch"})
+        with open(ledger.meta_path(), "w", encoding="utf-8") as fh:
+            json.dump({"generation": 4, "index_epoch": 7}, fh)
+        result = rv._apply_restore(_LEGACY_V1_LEDGER, 2, 1)
+        self.assertTrue(result["ok"])
+        self.assertEqual(ledger.index_epoch(), 7)
+        if index.fts5_available():
+            with sqlite3.connect(index.index_path()) as conn:
+                row = conn.execute("SELECT generation, index_epoch FROM meta WHERE rowid = 1").fetchone()
+            self.assertEqual(row, (2, 7))
+            query = index.query("legacy")
+            self.assertFalse(query.degraded)
+            self.assertEqual(len(query.records), 1)
+
+    def test_v2_multipart_fixture_restores_byte_exactly(self):
+        fake = self._seed_and_backup(["v2 fixture payload"])
+        original = _rb(ledger.ledger_path())
+        pointer = bv.read_pointer(); slug = f"{pointer['owner']}/{pointer['repo']}"
+        snapshot = rv.snapshot_format.encode(original)
+        snapshot["manifest"].update(bv.build_manifest(ledger_path=ledger.ledger_path(), now=0))
+        files = {f"{pointer['namespace']}/manifest.json":
+                 json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode()}
+        files.update({f"{pointer['namespace']}/{entry['name']}": part
+                      for entry, part in zip(snapshot["manifest"]["parts"], snapshot["parts"])})
+        tree = []
+        for path, raw in files.items():
+            sha = bv._git_blob_sha1(raw)
+            fake.blobs[sha] = base64.b64encode(raw).decode("ascii")
+            tree.append({"path": path, "type": "blob", "sha": sha})
+        tree_sha, commit_sha = fake._next("t"), fake._next("c")
+        fake.trees[tree_sha] = {"sha": tree_sha, "tree": tree}
+        fake.commits[commit_sha] = {"sha": commit_sha, "tree": {"sha": tree_sha}}
+        fake.refs[f"{slug}@{pointer['branch']}"] = commit_sha
+        self._wipe_local()
+        result = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(result["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), original)
+
+    def test_immutable_legacy_v1_fixture_remains_readable(self):
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        pointer = bv.read_pointer()
+        self._install_files(fake, {
+            f"{pointer['namespace']}/ledger.ndjson": _LEGACY_V1_LEDGER,
+            f"{pointer['namespace']}/manifest.json": _LEGACY_V1_MANIFEST,
+        })
+        self._wipe_local()
+        result = rv.restore_now(transport=fake.transport, consent="y", github=None)
+        self.assertTrue(result["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), _LEGACY_V1_LEDGER)
+
+    def test_legacy_v1_refuses_extra_and_traversal_paths_without_mutation(self):
+        for extra in ("extra.bin", "../escape"):
+            with self.subTest(extra=extra):
+                self._wipe_local()
+                rv._quiet_remove(bv._pointer_path())
+                ledger.append({"kind": "turn-delta", "text": "local survives"})
+                before = _rb(ledger.ledger_path())
+                fake = bv._FakeVault()
+                self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+                pointer = bv.read_pointer()
+                self._install_files(fake, {
+                    f"{pointer['namespace']}/ledger.ndjson": _LEGACY_V1_LEDGER,
+                    f"{pointer['namespace']}/manifest.json": _LEGACY_V1_MANIFEST,
+                    f"{pointer['namespace']}/{extra}": b"must not be accepted",
+                })
+                result = rv.restore_now(transport=fake.transport, consent="y", github=None)
+                self.assertEqual(result["error"], "corrupt")
+                self.assertEqual(_rb(ledger.ledger_path()), before)
+
+    def test_deadline_during_staged_index_build_refuses_before_local_mutation(self):
+        ledger.append({"kind": "turn-delta", "text": "local survives deadline"})
+        before = _rb(ledger.ledger_path())
+        fetch = {
+            "ok": True,
+            "manifest": {"ledger-version": 1, "ledger-generation": 0,
+                         "timestamp": "1970-01-01T00:00:00Z", "engine-version": "1.2.3"},
+            "ledger_bytes": _LEGACY_V1_LEDGER,
+        }
+        expired = {"now": 0.0}
+        real_rebuild = index.rebuild
+
+        def delayed_rebuild(*args, **kwargs):
+            report = real_rebuild(*args, **kwargs)
+            expired["now"] = 2.0
+            return report
+
+        with mock.patch.object(rv.time, "monotonic", side_effect=lambda: expired["now"]), \
+                mock.patch.object(index, "rebuild", side_effect=delayed_rebuild):
+            result = rv._restore_from_fetch(fetch, consent="y", override=True, github=None, deadline=1.0,
+                                            deadline_state={"expired": False})
+        self.assertEqual(result["error"], "deadline")
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+
+
+class MultipartRefusalTests(_Base):
+    def _configured(self):
+        ledger.append({"kind": "turn-delta", "text": "local must survive"})
+        rv._quiet_remove(bv._pointer_path())
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        return fake, _rb(ledger.ledger_path())
+
+    def _assert_corrupt_without_mutation(self, fake, before, *, pre_part=False):
+        blob_gets = []
+
+        def transport(method, path, body=None):
+            if method == "GET" and "/git/blobs/" in path:
+                blob_gets.append(path)
+            return fake.transport(method, path, body)
+
+        result = rv.restore_now(transport=transport, consent="y", github=None)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "corrupt")
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+        if pre_part:
+            self.assertLessEqual(len(blob_gets), 1, "no part may be fetched before layout refusal")
+
+    def test_manifest_limit_matrix_refuses_before_part_fetch(self):
+        mutations = {
+            "missing-key": lambda m: m.pop("compression"),
+            "extra-key": lambda m: m.__setitem__("unexpected", True),
+            "reordered": lambda m: m["parts"].reverse(),
+            "33rd-part": lambda m: m.__setitem__("parts", m["parts"] * 33),
+            "plain-over": lambda m: m.__setitem__("ledger-bytes", rv.snapshot_format.MAX_UNCOMPRESSED_BYTES + 1),
+            "compressed-over": lambda m: m.__setitem__("compressed-bytes", rv.snapshot_format.MAX_COMPRESSED_BYTES + 1),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                fake, before = self._configured()
+                snapshot = self._v2_snapshot(bytes(range(256)) * 100)
+                mutate(snapshot["manifest"])
+                self._install_v2(fake, snapshot)
+                self._assert_corrupt_without_mutation(fake, before, pre_part=True)
+
+    def test_namespace_file_path_and_duplicate_matrix_refuses_before_parts(self):
+        for name in ("missing", "extra", "traversal", "overlong", "duplicate"):
+            with self.subTest(name=name):
+                fake, before = self._configured()
+                snapshot = self._v2_snapshot(bytes(range(256)) * 100)
+                tree = self._install_v2(fake, snapshot)
+                pointer = bv.read_pointer()
+                part_path = f"{pointer['namespace']}/{snapshot['manifest']['parts'][0]['name']}"
+                if name == "missing":
+                    tree[:] = [entry for entry in tree if entry["path"] != part_path]
+                elif name == "extra":
+                    tree.append({"path": f"{pointer['namespace']}/part-99.gz", "type": "blob", "sha": "unused"})
+                elif name == "traversal":
+                    tree.append({"path": f"{pointer['namespace']}/../escape", "type": "blob", "sha": "unused"})
+                elif name == "overlong":
+                    tree.append({"path": f"{pointer['namespace']}/" + "x" * rv._MAX_VAULT_PATH_BYTES,
+                                 "type": "blob", "sha": "unused"})
+                else:
+                    tree.append(dict(next(entry for entry in tree if entry["path"] == part_path)))
+                self._assert_corrupt_without_mutation(fake, before, pre_part=True)
+
+    def test_corrupt_part_and_gzip_expansion_leave_destination_unchanged(self):
+        fake, before = self._configured()
+        snapshot = self._v2_snapshot(bytes(range(256)) * 100)
+        tree = self._install_v2(fake, snapshot)
+        pointer = bv.read_pointer()
+        first = snapshot["manifest"]["parts"][0]
+        path = f"{pointer['namespace']}/{first['name']}"
+        entry = next(item for item in tree if item["path"] == path)
+        corrupt = snapshot["parts"][0] + b"x"
+        entry["sha"] = bv._git_blob_sha1(corrupt)
+        fake.blobs[entry["sha"]] = base64.b64encode(corrupt).decode("ascii")
+        self._assert_corrupt_without_mutation(fake, before)
+
+        fake, before = self._configured()
+        old_limit = rv.snapshot_format.MAX_UNCOMPRESSED_BYTES
+        try:
+            rv.snapshot_format.MAX_UNCOMPRESSED_BYTES = 100
+            compressed = gzip.compress(b"x" * 101, mtime=0)
+            part = {"name": rv.snapshot_format.part_name(0), "bytes": len(compressed),
+                    "sha256": hashlib.sha256(compressed).hexdigest()}
+            manifest = {
+                "snapshot-format": 2,
+                "compression": "gzip",
+                "ledger-sha256": hashlib.sha256(b"x").hexdigest(),
+                "ledger-bytes": 1,
+                "compressed-sha256": hashlib.sha256(compressed).hexdigest(),
+                "compressed-bytes": len(compressed),
+                "parts": [part],
+            }
+            manifest.update(bv.build_manifest(ledger_path=ledger.ledger_path(), now=0))
+            self._install_v2(fake, {"manifest": manifest, "parts": [compressed]})
+            self._assert_corrupt_without_mutation(fake, before)
+        finally:
+            rv.snapshot_format.MAX_UNCOMPRESSED_BYTES = old_limit
+
+    def test_unsafe_pointer_namespace_refuses_without_network_or_mutation(self):
+        fake, before = self._configured()
+        pointer = bv.read_pointer()
+        bv.write_pointer(pointer["owner"], pointer["repo"], pointer["branch"], "../escape")
+        calls = []
+        result = rv.restore_now(transport=lambda *args, **kwargs: calls.append(args), consent="y", github=None)
+        self.assertEqual(result["error"], "corrupt")
+        self.assertEqual(calls, [])
+        self.assertEqual(_rb(ledger.ledger_path()), before)
+
     def test_round_trip_restores_identical_and_searchable(self):
         fake = self._seed_and_backup(["banner ships in the spring release", "never deploy on a friday ZQXWORD"])
         original = _rb(ledger.ledger_path())
@@ -563,6 +1342,23 @@ class NamespaceMissingTests(_Base):
         snap = rv.fetch_snapshot(transport=fake.transport)            # repo exists but holds NO project folders yet
         self.assertFalse(snap["ok"])
         self.assertEqual(snap["error"], "no-backup-data")            # "no backup yet", never "your folder was deleted"
+        msg = rv._floor4_fetch("no-backup-data")
+        self.assertIn("another machine that still has the memory", msg)
+        self.assertIn("restoration is not available", msg)
+
+    def test_corrupt_restore_guidance_depends_on_whether_local_memory_survives(self):
+        ledger.append({"kind": "turn-delta", "text": "intact local copy"})
+        local = rv._floor4_fetch("corrupt")
+        self.assertIn("publish a fresh backup", local)
+        self.assertNotIn("little while", local)
+        self._wipe_local()
+        empty = rv._floor4_fetch("corrupt")
+        self.assertIn("Keep the backup repository unchanged", empty)
+        self.assertIn("diagnose recovery", empty)
+
+    def test_deadline_guidance_does_not_guess_that_github_was_slow(self):
+        self.assertNotIn("GitHub", rv._MSG_DEADLINE)
+        self.assertIn("diagnose what consumed the time", rv._MSG_DEADLINE)
 
 
 class CoexistenceTests(_Base):

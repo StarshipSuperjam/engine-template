@@ -57,6 +57,7 @@ ENV_DIR = "ENGINE_MEMORY_DIR"
 DATA_SUBDIR = os.path.join(".engine", "memory")
 LEDGER_FILENAME = "ledger.ndjson"
 META_FILENAME = "ledger-meta.json"   # the monotonic ledger-generation sidecar; gitignored sibling
+RESTORE_TRANSACTION_FILENAME = ".restore-transaction.json"
 
 # The platform durability barrier. On Darwin a bare os.fsync does NOT guarantee bytes reached the platter;
 # fcntl.F_FULLFSYNC does (the locked crash-safe-swap law names it). Absent elsewhere — then os.fsync is the floor.
@@ -255,6 +256,11 @@ def meta_path(cwd: str | None = None, *, for_path: str | None = None) -> str:
     if for_path is not None:
         return os.path.join(os.path.dirname(os.path.abspath(for_path)), META_FILENAME)
     return os.path.join(ledger_dir(cwd), META_FILENAME)
+
+
+def restore_transaction_path(cwd: str | None = None) -> str:
+    """Durable marker for an interrupted multi-file restore transaction."""
+    return os.path.join(ledger_dir(cwd), RESTORE_TRANSACTION_FILENAME)
 
 
 def generation(cwd: str | None = None, *, for_path: str | None = None) -> int:

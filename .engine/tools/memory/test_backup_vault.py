@@ -13,10 +13,12 @@ import contextlib
 import io
 import json
 import os
+import signal
 import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # .engine/tools
 import validate  # noqa: E402
@@ -212,12 +214,91 @@ class PointerCommitTests(_Base):
 
 
 class PushTests(_Base):
+    def test_push_now_distinguishes_unavailable_deadline_enforcement(self):
+        with mock.patch.object(bv.threading, "current_thread", return_value=object()):
+            result = bv.push_now(transport=bv._FakeVault().transport)
+        self.assertEqual(result["error"], "deadline-unavailable")
+        self.assertIn("could not safely enforce", bv._now_message(result))
+        self.assertNotIn("180-second limit", bv._now_message(result))
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask") and hasattr(signal, "SIGALRM"),
+                         "requires POSIX signal masks")
+    def test_preblocked_alarm_refuses_and_preserves_the_exact_caller_mask(self):
+        original = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        try:
+            result = bv.push_now(transport=bv._FakeVault().transport)
+            current = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            self.assertEqual(result["error"], "deadline-unavailable")
+            self.assertIn(signal.SIGALRM, current)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original)
+
+    @unittest.skipUnless(all(hasattr(signal, name) for name in
+                             ("pthread_sigmask", "SIGALRM", "SIGUSR1")),
+                         "requires POSIX signal masks")
+    def test_successful_guard_preserves_unrelated_blocked_signals(self):
+        original = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
+        try:
+            if signal.SIGALRM in original:
+                self.skipTest("host entered the test with SIGALRM blocked")
+            with bv._hard_deadline(time.monotonic() + 1):
+                inside = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                self.assertIn(signal.SIGUSR1, inside)
+            current = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            self.assertEqual(current, original | {signal.SIGUSR1})
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original)
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask") and hasattr(signal, "SIGALRM"),
+                         "requires POSIX signal masks")
+    def test_guard_setup_failure_restores_handler_and_mask(self):
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        if signal.SIGALRM in original_mask:
+            self.skipTest("host entered the test with SIGALRM blocked")
+        original_handler = signal.getsignal(signal.SIGALRM)
+        guard = bv._HardDeadlineGuard(time.monotonic() + 1)
+        with mock.patch.object(guard, "resume", side_effect=OSError("timer setup failed")):
+            with self.assertRaises(OSError):
+                guard.__enter__()
+        self.assertEqual(signal.getsignal(signal.SIGALRM), original_handler)
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), original_mask)
+
+    def test_push_now_interrupts_blocked_local_work_at_wall_clock_deadline(self):
+        ledger.append({"kind": "turn-delta", "text": "bounded backup"})
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        pointer = bv.read_pointer()
+        ref_key = f"{pointer['owner']}/{pointer['repo']}@{pointer['branch']}"
+        prior_head = fake.refs[ref_key]
+
+        def blocked_read(*args, **kwargs):
+            time.sleep(1)
+            return b"should never finish"
+
+        started = time.monotonic()
+        with mock.patch.object(bv, "_read_ledger_bytes", side_effect=blocked_read):
+            result = bv.push_now(transport=fake.transport, deadline_seconds=0.05)
+        elapsed = time.monotonic() - started
+        self.assertEqual(result["error"], "deadline")
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(fake.refs[ref_key], prior_head)
+
     def test_ledger_pushed_via_git_data_not_contents(self):
         ledger.append({"kind": "turn-delta", "text": "hello"})
         fake = bv._FakeVault()
         bv.setup(scope="shared", transport=fake.transport, consent="y")              # setup pushes the first copy
         self.assertFalse(fake.pushed_ledger_via_contents)            # the ledger NEVER goes via the 1MB Contents API
         self.assertTrue(fake.blobs)                                  # it went via Git Data blobs
+
+    def test_local_ledger_read_observes_the_same_absolute_deadline(self):
+        with open(ledger.ledger_path(), "wb") as fh:
+            fh.write(b"x" * (bv.snapshot_format._COPY_CHUNK_BYTES * 3))
+        state = {"expired": False}
+        ticks = iter((0.0, 2.0))
+        with mock.patch.object(bv.time, "monotonic", side_effect=lambda: next(ticks, 2.0)):
+            with self.assertRaises(bv.snapshot_format.SnapshotDeadlineError):
+                bv._read_ledger_bytes(ledger.ledger_path(), deadline=1.0, deadline_state=state)
+        self.assertTrue(state["expired"])
 
     def test_throttle_gates_on_last_success(self):
         self.assertTrue(bv._should_push(10_000))                    # no state -> push now
@@ -232,6 +313,128 @@ class PushTests(_Base):
         res = bv.push_now(transport=bv._FakeVault().transport)
         self.assertFalse(res["ok"])
         self.assertEqual(res["error"], "not-configured")
+
+    def test_rolling_manifest_keeps_ledger_metadata_and_snapshot_identity_distinct(self):
+        ledger.append({"kind": "turn-delta", "text": "metadata"})
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        commit = fake.commits[fake.refs[key]]
+        tree = fake.trees[commit["tree"]["sha"]]["tree"]
+        entry = next(e for e in tree if e["path"] == f"{ptr['namespace']}/manifest.json")
+        manifest = json.loads(base64.b64decode(fake.blobs[entry["sha"]]))
+        self.assertEqual(manifest["snapshot-format"], bv.snapshot_format.SNAPSHOT_FORMAT)
+        self.assertEqual(manifest["compression"], "gzip")
+        self.assertEqual(manifest["ledger-version"], ledger.LEDGER_FORMAT_VERSION)
+        self.assertIn("ledger-generation", manifest)
+        self.assertIn("timestamp", manifest)
+        self.assertIn("engine-version", manifest)
+
+    def test_publisher_wire_json_matches_codec_request_measurement_at_boundary(self):
+        raw = bv.snapshot_format.max_part_bytes()
+        make = lambda size: bv._serialized_request_body({
+            "content": base64.b64encode(b"x" * size).decode("ascii"), "encoding": "base64"})
+        self.assertEqual(len(make(raw)), bv.snapshot_format.encoded_request_size(b"x" * raw))
+        self.assertLessEqual(len(make(raw)), bv.snapshot_format.PART_REQUEST_BYTES)
+        self.assertGreater(len(make(raw + 1)), bv.snapshot_format.PART_REQUEST_BYTES)
+
+    def test_publisher_accepts_github_wrapped_base64_readback(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer()
+
+        def transport(method, path, body=None):
+            status, response = fake.transport(method, path, body)
+            if method == "GET" and "/git/blobs/" in path and isinstance(response, dict):
+                response = dict(response)
+                text = response.get("content", "")
+                response["content"] = "\n".join(text[i:i + 60] for i in range(0, len(text), 60))
+            return status, response
+
+        snapshot = bv.snapshot_format.encode(b"wrapped base64 remains the same bytes")
+        self.assertTrue(bv._publish_snapshot(bv._gh(transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                             ptr["namespace"], snapshot))
+
+    def test_snapshot_limit_has_typed_operator_guidance_and_keeps_prior_head(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        before = fake.refs[key]
+        with mock.patch.object(bv.snapshot_format, "MAX_UNCOMPRESSED_BYTES", 1):
+            ledger.append({"kind": "turn-delta", "text": "too large"})
+            result = bv.push_now(transport=fake.transport)
+        self.assertEqual(result["error"], "snapshot-too-large")
+        self.assertEqual(fake.refs[key], before)
+        message = bv._now_message(result)
+        self.assertIn("512 MiB", message)
+        self.assertIn("compact", message)
+        self.assertNotIn("internet", message)
+
+    def test_multipart_publication_preserves_foreign_and_removes_only_its_stale_paths(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        old = fake.refs[key]; tree = fake.trees[fake.commits[old]["tree"]["sha"]]["tree"]
+        foreign_raw, stale_raw = b"foreign", b"stale"
+        foreign_sha, stale_sha = bv._git_blob_sha1(foreign_raw), bv._git_blob_sha1(stale_raw)
+        fake.blobs[foreign_sha] = base64.b64encode(foreign_raw).decode("ascii")
+        fake.blobs[stale_sha] = base64.b64encode(stale_raw).decode("ascii")
+        tree.extend([{"path": "another-project/keep", "sha": foreign_sha},
+                     {"path": f"{ptr['namespace']}/obsolete", "sha": stale_sha}])
+        ledger.append({"kind": "turn-delta", "text": "next"})
+        self.assertTrue(bv.push_now(transport=fake.transport)["ok"])
+        newest = fake.refs[key]; paths = {e["path"] for e in fake.trees[fake.commits[newest]["tree"]["sha"]]["tree"]}
+        self.assertIn("another-project/keep", paths)
+        self.assertNotIn(f"{ptr['namespace']}/obsolete", paths)
+
+    def test_deadline_and_tip_race_leave_prior_head_until_complete_and_retry_same_bytes(self):
+        fake = bv._FakeVault()
+        bv.setup(scope="shared", transport=fake.transport, consent="y")
+        ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+        before = fake.refs[key]
+        snapshot = bv.snapshot_format.encode(b"race payload")
+        self.assertFalse(bv._publish_snapshot(bv._gh(fake.transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                              ptr["namespace"], snapshot, deadline=0))
+        self.assertEqual(fake.refs[key], before)
+        bodies, raced = [], {"done": False}
+        def transport(method, path, body=None):
+            if method == "POST" and path.endswith("/git/blobs"):
+                bodies.append(body["content"])
+            if method == "PATCH" and not raced["done"]:
+                raced["done"] = True
+                return 409, None
+            return fake.transport(method, path, body)
+        self.assertTrue(bv._publish_snapshot(bv._gh(transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                             ptr["namespace"], snapshot))
+        self.assertGreater(len(bodies), len(snapshot["parts"]))
+        self.assertEqual(bodies[:len(snapshot["parts"]) + 1], bodies[len(snapshot["parts"]) + 1:])
+
+    def test_truncated_tree_reads_never_advance_the_reference(self):
+        for truncate_read in (1, 2):
+            with self.subTest(truncate_read=truncate_read):
+                try:
+                    os.remove(bv._pointer_path())
+                except FileNotFoundError:
+                    pass
+                fake = bv._FakeVault()
+                bv.setup(scope="shared", transport=fake.transport, consent="y")
+                ptr = bv.read_pointer(); key = f"{ptr['owner']}/{ptr['repo']}@{ptr['branch']}"
+                before = fake.refs[key]
+                reads = {"n": 0}
+
+                def transport(method, path, body=None):
+                    status, response = fake.transport(method, path, body)
+                    if method == "GET" and "/git/trees/" in path and isinstance(response, dict):
+                        reads["n"] += 1
+                        if reads["n"] == truncate_read:
+                            response = dict(response)
+                            response["truncated"] = True
+                    return status, response
+
+                snapshot = bv.snapshot_format.encode(b"truncation must fail closed")
+                self.assertFalse(bv._publish_snapshot(bv._gh(transport), ptr["owner"], ptr["repo"], ptr["branch"],
+                                                      ptr["namespace"], snapshot))
+                self.assertEqual(fake.refs[key], before)
 
 
 class SessionStartTests(_Base):
@@ -378,6 +581,8 @@ class SharedVaultScopeTests(_Base):
         consent = bv._consent_prompt("engine-memory-vault", "shared")
         self.assertIn("every project's notes", consent)
         self.assertIn("expose every project at once", consent)             # the read + flip blast radius
+        self.assertIn("does not encrypt", consent)
+        self.assertIn("remain recoverable from repository history", consent)
         chooser = bv._choice_prompt()
         self.assertIn("more private than your others", chooser)            # a concrete why-per-repo, not just a consequence
 
@@ -386,6 +591,16 @@ class SharedVaultScopeTests(_Base):
         self.assertTrue(r.startswith(bv._VAULT_README_MARKER))
         self.assertIn("unique id", r)                                     # the folder ids are stated accurately
         self.assertIn("loses that project's memory", r)                   # the delete-a-folder cost is named, not forbidden
+        self.assertNotIn("unreachable objects", r)
+
+    def test_setup_does_not_claim_a_backup_exists_when_first_push_fails(self):
+        fake = bv._FakeVault(fail_blob=True)
+        result = bv.setup(scope="shared", transport=fake.transport, consent="y")
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["first_push"])
+        self.assertIn("no first off-site copy", result["message"])
+        self.assertNotIn("is now backed up", result["message"])
+        self.assertIn("Try again", result["message"])
 
 
 class AdoptTests(_Base):

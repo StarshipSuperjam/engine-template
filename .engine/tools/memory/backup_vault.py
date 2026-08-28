@@ -18,9 +18,9 @@ engine re-verifies on every push, DECLINES to send new memory to a public repo, 
 
 Posture: **pure GitHub API, hook-safe** (the erasure-request precedent). The automatic push runs on a throttled
 SessionStart hook, so it must NEVER touch local git (no branch switch, no `git push` hang) and must be
-timeout-bounded. The transport is a tightened 10s-per-call boundary (telemetry's shared `_http` is fixed at 30s),
-and the push is **cheap-probe-first** (a single repo GET — the privacy re-verify — gates the expensive blob work),
-so a dead/flaky host fails in ≤~10s, not the full sequence. Everything fails SAFE: the local ledger is canonical, so
+timeout-bounded. SessionStart carries one 10-second deadline across the whole publication; a foreground request gets
+180 seconds. Each real HTTP call receives only the remaining budget. The push is **cheap-probe-first** (a single repo
+GET — the privacy re-verify — gates the expensive blob work). Everything fails SAFE: the local ledger is canonical, so
 a missed/declined push loses nothing and simply retries next cadence.
 
 Cadence is a recorded build-spec leaf (the design defers it): the operator chose throttled ~once per 24h
@@ -39,7 +39,9 @@ import json
 import os
 import re
 import secrets
+import signal
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -49,7 +51,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records  # noqa: E402 — the canonical store + the shared record-kind vocabulary
+from memory import ledger, records, snapshot_format  # noqa: E402 — the canonical store + snapshot codec
 import moment  # noqa: E402 — the trailing-Z time seam; pure stdlib leaf (epoch -> wire shape)
 
 # Build-spec leaf (recorded; the operator chose ~24h this session). How often the throttled SessionStart push may
@@ -129,6 +131,8 @@ _SNAPSHOT_TAG_PREFIX = "engine-snapshot"
 # The tightened per-call network timeout (seconds). telemetry's shared `_http` hardcodes 30s; a SessionStart push must
 # be bounded much tighter so a flaky host cannot stall session start. Matches boot._run's 10s CLI budget.
 _TIMEOUT = 10
+_SESSION_START_DEADLINE_SECONDS = 10
+_FOREGROUND_DEADLINE_SECONDS = 180
 
 _GITHUB_API = "https://api.github.com"
 _USER_AGENT = "engine-template-memory-backup"
@@ -155,8 +159,8 @@ def _bounded_transport(token: str):
     with a tighter timeout and — deliberately — NEVER raises (an unreachable host returns (None, None), a clean
     failure the caller treats as 'skip'), so a SessionStart hook can never raise or hang on the network."""
 
-    def transport(method: str, path: str, body=None):
-        data = json.dumps(body).encode("utf-8") if body is not None else None
+    def transport(method: str, path: str, body=None, *, timeout=None):
+        data = _serialized_request_body(body) if body is not None else None
         req = urllib.request.Request(
             _GITHUB_API + path, data=data, method=method,
             headers={
@@ -168,7 +172,8 @@ def _bounded_transport(token: str):
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            call_timeout = _TIMEOUT if timeout is None else max(0.001, min(_TIMEOUT, float(timeout)))
+            with urllib.request.urlopen(req, timeout=call_timeout) as resp:
                 raw = resp.read().decode("utf-8")
                 return resp.status, (json.loads(raw) if raw else None)
         except urllib.error.HTTPError as exc:            # 4xx/5xx — surface the status, never swallow
@@ -176,7 +181,13 @@ def _bounded_transport(token: str):
         except Exception:  # noqa: BLE001 — unreachable/timeout/any fault -> a bounded (None) failure, never a raise
             return None, None
 
+    transport._engine_timeout_capable = True
     return transport
+
+
+def _serialized_request_body(body: dict) -> bytes:
+    """Canonical wire JSON; blob sizing must match snapshot_format exactly."""
+    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _gh(transport=None):
@@ -191,17 +202,22 @@ def _gh(transport=None):
     return _Boundary(_bounded_transport(token))
 
 
-def _send(gh, method: str, path: str, body=None):
+def _send(gh, method: str, path: str, body=None, *, timeout=None):
     """One call through the transport, returning (status, json). Never raises (a transport fault -> (None, None))."""
     try:
+        if timeout is not None and getattr(gh._transport, "_engine_timeout_capable", False):
+            return gh._transport(method, path, body, timeout=timeout)
         return gh._transport(method, path, body)
     except Exception:  # noqa: BLE001 — a transport fault degrades to a clean failure, never a raise into a hook
         return None, None
 
 
-def _get(gh, path: str):
+def _get(gh, path: str, *, deadline=None, deadline_state=None):
     """One GET; parsed JSON or None on ANY doubt (status>=400, null body, transport fault). Fail-open (observer._get)."""
-    status, data = _send(gh, "GET", path)
+    if deadline is None:
+        status, data = _send(gh, "GET", path)
+    else:
+        status, data = _deadline_send(gh, "GET", path, None, deadline, deadline_state=deadline_state)
     if not isinstance(status, int) or status >= 400 or data is None:
         return None
     return data
@@ -423,7 +439,8 @@ def _create_blob(gh, base: str, content: bytes) -> "str | None":
     return sha if isinstance(sha, str) and sha else None
 
 
-def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, message: str) -> "str | None":
+def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, message: str,
+                  replace_namespace: "str | None" = None) -> "str | None":
     """Build a commit carrying `files` (path -> bytes) on top of `branch`'s current tip, preserving every other path
     via base_tree — the shared blob -> tree -> commit machinery. Returns the new commit sha, NOT yet referenced by any
     ref, or None on any failure. The rolling push then advances refs/heads to it; the retained pre-migration snapshot
@@ -438,6 +455,15 @@ def _build_commit(gh, owner: str, repo: str, branch: str, files: dict, *, messag
     if not (isinstance(base_tree, str) and base_tree):
         return None
     tree = []
+    if replace_namespace is not None:
+        before = _get(gh, f"{base}/git/trees/{base_tree}?recursive=1")
+        old_entries = (before or {}).get("tree") if isinstance(before, dict) else None
+        if not isinstance(old_entries, list) or before.get("truncated") is True:
+            return None
+        tree.extend({"path": entry["path"], "mode": "100644", "type": "blob", "sha": None}
+                    for entry in old_entries if isinstance(entry, dict)
+                    and isinstance(entry.get("path"), str)
+                    and entry["path"].startswith(replace_namespace + "/"))
     for path, content in files.items():
         blob_sha = _create_blob(gh, base, content)
         if blob_sha is None:
@@ -466,6 +492,231 @@ def _push_files(gh, owner: str, repo: str, branch: str, files: dict, *, retry: b
         return True
     if status in (409, 422) and retry:               # tip moved -> re-read + retry once
         return _push_files(gh, owner, repo, branch, files, retry=False)
+    return False
+
+
+def _deadline_send(gh, method, path, body, deadline, *, deadline_state=None):
+    """One bounded publication step; no later state is published after expiry."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
+        return None, None
+    result = _send(gh, method, path, body, timeout=remaining)
+    if time.monotonic() >= deadline:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
+        return None, None
+    return result
+
+
+def _deadline_check(deadline, deadline_state=None):
+    if deadline is not None and time.monotonic() >= deadline:
+        if deadline_state is not None:
+            deadline_state["expired"] = True
+        raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
+
+
+class HardDeadlineUnavailable(Exception):
+    """The host cannot safely provide the promised interrupting deadline."""
+
+
+class _HardDeadlineGuard:
+    """Interrupt synchronous local work at the same absolute deadline.
+
+    Python can deliver SIGALRM only on the main thread. A caller that cannot
+    arm the guard refuses immediately rather than silently weakening the
+    advertised wall-clock bound. Existing process alarms are likewise left
+    untouched and cause a safe refusal.
+    """
+    def __init__(self, deadline):
+        self.deadline = deadline
+        self.active = False
+        self.previous_handler = None
+        self.previous_mask = None
+
+    def expire(self, _signum, _frame):
+        raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
+
+    def __enter__(self):
+        _deadline_check(self.deadline)
+        if (threading.current_thread() is not threading.main_thread()
+                or not hasattr(signal, "setitimer") or not hasattr(signal, "ITIMER_REAL")
+                or not hasattr(signal, "pthread_sigmask")):
+            raise HardDeadlineUnavailable("interrupting deadline is unavailable on this execution thread")
+        self.previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        if signal.SIGALRM in self.previous_mask:
+            raise HardDeadlineUnavailable("SIGALRM is already blocked by the host process")
+        previous_timer = signal.getitimer(signal.ITIMER_REAL)
+        if previous_timer[0] > 0 or previous_timer[1] > 0:
+            raise HardDeadlineUnavailable("another process timer is already active")
+        self.previous_handler = signal.getsignal(signal.SIGALRM)
+        try:
+            signal.signal(signal.SIGALRM, self.expire)
+            self.resume()
+        except BaseException:
+            try:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            finally:
+                try:
+                    signal.signal(signal.SIGALRM, self.previous_handler)
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, self.previous_mask)
+            raise
+        return self
+
+    def suspend(self):
+        if self.active:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            self.active = False
+
+    def block_interrupt(self):
+        """Keep the timer running but defer delivery across a resource handoff."""
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+
+    def unblock_interrupt(self):
+        signal.pthread_sigmask(signal.SIG_SETMASK, self.previous_mask)
+
+    def resume(self):
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
+        signal.setitimer(signal.ITIMER_REAL, max(0.001, remaining))
+        self.active = True
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        try:
+            self.suspend()
+        finally:
+            try:
+                if self.previous_handler is not None:
+                    signal.signal(signal.SIGALRM, self.previous_handler)
+            finally:
+                if self.previous_mask is not None:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, self.previous_mask)
+
+
+def _hard_deadline(deadline):
+    """Interrupt local work, with a pause seam for safe resource handoff."""
+    return _HardDeadlineGuard(deadline)
+
+
+def _read_ledger_bytes(path: str, *, deadline, deadline_state) -> bytes:
+    """Read the canonical ledger in bounded chunks under the publication deadline."""
+    out = bytearray()
+    try:
+        with open(path, "rb") as source:
+            while True:
+                _deadline_check(deadline, deadline_state)
+                chunk = source.read(snapshot_format._COPY_CHUNK_BYTES)
+                if not chunk:
+                    break
+                out.extend(chunk)
+                if len(out) > snapshot_format.MAX_UNCOMPRESSED_BYTES:
+                    raise snapshot_format.SnapshotLimitError("ledger size exceeds the v2 limit")
+    except FileNotFoundError:
+        return b""
+    _deadline_check(deadline, deadline_state)
+    return bytes(out)
+
+
+def _verified_blob_response(blob, sha: str, expected: bytes) -> bool:
+    """Verify GitHub's blob bytes, accepting its documented whitespace wrapping."""
+    if not isinstance(blob, dict) or blob.get("sha") != sha or blob.get("encoding") != "base64":
+        return False
+    text = blob.get("content")
+    if not isinstance(text, str):
+        return False
+    encoded_limit = 4 * ((len(expected) + 2) // 3)
+    wrapped_limit = encoded_limit + 2 * ((encoded_limit + 59) // 60) + 2
+    if len(text) > wrapped_limit:
+        return False
+    compact = "".join(ch for ch in text if ch not in " \t\r\n")
+    if len(compact) != encoded_limit:
+        return False
+    try:
+        actual = base64.b64decode(compact, validate=True)
+    except Exception:  # noqa: BLE001 — malformed readback never advances the ref
+        return False
+    return actual == expected and _git_blob_sha1(actual) == sha
+
+
+def _publish_snapshot(gh, owner: str, repo: str, branch: str, namespace: str, snapshot: dict,
+                      *, retry: bool = True, deadline=None, deadline_state=None) -> bool:
+    """Build and verify a whole snapshot before atomically moving the branch ref.
+
+    The tree deletes only the configured namespace and inserts its manifest and
+    parts.  A failed build leaves the old tip untouched; a tip race rebuilds
+    from the new tip once while reusing the same deterministic snapshot bytes.
+    """
+    deadline = time.monotonic() + _FOREGROUND_DEADLINE_SECONDS if deadline is None else deadline
+    base = f"/repos/{owner}/{repo}"
+    status, ref = _deadline_send(gh, "GET", f"{base}/git/ref/heads/{branch}", None, deadline,
+                                 deadline_state=deadline_state)
+    base_sha = (ref or {}).get("object", {}).get("sha") if status == 200 else None
+    if not isinstance(base_sha, str):
+        return False
+    status, commit = _deadline_send(gh, "GET", f"{base}/git/commits/{base_sha}", None, deadline,
+                                    deadline_state=deadline_state)
+    base_tree = (commit or {}).get("tree", {}).get("sha") if status == 200 else None
+    if not isinstance(base_tree, str):
+        return False
+    status, before = _deadline_send(gh, "GET", f"{base}/git/trees/{base_tree}?recursive=1", None, deadline,
+                                    deadline_state=deadline_state)
+    old_entries = (before or {}).get("tree") if status == 200 else None
+    if not isinstance(old_entries, list) or before.get("truncated") is True:
+        return False
+    manifest_bytes = json.dumps(snapshot["manifest"], sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
+    wanted = {f"{namespace}/manifest.json": manifest_bytes}
+    wanted.update({f"{namespace}/{entry['name']}": part
+                   for entry, part in zip(snapshot["manifest"]["parts"], snapshot["parts"])})
+    tree = [{"path": e["path"], "mode": "100644", "type": "blob", "sha": None}
+            for e in old_entries if isinstance(e, dict) and isinstance(e.get("path"), str)
+            and e["path"].startswith(namespace + "/")]
+    for path, content in wanted.items():
+        status, made = _deadline_send(gh, "POST", f"{base}/git/blobs",
+                                      {"content": base64.b64encode(content).decode("ascii"), "encoding": "base64"},
+                                      deadline, deadline_state=deadline_state)
+        sha = (made or {}).get("sha") if status in (200, 201) else None
+        if not isinstance(sha, str) or sha != _git_blob_sha1(content):
+            return False
+        status, check = _deadline_send(gh, "GET", f"{base}/git/blobs/{sha}", None, deadline,
+                                       deadline_state=deadline_state)
+        if status != 200 or not _verified_blob_response(check, sha, content):
+            return False
+        tree.append({"path": path, "mode": "100644", "type": "blob", "sha": sha})
+    status, made_tree = _deadline_send(gh, "POST", f"{base}/git/trees", {"base_tree": base_tree, "tree": tree},
+                                       deadline, deadline_state=deadline_state)
+    tree_sha = (made_tree or {}).get("sha") if status in (200, 201) else None
+    if not isinstance(tree_sha, str):
+        return False
+    status, check_tree = _deadline_send(gh, "GET", f"{base}/git/trees/{tree_sha}?recursive=1", None, deadline,
+                                        deadline_state=deadline_state)
+    entries = (check_tree or {}).get("tree") if status == 200 else None
+    if not isinstance(check_tree, dict) or check_tree.get("truncated") is True:
+        return False
+    actual = {e.get("path"): e.get("sha") for e in entries or [] if isinstance(e, dict)}
+    if any(actual.get(path) != _git_blob_sha1(content) for path, content in wanted.items()):
+        return False
+    if any(isinstance(path, str) and path.startswith(namespace + "/") and path not in wanted for path in actual):
+        return False
+    status, made_commit = _deadline_send(gh, "POST", f"{base}/git/commits",
+                                         {"message": _COMMIT_MESSAGE, "tree": tree_sha, "parents": [base_sha]},
+                                         deadline, deadline_state=deadline_state)
+    commit_sha = (made_commit or {}).get("sha") if status in (200, 201) else None
+    if not isinstance(commit_sha, str):
+        return False
+    status, check_commit = _deadline_send(gh, "GET", f"{base}/git/commits/{commit_sha}", None, deadline,
+                                          deadline_state=deadline_state)
+    if status != 200 or (check_commit or {}).get("tree", {}).get("sha") != tree_sha:
+        return False
+    status, _ = _deadline_send(gh, "PATCH", f"{base}/git/refs/heads/{branch}",
+                               {"sha": commit_sha, "force": False}, deadline, deadline_state=deadline_state)
+    if status in (200, 201):
+        return True
+    if status in (409, 422) and retry:
+        return _publish_snapshot(gh, owner, repo, branch, namespace, snapshot, retry=False, deadline=deadline,
+                                 deadline_state=deadline_state)
     return False
 
 
@@ -565,7 +816,8 @@ def _migration_manifest(*, ledger_path, now, engine_version, migration_id) -> di
     return m
 
 
-def push_now(*, transport=None, now: "int | None" = None, engine_version: "str | None" = None) -> dict:
+def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
+                             engine_version: "str | None" = None, deadline, deadline_guard=None) -> dict:
     """Push the latest ledger + snapshot manifest to the configured vault. Requires setup (a pointer). CHEAP-PROBE
     FIRST: a single repo GET re-verifies the repo is still PRIVATE (and confirms reachability) before any blob work —
     so a public flip or a dead host costs one bounded call, never the full sequence. On a public flip it DECLINES to
@@ -574,8 +826,9 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
     migration-time version); None stamps the live `engine.json` value.
 
     Result: {ok, error, pushed, namespace}. error in {None, not-configured, no-token, unreachable, public,
-    push-failed}; namespace is the vault path the snapshot landed under (None on failure)."""
+    deadline, snapshot-too-large, push-failed}; namespace is the vault path the snapshot landed under (None on failure)."""
     when = int(time.time()) if now is None else int(now)
+    deadline_state = {"expired": False}
     pointer = read_pointer()
     if pointer is None:
         return {"ok": False, "error": "not-configured", "pushed": False, "namespace": None}
@@ -584,24 +837,56 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
         return {"ok": False, "error": "no-token", "pushed": False, "namespace": None}
     owner, repo, branch, namespace = pointer["owner"], pointer["repo"], pointer["branch"], pointer["namespace"]
 
-    repo_obj = _get(gh, f"/repos/{owner}/{repo}")           # cheap probe: privacy re-verify + reachability
+    repo_obj = _get(gh, f"/repos/{owner}/{repo}", deadline=deadline, deadline_state=deadline_state)
     if repo_obj is None:
+        if deadline_state["expired"]:
+            return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
         return {"ok": False, "error": "unreachable", "pushed": False, "namespace": None}
     if repo_obj.get("private") is not True:
         return {"ok": False, "error": "public", "pushed": False, "namespace": None}
 
     lpath = ledger.ledger_path()
     try:
-        with open(lpath, "rb") as fh:
-            ledger_bytes = fh.read()
-    except FileNotFoundError:
-        ledger_bytes = b""                                  # the substrate ships empty — a valid empty backup
-    manifest_bytes = (json.dumps(build_manifest(ledger_path=lpath, now=when, engine_version=engine_version),
-                                 indent=2) + "\n").encode("utf-8")
-    files = {f"{namespace}/ledger.ndjson": ledger_bytes, f"{namespace}/manifest.json": manifest_bytes}
-    if not _push_files(gh, owner, repo, branch, files):
+        ledger_bytes = _read_ledger_bytes(lpath, deadline=deadline, deadline_state=deadline_state)
+        snapshot = snapshot_format.encode(ledger_bytes, deadline=deadline)
+    except snapshot_format.SnapshotDeadlineError:
+        deadline_state["expired"] = True
+        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+    except snapshot_format.SnapshotLimitError:
+        return {"ok": False, "error": "snapshot-too-large", "pushed": False, "namespace": None}
+    except snapshot_format.SnapshotError:
         return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
+    # The rolling publication preserves the legacy ledger metadata.  It shares
+    # a top-level manifest with the independent multipart v2 fields; the two
+    # version numbers deliberately describe different things.
+    snapshot["manifest"].update(build_manifest(ledger_path=lpath, now=when, engine_version=engine_version))
+    if time.monotonic() >= deadline:
+        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+    if not _publish_snapshot(gh, owner, repo, branch, namespace, snapshot, deadline=deadline,
+                             deadline_state=deadline_state):
+        if deadline_state["expired"]:
+            return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+        return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
+    if deadline_guard is not None:
+        deadline_guard.suspend()  # the ref is current; prevent a late alarm from claiming the prior ref remains
     return {"ok": True, "error": None, "pushed": True, "namespace": namespace}
+
+
+def push_now(*, transport=None, now: "int | None" = None, engine_version: "str | None" = None,
+             deadline_seconds: float = _FOREGROUND_DEADLINE_SECONDS) -> dict:
+    """Run the complete publication under an interrupting wall-clock bound."""
+    try:
+        deadline = time.monotonic() + max(0.0, float(deadline_seconds))
+    except (TypeError, ValueError):
+        deadline = time.monotonic()
+    try:
+        with _hard_deadline(deadline) as deadline_guard:
+            return _push_now_under_deadline(transport=transport, now=now, engine_version=engine_version,
+                                            deadline=deadline, deadline_guard=deadline_guard)
+    except HardDeadlineUnavailable:
+        return {"ok": False, "error": "deadline-unavailable", "pushed": False, "namespace": None}
+    except snapshot_format.SnapshotDeadlineError:
+        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
 
 
 def snapshot_for_migration(store, engine_version, *, migration_id=None, reversibility_floor=False,
@@ -650,7 +935,8 @@ def snapshot_for_migration(store, engine_version, *, migration_id=None, reversib
     manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
     files = {f"{namespace}/ledger.ndjson": ledger_bytes, f"{namespace}/manifest.json": manifest_bytes}
 
-    commit_sha = _build_commit(gh, owner, repo, branch, files, message=_SNAPSHOT_COMMIT_MESSAGE)
+    commit_sha = _build_commit(gh, owner, repo, branch, files, message=_SNAPSHOT_COMMIT_MESSAGE,
+                               replace_namespace=namespace)
     if commit_sha is None:
         return None
     tag_name = _snapshot_tag_name(namespace, disc)
@@ -739,6 +1025,10 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
             "    limit any single slip to this project.)\n"
             "  - PRIVATE, WATCHED HONESTLY: the engine creates it private, verifies it, and keeps checking — but it\n"
             "    can't stop you or GitHub from flipping it public later, which is why the point above matters.\n"
+            "  - NO EXTRA ENCRYPTION: the engine does not encrypt this backup before sending it. GitHub repository\n"
+            "    access is the protection, so anyone who can read the repository can read the saved memory.\n"
+            "  - EARLIER COPIES CAN LINGER: a new backup replaces the visible project folder, but older copies may\n"
+            "    remain recoverable from repository history for an unknown period.\n"
             "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day.\n\n"
             "Nothing leaves your computer until you say yes.\n\n"
             "Use the shared backup for this project now? [y/N]: ")
@@ -753,6 +1043,10 @@ def _consent_prompt(vault_name: str, scope: str) -> str:
         "    just for this project, that only you can see.\n"
         "  - PRIVATE, WATCHED HONESTLY: the engine creates it private, verifies it, and keeps checking — but it\n"
         "    can't stop a later flip to public out of its control.\n"
+        "  - NO EXTRA ENCRYPTION: the engine does not encrypt this backup before sending it. GitHub repository\n"
+        "    access is the protection, so anyone who can read the repository can read the saved memory.\n"
+        "  - EARLIER COPIES CAN LINGER: a new backup replaces the visible project folder, but older copies may\n"
+        "    remain recoverable from repository history for an unknown period.\n"
         "  - FROM THEN ON: the engine keeps it up to date for you automatically — about once a day.\n\n"
         "Nothing leaves your computer until you say yes.\n\n"
         "Create the private backup now? [y/N]: ")
@@ -807,7 +1101,10 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
             "project's memory when you set it up on a new machine. You can browse it, but please don't delete or\n"
             "hand-edit anything here — even items that look old or unused are saved restore points the engine may need\n"
             "to undo a bad update. To remove or fix a project's memory, ask the engine; deleting a folder that is the\n"
-            "only remaining copy loses that project's memory.\n")
+            "only remaining copy loses that project's memory.\n\n"
+            "A new backup replaces that project's visible folder, but earlier copies may remain recoverable from\n"
+            "repository history for an unknown period. Keep this repository private; the engine does not add\n"
+            "encryption to the backup.\n")
     return (
         f"{_VAULT_README_MARKER}\n"
         f"# {project_name} — AI memory backup\n\n"
@@ -818,14 +1115,34 @@ def _readme_text(project_name: str, scope: str = _DEFAULT_SCOPE) -> str:
         "memory when you set the project up on a new machine. You can browse it, but please don't delete or hand-edit\n"
         "anything here — even items that look old or unused are saved restore points the engine may need to undo a\n"
         "bad update. To remove or fix this project's memory, ask the engine; this is the off-site copy, so deleting\n"
-        "from it changes what can be restored, and it may be the only copy of some of this project's memory.\n")
+        "from it changes what can be restored, and it may be the only copy of some of this project's memory.\n\n"
+        "A new backup replaces this project's visible folder, but earlier copies may remain recoverable from\n"
+        "repository history for an unknown period. Keep the repository private; the engine does not add encryption\n"
+        "to the backup.\n")
 
 
 _HEADS_UP_PUSH_FAILED = (
     "INFORM THE USER, in plain language: I couldn't update the off-site backup of this project's AI memory this "
-    "time, so the backup may be behind the latest notes. Your memory on this computer is safe and complete. One "
+    "time, so the prior complete backup remains current and may be behind the latest notes. Your memory on this "
+    "computer is safe and complete. One "
     "thing to try: when you have a steady internet connection, ask me to \"back up memory now\", and I'll bring it "
     "up to date.")
+
+_HEADS_UP_DEADLINE = (
+    "INFORM THE USER, in plain language: the memory backup stopped at its 10-second session-start limit, so the "
+    "prior complete backup remains current and the session could continue. Your memory on this computer is safe "
+    "and complete. One thing to try: ask me to \"back up memory now\" for the longer foreground attempt.")
+
+_HEADS_UP_DEADLINE_UNAVAILABLE = (
+    "INFORM THE USER, in plain language: this runtime could not safely enforce the memory backup's time limit, so "
+    "no backup was attempted and the prior complete backup remains current. One fix: ask me to back up memory from "
+    "the main Engine session without another process timer active.")
+
+_HEADS_UP_TOO_LARGE = (
+    "INFORM THE USER, in plain language: this project's saved memory is larger than the backup format supports "
+    "(512 MiB before compression or 128 MiB after compression), so the prior complete backup remains current and "
+    "may be behind the latest notes. Your memory on this computer is safe and complete. One thing to try: ask me "
+    "to inspect and compact saved memory before backing it up again.")
 
 
 def _heads_up_public() -> str:
@@ -873,13 +1190,19 @@ def _is_shared(repo: str) -> bool:
     return repo == _SHARED_VAULT_NAME
 
 
-def _setup_done_msg(owner: str, repo: str) -> str:
+def _setup_done_msg(owner: str, repo: str, *, first_push: bool = True) -> str:
+    residual = (" The repository must stay private. Its live project folder is replaced cleanly, but older copies "
+                "may remain recoverable from repository history for an unknown period; the engine does not add "
+                "encryption to the backup.")
+    if not first_push:
+        return (f"The private backup destination (\"{owner}/{repo}\") is set up, but no first off-site copy was "
+                "created, so the only complete memory may still be on this computer." + residual)
     if _is_shared(repo):
         return (f"Your project's AI memory is now backed up to your shared private repository (\"{owner}/{repo}\"), in "
                 "this project's own folder — and I'll keep it up to date automatically, about once a day. Your other "
-                "projects each have their own folder in there and weren't touched.")
+                "projects each have their own folder in there and weren't touched." + residual)
     return (f"Your project's AI memory is now backed up to a private repository on your GitHub (\"{owner}/{repo}\"), "
-            "and I'll keep it up to date automatically — about once a day; this copy is your safety net.")
+            "and I'll keep it up to date automatically — about once a day; this copy is your safety net." + residual)
 
 
 # ============================================================================================================
@@ -1058,9 +1381,9 @@ def setup(*, scope: "str | None" = None, transport=None, consent: "str | None" =
     pointer_commit = commit_pointer_to_project(gh, project.split("/")[0], project_name, pointer)
     result = push_now(transport=transport, now=when)
     _record_state(now=when, success=result.get("ok", False), privacy_ok=result.get("error") != "public")
-    msg = _setup_done_msg(owner, repo)
+    msg = _setup_done_msg(owner, repo, first_push=result.get("ok", False))
     if not result.get("ok"):
-        msg += " (The first copy will finish on the next backup.)"
+        msg += " " + _now_message(result)
     if not pointer_commit.get("ok"):                            # the local pointer stands; name the one residual step
         msg += (" One more step to let the scheduled review find your backup: I saved its location on this "
                 "computer but couldn't record it in this project automatically, so commit "
@@ -1086,7 +1409,7 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
         if not _setup_done() or not _should_push(when):
             return hooks.proceed()
         prev = _read_state()
-        result = push_now(now=when)
+        result = push_now(now=when, deadline_seconds=_SESSION_START_DEADLINE_SECONDS)
         err = result.get("error")
         privacy_ok_now = err != "public"
         _record_state(now=when, success=result.get("ok", False), privacy_ok=privacy_ok_now)
@@ -1095,6 +1418,12 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
             if err == "public":
                 if prev.get("last_privacy_ok", True):       # newly public -> tell once
                     msg = _heads_up_public()
+            elif err == "deadline":
+                msg = _HEADS_UP_DEADLINE
+            elif err == "deadline-unavailable":
+                msg = _HEADS_UP_DEADLINE_UNAVAILABLE
+            elif err == "snapshot-too-large":
+                msg = _HEADS_UP_TOO_LARGE
             elif err in ("push-failed", "unreachable"):
                 msg = _HEADS_UP_PUSH_FAILED
         if msg:
@@ -1123,6 +1452,17 @@ def _now_message(result: dict) -> str:
         import boot  # noqa: E402 — lazy: keep boot's heavy import graph off this module's load path
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. "
                 + boot.gh_unreachable_note())
+    if err == "deadline":
+        return ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains current, "
+                "and your memory on this computer is safe and complete. Ask me to diagnose what consumed the time "
+                "and retry the backup.")
+    if err == "deadline-unavailable":
+        return ("This runtime could not safely enforce the backup's wall-clock limit, so I refused before starting. "
+                "Ask me to retry from the main Engine session without another process timer active.")
+    if err == "snapshot-too-large":
+        return ("I couldn't update the backup because this project's saved memory is larger than the supported "
+                "512 MiB uncompressed or 128 MiB compressed snapshot limit. The prior complete backup remains "
+                "current and your local memory is safe. Ask me to inspect and compact saved memory, then retry.")
     if err in ("push-failed", "unreachable"):
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. Try "
                 "again when you have a steady internet connection.")
@@ -1144,6 +1484,9 @@ def status(*, now: "int | None" = None) -> int:
               "project's own folder. Your other projects each have their own folder in there and weren't touched.")
     else:
         print(f"Memory backup: ON — your private repository \"{pointer['owner']}/{pointer['repo']}\".")
+    print("Privacy limit: the engine does not add encryption to the backup. Replacing the visible project folder "
+          "does not guarantee that earlier copies are no longer recoverable from repository history; keep the "
+          "repository private.")
     if last is None:
         print("Last successful backup: none yet (the next backup will make the first copy).")
     else:
@@ -1332,7 +1675,10 @@ class _FakeVault:
             base = self.trees.get(body.get("base_tree"), {})       # merge base_tree's inherited entries (the real
             merged = {e["path"]: e for e in base.get("tree", [])}  # recursive Trees API flattens them) so another
             for e in body.get("tree", []):                         # project's folders SURVIVE a later push — a real
-                merged[e["path"]] = e                              # cross-project coexistence round-trip can be tested
+                if e.get("sha") is None:                          # Git Data's deletion form
+                    merged.pop(e["path"], None)
+                else:
+                    merged[e["path"]] = e                          # cross-project coexistence round-trip can be tested
             self.trees[sha] = {"sha": sha, "tree": list(merged.values())}
             return 201, {"sha": sha}
         m = re.match(r"^/repos/([^/]+)/([^/]+)/git/trees/([^?]+)", path)

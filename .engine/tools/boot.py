@@ -8,13 +8,16 @@ exist today, and injects it as `additionalContext` before the first prompt. The 
 the floor (always) + this pack (when the hook runs).
 
 Boot's laws, all load-bearing here:
-  - READ-ONLY OF CANONICAL STATE. Boot regenerates NO derived or committed state; it reads and
+  - READ-ONLY ORIENTATION OVER CANONICAL STATE. Boot's gather/render path regenerates NO derived or committed
+    state; it reads and
     surfaces. Its own local write is the gitignored, non-canonical standing-alarm presentation ledger
     (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
     The one durable FINDING boot emits — a refused state cursor — is handed to
     telemetry's inbox spool via emit_finding: telemetry owns that write, it is a local gitignored append
     (NEVER a GitHub write), and the StarshipSuperjam/engine-template#412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
-    Its one bounded operator-checkout exception is the clean-default automatic controller, run after stance
+    Its write-capable SessionStart handler also repairs a journaled interrupted memory restore before gathering
+    signals; status/debug calls only observe that recovery state and never perform it. Its one bounded
+    operator-checkout exception is the clean-default automatic controller, run after stance
     reset and before orientation; it may only exact-fast-forward a clean, verified default checkout and never
     performs a rescue, branch switch, dirty reconciliation, or remote/GitHub write.
   - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION. A standing governance alarm renders every
@@ -1383,6 +1386,10 @@ def capture_status_line() -> "str | None":
     state = record.get("state") if isinstance(record, dict) else None
     if state in (None, "captured"):
         return None
+    detail = record.get("detail") if isinstance(record, dict) else None
+    if isinstance(detail, dict) and detail.get("reason") == "restore-quarantine":
+        return ("**Memory capture is paused while an interrupted restore is recovered.** The prior files are "
+                "preserved; restart the Engine session once so automatic recovery can retry before new notes resume.")
     return ("**Last session's conversation wasn't saved to this project's memory** — the session "
             "record couldn't be read, so that conversation won't be recallable later. Nothing in "
             "your project was lost, and everything else still works. If this keeps happening the "
@@ -1666,13 +1673,19 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         pr_conflict = None
     try:
-        # The memory auto-restore offer, RELAYED from memory's own LOCAL-ONLY detector (no
-        # network; boot computes no new state). restore_vault is imported LAZILY here because restore_vault ->
-        # backup_vault -> boot is a back-edge that is only safe lazily (pr_reconcile has no such edge). Degrades
-        # QUIETLY to None — a fresh project with no backup, or one whose memory is present, is the normal state.
+        # The memory auto-restore offer and interrupted-restore status, RELAYED from memory's own LOCAL-ONLY,
+        # READ-ONLY detectors (no network; boot computes no new state). The write-capable SessionStart handler
+        # may supply the result of its one recovery attempt; ordinary status/debug gathering only observes the
+        # journal. restore_vault is imported LAZILY because restore_vault -> backup_vault -> boot is a back-edge
+        # that is only safe lazily (pr_reconcile has no such edge). Degrades QUIETLY to None — a fresh project
+        # with no backup, or one whose memory is present, is the normal state.
         from memory import restore_vault
-        restore_offer = restore_vault.detect_restore_offer()
+        supplied_recovery = payload.get("_restore_recovery") if isinstance(payload, dict) else None
+        restore_recovery = (supplied_recovery if isinstance(supplied_recovery, dict)
+                            else restore_vault.read_restore_recovery_status())
+        restore_offer = restore_vault.detect_restore_offer() if not restore_recovery.get("pending") else None
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
+        restore_recovery = None
         restore_offer = None
     try:
         # The code-older-than-data restore offer, RELAYED from memory's own OFFLINE detector
@@ -1797,6 +1810,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # One plain line when the last capture attempt could NOT save a session's conversation to
         # memory (the loud half of the fail-soft capture); None when fine or no marker.
         "capture_status_line": capture_status_line(),
+        "restore_recovery": restore_recovery,
         # One plain line when there is no recent evidence of the hooks running (the silently-off
         # detector — Codex trust-pending, unapproved hooks, or a pre-hooks version); None when fresh.
         "hooks_health_line": hooks_health_line(),
@@ -2259,6 +2273,25 @@ def render_dashboard(s: dict) -> str:
             "Say **reconcile it** and I'll check: I'll either clear it for you, or — if the clash is in real "
             "content — tell you plainly that it needs your decision.")
 
+    recovery = s.get("restore_recovery")
+    if isinstance(recovery, dict) and recovery.get("recovered"):
+        pinned.append("↩️ **Recovered an interrupted memory restore.** The prior complete memory is back in place, "
+                      "and normal capture can continue."
+                      + (" Temporary local recovery files still need cleanup; the Engine will retry at the next "
+                         "session start." if recovery.get("cleanup_pending") else ""))
+    elif isinstance(recovery, dict) and not recovery.get("ok"):
+        if recovery.get("verified"):
+            pinned.append("⚠️ **Memory is quarantined after an interrupted restore.** The prior files are preserved "
+                          "and new notes will not be captured. Restart the Engine session once; if this remains, "
+                          "ask me to diagnose the preserved recovery set.")
+        else:
+            pinned.append("⚠️ **Memory writes are paused after an interrupted restore.** I could not verify a "
+                          "complete local recovery set, so the condition of the earlier files is unknown. Ask me to "
+                          "diagnose the local recovery files before capturing new notes or retrying the restore.")
+    elif isinstance(recovery, dict) and recovery.get("cleanup_pending"):
+        pinned.append("⚠️ **Temporary local memory-recovery files still need cleanup.** Normal memory capture can "
+                      "continue, and the Engine will retry the cleanup at the next session start.")
+
     # The memory auto-restore OFFER, surfaced read-only at the strand/pr_conflict tier — a
     # recovery OPPORTUNITY, not a governance alarm, so it pins below them. boot OFFERS; the assistant runs the
     # restore on the operator's consent (the strand model). Memory owns the detector; boot owns this wording.
@@ -2685,6 +2718,9 @@ def present_marker_line(s: dict) -> str:
     # falls through to the calm `▸ Project status` marker below rather than reading as a governance alarm.
     if s["refused"]:
         return f"⚠ {PRESENT_MARKER}: couldn't read where the project stands"
+    recovery = s.get("restore_recovery")
+    if isinstance(recovery, dict) and recovery.get("pending"):
+        return f"⚠ {PRESENT_MARKER}: memory writes are paused while an interrupted restore is recovered"
     if s["strand"]:   # ranked after the governance alarms; a governance alarm still wins the marker
         return f"⚠ {PRESENT_MARKER}: your project folder needs attention"
     behind = s.get("behind_origin")
@@ -2795,6 +2831,20 @@ def _pushed_alarms(s: dict) -> list:
         alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
             f"unknown until it re-grounds.")})
+    recovery = s.get("restore_recovery")
+    if isinstance(recovery, dict) and recovery.get("pending"):
+        if recovery.get("verified"):
+            full = (f"{RELAY_MARKER} memory writes are paused after an interrupted restore; the prior local "
+                    "file set is verified and retained for automatic recovery. Tell them to restart the Engine "
+                    "session once, or ask me to diagnose the retained recovery set if it remains paused.")
+        else:
+            full = (f"{RELAY_MARKER} memory writes are paused after an interrupted restore because the local "
+                    "recovery set could not be verified; the condition of the earlier files is unknown. Tell "
+                    "them to ask me to diagnose the local recovery files before capturing new notes or retrying "
+                    "the restore.")
+        alarms.append({"key": "restore-recovery",
+                       "value": [recovery.get("error"), bool(recovery.get("verified"))],
+                       "collapsible": False, "full": full})
     # ONLY blocking engine findings relay here — the never-shed governance tier. A routine (unrated /
     # sub-threshold) finding count no longer pushes at all: it is a quiet dashboard fact (the engine's own
     # housekeeping, the operator's lowest priority), never a must-relay alarm. But a genuinely BLOCKING finding
@@ -3332,6 +3382,18 @@ def handler(payload: dict) -> dict:
         automatic_checkout = {"status": "unavailable", "reason": "controller-failed"}
     payload = dict(payload) if isinstance(payload, dict) else {}
     payload["_automatic_checkout"] = automatic_checkout
+    # Interrupted-restore repair is intentionally exclusive to this write-capable SessionStart seam. The
+    # status verb and pack debug path call gather_signals directly and therefore only observe quarantine.
+    # The marker itself keeps every memory writer paused until this recovery either restores the durable prior
+    # set or reports that it cannot verify it.
+    try:
+        from memory import restore_vault
+        restore_recovery = restore_vault.reconcile_interrupted_restore(
+            deadline_seconds=restore_vault._STARTUP_RECOVERY_DEADLINE_SECONDS)
+    except Exception:  # noqa: BLE001 — SessionStart still fail-opens; gather performs a read-only status check
+        restore_recovery = None
+    if isinstance(restore_recovery, dict):
+        payload["_restore_recovery"] = restore_recovery
     # The live-session heartbeat (dual-purpose, best-effort): records {session, provider, time} to the
     # per-user marker. It is (a) the typed-verb session resolver's last resort on a runtime with no
     # session env var (providers.resolve_session), and (b) the hooks-ran evidence the status readout's

@@ -28,7 +28,7 @@ It does **not** establish exhaustive correctness, every possible failure mode, P
 | CI rules re-run on a metadata-only event (reuse) | 6 |
 | Dedicated hard custom-check proofs | 41 |
 | Disclosed proof exceptions | 3 |
-| Discovered self-test modules | 198 |
+| Discovered self-test modules | 199 |
 
 ### When it runs
 
@@ -315,6 +315,7 @@ These summaries are parsed from module docstrings and report declared test inten
 | [`.engine/tools/memory/test_restore_vault.py`](../../.engine/tools/memory/test_restore_vault.py) | test_restore_vault.py — memory's backup vault, the RESTORE path. The REAL restore logic runs fully offline behind the in-module `_FakeVault` (the backup_vault precedent) — only GitHub is faked. Each test redirects a throwaway ledger cabinet (ENGINE_MEMORY_DIR) AND a throwaway repo root (validate.ROOT) so neither the real ledger nor the real committed pointer is ever touched. The round-trip pushes through `backup_vault` and reads back through `restore_vault`, so the two halves are proven against each other. |
 | [`.engine/tools/memory/test_scrub.py`](../../.engine/tools/memory/test_scrub.py) | Unit tests for memory.scrub — capture-time secret redaction. Run via the engine test suite: `uv run --directory .engine --frozen -- python tools/selftest.py`. Two properties carry the weight: PRECISION (every credential shape is redacted) and NON-CORRUPTION (ordinary conversation — prose, hashes, ids, paths, code, emails, phones — passes through byte-identical). The non-corruption matrix is the load-bearing one: a false positive permanently destroys unrecoverable memory, so any future pattern that breaks these must be justified. |
 | [`.engine/tools/memory/test_search.py`](../../.engine/tools/memory/test_search.py) | test_search.py — unit tests for ranked, filtered recall: index.search (memory substrate). Run: uv run --directory .engine --frozen -- python tools/selftest.py Covers the `search` laws (the search.json contract): results come back BEST-FIRST by lexical relevance (bm25 on both paths) with usage (frecency) breaking near-ties but NEVER overriding a clearly-stronger match ("BM25 leads"); a never-accessed match is deprioritized, never dropped (ranking, not retention); the role/tag filters narrow; the fast and slow paths return the same SET (the availability law; the slow path ranks the FULL matched set before slicing, not an early ledger-order truncation); and `search` is side-effect-free (it never reinforces — that is the MCP server's job — and never writes the ledger). `query` stays UNRANKED. The two paths now agree on ORDER as well as membership — `test_index.RankingParityTests` is where that is pinned; the set-level assertions here are the weaker floor, kept because they are what the contract promises. |
+| [`.engine/tools/memory/test_snapshot_format.py`](../../.engine/tools/memory/test_snapshot_format.py) | Focused acceptance evidence for the v2 plaintext multipart snapshot codec. |
 
 #### `migration-discipline`
 
