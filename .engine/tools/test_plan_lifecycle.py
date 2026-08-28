@@ -19,6 +19,7 @@ import unittest
 
 import project_manager
 import plan_lifecycle
+import plan_program
 import plan_store
 from test_plan_store import _document
 
@@ -338,11 +339,13 @@ class D7CarryForwardDecayIsRechecked(_Ceremony):
     """The B2 shape: a predecessor mints obligations AFTER its successor has joined."""
 
     def _program_with_two_children(self):
-        import plan_program
         programs = plan_program.ProgramLibrary(self.lib)
         program = programs.create("A program", "Two plans, one after the other")
-        first = self.plan(plan_id="pln_aaaaaaaaaaaa", title="First")
-        second = self.plan(plan_id="pln_bbbbbbbbbbbb", title="Second")
+        self.program_id = programs.read(program)["program_id"]
+        first = self.plan(plan_id="pln_aaaaaaaaaaaa", title="First",
+                          program={"program_id": self.program_id})
+        second = self.plan(plan_id="pln_bbbbbbbbbbbb", title="Second",
+                           program={"program_id": self.program_id})
         programs.add_child(program, "pln_aaaaaaaaaaaa")
         programs.add_child(program, "pln_bbbbbbbbbbbb", predecessor="pln_aaaaaaaaaaaa")
         return programs, program, first, second
@@ -352,7 +355,7 @@ class D7CarryForwardDecayIsRechecked(_Ceremony):
         document["revision"] = 2
         document["revised_at"] = "2026-08-25T00:00:00Z"
         document["revision_note"] = "Carry an obligation the successor has never seen."
-        document["program"] = {"program_id": "prg_0123456789ab", "carried_obligations": [
+        document["program"] = {"program_id": self.program_id, "carried_obligations": [
             {"id": "OB-LATE", "statement": "The late obligation.", "state": "carried"}]}
         self.lib.append_revision(slug, document, expected_revision=1)
 
@@ -605,3 +608,103 @@ class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
+    """The seal reached every program record, validated each, and let any failure become a refusal.
+
+    So a single malformed file on the shelf refused the seal of EVERY plan in the library — including
+    plans belonging to no program at all — and `show`, which renders the same set, went with it. The
+    obvious repair is the except-continue discipline the decay re-check already uses, and taken alone
+    it is a fail-OPEN: a plan whose OWN program record is unreadable would look exactly like a plan in
+    no program, the carry-forward re-check would be skipped, and a debt would slip past the one gate
+    that catches it. Both directions are pinned here, in both corruption classes.
+    """
+
+    def _program_with_child(self, plan_slug):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("A program", "Delivered across PRs.")
+        program_id = programs.read(slug)["program_id"]
+        document = self.lib.head(plan_slug)
+        document["revision"] = 2
+        document["program"] = {"program_id": program_id}
+        self.lib.append_revision(plan_slug, document, expected_revision=1)
+        programs.add_child(slug, self.lib.read_record(plan_slug)["plan_id"])
+        return programs, slug, program_id
+
+    def _corrupt(self, programs, slug, text):
+        (programs.program_dir(slug) / plan_program.RECORD_FILENAME).write_text(text, encoding="utf-8")
+
+    def _sealable(self):
+        slug = self.reviewed()
+        self.run_command("present-findings", slug, "--operator-decision", "Nothing was found.")
+        return slug
+
+    def test_a_standalone_plan_seals_while_an_unrelated_record_is_unparseable(self):
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff01", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        self._corrupt(programs, program_slug, "{not json at all")
+        self.assertEqual(project_manager.seal_refusals(self.lib, victim), [],
+                         "a plan in no program must not be held hostage by someone else's record")
+        code, _, err = self.run_command("seal", victim, "--operator-decision", "Seal")
+        self.assertEqual(code, 0)
+        self.assertIn("worth knowing", err)
+        self.assertIn("could not be read", err)
+
+    def test_a_standalone_plan_seals_while_an_unrelated_record_fails_its_schema(self):
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff02", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        record = programs.read(program_slug)
+        record["schema_version"] = "engine-program.v99"
+        self._corrupt(programs, program_slug, json.dumps(record))
+        self.assertEqual(project_manager.seal_refusals(self.lib, victim), [])
+        self.assertEqual(self.run_command("seal", victim, "--operator-decision", "Seal")[0], 0)
+
+    def test_the_owning_plan_still_refuses_when_its_record_fails_its_schema(self):
+        slug = self._sealable()
+        programs, program_slug, _ = self._program_with_child(slug)
+        record = programs.read(program_slug)
+        record["schema_version"] = "engine-program.v99"
+        self._corrupt(programs, program_slug, json.dumps(record))
+        # Two independent sources would each catch this one — the record still parses, so its
+        # children array names the plan, AND the plan's back-link names the record. Either is enough;
+        # what matters here is that the seal refuses. (That the ownership half works on its own, for a
+        # legacy child carrying no back-link, is pinned at unit level in test_plan_program.)
+        refusals = project_manager.seal_refusals(self.lib, slug)
+        self.assertTrue(refusals, "the plan's OWN broken program must still stop its seal")
+        self.assertIn("cannot be read", " ".join(refusals))
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal")[0], 1)
+
+    def test_the_owning_plan_still_refuses_when_its_record_will_not_parse(self):
+        # The fail-open. Nothing in the record can say whose it is, so membership rests entirely on
+        # the plan's own back-link — which is why joining requires one.
+        slug = self._sealable()
+        programs, program_slug, _ = self._program_with_child(slug)
+        self._corrupt(programs, program_slug, "{not json at all")
+        refusals = project_manager.seal_refusals(self.lib, slug)
+        self.assertTrue(refusals, "a plan whose own program cannot be parsed must not seal in silence")
+        self.assertIn("declares that it belongs to program", " ".join(refusals))
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal")[0], 1)
+
+    def test_the_legacy_gap_is_disclosed_rather_than_resolved(self):
+        # A child added before the back-link was required, under a record that will not parse, is
+        # genuinely indistinguishable from a standalone plan. That is stated, not assumed away.
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff03", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        self._corrupt(programs, program_slug, "{not json at all")
+        disclosures = project_manager.seal_disclosures(self.lib, victim)
+        self.assertTrue(any("nothing here could tell" in line for line in disclosures))
+
+    def test_show_prints_exactly_what_seal_discloses(self):
+        # D9's rule, extended: the two commands agree about disclosures as well as refusals, so a
+        # plan never reads differently depending on which one the operator happened to run.
+        victim = self._sealable()
+        other = self.plan(plan_id="pln_ffffffffff04", title="Someone else's plan")
+        programs, program_slug, _ = self._program_with_child(other)
+        self._corrupt(programs, program_slug, "{not json at all")
+        shown = self.run_command("show", victim)[1]
+        for disclosure in project_manager.seal_disclosures(self.lib, victim):
+            self.assertIn(disclosure.splitlines()[0], shown)
