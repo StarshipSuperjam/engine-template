@@ -13,6 +13,7 @@ import contextlib
 import io
 import json
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -219,6 +220,48 @@ class PushTests(_Base):
         self.assertEqual(result["error"], "deadline-unavailable")
         self.assertIn("could not safely enforce", bv._now_message(result))
         self.assertNotIn("180-second limit", bv._now_message(result))
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask") and hasattr(signal, "SIGALRM"),
+                         "requires POSIX signal masks")
+    def test_preblocked_alarm_refuses_and_preserves_the_exact_caller_mask(self):
+        original = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        try:
+            result = bv.push_now(transport=bv._FakeVault().transport)
+            current = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            self.assertEqual(result["error"], "deadline-unavailable")
+            self.assertIn(signal.SIGALRM, current)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original)
+
+    @unittest.skipUnless(all(hasattr(signal, name) for name in
+                             ("pthread_sigmask", "SIGALRM", "SIGUSR1")),
+                         "requires POSIX signal masks")
+    def test_successful_guard_preserves_unrelated_blocked_signals(self):
+        original = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
+        try:
+            if signal.SIGALRM in original:
+                self.skipTest("host entered the test with SIGALRM blocked")
+            with bv._hard_deadline(time.monotonic() + 1):
+                inside = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+                self.assertIn(signal.SIGUSR1, inside)
+            current = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+            self.assertEqual(current, original | {signal.SIGUSR1})
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, original)
+
+    @unittest.skipUnless(hasattr(signal, "pthread_sigmask") and hasattr(signal, "SIGALRM"),
+                         "requires POSIX signal masks")
+    def test_guard_setup_failure_restores_handler_and_mask(self):
+        original_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        if signal.SIGALRM in original_mask:
+            self.skipTest("host entered the test with SIGALRM blocked")
+        original_handler = signal.getsignal(signal.SIGALRM)
+        guard = bv._HardDeadlineGuard(time.monotonic() + 1)
+        with mock.patch.object(guard, "resume", side_effect=OSError("timer setup failed")):
+            with self.assertRaises(OSError):
+                guard.__enter__()
+        self.assertEqual(signal.getsignal(signal.SIGALRM), original_handler)
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), original_mask)
 
     def test_push_now_interrupts_blocked_local_work_at_wall_clock_deadline(self):
         ledger.append({"kind": "turn-delta", "text": "bounded backup"})

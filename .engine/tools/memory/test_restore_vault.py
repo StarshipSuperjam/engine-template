@@ -304,6 +304,128 @@ class RoundTripTests(_Base):
         self.assertIsNotNone(lock_fd)
         capture._release_lock(lock_fd)
 
+    def test_data_directory_creation_failure_is_a_typed_apply_failure(self):
+        with mock.patch.object(rv.os, "makedirs", side_effect=OSError("cabinet unavailable")):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertEqual(result["error"], "apply-failed")
+        self.assertFalse(result["restored"])
+
+    def test_markerless_restore_staging_is_reaped_at_startup(self):
+        orphan = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(os.path.join(orphan, "prior-ledger"), "wb") as target:
+            target.write(b"sensitive prior memory")
+        result = rv.reconcile_interrupted_restore()
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["cleanup_pending"])
+        self.assertFalse(os.path.exists(orphan))
+
+    def test_active_marker_prevents_orphan_staging_cleanup(self):
+        orphan = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        with open(ledger.restore_transaction_path(), "w", encoding="utf-8") as target:
+            target.write("not a valid transaction")
+        cleanup = rv._cleanup_orphan_restore_staging(ledger.ledger_dir())
+        self.assertEqual(cleanup, {"removed": [], "failed": []})
+        self.assertTrue(os.path.isdir(orphan))
+
+    def test_success_discloses_deferred_staging_cleanup_and_next_start_reaps_it(self):
+        real_rmtree = rv.shutil.rmtree
+        failed = {"done": False}
+
+        def fail_restore_stage_once(path, *args, **kwargs):
+            if os.path.basename(path).startswith(".restore-stage-") and not failed["done"]:
+                failed["done"] = True
+                raise OSError("temporary cleanup fault")
+            return real_rmtree(path, *args, **kwargs)
+
+        with mock.patch.object(rv.shutil, "rmtree", side_effect=fail_restore_stage_once):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["cleanup_pending"])
+        self.assertIn("next session start", result["message"])
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+        self.assertTrue(any(name.startswith(".restore-stage-") for name in os.listdir(ledger.ledger_dir())))
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertFalse(recovered["cleanup_pending"])
+        self.assertFalse(any(name.startswith(".restore-stage-") for name in os.listdir(ledger.ledger_dir())))
+
+    def test_invalid_recovery_marker_makes_no_preservation_claim(self):
+        with open(ledger.restore_transaction_path(), "w", encoding="utf-8") as target:
+            target.write("not-json")
+        status = rv.read_restore_recovery_status()
+        self.assertFalse(status["ok"])
+        self.assertTrue(status["pending"])
+        self.assertFalse(status["verified"])
+        self.assertEqual(status["error"], "recovery-invalid")
+        self.assertNotIn("preserved", status["message"].lower())
+        self.assertTrue(os.path.exists(ledger.restore_transaction_path()), "the status read is non-mutating")
+
+    def test_recovery_refuses_a_symlinked_prior_file(self):
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        external = os.path.join(self._root.name, "outside-ledger")
+        with open(external, "wb") as target:
+            target.write(b"outside")
+        os.symlink(external, os.path.join(staging, "prior-ledger"))
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"published")
+        marker = {"version": 1, "staging": os.path.basename(staging),
+                  "existed": {"ledger": True, "meta": False, "index": False}}
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        status = rv.read_restore_recovery_status()
+        self.assertEqual(status["error"], "recovery-invalid")
+        self.assertFalse(status["verified"])
+        self.assertEqual(_rb(external), b"outside")
+
+    def test_success_disarms_deadline_before_quarantine_marker_is_removed(self):
+        events = []
+
+        class Guard:
+            deadline = time.monotonic() + 10
+
+            def block_interrupt(self):
+                events.append("block")
+
+            def unblock_interrupt(self):
+                events.append("unblock")
+
+            def suspend(self):
+                events.append("suspend")
+
+        real_remove = rv.os.remove
+
+        def observe_marker_removal(path):
+            if path == ledger.restore_transaction_path():
+                events.append("remove-marker")
+            return real_remove(path)
+
+        with mock.patch.object(rv.os, "remove", side_effect=observe_marker_removal):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1, deadline_guard=Guard())
+        self.assertTrue(result["ok"])
+        marker = events.index("remove-marker")
+        self.assertEqual(events[marker - 3:marker], ["block", "suspend", "unblock"])
+
+    def test_maximum_supported_sparse_ledger_recovers_by_atomic_move(self):
+        data_dir = ledger.ledger_dir()
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=data_dir)
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.truncate(rv.snapshot_format.MAX_UNCOMPRESSED_BYTES)
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"partially published replacement")
+        marker = {"version": 1, "staging": os.path.basename(staging),
+                  "existed": {"ledger": True, "meta": False, "index": False}}
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        started = time.monotonic()
+        with mock.patch.object(rv.shutil, "copy2", side_effect=AssertionError("recovery must not recopy")):
+            result = rv.reconcile_interrupted_restore()
+        elapsed = time.monotonic() - started
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["recovered"])
+        self.assertLess(elapsed, 3.0)
+        self.assertEqual(os.path.getsize(ledger.ledger_path()), rv.snapshot_format.MAX_UNCOMPRESSED_BYTES)
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+        self.assertFalse(os.path.exists(staging))
+
     def test_restore_preserves_nonzero_index_epoch_and_publishes_a_trusted_index(self):
         ledger.append({"kind": "turn-delta", "text": "prior epoch"})
         with open(ledger.meta_path(), "w", encoding="utf-8") as fh:

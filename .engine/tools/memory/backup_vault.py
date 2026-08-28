@@ -533,6 +533,7 @@ class _HardDeadlineGuard:
         self.deadline = deadline
         self.active = False
         self.previous_handler = None
+        self.previous_mask = None
 
     def expire(self, _signum, _frame):
         raise snapshot_format.SnapshotDeadlineError("snapshot deadline expired")
@@ -543,12 +544,25 @@ class _HardDeadlineGuard:
                 or not hasattr(signal, "setitimer") or not hasattr(signal, "ITIMER_REAL")
                 or not hasattr(signal, "pthread_sigmask")):
             raise HardDeadlineUnavailable("interrupting deadline is unavailable on this execution thread")
+        self.previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        if signal.SIGALRM in self.previous_mask:
+            raise HardDeadlineUnavailable("SIGALRM is already blocked by the host process")
         previous_timer = signal.getitimer(signal.ITIMER_REAL)
         if previous_timer[0] > 0 or previous_timer[1] > 0:
             raise HardDeadlineUnavailable("another process timer is already active")
         self.previous_handler = signal.getsignal(signal.SIGALRM)
-        signal.signal(signal.SIGALRM, self.expire)
-        self.resume()
+        try:
+            signal.signal(signal.SIGALRM, self.expire)
+            self.resume()
+        except BaseException:
+            try:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            finally:
+                try:
+                    signal.signal(signal.SIGALRM, self.previous_handler)
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, self.previous_mask)
+            raise
         return self
 
     def suspend(self):
@@ -561,7 +575,7 @@ class _HardDeadlineGuard:
         signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
 
     def unblock_interrupt(self):
-        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+        signal.pthread_sigmask(signal.SIG_SETMASK, self.previous_mask)
 
     def resume(self):
         remaining = self.deadline - time.monotonic()
@@ -571,9 +585,15 @@ class _HardDeadlineGuard:
         self.active = True
 
     def __exit__(self, _exc_type, _exc, _tb):
-        self.suspend()
-        if self.previous_handler is not None:
-            signal.signal(signal.SIGALRM, self.previous_handler)
+        try:
+            self.suspend()
+        finally:
+            try:
+                if self.previous_handler is not None:
+                    signal.signal(signal.SIGALRM, self.previous_handler)
+            finally:
+                if self.previous_mask is not None:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, self.previous_mask)
 
 
 def _hard_deadline(deadline):

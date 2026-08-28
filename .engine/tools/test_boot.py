@@ -141,7 +141,8 @@ _SIGNALS = {"state": {"schema_version": 1, "standing_situation": {}, "integratio
             "debt_count": 0, "debt_as_of": None, "att_lines": [],
             "att_degraded": [], "shipped": [], "stance": "Exploring", "strand": None,
             "behind_origin": None, "off_main": None,
-            "pr_conflict": None, "restore_offer": None, "migration_revert": None, "staged_update": None,
+            "pr_conflict": None, "restore_recovery": None, "restore_offer": None,
+            "migration_revert": None, "staged_update": None,
             "audit_stale": None,
             "live_standing": None, "neighborhood": None, "map_rebuilt": False, "map_corrupt": False,
             "ledger_malformed": None, "migration_stalled": False, "recall_offline": False,
@@ -3028,6 +3029,51 @@ class TestStanceLine(unittest.TestCase):
         self.assertEqual(order, ["clear", "auto", "pack"])
         self.assertEqual(pack.call_args.kwargs["payload"]["_automatic_checkout"], outcome)
         self.assertEqual(decision.get("action"), "inject")
+
+    def test_status_gather_observes_recovery_without_running_it(self):
+        from memory import restore_vault
+        observed = {"ok": False, "pending": True, "verified": True,
+                    "error": "apply-uncertain", "message": "paused"}
+        patchers = _offline()
+        try:
+            with mock.patch.object(restore_vault, "read_restore_recovery_status", return_value=observed) as read, \
+                 mock.patch.object(restore_vault, "reconcile_interrupted_restore",
+                                   side_effect=AssertionError("read-only gather must not recover")) as reconcile:
+                signals = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        read.assert_called_once_with()
+        reconcile.assert_not_called()
+        self.assertIs(signals["restore_recovery"], observed)
+        self.assertIsNone(signals["restore_offer"])
+
+    def test_sessionstart_handler_runs_recovery_once_and_threads_the_result(self):
+        from memory import restore_vault
+        recovery = {"ok": True, "recovered": True, "cleanup_pending": False}
+        with mock.patch.object(boot.modes, "clear_stance"), \
+             mock.patch.object(boot.checkout_auto_update, "automatic_catch_up",
+                               return_value={"status": "current"}), \
+             mock.patch.object(restore_vault, "reconcile_interrupted_restore", return_value=recovery) as reconcile, \
+             mock.patch.object(boot.providers, "write_live_session"), \
+             mock.patch.object(boot, "assemble_pack", return_value="brief") as pack:
+            boot.handler({"session_id": "recovery-case"})
+        reconcile.assert_called_once_with()
+        self.assertIs(pack.call_args.kwargs["payload"]["_restore_recovery"], recovery)
+
+    def test_unverified_recovery_status_never_claims_prior_files_are_preserved(self):
+        recovery = {"ok": False, "pending": True, "verified": False,
+                    "error": "recovery-invalid"}
+        dashboard = boot.render_dashboard(_signals(restore_recovery=recovery))
+        self.assertIn("could not verify", dashboard.lower())
+        self.assertNotIn("preserv", dashboard.lower())
+
+    def test_startup_cleanup_failure_is_visible_without_pausing_capture(self):
+        recovery = {"ok": True, "recovered": False, "cleanup_pending": True}
+        dashboard = boot.render_dashboard(_signals(restore_recovery=recovery))
+        self.assertIn("still need cleanup", dashboard.lower())
+        self.assertIn("normal memory capture can continue", dashboard.lower())
+        self.assertIn("next session start", dashboard.lower())
 
     def test_each_session_start_source_uses_the_same_automatic_controller(self):
         for source in boot.SESSION_START_SOURCES:

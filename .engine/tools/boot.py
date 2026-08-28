@@ -8,13 +8,16 @@ exist today, and injects it as `additionalContext` before the first prompt. The 
 the floor (always) + this pack (when the hook runs).
 
 Boot's laws, all load-bearing here:
-  - READ-ONLY OF CANONICAL STATE. Boot regenerates NO derived or committed state; it reads and
+  - READ-ONLY ORIENTATION OVER CANONICAL STATE. Boot's gather/render path regenerates NO derived or committed
+    state; it reads and
     surfaces. Its own local write is the gitignored, non-canonical standing-alarm presentation ledger
     (boot_alarm_ledger) — a record of what was already shown, not a regeneration of any canonical state.
     The one durable FINDING boot emits — a refused state cursor — is handed to
     telemetry's inbox spool via emit_finding: telemetry owns that write, it is a local gitignored append
     (NEVER a GitHub write), and the StarshipSuperjam/engine-template#412 drain promotes it — so the read-only-AGAINST-GITHUB posture holds.
-    Its one bounded operator-checkout exception is the clean-default automatic controller, run after stance
+    Its write-capable SessionStart handler also repairs a journaled interrupted memory restore before gathering
+    signals; status/debug calls only observe that recovery state and never perform it. Its one bounded
+    operator-checkout exception is the clean-default automatic controller, run after stance
     reset and before orientation; it may only exact-fast-forward a clean, verified default checkout and never
     performs a rescue, branch switch, dirty reconciliation, or remote/GitHub write.
   - ANTI-HABITUATION BY COLLAPSE, NOT SUPPRESSION. A standing governance alarm renders every
@@ -1670,14 +1673,17 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     except Exception:  # noqa: BLE001 — any detector failure degrades this one signal, never the pack
         pr_conflict = None
     try:
-        # The memory auto-restore offer, RELAYED from memory's own LOCAL-ONLY detector (no
-        # network; boot computes no new state). restore_vault is imported LAZILY here because restore_vault ->
-        # backup_vault -> boot is a back-edge that is only safe lazily (pr_reconcile has no such edge). Degrades
-        # QUIETLY to None — a fresh project with no backup, or one whose memory is present, is the normal state.
+        # The memory auto-restore offer and interrupted-restore status, RELAYED from memory's own LOCAL-ONLY,
+        # READ-ONLY detectors (no network; boot computes no new state). The write-capable SessionStart handler
+        # may supply the result of its one recovery attempt; ordinary status/debug gathering only observes the
+        # journal. restore_vault is imported LAZILY because restore_vault -> backup_vault -> boot is a back-edge
+        # that is only safe lazily (pr_reconcile has no such edge). Degrades QUIETLY to None — a fresh project
+        # with no backup, or one whose memory is present, is the normal state.
         from memory import restore_vault
-        restore_recovery = restore_vault.reconcile_interrupted_restore(
-            deadline_seconds=restore_vault._STARTUP_RECOVERY_DEADLINE_SECONDS)
-        restore_offer = restore_vault.detect_restore_offer() if restore_recovery.get("ok") else None
+        supplied_recovery = payload.get("_restore_recovery") if isinstance(payload, dict) else None
+        restore_recovery = (supplied_recovery if isinstance(supplied_recovery, dict)
+                            else restore_vault.read_restore_recovery_status())
+        restore_offer = restore_vault.detect_restore_offer() if not restore_recovery.get("pending") else None
     except Exception:  # noqa: BLE001 — any detector/import failure degrades this one signal, never the pack
         restore_recovery = None
         restore_offer = None
@@ -2267,11 +2273,21 @@ def render_dashboard(s: dict) -> str:
     recovery = s.get("restore_recovery")
     if isinstance(recovery, dict) and recovery.get("recovered"):
         pinned.append("↩️ **Recovered an interrupted memory restore.** The prior complete memory is back in place, "
-                      "and normal capture can continue.")
+                      "and normal capture can continue."
+                      + (" Temporary local recovery files still need cleanup; the Engine will retry at the next "
+                         "session start." if recovery.get("cleanup_pending") else ""))
     elif isinstance(recovery, dict) and not recovery.get("ok"):
-        pinned.append("⚠️ **Memory is quarantined after an interrupted restore.** The prior files are preserved and "
-                      "new notes will not be captured. Restart the Engine session once; if this remains, ask me to "
-                      "diagnose the preserved recovery set.")
+        if recovery.get("verified"):
+            pinned.append("⚠️ **Memory is quarantined after an interrupted restore.** The prior files are preserved "
+                          "and new notes will not be captured. Restart the Engine session once; if this remains, "
+                          "ask me to diagnose the preserved recovery set.")
+        else:
+            pinned.append("⚠️ **Memory writes are paused after an interrupted restore.** I could not verify a "
+                          "complete local recovery set, so the condition of the earlier files is unknown. Ask me to "
+                          "diagnose the local recovery files before capturing new notes or retrying the restore.")
+    elif isinstance(recovery, dict) and recovery.get("cleanup_pending"):
+        pinned.append("⚠️ **Temporary local memory-recovery files still need cleanup.** Normal memory capture can "
+                      "continue, and the Engine will retry the cleanup at the next session start.")
 
     # The memory auto-restore OFFER, surfaced read-only at the strand/pr_conflict tier — a
     # recovery OPPORTUNITY, not a governance alarm, so it pins below them. boot OFFERS; the assistant runs the
@@ -3346,6 +3362,17 @@ def handler(payload: dict) -> dict:
         automatic_checkout = {"status": "unavailable", "reason": "controller-failed"}
     payload = dict(payload) if isinstance(payload, dict) else {}
     payload["_automatic_checkout"] = automatic_checkout
+    # Interrupted-restore repair is intentionally exclusive to this write-capable SessionStart seam. The
+    # status verb and pack debug path call gather_signals directly and therefore only observe quarantine.
+    # The marker itself keeps every memory writer paused until this recovery either restores the durable prior
+    # set or reports that it cannot verify it.
+    try:
+        from memory import restore_vault
+        restore_recovery = restore_vault.reconcile_interrupted_restore()
+    except Exception:  # noqa: BLE001 — SessionStart still fail-opens; gather performs a read-only status check
+        restore_recovery = None
+    if isinstance(restore_recovery, dict):
+        payload["_restore_recovery"] = restore_recovery
     # The live-session heartbeat (dual-purpose, best-effort): records {session, provider, time} to the
     # per-user marker. It is (a) the typed-verb session resolver's last resort on a runtime with no
     # session env var (providers.resolve_session), and (b) the hooks-ran evidence the status readout's

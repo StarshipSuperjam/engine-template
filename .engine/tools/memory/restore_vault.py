@@ -53,7 +53,6 @@ _MAX_MANIFEST_BYTES = 64 * 1024
 _MAX_NAMESPACE_BYTES = 255
 _MAX_VAULT_PATH_BYTES = 1024
 _FOREGROUND_DEADLINE_SECONDS = 180
-_STARTUP_RECOVERY_DEADLINE_SECONDS = 10
 
 
 def _valid_namespace(value) -> bool:
@@ -499,6 +498,11 @@ _MSG_APPLY_FAILED = ("Something went wrong part-way through restoring, so I stop
 _MSG_APPLY_UNCERTAIN = ("A storage fault interrupted the final restore swap, so memory is quarantined and new notes "
                         "will not be captured. I preserved the prior files for recovery. Restart the Engine session "
                         "once; it will retry recovery before memory writes resume.")
+_MSG_RECOVERY_INVALID = ("An interrupted-restore marker exists, but I could not verify a complete recovery set, so "
+                         "memory writes remain paused. Ask me to diagnose the local recovery files before capturing "
+                         "new notes or retrying the restore.")
+_MSG_CLEANUP_PENDING = (" The memory itself is ready, but temporary local recovery files could not be removed; "
+                        "the Engine will retry that cleanup at the next session start.")
 _MSG_DECLINED = "No restore was done. Your memory on this computer is unchanged."
 
 
@@ -552,15 +556,15 @@ def restore_now(*, transport=None, consent: "str | None" = None, override: bool 
     `github` is forwarded to surfacing (None => offline). Result: {ok, error, restored, message}."""
     state = {"expired": False}
     try:
+        recovery = reconcile_interrupted_restore()
+        if not recovery.get("ok"):
+            return {"ok": False, "error": recovery.get("error"), "restored": False,
+                    "message": recovery.get("message", _MSG_APPLY_UNCERTAIN)}
         deadline = time.monotonic() + max(0.0, float(deadline_seconds))
     except (TypeError, ValueError):
         deadline = time.monotonic()
     try:
         with bv._hard_deadline(deadline) as deadline_guard:
-            recovery = reconcile_interrupted_restore(deadline_guard=deadline_guard)
-            if not recovery.get("ok"):
-                return {"ok": False, "error": recovery.get("error"), "restored": False,
-                        "message": recovery.get("message", _MSG_APPLY_UNCERTAIN)}
             fetch = fetch_snapshot(transport=transport, deadline=deadline, deadline_state=state)
             return _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github,
                                        deadline=deadline, deadline_state=state, deadline_guard=deadline_guard)
@@ -591,15 +595,15 @@ def restore_pre_migration(*, tag: str, transport=None, consent: "str | None" = N
         return {"ok": False, "error": "snapshot-missing", "restored": False, "message": _MSG_SNAPSHOT_MISSING}
     state = {"expired": False}
     try:
+        recovery = reconcile_interrupted_restore()
+        if not recovery.get("ok"):
+            return {"ok": False, "error": recovery.get("error"), "restored": False,
+                    "message": recovery.get("message", _MSG_APPLY_UNCERTAIN)}
         deadline = time.monotonic() + max(0.0, float(deadline_seconds))
     except (TypeError, ValueError):
         deadline = time.monotonic()
     try:
         with bv._hard_deadline(deadline) as deadline_guard:
-            recovery = reconcile_interrupted_restore(deadline_guard=deadline_guard)
-            if not recovery.get("ok"):
-                return {"ok": False, "error": recovery.get("error"), "restored": False,
-                        "message": recovery.get("message", _MSG_APPLY_UNCERTAIN)}
             fetch = fetch_snapshot(transport=transport, ref=("tags", tag), deadline=deadline, deadline_state=state)
             result = _restore_from_fetch(fetch, consent=consent, override=override, now=now, github=github,
                                          deadline=deadline, deadline_state=state, deadline_guard=deadline_guard)
@@ -705,6 +709,8 @@ def _write_restore_transaction(marker_path: str, marker: dict) -> None:
 
 def _load_restore_transaction(data_dir: str) -> "dict | None":
     marker_path = ledger.restore_transaction_path()
+    if os.path.islink(marker_path):
+        return {"invalid": True}
     try:
         with open(marker_path, encoding="utf-8") as source:
             marker = json.load(source)
@@ -720,33 +726,73 @@ def _load_restore_transaction(data_dir: str) -> "dict | None":
             or any(not isinstance(existed.get(name), bool) for name in ("ledger", "meta", "index"))):
         return {"invalid": True}
     staging = os.path.join(data_dir, staging_name)
-    if not os.path.isdir(staging):
+    if os.path.islink(staging) or not os.path.isdir(staging):
         return {"invalid": True}
-    return {"marker_path": marker_path, "staging": staging, "existed": existed}
+    transaction = {"marker_path": marker_path, "staging": staging, "existed": existed}
+    targets = {"ledger": ledger.ledger_path(), "meta": ledger.meta_path()}
+    try:
+        from memory import index
+        targets["index"] = index.index_path()
+    except Exception:  # noqa: BLE001 - an unverifiable recovery set stays quarantined
+        return {"invalid": True}
+    for name, target in targets.items():
+        if not existed[name]:
+            continue
+        backup = os.path.join(staging, f"prior-{name}")
+        if os.path.lexists(backup) and (os.path.islink(backup) or not os.path.isfile(backup)):
+            return {"invalid": True}
+        if os.path.lexists(target) and (os.path.islink(target) or not os.path.isfile(target)):
+            return {"invalid": True}
+        backup_ok = os.path.isfile(backup)
+        target_ok = os.path.isfile(target) and not os.path.islink(target)
+        if not backup_ok and not target_ok:
+            return {"invalid": True}
+    return transaction
 
 
-def _restore_prior_set(transaction: dict, *, index_path: str) -> bool:
-    """Restore the journaled prior set without consuming its recovery copies."""
+def _restore_prior_set(transaction: dict, *, index_path: str, deadline_guard=None) -> bool:
+    """Atomically restore the journaled prior set and retire its quarantine marker.
+
+    Prior files are staged as hardlinks when the filesystem supports them, so restart recovery is a
+    fixed number of same-filesystem renames rather than a second copy of a potentially
+    512 MiB ledger.  A missing backup paired with a present target means a previous recovery
+    attempt completed that rename before it was interrupted; this makes recovery idempotent.
+    """
     staging = transaction["staging"]
     data_dir = ledger.ledger_dir()
     targets = {"ledger": ledger.ledger_path(), "meta": ledger.meta_path(), "index": index_path}
     backups = {name: os.path.join(staging, f"prior-{name}") for name in targets}
+    interrupt_blocked = False
 
     def restore_file(name: str):
         target = targets[name]
         if transaction["existed"][name]:
-            recovery_tmp = target + ".restore-recover-tmp"
-            shutil.copy2(backups[name], recovery_tmp)
-            with open(recovery_tmp, "rb") as source:
-                os.fsync(source.fileno())
-            os.replace(recovery_tmp, target)
+            if os.path.lexists(backups[name]) and (
+                    os.path.islink(backups[name]) or not os.path.isfile(backups[name])):
+                raise OSError(f"the prior {name} recovery file is unsafe")
+            if os.path.isfile(backups[name]):
+                os.replace(backups[name], target)
+            elif os.path.islink(target) or not os.path.isfile(target):
+                raise OSError(f"the prior {name} is unavailable")
         else:
-            if os.path.exists(target):
+            if os.path.lexists(target) and (os.path.islink(target) or not os.path.isfile(target)):
+                raise OSError(f"the replacement {name} is unsafe")
+            if os.path.isfile(target):
                 os.remove(target)
-            if os.path.exists(target):
+            if os.path.lexists(target):
                 raise OSError(f"could not restore prior absence for {name}")
 
     try:
+        # A foreground restore may arrive here because its hard deadline fired.
+        # Stop that alarm before rolling back: quarantine remains active until the
+        # prior complete set is durable, and safety recovery is not part of the
+        # operator-facing foreground time budget.
+        if deadline_guard is not None:
+            deadline_guard.block_interrupt()
+            interrupt_blocked = True
+            deadline_guard.suspend()
+            deadline_guard.unblock_interrupt()
+            interrupt_blocked = False
         # Invalidate the fast path first. Ledger/meta are then restored while
         # queries necessarily scan; the matching prior index is installed last.
         if os.path.exists(index_path):
@@ -760,54 +806,82 @@ def _restore_prior_set(transaction: dict, *, index_path: str) -> bool:
         except FileNotFoundError:
             pass
         ledger._fsync_dir(data_dir)
-        shutil.rmtree(staging, ignore_errors=True)
         return True
     except Exception:  # noqa: BLE001 — marker + recovery copies remain for a later retry
         return False
+    finally:
+        if interrupt_blocked:
+            deadline_guard.unblock_interrupt()
 
 
-def reconcile_interrupted_restore(*, deadline_guard=None, deadline_seconds=None) -> dict:
-    """At startup, roll an interrupted restore back before any memory writer may resume."""
-    from memory import capture, index
-    if deadline_guard is None and deadline_seconds is not None:
+def _cleanup_orphan_restore_staging(data_dir: str) -> dict:
+    """Remove markerless restore staging directories without following symlinks."""
+    marker_path = ledger.restore_transaction_path()
+    if os.path.exists(marker_path):
+        return {"removed": [], "failed": []}
+    removed, failed = [], []
+    try:
+        names = os.listdir(data_dir)
+    except FileNotFoundError:
+        return {"removed": removed, "failed": failed}
+    except OSError:
+        return {"removed": removed, "failed": ["data-dir"]}
+    for name in names:
+        if not name.startswith(".restore-stage-") or os.path.basename(name) != name:
+            continue
+        path = os.path.join(data_dir, name)
+        if os.path.islink(path) or not os.path.isdir(path):
+            failed.append(name)
+            continue
         try:
-            deadline = time.monotonic() + max(0.0, float(deadline_seconds))
-            with bv._hard_deadline(deadline) as guard:
-                return reconcile_interrupted_restore(deadline_guard=guard)
-        except (bv.HardDeadlineUnavailable, snapshot_format.SnapshotDeadlineError):
-            return {"ok": False, "error": "apply-uncertain", "message": _MSG_APPLY_UNCERTAIN}
+            shutil.rmtree(path)
+            removed.append(name)
+        except OSError:
+            failed.append(name)
+    return {"removed": removed, "failed": failed}
+
+
+def read_restore_recovery_status() -> dict:
+    """Observe interrupted-restore quarantine without changing any local state."""
+    transaction = _load_restore_transaction(ledger.ledger_dir())
+    if transaction is None:
+        return {"ok": True, "pending": False, "verified": False}
+    if transaction.get("invalid"):
+        return {"ok": False, "pending": True, "verified": False,
+                "error": "recovery-invalid", "message": _MSG_RECOVERY_INVALID}
+    return {"ok": False, "pending": True, "verified": True,
+            "error": "apply-uncertain", "message": _MSG_APPLY_UNCERTAIN}
+
+
+def reconcile_interrupted_restore() -> dict:
+    """At write-capable startup, restore the prior set before memory writers resume."""
+    from memory import capture, index
     data_dir = ledger.ledger_dir()
     transaction = _load_restore_transaction(data_dir)
     if transaction is None:
-        return {"ok": True, "recovered": False}
+        cleanup = _cleanup_orphan_restore_staging(data_dir)
+        return {"ok": True, "recovered": False, "cleanup": cleanup,
+                "cleanup_pending": bool(cleanup["failed"])}
     if transaction.get("invalid"):
-        return {"ok": False, "error": "apply-uncertain", "message": _MSG_APPLY_UNCERTAIN}
+        return {"ok": False, "pending": True, "verified": False,
+                "error": "recovery-invalid", "message": _MSG_RECOVERY_INVALID}
     lock_fd = None
-    interrupt_blocked = False
     try:
-        if deadline_guard is not None:
-            deadline_guard.block_interrupt()
-            interrupt_blocked = True
         lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME),
-                                        allow_restore_quarantine=True,
-                                        deadline=(deadline_guard.deadline if deadline_guard is not None else None))
+                                        allow_restore_quarantine=True)
         if lock_fd is None:
-            if deadline_guard is not None:
-                deadline_guard.unblock_interrupt()
-                interrupt_blocked = False
-            return {"ok": False, "error": "busy", "message": _MSG_BUSY}
-        if deadline_guard is not None:
-            deadline_guard.unblock_interrupt()
-            interrupt_blocked = False
+            return {"ok": False, "pending": True, "verified": True,
+                    "error": "busy", "message": _MSG_BUSY}
         if _restore_prior_set(transaction, index_path=index.index_path()):
-            return {"ok": True, "recovered": True}
-        return {"ok": False, "error": "apply-uncertain", "message": _MSG_APPLY_UNCERTAIN,
+            cleanup = _cleanup_orphan_restore_staging(data_dir)
+            return {"ok": True, "recovered": True, "cleanup": cleanup,
+                    "cleanup_pending": bool(cleanup["failed"])}
+        return {"ok": False, "pending": True, "verified": True,
+                "error": "apply-uncertain", "message": _MSG_APPLY_UNCERTAIN,
                 "recovery_path": transaction["staging"]}
     finally:
         if lock_fd is not None:
             capture._release_lock(lock_fd)
-        if interrupt_blocked:
-            deadline_guard.unblock_interrupt()
 
 
 def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
@@ -815,13 +889,12 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
     """Journal, publish with the fast path invalidated, and retain recovery material on uncertainty."""
     from memory import capture, index
     data_dir = ledger.ledger_dir()
-    os.makedirs(data_dir, exist_ok=True)
     lock_fd = None
     interrupt_blocked = False
     staging = None
     transaction = None
-    transaction_complete = False
     mutation_started = False
+    cleanup_attempted = False
     live_ledger, live_meta, live_index = ledger.ledger_path(), ledger.meta_path(), index.index_path()
 
     def deadline_check():
@@ -833,13 +906,35 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
     def copy_prior(name, target):
         existed = os.path.exists(target)
         if existed:
+            if os.path.islink(target) or not os.path.isfile(target):
+                raise OSError(f"the live {name} is not a regular file")
             path = os.path.join(staging, f"prior-{name}")
-            shutil.copy2(target, path)
-            with open(path, "rb") as source:
-                os.fsync(source.fileno())
+            try:
+                os.link(target, path)
+            except OSError:
+                # Same-filesystem hardlinks make restart recovery constant-time.
+                # Fall back while the foreground deadline is still active on a
+                # filesystem that cannot create them.
+                shutil.copy2(target, path)
+                with open(path, "rb") as source:
+                    os.fsync(source.fileno())
         return existed
 
+    def cleanup_result(result: dict) -> dict:
+        nonlocal cleanup_attempted, staging
+        if staging is None:
+            return result
+        cleanup_attempted = True
+        cleanup = _cleanup_orphan_restore_staging(data_dir)
+        if cleanup["failed"]:
+            result["cleanup_pending"] = True
+            result["message"] += _MSG_CLEANUP_PENDING
+        else:
+            staging = None
+        return result
+
     try:
+        os.makedirs(data_dir, exist_ok=True)
         if deadline_guard is not None:
             deadline_guard.block_interrupt()
             interrupt_blocked = True
@@ -873,8 +968,9 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
         chk = ledger.read(path=staged_ledger)
         deadline_check()
         if chk.torn_trailing or chk.malformed or (ledger_bytes and not chk.records):
-            return {"ok": False, "error": "corrupt", "restored": False,
-                    "message": _MSG_CORRUPT_EMPTY if _local_structurally_empty() else _MSG_CORRUPT_LOCAL}
+            return cleanup_result(
+                {"ok": False, "error": "corrupt", "restored": False,
+                 "message": _MSG_CORRUPT_EMPTY if _local_structurally_empty() else _MSG_CORRUPT_LOCAL})
         sidecar = ledger._read_sidecar(live_meta)
         sidecar.update({"generation": backup_gen, "index_epoch": ledger.index_epoch()})
         with open(staged_meta, "w", encoding="utf-8") as target:
@@ -885,11 +981,13 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
         deadline_check()
         ledger._fsync_dir(staging)
         marker = {"version": 1, "staging": os.path.basename(staging), "existed": existed}
-        _write_restore_transaction(ledger.restore_transaction_path(), marker)
-        transaction = _load_restore_transaction(data_dir)
-        if transaction is None or transaction.get("invalid"):
-            raise OSError("restore transaction journal could not be verified")
+        transaction = {"marker_path": ledger.restore_transaction_path(), "staging": staging, "existed": existed}
+        _write_restore_transaction(transaction["marker_path"], marker)
         mutation_started = True
+        verified_transaction = _load_restore_transaction(data_dir)
+        if verified_transaction is None or verified_transaction.get("invalid"):
+            raise OSError("restore transaction journal could not be verified")
+        transaction = verified_transaction
         # No index is trusted during publication. The new matching index lands last.
         if os.path.exists(live_index):
             os.remove(live_index)
@@ -898,24 +996,38 @@ def _apply_restore(ledger_bytes: bytes, backup_gen: int, backup_count: int, *,
         if report.fts5 and os.path.exists(staged_index):
             os.replace(staged_index, live_index)
         ledger._fsync_dir(data_dir)
+        if deadline_guard is not None:
+            # The complete new set is durable. Retire the timer before removing
+            # quarantine so no late alarm can report failure after writers resume.
+            deadline_guard.block_interrupt()
+            interrupt_blocked = True
+            deadline_guard.suspend()
+            deadline_guard.unblock_interrupt()
+            interrupt_blocked = False
         os.remove(transaction["marker_path"])
         ledger._fsync_dir(data_dir)
-        transaction_complete = True
-        if deadline_guard is not None:
-            deadline_guard.suspend()  # durable commit point; no late alarm may misreport an unchanged restore
-        return {"ok": True, "error": None, "restored": True, "message": _restored_msg(backup_count)}
+        return cleanup_result(
+            {"ok": True, "error": None, "restored": True, "message": _restored_msg(backup_count)})
     except snapshot_format.SnapshotDeadlineError:
-        if mutation_started and transaction is not None and not _restore_prior_set(transaction, index_path=live_index):
+        journal_active = (mutation_started or (transaction is not None
+                          and os.path.exists(transaction["marker_path"])))
+        if journal_active and transaction is not None and not _restore_prior_set(
+                transaction, index_path=live_index, deadline_guard=deadline_guard):
             return {"ok": False, "error": "apply-uncertain", "restored": False,
                     "message": _MSG_APPLY_UNCERTAIN, "recovery_path": staging}
-        return {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE}
+        return cleanup_result(
+            {"ok": False, "error": "deadline", "restored": False, "message": _MSG_DEADLINE})
     except Exception:  # noqa: BLE001 — journaled publication faults roll back or remain quarantined
-        if mutation_started and transaction is not None and not _restore_prior_set(transaction, index_path=live_index):
+        journal_active = (mutation_started or (transaction is not None
+                          and os.path.exists(transaction["marker_path"])))
+        if journal_active and transaction is not None and not _restore_prior_set(
+                transaction, index_path=live_index, deadline_guard=deadline_guard):
             return {"ok": False, "error": "apply-uncertain", "restored": False,
                     "message": _MSG_APPLY_UNCERTAIN, "recovery_path": staging}
-        return {"ok": False, "error": "apply-failed", "restored": False, "message": _MSG_APPLY_FAILED}
+        return cleanup_result(
+            {"ok": False, "error": "apply-failed", "restored": False, "message": _MSG_APPLY_FAILED})
     finally:
-        if staging is not None and (transaction is None or transaction_complete):
+        if staging is not None and transaction is None and not cleanup_attempted:
             shutil.rmtree(staging, ignore_errors=True)
         if lock_fd is not None:
             capture._release_lock(lock_fd)
