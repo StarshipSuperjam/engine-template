@@ -184,7 +184,7 @@
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_submission_requires_live_base_containment"
+      "anchor": "test_submit_preview_requires_live_base_to_be_ancestor_of_final_commit"
     },
     {
       "id": "BO-23",
@@ -240,7 +240,7 @@
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_status_requires_validation_for_current_head"
+      "anchor": "test_validation_becomes_stale_when_head_changes"
     },
     {
       "id": "BO-30",
@@ -248,7 +248,7 @@
       "classification": "ai-judgment",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_repair_assessment_records_diff_and_judgment"
+      "anchor": "test_none_repair_judgment_is_valid_for_small_change"
     },
     {
       "id": "BO-31",
@@ -297,7 +297,7 @@
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
-      "anchor": "test_preflight_runs_close_linkage_and_contract"
+      "anchor": "test_close_linkage_is_advisory_but_pr_contract_is_required"
     },
     {
       "id": "BO-37",

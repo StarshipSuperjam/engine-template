@@ -554,19 +554,22 @@ class TestFailedBiteApplicability(unittest.TestCase):
         # The masking hunt: a unit whose run produced a HARD finding (here: a script that emits no findings
         # array, so the kind fail-closes) is evidence of a live, broken check — a valid construction-scoped
         # declaration in a deployed-shape repo must NOT collapse that to the soft "structurally inert" note.
+        root = self._root(origin=ADOPTER_URL)
+        script = os.path.join(".engine", "tmp", "malformed_output.py")
+        _write(os.path.join(root, script), "print('not findings JSON')\n")
         rule = dict(self._RULE)
-        rule["params"] = {"script": ".engine/tools/validate.py"}   # runs, but emits no findings JSON
+        rule["params"] = {"script": script}
         fix = self._fixture({"construction-scoped.json": {"property": hcb._CS_PROPERTY, "reason": "test."}})
         env = {k: v for k, v in os.environ.items()
                if k not in ("GITHUB_REPOSITORY", "GITHUB_TOKEN", "GITHUB_ACTIONS", "CI")}
-        with mock.patch.dict(os.environ, env, clear=True):
-            found = hcb._cover_script_instance(rule, fix, self._root(origin=ADOPTER_URL), "hard")
-        self.assertTrue(any(f["severity"] == "hard" for f in found), found)
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(validate, "ROOT", root):
+            found = hcb._cover_script_instance(rule, fix, root, "hard")
+        self.assertTrue(any(f["severity"] == "hard" and "produced unreadable output" in f["message"]
+                            for f in found), found)
         # The crash must never be EXCUSED as inert — collapsed to a soft "NOT APPLICABLE HERE" note. Scope the
-        # negative to SOFT findings: the stand-in script (validate.py) run against a deployed-shape root emits
-        # that root's own deployed-only N/A notes, which the kind captures verbatim into the HARD finding's
-        # message. That captured output is not the meta-check excusing anything, so matching the raw substring
-        # across every severity gave a false failure once the root reads as a deployed copy (#646).
+        # negative to SOFT findings: the disposable script's malformed stdout must remain a HARD unreadable-output
+        # failure from the real subprocess boundary, never be replaced by the declaration's soft applicability
+        # note merely because the ambient root reads as a deployed copy (#646).
         self.assertFalse(any(f["severity"] == "soft" and "NOT APPLICABLE HERE" in (f.get("message") or "")
                              for f in found), found)
 
