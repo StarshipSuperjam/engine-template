@@ -8765,7 +8765,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:ec067f004a933d30d231bf9c7a8f05b4149fefab52ef997c3766bf09c5cd6c9f",
+        "fingerprint": "sha256:45a09276f3208d9b16f7f620f8cb9913f9183f2a124bb2de6e5aa546864795d2",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -8843,7 +8843,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:aeb8f7205994d928193f17abd330bc58a558a76ae40fe6738b8ece8dfdf71fd4",
+        "fingerprint": "sha256:44004e31a70b4c8b9bf6eef6d4d9efd7ee989890c0599ea7c5cd5c7034022d4d",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9253,7 +9253,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:05b6ea41db52e4c8d4a3634c0e04849b48f229d117b02584a634da1baabc2a4c",
+        "fingerprint": "sha256:83d08c9d7c7d44e37d2f01e3612fa972c196471b5781c0d8e0f9ed9436d61fcf",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -12236,7 +12236,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:61959efa69080db6f9c253089e6c28b72fcfa918cdd89f8bb557cb8c8a972866",
+        "fingerprint": "sha256:872560cd0d708d127deff0a68fdc06ae640214e04d12e714899b39eeecb02adb",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -13831,7 +13831,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:267fa4f1dec892e11f2ec27ff82b23bde3f56a3757530f84814b159f262c7c39",
+        "fingerprint": "sha256:2f3f8bc4596bb0b3ad3b32478b91d9c770db981a4e900de556e4ebd29625671d",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14901,7 +14901,7 @@
       },
       "slug": "test_backup_vault",
       "source": {
-        "fingerprint": "sha256:bbd8ee3083ecad7888c383c507dcac10450a0ec70128f59f80ff61c3bd433904",
+        "fingerprint": "sha256:e7a06d3383facd435bbb5693fd79cfb750a45a5c493aef8ea51e72e6541ca411",
         "path": ".engine/tools/memory/test_backup_vault.py"
       },
       "status": "active",
@@ -15339,7 +15339,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:58721cfbc408f04015c236f25d66e9be107f294dcdfc52e6e907313ea3c8d083",
+        "fingerprint": "sha256:fcc3180403ff17fa529e25cf1c189bc5eab91695beabd3077315a803612f8212",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -18327,7 +18327,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:283d6b9e8abbb9086776d5b76081475d3b723bb0fb22f9e99b15286a4b8ec24e",
+        "fingerprint": "sha256:59d98e48d4f6b3a66bb6b5e6880f691703263df1c3ef16c614a7d54bce104af3",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
