@@ -8843,7 +8843,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:cda06e7772d5d5f49df0d89ea25ad92fa23e9b329214ed5d9919d0167d89284c",
+        "fingerprint": "sha256:540a13a23c7b59df64f5ffeb1ebe5f99f1ab18dd3b6117282262c2d758d6c3e1",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -13831,7 +13831,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:3157f8838da91bd2c1ccc1f8c83d5b77ffc6a57417cf4ae6a92ea04b9f71c55c",
+        "fingerprint": "sha256:2a675bdd163c51cca6bd67bb566f9bd0064dd5d04e77f493c3854dd31760a411",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14957,7 +14957,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:af23110486857bc40e6d59b3938be47261191cc3ca97d44da3213453ce0957ef",
+        "fingerprint": "sha256:430121088200f96c81066a09b6976e3ad254800bad5144a0210914c72c8f3dd4",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -18327,7 +18327,7 @@
       },
       "slug": "test_restore_vault",
       "source": {
-        "fingerprint": "sha256:4cc3d294be3d00acb6dc6daa48ceacd7145fbc9c600242ee498fade27bd80ff2",
+        "fingerprint": "sha256:c8d7c6306851ec760072cf8a66745e6f55ccd4939b16ade3b0350ae27f14fdc8",
         "path": ".engine/tools/memory/test_restore_vault.py"
       },
       "status": "active",
