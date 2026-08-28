@@ -259,9 +259,12 @@ class ProgramLibrary:
                     + (f", and it currently says {declared}." if declared else ".")
                     + " That back-link is what lets this plan's seal find its program even when the "
                       "program record cannot be read, so it is required before the plan can join."
-                    + (" This plan is already SEALED, and a seal is terminal, so the back-link can no "
-                       "longer be added to it: clone it into a new plan carrying the back-link, or "
-                       "leave it standalone. A plan is normally added to its program before it is "
+                    + (" This plan is already SEALED, and a seal is terminal, so the back-link can "
+                       "no longer be added to it. The way through is three steps, and the middle one "
+                       "is easy to miss: `clone` it, then `revise` the CLONE to add "
+                       f"`program.program_id` = {record['program_id']} — a clone deliberately carries "
+                       "no program block, because it carries none of the original's evidence either — "
+                       "then add the clone here. A plan is normally added to its program before it is "
                        "sealed, which is when this is a one-line revision."
                        if sealed else
                        " Revise the plan to add it, then add it here."))
@@ -552,13 +555,32 @@ def render(library: ProgramLibrary, record: dict) -> str:
                    f"{child['status']} | {succeeds} |")
     out += ["", "_Order records a decision. Nothing here selects, starts, or advances a child._", ""]
 
-    if analysis["forks"] or analysis["dangling"] or analysis["unreachable"] or len(analysis["roots"]) > 1:
-        out += ["## What does not add up in this record", ""]
+    if analysis["forks"]:
+        # Its own section, deliberately NOT filed under the corruption heading below. A fork is how a
+        # branch gets superseded or abandoned — the ordinary shape of a program that changed its mind
+        # — and reporting it as something that "does not add up" made the one genuinely forked program
+        # on this shelf read as damaged every time an operator looked at it.
+        status_of = {child["plan_id"]: child["status"] for child in view}
+        out += ["## Where the chain branches", ""]
         for fork in analysis["forks"]:
-            out.append(f"- `{fork['predecessor_plan_id']}` is declared the predecessor of "
-                       + ", ".join(f"`{name}`" for name in fork["successors"])
-                       + " — the chain forks here, so it has more than one end and more than one set "
-                         "of obligations still owed.")
+            live = [name for name in fork["successors"]
+                    if status_of.get(name) not in DEAD_BRANCH_STATES]
+            out.append(f"- `{fork['predecessor_plan_id']}` is the declared predecessor of "
+                       + ", ".join(f"`{name}` ({status_of.get(name, 'unknown')})"
+                                   for name in fork["successors"])
+                       + ("." if len(live) <= 1 else
+                          " — more than one of these branches is still open, so the program has more "
+                          "than one end and more than one set of obligations still owed."))
+        if all(len([name for name in fork["successors"]
+                    if status_of.get(name) not in DEAD_BRANCH_STATES]) <= 1
+               for fork in analysis["forks"]):
+            out.append("")
+            out.append("_Nothing here needs fixing: every branch but one has been retired or "
+                       "abandoned, which is what superseding a plan looks like in the record._")
+        out.append("")
+
+    if analysis["dangling"] or analysis["unreachable"] or len(analysis["roots"]) > 1:
+        out += ["## What does not add up in this record", ""]
         for entry in analysis["dangling"]:
             out.append(f"- `{entry['plan_id']}` declares `{entry['predecessor_plan_id']}` as its "
                        "predecessor, and no such child is in this program.")

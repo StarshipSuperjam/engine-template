@@ -514,7 +514,10 @@ class ForkedChainsOweBothBranches(_Program):
 
     def test_the_fork_itself_is_disclosed(self):
         rendered = plan_program.render(self.programs, self.programs.read(self._fork()))
-        self.assertIn("the chain forks here", rendered)
+        # Under "Where the chain branches" — a structural fact — never under the corruption heading.
+        self.assertIn("Where the chain branches", rendered)
+        self.assertIn("is the declared predecessor of", rendered)
+        self.assertNotIn("What does not add up", rendered)
 
     def test_a_retired_branchs_debts_died_with_it(self):
         # The shape observed on a live shelf: one branch retired, still carrying obligations, one of
@@ -546,6 +549,51 @@ class UnknownIsNeverZero(_Program):
         self.assertIn("Cannot be computed", plan_program.render(self.programs, record))
 
 
+class AForkIsNotADefect(_Program):
+    """A fork is how a branch gets superseded. Filing it under corruption made the shelf's one real
+    forked program read as damaged every time an operator looked at it."""
+
+    def _superseded_fork(self):
+        slug = self._program("Superseded", "One branch retired, one carried on.")
+        self._plan("pln_500000000001", "Root")
+        self.programs.add_child(slug, "pln_500000000001")
+        for plan_id, title in (("pln_500000000002", "Abandoned branch"),
+                               ("pln_500000000003", "Surviving branch")):
+            self._plan(plan_id, title, predecessor="pln_500000000001")
+            self.programs.add_child(slug, plan_id, predecessor="pln_500000000001")
+        self.plans.update_record(
+            self.plans.resolve("pln_500000000002"),
+            lambda current: current.__setitem__(
+                "closure", {"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "superseded"}))
+        return self.programs.read(slug)
+
+    def test_a_superseded_fork_is_not_reported_as_corruption(self):
+        rendered = plan_program.render(self.programs, self._superseded_fork())
+        self.assertIn("Where the chain branches", rendered)
+        self.assertNotIn("What does not add up", rendered)
+        self.assertIn("Nothing here needs fixing", rendered)
+
+    def test_a_fork_with_two_live_branches_says_the_program_has_two_ends(self):
+        slug = self._program("Live fork", "Two branches, both open.")
+        self._plan("pln_510000000001", "Root")
+        self.programs.add_child(slug, "pln_510000000001")
+        for plan_id in ("pln_510000000002", "pln_510000000003"):
+            self._plan(plan_id, "Branch", predecessor="pln_510000000001")
+            self.programs.add_child(slug, plan_id, predecessor="pln_510000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("more than one of these branches is still open", rendered)
+        self.assertNotIn("Nothing here needs fixing", rendered)
+
+    def test_real_corruption_still_gets_the_alarming_heading(self):
+        slug = self._program("Broken", "A dangling edge.")
+        self._plan("pln_520000000001", "Root")
+        self.programs.add_child(slug, "pln_520000000001")
+        record = self.programs.read(slug)
+        record["children"][0]["predecessor_plan_id"] = "pln_529999999999"
+        self.programs._write(slug, record)
+        self.assertIn("What does not add up", plan_program.render(self.programs, record))
+
+
 class TheBackLinkIsRequiredToJoin(_Program):
     """Membership must survive a program record that will not parse; the back-link is how."""
 
@@ -561,6 +609,21 @@ class TheBackLinkIsRequiredToJoin(_Program):
         self.plans.create(_document(plan_id="pln_300000000002", title="No back-link"))
         with self.assertRaisesRegex(plan_program.ProgramError, "program.program_id"):
             self.programs.add_child(slug, "pln_300000000002")
+
+    def test_the_sealed_refusal_names_the_revise_step_a_clone_still_needs(self):
+        # `clone` deliberately drops the program block, so "clone it" alone leaves the operator
+        # failing this very check a second time. The message has to name the middle step.
+        slug = self._program("Strict", "Every child declares its program.")
+        plan_slug = self.plans.create(_document(plan_id="pln_300000000004", title="Sealed, no link"))
+        self.plans.update_record(plan_slug, lambda current: current.__setitem__(
+            "seal", {"revision": 1, "reviewed_digest": "sha256:" + "0" * 64,
+                     "sealed_digest": "sha256:" + "0" * 64,
+                     "build_plan_digest": "sha256:" + "0" * 64,
+                     "at": "2026-01-01T00:00:00Z", "delta_judgment": "none"}))
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.add_child(slug, "pln_300000000004")
+        self.assertIn("revise", str(caught.exception).lower())
+        self.assertIn("clone", str(caught.exception).lower())
 
     def test_a_plan_declaring_this_program_joins(self):
         slug = self._program("Strict", "Every child declares its program.")

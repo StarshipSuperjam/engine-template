@@ -1880,10 +1880,14 @@ def cmd_program_list(args) -> int:
         return 0
     for slug in slugs:
         record = programs.read(slug)
-        outstanding = programs.outstanding_obligations(record)
+        report = programs.obligation_report(record)
+        # "unknown", never "0". This one-line summary is what an operator scans first, so it is the
+        # LAST place a corrupt program should be able to read as a clean zero — which is exactly what
+        # it did while the unknown rendering existed only in `show`.
+        owed = (f"{len(report['obligations'])} obligation(s) outstanding" if not report["unknown"]
+                else f"obligations unknown ({len(report['unknown'])} unreadable — run `program show`)")
         print(f"{record['program_id']}  {programs.derived_status(record):<15} "
-              f"{len(record['children'])} child(ren), {len(outstanding)} obligation(s) outstanding  "
-              f"{record['title']}")
+              f"{len(record['children'])} child(ren), {owed}  {record['title']}")
     return 0
 
 

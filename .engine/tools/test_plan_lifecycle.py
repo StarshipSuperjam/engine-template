@@ -708,3 +708,37 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
         shown = self.run_command("show", victim)[1]
         for disclosure in project_manager.seal_disclosures(self.lib, victim):
             self.assertIn(disclosure.splitlines()[0], shown)
+
+
+class D13UnknownDebtMustNotReadAsZeroInTheOneLineSummary(_Ceremony):
+    """`program list` is what an operator scans first, and it printed a bare count.
+
+    The unknown rendering reached `program show` and stopped there, so a program whose debt could not
+    be computed still summarised as '0 obligation(s) outstanding' on the line most likely to be read —
+    the one place a corrupt program most needed not to look clean.
+    """
+
+    def test_a_program_with_an_unreadable_child_does_not_summarise_as_zero(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Broken", "One child is not in this library.")
+        program_id = programs.read(slug)["program_id"]
+        plan_slug = self.plan(plan_id="pln_ffffffffff10", title="Present",
+                              program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff10")
+        record = programs.read(slug)
+        record["children"].append({"plan_id": "pln_ffffffffff99", "position": 2,
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_ffffffffff10"})
+        programs._write(slug, record)
+        listing = self.run_command("program", "list")[1]
+        self.assertIn("obligations unknown", listing)
+        self.assertNotIn("0 obligation(s) outstanding", listing)
+
+    def test_a_healthy_program_still_shows_its_count(self):
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.create("Healthy", "Nothing broken here.")
+        program_id = programs.read(slug)["program_id"]
+        self.plan(plan_id="pln_ffffffffff11", title="Only child",
+                  program={"program_id": program_id})
+        programs.add_child(slug, "pln_ffffffffff11")
+        self.assertIn("0 obligation(s) outstanding", self.run_command("program", "list")[1])
