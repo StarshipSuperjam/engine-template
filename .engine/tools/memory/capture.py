@@ -390,12 +390,23 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
     os.replace(tmp, path)
 
 
+def _restore_quarantine_present(transaction_path: str) -> bool:
+    """Fail closed for every directory entry, including dangling symlinks and unreadable paths."""
+    try:
+        os.lstat(transaction_path)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def _acquire_lock(lock_path: str, *, allow_restore_quarantine: bool = False, deadline=None):
     """Acquire the capture transaction lock, NON-blocking with a bounded ~1s retry. Returns the held
     fd, or None on contention (=> a clean no-op; the delta is caught at the next Stop). Bounding the
     wait is what guarantees capture can never stall turn-end behind a stuck holder."""
     transaction_path = os.path.join(os.path.dirname(lock_path), ledger.RESTORE_TRANSACTION_FILENAME)
-    if not allow_restore_quarantine and os.path.exists(transaction_path):
+    if not allow_restore_quarantine and _restore_quarantine_present(transaction_path):
         return None
     if not _HAVE_FCNTL:  # pragma: no cover - POSIX target; no cross-process lock available
         try:
@@ -405,7 +416,7 @@ def _acquire_lock(lock_path: str, *, allow_restore_quarantine: bool = False, dea
     for attempt in range(_LOCK_ATTEMPTS):
         # Recheck on every retry. A restore may create its quarantine marker
         # while this writer is waiting on the same lock.
-        if not allow_restore_quarantine and os.path.exists(transaction_path):
+        if not allow_restore_quarantine and _restore_quarantine_present(transaction_path):
             return None
         if deadline is not None and time.monotonic() >= deadline:
             return None
@@ -413,6 +424,15 @@ def _acquire_lock(lock_path: str, *, allow_restore_quarantine: bool = False, dea
         try:
             fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # The pre-lock check closes the common case; this check closes the
+            # check-then-lock race. A restore can create quarantine while this
+            # writer waits, then release the lock with the journal still live.
+            if (not allow_restore_quarantine
+                    and _restore_quarantine_present(transaction_path)):
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+                fd = None
+                return None
             return fd
         except BaseException as exc:
             if fd is not None:
@@ -732,7 +752,7 @@ def _capture(payload, *, cwd) -> int:
 
     data_dir = ledger.ledger_dir(cwd)
     os.makedirs(data_dir, exist_ok=True)
-    if os.path.exists(ledger.restore_transaction_path(cwd)):
+    if _restore_quarantine_present(ledger.restore_transaction_path(cwd)):
         _write_capture_status("failed", session_id, detail={"reason": "restore-quarantine"})
         return 0
     lock_fd = _acquire_lock(os.path.join(data_dir, LOCK_FILENAME))

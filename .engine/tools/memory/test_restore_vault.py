@@ -14,6 +14,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
@@ -478,6 +479,123 @@ class RoundTripTests(_Base):
         self.assertTrue(result["ok"])
         self.assertEqual(_rb(ledger.ledger_path()), b"verified prior")
         self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_recovery_retry_preserves_an_already_restored_prior_index(self):
+        self._wipe_local()
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=ledger.ledger_dir())
+        prior_index = os.path.join(staging, "prior-index")
+        with open(prior_index, "wb") as target:
+            target.write(b"verified prior index")
+        marker = _recovery_marker(staging, {"ledger": False, "meta": False, "index": True})
+        rv._write_restore_transaction(ledger.restore_transaction_path(), marker)
+        os.replace(prior_index, index.index_path())
+
+        result = rv.reconcile_interrupted_restore()
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["recovered"])
+        self.assertEqual(_rb(index.index_path()), b"verified prior index")
+        self.assertFalse(os.path.exists(ledger.restore_transaction_path()))
+
+    def test_completion_phase_is_durable_before_forward_restore_reports_success(self):
+        real_write = rv._write_restore_transaction
+
+        def fail_before_completion_is_durable(path, marker):
+            if marker.get("phase") == "complete":
+                raise rv.snapshot_format.SnapshotDeadlineError("completion fsync interrupted")
+            return real_write(path, marker)
+
+        with mock.patch.object(rv, "_write_restore_transaction", side_effect=fail_before_completion_is_durable):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "apply-uncertain")
+        with open(ledger.restore_transaction_path(), encoding="utf-8") as source:
+            self.assertEqual(json.load(source).get("phase"), "active")
+
+    def test_resurrected_completed_marker_never_rolls_a_successful_restore_back(self):
+        data_dir = ledger.ledger_dir()
+        marker_path = ledger.restore_transaction_path()
+        saved = {}
+        real_remove = rv.os.remove
+        real_fsync_dir = ledger._fsync_dir
+
+        def remember_completed_marker(path):
+            if path == marker_path:
+                saved["marker"] = _rb(path)
+            return real_remove(path)
+
+        def interrupt_post_unlink_sync(path):
+            if path == data_dir and "marker" in saved and not os.path.lexists(marker_path):
+                raise rv.snapshot_format.SnapshotDeadlineError("post-unlink sync interrupted")
+            return real_fsync_dir(path)
+
+        with mock.patch.object(rv.os, "remove", side_effect=remember_completed_marker), \
+                mock.patch.object(ledger, "_fsync_dir", side_effect=interrupt_post_unlink_sync):
+            result = rv._apply_restore(_LEGACY_V1_LEDGER, 1, 1)
+
+        self.assertTrue(result["ok"])
+        completed = json.loads(saved["marker"])
+        self.assertEqual(completed["phase"], "complete")
+        before = {"ledger": _rb(ledger.ledger_path()), "meta": _rb(ledger.meta_path())}
+        if os.path.exists(index.index_path()):
+            before["index"] = _rb(index.index_path())
+
+        for name in os.listdir(data_dir):
+            if name.startswith(".restore-stage-"):
+                shutil.rmtree(os.path.join(data_dir, name))
+        with open(marker_path, "wb") as target:
+            target.write(saved["marker"])
+
+        status = rv.read_restore_recovery_status()
+        self.assertEqual(status["error"], "recovery-finalizing")
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertFalse(os.path.exists(marker_path))
+        self.assertEqual(_rb(ledger.ledger_path()), before["ledger"])
+        self.assertEqual(_rb(ledger.meta_path()), before["meta"])
+        if "index" in before:
+            self.assertEqual(_rb(index.index_path()), before["index"])
+
+    def test_prior_set_recovery_is_complete_before_its_marker_can_be_retired(self):
+        self._wipe_local()
+        data_dir = ledger.ledger_dir()
+        marker_path = ledger.restore_transaction_path()
+        staging = tempfile.mkdtemp(prefix=".restore-stage-", dir=data_dir)
+        prior = os.path.join(staging, "prior-ledger")
+        with open(prior, "wb") as target:
+            target.write(b"durable prior ledger")
+        marker = _recovery_marker(staging, {"ledger": True, "meta": False, "index": False})
+        rv._write_restore_transaction(marker_path, marker)
+        with open(ledger.ledger_path(), "wb") as target:
+            target.write(b"partial replacement")
+        transaction = rv._load_restore_transaction(data_dir)
+        saved = {}
+        real_remove = rv.os.remove
+        real_fsync_dir = ledger._fsync_dir
+
+        def remember_completed_marker(path):
+            if path == marker_path:
+                saved["marker"] = _rb(path)
+            return real_remove(path)
+
+        def interrupt_post_unlink_sync(path):
+            if path == data_dir and "marker" in saved and not os.path.lexists(marker_path):
+                raise rv.snapshot_format.SnapshotDeadlineError("post-unlink sync interrupted")
+            return real_fsync_dir(path)
+
+        with mock.patch.object(rv.os, "remove", side_effect=remember_completed_marker), \
+                mock.patch.object(ledger, "_fsync_dir", side_effect=interrupt_post_unlink_sync):
+            self.assertTrue(rv._restore_prior_set(transaction, index_path=index.index_path()))
+
+        self.assertEqual(_rb(ledger.ledger_path()), b"durable prior ledger")
+        self.assertEqual(json.loads(saved["marker"])["phase"], "complete")
+        shutil.rmtree(staging)
+        with open(marker_path, "wb") as target:
+            target.write(saved["marker"])
+        recovered = rv.reconcile_interrupted_restore()
+        self.assertTrue(recovered["ok"])
+        self.assertEqual(_rb(ledger.ledger_path()), b"durable prior ledger")
+        self.assertFalse(os.path.exists(marker_path))
 
     def test_success_keeps_deadline_armed_through_quarantine_retirement(self):
         events = []

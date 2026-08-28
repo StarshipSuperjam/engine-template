@@ -524,6 +524,32 @@ class MigrationWindowTests(unittest.TestCase):
             self.assertIsNone(capture._acquire_lock(lock_path))
         self.assertEqual(calls["count"], 1)
 
+    @unittest.skipUnless(capture._HAVE_FCNTL, "POSIX advisory lock test")
+    def test_writer_rechecks_restore_quarantine_after_acquiring_lock(self):
+        lock_path = os.path.join(self.tmp, capture.LOCK_FILENAME)
+        transaction_path = os.path.join(self.tmp, ledger.RESTORE_TRANSACTION_FILENAME)
+        real_flock = capture.fcntl.flock
+
+        def acquire_then_quarantine(fd, operation):
+            result = real_flock(fd, operation)
+            if operation & capture.fcntl.LOCK_EX:
+                with open(transaction_path, "w", encoding="utf-8") as target:
+                    target.write("{}")
+            return result
+
+        with mock.patch.object(capture.fcntl, "flock", side_effect=acquire_then_quarantine):
+            self.assertIsNone(capture._acquire_lock(lock_path))
+
+        lock_fd = capture._acquire_lock(lock_path, allow_restore_quarantine=True)
+        self.assertIsNotNone(lock_fd, "the refused writer released the descriptor and lock")
+        capture._release_lock(lock_fd)
+
+    def test_dangling_restore_marker_symlink_keeps_writers_quarantined(self):
+        lock_path = os.path.join(self.tmp, capture.LOCK_FILENAME)
+        transaction_path = os.path.join(self.tmp, ledger.RESTORE_TRANSACTION_FILENAME)
+        os.symlink(os.path.join(self.tmp, "missing-marker-target"), transaction_path)
+        self.assertIsNone(capture._acquire_lock(lock_path))
+
     def test_a_dead_pid_marker_is_orphaned_not_in_flight(self):
         self._write_marker({"pid": _a_dead_pid(), "started_at": time.time()})
         self.assertFalse(capture.migration_in_flight(self.tmp))    # orphaned => compaction may proceed
