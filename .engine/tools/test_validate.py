@@ -368,14 +368,18 @@ class TestCustomScriptCarriesMarker(unittest.TestCase):
 class TestCollectExposesWitnessDeferred(unittest.TestCase):
     """Goal-3-lite (StarshipSuperjam/engine-template#761): the witness_deferred marker rides collect() so an
     orchestrator can read "validated except for N CI-only checks" from the structured seam, no new
-    exit code. Run the real CI suite locally (no credentials) and confirm the marker is present."""
+    exit code. Run the real CI collection path locally (no credentials), filtered to the protection rule,
+    and confirm the marker is present."""
 
     def test_collect_carries_the_marker_locally(self):
         env = {k: v for k, v in os.environ.items()
                if k not in ("GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_EVENT_PATH",
                             "GITHUB_ACTIONS", "CI")}
         with mock.patch.dict(os.environ, env, clear=True):
-            findings = validate.collect("CI", validate.local_ctx(), with_source=True)
+            findings = validate.collect(
+                "CI", validate.local_ctx(), with_source=True,
+                rule_filter=lambda rule: rule.get("id") == "engine/check/protection",
+            )
         deferred = [f for f in findings if f.get("witness_deferred")]
         # branch-protection is a core check present in every deployment; locally it has no token, so
         # its witness_deferred no-op must be visible in the structured collect() output.

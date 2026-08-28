@@ -15,9 +15,11 @@ Two ways a session spends heavily are refused mechanically, at the moment they a
   A strong model is never valid here: an expensive search agent is spin-up cost for work the orchestrator
   should have done inline, and if a task genuinely needs stronger judgment the orchestrator should do it
   itself rather than delegate it.
-- **A session does not schedule its own wake-up.** Nothing in the engine ever instructed this. Unattended
-  work is fired by the platform's scheduler, not arranged from inside a session, and observed builds spent
-  consecutive wake-ups re-reading their whole context to report that nothing had changed.
+- **A session model does not invoke the recognized self-wakeup action.** `ScheduleWakeup`, and only an
+  exact provider alias normalized to that action, is denied. Unattended work is fired by the platform's
+  scheduler, not arranged from inside a session, and observed builds spent consecutive wake-ups re-reading
+  their whole context to report that nothing had changed. This does not claim to recognize every possible
+  shell loop or poll; Engine changes must not introduce one as a workaround.
 
 Both are enforced by `.engine/tools/session_economy.py`, a PreToolUse gate registered under its own narrow
 matcher so it never costs a subprocess on unrelated tool calls.
@@ -103,8 +105,10 @@ fail-open harness, which covers only crashes, so the escape is explicit.
 **Each rule has its own switch**, because they are unrelated behaviours and one combined switch meant that
 turning off a self-scheduling deny also silently un-gated expensive subagent spawns:
 `ENGINE_SESSION_ECONOMY_MODEL=off` for the cheap-model rule, `ENGINE_SESSION_ECONOMY_WAKEUP=off` for the
-self-scheduling rule, and `ENGINE_SESSION_ECONOMY=off` for both. Each deny names its own switch in the
-refusal text, so the escape is discoverable at the moment it is needed.
+self-scheduling rule, and `ENGINE_SESSION_ECONOMY=off` for both. The subagent-model denial names its own
+switch because the model can immediately retry with a compliant model. The self-wakeup denial deliberately
+does not advertise switches or ask the operator to resume; the switches remain available in this on-demand
+policy without turning an internal model-action refusal into routine operator governance.
 
 That escape is an environment variable rather than a tunable, deliberately. The tunables surface holds
 operator preferences and never enforcement switches, and its override file sits outside the weakening guard

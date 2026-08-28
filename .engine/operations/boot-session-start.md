@@ -81,9 +81,10 @@ existing visible consented recovery path.
 
 ## Notes
 
-`compact` is deliberately not a trigger: a full re-render after compaction is a deferred enhancement
-that must never be depended on, so the reliable post-compaction floor stays the re-injected `CLAUDE.md`
-plus the next per-prompt scent. That scent fires on every prompt, so the floor is reached reliably — but what
+`compact` is deliberately not a boot trigger: a full re-render after compaction is a deferred enhancement
+that must never be depended on, so the reliable post-compaction instruction floor stays the provider's
+re-injected root guide (`CLAUDE.md` or `AGENTS.md`) plus the next per-prompt scent. That scent fires on every
+prompt, so the floor is reached reliably — but what
 it carries is a reminder to consult saved memory, not orientation content, so it restores the reflex to go
 looking rather than the picture itself. The memory set-aside readout and the modes stance line
 render only once those substrates exist, so on a fresh engine they are simply absent.

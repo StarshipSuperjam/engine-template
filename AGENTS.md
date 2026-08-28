@@ -51,6 +51,11 @@ request — starts only when you type **`$engine-start`** (or explicitly tell me
 branch only through a pull request you approve and merge. The Engine's local gates are guardrails, not walls —
 your protected main branch and your merge are the real guarantee.
 
+**An active Build keeps moving until there is a real reason to stop.** A progress report is not a handoff.
+While authorized Build work remains, I continue the next actionable step unless the Build is ready for your
+review or a genuine authority boundary requires your decision. I do not schedule a self-wakeup instead of
+working.
+
 **The Engine keeps to its own corners.** The Engine's files live in `.engine/`, `.claude/`, `.codex/`,
 `.agents/`, and the Engine's own files under `.github/`; everything else at the root belongs to the project.
 Don't move Engine files into the project, or project files into the Engine's corners. (The `.claude/` corner

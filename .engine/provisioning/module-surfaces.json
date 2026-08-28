@@ -1137,6 +1137,9 @@
   ".engine/schemas/template.v1.json": [
    "core"
   ],
+  ".engine/schemas/transaction-envelope.v1.json": [
+   "core"
+  ],
   ".engine/self-map.md": [
    "core"
   ],
@@ -1345,6 +1348,9 @@
    "core"
   ],
   ".engine/tools/demo_actionlint.py": [
+   "core"
+  ],
+  ".engine/tools/demo_active_build_continuity.py": [
    "core"
   ],
   ".engine/tools/demo_attention_live_dials.py": [
@@ -2496,6 +2502,24 @@
   ".engine/tools/test_telemetry.py": [
    "core"
   ],
+  ".engine/tools/test_transaction.py": [
+   "core"
+  ],
+  ".engine/tools/test_transaction_adapters_module.py": [
+   "core"
+  ],
+  ".engine/tools/test_transaction_adapters_remove.py": [
+   "core"
+  ],
+  ".engine/tools/test_transaction_adapters_upgrade.py": [
+   "core"
+  ],
+  ".engine/tools/test_transaction_envelope.py": [
+   "core"
+  ],
+  ".engine/tools/test_transaction_handoff.py": [
+   "core"
+  ],
   ".engine/tools/test_tune.py": [
    "core"
   ],
@@ -2515,6 +2539,24 @@
    "core"
   ],
   ".engine/tools/test_work_record.py": [
+   "core"
+  ],
+  ".engine/tools/transaction.py": [
+   "core"
+  ],
+  ".engine/tools/transaction_adapters_module.py": [
+   "core"
+  ],
+  ".engine/tools/transaction_adapters_remove.py": [
+   "core"
+  ],
+  ".engine/tools/transaction_adapters_upgrade.py": [
+   "core"
+  ],
+  ".engine/tools/transaction_envelope.py": [
+   "core"
+  ],
+  ".engine/tools/transaction_handoff.py": [
    "core"
   ],
   ".engine/tools/tune.py": [

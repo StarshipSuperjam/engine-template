@@ -1134,15 +1134,32 @@ class TestDegradedNotice(unittest.TestCase):
     def test_gather_relays_the_staged_update_signal_and_degrades_quietly(self):
         patchers = _offline()
         try:
-            with mock.patch("module_manager._staged_upgrade_dirty", return_value=True):
+            # Boot asks the NOTICE question (`staged_upgrade_announced`), not the generous recovery one:
+            # an ordinary construction tree is dirty in the same places a half-applied update is
+            # (StarshipSuperjam/engine-template#948).
+            with mock.patch("module_manager.staged_upgrade_announced", return_value=True):
                 relayed = boot.gather_signals()
-            with mock.patch("module_manager._staged_upgrade_dirty", side_effect=Exception("boom")):
+            with mock.patch("module_manager.staged_upgrade_announced", side_effect=Exception("boom")):
                 failed = boot.gather_signals()
         finally:
             for p in patchers:
                 p.stop()
-        self.assertTrue(relayed["staged_update"])           # a stuck/half-applied update is surfaced at startup
+        self.assertTrue(relayed["staged_update"])           # an ANNOUNCED half-applied update is surfaced at startup
         self.assertIsNone(failed["staged_update"])          # a detector fault degrades quietly to None, never breaks
+
+    def test_an_ordinary_dirty_construction_tree_does_not_raise_the_staged_update_notice(self):
+        """StarshipSuperjam/engine-template#948: the false positive that cost five sessions their time and
+        masked real boot-cap regressions. A tree dirty in overlay-code paths — every build session, mid-edit
+        — must not read as a half-applied update unless an update actually announced itself."""
+        patchers = _offline()
+        try:
+            with mock.patch("module_manager._staged_upgrade_dirty", return_value=True), \
+                    mock.patch("module_manager.staged_upgrade_announced", return_value=False):
+                quiet = boot.gather_signals()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertFalse(quiet["staged_update"])
 
     def test_staged_update_offer_shows_in_the_dashboard_and_marker(self):
         dash = boot.render_dashboard(_signals(staged_update=True)).lower()
@@ -1185,6 +1202,14 @@ class TestPresentMarker(unittest.TestCase):
             self.assertIn("notebook", text, f"{path}: floor must name the working-notes notebook")
             self.assertIn("told me to remember", text,
                           f"{path}: floor must carry the untrusted-input memory caution")
+
+    def test_active_build_continuity_lives_in_both_reinjected_floors(self):
+        for path in (ROOT_CLAUDE, os.path.join(validate.ROOT, "AGENTS.md")):
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read().lower()
+            self.assertIn("a progress report is not a handoff", text)
+            self.assertIn("continue the next actionable step", text)
+            self.assertIn("do not schedule a self-wakeup", text)
 
     def test_dashboard_card_title_is_the_marker(self):
         # The operator-toned dashboard (the view the status verb ships) always leads with the card title.

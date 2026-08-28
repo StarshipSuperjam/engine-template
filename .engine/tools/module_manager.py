@@ -64,7 +64,7 @@ CLI:
       # --removal-notice: on a release-publishing engine, record in plain language what an operator could ask
       #   for before and no longer can — the release cut refuses to ship a whole-module removal without it.
   python tools/module_manager.py upgrade [ref]           # preview an update (checks only; changes nothing)
-  python tools/module_manager.py upgrade [ref] --confirm [--json]  # apply the whole-engine update vX -> vY
+  python tools/module_manager.py upgrade [ref] --confirm [--consent-handle H] [--json]  # apply vX -> vY
   python tools/module_manager.py demo                # mutation-free fail-then-pass (remove + add + upgrade; fixtures)
 """
 from __future__ import annotations
@@ -432,7 +432,18 @@ def plan_add(module_id: str, candidate: dict, manifests: list | None = None) -> 
             "version": candidate.get("version"), "wires": list(candidate.get("wires") or [])}
 
 
-def add(module_id: str, release_tree: str | None = None, ref: str | None = None) -> dict:
+def preview_add(module_id: str, release_tree: str | None = None, ref: str | None = None) -> dict:
+    """READ-ONLY: what would `add(module_id)` do, and would it be refused?
+
+    Runs `add`'s own resolution — the same home, ref, fetch, candidate-manifest and `plan_add` legs — with
+    `dry_run` set, so the answer comes from the domain rather than from a second copy of its rules. A typed
+    transaction's plan phase calls this; nothing is written on this path.
+    """
+    return add(module_id, release_tree=release_tree, ref=ref, dry_run=True)
+
+
+def add(module_id: str, release_tree: str | None = None, ref: str | None = None,
+        dry_run: bool = False) -> dict:
     """Add (install) one module at the current engine release: fetch the module's
     files from the tagged release, copy its `provides` into their surface homes, copy in its manifest, apply
     its `wires`, record it in the engine manifest, re-derive the tool-runtime dependency-group selection,
@@ -494,6 +505,17 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None)
         if plan["refused"]:
             plan["applied"] = False
             return plan
+        if dry_run:
+            # PREVIEW STOPS HERE. Every refusal path above has been exercised against the real fetched
+            # candidate; everything below this line writes. `preview_add` is this same code, which is why a
+            # plan phase can trust it rather than re-deriving the rules.
+            return {**plan, "module_id": module_id, "refused": False, "applied": False,
+                    "version": (candidate or {}).get("version"),
+                    "would_provide": sorted(
+                        p for _kind, provided in ((candidate or {}).get("provides") or {}).items()
+                        for p in (provided if isinstance(provided, list) else [provided])
+                        if isinstance(p, str)),
+                    "notes": list(plan.get("notes") or [])}
 
         # (1) collect the module's provided files from the release tree (same relpaths). The `provides`
         #     contract scopes a module's globs to its own files (the ownership leg enforces non-overlap).
@@ -2540,7 +2562,7 @@ def _redact_credentials(text: str) -> str:
 
 
 def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
-                     on_commit=None, on_pr_opening=None, on_pr=None) -> dict:
+                     on_commit=None, on_pr_opening=None, on_pr=None, paths=None) -> dict:
     """THE GIT+PR BOUNDARY (provisioning step 6): stage the overlaid change on a new branch, commit, push,
     and open a pull request so an upgrade is reviewed + reversible like any change. NET-NEW (no
     git-automation helper existed) — branch/commit/push via subprocess (the bootstrap.py pattern), the PR
@@ -2567,6 +2589,17 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
         raise RuntimeError("could not determine the engine repository / credentials to open the update "
                            "pull request.")
     base = repo_identity.resolve_default_branch()
+
+    # LAST LINE BEFORE THE BODY BECOMES PUBLIC, for the pull requests THIS opener opens — an engine update
+    # and a whole-engine removal, which reuses it. It is not the only opener in the tree: `tune.py` has its
+    # own and carries this same call for the same reason. Both bodies are composed upstream from version or
+    # settings data, so a credential should never be in this text at all. This is the chokepoint where that stops being a thing the reader has to take on
+    # trust: the resolved token, exactly, and the documented credential shapes, cannot survive into a body
+    # or a title that is about to be pushed and posted. It is narrow on purpose (see redact_credentials) —
+    # mangling legitimate prose is a real cost paid against an imagined leak.
+    import transaction_handoff as _handoff   # local: only the real open composes public text
+    title = _handoff.redact_credential_values(title, tok)
+    body = _handoff.redact_credential_values(body, tok)
 
     def _run_step(step):
         # Run one staged git step. The push is the only step that can hit a transient missing origin (StarshipSuperjam/engine-template#704), so
@@ -2605,8 +2638,18 @@ def _open_upgrade_pr(branch: str, title: str, body: str, repo=None, token=None,
         except Exception:  # noqa: BLE001 — a probe that cannot run fails safe to "staged"
             return False
 
+    # WHAT GETS STAGED, and why the two callers differ. Upgrade and whole-engine removal pass `paths=None`
+    # and stage the whole tree DELIBERATELY: both refuse unless the tree is clean, so "everything that
+    # changed" IS their change, and enumerating it instead would risk an INCOMPLETE commit if the overlay
+    # wrote a path the caller's list missed — a worse failure than the one selectivity prevents. Module add
+    # and remove are the opposite case: they run against a tree that may legitimately hold the operator's
+    # own work in progress, so they never come through here at all — they commit exactly their declared
+    # file set through `transaction_handoff.commit_in_tree`. `paths` exists for a future caller that needs
+    # selectivity on this path; today none does, and that is stated rather than implied.
+    stage_step = ["git", "add", "-A"] if not paths else ["git", "add", "--"] + list(paths)
+
     commit_info = None
-    for args in (["git", "checkout", "-b", branch], ["git", "add", "-A"],
+    for args in (["git", "checkout", "-b", branch], stage_step,
                  ["git", "commit", "-m", title], ["git", "push", "-u", "origin", branch]):
         try:
             _run_step(args)
@@ -3559,6 +3602,10 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             if not cleared.get("ok"):
                 tail["notes"].append("(the pull request was opened, but the completed recovery transaction "
                                      "could not be cleared; the next invocation will finalize or report it)")
+        # TERMINAL: the update is committed to its own branch and proposed for review, so this working copy
+        # no longer holds a STAGED one. Retire the marker (StarshipSuperjam/engine-template#948). The failure
+        # branch below deliberately leaves it in place — there the update really is staged and un-opened.
+        clear_upgrade_staged()
     except Exception as exc:   # noqa: BLE001 — staged but not opened; surfaced, never a traceback
         tail["notes"].append(f"(the update is staged but the pull request could not be opened: {exc})")
     return tail
@@ -4027,9 +4074,12 @@ def _render_upgrade_preview(p: dict) -> None:
           f"{tail}; it arrives as a pull request you review.")
 
 
-_UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--json]\n"
+_UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--consent-handle H] [--json]\n"
                   "  Without --confirm it PREVIEWS only — checks for an update and changes nothing.\n"
                   "  With --confirm it applies the update and opens it as a reviewed pull request.\n"
+                  "  --consent-handle binds this apply to a plan you read (from `transaction.py plan\n"
+                  "    engine-upgrade`): if anything moved since, it refuses instead of applying your\n"
+                  "    consent to a different update.\n"
                   "  [ref] optionally names a version; the default is the latest published release.")
 
 
@@ -4248,12 +4298,18 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
         # (2) OVERLAY engine code (driven off the present set; containment fail-closed). This lands the new
         # release's `.engine/tools/*.py` on disk — but THIS process still holds the pre-upgrade libraries,
         # which is exactly why the version-sensitive tail below runs as a fresh child of the overlaid code.
+        # ANNOUNCE THE STAGE before the first overlaid byte lands. From here until this transaction reaches a
+        # terminal state, this working copy genuinely holds a staged update — and says so explicitly rather
+        # than leaving boot to infer it from dirtiness, which an ordinary construction tree also shows
+        # (StarshipSuperjam/engine-template#948).
+        mark_upgrade_staged({"target_ref": target_ref, "from_versions": dict(from_versions)})
         try:
             # SURVIVORS only: a dropped module has nothing to overlay, and handing the shared overlay the full
             # present set would re-trip its own missing-manifest refusal (it is also the brownfield-arrival path,
             # so its body stays untouched).
             result["copied"], candidates = _overlay_engine_code(release_tree, list(target_versions))
         except _UpgradeRefused as ur:
+            clear_upgrade_staged()   # refused before anything landed: this copy holds no staged update
             return {**result, "refused": True, "reason": ur.reason}
         # (3) RE-SYNC the tool-runtime BEFORE the tail's child boots (real path only; the injected/practice
         # run has no real venv and skips it). The child imports the just-overlaid tool code, so the runtime
@@ -5518,16 +5574,188 @@ def _upgrade_footprint() -> set:
     return paths
 
 
+# WHERE A STAGED UPGRADE ANNOUNCES ITSELF. Inside `.git/`, the same home the upgrade's own recovery journal
+# uses, and for the same two reasons: it is a fact about THIS working copy rather than about the repository,
+# and git never reports its own directory as work — so the marker cannot be mistaken for a change, cannot be
+# committed by accident, and cannot trip a migration's rollback-footprint seal (which is exactly what
+# happened when this first lived under an ignored cache directory: a fixture repository without the ignore
+# rule saw an untracked file appear mid-transaction).
+_STAGED_UPGRADE_MARKER = "engine-staged-upgrade"
+
+
+def _staged_upgrade_marker_path() -> str:
+    """Resolve the marker inside the git directory, or fall back to a repo-local ignored cache.
+
+    The fallback matters for a checkout whose git directory cannot be resolved: the marker is a notice's
+    input, so an unresolvable home degrades to no marker rather than to a hard failure.
+    """
+    resolved = _git(validate.ROOT, "rev-parse", "--git-path", _STAGED_UPGRADE_MARKER)
+    resolved = (resolved or "").strip()
+    if not resolved:
+        return os.path.join(validate.ROOT, ".engine", "boot", ".cache", "staged-upgrade.json")
+    return resolved if os.path.isabs(resolved) else os.path.normpath(
+        os.path.join(validate.ROOT, resolved))
+
+
+def mark_upgrade_staged(detail: dict) -> None:
+    """Record that an update overlaid this working copy and has not reached a terminal state.
+
+    Written immediately before the overlay and cleared when the transaction ends (committed, rolled back,
+    or refused). Best-effort: a marker that cannot be written must never stop an update, because the
+    signal it feeds is a boot NOTICE, not a gate.
+    """
+    try:
+        path = _staged_upgrade_marker_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(detail, handle)
+    except Exception:  # noqa: BLE001 — a notice's marker never blocks the transaction it describes
+        pass
+
+
+_RELEASE_REF_RE = re.compile(r"[A-Za-z0-9._+-]{1,128}")
+
+
+def staged_upgrade_detail() -> dict:
+    """What the staged-update marker RECORDED — the release that was actually consented to.
+
+    `mark_upgrade_staged` writes `{"target_ref": ..., "from_versions": ...}` immediately before the
+    overlay. Nothing read it back until the consent gate needed it, and that gap was a real defect: the
+    finishing path called `upgrade(ref)`, which re-resolves "latest" against whatever the update home
+    publishes NOW, so a release published during the interruption would be applied under the earlier
+    release's consent. Reading the recorded target is what makes finishing a genuine resume rather than a
+    fresh fetch wearing the word.
+
+    Returns {} when there is no marker or it cannot be read — never a guess. A caller that cannot learn
+    which release was consented to must refuse, not proceed.
+    """
+    try:
+        with open(_staged_upgrade_marker_path(), encoding="utf-8") as handle:
+            detail = json.load(handle)
+        if not isinstance(detail, dict):
+            return {}
+        # SHAPE-CHECK THE RECORDED TAG. It flows into `/repos/{slug}/tarball/{ref}`, which decides what
+        # code gets overlaid, on the one path that deliberately skips the consent handle. A value with a
+        # path separator would redirect the fetch to another repository's tarball. Reaching this needs
+        # local write access to `.git/`, which is already game-over -- but promoting a file's contents to
+        # load-bearing for consent without checking its shape is the half of that promotion worth having.
+        ref = detail.get("target_ref")
+        if ref is not None and not _RELEASE_REF_RE.fullmatch(str(ref)):
+            return {}
+        return detail
+    except Exception:  # noqa: BLE001 — unreadable marker is "unknown", and unknown must never mean "allowed"
+        return {}
+
+
+def clear_upgrade_staged() -> None:
+    """The update reached a terminal state; this working copy no longer holds a staged one."""
+    try:
+        os.remove(_staged_upgrade_marker_path())
+    except FileNotFoundError:
+        pass
+    except Exception:  # noqa: BLE001 — same reason as the write
+        pass
+
+
+def _consent_handle_arg(argv: list):
+    """The `--consent-handle` value, or None when the operator did not carry one over.
+
+    Parsing only — this reports what was passed and decides nothing. The caller in `main` is where an
+    absent handle becomes a refusal for a fresh apply.
+
+    THIS DOCSTRING PREVIOUSLY SAID THE OPPOSITE, and said it as though quoting a ruling: that absent was
+    not a refusal, because making the handle mandatory would be the start gate that was ruled against.
+    That conflated two different things. The ruling was digest-only INSTEAD OF a start gate; requiring the
+    digest is what makes digest-only bind, since an optional one is skipped by omitting a flag. The
+    earlier wording is recorded here rather than simply deleted because a stale comment that reads like an
+    operator ruling is worse than one that reads like a stale comment — it hands the next session a
+    plausible warrant to remove the gate and believe they are restoring a decision.
+    """
+    for index, arg in enumerate(argv):
+        if arg.startswith("--consent-handle="):
+            return arg.split("=", 1)[1]
+        if arg == "--consent-handle" and index + 1 < len(argv):
+            return argv[index + 1]
+    return None
+
+
+def _refuse_stale_consent(ref, handle: str, on_release=None):
+    """Compare the carried handle against a freshly-derived one. Returns a message to print, or None.
+
+    Derived through the transaction adapter so the comparison uses the SAME plan the operator was shown —
+    not a second notion of what an update means, which would drift.
+
+    AND HANDS BACK THE RELEASE THAT PLAN NAMED, via `on_release`. This function resolved "latest" to a
+    concrete tag, compared the handle against it, and then threw the plan away — after which the caller
+    ran `upgrade(None)` and resolved latest a SECOND time. So the handle was checked against release X
+    and release Y could be applied, on the operator-typed path the skill documents and whose notes promise
+    "the handle you carry from the plan to the apply is what guarantees the thing applied is the thing you
+    read". Returning the resolved release is what makes that sentence true.
+    """
+    try:
+        import transaction
+        import transaction_adapters_upgrade  # noqa: F401 — registers the adapter
+        import transaction_envelope
+
+        class _Args:
+            rest = [ref] if ref else []
+
+        adapter = transaction._REGISTRY["engine-upgrade"]
+        facts = adapter.inspect(_Args())
+        plan = dict(adapter.plan(_Args(), facts))
+        plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
+        fresh = transaction_envelope.consent_handle(plan)
+    except Exception as exc:   # noqa: BLE001 — an unverifiable handle must not silently pass
+        return ("Couldn't check the consent handle you passed, so this update was NOT applied and nothing "
+                "was changed. Re-run `transaction.py plan engine-upgrade` for a fresh plan and handle. "
+                "({0})".format(exc))
+    if handle == fresh and on_release is not None:
+        on_release((plan.get("inputs") or {}).get("release"))
+    if handle != fresh:
+        return ("The consent handle does not match this update. Something moved since the plan you read — "
+                "the release, what it turns on or retires, or your checkout — so applying now would apply "
+                "your consent to a different change. Nothing was changed. Run "
+                "`transaction.py plan engine-upgrade` to see the current plan, and apply with its handle.")
+    return None
+
+
 def _staged_upgrade_dirty() -> bool:
-    """Is an update STAGED but not committed — the precise, coherence-independent signal of a stalled/
-    half-applied update in the working tree? True iff any OVERLAY-CODE path (a module's `provides` file, a
-    module manifest, or a FOUNDATION_CODE file — files an operator never hand-edits) differs from HEAD. A
-    successfully-applied update is committed to its own branch (clean here); an operator editing their own
-    `settings.json` does NOT trip this (settings are not overlay-code). Coherence-independent by design: a
-    stall that leaves the wiring applied but the tree half-built passes `check_coherence` yet is still dirty
-    here."""
+    """COULD this working copy hold a staged update — the RECOVERY question.
+
+    True iff any OVERLAY-CODE path (a module's `provides` file, a module manifest, or a FOUNDATION_CODE
+    file — files an operator never hand-edits) differs from HEAD. Deliberately generous, and deliberately
+    NOT marker-gated: `_diagnose_undo` asks this to decide whether there is anything to offer an undo for,
+    and the two errors are not symmetric. A false positive here costs a look at an ordinary dirty tree; a
+    false negative would tell an operator sitting on a stalled update that there is nothing to undo. An
+    update staged by an ENGINE VERSION THAT PREDATES the marker below leaves no marker at all, and that
+    operator must still be able to recover.
+
+    Coherence-independent by design: a stall that leaves the wiring applied but the tree half-built passes
+    `check_coherence` yet is still dirty here.
+    """
     dirty = _git_status_paths(validate.ROOT)
     return bool(dirty and (dirty & set(overlay_replace_paths())))
+
+
+def staged_upgrade_announced() -> bool:
+    """SHOULD a staged update be announced at session start — the NOTICE question.
+
+    The narrow counterpart to `_staged_upgrade_dirty`, and the fix for
+    StarshipSuperjam/engine-template#948. Boot used the generous predicate above, which is true of every
+    ORDINARY CONSTRUCTION TREE: a session part-way through editing the engine's own tools looks exactly
+    like a half-applied update. Five separate build sessions hit the resulting boot-pack overflow and each
+    re-learned the same workaround, and worse, the false positive MASKED real cap regressions — a genuine
+    overflow looked like the familiar artifact.
+
+    So the notice keys on the update ANNOUNCING itself: a marker written before the overlay and cleared
+    when the transaction reaches a terminal state. Dirtiness is still required alongside it, so a stale
+    marker over a clean tree does not announce a stall that is not there. The asymmetry with the recovery
+    predicate is the point — this one may miss a stall (the operator still has `rollback`, which asks the
+    generous question), but it must not invent one.
+    """
+    if not os.path.isfile(_staged_upgrade_marker_path()):
+        return False
+    return _staged_upgrade_dirty()
 
 
 def _diagnose_undo() -> dict:
@@ -5633,6 +5861,9 @@ def _discard_staged_update(resync, transport) -> dict:
         return result
     result["undone"] = True
     result["branch"] = branch
+    # The staged update is gone: this working copy no longer holds one, so retire its marker
+    # (StarshipSuperjam/engine-template#948).
+    clear_upgrade_staged()
     # (e) rebuild the tool-runtime for the restored (older) code; surface a failure, never hide it.
     if resync is not None and resync() is False:
         result["resync_failed"] = True
@@ -5889,7 +6120,8 @@ def main(argv: list) -> int:
                 print(_UPGRADE_USAGE)
                 return 0
             unknown = [a for a in argv[1:] if a.startswith("-") and a not in (
-                "--confirm", "--json", "--pr-absent") and not a.startswith("--pr-opened=")]
+                "--confirm", "--json", "--pr-absent") and not a.startswith("--pr-opened=")
+                and not a.startswith("--consent-handle=") and a != "--consent-handle"]
             if unknown:
                 print(f"CONFIG ERROR: unknown option(s) for upgrade: {' '.join(unknown)}\n{_UPGRADE_USAGE}",
                       file=sys.stderr)
@@ -5906,7 +6138,84 @@ def main(argv: list) -> int:
                     print(f"Couldn't complete the update check — the engine is unchanged and still working. "
                           f"({exc})")
                 return 0
-            result = upgrade(ref)
+            # CONSENT BINDING (the operator's digest-only ruling). A handle carried over from
+            # `transaction.py plan engine-upgrade` binds this apply to the plan that was actually READ: if
+            # the release, the capability set, or the checkout moved in between, the handle no longer
+            # matches and this refuses rather than applying consent given to a different update. It is
+            # evidence of plan identity, never of who consented — the start protections are the
+            # harness-gated skill and, under everything, the pull request the operator merges.
+            handle = _consent_handle_arg(argv)
+            resume_ref = None
+            if handle is None:
+                # AN ABSENT HANDLE IS A REFUSAL, NOT A PASS -- but not for FINISHING an update that is
+                # already staged here.
+                #
+                # Optional is the same as absent: a session that wants to update simply omits the flag and
+                # the binding is gone at the moment it mattered. A limit that can be talked past is not a
+                # limit, so a FRESH apply must carry the handle from the plan that was read.
+                #
+                # Finishing is different. The warrant, stated at the width the code actually supports —
+                # narrower than either of the two I recorded before it, both of which were too wide.
+                #
+                # This door is gated on `staged_upgrade_announced()`: the marker, plus a dirty tree. Two
+                # kinds of interrupted update reach it, and they are justified differently.
+                #
+                #  * An update carrying tracked-content migration targets opens a durable recovery
+                #    transaction (`if tracked_preflight["targets"]`, above `mark_upgrade_staged`). While
+                #    that transaction is active `upgrade_preview` refuses with `transaction-incomplete`,
+                #    so `transaction.py plan engine-upgrade` CANNOT mint a handle — while this command
+                #    still works, because `upgrade()` recovers the transaction first. Requiring a handle
+                #    would make that operator's only route out unreachable. THIS rests on the transaction
+                #    being opened before the marker is written; `test_module_manager` pins that order.
+                #
+                #  * An update with no tracked targets opens no transaction, yet `mark_upgrade_staged`
+                #    runs unconditionally before the overlay. So the marker is set, no transaction
+                #    exists, and `plan` CAN mint a handle. For that operator the exception is not
+                #    necessary — it is merely harmless, because what it permits is bounded below.
+                #
+                # What bounds both: the exception applies the release the marker RECORDED, so it can only
+                # ever re-apply something already consented to, never substitute a different one. Tree
+                # dirtiness alone does not stop a plan; an earlier version of this comment claimed it did
+                # and was wrong.
+                staged = staged_upgrade_detail() if staged_upgrade_announced() else {}
+                resume_ref = staged.get("target_ref")
+                if not resume_ref:
+                    # Do NOT claim there is nothing staged: the generous recovery predicate may well say
+                    # otherwise, and an update staged by a version predating the marker leaves none at all.
+                    # Ask the engine's own recovery diagnosis and say what is actually true.
+                    state = (_diagnose_undo() or {}).get("state")
+                    if state in ("staged", "transaction", "memory-ahead"):
+                        print("An interrupted update is present here, but this copy did not record which\n"
+                              "release it was applying, so there is nothing to bind finishing it to.\n\n"
+                              "See where you stand:\n"
+                              "    uv run --directory .engine -- python tools/transaction.py resume engine-upgrade\n\n"
+                              "Then undo it and start again cleanly:\n"
+                              "    uv run --directory .engine -- python tools/module_manager.py rollback --confirm")
+                        return 2
+                    print("This update has not been shown to you yet, so there is nothing to apply your\n"
+                          "consent to. See what it would change first:\n\n"
+                          "    uv run --directory .engine -- python tools/transaction.py plan engine-upgrade\n\n"
+                          "then run this again with the --consent-handle it prints.")
+                    return 2
+                if ref and ref != resume_ref:
+                    # Finishing is bound to the staged release. A different one named on the command line
+                    # is a FRESH update, and a fresh update needs its own consent.
+                    print("This copy has {0} staged, not {1}. Finishing an interrupted update applies the\n"
+                          "release that was staged; it cannot be redirected to another one.\n\n"
+                          "To apply {1} instead, undo first (`module_manager.py rollback --confirm`), then\n"
+                          "plan it and apply with the handle that plan prints.".format(resume_ref, ref))
+                    return 2
+            else:
+                consented = {}
+                mismatch = _refuse_stale_consent(ref, handle,
+                                                 on_release=lambda r: consented.update(release=r))
+                if mismatch:
+                    print(mismatch)
+                    return 2
+                # Apply the release the VERIFIED plan named, not a second resolve of the operand.
+                resume_ref = consented.get("release") or ref
+            # The staged path applies the RECORDED release, never a re-resolved "latest".
+            result = upgrade(resume_ref or ref)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))
             else:
@@ -5979,4 +6288,12 @@ def main(argv: list) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # DELEGATE TO THE IMPORTED MODULE, never to this one — the same fix `transaction.py` carries, for the
+    # same reason. Run as a script this file is `__main__`, while `transaction_adapters_upgrade` (reached
+    # from the consent check) does `import module_manager` and gets a SECOND, distinct copy. Today that is
+    # only wasteful, because this module holds no shared mutable state for the two copies to disagree
+    # about — but that is a property of today's code, not a guarantee, and the failure it would produce is
+    # exactly the one this build already shipped once: a green suite over a broken command, because every
+    # test imports this module normally and never as `__main__`.
+    import module_manager as _single_module
+    sys.exit(_single_module.main(sys.argv[1:]))

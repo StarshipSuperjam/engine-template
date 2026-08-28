@@ -47,7 +47,7 @@ class TestSubagentModelGate(GateCase):
         reason = self.assertDenied(spawn("Explore"))
         self.assertIn("cheap model", reason)
         # The reason must name the escape, or a denied session has nowhere to go.
-        self.assertIn(se.OFF_SWITCH, reason)
+        self.assertIn(se.MODEL_OFF_SWITCH, reason)
 
     def test_a_cheap_explore_spawn_is_allowed(self):
         for model in ("sonnet", "haiku"):
@@ -85,7 +85,7 @@ class TestSubagentModelGate(GateCase):
 class TestWakeupGate(GateCase):
     def test_self_scheduling_is_denied(self):
         reason = self.assertDenied({"tool_name": "ScheduleWakeup", "tool_input": {"delaySeconds": 1500}})
-        self.assertIn(se.OFF_SWITCH, reason)
+        self.assertIn("Continue the next actionable step", reason)
 
     def test_ordinary_tools_are_untouched(self):
         for name in ("Bash", "Read", "Edit", "Write", "ExitPlanMode"):
@@ -121,7 +121,7 @@ class TestFailsTowardAllow(GateCase):
         model_reason = self.assertDenied(spawn("Explore", "opus"))
         self.assertIn(se.MODEL_OFF_SWITCH, model_reason)
         wakeup_reason = self.assertDenied({"tool_name": "ScheduleWakeup", "tool_input": {}})
-        self.assertIn(se.WAKEUP_OFF_SWITCH, wakeup_reason)
+        self.assertNotIn("ENGINE_SESSION_ECONOMY", wakeup_reason)
 
     def test_the_deny_rides_the_structured_channel_not_exit_two(self):
         # exit-2 block() is read by the platform as a CRASH, dropping the deny AND its reason.

@@ -51,6 +51,88 @@ def _live_entities():
     return knowledge_gen.derive_entities(*knowledge_gen.load_sources())
 
 
+class ImmutableLiveDerivationFixture(unittest.TestCase):
+    """One immutable live-tree derivation per explicitly read-only test class.
+
+    The serialized snapshot is owned by the class rather than this module.  Each test receives a
+    fresh decoded value, so one assertion cannot mutate another's view.  Tests that alter sources,
+    roots, generation, determinism, or deployment shape keep calling _live_entities directly.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._live_entities_snapshot = json.dumps(_live_entities(), sort_keys=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._live_entities_snapshot = None
+        super().tearDownClass()
+
+    def live_entities(self):
+        return json.loads(self._live_entities_snapshot)
+
+
+class TestImmutableLiveDerivationFixture(unittest.TestCase):
+    def test_each_consumer_decodes_an_isolated_value(self):
+        eligible_groups = (TestLiveDerivation, TestPass4LiveEdges, TestLiveDerivationAttributes)
+        fresh_groups = (
+            TestOptionalModuleSubtreeCarveOut,
+            TestOptionalModuleSubtrees,
+            TestPass4Attributes,
+            TestCommittedGraph,
+            TestGenerateCheckIO,
+            TestCoverageFingerprintMode,
+            TestCommitBoundaryRegen,
+            TestSourceDeterminismRoundTrip,
+        )
+        self.assertTrue(all(issubclass(group, ImmutableLiveDerivationFixture)
+                            for group in eligible_groups))
+        self.assertTrue(all(not issubclass(group, ImmutableLiveDerivationFixture)
+                            for group in fresh_groups))
+
+        class SharedProbe(ImmutableLiveDerivationFixture):
+            pass
+
+        class FreshProbe:
+            @staticmethod
+            def live_entities():
+                return _live_entities()
+
+        for order in ("shared-first", "fresh-first"):
+            serial = iter(range(1, 4))
+
+            def derive():
+                n = next(serial)
+                return [{"id": f"tool:example-{n}", "predicates": {"tests": ["tool:other"]}}]
+
+            shared = []
+            fresh = []
+            with self.subTest(order=order), \
+                    mock.patch.object(sys.modules[__name__], "_live_entities", side_effect=derive) as called:
+                def consume_shared():
+                    SharedProbe.setUpClass()
+                    try:
+                        shared.extend((SharedProbe().live_entities(), SharedProbe().live_entities()))
+                    finally:
+                        SharedProbe.tearDownClass()
+
+                def consume_fresh():
+                    fresh.extend((FreshProbe.live_entities(), FreshProbe.live_entities()))
+
+                (consume_shared if order == "shared-first" else consume_fresh)()
+                (consume_fresh if order == "shared-first" else consume_shared)()
+
+                shared[0][0]["predicates"]["tests"].append("tool:mutated")
+                self.assertEqual(shared[1][0]["predicates"]["tests"], ["tool:other"])
+                self.assertEqual(shared[0][0]["id"], shared[1][0]["id"])
+                self.assertNotEqual(fresh[0][0]["id"], fresh[1][0]["id"])
+                self.assertEqual(called.call_count, 3,
+                                 "one shared derivation plus one per fresh consumer in either order")
+            self.assertIsNone(SharedProbe._live_entities_snapshot,
+                              "the eligible class releases its snapshot deterministically")
+
+
 class TestHelpers(unittest.TestCase):
     def test_slug_is_the_filename_stem(self):
         self.assertEqual(knowledge_gen._slug(".engine/check/state-cursor.json"), "state-cursor")
@@ -151,11 +233,11 @@ class TestSchema(unittest.TestCase):
         validate.Draft202012Validator.check_schema(KNOWLEDGE_SCHEMA)
 
 
-class TestLiveDerivation(unittest.TestCase):
+class TestLiveDerivation(ImmutableLiveDerivationFixture):
     """derive_entities over the real catalog/inventory/manifests/claims."""
 
     def setUp(self):
-        self.entities = _live_entities()
+        self.entities = self.live_entities()
         self.by_id = {e["id"]: e for e in self.entities}
 
     def test_canonical_graph_conforms_to_its_schema(self):
@@ -666,13 +748,13 @@ class TestPass4Attributes(unittest.TestCase):
                 _live_entities()
 
 
-class TestPass4LiveEdges(unittest.TestCase):
+class TestPass4LiveEdges(ImmutableLiveDerivationFixture):
     """Pass-4 edges + attributes over the REAL graph — the non-fingerprint correlate that the DERIVED edges
     are correct (the fingerprint gate proves only that the graph matches its sources, never that its edges
     are right)."""
 
     def setUp(self):
-        self.by_id = {e["id"]: e for e in _live_entities()}
+        self.by_id = {e["id"]: e for e in self.live_entities()}
 
     def test_imports_are_real_dependency_edges_no_self_edge(self):
         boot = self.by_id["tool:boot"]
@@ -714,12 +796,12 @@ class TestPass4LiveEdges(unittest.TestCase):
         self.assertNotIn("entrypoint", sh)
 
 
-class TestLiveDerivationAttributes(unittest.TestCase):
+class TestLiveDerivationAttributes(ImmutableLiveDerivationFixture):
     """The declared attributes on the REAL derived graph — the non-fingerprint correlate that the harvest is
     RIGHT (the gate proves the committed graph MATCHES the sources, never that the values are correct)."""
 
     def setUp(self):
-        self.by_id = {e["id"]: e for e in _live_entities()}
+        self.by_id = {e["id"]: e for e in self.live_entities()}
 
     def test_check_carries_tier_kind_suites_status_and_no_title(self):
         c = self.by_id["check:catalog-coverage"]

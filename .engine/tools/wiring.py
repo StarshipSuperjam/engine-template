@@ -800,6 +800,36 @@ _CODEX_NO_TOMLLIB_APPLY = (
     "newer (for example, `python3.11 ...` instead of `python3`). Alternatively — for advanced "
     "users — add the engine's own `# BEGIN engine-managed block` fenced section to .codex/config.toml by "
     "hand.")
+# A STABLE CODE FOR AN ENVIRONMENT-GATED SKIP (StarshipSuperjam/engine-template#893).
+# The generic coherence remedy tells an operator to "re-run the install / wiring step", which is right for
+# a wire that simply has not been applied yet — and CIRCULAR for one the interpreter itself cannot apply,
+# because re-running reproduces the identical skip. The two messages rendered back-to-back on module-add,
+# and a reader who followed the more official-looking generic line was sent in a loop. So the reason is
+# reported as DATA rather than left for a consumer to recognise in English: `unapplied_skip_code` answers
+# "is this unapplied because of the environment?", and the coherence consumer defers to the specific
+# message instead of appending its own contradictory one.
+ENV_GATED_SKIP = "environment-gated"
+
+
+def unapplied_skip_code(directive: dict):
+    """Why this wire cannot be applied HERE, as a stable code — or None if nothing gates it.
+
+    Only environment gates belong here: conditions that re-running the same command on the same
+    interpreter cannot clear. An ordinary not-yet-applied wire returns None and keeps the ordinary remedy.
+    """
+    if not isinstance(directive, dict):
+        return None
+    if directive.get("type") != "codex-mcp":
+        return None
+    if tomllib is not None:
+        return None
+    text = _read_text(CODEX_CONFIG_PATH)
+    # Engine-owned or empty config: the applier can still write it without parsing, so nothing is gated.
+    if text.strip() == "" or _codex_config_is_engine_owned(text):
+        return None
+    return ENV_GATED_SKIP
+
+
 _CODEX_NO_TOMLLIB_REVERSE = (
     "skipped: this Python cannot check that .codex/config.toml is valid before editing it (TOML "
     "validation needs Python 3.11+), so the engine left it untouched and did NOT remove the codex "

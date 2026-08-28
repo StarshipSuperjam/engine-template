@@ -1586,7 +1586,89 @@ class TestArtifactSync(CoordinatorCase):
         self.assertIsNone(self.state().get("artifact_sync"))
 
 
-def _candidate_validation_fake(payload="complete validation output\n", rc=0, record_mutator=None):
+def _candidate_inventory_snapshot(root=None):
+    """Return one immutable inventory observation for a deliberately bounded test group.
+
+    This is not a cache: every caller that needs a fresh referent calls this function again.  A
+    class fixture owns any returned snapshot and injects it into its fake validator, which keeps
+    patched, mutating, and unrelated-root cases from accidentally sharing a stale observation.
+    """
+    observed_root = os.path.realpath(str(root or bc.ROOT))
+    count, digest = bc.ci_gatekeeper.inventory_digest(observed_root)
+    return (observed_root, count, digest)
+
+
+class TestCandidateInventorySnapshot(unittest.TestCase):
+    def test_same_path_equal_count_content_drift_derives_fresh(self):
+        """An explicit group fixture is not a root-keyed cache in disguise."""
+        observations = iter(((7, "sha256:first"), (7, "sha256:changed")))
+        with mock.patch.object(bc.ci_gatekeeper, "inventory_digest", side_effect=observations) as derive:
+            before = _candidate_inventory_snapshot("/tmp/same-referent")
+            after = _candidate_inventory_snapshot("/tmp/same-referent")
+        self.assertEqual(before[:2], after[:2], "the referent and count deliberately stayed the same")
+        self.assertNotEqual(before[2], after[2], "content drift must be observed, never reused")
+        self.assertEqual(derive.call_count, 2)
+
+    def test_unrelated_roots_derive_independently(self):
+        seen = []
+
+        def derive(root):
+            seen.append(root)
+            return 1, f"sha256:{len(seen)}"
+
+        with mock.patch.object(bc.ci_gatekeeper, "inventory_digest", side_effect=derive):
+            _candidate_inventory_snapshot("/tmp/one")
+            _candidate_inventory_snapshot("/tmp/two")
+        self.assertEqual(seen, [os.path.realpath("/tmp/one"), os.path.realpath("/tmp/two")])
+
+    def test_each_eligible_class_owns_injects_and_releases_one_snapshot(self):
+        class FirstEligibleGroup(CandidateInventoryFixture):
+            pass
+
+        class SecondEligibleGroup(CandidateInventoryFixture):
+            pass
+
+        observations = iter(((3, "sha256:first"), (4, "sha256:second")))
+        with mock.patch.object(bc.ci_gatekeeper, "inventory_digest", side_effect=observations) as derive, \
+                mock.patch.object(sys.modules[__name__], "_candidate_validation_fake",
+                                  return_value=mock.sentinel.validation) as fake:
+            for group, expected_count in ((SecondEligibleGroup, 3), (FirstEligibleGroup, 4)):
+                group.setUpClass()
+                try:
+                    self.assertIs(group().candidate_validation_fake(), mock.sentinel.validation)
+                    injected = fake.call_args.kwargs["inventory_snapshot"]
+                    self.assertEqual(injected[1], expected_count)
+                finally:
+                    group.tearDownClass()
+                self.assertIsNone(group._candidate_inventory_snapshot,
+                                  "the eligible class releases its snapshot deterministically")
+        self.assertEqual(derive.call_count, 2, "each eligible class derives once, never once per test")
+
+
+class CandidateInventoryFixture(CoordinatorCase):
+    """One immutable inventory observation per named candidate-validation test class."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls._candidate_inventory_snapshot = _candidate_inventory_snapshot()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._candidate_inventory_snapshot = None
+        super().tearDownClass()
+
+    def candidate_validation_fake(self, payload="complete validation output\n", rc=0, record_mutator=None):
+        return _candidate_validation_fake(
+            payload=payload,
+            rc=rc,
+            record_mutator=record_mutator,
+            inventory_snapshot=self._candidate_inventory_snapshot,
+        )
+
+
+def _candidate_validation_fake(payload="complete validation output\n", rc=0, record_mutator=None,
+                               inventory_snapshot=None):
     """A fake `_run_validation` for the candidate protocol: writes the log, and — for the command
     carrying `--run-record-path` — a run record consistent with everything the coordinator checks
     against its own derivations (tree, cleanliness, inventory count, log digest). `record_mutator`
@@ -1596,7 +1678,8 @@ def _candidate_validation_fake(payload="complete validation output\n", rc=0, rec
         if "--run-record-path" in command:
             record_path = command[command.index("--run-record-path") + 1]
             tree = bc._run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
-            count, _ = bc.ci_gatekeeper.inventory_digest(str(bc.ROOT))
+            snapshot = inventory_snapshot or _candidate_inventory_snapshot()
+            _root, count, _digest = snapshot
             record = {"attests": "engine-selftest", "scope": "full", "tree": tree,
                       "worktree_dirty": False, "inventory": {"module_count": count},
                       "log": {"path": str(path), "sha256": bc._digest(payload.encode())}}
@@ -1607,14 +1690,14 @@ def _candidate_validation_fake(payload="complete validation output\n", rc=0, rec
     return validation
 
 
-class TestValidationRepairAndStatus(CoordinatorCase):
+class TestValidationRepairAndStatus(CandidateInventoryFixture):
     def setUp(self):
         super().setUp()
         self.seed(); self.approve("quick")
         self.integrate_all()
 
     def test_validation_records_every_result_against_head(self):
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake()), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
         candidate = self.state()["validation"]["candidate"]
         self.assertEqual({r["commit"] for r in candidate["results"]}, {HEAD_A})
@@ -1622,7 +1705,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_validation_runs_only_registered_commands(self):
         seen = []
-        inner = _candidate_validation_fake()
+        inner = self.candidate_validation_fake()
         def validation(command, path):
             seen.append(command); return inner(command, path)
         with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=validation), contextlib.redirect_stdout(io.StringIO()):
@@ -1639,7 +1722,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
 
     def test_validation_preserves_complete_logs(self):
         payload = "x" * 5000
-        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake(payload=payload)), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc, "_derived_drift", return_value=[]), mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake(payload=payload)), contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
         for result in self.state()["validation"]["candidate"]["results"]:
             self.assertEqual(Path(result["log_path"]).read_text(), payload)
@@ -1664,9 +1747,6 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         with mock.patch.object(bc, "_head", return_value=HEAD_B):
             status = bc._status(self.state())
         self.assertIn("green candidate validation for the final commit", status["required_evidence"])
-
-    def test_status_requires_validation_for_current_head(self):
-        self.test_validation_becomes_stale_when_head_changes()
 
     # --- repair-round escalation (never a cap on review coverage) ----------------------
 
@@ -2218,11 +2298,8 @@ class TestValidationRepairAndStatus(CoordinatorCase):
     def test_none_repair_judgment_is_valid_for_small_change(self):
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update({"packet_digest": "sha256:" + "2" * 64, "reviewed_commit": HEAD_A}))
         self.assess("none", HEAD_B, guidance=None)
-        self.assertEqual(self.state()["repair"]["judgment"], "none")
-
-    def test_repair_assessment_records_diff_and_judgment(self):
-        self.test_none_repair_judgment_is_valid_for_small_change()
         repair = self.state()["repair"]
+        self.assertEqual(repair["judgment"], "none")
         self.assertEqual(repair["summary"], "1 file changed")
         self.assertEqual(repair["classification"]["files"]["authored"], ["app/main.py"])
         self.assertEqual(repair["anchor"], HEAD_A)
@@ -2574,7 +2651,7 @@ class TestValidationRepairAndStatus(CoordinatorCase):
         self.assertEqual(status["progress"], {"completed": [], "total": 2, "current": None, "next": "W1"})
 
 
-class TestCandidateEvidenceAndCache(CoordinatorCase):
+class TestCandidateEvidenceAndCache(CandidateInventoryFixture):
     """The split evidence model: the cache's content-addressed identity, the downgrade seams that can
     never mint final evidence, and the run record's refusal paths — each corruption driven singly."""
 
@@ -2585,7 +2662,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
 
     def _validate(self, fake=None, **over):
         calls = []
-        inner = fake or _candidate_validation_fake()
+        inner = fake or self.candidate_validation_fake()
         def counting(command, path):
             calls.append(command); return inner(command, path)
         args = {"plan": str(self.plan_path)}
@@ -2633,7 +2710,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
 
     def test_a_red_candidate_never_hits_the_cache(self):
         with self.assertRaises(bc.CoordinatorError):
-            self._validate(fake=_candidate_validation_fake(rc=1))
+            self._validate(fake=self.candidate_validation_fake(rc=1))
         calls, _ = self._validate()
         self.assertEqual(len(calls), 2, "only a green candidate may satisfy a repeat")
 
@@ -2702,7 +2779,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
             with self.subTest(corruption=name):
                 self.store.mutate(lambda s: s.update({"validation": None}))
                 with self.assertRaisesRegex(bc.CoordinatorError, "failed"):
-                    self._validate(fake=_candidate_validation_fake(record_mutator=mutator))
+                    self._validate(fake=self.candidate_validation_fake(record_mutator=mutator))
                 candidate = bc._split_validation(self.state())["candidate"]
                 refused = [r for r in candidate["results"] if not r["passed"]]
                 self.assertTrue(refused, f"{name}: the corrupted record must fail its result")
@@ -2744,7 +2821,7 @@ class TestCandidateEvidenceAndCache(CoordinatorCase):
                           "a restored candidate has null identity and can never be a cache hit")
 
 
-class TestFinalImportAndRollupGate(CoordinatorCase):
+class TestFinalImportAndRollupGate(CandidateInventoryFixture):
     """`validate final import` — the only writer of final evidence — and the live rollup wall at
     submission. Every refusal is driven singly, with its distinct, actionable message."""
 
@@ -2756,7 +2833,7 @@ class TestFinalImportAndRollupGate(CoordinatorCase):
         self.integrate_all()
         with mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_derived_drift", return_value=[]), \
-                mock.patch.object(bc, "_run_validation", side_effect=_candidate_validation_fake()), \
+                mock.patch.object(bc, "_run_validation", side_effect=self.candidate_validation_fake()), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path)), self.store)
 
@@ -3286,9 +3363,6 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         self.assertEqual(self.state()["preflights"], [])
         self.assertIsNone(self.state()["pr_contract"])
 
-    def test_preflight_runs_close_linkage_and_contract(self):
-        self.test_preflight_binds_contract_and_results_to_head()
-
     def test_close_linkage_is_advisory_but_pr_contract_is_required(self):
         self.seed()
         args = argparse.Namespace(pr_body=None, json=False)
@@ -3346,9 +3420,6 @@ class TestPreflightHandoffAndSubmission(CoordinatorCase):
         not_ancestor = subprocess.CompletedProcess([], 1, "", "")
         with mock.patch.object(bc, "_status", return_value=ready), mock.patch.object(bc.github, "pr_state", return_value=pr), mock.patch.object(bc, "_run", return_value=not_ancestor), self.assertRaisesRegex(bc.CoordinatorError, "live target-branch base"):
             bc._submit_preview(self.store, str(self.plan_path))
-
-    def test_submission_requires_live_base_containment(self):
-        self.test_submit_preview_requires_live_base_to_be_ancestor_of_final_commit()
 
     def test_submit_preview_requires_complete_current_evidence(self):
         self.seed()
@@ -4505,6 +4576,8 @@ class TestEvidenceDurability(CoordinatorCase):
         state = self.state()
         self.assertEqual(state["reviews"]["deliverable"]["reviewed_commit"], head)
         self.assertEqual(state["reviews"]["deliverable"]["base_commit"], base_after)
+        self.assertEqual(state["plan"]["bound_head"], head,
+                         "the accepted rewrite must advance the resume anchor")
         self.assertEqual(len(state["reconciles"]), 1)
         self.assertTrue(state["reconciles"][0]["contribution_identical"])
         self.assertEqual(state["reconciles"][0]["divergent_paths"], [])
@@ -4527,6 +4600,8 @@ class TestEvidenceDurability(CoordinatorCase):
         # the weaker outcome carries MORE scrutiny: reviewed != head, so a repair judgment is still owed.
         self.assertEqual(state["reviews"]["deliverable"]["reviewed_commit"], base_after)
         self.assertNotEqual(state["reviews"]["deliverable"]["reviewed_commit"], head)
+        self.assertEqual(state["plan"]["bound_head"], head,
+                         "a divergent rewrite is still the Build's verified new line")
         self.assertIn("repair assess", message)
 
     def test_patch_id_would_have_called_the_reindent_identical(self):
@@ -4998,6 +5073,18 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         with mock.patch.object(bc, "_is_ancestor", return_value=True):
             self.assertEqual(bc.resume_reasons(state), [])
 
+    def test_a_recorded_reconcile_is_a_resume_anchor_for_legacy_snapshots(self):
+        state = self.seed()
+        state["build"]["worktree"] = str(bc.ROOT)
+        state["plan"]["bound_head"] = HEAD_A
+        state["reconciles"] = [{"to_commit": HEAD_B}]
+
+        def ancestor(candidate, current):
+            return candidate == HEAD_B and current == HEAD_C
+
+        with mock.patch.object(bc, "_is_ancestor", side_effect=ancestor):
+            self.assertEqual(bc.resume_reasons(state, head=HEAD_C), [])
+
     def test_a_legacy_snapshot_makes_no_new_demands(self):
         # Bound before either field existed. It must resume, not be told it is broken.
         self.assertEqual(bc.resume_reasons({"build": {}, "plan": {}}), [])
@@ -5011,6 +5098,30 @@ class TestUnconditionalResumeVerification(CoordinatorCase):
         with self.assertRaises(bc.CoordinatorError) as caught:
             bc.verify_resume(self.store, argparse.Namespace(command="checkpoint"))
         self.assertIn("checkpoint", str(caught.exception))
+
+    def test_reconcile_can_verify_the_rewritten_head_it_exists_to_reanchor(self):
+        state = self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = str(bc.ROOT)
+            s["plan"]["bound_head"] = HEAD_A
+        self.store.mutate(change)
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+             mock.patch.object(bc, "_is_ancestor", return_value=False):
+            bc.verify_resume(self.store, argparse.Namespace(command="reconcile"))
+
+    def test_reconcile_still_refuses_a_different_worktree(self):
+        state = self.seed()
+
+        def change(s):
+            s["build"]["worktree"] = "/somewhere/else"
+            s["plan"]["bound_head"] = HEAD_A
+        self.store.mutate(change)
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+             mock.patch.object(bc, "_is_ancestor", return_value=False), \
+             self.assertRaises(bc.CoordinatorError) as caught:
+            bc.verify_resume(self.store, argparse.Namespace(command="reconcile"))
+        self.assertIn("worktree", str(caught.exception))
 
     def test_verification_leaves_nothing_behind_beside_the_snapshot(self):
         # The guarantee is the refusal, not a tally of the times it held. Anything written here would
@@ -5097,6 +5208,9 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("owner/repo", text)
         self.assertIn("CX-01", text)
         self.assertIn(PLAN_ID, text)
+        self.assertIn("A progress report is not a handoff", text)
+        self.assertIn("continue the next planned step", text)
+        self.assertIn("do not schedule a self-wakeup", text)
 
     def test_the_injection_carries_no_reviewer_private_text(self):
         """The redaction fixture, seeded on purpose so it can actually fail.

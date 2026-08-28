@@ -15,10 +15,9 @@ These lock the laws hooks owns:
     python.exe), never bare python / uv run.
   - the harness FAILS OPEN: a crashing handler, a malformed event payload, or a block requested on a
     non-eligible event all PROCEED (a non-2 exit) and emit a plain-language finding — never a hard block;
-    only a handler that returns block() on PreToolUse/Stop exits 2; on a forced Stop continuation
-    (stop_hook_active) the handler STILL runs but its block is downgraded to proceed, so it can never
-    re-block and loop the cap (close needs the give-up moment to log; the guarantee is the
-    harness's, by construction, not the handler's).
+    only a handler that returns block() on PreToolUse/Stop exits 2; on a repeated Stop
+    (stop_hook_active) the handler STILL runs and its decision is preserved. The registered owner,
+    close, owns the finite log-and-proceed rule; the shared harness does not guess another owner's budget.
   - the static block-budget leg flags a block declared on a non-eligible event, is silent on an empty set,
     and agrees with the runtime BLOCK_ELIGIBLE_EVENTS (a drift guard). The leg is built + fixture-tested
     with no live rule (the interface_resolution_findings / agent_coherence_findings precedent); the live
@@ -578,20 +577,19 @@ class TestHarnessFailOpen(unittest.TestCase):
 
 
 class TestStopHookActive(unittest.TestCase):
-    def test_forced_continuation_runs_handler_but_never_reblocks(self):
-        # A deliberate law change from the earlier skip-the-handler behaviour: on a forced continuation the
-        # handler STILL runs — close uses the give-up moment to log a still-undispositioned finding — but
-        # its block is downgraded to proceed in run_hook, so the no-re-block / no-loop guarantee holds by
-        # construction (the harness owns it, not the handler).
+    def test_repeated_stop_runs_the_owner_and_preserves_its_decision(self):
+        # The shared harness cannot infer one owner's finite budget from the provider flag. It delivers the
+        # event and preserves the owner's decision; test_close drives the registered Stop owner and proves
+        # that owner logs then proceeds instead of looping.
         called = []
 
         def would_block(_payload):
             called.append(True)
             return hooks.block("disposition still open")
         code, _out, err = _run("Stop", would_block, payload={"stop_hook_active": True})
-        self.assertEqual(code, hooks.EXIT_PROCEED)   # downgraded to proceed — never re-blocks
+        self.assertEqual(code, hooks.EXIT_BLOCK)     # the owner decides whether its own finite budget permits it
         self.assertEqual(called, [True])             # ...but the handler DID run (its side effects fire)
-        self.assertEqual(err, "")                    # and no block reason was emitted
+        self.assertIn("disposition still open", err) # the owner's pushback remains visible
 
     def test_forced_continuation_proceed_passes_through(self):
         code, _out, _err = _run("Stop", lambda p: hooks.proceed(), payload={"stop_hook_active": True})

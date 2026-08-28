@@ -1,62 +1,55 @@
 ---
-title: Add an engine module — fetch it from the engine's release and install it, safely
+title: Add an engine module — what it costs you, and what it never touches
 ---
 
 ## Purpose
 
-How the engine adds one module cleanly: it fetches the module's files from the engine's current released
-version, copies them into place, turns on the shared-file settings the module needs, records it in the
-engine's list, updates which dependency groups the tool-runtime installs, and re-checks that the installed
-set is consistent — while refusing, in plain language, to add a module that is already installed or one
-whose required companion module is missing. Enter this runbook to understand or perform adding a module. The
-tool is `tools/module_manager.py`. Adding a module needs no special permission and never touches the
-branch-protection setting — it changes only what runs *inside* the engine's existing checks, not the checks
-themselves. (Re-adding a module that was turned off during first-time setup uses this same path — its files
-were deleted then, so they are fetched again now; it is an install, not a toggle.)
+What adding one capability to this engine means, and what stays true no matter which module it is. The
+mechanics belong to the transaction: `transaction.py plan module-add <module>` shows exactly what it would
+do, and `run` applies what you saw. This runbook carries the part a command cannot tell you — when to offer
+a module at all, what an add is safe to try against, and where its one boundary sits.
 
 ## Steps
 
-The operation refuses cleanly, changing nothing, whenever a module cannot be added — so it is safe to try.
-
-1. **See what is installed.** `module_manager.py status` lists the installed modules and what each one
-   needs, so it is clear up front whether the module is already present and whether the companion modules it
-   needs are installed.
-2. **Add it.** `module_manager.py add <module>` fetches the module's files from the engine's current
-   released version, copies them into their places, turns on the shared-file settings it declares (such as a
-   dependency-cache ignore line, an extra tool, or a registered helper), records it in the engine's list at
-   its version, updates the tool-runtime's dependency-group selection, and re-checks the result. It is
-   refused, in plain language, if the module is already installed, if the fetched files do not match the
-   requested module, or if a module it needs is not present or is the wrong version — and nothing is changed.
-3. **Confirm what was installed.** The engine reports the files it added, the settings it turned on, the
-   updated dependency-group selection, and whether the installed set is consistent. A clean result means the
-   installed modules fit together; any problem is surfaced with the next step to take.
+1. **Ask the tool what it would do, and read it out.** `transaction.py plan module-add <module>` names the
+   capability, the release it comes from, and the files it would add. Nothing is changed by asking.
+2. **Apply what was shown.** `transaction.py run module-add <module> --consent-handle <handle>` installs it
+   and commits exactly those files as one labelled commit. If the world moved since the plan, it refuses and
+   hands back a fresh one rather than applying consent given to a different change.
+3. **Trust the refusals.** Every refusal names what is wrong and what clears it — already installed, a
+   fetch that does not match, a missing companion module, or an environment that cannot apply one of the
+   module's settings. Nothing is changed on any of those paths, so an add is safe to try.
 
 ## Done when
 
-The module's files are in place, the shared-file settings it needs are turned on, the engine's list records
-it at its version, the tool-runtime's dependency-group selection includes it, and the installed set is
-reported consistent — or, if the add was refused, the operator has been told plainly why (already installed,
-a mismatched fetch, or a missing companion module), with nothing changed.
+The capability is available, its files are one revertable commit on the current branch, and the installed
+set is reported consistent — or the add was refused, plainly, with nothing changed.
 
 ## Notes
 
+**This is not gated by review, deliberately.** Adding a module is the engine changing its own installation,
+not your product code, so it takes effect immediately rather than waiting on a pull request. That is what
+lets a capability be offered, accepted and used inside one conversation. What it does not do is leave the
+change loose in your checkout: it lands as one labelled commit carrying exactly the module's own files, so
+reverting that commit undoes it and nothing of yours is swept in.
+
 **Adding a module touches no branch-protection setting.** A module's checks flow in and out of the engine's
-stable required check by which check files are present, so adding a module changes only what runs inside that
-check, not its name — no operator-privileged step is needed. (A module that ships its *own* separate required
-check, and updating or removing the whole engine, are different steps other capabilities own.)
+stable required check by which check files are present, so adding one changes only what runs inside that
+check, never the check itself — no operator-privileged step is involved. Updating or removing the whole
+engine are different capabilities with their own runbooks.
 
-**Where the files come from.** The files are fetched from the engine's current released version, pinned to
-that exact version — never an in-progress copy — so an add installs files that match the engine the
-repository already runs. If the release cannot be reached, the add reports that plainly and changes nothing.
+**Where the files come from.** From the engine's current released version, pinned to that exact version —
+never an in-progress copy — so an add installs files matching the engine this repository already runs. An
+unreachable release is reported plainly and changes nothing.
 
-**When to reactively offer a module — the offer, never a silent install.** Most adds start with the operator
-asking. But the engine may also *offer* one: when an operator's request maps to a capability that an **installed
-optional package does not provide but an uninstalled one would**, offer to add that module via this same add
-path — say what it turns on and let the operator decide. This is always an **offer**, never a silent install:
-the operator's yes is what installs it, exactly as when they ask directly (the adopter floor — the root
-`CLAUDE.md` — carries this as a standing rule). The threshold is judgment, kept deliberately plain so it
-guides without a brittle rule: offer when the request **clearly** maps to what an uninstalled module is built
-for — a direct ask for its capability, or the same need coming up more than once — not on a faint keyword brush
-that would turn every mention into a prompt to install. When unsure, name the capability and ask, rather than
-either installing or staying silent. Run `module_manager.py status` first (as in step 1) to confirm the
-capability really is uninstalled before offering.
+**Re-adding a module you declined at first run** is this same path: its files were deleted then and are
+fetched again now. It is an install, not a toggle.
+
+**When to offer a module — the offer, never a silent install.** Most adds start with the operator asking.
+The engine may also *offer* one: when a request maps to a capability that an installed module does not
+provide but an uninstalled one would, say what that module turns on and let the operator decide. Their yes
+is what installs it, exactly as if they had asked. The threshold is judgment, kept plain so it guides
+without becoming brittle: offer when the request **clearly** maps to what an uninstalled module is built
+for — a direct ask for its capability, or the same need arising more than once — never on a faint keyword
+brush, which would turn every mention into a prompt to install. When unsure, name the capability and ask
+rather than either installing or staying silent. Check what is already installed before offering.

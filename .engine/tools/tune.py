@@ -231,6 +231,16 @@ def _open_tune_pr(branch: str, title: str, body: str, paths: list, repo=None, to
         raise RuntimeError("could not determine the engine repository / credentials to open the pull request.")
     base = repo_identity.resolve_default_branch(root)
 
+    # THE SAME LAST LINE THE OTHER OPENER CARRIES. This body interpolates an operator-supplied setting
+    # value (`_pr_body`'s "New value"), so it is composed text heading for a published pull request just
+    # like an update's. It is the third opener in the tree, and it was the one the redaction claim quietly
+    # did not cover — a claim broader than its coverage is worse than no claim, because a reader stops
+    # looking. Values here are schema-bounded engine knobs, so a credential landing in one is unlikely;
+    # that is a reason to expect this to be a no-op, not a reason to leave the path uncovered.
+    import transaction_handoff as _handoff   # local: only the real open composes public text
+    title = _handoff.redact_credential_values(title, tok)
+    body = _handoff.redact_credential_values(body, tok)
+
     def _github_reason(exc):
         # GitHub's own human-readable reason from a failed API response body — a 422 on /pulls carries the real
         # cause in `message` + `errors[].message`/`code`. The body is field-validation JSON and never echoes the
