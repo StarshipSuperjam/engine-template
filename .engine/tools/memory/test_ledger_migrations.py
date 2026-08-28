@@ -67,5 +67,90 @@ class ResolveRoutesAndAppliesTests(unittest.TestCase):
         self.assertEqual(lm.apply_ledger_migrations(b"same", []), b"same")
 
 
+class PrimaryEvidenceDryRunTests(unittest.TestCase):
+    def test_every_legacy_source_has_one_disposition_and_curation_is_dropped(self):
+        source = [
+            {"kind": "turn-delta", "id": "turn", "text": "Codex said this", "session_id": "claude-id",
+             "seq": 0, "speaker": "user"},
+            {"kind": "episodic", "id": "summary", "text": "a recalled summary"},
+            {"kind": "pin", "id": "pin", "text": "the current choice", "pinned_via": "assistant"},
+            {"kind": "consolidated", "id": "marker"},
+        ]
+        report = lm.classify_legacy_records(source)
+        self.assertEqual(report["source_count"], 4)
+        self.assertEqual(report["retained_count"], 2)
+        self.assertEqual(report["transformed_count"], 0)
+        self.assertEqual(report["dropped_count"], 2)
+        self.assertEqual(report["unresolved_count"], 0)
+        self.assertFalse(report["mutation_blocked"])
+        self.assertEqual([item["disposition"] for item in report["items"]],
+                         ["retain", "drop", "retain", "drop"])
+        turn = report["items"][0]["result"]
+        self.assertEqual(turn["provider"], "unknown")  # no content/id inference
+        self.assertEqual(turn["authority"], "recalled-evidence")
+        self.assertEqual(turn["text"], "Codex said this")
+        pin = report["items"][2]["result"]
+        self.assertEqual(pin["authority"], "operator-intent")
+
+    def test_chunked_task_result_is_one_terminal_result_and_wrapper_only_is_dropped(self):
+        source = [
+            {"kind": "turn-delta", "id": "a", "session_id": "S", "seq": 7, "speaker": "user",
+             "tags": ["injected"], "text": "<task-notification>\n<task-id>T</task-id>\n<status>failed</status>\n<result>first"},
+            {"kind": "turn-delta", "id": "b", "session_id": "S", "seq": 7, "speaker": "user",
+             "tags": ["injected"], "text": "second</result>\n</task-notification>"},
+            {"kind": "turn-delta", "id": "c", "session_id": "S", "seq": 8, "speaker": "user",
+             "tags": ["injected"], "text": "<task-notification><task-id>U</task-id><status>completed</status></task-notification>"},
+        ]
+        report = lm.classify_legacy_records(source)
+        self.assertEqual(report["unresolved_count"], 0)
+        self.assertEqual([item["disposition"] for item in report["items"]],
+                         ["transform", "transform", "drop"])
+        result = report["items"][0]["result"]
+        self.assertEqual(result["event"], "agent-result-failure-text")
+        self.assertEqual(result["terminal"], "failure")
+        self.assertEqual(result["item_id"], "T")
+        self.assertEqual(result["text"], "first\nsecond")
+        self.assertEqual(report["items"][1]["result_id"], result["id"])
+
+    def test_compaction_group_drops_and_unknown_injected_fragment_refuses(self):
+        source = [
+            {"kind": "turn-delta", "id": "a", "session_id": "S", "seq": 4, "speaker": "user",
+             "tags": ["injected"], "text": "This session is being continued from a previous conversation..."},
+            {"kind": "turn-delta", "id": "b", "session_id": "S", "seq": 4, "speaker": "user",
+             "tags": ["injected"], "text": "continuation chunk"},
+            {"kind": "turn-delta", "id": "c", "session_id": "S", "seq": 5, "speaker": "user",
+             "tags": ["injected"], "text": "orphan injected chunk"},
+        ]
+        report = lm.classify_legacy_records(source)
+        self.assertEqual([item["disposition"] for item in report["items"]],
+                         ["drop", "drop", "unresolved"])
+        self.assertTrue(report["mutation_blocked"])
+
+    def test_unknown_kind_is_inspectable_and_blocks_mutation(self):
+        report = lm.classify_legacy_records([{"kind": "future-unrecognised", "text": "keep me"}])
+        self.assertEqual(report["unresolved_count"], 1)
+        self.assertEqual(report["unresolved_source_indexes"], [0])
+        self.assertTrue(report["mutation_blocked"])
+        self.assertEqual(report["items"][0]["reason"], "unknown-legacy-kind")
+
+    def test_dry_run_is_read_only_and_reports_source_and_result_digests(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "ledger.ndjson")
+            raw = b'{"kind":"turn-delta","id":"t","speaker":"user","text":"hello"}\n'
+            with open(path, "wb") as fh:
+                fh.write(raw)
+            with open(path, "rb") as fh:
+                before = fh.read()
+            report = lm.dry_run_legacy_ledger(path=path)
+            with open(path, "rb") as fh:
+                self.assertEqual(fh.read(), before)
+        self.assertEqual(report["source_count"], 1)
+        self.assertEqual(len(report["source_digest"]), 64)
+        self.assertEqual(len(report["source_records_digest"]), 64)
+        self.assertEqual(len(report["result_digest"]), 64)
+        self.assertEqual(report["unresolved_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

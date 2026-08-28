@@ -92,6 +92,59 @@ class MinterTests(unittest.TestCase):
         self.assertNotEqual(records.new_record_id(), records.new_record_id())
 
 
+class PrimaryEvidenceContractTests(unittest.TestCase):
+    @staticmethod
+    def evidence(event="conversation-user"):
+        rule = records.SOURCE_EVENT_TABLE[event]
+        return {"v": 2, "kind": records.PRIMARY_EVIDENCE_KIND, "id": "legacy-0", "event": event,
+                "provider": records.PROVIDER_UNKNOWN, "authority": rule["authority"],
+                "source_type": rule["source_type"], "source_name": None, "session_id": "session-1",
+                "sequence": 3, "item_id": "item-1", "role": rule["role"],
+                "terminal": rule["terminal"], "text": "exact scrubbed text"}
+
+    def test_closed_schema_accepts_valid_unknown_provider(self):
+        evidence = self.evidence()
+        self.assertEqual(records.validate_primary_evidence(evidence), (True, None))
+
+    def test_schema_rejects_extra_fields_excluded_events_and_wrong_authority(self):
+        evidence = self.evidence()
+        evidence["event"] = "progress-status"
+        self.assertEqual(records.validate_primary_evidence(evidence)[1], "event-not-included")
+        evidence = self.evidence("current-project-artifact")
+        evidence["authority"] = records.AUTHORITY_RECALLED_EVIDENCE
+        self.assertEqual(records.validate_primary_evidence(evidence)[1], "wrong-authority")
+        evidence["authority"] = records.AUTHORITY_CURRENT_ARTIFACT
+        evidence["unexpected"] = True
+        self.assertEqual(records.validate_primary_evidence(evidence)[1], "closed-schema")
+
+    def test_matrix_closes_terminal_results_and_every_enumerated_exclusion(self):
+        retained = {name for name, rule in records.SOURCE_EVENT_TABLE.items()
+                    if rule["decision"] == records.DECISION_RETAIN}
+        self.assertTrue({"tool-result-success-text", "tool-result-failure-text",
+                         "agent-result-success-text", "agent-result-failure-text"} <= retained)
+        dropped = {name for name, rule in records.SOURCE_EVENT_TABLE.items()
+                   if rule["decision"] == records.DECISION_DROP}
+        self.assertEqual(dropped, {"tool-arguments", "wrapper-notification", "progress-status",
+                                   "binary-media", "resource-only", "duplicate-item",
+                                   "compaction-continuation"})
+        self.assertEqual(records.SOURCE_EVENT_TABLE["unknown-event"]["decision"],
+                         records.DECISION_UNRESOLVED)
+
+    def test_current_artifacts_outrank_recalled_evidence_without_promoting_pins(self):
+        self.assertEqual(records.SOURCE_EVENT_TABLE["current-project-artifact"]["authority"],
+                         records.AUTHORITY_CURRENT_ARTIFACT)
+        self.assertEqual(records.SOURCE_EVENT_TABLE["conversation-user"]["authority"],
+                         records.AUTHORITY_RECALLED_EVIDENCE)
+        self.assertEqual(records.SOURCE_EVENT_TABLE["operator-pin"]["authority"],
+                         records.AUTHORITY_OPERATOR_INTENT)
+
+    def test_only_explicit_provider_is_accepted(self):
+        # These identifiers and words look provider-specific; neither is used.
+        self.assertEqual(records.provider_or_unknown(None), records.PROVIDER_UNKNOWN)
+        self.assertEqual(records.provider_or_unknown("codex session id or Claude transcript"), records.PROVIDER_UNKNOWN)
+        self.assertEqual(records.provider_or_unknown(records.PROVIDER_CODEX), records.PROVIDER_CODEX)
+
+
 class FactoryTests(unittest.TestCase):
     def test_every_factory_stamps_a_unique_nonempty_id(self):
         td = capture._make_record("S", 0, "user", "a turn note")

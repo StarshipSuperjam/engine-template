@@ -33,6 +33,7 @@ resolves to the shared clone root's `.engine/memory/`, overridable via the ENGIN
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -81,6 +82,25 @@ class LedgerRead:
     malformed: int = 0
     torn_trailing: bool = False
     torn_raw: "bytes | None" = None
+
+
+def records_digest(records) -> str:
+    """Return a stable SHA-256 digest for decoded ledger records, without writing."""
+    digest = hashlib.sha256()
+    for record in records:
+        digest.update(json.dumps(record, ensure_ascii=False, sort_keys=True,
+                                 separators=(",", ":")).encode("utf-8"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
+def file_digest(path: str | None = None) -> str:
+    """Return the SHA-256 of the exact ledger bytes, without changing the file."""
+    digest = hashlib.sha256()
+    with open(path or ledger_path(), "rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _git_common_root(cwd: str | None = None) -> str | None:

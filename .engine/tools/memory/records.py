@@ -17,6 +17,108 @@ stdlib-only; imports nothing from `memory`.
 import re
 import uuid
 
+# Primary evidence v2 is a deliberately closed envelope. Every retained source
+# item uses the same provenance fields; fields that do not apply are explicit
+# nulls rather than omissions, so readers never infer provenance from content.
+PRIMARY_EVIDENCE_VERSION = 2
+PRIMARY_EVIDENCE_KIND = "primary-evidence"
+PROVIDER_CLAUDE = "claude"
+PROVIDER_CODEX = "codex"
+PROVIDER_UNKNOWN = "unknown"
+VALID_PROVIDERS = frozenset((PROVIDER_CLAUDE, PROVIDER_CODEX, PROVIDER_UNKNOWN))
+AUTHORITY_CURRENT_ARTIFACT = "current-artifact"
+AUTHORITY_OPERATOR_INTENT = "operator-intent"
+AUTHORITY_RECALLED_EVIDENCE = "recalled-evidence"
+TERMINAL_SUCCESS = "success"
+TERMINAL_FAILURE = "failure"
+TERMINAL_NOT_APPLICABLE = "not-applicable"
+DECISION_RETAIN = "retain"
+DECISION_DROP = "drop"
+DECISION_UNRESOLVED = "unresolved"
+
+# Closed source-event matrix. This is structural, not a subjective "useful"
+# predicate: terminal textual results are retained regardless of success;
+# arguments, wrappers, progress, non-text resources, duplicate echoes, and
+# compaction continuations are enumerated exclusions; an unknown event refuses.
+SOURCE_EVENT_TABLE = {
+    "current-project-artifact": {"decision": DECISION_RETAIN, "source_type": "project-artifact",
+                                 "role": None, "terminal": TERMINAL_NOT_APPLICABLE,
+                                 "authority": AUTHORITY_CURRENT_ARTIFACT},
+    "operator-pin": {"decision": DECISION_RETAIN, "source_type": "pin", "role": "operator",
+                     "terminal": TERMINAL_NOT_APPLICABLE, "authority": AUTHORITY_OPERATOR_INTENT},
+    "conversation-user": {"decision": DECISION_RETAIN, "source_type": "conversation", "role": "user",
+                          "terminal": TERMINAL_NOT_APPLICABLE, "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "conversation-assistant": {"decision": DECISION_RETAIN, "source_type": "conversation",
+                               "role": "assistant", "terminal": TERMINAL_NOT_APPLICABLE,
+                               "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "legacy-primary-observation": {"decision": DECISION_RETAIN, "source_type": "legacy-observation",
+                                   "role": "observation", "terminal": TERMINAL_NOT_APPLICABLE,
+                                   "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "tool-result-success-text": {"decision": DECISION_RETAIN, "source_type": "tool", "role": "tool",
+                                 "terminal": TERMINAL_SUCCESS, "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "tool-result-failure-text": {"decision": DECISION_RETAIN, "source_type": "tool", "role": "tool",
+                                 "terminal": TERMINAL_FAILURE, "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "agent-result-success-text": {"decision": DECISION_RETAIN, "source_type": "agent", "role": "agent",
+                                  "terminal": TERMINAL_SUCCESS, "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "agent-result-failure-text": {"decision": DECISION_RETAIN, "source_type": "agent", "role": "agent",
+                                  "terminal": TERMINAL_FAILURE, "authority": AUTHORITY_RECALLED_EVIDENCE},
+    "tool-arguments": {"decision": DECISION_DROP, "reason": "arguments-are-not-terminal-evidence"},
+    "wrapper-notification": {"decision": DECISION_DROP, "reason": "wrapper-has-no-result-text"},
+    "progress-status": {"decision": DECISION_DROP, "reason": "nonterminal-progress"},
+    "binary-media": {"decision": DECISION_DROP, "reason": "nontext-media"},
+    "resource-only": {"decision": DECISION_DROP, "reason": "nontext-resource"},
+    "duplicate-item": {"decision": DECISION_DROP, "reason": "source-item-already-committed"},
+    "compaction-continuation": {"decision": DECISION_DROP, "reason": "derivative-continuation"},
+    "unknown-event": {"decision": DECISION_UNRESOLVED, "reason": "unknown-source-event"},
+}
+PRIMARY_EVIDENCE_FIELDS = frozenset((
+    "v", "kind", "id", "event", "provider", "authority", "source_type", "source_name",
+    "session_id", "sequence", "item_id", "role", "terminal", "text",
+))
+
+
+def provider_or_unknown(value) -> str:
+    """Return an explicit known provider, otherwise valid ``unknown``.
+
+    This deliberately examines only the provider field. Transcript content,
+    record ids, paths, and session ids are never provider evidence.
+    """
+    return value if isinstance(value, str) and value in VALID_PROVIDERS else PROVIDER_UNKNOWN
+
+
+def validate_primary_evidence(record) -> tuple[bool, str | None]:
+    """Validate the closed v2 primary-evidence envelope without raising."""
+    if not isinstance(record, dict):
+        return False, "record-not-object"
+    if set(record) != PRIMARY_EVIDENCE_FIELDS:
+        return False, "closed-schema"
+    if record.get("v") != PRIMARY_EVIDENCE_VERSION or record.get("kind") != PRIMARY_EVIDENCE_KIND:
+        return False, "wrong-version-or-kind"
+    if not isinstance(record.get("id"), str) or not record["id"]:
+        return False, "invalid-id"
+    rule = SOURCE_EVENT_TABLE.get(record.get("event"))
+    if rule is None or rule["decision"] != DECISION_RETAIN:
+        return False, "event-not-included"
+    if record.get("authority") != rule["authority"]:
+        return False, "wrong-authority"
+    if record.get("source_type") != rule["source_type"] or record.get("role") != rule["role"]:
+        return False, "wrong-source-or-role"
+    if record.get("terminal") != rule["terminal"]:
+        return False, "wrong-terminal-status"
+    if record.get("provider") not in VALID_PROVIDERS:
+        return False, "invalid-provider"
+    for key in ("source_name", "session_id"):
+        if record.get(key) is not None and (not isinstance(record[key], str) or not record[key]):
+            return False, f"invalid-{key.replace('_', '-')}"
+    sequence = record.get("sequence")
+    if sequence is not None and (not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0):
+        return False, "invalid-sequence"
+    if not isinstance(record.get("item_id"), str) or not record["item_id"]:
+        return False, "invalid-item-id"
+    if not isinstance(record.get("text"), str) or not record["text"]:
+        return False, "invalid-text"
+    return True, None
+
 # Record kinds (the `kind` field). These are the shared kinds the reflection and forgetting layers
 # both reference.
 AMBIENT_CAPTURE_KIND = "turn-delta"  # the role-less, Stop-appended verbatim capture record. Promoted here (it was
