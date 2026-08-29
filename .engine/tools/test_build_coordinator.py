@@ -496,6 +496,49 @@ class TestSealedPlanEntry(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "moved since it was sealed"):
             bc._sealed_plan(self.document["plan_id"])
 
+    def _close(self, state, reason="because"):
+        record = self.library.read_record(self.slug)
+        self.library.update_record(
+            self.slug,
+            lambda current: current.update({"closure": {
+                "state": state, "at": "2026-08-29T08:00:00Z", "reason": reason}}),
+            expected_revision=record["current"]["revision"])
+
+    def test_a_closed_sealed_plan_is_refused_by_the_bind_verb_itself(self):
+        """The GATE, not the advice text. `_next_step` said a closed plan was no longer bindable
+        while the door went on binding it — a claim nothing enforced. These assert the door."""
+        for state, phrase in (("retired", "set aside"),
+                              ("abandoned", "deliberately dropped"),
+                              ("complete", "already merged")):
+            with self.subTest(state=state):
+                self.seal_it()
+                self._close(state)
+                with self.assertRaises(bc.CoordinatorError) as caught:
+                    bc._sealed_plan(self.document["plan_id"])
+                message = str(caught.exception)
+                self.assertIn(f"is {state}", message)
+                self.assertIn("does not start a Build", message)
+                self.assertIn(phrase, message)
+                # Reset for the next state: a closure is replaced, not stacked.
+                record = self.library.read_record(self.slug)
+                self.library.update_record(
+                    self.slug, lambda current: current.update({"closure": None}),
+                    expected_revision=record["current"]["revision"])
+
+    def test_an_open_sealed_plan_still_binds_exactly_as_before(self):
+        seal = self.seal_it()
+        plan_id, sealed_digest, payload = bc._sealed_plan(self.document["plan_id"])
+        self.assertEqual(plan_id, self.document["plan_id"])
+        self.assertEqual(sealed_digest, seal["sealed_digest"])
+        self.assertEqual(bc._digest(payload), bc._digest(plan()))
+
+    def test_the_closed_refusal_comes_after_the_unsealed_one(self):
+        """An unsealed AND closed plan should hear about the seal: it is the more basic fact, and
+        naming the closure first would send someone to reopen a plan that could not bind anyway."""
+        self._close("abandoned")
+        with self.assertRaisesRegex(bc.CoordinatorError, "is not sealed"):
+            bc._sealed_plan(self.document["plan_id"])
+
     def test_binding_records_the_binding_on_the_plan_itself(self):
         seal = self.seal_it()
         bc._record_build_binding(self.document["plan_id"], "owner/repo", 7, seal["sealed_digest"],

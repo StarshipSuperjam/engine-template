@@ -1026,6 +1026,26 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
             f"{record['plan_id']} is not sealed, and only a sealed plan enters a Build. Finish its "
             "lifecycle first — preview, approve with a depth, record the one cold plan review, "
             f"disposition its findings, then `project_manager.py seal {record['plan_id']}`.")
+    closure = record.get("closure")
+    if closure:
+        # A closed plan stayed BINDABLE, and a seal is forever: a plan retired because it was
+        # superseded, or abandoned because the work was dropped, could still start a Build months
+        # later — a loaded gun on the shelf under a record saying it had been put away. "No longer
+        # bindable" was advice printed by the next-step helper and nothing more; this is the door
+        # itself, which is what makes it true.
+        ways = {
+            "retired": "It was set aside — reopen it with `project_manager.py reopen "
+                       f"{record['plan_id']}` if that was wrong, or build the plan that replaced it.",
+            "abandoned": "It was deliberately dropped. Reopen it with `project_manager.py reopen "
+                         f"{record['plan_id']}` if that was wrong, or plan the work afresh.",
+            "complete": "Its Build already merged, and completed Build history is terminal. New work "
+                        "takes a new plan — `project_manager.py clone "
+                        f"{record['plan_id']} --reason \"...\"` carries the thinking forward without "
+                        "carrying evidence nobody granted the copy.",
+        }
+        raise CoordinatorError(
+            f"{record['plan_id']} is {closure['state']} ({closure['reason']}), and a closed plan "
+            "does not start a Build. " + ways.get(closure["state"], ""))
     document = library.head(slug)
     if record["current"]["plan_digest"] != seal["sealed_digest"]:
         raise CoordinatorError(
