@@ -53,7 +53,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, index, ledger, recall, records  # noqa: E402
+from memory import forget, index, ledger, mutation_authority as _mutation_authority, recall, records  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
@@ -162,6 +162,7 @@ _RECALL_COMPLETENESS_NOTE = (
         "ordinary words before concluding anything, because it reaches records that share no wording with you."
     ),
 )
+@_mutation_authority.guard("attended-keyword-mcp-search")
 def search(query: str, tags: list[str] | None = None,
            session: str | None = None, limit: int | None = None) -> dict:
     out = _recall(query, tags=tags, session=session, limit=limit).records
@@ -235,6 +236,7 @@ if _semantic_installed():
             "Searches the same records `search` does, so an erased memory is absent here too."
         ),
     )
+    @_mutation_authority.guard("attended-semantic-mcp-search")
     def recall_by_meaning(query: str, limit: int = 10) -> dict:
         from memory.semantic import embed as _embed
         from memory.semantic import store as _store
@@ -497,6 +499,9 @@ def main(argv) -> int:
         return _demo()
     server.run()  # stdio transport by default
     return 0
+
+
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

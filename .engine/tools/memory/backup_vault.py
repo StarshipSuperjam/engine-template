@@ -272,6 +272,9 @@ def build_manifest(*, ledger_path: "str | None" = None, now: "int | None" = None
 
 
 def _pointer_path() -> str:
+    if "ENGINE_PERSISTENT_EXECUTION_CONTEXT" in os.environ:
+        from memory import execution_context as _execution_context
+        return _execution_context.current_context()["target"]["lifecycle"]["backup_pointer"]
     import validate  # noqa: E402 — the committed pointer lives in the working tree at the repo root
     return os.path.join(validate.ROOT, *POINTER_REL.split("/"))
 
@@ -2003,6 +2006,13 @@ def snapshot_demo() -> bool:
         finally:
             validate.ROOT = old_root
             os.environ.pop("ENGINE_MEMORY_DIR", None)
+
+
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

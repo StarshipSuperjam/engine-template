@@ -112,6 +112,12 @@ def _git_common_root(cwd: str | None = None) -> str | None:
 def ledger_dir(cwd: str | None = None) -> str:
     """Resolve the directory holding the ledger: ENGINE_MEMORY_DIR override, else the shared clone
     root's `.engine/memory/`, else a CWD-relative fallback."""
+    if "ENGINE_PERSISTENT_EXECUTION_CONTEXT" in os.environ:
+        try:
+            from . import execution_context as _execution_context
+        except ImportError:
+            from memory import execution_context as _execution_context
+        return _execution_context.current_context()["target"]["memory_dir"]
     env = os.environ.get(ENV_DIR)
     if env:
         return os.path.abspath(os.path.expanduser(env))
@@ -598,6 +604,14 @@ def main(argv: list) -> int:
         return _demo()
     print("usage: ledger.py demo")
     return 0
+
+
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

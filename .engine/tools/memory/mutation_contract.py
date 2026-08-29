@@ -75,8 +75,9 @@ REGISTRY = (
            None, "files", "remote-ref-compare-and-set",
            ["memory.backup_vault._session_start_handler", "memory.backup_vault.main"]),
     _entry("automatic-restore-reconcile", "memory.restore_vault.reconcile_interrupted_restore",
-           "restore-journal", "reversible-mutation", _AUTO, None, "files", "durable-journal",
-           ["boot.handler"], schema_cutover=True),
+           "restore-journal", "reversible-mutation", _BOTH, None, "files", "durable-journal",
+           ["boot.handler", "memory.restore_vault.restore_now", "memory.restore_vault.restore_pre_migration"],
+           schema_cutover=True),
 
     # Other persistent effects reached by the automatic hook handlers and accepted dispatcher.  These are
     # not ledger payloads, but they are exactly the sidecars, control state, caches, and diagnostics whose
@@ -212,7 +213,7 @@ REGISTRY = (
     _entry("migration-window-close", "memory.capture.close_migration_window", "lifecycle-marker",
            "reversible-mutation", _ATTENDED, 1, "files", "none", [".engine/tools/module_manager.py"]),
     _entry("migration-window-reap", "memory.capture.clear_orphaned_migration_locked", "lifecycle-marker",
-           "reversible-mutation", _AUTO, 1, "files", "none", ["memory.compact.compact"]),
+           "reversible-mutation", _BOTH, 1, "files", "none", ["memory.compact.compact"]),
     _entry("capture-failure-history", "memory.capture._append_failure_history", "degraded-health",
            "reversible-mutation", _AUTO, 20, "status-records", "best-effort-diagnostic",
            ["memory.capture._write_capture_status"]),
@@ -301,8 +302,8 @@ REGISTRY = (
            "destructive-irreversible", _BOTH, None, "files", "durable-journal",
            ["memory.restore_vault.reconcile_interrupted_restore"], schema_cutover=True),
     _entry("restore-orphan-cleanup", "memory.restore_vault._cleanup_orphan_restore_staging_locked",
-           "restore-journal", "destructive-irreversible", _AUTO, None, "files", "durable-journal",
-           ["memory.restore_vault.reconcile_interrupted_restore"]),
+           "restore-journal", "destructive-irreversible", _BOTH, None, "files", "durable-journal",
+           ["memory.restore_vault.reconcile_interrupted_restore", "memory.restore_vault._apply_restore"]),
     _entry("restore-apply", "memory.restore_vault._apply_restore", "ledger", "destructive-irreversible",
            _ATTENDED, None, "records", "durable-journal", ["memory.restore_vault.restore_now",
                                                              "memory.restore_vault.restore_pre_migration"],
