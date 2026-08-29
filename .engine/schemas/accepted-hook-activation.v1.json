@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starshipsuperjam.github.io/engine/schemas/accepted-hook-activation.v1.json",
+  "title": "Accepted automatic-hook activation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "commit",
+    "tree",
+    "engine_release",
+    "epoch",
+    "source",
+    "source_ref",
+    "activated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "accepted-hook-activation.v1"},
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "tree": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "engine_release": {"type": "string", "minLength": 1},
+    "epoch": {"type": "integer", "minimum": 1},
+    "source": {"enum": ["reviewed-merge", "published-release"]},
+    "source_ref": {"type": "string", "minLength": 1},
+    "activated_at": {"type": "string", "format": "date-time"}
+  }
+}
