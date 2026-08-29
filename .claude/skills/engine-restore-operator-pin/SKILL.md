@@ -5,7 +5,7 @@ invocation: model-only
 user-invocable: false
 engine-targets:
   - kind: tool
-    ref: engine-memory.restore
+    ref: .engine/tools/memory/mcp_server.py
     availability: active
 ---
 
