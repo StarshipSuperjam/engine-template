@@ -9,7 +9,7 @@ create-if-absent compare-and-set, and seals the result.
 
 This is an in-process integrity boundary, not an OS security boundary.  A capability cannot be constructed,
 edited, crossed to another context/writer, or reused through the supported API.  Same-user hostile Python can
-inspect process memory, which remains explicitly outside issue #1151's support claim.
+inspect process memory, which remains explicitly outside issue StarshipSuperjam/engine-template#1151's support claim.
 """
 from __future__ import annotations
 

@@ -474,6 +474,35 @@ def _activation_topology(root: str) -> dict:
     return topology
 
 
+def _provider_authority(tree: str):
+    """Load the provider vocabulary seam without importing candidate paths implicitly."""
+    path = os.path.join(tree, ".engine", "tools", "providers.py")
+    try:
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_size > 512 * 1024:
+            raise QualificationError("provider authority is unsafe")
+        spec = importlib.util.spec_from_file_location("_engine_accepted_provider_authority", path)
+        if spec is None or spec.loader is None:
+            raise QualificationError("provider authority is unavailable")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        previous_bytecode = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.dont_write_bytecode = previous_bytecode
+        if os.path.realpath(getattr(module, "__file__", "")) != os.path.realpath(path):
+            raise QualificationError("provider authority escaped its qualified tree")
+        if module.PROVIDER_ENV in _PYTHON_ENV_PREFIXES:
+            raise QualificationError("provider authority returned an invalid environment binding")
+        return module
+    except QualificationError:
+        raise
+    except Exception as exc:
+        raise QualificationError("provider authority could not be loaded") from exc
+
+
 def _verify_activation_barrier(root: str) -> dict:
     topology = _activation_topology(root)
     if not topology["qualified"]:
@@ -615,10 +644,11 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
     _verify_exact_object(root, activation)
     accepted_tree = _materialize(root, activation)
     context = _canonical_context(root, activation, accepted_tree)
+    provider_authority = _provider_authority(accepted_tree)
     context["invocation"] = {
         "script": rel,
-        "provider": os.environ.get("ENGINE_PROVIDER", "claude"),
-        "run_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CODEX_THREAD_ID"),
+        "provider": provider_authority.detect(),
+        "run_id": provider_authority.resolve_session(),
     }
     env = {
         key: value for key, value in os.environ.items()
@@ -627,7 +657,7 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
     canonical = context["canonical"]
     env.update({
         "PYTHONNOUSERSITE": "1",
-        "ENGINE_PROVIDER": context["invocation"]["provider"],
+        provider_authority.PROVIDER_ENV: context["invocation"]["provider"],
         "ENGINE_PROJECT_ROOT": canonical["project_root"],
         "ENGINE_MEMORY_DIR": canonical["memory_dir"],
         "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
@@ -1064,8 +1094,9 @@ def run_candidate(args: argparse.Namespace) -> int:
                 "ENGINE_CANDIDATE_DISPOSABLE",
             }
         }
+        provider_authority = _provider_authority(accepted_tree)
         env.update({
-            "PYTHONNOUSERSITE": "1", "ENGINE_PROVIDER": args.provider,
+            "PYTHONNOUSERSITE": "1", provider_authority.PROVIDER_ENV: args.provider,
             "ENGINE_PERSISTENT_EXECUTION_CONTEXT": context.to_json(),
         })
         argv = [

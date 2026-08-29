@@ -11,7 +11,9 @@ across those worktrees. This page describes how the Engine keeps a stale or in-p
 the implementation that mutates that shared state, how an accepted implementation is changed, and what an
 operator sees when qualification fails.
 
-## Automatic execution
+## What you need to know
+
+### Automatic execution
 
 Claude and Codex register the same five memory-bearing entry points: boot, close, compaction, erasure
 observation, and backup. Their provider-specific commands enter one shared launcher. The launcher admits only
@@ -29,7 +31,7 @@ This preserves shared recall: linked worktrees still read and update the same ca
 worktrees do not receive separate memory stores, and memory is not disabled merely because more than one
 worktree exists.
 
-## Changing the accepted implementation
+### Changing the accepted implementation
 
 Activation is attended. It accepts only an exact commit reachable from the recorded default branch after
 review, or an exact commit named by a published release tag, and advances the epoch with compare-and-set.
@@ -45,7 +47,7 @@ Rollback follows the same rule: select a previously reviewed safe commit or publ
 compare-and-set activation. Never restore an old activation record by copying it over the current one, because
 that would bypass the worktree census and epoch check.
 
-## Candidate maintenance
+### Candidate maintenance
 
 Candidate code has no automatic path to canonical memory. An attended candidate command re-enters accepted
 code, which creates a new absent disposable directory directly under the operating-system temporary directory.
@@ -54,7 +56,7 @@ binds accepted code, candidate code and dirtiness, immutable context, private ta
 provider, run/task identities, before/after inventories, outputs, and exit status. Canonical and remote targets,
 aliases, pre-existing directories, automatic-only operations, and unknown future authorization fields refuse.
 
-## Degraded health and recovery
+### Degraded health and recovery
 
 A qualification refusal never becomes a canonical-memory repair. The host action continues with the launcher's
 normal non-blocking exit, including PreCompact. Outside canonical memory, under an atomic Git-common lock, the
@@ -64,7 +66,7 @@ never stores raw hook stderr, paths, ledger content, credentials, or vault mater
 rate-limited; every skipped effect is still counted. A later qualified success records recovery, and the status
 dashboard reports the current degraded or recovered state.
 
-## Enforcement limit
+### Enforcement limit
 
 This is operational provenance, not protection from malicious code running as the same operating-system user.
 It closes the supported Engine call graph against accidental candidate or stale-code mutation and detects

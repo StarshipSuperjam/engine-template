@@ -135,7 +135,7 @@
     },
     "context_digest": {"$ref": "#/$defs/digest"},
     "future_authorization": {
-      "description": "Reserved opaque handoff seam for issue #1145; this revision never issues authorization.",
+      "description": "Reserved opaque handoff seam for issue StarshipSuperjam/engine-template#1145; this revision never issues authorization.",
       "type": ["object", "string", "null"]
     },
     "receipt_digest": {"$ref": "#/$defs/digest"}

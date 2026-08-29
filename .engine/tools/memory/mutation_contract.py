@@ -435,6 +435,7 @@ _GIT_WRITE_VERBS = frozenset({
     "add", "branch", "checkout", "clean", "commit", "fetch", "merge", "mv", "pull", "push", "rebase",
     "reset", "restore", "rm", "switch", "tag", "update-ref", "worktree",
 })
+_DEMO_FUNCTION_SUFFIX = "demo"
 
 
 def _constant_string(node):
@@ -512,7 +513,8 @@ def discover_direct_writers(path: str, *, module: str | None = None) -> set[str]
     found = set()
     for node in tree.body:
         if (not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                or node.name.startswith(("_demo", "_fixture")) or node.name.endswith("demo")):
+                or node.name.startswith(("_demo", "_fixture"))
+                or node.name.endswith(_DEMO_FUNCTION_SUFFIX)):
             continue
         if any(_call_is_write(call) for call in _calls_outside_nested_functions(node)):
             found.add(f"{prefix}.{node.name}")
