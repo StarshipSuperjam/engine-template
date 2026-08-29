@@ -6681,7 +6681,7 @@
       },
       "slug": "candidate-disposable-receipt.v1",
       "source": {
-        "fingerprint": "sha256:8ce453fe4a9bae9f2b9d9e40d563cfe5bd4e97bd66a348605f64518ff3d29a52",
+        "fingerprint": "sha256:2d7dc343973ccc4e3cdcd70904aafc704e2a98e5565a5a4418fad0ce4e03f4c9",
         "path": ".engine/schemas/candidate-disposable-receipt.v1.json"
       },
       "status": "active",
@@ -8589,7 +8589,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:bf347e340a89535585831059dcc8467e76753d017c1a8972eab6c61d7b8d4c2f",
+        "fingerprint": "sha256:e079c13ae530079ba88eaa842988743688390e5f74a7f8b15b219816e1cb9aea",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -11671,7 +11671,7 @@
       },
       "slug": "execution_context",
       "source": {
-        "fingerprint": "sha256:d7ecb2ce4f8ec39f2b7997050fc3de3de08b495163657803f5602cc4179539cd",
+        "fingerprint": "sha256:cbdcd87ec45e037f860c1cec6050c1eced257b5f9344e5ba6fe12996ea577d72",
         "path": ".engine/tools/memory/execution_context.py"
       },
       "status": "active",
@@ -13088,7 +13088,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:35bd84a6d675e9d2cfd96ba5c0ac9912a26fb8164d05e321cc97db66424446bd",
+        "fingerprint": "sha256:f56fed2387fa13377e372a5f3c9d72e7d595059c59eac11516907c5eab3fedfd",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
