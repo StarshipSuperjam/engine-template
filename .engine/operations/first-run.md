@@ -88,7 +88,7 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    backup keeps everything in one place, but one accidental flip to public would expose every project at once).
    Take their answer; then run the same command with `--scope shared` (or `--scope per-project`) to show them
    exactly which private repository will be created and that it must stay private. **Only on a clear yes**, run
-   `uv run --directory .engine -- python tools/memory/backup_vault.py setup --scope <their choice> --consent y` to
+   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/backup_vault.py --operation attended-backup-setup -- setup --scope <their choice> --consent y` to
    create it. If they decline, or there is no GitHub access yet, nothing is created — say so plainly, and note they
    can set a backup up later by asking the engine to. This choice is offered at every new project's setup; the
    operator's memory is never backed up to a destination they weren't shown and didn't agree to.

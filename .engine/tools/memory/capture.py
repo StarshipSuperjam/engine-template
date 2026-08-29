@@ -68,6 +68,7 @@ RECORD_VERSION = 1                       # stamped as `v` on each record: the sh
 RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
                                              # leaf `forget` also reads); aliased here so the string never drifts
 CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-message-count}; gitignored sibling
+CAPTURE_TRANSACTION_FILENAME = ".capture-transaction.json"  # durable roll-forward journal
 LOCK_FILENAME = ".capture.lock"          # the capture transaction lock; gitignored sibling
 
 CHUNK_MAX_CHARS = 4_000                  # per-record body cap (paragraph-preferred, LOSSLESS split)
@@ -388,6 +389,90 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh, separators=(",", ":"))
     os.replace(tmp, path)
+
+
+def _capture_transaction_path(data_dir: str) -> str:
+    return os.path.join(data_dir, CAPTURE_TRANSACTION_FILENAME)
+
+
+def _write_capture_transaction(data_dir: str, document: dict) -> None:
+    """Durably publish the exact roll-forward work before any ledger record lands."""
+    path = _capture_transaction_path(data_dir)
+    tmp = path + f".{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(document, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _read_capture_transaction(data_dir: str):
+    path = _capture_transaction_path(data_dir)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("capture transaction journal is unreadable") from exc
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "session_id", "cursor_after", "records"}
+            or value.get("schema_version") != "capture-transaction.v1"
+            or not isinstance(value.get("session_id"), str) or not value["session_id"]
+            or not isinstance(value.get("cursor_after"), int) or isinstance(value["cursor_after"], bool)
+            or value["cursor_after"] < 0 or not isinstance(value.get("records"), list)
+            or any(not isinstance(record, dict) or not isinstance(record.get(records.RECORD_ID_KEY), str)
+                   for record in value["records"])):
+        raise RuntimeError("capture transaction journal has an invalid shape")
+    return value
+
+
+def _clear_capture_transaction(data_dir: str) -> None:
+    try:
+        os.unlink(_capture_transaction_path(data_dir))
+    except FileNotFoundError:
+        return
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -> int:
+    """Idempotently roll a prepared capture forward, then remove its journal last."""
+    transaction = _read_capture_transaction(data_dir)
+    if transaction is None:
+        return 0
+    ledger_file = ledger.ledger_path(cwd)
+    existing_ids = {
+        record.get(records.RECORD_ID_KEY)
+        for record in ledger.read(path=ledger_file).records if isinstance(record, dict)
+    }
+    appended = []
+    for record in transaction["records"]:
+        if record[records.RECORD_ID_KEY] in existing_ids:
+            continue
+        ledger.append(record, path=ledger_file)
+        appended.append(record)
+        existing_ids.add(record[records.RECORD_ID_KEY])
+    _write_cursor(data_dir, transaction["session_id"], transaction["cursor_after"])
+    from memory import index  # lazy: index -> forget -> capture
+    index_file = index.index_path(cwd)
+    if recovering:
+        # A prior process may have died at any point around incremental indexing. A full atomic rebuild is the
+        # only idempotent repair that cannot duplicate rows or leave a current-looking hole.
+        index.rebuild(ledger_file=ledger_file, index_file=index_file)
+    elif transaction["records"]:
+        index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file)
+    _write_capture_status("captured", transaction["session_id"])
+    _clear_capture_transaction(data_dir)
+    return len(appended)
 
 
 def _restore_quarantine_present(transaction_path: str) -> bool:
@@ -770,6 +855,10 @@ def _capture(payload, *, cwd) -> int:
     if lock_fd is None:
         return 0  # contended ~1s; the delta is caught at the next Stop
     try:
+        # A previous process may have stopped after any one of journal -> ledger -> cursor -> index -> status.
+        # Roll that exact prepared work forward before looking at a newer transcript delta.
+        if _read_capture_transaction(data_dir) is not None:
+            _recover_capture_transaction(data_dir, cwd, recovering=True)
         # PROVIDER-ROUTED parsing: a Codex session's transcript goes ONLY through the
         # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
         # fall-through to the tolerant Claude parser below, which could capture fragments.
@@ -786,9 +875,7 @@ def _capture(payload, *, cwd) -> int:
         if not delta:
             _write_capture_status("captured", session_id)
             return 0
-        ledger_file = ledger.ledger_path(cwd)
-        appended = 0
-        fresh: list = []          # what landed this turn, for the incremental index extend below
+        fresh: list = []          # prepared first; the journal lands before any one of these records
         for offset, rec in enumerate(delta):
             text = _message_text(rec)
             if not text or not text.strip():
@@ -807,21 +894,15 @@ def _capture(payload, *, cwd) -> int:
             injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
                 record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)
-                ledger.append(record, path=ledger_file)
                 fresh.append(record)
-                appended += 1
-        _write_cursor(data_dir, session_id, len(messages))
-        _write_capture_status("captured", session_id)
-        # The conversation is recall content, and nothing else refreshes the fast index between full rebuilds
-        # (`ledger.append` does not move the generation stamp — only compaction does). Without this a turn would
-        # be in the ledger, absent from the index, and the index would still look CURRENT — so the fast path
-        # would answer without it and call itself healthy while the plain scan found it. Still inside the
-        # capture lock, so a compaction swap cannot race it. Best-effort by contract: `extend` swallows its own
-        # failures and returns 0, and the next full rebuild reconstructs from the ledger regardless.
-        if fresh:
-            from memory import index  # lazy: index -> forget -> capture, so a module-level import would cycle
-            index.extend(fresh, ledger_file=ledger_file, index_file=index.index_path(cwd))
-        return appended
+        transaction = {
+            "schema_version": "capture-transaction.v1",
+            "session_id": session_id,
+            "cursor_after": len(messages),
+            "records": fresh,
+        }
+        _write_capture_transaction(data_dir, transaction)
+        return _recover_capture_transaction(data_dir, cwd, recovering=False)
     finally:
         _release_lock(lock_fd)
 

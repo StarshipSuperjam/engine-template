@@ -31,6 +31,11 @@ _DEMO_EXAMPLE_BANNER = "─── EXAMPLE — a made-up situation, NOT your proj
 _DEMO_EXAMPLE_INTRO = "And here is what the view looks like when something needs your attention:"
 _QUALIFICATION_HEADING = "## ⚠ Automatic memory work is degraded"
 _QUALIFICATION_RECOVERED = "Automatic memory qualification recovered"
+_QUALIFICATION_REASONS = {
+    "accepted-dispatch-refused": "the accepted commit or its canonical-state binding was refused",
+    "accepted-dispatcher-absent": "this worktree's accepted-code dispatcher is missing",
+    "accepted-runtime-unavailable": "the Engine's private Python runtime was unavailable",
+}
 
 
 def _qualification_health():
@@ -57,11 +62,20 @@ def _render_qualification_health(value) -> str:
         count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else "unknown"
         latest = value.get("last_failure_at")
         when = f"; latest at {latest}" if isinstance(latest, str) and len(latest) <= 32 else ""
+        failure = value.get("last_failure") if isinstance(value.get("last_failure"), dict) else {}
+        reason = _QUALIFICATION_REASONS.get(
+            failure.get("reason_code"), "the accepted execution boundary did not qualify")
+        effect = failure.get("effect") if isinstance(failure.get("effect"), dict) else {}
+        script = effect.get("script")
+        affected = f" Affected hook: `{script}`." if isinstance(script, str) and len(script) <= 160 else ""
+        guidance = value.get("guidance")
+        guidance = guidance if isinstance(guidance, str) and len(guidance) <= 900 else (
+            "Inspect the accepted activation and worktree wiring, repair the failing boundary, then retry."
+        )
         return (
             f"{_QUALIFICATION_HEADING}\n"
-            f"Accepted-code qualification has skipped {count} automatic effect(s){when}. Canonical memory "
-            "was left untouched. Retire or recreate legacy worktrees, restore the accepted activation, "
-            "then run a qualified hook again."
+            f"Accepted-code qualification has skipped {count} automatic effect(s){when} because {reason}."
+            f"{affected} Canonical memory was left untouched. {guidance}"
         )
     if value.get("status") == "unreadable":
         return (

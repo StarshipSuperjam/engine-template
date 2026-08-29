@@ -169,6 +169,10 @@ def detect_home_workshop(cwd: str | None = None) -> dict | None:
 # through the landing commit, and it survives the operator's own branch->PR->merge->pull. Its presence is what
 # lets the post-landing "Setup is now complete" confirmation fire EXACTLY ONCE in the operator's own checkout;
 # a repo set up before this shipped (no marker) never shows the confirmation spuriously.
+# This one pre-activation bootstrap hint is deliberately outside the persistent-memory mutation registry: it
+# exists before a new project's first reviewed activation can exist, is neither shared through git-common-dir
+# nor part of memory/recovery state, and its best-effort loss changes only whether one confirmation is shown.
+# The accepted automatic cleanup after landing remains registered and qualified.
 _LANDING_MARKER_REL = os.path.join(".engine", "boot", ".cache", "first-run-landing.json")
 
 
@@ -357,6 +361,10 @@ def main(argv: list) -> int:
         return 0
     print("usage: first_run_health.py [demo|check]", file=sys.stderr)
     return 2
+
+
+from memory import mutation_authority as _mutation_authority  # noqa: E402
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

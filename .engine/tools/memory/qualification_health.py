@@ -36,10 +36,28 @@ HEALTH_REL = os.path.join("engine", "accepted-hooks", "qualification-health.json
 LOCK_REL = os.path.join("engine", "accepted-hooks", "qualification-health.lock")
 NOTICE_INTERVAL_SECONDS = 6 * 60 * 60
 MAX_COUNT = 2**31 - 1
-GUIDANCE = (
+LEGACY_GUIDANCE = (
     "Automatic memory work is being skipped because its accepted code or state binding did not qualify. "
     "Retire or recreate legacy worktrees, restore the accepted activation, then run a qualified hook again."
 )
+GUIDANCE_BY_REASON = {
+    "accepted-dispatch-refused": (
+        "Automatic memory work was skipped because the accepted commit, materialization, or canonical-state "
+        "binding was refused. Run `uv run --directory .engine --frozen -- python "
+        "tools/accepted_hook_dispatch.py inspect --root ..` for the exact failing boundary, then repair that "
+        "activation or worktree and retry the hook."
+    ),
+    "accepted-dispatcher-absent": (
+        "Automatic memory work was skipped because this worktree has no accepted-code dispatcher. Restore the "
+        "Engine-managed `.engine/tools/accepted_hook_dispatch.py` file or recreate the worktree, then retry."
+    ),
+    "accepted-runtime-unavailable": (
+        "Automatic memory work was skipped because the Engine's private Python runtime could not start. Repair "
+        "the `.engine/.venv` environment for this worktree, then retry the hook."
+    ),
+}
+RECOVERY_GUIDANCE = "The latest automatic memory hook qualified; no repair is currently required."
+GUIDANCE = LEGACY_GUIDANCE  # compatibility name for older callers and records
 _OPERATIONS = {
     ".engine/tools/boot.py": "automatic-boot-operation",
     ".engine/tools/close.py": "automatic-close-operation",
@@ -198,7 +216,7 @@ def _read_path(path: str) -> dict | None:
         item = value.get(key)
         if item is not None and (_parse_moment(item) is None or len(item) > 32):
             raise QualificationHealthError("qualification health record has an invalid timestamp")
-    if value.get("guidance") != GUIDANCE:
+    if value.get("guidance") not in {LEGACY_GUIDANCE, RECOVERY_GUIDANCE, *GUIDANCE_BY_REASON.values()}:
         raise QualificationHealthError("qualification health record has an invalid guidance value")
     receipt = value.get("last_receipt")
     _validate_receipt(receipt, "skipped" if value["status"] == "degraded" else "qualified")
@@ -313,7 +331,8 @@ def update(root: str, *, outcome: str, script: str, provider: str, run_id: str |
                 "updated_at": occurred_at,
                 "last_notice_at": previous.get("last_notice_at") if previous else None,
                 "suppressed_notice_count": previous.get("suppressed_notice_count", 0) if previous else 0,
-                "guidance": GUIDANCE,
+                "guidance": (GUIDANCE_BY_REASON[reason_code] if outcome == "skipped"
+                             else RECOVERY_GUIDANCE),
                 "last_failure": previous.get("last_failure") if previous else None,
                 "last_qualified": previous.get("last_qualified") if previous else None,
                 "last_receipt": receipt,
@@ -426,7 +445,7 @@ def main(argv: list[str]) -> int:
               file=sys.stderr)
         return 1
     if result["emit_notice"]:
-        print(GUIDANCE, file=sys.stderr)
+        print(result["record"]["guidance"], file=sys.stderr)
     if args.receipt:
         print(json.dumps(result["receipt"], sort_keys=True, separators=(",", ":")))
     return 0

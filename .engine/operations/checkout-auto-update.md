@@ -22,8 +22,8 @@ It never changes GitHub, pushes, merges, moves a session worktree, or broadens t
 2. Only after the operator clearly asks to change the setting, prepare the matching reviewed change:
 
    ```text
-   uv run --directory .engine -- python tools/checkout_auto_update.py disable
-   uv run --directory .engine -- python tools/checkout_auto_update.py enable
+   uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/checkout_auto_update.py --operation checkout-preference-write -- disable
+   uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/checkout_auto_update.py --operation checkout-preference-write -- enable
    ```
 
    The command atomically writes `.engine/operator-checkout.json` only in a temporary review worktree, then

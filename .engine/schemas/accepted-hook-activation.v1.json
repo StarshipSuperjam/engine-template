@@ -13,6 +13,7 @@
     "epoch",
     "source",
     "source_ref",
+    "authority",
     "activated_at"
   ],
   "properties": {
@@ -27,6 +28,15 @@
     "epoch": {"type": "integer", "minimum": 1},
     "source": {"enum": ["reviewed-merge", "published-release"]},
     "source_ref": {"type": "string", "minLength": 1},
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "evidence_id"],
+      "properties": {
+        "kind": {"enum": ["github-merged-pull", "github-release-workflow"]},
+        "evidence_id": {"type": "string", "minLength": 1}
+      }
+    },
     "activated_at": {"type": "string", "format": "date-time"}
   }
 }

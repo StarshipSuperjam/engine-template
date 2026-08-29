@@ -22,7 +22,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import capture, forget, index, ledger, records  # noqa: E402
+from memory import capture, forget, index, ledger, mutation_authority, records  # noqa: E402
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
 
@@ -42,8 +42,11 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
         self._prev = os.environ.get(ledger.ENV_DIR)
         os.environ[ledger.ENV_DIR] = self.tmp
         self.now = int(time.time())
+        self._authority = mutation_authority.test_scope("attended")
+        self._authority.__enter__()
 
     def tearDown(self):
+        self._authority.__exit__(None, None, None)
         if self._prev is None:
             os.environ.pop(ledger.ENV_DIR, None)
         else:

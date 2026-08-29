@@ -56,6 +56,7 @@ class CandidateFixture:
             "schema_version": "accepted-hook-activation.v1", "repository": "owner/repo",
             "commit": self.commit, "tree": self.tree, "engine_release": "9.9.9", "epoch": 7,
             "source": "reviewed-merge", "source_ref": "refs/heads/main",
+            "authority": {"kind": "github-merged-pull", "evidence_id": "42"},
             "activated_at": "2026-01-01T00:00:00Z",
         }
         activation_path.write_text(json.dumps(self.activation, sort_keys=True) + "\n", encoding="utf-8")

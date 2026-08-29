@@ -8,19 +8,22 @@ Nested helpers reuse the held store lock but consume independent subgrants, so c
 compaction, and restore operations remain one coherent critical section without laundering one broad token
 through several distinct effects.
 
-Production calls without an accepted execution context fail closed.  Existing hermetic unit tests retain a
-strictly test-process-only adapter (``unittest`` must already be imported); dedicated authority tests exercise
-the real context/capability path in a subprocess where that adapter is absent.
+Production calls without an accepted execution context fail closed. Existing hermetic unit tests retain a
+strictly source-bound adapter: an active frame must come from a checked-in ``test_*.py`` under this exact
+Engine tools tree. Merely importing a common library never changes mutation authority. Dedicated authority
+tests exercise the real context/capability path in a subprocess with no checked-in test frame.
 """
 from __future__ import annotations
 
 import functools
 import hashlib
+import inspect
 import json
 import os
 import stat
 import sys
 import threading
+from contextvars import ContextVar
 from contextlib import contextmanager
 
 try:  # package import in production
@@ -40,6 +43,7 @@ class MutationAuthorityError(RuntimeError):
 
 
 _THREAD = threading.local()
+_TEST_SCOPE = ContextVar("engine_mutation_test_scope", default=None)
 _TEST_HOOK_LOCK = threading.RLock()
 _TEST_AFTER_LOCK_HOOK = None
 _STORE_TARGETS = frozenset({
@@ -88,16 +92,25 @@ def _measured_cardinality(entry: dict, args: tuple, kwargs: dict) -> int:
     for key in ("records", "rows", "files", "targets", "new_records", "passages", "tree"):
         value = kwargs.get(key)
         if isinstance(value, (list, tuple, set, dict)):
-            return min(len(value), maximum) if maximum is not None else len(value)
+            return len(value)
     for value in args:
         if isinstance(value, (list, tuple, set)):
-            return min(len(value), maximum) if maximum is not None else len(value)
+            return len(value)
     # A call is one operation even when its registered unit contains several journaled records.  The exact
     # low-level record/file helpers nested beneath it carry their own measured subgrants.
     return 1
 
 
-def _validate_explicit_targets(context, entry: dict, kwargs: dict) -> None:
+def _call_arguments(function, args: tuple, kwargs: dict) -> dict:
+    if function is None:
+        return dict(kwargs)
+    try:
+        return dict(inspect.signature(function).bind_partial(*args, **kwargs).arguments)
+    except (TypeError, ValueError):
+        return dict(kwargs)
+
+
+def _validate_explicit_targets(context, entry: dict, args: tuple, kwargs: dict, function=None) -> None:
     document = context.to_document()
     memory_root = os.path.realpath(document["target"]["memory_dir"])
     project_root = os.path.realpath(document["project"]["root"])
@@ -112,8 +125,9 @@ def _validate_explicit_targets(context, entry: dict, kwargs: dict) -> None:
         roots = ()
     if not roots:
         return
+    arguments = _call_arguments(function, args, kwargs)
     for key in _PATH_ARGUMENTS:
-        value = kwargs.get(key)
+        value = arguments.get(key)
         if value is None or not isinstance(value, (str, os.PathLike)):
             continue
         raw = os.fspath(value)
@@ -126,7 +140,21 @@ def _validate_explicit_targets(context, entry: dict, kwargs: dict) -> None:
 
 
 def _test_adapter_allowed() -> bool:
-    return "unittest" in sys.modules
+    tools_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame is not None else None
+        while frame is not None:
+            path = frame.f_code.co_filename
+            if isinstance(path, str):
+                real = os.path.realpath(path)
+                name = os.path.basename(real)
+                if real.startswith(tools_root) and name.startswith("test_") and name.endswith(".py"):
+                    return True
+            frame = frame.f_back
+    finally:
+        del frame
+    return False
 
 
 def _test_receipt(entry: dict, mode: str, measured: int) -> dict:
@@ -206,7 +234,21 @@ def set_after_lock_test_hook(hook) -> None:
 
 
 @contextmanager
-def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capability=None):
+def test_scope(mode: str = "attended"):
+    """Explicitly carry the source-bound test adapter across async task or callback boundaries."""
+    if not _test_adapter_allowed():
+        raise MutationAuthorityError("test mutation scope is available only from a checked-in test module")
+    if mode not in {"automatic", "attended"}:
+        raise MutationAuthorityError("test mutation scope mode is invalid")
+    token = _TEST_SCOPE.set(mode)
+    try:
+        yield
+    finally:
+        _TEST_SCOPE.reset(token)
+
+
+@contextmanager
+def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capability=None, function=None):
     """Hold one coherent outer lock and consume this exact writer's one-shot subgrant."""
     entry = _entry(entry_id)
     measured = _measured_cardinality(entry, args, kwargs)
@@ -216,8 +258,17 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             yield _test_receipt(entry, state["mode"], measured)
             return
         context = state["context"]
-        _validate_explicit_targets(context, entry, kwargs)
+        _validate_explicit_targets(context, entry, args, kwargs, function)
         yield _consume(context, entry, measured, supplied_capability)
+        return
+
+    scoped_test_mode = _TEST_SCOPE.get()
+    if scoped_test_mode is not None:
+        _THREAD.state = {"test_only": True, "mode": scoped_test_mode}
+        try:
+            yield _test_receipt(entry, scoped_test_mode, measured)
+        finally:
+            _THREAD.state = None
         return
 
     try:
@@ -234,7 +285,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             _THREAD.state = None
         return
 
-    _validate_explicit_targets(context, entry, kwargs)
+    _validate_explicit_targets(context, entry, args, kwargs, function)
     handle = _open_store_lock(context)
     try:
         _run_after_lock_test_hook()
@@ -256,6 +307,9 @@ def authorize_nested(entry_id: str, *, measured_cardinality: int = 1):
     state = getattr(_THREAD, "state", None)
     entry = _entry(entry_id)
     if state is None:
+        scoped_test_mode = _TEST_SCOPE.get()
+        if scoped_test_mode is not None:
+            return _test_receipt(entry, scoped_test_mode, measured_cardinality)
         if _test_adapter_allowed():
             mode = "automatic" if "automatic" in entry["allowed_invocation_modes"] else "attended"
             return _test_receipt(entry, mode, measured_cardinality)
@@ -272,7 +326,7 @@ def _guard(entry_id: str, function):
     @functools.wraps(function)
     def guarded(*args, **kwargs):
         supplied = kwargs.pop("_engine_capability", None)
-        with mutation_scope(entry_id, args, kwargs, supplied_capability=supplied):
+        with mutation_scope(entry_id, args, kwargs, supplied_capability=supplied, function=function):
             return function(*args, **kwargs)
 
     guarded.__engine_registry_id__ = entry_id

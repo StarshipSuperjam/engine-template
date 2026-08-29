@@ -256,3 +256,10 @@ def resolve_session(payload: dict | None = None, explicit: str | None = None) ->
     if record and record.get("provider") == CODEX:
         return record["session_id"]
     return None
+
+
+# The accepted dispatcher loads this module under a private name before any memory package may import.
+# That bootstrap read-only use does not expose write_live_session; ordinary module imports install the guard.
+if __name__ != "_engine_accepted_provider_authority":
+    from memory import mutation_authority as _mutation_authority  # noqa: E402
+    _mutation_authority.install_module_guards(globals())

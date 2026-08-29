@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 import pathlib
 import shutil
@@ -284,15 +285,17 @@ class TestRepair(unittest.TestCase):
 
 class TestAcceptedHookTopology(unittest.TestCase):
     RUNNER = pathlib.Path(hp.__file__).with_name("hook-runner.sh")
+    TOOLS = pathlib.Path(hp.__file__).parent
+    ROOT = TOOLS.parents[1]
 
     def _commit_runner(self, root: str, source: str | None = None) -> None:
-        target = pathlib.Path(root) / ".engine/tools/hook-runner.sh"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if source is None:
-            shutil.copyfile(self.RUNNER, target)
-        else:
-            target.write_text(source, encoding="utf-8")
-        _git(root, "add", ".engine/tools/hook-runner.sh")
+        for rel in hp._ACCEPTED_BUNDLE:
+            target = pathlib.Path(root) / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.ROOT / rel, target)
+        if source is not None:
+            (pathlib.Path(root) / ".engine/tools/hook-runner.sh").write_text(source, encoding="utf-8")
+        _git(root, "add", *hp._ACCEPTED_BUNDLE)
         _git(root, "commit", "-qm", "runner generation")
 
     def _qualified_pair(self, tmp: str) -> tuple[str, str]:
@@ -311,6 +314,19 @@ class TestAcceptedHookTopology(unittest.TestCase):
             rendered = repr(topology)
             self.assertNotIn(main, rendered)
             self.assertNotIn(linked, rendered)
+            self.assertTrue(all(item["ref"] for item in topology["worktrees"]))
+
+    def test_dirty_or_direct_routing_in_any_bundle_component_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main, linked = self._qualified_pair(tmp)
+            settings = pathlib.Path(linked) / ".codex/hooks.json"
+            document = json.loads(settings.read_text(encoding="utf-8"))
+            stop = document["hooks"]["Stop"][0]["hooks"][0]
+            stop["command"] = ".engine/.venv/bin/python .engine/tools/close.py"
+            settings.write_text(json.dumps(document), encoding="utf-8")
+            topology = hp.accepted_hook_topology(main)
+            self.assertFalse(topology["qualified"])
+            self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
 
     def test_dirty_missing_ambiguous_and_unreadable_runner_each_block(self):
         mutations = {
@@ -354,7 +370,9 @@ class TestAcceptedHookTopology(unittest.TestCase):
         with mock.patch.object(hp, "_toplevel", return_value="/fixture/main"), \
                 mock.patch.object(hp, "classify_accepted_hook_generation",
                                   return_value={"state": "qualified", "fingerprint": "a" * 64}), \
-                mock.patch.object(hp, "_run", side_effect=[first, first + "worktree /fixture/new\n\n"]):
+                mock.patch.object(hp, "_run", side_effect=[
+                    first, "main\n", "a" * 12 + "\n", first + "worktree /fixture/new\n\n",
+                ]):
             changed = hp.accepted_hook_topology("/fixture/main")
         self.assertEqual(changed["state"], "concurrent-change")
         self.assertFalse(changed["qualified"])

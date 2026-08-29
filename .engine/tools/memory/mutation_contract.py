@@ -83,7 +83,7 @@ REGISTRY = (
     # not ledger payloads, but they are exactly the sidecars, control state, caches, and diagnostics whose
     # omission would let a hook remain write-capable outside the eventual S03 capability boundary.
     _entry("automatic-stance-reset", "modes.clear_stance", "lifecycle-marker",
-           "destructive-irreversible", _AUTO, 1, "files", "none", ["boot.handler"]),
+           "destructive-irreversible", _BOTH, 1, "files", "none", ["boot.handler", "modes.set_stance"]),
     _entry("automatic-checkout-catch-up", "checkout_auto_update.automatic_catch_up",
            "project-repository", "reversible-mutation", _AUTO, None, "files", "compare-and-set",
            ["boot.handler"]),
@@ -151,6 +151,8 @@ REGISTRY = (
     _entry("attended-semantic-sync", "memory.semantic.store.sync", "semantic-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
            ["memory.semantic.store.main"], schema_cutover=True),
+    _entry("attended-memory-mcp", "memory.mcp_server.server", "ledger", "semantic-read", _ATTENDED,
+           1, "servers", "none", []),
     _entry("read-memory-health", "memory.mcp_server.health", "degraded-health", "semantic-read", _ATTENDED,
            1, "status-records", "none", ["memory.mcp_server.server"]),
     _entry("read-recall-window", "memory.mcp_server.recall_window", "ledger", "semantic-read", _ATTENDED,
@@ -172,7 +174,7 @@ REGISTRY = (
 
     # Ledger and derived-index low-level writers.
     _entry("ledger-append", "memory.ledger.append", "ledger", "durable-append", _BOTH, 1, "records",
-           "append-lock", ["memory.capture._capture", "memory.compact.enact_erasure", "memory.forget._write_control",
+           "append-lock", ["memory.capture._recover_capture_transaction", "memory.compact.enact_erasure", "memory.forget._write_control",
                            "memory.pins.add"]),
     _entry("ledger-index-epoch", "memory.ledger.bump_index_epoch", "ledger-metadata",
            "reversible-mutation", _BOTH, 1, "files", "atomic-replace",
@@ -188,10 +190,11 @@ REGISTRY = (
            "rows", "derived-rebuild", ["memory.index.rebuild"], schema_cutover=True),
     _entry("index-rebuild", "memory.index.rebuild", "derived-index", "reversible-mutation", _BOTH, None,
            "rows", "derived-rebuild", ["memory.compact.compact", "memory.restore_vault._apply_restore",
-                                               "memory.rescrub.run", "memory.index._heal_if_stale"],
+                                               "memory.rescrub.run", "memory.index._heal_if_stale",
+                                               "memory.capture._recover_capture_transaction"],
            schema_cutover=True),
     _entry("index-extend", "memory.index.extend", "derived-index", "reversible-mutation", _AUTO, None, "rows",
-           "derived-rebuild", ["memory.capture._capture"]),
+           "derived-rebuild", ["memory.capture._recover_capture_transaction"]),
     _entry("index-stale-heal", "memory.index._heal_if_stale", "derived-index", "reversible-mutation",
            _ATTENDED, None, "rows", "derived-rebuild", ["memory.index._ranked"], schema_cutover=True),
     _entry("semantic-store-connect", "memory.semantic.store._connect", "semantic-index",
@@ -203,7 +206,14 @@ REGISTRY = (
 
     # Capture cursors, lifecycle markers, and degraded-health persistence.
     _entry("capture-cursor-write", "memory.capture._write_cursor", "capture-cursor", "reversible-mutation",
-           _AUTO, 1, "files", "atomic-replace", ["memory.capture._capture"]),
+           _AUTO, 1, "files", "atomic-replace", ["memory.capture._recover_capture_transaction"]),
+    _entry("capture-journal-write", "memory.capture._write_capture_transaction", "restore-journal",
+           "reversible-mutation", _AUTO, 1, "files", "durable-journal", ["memory.capture._capture"]),
+    _entry("capture-journal-clear", "memory.capture._clear_capture_transaction", "restore-journal",
+           "reversible-mutation", _AUTO, 1, "files", "durable-journal",
+           ["memory.capture._recover_capture_transaction"]),
+    _entry("capture-journal-recover", "memory.capture._recover_capture_transaction", "ledger",
+           "durable-append", _AUTO, None, "records", "durable-journal", ["memory.capture._capture"]),
     _entry("capture-lock-create", "memory.capture._acquire_lock", "lifecycle-marker",
            "reversible-mutation", _BOTH, 1, "files", "compare-and-set",
            ["memory.capture._capture", "memory.compact.compact", "memory.forget._write_control",
@@ -218,7 +228,8 @@ REGISTRY = (
            "reversible-mutation", _AUTO, 20, "status-records", "best-effort-diagnostic",
            ["memory.capture._write_capture_status"]),
     _entry("capture-status", "memory.capture._write_capture_status", "degraded-health", "reversible-mutation",
-           _AUTO, 1, "status-records", "best-effort-diagnostic", ["memory.capture._capture"]),
+           _AUTO, 1, "status-records", "best-effort-diagnostic",
+           ["memory.capture._capture", "memory.capture._recover_capture_transaction"]),
     _entry("close-findings-record", "close._write_record", "degraded-health", "reversible-mutation", _BOTH,
            None, "status-records", "atomic-replace", ["close.record_finding", "close.dispose", "close._bump_blocks"]),
     _entry("close-findings-clear", "close.clear", "degraded-health", "destructive-irreversible", _BOTH, 1,
@@ -252,9 +263,6 @@ REGISTRY = (
     _entry("checkout-preference-write", "checkout_auto_update._atomic_write", "project-repository",
            "reversible-mutation", _ATTENDED, 1, "files", "atomic-replace",
            ["checkout_auto_update.set_preference"]),
-    _entry("first-run-marker-write", "first_run_health.mark_first_run_applied", "lifecycle-marker",
-           "reversible-mutation", _ATTENDED, 1, "files", "best-effort-diagnostic",
-           ["instantiator.retire"]),
     _entry("session-stance-write", "modes.set_stance", "lifecycle-marker", "reversible-mutation",
            _ATTENDED, 1, "files", "none", ["modes.main"]),
 
@@ -373,6 +381,11 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
     ),
     "hooks.run_hook": (
         "hook-crash-debug", "hook-fail-open-promote", "telemetry-finding-emit",
+    ),
+    "memory.mcp_server.server": (
+        "attended-pin-add", "attended-withhold", "attended-restore-withheld",
+        "attended-keyword-mcp-search", "attended-semantic-mcp-search",
+        "read-memory-health", "read-recall-window", "read-pins", "read-withheld",
     ),
     "memory.mcp_server.search": (
         "attended-keyword-mcp-search", "attended-keyword-search-heal", "index-stale-heal", "index-rebuild",

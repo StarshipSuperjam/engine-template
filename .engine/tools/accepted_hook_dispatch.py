@@ -201,7 +201,7 @@ def _read_json(path: str, label: str) -> dict:
 def _validate_activation(value: dict) -> dict:
     required = {
         "schema_version", "repository", "commit", "tree", "engine_release", "epoch",
-        "source", "source_ref", "activated_at",
+        "source", "source_ref", "authority", "activated_at",
     }
     if set(value) != required or value.get("schema_version") != SCHEMA_VERSION:
         raise QualificationError("accepted-hook activation has an unknown or incomplete schema")
@@ -219,6 +219,11 @@ def _validate_activation(value: dict) -> dict:
         raise QualificationError("accepted-hook activation source is invalid")
     if not isinstance(value["source_ref"], str) or not value["source_ref"]:
         raise QualificationError("accepted-hook activation source ref is missing")
+    authority = value.get("authority")
+    if (not isinstance(authority, dict) or set(authority) != {"kind", "evidence_id"}
+            or authority.get("kind") not in {"github-merged-pull", "github-release-workflow"}
+            or not isinstance(authority.get("evidence_id"), str) or not authority["evidence_id"]):
+        raise QualificationError("accepted-hook activation authority proof is malformed")
     if not isinstance(value["activated_at"], str) or not value["activated_at"]:
         raise QualificationError("accepted-hook activation timestamp is missing")
     return dict(value)
@@ -507,7 +512,14 @@ def _verify_activation_barrier(root: str) -> dict:
     if not topology["qualified"]:
         states = sorted({record.get("state", "unknown") for record in topology["worktrees"]
                          if isinstance(record, dict)})
-        summary = ", ".join(states[:6]) or topology["state"]
+        offenders = [record for record in topology["worktrees"]
+                     if isinstance(record, dict) and record.get("state") != "qualified"]
+        summary = ", ".join(
+            f"{record.get('ref', 'unknown')} [{record.get('worktree_id', 'unknown')}]: "
+            f"{record.get('state', 'unknown')}"
+            + (f" ({record['component']})" if record.get("component") else "")
+            for record in offenders[:6]
+        ) or ", ".join(states[:6]) or topology["state"]
         raise QualificationError(
             "activation refused: retire or recreate pre-fix, dirty, missing, ambiguous, unreadable, or "
             f"concurrently changing worktrees before advancing the accepted epoch ({summary})"
@@ -539,6 +551,67 @@ def _engine_release_at(root: str, commit: str) -> str:
     if not isinstance(version, str) or not version:
         raise QualificationError("the accepted commit's Engine release is missing")
     return version
+
+
+def _github_json(endpoint: str):
+    """Read one bounded GitHub acceptance fact through the operator's authenticated gh session."""
+    try:
+        proc = subprocess.run(
+            ["gh", "api", endpoint], capture_output=True, text=True, timeout=30,
+            env={key: value for key, value in os.environ.items() if key not in _PYTHON_ENV_PREFIXES},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise QualificationError(
+            "GitHub acceptance proof is unavailable; authenticate the GitHub CLI and retry activation"
+        ) from exc
+    if proc.returncode != 0:
+        raise QualificationError(
+            "GitHub acceptance proof was refused; verify GitHub CLI access and the selected commit"
+        )
+    try:
+        return json.loads(proc.stdout)
+    except ValueError as exc:
+        raise QualificationError("GitHub acceptance proof returned unreadable data") from exc
+
+
+def _verify_github_acceptance(repository: str, commit: str, source: str, source_ref: str) -> dict:
+    """Require an independent, immutable GitHub-side acceptance witness for the exact commit."""
+    if source == "reviewed-merge":
+        branch = source_ref.removeprefix("refs/remotes/origin/").removeprefix("refs/heads/")
+        pulls = _github_json(f"repos/{repository}/commits/{commit}/pulls")
+        if not isinstance(pulls, list):
+            raise QualificationError("GitHub reviewed-merge proof had an unexpected shape")
+        accepted = [pull for pull in pulls if isinstance(pull, dict)
+                    and pull.get("merged_at")
+                    and pull.get("merge_commit_sha") == commit
+                    and isinstance(pull.get("base"), dict)
+                    and pull["base"].get("ref") == branch
+                    and isinstance(pull.get("number"), int)]
+        if not accepted:
+            raise QualificationError(
+                "the exact commit has no merged GitHub pull request into the recorded default branch"
+            )
+        return {"kind": "github-merged-pull", "evidence_id": str(accepted[0]["number"])}
+    tag = source_ref.removeprefix("refs/tags/")
+    release = _github_json(f"repos/{repository}/releases/tags/{tag}")
+    if (not isinstance(release, dict) or release.get("tag_name") != tag
+            or not isinstance(release.get("id"), int)):
+        raise QualificationError("the selected tag has no identifiable published GitHub release")
+    runs = _github_json(
+        f"repos/{repository}/actions/workflows/release-publish.yml/runs?head_sha={commit}&status=completed&per_page=100"
+    )
+    values = runs.get("workflow_runs") if isinstance(runs, dict) else None
+    successful = [run for run in values or [] if isinstance(run, dict)
+                  and run.get("head_sha") == commit and run.get("conclusion") == "success"
+                  and isinstance(run.get("id"), int)]
+    if not successful:
+        raise QualificationError(
+            "the exact release commit has no successful immutable release-publish workflow witness"
+        )
+    return {
+        "kind": "github-release-workflow",
+        "evidence_id": f"{release['id']}:{successful[0]['id']}",
+    }
 
 
 def activate(args: argparse.Namespace) -> dict:
@@ -582,6 +655,7 @@ def activate(args: argparse.Namespace) -> dict:
     actual_release = _engine_release_at(root, commit)
     if actual_release != args.engine_release:
         raise QualificationError("the declared Engine release differs from the accepted commit's manifest")
+    authority = _verify_github_acceptance(repository, commit, args.source, source_ref)
     initial_topology = _verify_activation_barrier(root)
     activation_path, _, lock_path = _state_paths(root)
     with _exclusive_lock(lock_path):
@@ -605,6 +679,7 @@ def activate(args: argparse.Namespace) -> dict:
             "epoch": current_epoch + 1,
             "source": args.source,
             "source_ref": source_ref,
+            "authority": authority,
             "activated_at": moment.utc_now(),
         }
         _materialize(root, record)
@@ -671,6 +746,53 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
     argv = [
         sys.executable, "-I", "-S", accepted_dispatch, "_run-accepted",
         "--tree", accepted_tree, "--script", rel,
+    ]
+    for site_path in _site_paths():
+        argv.extend(["--site-path", site_path])
+    argv.append("--")
+    argv.extend(target_args)
+    os.chdir(canonical["project_root"])
+    os.execve(sys.executable, argv, env)
+
+
+def dispatch_attended(root: str, script: str, operation: str, target_args: list[str]) -> None:
+    """Leave the attended checkout and re-enter one exact registered operation in accepted code."""
+    root = _top(root)
+    absolute = os.path.abspath(script if os.path.isabs(script) else os.path.join(root, script))
+    tools_root = os.path.join(root, ".engine", "tools") + os.sep
+    if (absolute != os.path.realpath(absolute) or not absolute.startswith(tools_root)
+            or not absolute.endswith(".py") or not os.path.isfile(absolute)):
+        raise QualificationError("attended script must be one normalized regular Python tool")
+    rel = os.path.relpath(absolute, root).replace(os.sep, "/")
+    activation = load_activation(root)
+    _verify_exact_object(root, activation)
+    accepted_tree = _materialize(root, activation)
+    context = _canonical_context(root, activation, accepted_tree)
+    provider_authority = _provider_authority(accepted_tree)
+    context["invocation"] = {
+        "script": rel,
+        "provider": provider_authority.detect(),
+        "run_id": provider_authority.resolve_session(),
+    }
+    env = {
+        key: value for key, value in os.environ.items()
+        if key not in _PYTHON_ENV_PREFIXES and key not in {
+            "ENGINE_MEMORY_DIR", "ENGINE_PROJECT_ROOT", "ENGINE_PERSISTENT_EXECUTION_CONTEXT",
+        }
+    }
+    canonical = context["canonical"]
+    env.update({
+        "PYTHONNOUSERSITE": "1",
+        provider_authority.PROVIDER_ENV: context["invocation"]["provider"],
+        "ENGINE_PROJECT_ROOT": canonical["project_root"],
+        "ENGINE_MEMORY_DIR": canonical["memory_dir"],
+        "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
+        "ENGINE_ACCEPTED_HOOK_CONTEXT": json.dumps(context, sort_keys=True, separators=(",", ":")),
+    })
+    accepted_dispatch = os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")
+    argv = [
+        sys.executable, "-I", "-S", accepted_dispatch, "_run-attended",
+        "--tree", accepted_tree, "--script", rel, "--operation", operation,
     ]
     for site_path in _site_paths():
         argv.extend(["--site-path", site_path])
@@ -770,12 +892,14 @@ def _origin_report(accepted_tree: str, engine_names: set[str]) -> list[dict]:
     return report
 
 
-def run_accepted(args: argparse.Namespace) -> int:
+def _run_exact_accepted(args: argparse.Namespace, operation_id: str | None = None) -> int:
     accepted_tree = os.path.realpath(args.tree)
     tools_root = os.path.join(accepted_tree, ".engine", "tools")
     rel = args.script
-    if rel not in AUTOMATIC_MUTATORS:
+    if operation_id is None and rel not in AUTOMATIC_MUTATORS:
         raise QualificationError("accepted interpreter received an unregistered automatic mutator")
+    if operation_id is not None and (not rel.startswith(".engine/tools/") or not rel.endswith(".py")):
+        raise QualificationError("accepted interpreter received an invalid attended tool path")
     target = os.path.realpath(os.path.join(accepted_tree, rel))
     if not target.startswith(accepted_tree + os.sep) or not os.path.isfile(target):
         raise QualificationError("accepted mutator is absent from the materialized tree")
@@ -832,10 +956,25 @@ def run_accepted(args: argparse.Namespace) -> int:
             _atomic_json(identity_path, candidate, create_only=True)
 
     try:
-        persistent_context = context_authority.install_automatic_context(
-            authoritative, accepted_tree=accepted_tree, script=rel,
-            identity_initializer=initialize_store_identity,
-        )
+        if operation_id is None:
+            persistent_context = context_authority.install_automatic_context(
+                authoritative, accepted_tree=accepted_tree, script=rel,
+                identity_initializer=initialize_store_identity,
+            )
+        else:
+            contract = context_authority._load_contract()
+            try:
+                entry = contract.entry_by_id(operation_id)
+            except Exception as exc:
+                raise QualificationError("attended operation is absent from the accepted registry") from exc
+            script_module = rel[len(".engine/tools/"):-3].replace("/", ".")
+            if ("attended" not in entry["allowed_invocation_modes"]
+                    or entry["writer"].rpartition(".")[0] != script_module):
+                raise QualificationError("attended operation does not belong to the selected accepted tool")
+            persistent_context = context_authority.install_attended_context(
+                authoritative, accepted_tree=accepted_tree, script=rel, operation_id=operation_id,
+                identity_initializer=initialize_store_identity,
+            )
     except context_authority.ContextError as exc:
         raise QualificationError(f"persistent execution context refused: {exc}") from exc
     import validate
@@ -864,6 +1003,14 @@ def run_accepted(args: argparse.Namespace) -> int:
     if pending is not None and not isinstance(pending, SystemExit):
         raise pending
     return code
+
+
+def run_accepted(args: argparse.Namespace) -> int:
+    return _run_exact_accepted(args)
+
+
+def run_attended(args: argparse.Namespace) -> int:
+    return _run_exact_accepted(args, args.operation)
 
 
 def _load_context_authority(accepted_tree: str):
@@ -1155,7 +1302,14 @@ def run_candidate(args: argparse.Namespace) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    act = sub.add_parser("activate")
+    act = sub.add_parser(
+        "activate",
+        description="Advance accepted automatic-hook code after GitHub independently proves the exact commit.",
+        epilog=("Example: accepted_hook_dispatch.py activate --root . --repository OWNER/REPO "
+                "--commit FULL_SHA --source reviewed-merge --source-ref refs/heads/main "
+                "--engine-release VERSION --expected-epoch 0"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     act.add_argument("--root", required=True)
     act.add_argument("--repository", required=True)
     act.add_argument("--commit", required=True)
@@ -1169,6 +1323,14 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--root", required=True)
     run.add_argument("--script", required=True)
     run.add_argument("target_args", nargs=argparse.REMAINDER)
+    attended = sub.add_parser(
+        "attended",
+        help="run one registered maintenance operation from the exact accepted Engine tree",
+    )
+    attended.add_argument("--root", required=True)
+    attended.add_argument("--script", required=True)
+    attended.add_argument("--operation", required=True)
+    attended.add_argument("target_args", nargs=argparse.REMAINDER)
     candidate = sub.add_parser("candidate")
     candidate.add_argument("--root", required=True)
     candidate.add_argument("--candidate-root", required=True)
@@ -1185,6 +1347,12 @@ def _parser() -> argparse.ArgumentParser:
     internal.add_argument("--script", required=True)
     internal.add_argument("--site-path", action="append", default=[])
     internal.add_argument("target_args", nargs=argparse.REMAINDER)
+    internal_attended = sub.add_parser("_run-attended")
+    internal_attended.add_argument("--tree", required=True)
+    internal_attended.add_argument("--script", required=True)
+    internal_attended.add_argument("--operation", required=True)
+    internal_attended.add_argument("--site-path", action="append", default=[])
+    internal_attended.add_argument("target_args", nargs=argparse.REMAINDER)
     internal_candidate = sub.add_parser("_run-candidate")
     internal_candidate.add_argument("--tree", required=True)
     internal_candidate.add_argument("--root", required=True)
@@ -1221,16 +1389,26 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             dispatch(args.root, args.script, args.target_args)
             return 1  # os.execve never returns
+        if args.command == "attended":
+            dispatch_attended(args.root, args.script, args.operation, args.target_args)
+            return 1  # os.execve never returns
         if args.command == "candidate":
             dispatch_candidate(args)
             return 1  # os.execve never returns
         if args.command == "_run-accepted":
             return run_accepted(args)
+        if args.command == "_run-attended":
+            return run_attended(args)
         if args.command == "_run-candidate":
             return run_candidate(args)
         raise QualificationError("unknown accepted-hook operation")
     except QualificationError as exc:
-        print(f"Engine memory mutation skipped: {exc}. This did not block the host action.", file=sys.stderr)
+        if args.command == "run":
+            print(f"Engine memory mutation skipped: {exc}. This did not block the host action.", file=sys.stderr)
+        elif args.command == "activate":
+            print(f"Accepted-hook activation refused: {exc}.", file=sys.stderr)
+        else:
+            print(f"Accepted-hook {args.command} failed: {exc}.", file=sys.stderr)
         return 1
 
 

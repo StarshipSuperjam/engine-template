@@ -49,6 +49,7 @@ _LIFECYCLE_FILENAMES = MappingProxyType({
     "keyword_index": "index.sqlite3",
     "semantic_index": "vectors.sqlite3",
     "capture_cursor": "capture-state.json",
+    "capture_transaction": ".capture-transaction.json",
     "capture_lock": ".capture.lock",
     "migration_in_flight": "migration-in-flight.json",
     "backup_state": "backup-vault-state.json",
@@ -353,7 +354,8 @@ def _observe_state(lifecycle: dict, store_identity: dict, pointer: dict, pointer
     generation, epoch, meta_state = _read_ledger_meta(lifecycle["ledger_meta"])
     snapshots = {}
     content_hashed = {
-        "ledger_meta", "capture_cursor", "migration_in_flight", "backup_state", "migration_stamp",
+        "ledger_meta", "capture_cursor", "capture_transaction", "migration_in_flight", "backup_state",
+        "migration_stamp",
         "restore_transaction", "capture_status", "capture_failures", "runtime_health", "hook_crash_debug",
         "backup_pointer", "canonical_backup_pointer", "erasure_proposal", "store_identity",
     }
@@ -687,6 +689,24 @@ def install_automatic_context(bootstrap: dict, *, accepted_tree: str, script: st
     return context
 
 
+def install_attended_context(bootstrap: dict, *, accepted_tree: str, script: str, operation_id: str,
+                             identity_initializer) -> ExecutionContext:
+    """Install one exact accepted attended operation before its target module imports."""
+    global _CURRENT_CONTEXT
+    context = resolve_execution_context(
+        bootstrap, accepted_tree=accepted_tree, script=script, operation_id=operation_id,
+        provider=bootstrap.get("invocation", {}).get("provider"),
+        run_id=bootstrap.get("invocation", {}).get("run_id"),
+        task_id=bootstrap.get("invocation", {}).get("task_id"),
+        identity_initializer=identity_initializer,
+    )
+    if _CURRENT_CONTEXT is not None and _CURRENT_CONTEXT.digest != context.digest:
+        raise ContextError("a different persistent execution context is already installed")
+    _CURRENT_CONTEXT = context
+    os.environ[CONTEXT_ENV] = context.to_json()
+    return context
+
+
 def current_context() -> ExecutionContext:
     global _CURRENT_CONTEXT
     if _CURRENT_CONTEXT is not None:
@@ -925,6 +945,7 @@ def _fixture_self_test() -> dict:
             "schema_version": "accepted-hook-activation.v1", "repository": "owner/repo",
             "commit": "a" * 40, "tree": "b" * 40, "engine_release": "9.9.9", "epoch": 1,
             "source": "reviewed-merge", "source_ref": "refs/heads/main",
+            "authority": {"kind": "github-merged-pull", "evidence_id": "42"},
             "activated_at": "2026-01-01T00:00:00Z",
         }, sort_keys=True) + "\n")
         os.makedirs(os.path.dirname(pointer_path))

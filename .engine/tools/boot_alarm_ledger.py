@@ -326,5 +326,13 @@ def main(argv: list) -> int:
     return 2
 
 
+import mutation_guards as _mutation_guards  # noqa: E402
+_mutation_guards.install(globals(), {
+    "_write": "alarm-ledger-write",
+    "_acquire": "alarm-ledger-lock-create",
+    "decide": "automatic-alarm-presentation",
+})
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

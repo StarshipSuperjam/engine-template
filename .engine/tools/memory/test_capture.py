@@ -132,6 +132,24 @@ class CursorTests(CaptureTestCase):
         self.assertEqual(n, 1)              # re-captured (duplicate-over-loss), did not crash
         self.assertEqual(self.texts(), ["only turn", "only turn"])
 
+    def test_interrupted_multi_artifact_capture_rolls_forward_without_duplicate_records(self):
+        t = self.transcript("journal.jsonl", [_msg("user", "recover this exact turn once")])
+        with mock.patch.object(capture, "_write_cursor", side_effect=RuntimeError("power loss")):
+            self.assertEqual(capture.capture_turn_delta(self.payload(t)), 0)
+        transaction = os.path.join(self.data_dir, capture.CAPTURE_TRANSACTION_FILENAME)
+        self.assertTrue(os.path.isfile(transaction))
+        self.assertEqual(self.texts(), ["recover this exact turn once"])
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 0)
+
+        # The next normal Stop recovers the journal before reading a new delta. The ledger record id is used as
+        # the idempotency key; the cursor, derived index, and status catch up, and the journal disappears last.
+        self.assertEqual(capture.capture_turn_delta(self.payload(t)), 0)
+        self.assertEqual(self.texts(), ["recover this exact turn once"])
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 1)
+        self.assertFalse(os.path.exists(transaction))
+        self.assertEqual(capture.read_capture_status()["state"], "captured")
+        self.assertTrue(index.query("recover").records)
+
     def test_deleted_cursor_file_is_treated_as_zero(self):
         t = self.transcript("s.jsonl", [_msg("user", "only turn")])
         capture.capture_turn_delta(self.payload(t))

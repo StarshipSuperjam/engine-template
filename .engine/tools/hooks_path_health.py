@@ -72,6 +72,13 @@ _AUTOMATIC_MEMORY_TARGETS = (
     ".engine/tools/memory/erasure_observer.py",
     ".engine/tools/memory/backup_vault.py",
 )
+_ACCEPTED_BUNDLE = (
+    ".engine/tools/hook-runner.sh",
+    ".engine/tools/codex-hook-runner.sh",
+    ".engine/tools/accepted_hook_dispatch.py",
+    ".claude/settings.json",
+    ".codex/hooks.json",
+)
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 15) -> str | None:
@@ -151,38 +158,71 @@ def _fingerprint(parts: list) -> str:
 
 
 def classify_accepted_hook_generation(worktree: str) -> dict:
-    """Classify one registered worktree's automatic-memory launcher without executing candidate code."""
+    """Classify one worktree's complete automatic-memory routing bundle without executing its code."""
     top = _toplevel(worktree)
     if top is None or os.path.realpath(top) != os.path.realpath(worktree):
         return {"state": "unreadable", "fingerprint": None}
-    runner = os.path.join(top, ".engine", "tools", "hook-runner.sh")
-    try:
-        before = os.lstat(runner)
-        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > 512 * 1024:
-            return {"state": "unreadable", "fingerprint": None}
-        with open(runner, encoding="utf-8") as handle:
-            source = handle.read()
-        after = os.lstat(runner)
-    except FileNotFoundError:
-        return {"state": "missing", "fingerprint": None}
-    except (OSError, UnicodeError):
-        return {"state": "unreadable", "fingerprint": None}
-    coordinates = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-    if coordinates != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
-        return {"state": "concurrent-change", "fingerprint": None}
-    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
-    marker_count = source.count(_ACCEPTED_MARKER)
+    sources = {}
+    coordinates = {}
+    for rel in _ACCEPTED_BUNDLE:
+        path = os.path.join(top, rel)
+        try:
+            before = os.lstat(path)
+            if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > 1024 * 1024:
+                return {"state": "unreadable", "fingerprint": None, "component": rel}
+            with open(path, encoding="utf-8") as handle:
+                sources[rel] = handle.read()
+            after = os.lstat(path)
+        except FileNotFoundError:
+            return {"state": "missing", "fingerprint": None, "component": rel}
+        except (OSError, UnicodeError):
+            return {"state": "unreadable", "fingerprint": None, "component": rel}
+        first = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        second = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+        if first != second:
+            return {"state": "concurrent-change", "fingerprint": None, "component": rel}
+        coordinates[rel] = first
+    digest = hashlib.sha256(json.dumps(
+        {rel: hashlib.sha256(source.encode("utf-8")).hexdigest() for rel, source in sources.items()},
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    runner_source = sources[".engine/tools/hook-runner.sh"]
+    marker_count = runner_source.count(_ACCEPTED_MARKER)
     if marker_count == 0:
         return {"state": "legacy", "fingerprint": digest}
     if marker_count != 1:
         return {"state": "ambiguous", "fingerprint": digest}
-    if any(source.count(f'"$project/{target}"') != 1 for target in _AUTOMATIC_MEMORY_TARGETS):
+    if any(runner_source.count(f'"$project/{target}"') != 1 for target in _AUTOMATIC_MEMORY_TARGETS):
         return {"state": "ambiguous", "fingerprint": digest}
-    tracked = _status(["git", "-C", top, "ls-files", "--error-unmatch", ".engine/tools/hook-runner.sh"])
-    unstaged = _status(["git", "-C", top, "diff", "--quiet", "--", ".engine/tools/hook-runner.sh"])
-    staged = _status([
-        "git", "-C", top, "diff", "--cached", "--quiet", "--", ".engine/tools/hook-runner.sh",
-    ])
+    if "hook-runner.sh" not in sources[".engine/tools/codex-hook-runner.sh"]:
+        return {"state": "ambiguous", "fingerprint": digest}
+    dispatcher = sources[".engine/tools/accepted_hook_dispatch.py"]
+    if any(target not in dispatcher for target in _AUTOMATIC_MEMORY_TARGETS):
+        return {"state": "ambiguous", "fingerprint": digest}
+    for rel, launcher in ((".claude/settings.json", "hook-runner.sh"),
+                          (".codex/hooks.json", "codex-hook-runner.sh")):
+        try:
+            document = json.loads(sources[rel])
+        except ValueError:
+            return {"state": "unreadable", "fingerprint": digest, "component": rel}
+        commands = []
+        stack = [document]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, dict):
+                command = value.get("command")
+                if isinstance(command, str):
+                    commands.append(command)
+                stack.extend(value.values())
+            elif isinstance(value, list):
+                stack.extend(value)
+        for target in _AUTOMATIC_MEMORY_TARGETS:
+            matches = [command for command in commands if target in command]
+            if not matches or any(launcher not in command for command in matches):
+                return {"state": "ambiguous", "fingerprint": digest, "component": rel}
+    tracked = _status(["git", "-C", top, "ls-files", "--error-unmatch", *_ACCEPTED_BUNDLE])
+    unstaged = _status(["git", "-C", top, "diff", "--quiet", "--", *_ACCEPTED_BUNDLE])
+    staged = _status(["git", "-C", top, "diff", "--cached", "--quiet", "--", *_ACCEPTED_BUNDLE])
     if tracked != 0:
         return {"state": "ambiguous", "fingerprint": digest}
     if unstaged not in {0, 1} or staged not in {0, 1}:
@@ -201,14 +241,21 @@ def accepted_hook_topology(cwd: str | None = None) -> dict:
     first = _run(command)
     if first is None:
         return {"state": "unreadable", "qualified": False, "worktrees": []}
-    paths = [
-        os.path.realpath(line[len("worktree "):].strip())
-        for line in first.splitlines() if line.startswith("worktree ")
-    ]
+    paths = [os.path.realpath(line[len("worktree "):].strip())
+             for line in first.splitlines() if line.startswith("worktree ")]
     if not paths or len(paths) != len(set(paths)):
         return {"state": "ambiguous", "qualified": False, "worktrees": []}
-    records = [{"path_digest": _fingerprint([path]), **classify_accepted_hook_generation(path)}
-               for path in paths]
+    records = []
+    for path in paths:
+        branch = _run(["git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        head = _run(["git", "-C", path, "rev-parse", "--short=12", "HEAD"])
+        ref = branch.strip() if branch else f"detached@{head.strip() if head else 'unknown'}"
+        records.append({
+            "worktree_id": _fingerprint([path])[:10],
+            "ref": ref[:160],
+            "path_digest": _fingerprint([path]),
+            **classify_accepted_hook_generation(path),
+        })
     second = _run(command)
     if second is None or second != first:
         return {"state": "concurrent-change", "qualified": False, "worktrees": records}

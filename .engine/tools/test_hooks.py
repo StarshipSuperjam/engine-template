@@ -1083,6 +1083,28 @@ class _AcceptedDispatchRepo:
         _accepted_call("git", "-C", str(self.root), "commit", "-m", "accepted")
         self.commit = self.git("rev-parse", "HEAD")
         self.tree = self.git("rev-parse", "HEAD^{tree}")
+        self.fake_bin = Path(self.temp.name) / "bin"
+        self.fake_bin.mkdir()
+        fake_gh = self.fake_bin / "gh"
+        fake_gh.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import json, os, sys
+            endpoint = sys.argv[-1]
+            commit = os.environ["ENGINE_TEST_ACCEPTED_COMMIT"]
+            if os.environ.get("ENGINE_TEST_GH_REFUSE") == "1":
+                print("[]")
+            elif endpoint.endswith("/pulls"):
+                print(json.dumps([{"number": 42, "merged_at": "2026-01-01T00:00:00Z",
+                    "merge_commit_sha": commit, "base": {"ref": "main"}}]))
+            elif "/releases/tags/" in endpoint:
+                print(json.dumps({"id": 77, "tag_name": endpoint.rsplit("/", 1)[-1]}))
+            elif "/actions/workflows/release-publish.yml/runs?" in endpoint:
+                print(json.dumps({"workflow_runs": [{"id": 88, "head_sha": commit,
+                    "conclusion": "success"}]}))
+            else:
+                raise SystemExit(1)
+            """), encoding="utf-8")
+        fake_gh.chmod(0o755)
         _accepted_call("git", "-C", str(self.root), "worktree", "add", "-b", "candidate",
                        str(self.worktree), self.commit)
         self._refresh_paths()
@@ -1102,6 +1124,8 @@ class _AcceptedDispatchRepo:
         for name in ("accepted_hook_dispatch.py", "release_source.py", "moment.py", "hook-runner.sh",
                      "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
             self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
+        for rel in (".claude/settings.json", ".codex/hooks.json"):
+            self._put(rel, (_ACCEPTED_TOOLS.parents[1] / rel).read_text(encoding="utf-8"))
         self._put(".engine/tools/validate.py",
                   "from pathlib import Path\nROOT = str(Path(__file__).resolve().parents[2])\n")
         self._put(".engine/tools/helper.py",
@@ -1123,6 +1147,13 @@ class _AcceptedDispatchRepo:
                       (_ACCEPTED_TOOLS / "memory" / name).read_text(encoding="utf-8"))
         for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
             self._put(f".engine/tools/memory/{name}", "raise SystemExit(0)\n")
+        self._put(".engine/tools/memory/mcp_server.py", textwrap.dedent("""\
+            import json, os
+            from memory import execution_context
+            context = execution_context.current_context().to_document()
+            print(json.dumps({"operation": context["operation"],
+                              "memory_dir": os.environ.get("ENGINE_MEMORY_DIR")}, sort_keys=True))
+            """))
         self._put(".engine/engine.json",
                   json.dumps({"engine_version": "9.9.9", "default_branch": "main"}) + "\n")
         self._put(".engine/memory-backup/pointer.json", json.dumps({
@@ -1134,12 +1165,18 @@ class _AcceptedDispatchRepo:
         self.script = self.worktree / ".engine/tools/close.py"
 
     def activate(self, *, source="reviewed-merge", source_ref="refs/heads/main", expected_epoch=0,
-                 commit=None):
+                 commit=None, accepted_proof=True):
+        selected = commit or self.commit
+        env = dict(os.environ)
+        env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
+        env["ENGINE_TEST_ACCEPTED_COMMIT"] = selected
+        if not accepted_proof:
+            env["ENGINE_TEST_GH_REFUSE"] = "1"
         return _accepted_call(
             sys.executable, str(self.dispatcher), "activate", "--root", str(self.worktree),
-            "--repository", "owner/project", "--commit", commit or self.commit, "--source", source,
+            "--repository", "owner/project", "--commit", selected, "--source", source,
             "--source-ref", source_ref, "--engine-release", "9.9.9", "--expected-epoch",
-            str(expected_epoch), check=False)
+            str(expected_epoch), check=False, env=env)
 
     def common_dir(self):
         raw = self.git("rev-parse", "--git-common-dir")
@@ -1167,6 +1204,13 @@ class _AcceptedDispatchRepo:
     def run_direct(self, env=None):
         return _accepted_call(sys.executable, "-I", "-S", str(self.dispatcher), "run", "--root",
                               str(self.worktree), "--script", str(self.script), "--", env=env, check=False)
+
+    def run_attended(self, operation="attended-memory-mcp", script=None, *target_args):
+        target = script or ".engine/tools/memory/mcp_server.py"
+        return _accepted_call(
+            sys.executable, "-I", "-S", str(self.dispatcher), "attended", "--root", str(self.worktree),
+            "--script", target, "--operation", operation, "--", *target_args, check=False,
+        )
 
     def _provision(self):
         bindir = self.worktree / ".engine/.venv/bin"
@@ -1233,6 +1277,25 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         legacy = self.repo.activate(expected_epoch=1)
         self.assertEqual(legacy.returncode, 1)
         self.assertIn("retire or recreate", legacy.stderr)
+
+    def test_activation_requires_independent_github_acceptance_proof(self):
+        refused = self.repo.activate(accepted_proof=False)
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("no merged GitHub pull request", refused.stderr)
+        self.assertNotIn("did not block the host action", refused.stderr)
+        self.assertFalse((self.repo.common_dir() / "engine/accepted-hooks/activation.json").exists())
+
+    def test_attended_maintenance_reenters_exact_accepted_code_with_one_registered_operation(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        result = self.repo.run_attended()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["operation"]["registry_id"], "attended-memory-mcp")
+        self.assertEqual(payload["operation"]["invocation_mode"], "attended")
+        self.assertEqual(payload["memory_dir"], os.path.realpath(self.repo.root / ".engine/memory"))
+        mismatch = self.repo.run_attended("attended-pin-add")
+        self.assertEqual(mismatch.returncode, 1)
+        self.assertIn("does not belong", mismatch.stderr)
 
     def test_activation_rejects_dirty_ambiguous_missing_and_unreadable_generations(self):
         mutations = {
@@ -1367,7 +1430,7 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertFalse(self.repo.marker.exists())
         health = self.repo.qualification_health()
         self.assertEqual((health["status"], health["skipped_effect_count"]), ("degraded", 2))
-        self.assertIn("Automatic memory work is being skipped", outcomes[0].stderr)
+        self.assertIn("Automatic memory work was skipped because", outcomes[0].stderr)
         self.assertNotIn("Automatic memory work is being skipped", outcomes[1].stderr)
         self.assertNotIn(self.repo.temp.name, json.dumps(health))
 

@@ -13,16 +13,15 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import execution_context, ledger, mutation_authority, mutation_contract
+from memory import capture, execution_context, ledger, mutation_authority, mutation_contract
+import first_run_health
 
 
 TOOLS = Path(__file__).resolve().parents[1]
-GUARDED_MODULES = (
-    "memory.ledger", "memory.capture", "memory.compact", "memory.backup_vault",
-    "memory.restore_vault", "memory.pins", "memory.forget", "memory.erase", "memory.rescrub",
-    "memory.index", "memory.mcp_server", "memory.erasure_observer", "memory.export",
-    "memory.semantic.store", "close", "boot",
-)
+NATIVE_TRUST_ROOTS = frozenset({
+    # These two seams establish or enter the qualified interpreter before ordinary Python writers run.
+    "accepted_hook_dispatch", "hook-runner",
+})
 
 
 class _QualifiedFixture:
@@ -47,6 +46,7 @@ class _QualifiedFixture:
             "schema_version": "accepted-hook-activation.v1", "repository": "owner/repo",
             "commit": "a" * 40, "tree": "b" * 40, "engine_release": "9.9.9", "epoch": 1,
             "source": "reviewed-merge", "source_ref": "refs/heads/main",
+            "authority": {"kind": "github-merged-pull", "evidence_id": "42"},
             "activated_at": "2026-01-01T00:00:00Z",
         }, sort_keys=True) + "\n", encoding="utf-8")
         bootstrap = execution_context._fixture_bootstrap(
@@ -75,10 +75,25 @@ class _QualifiedFixture:
 
 
 class ConvertedCallGraphTests(unittest.TestCase):
+    def test_pre_activation_first_run_hint_is_not_shared_memory(self):
+        entries = {entry["writer"] for entry in mutation_contract.REGISTRY}
+        self.assertNotIn("first_run_health.mark_first_run_applied", entries)
+        self.assertIn("first_run_health.clear_first_run_marker", entries)
+        self.assertEqual(
+            first_run_health._LANDING_MARKER_REL,
+            os.path.join(".engine", "boot", ".cache", "first-run-landing.json"),
+        )
+
     def test_every_in_scope_mutating_registry_referent_is_guarded(self):
         missing = []
         guarded = []
-        for module_name in GUARDED_MODULES:
+        module_names = sorted({
+            entry["writer"].rpartition(".")[0]
+            for entry in mutation_contract.REGISTRY
+            if entry["effect_class"] != "semantic-read"
+            and entry["writer"].rpartition(".")[0] not in NATIVE_TRUST_ROOTS
+        })
+        for module_name in module_names:
             module = importlib.import_module(module_name)
             for entry in mutation_contract.REGISTRY:
                 writer_module, _, function_name = entry["writer"].rpartition(".")
@@ -139,7 +154,7 @@ class ConvertedCallGraphTests(unittest.TestCase):
 
     def test_context_free_production_process_refuses_before_payload_creation(self):
         script = (
-            "import os,sys,tempfile; sys.path.insert(0," + repr(str(TOOLS)) + "); "
+            "import os,sys,tempfile,unittest; sys.path.insert(0," + repr(str(TOOLS)) + "); "
             "from memory import ledger; d=tempfile.mkdtemp(); p=os.path.join(d,'ledger.ndjson'); "
             "\ntry: ledger.append({'body':'forbidden'},path=p)\n"
             "except Exception as e: print(type(e).__name__, os.path.exists(p))\n"
@@ -190,6 +205,26 @@ class LockedAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "escapes"):
             ledger.append({"body": "must not land"}, path=escaped)
         self.assertFalse(os.path.exists(escaped))
+
+    def test_positional_path_outside_the_bound_store_refuses(self):
+        escaped = os.path.join(self.fixture.base, "escaped")
+        with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "escapes"):
+            capture._write_cursor(escaped, "session", 3)
+        self.assertFalse(os.path.exists(os.path.join(escaped, capture.CURSOR_FILENAME)))
+
+    def test_collection_cardinality_overrun_is_not_clamped_to_the_declared_maximum(self):
+        self.fixture.cleanup()
+        self.fixture = _QualifiedFixture(automatic=True)
+        self.fixture.install()
+        called = []
+
+        def writer(*, records):
+            called.append(records)
+
+        guarded = mutation_authority._guard("capture-failure-history", writer)
+        with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "cardinality"):
+            guarded(records=[{"n": value} for value in range(21)])
+        self.assertEqual(called, [])
 
     def test_consumed_capability_cannot_be_reused_at_the_writer(self):
         target = os.path.join(self.fixture.memory, "ledger.ndjson")
