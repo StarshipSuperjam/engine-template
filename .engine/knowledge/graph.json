@@ -8026,11 +8026,14 @@
         ],
         "provided_by": [
           "module:core"
+        ],
+        "routes_to": [
+          "tool:mcp_server"
         ]
       },
       "slug": "engine-restore-operator-pin",
       "source": {
-        "fingerprint": "sha256:e5889f76a6e36f1e2fb579cf7411d73cd34cabf17c1cb7caa939837097647eb1",
+        "fingerprint": "sha256:ce1b24b7380d189c87ef6b982544b3956174c30f6e1b20c052d260ec1eb79940",
         "path": ".claude/skills/engine-restore-operator-pin/SKILL.md"
       },
       "status": "active",
