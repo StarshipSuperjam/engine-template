@@ -13,7 +13,6 @@ lock primitive.  It never stores hook stderr, ledger content, filesystem paths, 
 from __future__ import annotations
 
 import argparse
-import calendar
 import hashlib
 import importlib.util
 import json
@@ -23,6 +22,12 @@ import stat
 import subprocess
 import sys
 import time
+
+_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PARENT not in sys.path:
+    sys.path.insert(0, _PARENT)
+
+import moment  # noqa: E402 — the trailing-Z time seam; pure stdlib leaf
 
 
 SCHEMA_VERSION = "accepted-hook-qualification-health.v1"
@@ -68,16 +73,11 @@ def _digest(value) -> str:
 
 
 def _moment(now: float | None = None) -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() if now is None else now))
+    return moment.utc_now() if now is None else moment.to_z(now)
 
 
 def _parse_moment(value: str | None) -> float | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return calendar.timegm(time.strptime(value, "%Y-%m-%dT%H:%M:%SZ"))
-    except (OverflowError, ValueError):
-        return None
+    return moment.epoch(value)
 
 
 def _git(root: str, *args: str) -> str:

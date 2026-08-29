@@ -1099,7 +1099,7 @@ class _AcceptedDispatchRepo:
         path.write_text(text, encoding="utf-8")
 
     def _accepted_tree(self):
-        for name in ("accepted_hook_dispatch.py", "release_source.py", "hook-runner.sh",
+        for name in ("accepted_hook_dispatch.py", "release_source.py", "moment.py", "hook-runner.sh",
                      "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
             self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
         self._put(".engine/tools/validate.py",

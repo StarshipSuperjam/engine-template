@@ -31,7 +31,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import time
 from contextlib import contextmanager
 
 
@@ -543,6 +542,11 @@ def _engine_release_at(root: str, commit: str) -> str:
 
 
 def activate(args: argparse.Namespace) -> dict:
+    # Activation is an attended operation running from the tree the operator selected. Keep this import
+    # inside that lane: automatic ``run``/``inspect`` must not import any current-worktree Engine module
+    # before they have transferred into the exact accepted materialization.
+    import moment
+
     root = _top(args.root)
     repository = args.repository.casefold()
     if not _SLUG.fullmatch(args.repository) or repository != _origin_slug(root):
@@ -601,7 +605,7 @@ def activate(args: argparse.Namespace) -> dict:
             "epoch": current_epoch + 1,
             "source": args.source,
             "source_ref": source_ref,
-            "activated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "activated_at": moment.utc_now(),
         }
         _materialize(root, record)
         final_topology = _verify_activation_barrier(root)
