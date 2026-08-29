@@ -1102,6 +1102,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design"
@@ -1132,6 +1133,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design"
@@ -5046,6 +5048,26 @@
       "type": "conduct"
     },
     {
+      "id": "doc:accepted-hook-qualification",
+      "name": ".engine/docs/accepted-hook-qualification.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "accepted-hook-qualification",
+      "source": {
+        "fingerprint": "sha256:c841444beec4ab2005a7b8c35ca610eb7959f264bfb369331a93504a9e35a5dc",
+        "path": ".engine/docs/accepted-hook-qualification.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "doc:ci-assurance",
       "name": ".engine/docs/ci-assurance.md",
       "owner": "core",
@@ -5240,7 +5262,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:43355d5adc990b0c5583085987a3805ec7274b827176ae1ccfd2178a54a4b255",
+        "fingerprint": "sha256:2f88818642ac939294de03146a46929dfdee32732f786d4e1071811f3e6a5f45",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -8580,6 +8602,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:moment",
           "tool:release_source",
           "tool:validate"
         ],
@@ -8589,7 +8612,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:e079c13ae530079ba88eaa842988743688390e5f74a7f8b15b219816e1cb9aea",
+        "fingerprint": "sha256:b9c5223faa0077bddd6d8887fce6343c292fdb0b849ec22323dd6c33d64be1db",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -13709,6 +13732,7 @@
       "owner": "memory-substrate-sqlite-fts5",
       "predicates": {
         "imports": [
+          "tool:moment",
           "tool:providers"
         ],
         "provided_by": [
@@ -13717,7 +13741,7 @@
       },
       "slug": "qualification_health",
       "source": {
-        "fingerprint": "sha256:23ee34504516b5e57dc9612e2fdc3255c88792cbcdc6fa6afdaa79baa4841c3c",
+        "fingerprint": "sha256:0e457e9f588fd54c3db27da8f8dec954d79325df357fddcf93df9139dfa845ba",
         "path": ".engine/tools/memory/qualification_health.py"
       },
       "status": "active",
@@ -16638,7 +16662,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:8f789434379474e87d82bf4a25d2649869549eaa61e79ddad76360256b3f7090",
+        "fingerprint": "sha256:98568ae333bfee4a20e8e9c34054ccf70f9f4594f13489b39fb9ad20c733cc3c",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17564,7 +17588,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:5af4cfb2deb3f7a6c65be03a2471e73fd0656b55c6b9b0c16664c423c397f6d4",
+        "fingerprint": "sha256:82814f9d0abd37a58436c2edd4f893a3e35da0015e9ad51983ebd75019bd74a3",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
