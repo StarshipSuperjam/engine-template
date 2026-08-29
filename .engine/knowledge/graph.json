@@ -3281,7 +3281,7 @@
       },
       "slug": "engine-configure-memory-backup",
       "source": {
-        "fingerprint": "sha256:c8f1f1dcb46dc926e1791a833a744b7e167fbcdd45d03801bc9f0b557097ed3c",
+        "fingerprint": "sha256:e7fc73efb0a743e13a1b3df243c04406b6d600c5d7a148d0e89a6a1bf10abf4f",
         "path": ".agents/skills/engine-configure-memory-backup/SKILL.md"
       },
       "status": "active",
@@ -3481,7 +3481,7 @@
       },
       "slug": "engine-drop-operator-pin",
       "source": {
-        "fingerprint": "sha256:a7f2f46614b7b30879f861727c17f1d0d7c511359408d9e7bfb92b47ec298870",
+        "fingerprint": "sha256:b4280781097143edb027078a7ed5dfb37e2bddb118130ddb77ac05a0fa3bb886",
         "path": ".agents/skills/engine-drop-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4121,7 +4121,7 @@
       },
       "slug": "engine-restore-operator-pin",
       "source": {
-        "fingerprint": "sha256:e202c011c1649d04dda78a5ccfa885149a99bbe9ffdbd7b93ade6581930c9c86",
+        "fingerprint": "sha256:cd978845dbc0ae2de5abe80f463037a384f8db6decad932ec63a7c24be3b4cc3",
         "path": ".agents/skills/engine-restore-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4201,7 +4201,7 @@
       },
       "slug": "engine-save-operator-pin",
       "source": {
-        "fingerprint": "sha256:880699d1d5d8359456796124202cb5f398ac8af709cb6a157198b722225347b7",
+        "fingerprint": "sha256:a43d7653399c9034b235f2d6b0896d701fd753c895ce916aa20bd61207d6087d",
         "path": ".agents/skills/engine-save-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4721,7 +4721,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:22c6655644bf53874d149f9e85dcba76e6ce283bc6e1542d009d56fa9db9f427",
+        "fingerprint": "sha256:73ef78a16629ceb0dbf7c461d0cdb392b259d8ca8000d653acbb3e82d917f974",
         "path": ".agents/skills/engine-start/SKILL.md"
       },
       "status": "active",
