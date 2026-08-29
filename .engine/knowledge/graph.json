@@ -5061,7 +5061,7 @@
       },
       "slug": "accepted-hook-qualification",
       "source": {
-        "fingerprint": "sha256:ee9f3d4ad6334f29f98afd3d44fb0c52216010a332d500aa6701f95060df7729",
+        "fingerprint": "sha256:161cc183e16f0089c7c021649af65109b125e14e3e5a5de1a9ce9ab19d64551d",
         "path": ".engine/docs/accepted-hook-qualification.md"
       },
       "status": "active",
@@ -13097,7 +13097,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:dafd1baf77857c49191eb13225344561faf373e40179cd70e8320640d023a4c6",
+        "fingerprint": "sha256:2062ded8884af44bbf2ac310299f0f961ab905eb2f6d8e08abdb67a19dc15be0",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -17676,7 +17676,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:d72f79b658157049130311eb4f8125f1e34e8b2d1e39ad78e2dd7d9436b7292f",
+        "fingerprint": "sha256:60fa03a98be9402ce2988e173e499c3c18a3740a4e3cd79779f76e30c29bde83",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
