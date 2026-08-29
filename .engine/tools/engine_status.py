@@ -17,6 +17,7 @@ not a layering breach — and it keeps the one renderer in one place so the two 
 from __future__ import annotations
 import sys
 import os
+import importlib.util
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boot  # noqa: E402  (the lifecycle tool that owns the signals seam + the shared pure renderer)
@@ -28,6 +29,50 @@ _DEGRADED = "I couldn't put the full status together just now. Please try again 
 _DEMO_INTRO = "What /engine-status shows you — where your project stands right now:"
 _DEMO_EXAMPLE_BANNER = "─── EXAMPLE — a made-up situation, NOT your project ───"
 _DEMO_EXAMPLE_INTRO = "And here is what the view looks like when something needs your attention:"
+_QUALIFICATION_HEADING = "## ⚠ Automatic memory work is degraded"
+_QUALIFICATION_RECOVERED = "Automatic memory qualification recovered"
+
+
+def _qualification_health():
+    """Read the shared non-memory qualification channel without importing memory's eager package surface."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory", "qualification_health.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_engine_status_qualification_health", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return module.read(root)
+    except Exception as exc:  # status always answers; unreadable health is itself a visible degraded state
+        return {"status": "unreadable", "error_type": type(exc).__name__}
+
+
+def _render_qualification_health(value) -> str:
+    if not isinstance(value, dict):
+        return ""
+    if value.get("status") == "degraded":
+        count = value.get("skipped_effect_count")
+        count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else "unknown"
+        latest = value.get("last_failure_at")
+        when = f"; latest at {latest}" if isinstance(latest, str) and len(latest) <= 32 else ""
+        return (
+            f"{_QUALIFICATION_HEADING}\n"
+            f"Accepted-code qualification has skipped {count} automatic effect(s){when}. Canonical memory "
+            "was left untouched. Retire or recreate legacy worktrees, restore the accepted activation, "
+            "then run a qualified hook again."
+        )
+    if value.get("status") == "unreadable":
+        return (
+            f"{_QUALIFICATION_HEADING}\n"
+            "The qualification-health record could not be read, so current automatic-memory freshness "
+            "cannot be verified. Canonical memory was not used to repair this diagnostic."
+        )
+    recovered = value.get("last_recovery_at")
+    if value.get("status") == "healthy" and isinstance(recovered, str) and len(recovered) <= 32:
+        return f"{_QUALIFICATION_RECOVERED} at {recovered}; the latest accepted hook is qualified."
+    return ""
 
 
 def render(session_id: str | None = None) -> str:
@@ -35,7 +80,9 @@ def render(session_id: str | None = None) -> str:
     pure operator-toned body. Always answers — if assembling it raises, degrade to a plain line rather than
     blanking or erroring (the same always-answers posture as `/engine-help` and boot's own pack guard)."""
     try:
-        return boot.render_dashboard(boot.gather_signals(session_id))
+        dashboard = boot.render_dashboard(boot.gather_signals(session_id))
+        qualification = _render_qualification_health(_qualification_health())
+        return dashboard + ("\n\n" + qualification if qualification else "")
     except Exception:
         return f"## {boot.PRESENT_MARKER}\n{_DEGRADED}"
 

@@ -57,11 +57,21 @@ CLI:  python tools/hooks_path_health.py              # classify THIS worktree's 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import stat
 import subprocess
 import sys
 
 _HOOKS_PATH_KEY = "core.hooksPath"
+_ACCEPTED_MARKER = "ENGINE_ACCEPTED_HOOK_DISPATCH=1"
+_AUTOMATIC_MEMORY_TARGETS = (
+    ".engine/tools/boot.py",
+    ".engine/tools/close.py",
+    ".engine/tools/memory/compact.py",
+    ".engine/tools/memory/erasure_observer.py",
+    ".engine/tools/memory/backup_vault.py",
+)
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 15) -> str | None:
@@ -138,6 +148,73 @@ def _fingerprint(parts: list) -> str:
     session-to-session (so an unchanged alarm collapses to a terse reminder), and changes when the broken value
     changes (so a NEW breakage re-surfaces full). Content-derived; never shown to the operator."""
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def classify_accepted_hook_generation(worktree: str) -> dict:
+    """Classify one registered worktree's automatic-memory launcher without executing candidate code."""
+    top = _toplevel(worktree)
+    if top is None or os.path.realpath(top) != os.path.realpath(worktree):
+        return {"state": "unreadable", "fingerprint": None}
+    runner = os.path.join(top, ".engine", "tools", "hook-runner.sh")
+    try:
+        before = os.lstat(runner)
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > 512 * 1024:
+            return {"state": "unreadable", "fingerprint": None}
+        with open(runner, encoding="utf-8") as handle:
+            source = handle.read()
+        after = os.lstat(runner)
+    except FileNotFoundError:
+        return {"state": "missing", "fingerprint": None}
+    except (OSError, UnicodeError):
+        return {"state": "unreadable", "fingerprint": None}
+    coordinates = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+    if coordinates != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns):
+        return {"state": "concurrent-change", "fingerprint": None}
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    marker_count = source.count(_ACCEPTED_MARKER)
+    if marker_count == 0:
+        return {"state": "legacy", "fingerprint": digest}
+    if marker_count != 1:
+        return {"state": "ambiguous", "fingerprint": digest}
+    if any(source.count(f'"$project/{target}"') != 1 for target in _AUTOMATIC_MEMORY_TARGETS):
+        return {"state": "ambiguous", "fingerprint": digest}
+    tracked = _status(["git", "-C", top, "ls-files", "--error-unmatch", ".engine/tools/hook-runner.sh"])
+    unstaged = _status(["git", "-C", top, "diff", "--quiet", "--", ".engine/tools/hook-runner.sh"])
+    staged = _status([
+        "git", "-C", top, "diff", "--cached", "--quiet", "--", ".engine/tools/hook-runner.sh",
+    ])
+    if tracked != 0:
+        return {"state": "ambiguous", "fingerprint": digest}
+    if unstaged not in {0, 1} or staged not in {0, 1}:
+        return {"state": "unreadable", "fingerprint": digest}
+    if unstaged != 0 or staged != 0:
+        return {"state": "dirty", "fingerprint": digest}
+    return {"state": "qualified", "fingerprint": digest}
+
+
+def accepted_hook_topology(cwd: str | None = None) -> dict:
+    """Two-snapshot registered-worktree census for the attended activation barrier and its diagnostics."""
+    top = _toplevel(cwd)
+    if top is None:
+        return {"state": "unreadable", "qualified": False, "worktrees": []}
+    command = ["git", "-C", top, "worktree", "list", "--porcelain"]
+    first = _run(command)
+    if first is None:
+        return {"state": "unreadable", "qualified": False, "worktrees": []}
+    paths = [
+        os.path.realpath(line[len("worktree "):].strip())
+        for line in first.splitlines() if line.startswith("worktree ")
+    ]
+    if not paths or len(paths) != len(set(paths)):
+        return {"state": "ambiguous", "qualified": False, "worktrees": []}
+    records = [{"path_digest": _fingerprint([path]), **classify_accepted_hook_generation(path)}
+               for path in paths]
+    second = _run(command)
+    if second is None or second != first:
+        return {"state": "concurrent-change", "qualified": False, "worktrees": records}
+    qualified = all(record["state"] == "qualified" for record in records)
+    return {"state": "qualified" if qualified else "blocked", "qualified": qualified,
+            "worktrees": records}
 
 
 def detect_broken_hooks_path(cwd: str | None = None) -> dict | None:
@@ -339,6 +416,9 @@ def _demo() -> int:
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
+    if argv and argv[0] == "accepted-topology":
+        print(json.dumps(accepted_hook_topology(), sort_keys=True))
+        return 0
     if argv and argv[0] == "repair":
         r = repair(apply="--apply" in argv)
         status, applied = r["status"], r.get("applied", False)
