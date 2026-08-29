@@ -1413,6 +1413,90 @@ class ReplacementInPlace(_Program):
         self.assertIn("several disconnected chains",
                       plan_program.render(self.programs, self.programs.read(slug)))
 
+    def test_supersede_runs_the_join_checks_and_cannot_swallow_a_debt(self):
+        """REGRESSION. The carry-forward comparison used to be nested inside a test for the
+        replacement's back-link, so a replacement declaring no program — or a different one —
+        skipped the comparison entirely and was joined anyway. Reproduced against that code: the
+        predecessor's obligation vanished from `obligation_report`, which then let the program be
+        closed and even recorded complete over a debt nobody answered for. Supersede is a JOIN and
+        must run the same checks every other join door runs.
+        """
+        slug = self._program("Join checks", "A replacement joins, and joining has rules.")
+        self._plan("pln_0000000000fa", "Child A",
+                   _obligation("OB-1", "Someone after this must answer."))
+        self.programs.add_child(slug, "pln_0000000000fa")
+        self._plan("pln_0000000000fb", "Child B", _obligation("OB-1", "Answered.", "satisfied"),
+                   predecessor="pln_0000000000fa")
+        self.programs.add_child(slug, "pln_0000000000fb", predecessor="pln_0000000000fa")
+        self._retire("pln_0000000000fb")
+
+        # A replacement belonging to a DIFFERENT program, saying nothing about OB-1.
+        self._plan("pln_0000000000fc", "A stranger", program_id="prg_ffffffffffff")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.mark_superseded(slug, "pln_0000000000fb", "pln_0000000000fc")
+        self.assertIn("does not declare that it belongs", str(caught.exception))
+        # And the debt is still on the books, which is the fact the old code destroyed.
+        report = self.programs.obligation_report(self.programs.read(slug))
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-1"])
+
+        # A replacement in the right program that simply forgets the debt is refused too.
+        self._plan("pln_0000000000fd", "A forgetful replacement")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.mark_superseded(slug, "pln_0000000000fb", "pln_0000000000fd")
+        self.assertIn("OB-1", str(caught.exception))
+        self.assertEqual(
+            [o["id"] for o in
+             self.programs.obligation_report(self.programs.read(slug))["obligations"]],
+            ["OB-1"])
+
+    def test_a_plan_already_on_the_chain_cannot_also_take_another_s_place(self):
+        slug = self._chain("pln_0000000000ga" .replace("g", "1"), "pln_0000000000gb".replace("g", "1"))
+        self._plan("pln_00000000001c", "A third")
+        self.programs.add_child(slug, "pln_00000000001c", predecessor="pln_00000000001b")
+        self._retire("pln_00000000001b")
+        with self.assertRaisesRegex(plan_program.ProgramError, "already a child"):
+            self.programs.mark_superseded(slug, "pln_00000000001b", "pln_00000000001c")
+
+    def test_derivations_follow_the_record_edge_not_the_document_provenance_copy(self):
+        """The divergence fixture. `clone --supersedes` writes the predecessor edge into the plan
+        DOCUMENT as authoring-time provenance, and that copy is a second place the order appears.
+        The program record is the sole authority; this re-points the record after authoring and
+        asserts every derivation follows it while the document copy says something else.
+        """
+        slug = self._program("Two copies", "One authority, one note about it.")
+        for plan_id, predecessor in (("pln_00000000002x".replace("x", "1"), None),
+                                     ("pln_00000000002x".replace("x", "2"), "pln_000000000021"),
+                                     ("pln_00000000002x".replace("x", "3"), "pln_000000000022")):
+            self._plan(plan_id, f"Child {plan_id[-1]}", predecessor=predecessor)
+            self.programs.add_child(slug, plan_id, predecessor=predecessor)
+
+        # The document of child 3 still says it succeeds child 2. Re-point the RECORD so it
+        # succeeds child 1 instead: the two sources now disagree, deliberately.
+        record = self.programs.read(slug)
+        entry = next(c for c in record["children"] if c["plan_id"] == "pln_000000000023")
+        entry["predecessor_plan_id"] = "pln_000000000021"
+        self.programs._write(slug, record)
+        document = self.plans.head(self.plans.resolve("pln_000000000023"))
+        self.assertEqual(document["program"]["predecessor_plan_id"], "pln_000000000022",
+                         "the document copy must still disagree, or this fixture proves nothing")
+
+        record = self.programs.read(slug)
+        analysis = plan_program.chain_analysis(record)
+        # THE discriminator. Following the record, child 1 now has two successors and the chain
+        # forks. Following the document's provenance copy, it would still be the flat line
+        # 1 -> 2 -> 3 with no fork at all — so the fork's existence is what proves which source won.
+        self.assertEqual([(f["predecessor_plan_id"], sorted(f["successors"]))
+                          for f in analysis["forks"]],
+                         [("pln_000000000021",
+                           ["pln_000000000022", "pln_000000000023"])])
+        view = {c["plan_id"]: c for c in self.programs.child_view(record)}
+        self.assertEqual(view["pln_000000000023"]["predecessor_plan_id"], "pln_000000000021")
+        self.assertIn("`pln_000000000021` is the declared predecessor of",
+                      plan_program.render(self.programs, record))
+        # The carry-forward comparison reads the record's edge too: the decay sweep compares child
+        # 3 against child 1, which is what the RECORD says it succeeds, and finds nothing owed.
+        self.assertEqual(self.programs.carry_forward_decay(slug), [])
+
     def test_a_plan_cannot_supersede_itself(self):
         slug = self._chain("pln_0000000000ae", "pln_0000000000be")
         with self.assertRaisesRegex(plan_program.ProgramError, "cannot supersede itself"):
@@ -1767,16 +1851,33 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
     a verb nobody built, or renaming a verb out from under an existing refusal, turns this red.
     """
 
-    def _named_program_verbs(self) -> set:
-        import re
-        source = Path(plan_program.__file__).read_text(encoding="utf-8")
-        # The literal form the refusal texts use, e.g. `program release`, `program add --after`.
-        return set(re.findall(r"`program ([a-z-]+)", source))
+    #: Every module whose operator-facing refusals may name a verb. The sweep read only
+    #: plan_program.py at first, and the gap was not theoretical: a cold reviewer found the bind
+    #: refusal in build_coordinator.py pointing at `reopen`, which refuses every plan that can
+    #: reach that message. A guard that covers one file while the promise covers the change is a
+    #: guard that reports safety it has not checked.
+    SOURCES = ("plan_program", "project_manager", "build_coordinator")
 
-    def _named_clone_flags(self) -> set:
+    def _sources(self) -> str:
+        import importlib
+        return "\n".join(Path(importlib.import_module(name).__file__).read_text(encoding="utf-8")
+                          for name in self.SOURCES)
+
+    def _named_program_verbs(self, source: str | None = None) -> set:
         import re
-        source = Path(plan_program.__file__).read_text(encoding="utf-8")
-        return set(re.findall(r"`clone (--[a-z-]+)", source))
+        # The literal form the refusal texts use, e.g. `program release`, `program add --after`.
+        return set(re.findall(r"`program ([a-z-]+)", source if source is not None else self._sources()))
+
+    def _named_clone_flags(self, source: str | None = None) -> set:
+        import re
+        return set(re.findall(r"`clone (--[a-z-]+)",
+                              source if source is not None else self._sources()))
+
+    def _named_plan_verbs(self, source: str | None = None) -> set:
+        """Top-level Project Manager verbs, e.g. `project_manager.py reopen pln_...`."""
+        import re
+        return set(re.findall(r"`project_manager\.py ([a-z-]+)",
+                              source if source is not None else self._sources()))
 
     def test_every_program_verb_a_refusal_names_is_a_real_verb(self):
         import project_manager
@@ -1799,8 +1900,40 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
         self.assertTrue(named, "the sweep found no named clone flags")
         self.assertEqual(named - available, set())
 
-    def test_the_sweep_would_catch_a_verb_that_does_not_exist(self):
-        """THE function the guard rests on, proven against a seeded miss rather than assumed."""
-        available = {"add", "release"}
-        named = {"add", "release", "invent"}
-        self.assertEqual(named - available, {"invent"})
+    def test_every_top_level_verb_a_refusal_names_is_a_real_verb(self):
+        """The refusals that name `project_manager.py <verb>` — the ones in build_coordinator.py."""
+        import project_manager
+        parser = project_manager.build_parser()
+        available = set(parser._subparsers._group_actions[0].choices)
+        named = self._named_plan_verbs()
+        self.assertTrue(named, "the sweep found no named top-level verbs")
+        self.assertEqual(named - available, set())
+
+    def test_the_sweep_runs_its_real_machinery_against_a_seeded_miss(self):
+        """THE function the guard rests on, exercised end to end rather than asserted about.
+
+        The first version of this compared two hardcoded literals with a set difference. It named a
+        behaviour it never touched: deleting the regex, the file list and the parser lookup left it
+        green. This drives the ACTUAL extractor over a line of invented refusal text and requires it
+        to surface the verb nobody built.
+        """
+        seeded = 'raise ProgramError("try `program unburden <program>` instead")'
+        self.assertEqual(self._named_program_verbs(seeded), {"unburden"})
+
+        import project_manager
+        parser = project_manager.build_parser()
+        program_action = next(
+            action for action in parser._subparsers._group_actions[0].choices["program"]._actions
+            if hasattr(action, "choices") and action.choices)
+        self.assertEqual(self._named_program_verbs(seeded) - set(program_action.choices),
+                         {"unburden"},
+                         "the real extractor plus the real parser must together surface the miss")
+
+    def test_the_sweep_reads_every_module_that_writes_a_refusal(self):
+        """The scope of the guard is itself asserted, so narrowing it cannot pass unnoticed."""
+        import build_coordinator
+        self.assertIn("build_coordinator", self.SOURCES)
+        self.assertIn("project_manager", self.SOURCES)
+        source = self._sources()
+        self.assertIn("does not start a Build", source,
+                      "the bind refusal must be inside the swept text, not merely nearby")

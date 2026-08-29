@@ -1600,7 +1600,15 @@ def _supersession_block(library, superseded_selector: str) -> dict:
     inherited = child.get("predecessor_plan_id")
     if inherited:
         block["predecessor_plan_id"] = inherited
-        carried = plan_program.carried_forward(library.head(library.resolve(inherited)))
+        # Program-level releases are subtracted here for the same reason every gate subtracts them:
+        # a debt formally let go on the record must not come back. Pre-filling it as `carried` would
+        # quietly reverse the operator's own decision, in the one place they are least likely to
+        # re-read it — a generated block they are about to build on.
+        released = programs.released_at(record, inherited)
+        carried = {identifier: obligation
+                   for identifier, obligation
+                   in plan_program.carried_forward(library.head(library.resolve(inherited))).items()
+                   if identifier not in released}
         if carried:
             block["carried_obligations"] = [
                 {"id": o["id"], "statement": o["statement"], "state": "carried"}
@@ -1991,8 +1999,16 @@ def cmd_program_list(args) -> int:
         # it did while the unknown rendering existed only in `show`.
         owed = (f"{len(report['obligations'])} obligation(s) outstanding" if not report["unknown"]
                 else f"obligations unknown ({len(report['unknown'])} reason(s) — run `program show`)")
-        print(f"{record['program_id']}  {programs.derived_status(record):<15} "
+        status = programs.derived_status(record)
+        print(f"{record['program_id']}  {status:<18} "
               f"{len(record['children'])} child(ren), {owed}  {record['title']}")
+        if status == programs.CHILDREN_COMPLETE:
+            # `list` is the view built for scanning many programs at once, which makes it the view
+            # where a token can most easily be mistaken for a verdict. `show` carries the full
+            # sentence; withholding every trace of it here would reintroduce at the list level the
+            # exact misreading this change exists to remove.
+            print("                    ^ every child on record is done; nobody has recorded that "
+                  "the PROGRAM is. Run `program show` for what that does and does not claim.")
     return 0
 
 
@@ -2013,8 +2029,7 @@ def cmd_program_add(args) -> int:
     # and only the second one is what an operator adding to a branch is being told. Printing the union
     # here would attribute another branch's debts to a successor that can never answer for them.
     plan_slug = programs.plans.resolve(args.plan)
-    outstanding = sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
-                         key=lambda o: o["id"])
+    outstanding = _still_carried(programs, record, args.plan)
     ordinal = next((child["chain_ordinal"] for child in programs.child_view(record)
                     if child["plan_id"] == programs.plans.read_record(plan_slug)["plan_id"]),
                    len(record["children"]))
@@ -2082,8 +2097,7 @@ def cmd_program_insert(args) -> int:
     print(f"  {predecessor} -> {plan_id} -> {displaced_id}" if predecessor
           else f"  {plan_id} now starts this chain, and {displaced_id} succeeds it")
     print("Nothing was renumbered: the order every reader derives comes from these edges.")
-    outstanding = sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
-                         key=lambda o: o["id"])
+    outstanding = _still_carried(programs, record, args.plan)
     if outstanding:
         print(f"\n{displaced_id} now answers for {len(outstanding)} obligation(s) carried by "
               f"{plan_id}:")
@@ -2091,6 +2105,20 @@ def cmd_program_insert(args) -> int:
             print(f"  - {obligation['id']}: {obligation['statement']}")
     _report_decay(programs, slug)
     return 0
+
+
+def _still_carried(programs, record: dict, plan_selector: str) -> list:
+    """What a plan hands on, with program-level releases subtracted — what the GATES enforce.
+
+    These reports used to read `carried_forward` raw, so they printed a debt that the release verb
+    had already let go and that no gate would refuse. A report that names more than the machinery
+    enforces trains an operator to discount it, which costs exactly when it is right.
+    """
+    plan_slug = programs.plans.resolve(plan_selector)
+    plan_id = programs.plans.read_record(plan_slug)["plan_id"]
+    released = programs.released_at(record, plan_id)
+    return sorted((o for o in plan_program.carried_forward(programs.plans.head(plan_slug)).values()
+                   if o["id"] not in released), key=lambda o: o["id"])
 
 
 def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
@@ -2341,9 +2369,10 @@ def build_parser() -> argparse.ArgumentParser:
     clone.add_argument("--reason", required=True)
     clone.add_argument("--title")
     clone.add_argument("--supersedes",
-                       help="the program child this clone is being written to replace: pre-fills the "
-                            "back-link, the replaced plan's predecessor edge as provenance, and that "
-                            "PREDECESSOR's carried obligations re-declared as carried")
+                       help="the plan this copy is being written to replace. The copy starts out "
+                            "already belonging to the same program, already in the replaced plan's "
+                            "place, and already owing what that place owed — so you edit the work "
+                            "rather than reassemble the bookkeeping")
     clone.set_defaults(func=cmd_clone)
 
     export = sub.add_parser("export", help="write a self-verifying local bundle (uploads nothing)")

@@ -102,11 +102,13 @@ DEAD_BRANCH_STATES = ("retired", "abandoned")
 def chain_analysis(record: dict) -> dict:
     """Order the children by their DECLARED predecessor edges, and name every anomaly found.
 
-    `position` is NOT consulted. It is display-only — assigned at add, printed in the table, and read
-    by nothing else in the engine — so ordering by it made the stored array's numbering authoritative
-    over the edges that actually record the decision. The edges are the decision; the number is a
-    label. Siblings of one fork tie-break on (added_at, plan_id), never on position, so a record whose
-    numbering has been permuted or duplicated still renders in the order its edges declare.
+    `position` is NOT consulted, and is no longer written either. It was display-only — a stored
+    label nothing read — so ordering by it made the stored numbering authoritative over the edges
+    that actually record the decision. The edges are the decision; the number was a label, and
+    insert is the verb that would have had to invent one, so it died instead of being renumbered.
+    Legacy records still carrying it stay valid. Siblings of one fork tie-break on (added_at,
+    plan_id), never on position, so a record whose numbering has been permuted or duplicated still
+    renders in the order its edges declare.
 
     EVERY stored child appears in `order` exactly once. A child unreachable from a root — because its
     predecessor edge dangles, or because it sits in a cycle — is appended and named in `unreachable`
@@ -567,13 +569,30 @@ class ProgramLibrary:
                 "and its completion could never be recorded afterwards. Finish that Build and let it "
                 "merge, or abandon it, then supersede.")
 
-        # The replacement inherits the replaced child's predecessor edge, so it inherits the
-        # answerability that came with it. Checked here, before anything is retired, because a
-        # refusal after step 2 would leave a plan out of play for a supersession that never landed.
         inherited = child.get("predecessor_plan_id")
-        if inherited and not already:
-            declared = (self.plans.head(replacement_slug).get("program") or {}).get("program_id")
-            if declared == record["program_id"]:
+        if not already:
+            # Supersede is a JOIN. It was the only door that did not say so, and the omission was a
+            # silent drop: the carry-forward comparison below used to be nested inside a test for
+            # the replacement's back-link, so a replacement declaring no program — or a different
+            # one — skipped the comparison entirely and was joined anyway, taking its predecessor's
+            # debt out of the program's books with it. Reproduced before this line existed: the
+            # obligation vanished from `obligation_report` and the program then closed clean.
+            #
+            # So the same checks every other door runs, run here, and the back-link case refuses
+            # with the message that actually explains it rather than passing vacuously.
+            if any(c["plan_id"] == replacement_id for c in record["children"]):
+                raise ProgramError(
+                    f"{replacement_id} is already a child of this program. A replacement JOINS at "
+                    f"the place {superseded_id} is giving up; a plan already on the chain cannot "
+                    "also take another's place, because it would then sit in two positions at once. "
+                    "Clone it into a new plan if the same work is meant to stand in both places.")
+            self._joinable(record, replacement_selector)
+
+            # The replacement inherits the replaced child's predecessor edge, so it inherits the
+            # answerability that came with it. Checked here, before anything is retired, because a
+            # refusal after step 2 would leave a plan out of play for a supersession that never
+            # landed. Unconditional: there is no shape of replacement this may be skipped for.
+            if inherited:
                 dropped = dropped_obligations(
                     self.plans.head(self.plans.resolve(inherited)),
                     self.plans.head(replacement_slug),

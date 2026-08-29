@@ -1033,15 +1033,19 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
         # later — a loaded gun on the shelf under a record saying it had been put away. "No longer
         # bindable" was advice printed by the next-step helper and nothing more; this is the door
         # itself, which is what makes it true.
+        # Every way through named here must actually open for a plan that can REACH this message,
+        # and only a SEALED plan can — the unsealed refusal above returns first. `reopen` is
+        # therefore not among them: it refuses every sealed plan outright, since unsealing would let
+        # an edited plan keep a digest a Build already trusted. Naming it would send an operator at
+        # a locked door, which the retired and abandoned branches did until a cold reviewer tried it.
+        # For all three states the door that opens is the same one: clone.
+        clone = (f"`project_manager.py clone {record['plan_id']} --reason \"...\"` starts a new plan "
+                 "from this one's thinking, carrying none of the evidence nobody granted the copy.")
         ways = {
-            "retired": "It was set aside — reopen it with `project_manager.py reopen "
-                       f"{record['plan_id']}` if that was wrong, or build the plan that replaced it.",
-            "abandoned": "It was deliberately dropped. Reopen it with `project_manager.py reopen "
-                         f"{record['plan_id']}` if that was wrong, or plan the work afresh.",
-            "complete": "Its Build already merged, and completed Build history is terminal. New work "
-                        "takes a new plan — `project_manager.py clone "
-                        f"{record['plan_id']} --reason \"...\"` carries the thinking forward without "
-                        "carrying evidence nobody granted the copy.",
+            "retired": "It was set aside, and a seal cannot be undone to bring it back. Build the "
+                       f"plan that replaced it, or start again from this one: {clone}",
+            "abandoned": f"It was deliberately dropped, and a seal cannot be undone. {clone}",
+            "complete": f"Its Build already merged, and completed Build history is terminal. {clone}",
         }
         raise CoordinatorError(
             f"{record['plan_id']} is {closure['state']} ({closure['reason']}), and a closed plan "

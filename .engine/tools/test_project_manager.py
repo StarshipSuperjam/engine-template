@@ -1388,6 +1388,34 @@ class ProgramVerbs(_Governed):
         self.assertIn("Closed over an unknown",
                       self.run_command("program", "show", program_id)[1])
 
+    def test_a_program_level_release_unblocks_the_seal_side_check(self):
+        """The seal gate itself, not only the sweep it reads.
+
+        A release honored by `obligation_report` but not by the gate that refuses a seal would be
+        the worst shape available: the debt disappears from the count an operator scans and
+        reappears at the door refusing their next action. This drives the real seal-side check.
+        """
+        import project_manager
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B", predecessor="pln_aaaaaaaaaaaa")
+        # B answers for nothing, so it can only join once OB-1 is released at program level.
+        code, _, err = self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                        "--after", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("OB-1", err)
+
+        slug_b = self.lib.resolve("pln_bbbbbbbbbbbb")
+        record_b = self.lib.read_record(slug_b)
+        document_b = self.lib.head(slug_b)
+
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-1", "--reason", "its successor was abandoned")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        refusals, _ = project_manager._program_check(self.lib, record_b, document_b)
+        self.assertEqual([r for r in refusals if "OB-1" in r], [],
+                         "the seal-side check must honour the release the report already honoured")
+
     def test_revise_objective_shows_both_texts_and_keeps_the_old_one(self):
         program_id = self._program_with_child()
         code, out, err = self.run_command("program", "revise-objective", program_id,

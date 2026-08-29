@@ -525,6 +525,40 @@ class TestSealedPlanEntry(CoordinatorCase):
                     self.slug, lambda current: current.update({"closure": None}),
                     expected_revision=record["current"]["revision"])
 
+    def test_the_way_through_the_refusal_names_actually_opens(self):
+        """Existence is not openness, and this is the gap that let the first version through.
+
+        The refusal originally named `project_manager.py reopen`. That verb exists — a sweep for
+        verbs that do not exist passes it happily — but it refuses EVERY sealed plan, and only a
+        sealed plan can reach this message at all, because the unsealed refusal returns first. So
+        the door was named, real, and locked. This asserts the property the sweep cannot: that what
+        the message tells the operator to run is something that works for the plan in front of them.
+        """
+        import project_manager as pm
+        for state in ("retired", "abandoned", "complete"):
+            with self.subTest(state=state):
+                self.seal_it()
+                self._close(state)
+                with self.assertRaises(bc.CoordinatorError) as caught:
+                    bc._sealed_plan(self.document["plan_id"])
+                message = str(caught.exception)
+                self.assertNotIn("reopen", message,
+                                 "reopen refuses every sealed plan, so naming it is a locked door")
+                self.assertIn("clone", message)
+
+                # And clone genuinely opens for this plan, right now, in this state.
+                args = argparse.Namespace(plan=self.document["plan_id"], reason="carrying it on",
+                                          title=None, supersedes=None,
+                                          library=str(self.library.root))
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(pm.cmd_clone(args), 0)
+                self.assertIn("cloned", out.getvalue())
+
+                record = self.library.read_record(self.slug)
+                self.library.update_record(
+                    self.slug, lambda current: current.update({"closure": None}),
+                    expected_revision=record["current"]["revision"])
+
     def test_an_open_sealed_plan_still_binds_exactly_as_before(self):
         seal = self.seal_it()
         plan_id, sealed_digest, payload = bc._sealed_plan(self.document["plan_id"])

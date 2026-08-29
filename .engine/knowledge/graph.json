@@ -8986,7 +8986,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:c2c9aad4df550cde737da58506958c73521eedcbd3a6831e86810bd5cf5c6fca",
+        "fingerprint": "sha256:6e34b33c078cfcd369146ac678467b0b670af1c3e392797bc5be771c0281e246",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -10837,6 +10837,31 @@
       },
       "status": "active",
       "summary": "Demo — why a stuck pull request is never your problem, and how the engine knows when to stop (#136).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
+      "id": "tool:demo_program_order_and_honest_ends",
+      "name": ".engine/tools/demo_program_order_and_honest_ends.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:plan_program",
+          "tool:plan_store",
+          "tool:test_plan_store"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_program_order_and_honest_ends",
+      "source": {
+        "fingerprint": "sha256:b28da8c69dce09ca81f2c45c8d42a94880f739b22975544eb3707560de6c23d3",
+        "path": ".engine/tools/demo_program_order_and_honest_ends.py"
+      },
+      "status": "active",
+      "summary": "Demo — a program's order can be re-decided, and its ends stop claiming more than they know.",
       "type": "tool"
     },
     {
@@ -13168,7 +13193,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:5e18306b17266ea74e349bf4bbe0cc0e48a743a5e01712609c1aa5aec5a4f5d6",
+        "fingerprint": "sha256:59e362836290d6ceda77d258790457a4742184c3ad748f04b622cc81922b7218",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13341,7 +13366,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:1a1a99a742d0ba9b9f67fef28cdf41abcd1504b83bd56e7f4fc653fe36a6269d",
+        "fingerprint": "sha256:5e391bc8a6f1b18cff6055f6848424ed99740b857005438eabf807f6d7cb6300",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15122,7 +15147,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:1eabab65ad6991c212c217665a446cb2f102e6d14cb064c73ac4fd72316f574a",
+        "fingerprint": "sha256:373e31a06546b3c229eb066bee296b0bc2c274f7eb8276838d8335b41a043258",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -17691,6 +17716,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_coordinator",
           "tool:plan_program",
           "tool:plan_store",
           "tool:project_manager",
@@ -17699,7 +17725,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:414ad6f404b63857d1558bd768afd70f49e2e8e80d648ee5b6da1ff28b0acb66",
+        "fingerprint": "sha256:db89a092e8128f8c5e365c0f0ee492d1659c31482239aac2dbb5c25f9049f7b3",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -17877,7 +17903,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:8d7ebd11f4c454897506d785291d520984579cc52d51e4abdaccb2182e3a9ab3",
+        "fingerprint": "sha256:560a898689a41f370b90c73e8fcbdd4aba852d3c6bf65f06550eec298c93d08a",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
