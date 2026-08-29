@@ -30,7 +30,6 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from pathlib import Path
 
 
 SCHEMA_VERSION = "accepted-hook-activation.v1"
@@ -537,6 +536,7 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
     canonical = context["canonical"]
     env.update({
         "PYTHONNOUSERSITE": "1",
+        "ENGINE_PROVIDER": context["invocation"]["provider"],
         "ENGINE_PROJECT_ROOT": canonical["project_root"],
         "ENGINE_MEMORY_DIR": canonical["memory_dir"],
         "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
@@ -704,7 +704,10 @@ def main(argv: list[str] | None = None) -> int:
             root = _top(args.root)
             activation = load_activation(root)
             _verify_exact_object(root, activation)
-            print(json.dumps(_canonical_context(root, activation), sort_keys=True))
+            accepted_tree = _valid_materialization(root, activation)
+            if not accepted_tree:
+                raise QualificationError("the accepted tree is not already materialized and intact")
+            print(json.dumps(_canonical_context(root, activation, accepted_tree), sort_keys=True))
             return 0
         if args.command == "run":
             dispatch(args.root, args.script, args.target_args)

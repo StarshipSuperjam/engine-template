@@ -180,6 +180,21 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
         for forbidden in ("uv ", "/usr/bin/", "/usr/local/bin/", "exec python"):
             self.assertNotIn(forbidden, src)
 
+    def test_memory_bearing_automatic_targets_enter_the_exact_accepted_dispatcher(self):
+        with open(self.WRAPPER) as fh:
+            src = fh.read()
+        self.assertIn("ENGINE_ACCEPTED_HOOK_DISPATCH=1", src)
+        self.assertIn("accepted_hook_dispatch.py", src)
+        self.assertIn('set -- -I -S "$dispatcher" run --root "$project" --script "$script" -- "$@"', src)
+        for target in (
+            ".engine/tools/boot.py",
+            ".engine/tools/close.py",
+            ".engine/tools/memory/compact.py",
+            ".engine/tools/memory/erasure_observer.py",
+            ".engine/tools/memory/backup_vault.py",
+        ):
+            self.assertIn(target, src)
+
     def test_per_os_form_carries_its_own_venv_interpreter(self):
         self.assertIn(".engine/.venv/bin/python",
                       hooks.hook_command(".engine/tools/boot.py", "posix"))

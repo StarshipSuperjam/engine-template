@@ -67,6 +67,28 @@ if [ ! -x "$interp" ] && [ "$venv" != "$interp" ] && [ -x "$alt" ]; then
     interp="$alt"
 fi
 if [ -x "$interp" ]; then
+    # ENGINE_ACCEPTED_HOOK_DISPATCH=1 — rollout/activation scans this exact marker in every registered
+    # worktree. Only memory-bearing automatic targets enter the accepted-code boundary; all other hooks
+    # retain their byte-for-byte argv path. Derive the project from the already-qualified venv path rather
+    # than cwd, then start even the small candidate bootstrap with isolated Python startup. The bootstrap
+    # admits only these exact targets and starts a second isolated interpreter from the activated exact tree.
+    project="${venv%/.engine/.venv}"
+    script="$1"
+    case "$script" in
+        "$project/.engine/tools/boot.py"|\
+        "$project/.engine/tools/close.py"|\
+        "$project/.engine/tools/memory/compact.py"|\
+        "$project/.engine/tools/memory/erasure_observer.py"|\
+        "$project/.engine/tools/memory/backup_vault.py")
+            dispatcher="$project/.engine/tools/accepted_hook_dispatch.py"
+            if [ ! -f "$dispatcher" ]; then
+                printf '%s\n' "Engine memory mutation skipped: the accepted-code dispatcher is absent. This did not block the host action." >&2
+                exit 1
+            fi
+            shift
+            set -- -I -S "$dispatcher" run --root "$project" --script "$script" -- "$@"
+            ;;
+    esac
     exec "$interp" "$@"
 fi
 # Neither the POSIX nor the Windows venv interpreter appeared within the wait bound (issue StarshipSuperjam/engine-template#83's

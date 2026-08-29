@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -18,8 +17,9 @@ import jsonschema
 TOOLS = Path(__file__).resolve().parent
 DISPATCH = TOOLS / "accepted_hook_dispatch.py"
 RELEASE_SOURCE = TOOLS / "release_source.py"
+HOOK_RUNNER = TOOLS / "hook-runner.sh"
+CODEX_RUNNER = TOOLS / "codex-hook-runner.sh"
 SCHEMA = TOOLS.parent / "schemas" / "accepted-hook-activation.v1.json"
-_SAFE_RUNNER = "#!/bin/sh\n# ENGINE_ACCEPTED_HOOK_DISPATCH=1\nexit 0\n"
 
 
 def _call(*args: str, cwd: str | None = None, env: dict | None = None, check: bool = True):
@@ -96,7 +96,8 @@ class AcceptedRepo:
         self._put(".engine/tools/memory/__init__.py", "")
         for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
             self._put(f".engine/tools/memory/{name}", "raise SystemExit(0)\n")
-        self._put(".engine/tools/hook-runner.sh", _SAFE_RUNNER)
+        self._put(".engine/tools/hook-runner.sh", HOOK_RUNNER.read_text(encoding="utf-8"))
+        self._put(".engine/tools/codex-hook-runner.sh", CODEX_RUNNER.read_text(encoding="utf-8"))
         self._put(
             ".engine/engine.json",
             json.dumps({"engine_version": "9.9.9", "default_branch": "main"}) + "\n",
@@ -151,6 +152,30 @@ class AcceptedRepo:
         return _call(
             sys.executable, "-I", "-S", str(self.dispatcher), "run", "--root", str(self.worktree),
             "--script", str(self.script), "--", env=env, check=False,
+        )
+
+    def provision_interpreter(self):
+        bindir = self.worktree / ".engine/.venv/bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        python = bindir / "python"
+        if not python.exists():
+            python.symlink_to(sys.executable)
+
+    def run_claude_launcher(self, *, env: dict | None = None):
+        self.provision_interpreter()
+        clean_env = dict(env or os.environ)
+        clean_env.pop("ENGINE_PROVIDER", None)
+        return _call(
+            "sh", str(self.worktree / ".engine/tools/hook-runner.sh"),
+            str(self.worktree / ".engine/.venv/bin/python"), str(self.script),
+            cwd=str(self.worktree), env=clean_env, check=False,
+        )
+
+    def run_codex_launcher(self, *, env: dict | None = None):
+        self.provision_interpreter()
+        return _call(
+            "sh", ".engine/tools/codex-hook-runner.sh", ".engine/tools/close.py",
+            cwd=str(self.worktree), env=env, check=False,
         )
 
     def common_dir(self) -> Path:
@@ -244,6 +269,26 @@ class TestAcceptedHookDispatch(unittest.TestCase):
         )
         self.assertFalse(self.repo.marker.exists(), "candidate/startup customization must never execute")
 
+    def test_real_claude_and_codex_launchers_preserve_provider_and_closed_origins(self):
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.repo.dirty_candidate()
+        poison = self.repo.poison_environment()
+        for provider, run in (
+            ("claude", self.repo.run_claude_launcher),
+            ("codex", self.repo.run_codex_launcher),
+        ):
+            with self.subTest(provider=provider):
+                self.repo.marker.unlink(missing_ok=True)
+                result = run(env=poison)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(result.stdout)
+                self.assertEqual(receipt["provider"], provider)
+                self.assertEqual(receipt["value"], "accepted")
+                self.assertIn("accepted-hooks/trees", receipt["helper_origin"])
+                self.assertEqual(receipt["root"], str(self.repo.root.resolve()))
+                self.assertFalse(self.repo.marker.exists())
+
     def test_missing_or_corrupt_authority_refuses_without_candidate_fallback_and_never_exits_two(self):
         self.repo.dirty_candidate()
         missing = self.repo.run_close(env=self.repo.poison_environment())
@@ -259,6 +304,23 @@ class TestAcceptedHookDispatch(unittest.TestCase):
         corrupt = self.repo.run_close(env=self.repo.poison_environment())
         self.assertEqual(corrupt.returncode, 1)
         self.assertNotEqual(corrupt.returncode, 2)
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_canonical_pointer_drift_after_activation_refuses_before_target_import(self):
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.repo.dirty_candidate()
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text(
+            json.dumps({
+                "schema_version": 1, "owner": "changed", "repo": "vault", "branch": "main",
+                "namespace": "other-project-id",
+            }) + "\n",
+            encoding="utf-8",
+        )
+        refused = self.repo.run_close(env=self.repo.poison_environment())
+        self.assertEqual(refused.returncode, 1)
+        self.assertNotEqual(refused.returncode, 2)
+        self.assertIn("canonical backup pointer differs", refused.stderr)
         self.assertFalse(self.repo.marker.exists())
 
     def test_accepted_target_exit_two_is_preserved_but_qualification_exit_is_not_two(self):
