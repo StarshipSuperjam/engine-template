@@ -33,8 +33,18 @@ worktree exists.
 
 ### Changing the accepted implementation
 
-Activation is attended. It accepts only an exact commit reachable from the recorded default branch after
-review, or an exact commit named by a published release tag, and advances the epoch with compare-and-set.
+Activation is attended. It accepts only an exact commit GitHub proves was merged into the repository's live
+default branch, or an exact commit named by GitHub's published release and exact tag ref, and advances the
+epoch with compare-and-set. A candidate manifest cannot redefine the default branch, and a release object,
+tag, and successful publisher run must converge on the selected commit.
+
+Normal attended workflows bootstrap this state with `uv run --directory .engine --frozen -- python
+tools/accepted_hook_dispatch.py ensure --root ..`. The command keeps an already exact activation without a
+network advance; otherwise it selects the canonical checkout's local GitHub-default-branch HEAD and requires
+the independent merge proof. Automatic hooks and unattended Routines never call `ensure` and cannot advance
+the epoch. If a fresh clone reports that activation is absent, update its canonical default branch cleanly,
+retire or recreate any legacy worktree named by the topology diagnostic, then run Engine Start or `ensure` in
+an attended session.
 
 Before and during that advance, the Engine inventories every Git-registered worktree twice. Each worktree must
 have one tracked, clean qualified launcher generation. A pre-fix, dirty, missing, symlinked, unreadable,

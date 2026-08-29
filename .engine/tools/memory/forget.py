@@ -55,6 +55,8 @@ second applying them.
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
 import os
 import sys
@@ -1020,8 +1022,25 @@ def main(argv: list) -> int:
         return _demo()
     if cmd == "identity":
         return _demo_identity()
-    print(f"usage: forget.py [duplicates|set-aside|demo|identity]\nunknown command {cmd!r}",
-          file=sys.stderr)
+    parser = argparse.ArgumentParser(prog="forget.py")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
+    restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
+    restore_record.add_argument("record_id")
+    restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")
+    restore_session.add_argument("session_id")
+    args = parser.parse_args(argv)
+    if args.cmd == "list-withheld":
+        print(json.dumps(withheld_report(), sort_keys=True))
+        return 0
+    if args.cmd == "restore-record":
+        restore(record_id=args.record_id)
+        print(f"Restored record {args.record_id}.")
+        return 0
+    if args.cmd == "restore-session":
+        restore(session_id=args.session_id)
+        print(f"Restored session {args.session_id}.")
+        return 0
     return 2
 
 

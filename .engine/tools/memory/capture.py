@@ -388,7 +388,14 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh, separators=(",", ":"))
+        fh.flush()
+        os.fsync(fh.fileno())
     os.replace(tmp, path)
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def _capture_transaction_path(data_dir: str) -> str:
@@ -470,7 +477,7 @@ def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -
         index.rebuild(ledger_file=ledger_file, index_file=index_file)
     elif transaction["records"]:
         index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file)
-    _write_capture_status("captured", transaction["session_id"])
+    _write_capture_status("captured", transaction["session_id"], required=True)
     _clear_capture_transaction(data_dir)
     return len(appended)
 
@@ -773,19 +780,35 @@ def _append_failure_history(record: dict) -> None:
         pass
 
 
-def _write_capture_status(state: str, session_id=None, *, detail=None) -> None:
+def _write_capture_status(state: str, session_id=None, *, detail=None, required: bool = False) -> None:
     status_path = _health_path("capture_status", CAPTURE_STATUS_PATH)
+    tmp = status_path + f".{os.getpid()}.tmp"
     try:
         os.makedirs(os.path.dirname(status_path), exist_ok=True)
         record = {"state": state, "session_id": session_id, "ts": int(time.time())}
         if detail is not None:
             record["detail"] = detail   # a CONTENT-FREE structural fingerprint on a failure (no text)
-        with open(status_path, "w", encoding="utf-8") as fh:
+        with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(record))
+            if required:
+                fh.flush()
+                os.fsync(fh.fileno())
+        os.replace(tmp, status_path)
+        if required:
+            directory = os.open(os.path.dirname(status_path), os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         if state != "captured":
             _append_failure_history(record)   # a failure survives the next success (StarshipSuperjam/engine-template#774)
     except OSError:
-        pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        if required:
+            raise
 
 
 def read_capture_status():

@@ -32,6 +32,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
+from urllib.parse import quote
 
 
 SCHEMA_VERSION = "accepted-hook-activation.v1"
@@ -574,10 +575,25 @@ def _github_json(endpoint: str):
         raise QualificationError("GitHub acceptance proof returned unreadable data") from exc
 
 
-def _verify_github_acceptance(repository: str, commit: str, source: str, source_ref: str) -> dict:
+def _github_default_branch(repository: str) -> str:
+    value = _github_json(f"repos/{repository}")
+    branch = value.get("default_branch") if isinstance(value, dict) else None
+    valid = (subprocess.run(
+        ["git", "check-ref-format", "--branch", branch], capture_output=True, timeout=30,
+    ).returncode == 0) if isinstance(branch, str) and branch else False
+    if not valid:
+        raise QualificationError("GitHub repository metadata has no usable default branch")
+    return branch
+
+
+def _verify_github_acceptance(repository: str, commit: str, source: str, source_ref: str,
+                              *, default_branch: str | None = None) -> dict:
     """Require an independent, immutable GitHub-side acceptance witness for the exact commit."""
     if source == "reviewed-merge":
         branch = source_ref.removeprefix("refs/remotes/origin/").removeprefix("refs/heads/")
+        authoritative_branch = default_branch or _github_default_branch(repository)
+        if branch != authoritative_branch:
+            raise QualificationError("the reviewed merge ref is not GitHub's current default branch")
         pulls = _github_json(f"repos/{repository}/commits/{commit}/pulls")
         if not isinstance(pulls, list):
             raise QualificationError("GitHub reviewed-merge proof had an unexpected shape")
@@ -597,6 +613,11 @@ def _verify_github_acceptance(repository: str, commit: str, source: str, source_
     if (not isinstance(release, dict) or release.get("tag_name") != tag
             or not isinstance(release.get("id"), int)):
         raise QualificationError("the selected tag has no identifiable published GitHub release")
+    tag_ref = _github_json(f"repos/{repository}/git/ref/tags/{quote(tag, safe='')}")
+    tag_object = tag_ref.get("object") if isinstance(tag_ref, dict) else None
+    if (not isinstance(tag_object, dict) or tag_object.get("type") != "commit"
+            or tag_object.get("sha") != commit):
+        raise QualificationError("the published GitHub release tag does not name the exact selected commit")
     runs = _github_json(
         f"repos/{repository}/actions/workflows/release-publish.yml/runs?head_sha={commit}&status=completed&per_page=100"
     )
@@ -610,7 +631,7 @@ def _verify_github_acceptance(repository: str, commit: str, source: str, source_
         )
     return {
         "kind": "github-release-workflow",
-        "evidence_id": f"{release['id']}:{successful[0]['id']}",
+        "evidence_id": f"{release['id']}:{successful[0]['id']}:{commit}",
     }
 
 
@@ -636,16 +657,15 @@ def activate(args: argparse.Namespace) -> dict:
             raise QualificationError("the published release tag does not name the requested exact commit")
         source_ref = tag_ref
     else:
-        manifest = _engine_manifest_at(root, commit)
-        default_branch = manifest.get("default_branch")
+        default_branch = _github_default_branch(repository)
         allowed_refs = {
             f"refs/heads/{default_branch}", f"refs/remotes/origin/{default_branch}",
-        } if isinstance(default_branch, str) and default_branch else set()
+        }
         if not (args.source_ref.startswith("refs/heads/") or args.source_ref.startswith("refs/remotes/origin/")):
             raise QualificationError("a reviewed merge must be qualified through an explicit default-branch ref")
         source_ref = args.source_ref
         if source_ref not in allowed_refs:
-            raise QualificationError("the reviewed merge ref is not the accepted commit's recorded default branch")
+            raise QualificationError("the reviewed merge ref is not GitHub's current default branch")
         proc = subprocess.run(
             ["git", "-C", root, "merge-base", "--is-ancestor", commit, source_ref],
             capture_output=True, timeout=30,
@@ -655,7 +675,10 @@ def activate(args: argparse.Namespace) -> dict:
     actual_release = _engine_release_at(root, commit)
     if actual_release != args.engine_release:
         raise QualificationError("the declared Engine release differs from the accepted commit's manifest")
-    authority = _verify_github_acceptance(repository, commit, args.source, source_ref)
+    authority = _verify_github_acceptance(
+        repository, commit, args.source, source_ref,
+        default_branch=default_branch if args.source == "reviewed-merge" else None,
+    )
     initial_topology = _verify_activation_barrier(root)
     activation_path, _, lock_path = _state_paths(root)
     with _exclusive_lock(lock_path):
@@ -687,6 +710,38 @@ def activate(args: argparse.Namespace) -> dict:
         _verify_unchanged_activation_barrier(locked_topology, final_topology)
         _atomic_json(activation_path, record)
     return record
+
+
+def ensure_activation(root: str) -> dict:
+    """Keep an exact existing activation, or attend activation of the canonical default-branch HEAD."""
+    root = _top(root)
+    repository = _origin_slug(root)
+    canonical = _main_checkout(root)
+    commit = _git(canonical, "rev-parse", "HEAD^{commit}")
+    try:
+        current = load_activation(root)
+    except QualificationError:
+        current = None
+    if current is not None and current["repository"] == repository and current["commit"] == commit:
+        _verify_exact_object(root, current)
+        _verify_activation_barrier(root)
+        _materialize(root, current)
+        return current
+    branch = _github_default_branch(repository)
+    ref = f"refs/heads/{branch}"
+    if _git(canonical, "rev-parse", f"{ref}^{{commit}}", check=False) != commit:
+        remote_ref = f"refs/remotes/origin/{branch}"
+        if _git(canonical, "rev-parse", f"{remote_ref}^{{commit}}", check=False) != commit:
+            raise QualificationError(
+                "the canonical checkout is not at its locally recorded GitHub default-branch tip; update it and retry"
+            )
+        ref = remote_ref
+    expected_epoch = current["epoch"] if current is not None else 0
+    namespace = argparse.Namespace(
+        root=root, repository=repository, commit=commit, source="reviewed-merge", source_ref=ref,
+        engine_release=_engine_release_at(root, commit), expected_epoch=expected_epoch,
+    )
+    return activate(namespace)
 
 
 def _relative_script(root: str, script: str) -> str:
@@ -1317,6 +1372,11 @@ def _parser() -> argparse.ArgumentParser:
     act.add_argument("--source-ref", required=True)
     act.add_argument("--engine-release", required=True)
     act.add_argument("--expected-epoch", required=True, type=int)
+    ensure = sub.add_parser(
+        "ensure",
+        help="attend activation of the canonical GitHub default-branch HEAD, or keep the exact current activation",
+    )
+    ensure.add_argument("--root", required=True)
     inspect = sub.add_parser("inspect")
     inspect.add_argument("--root", required=True)
     run = sub.add_parser("run")
@@ -1386,6 +1446,9 @@ def main(argv: list[str] | None = None) -> int:
                 raise QualificationError("the accepted tree is not already materialized and intact")
             print(json.dumps(_canonical_context(root, activation, accepted_tree), sort_keys=True))
             return 0
+        if args.command == "ensure":
+            print(json.dumps(ensure_activation(args.root), sort_keys=True))
+            return 0
         if args.command == "run":
             dispatch(args.root, args.script, args.target_args)
             return 1  # os.execve never returns
@@ -1405,7 +1468,7 @@ def main(argv: list[str] | None = None) -> int:
     except QualificationError as exc:
         if args.command == "run":
             print(f"Engine memory mutation skipped: {exc}. This did not block the host action.", file=sys.stderr)
-        elif args.command == "activate":
+        elif args.command in {"activate", "ensure"}:
             print(f"Accepted-hook activation refused: {exc}.", file=sys.stderr)
         else:
             print(f"Accepted-hook {args.command} failed: {exc}.", file=sys.stderr)

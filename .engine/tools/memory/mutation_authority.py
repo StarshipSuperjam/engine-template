@@ -44,6 +44,7 @@ class MutationAuthorityError(RuntimeError):
 
 _THREAD = threading.local()
 _TEST_SCOPE = ContextVar("engine_mutation_test_scope", default=None)
+_PRE_ACTIVATION_SCOPE = ContextVar("engine_pre_activation_mutation_scope", default=None)
 _TEST_HOOK_LOCK = threading.RLock()
 _TEST_AFTER_LOCK_HOOK = None
 _STORE_TARGETS = frozenset({
@@ -139,22 +140,105 @@ def _validate_explicit_targets(context, entry: dict, args: tuple, kwargs: dict, 
                 f"persistent writer {entry['writer']} target {key} escapes its qualified context")
 
 
+def _code_tree(value) -> set:
+    """Return exact code objects rooted at one loaded function, including nested callbacks."""
+    code = getattr(value, "__code__", None)
+    if code is None:
+        return set()
+    found = {code}
+    pending = [code]
+    while pending:
+        current = pending.pop()
+        for item in current.co_consts:
+            if isinstance(item, type(current)) and item not in found:
+                found.add(item)
+                pending.append(item)
+    return found
+
+
+def _module_code_objects(module) -> set:
+    found = set()
+    for value in vars(module).values():
+        if inspect.isfunction(value):
+            found.update(_code_tree(value))
+        elif inspect.isclass(value):
+            for member in vars(value).values():
+                if isinstance(member, (staticmethod, classmethod)):
+                    member = member.__func__
+                if inspect.isfunction(member):
+                    found.update(_code_tree(member))
+    return found
+
+
+def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | None = None,
+                        function_name: str | None = None) -> bool:
+    """Trust an exact code object exported by its loaded on-disk module, never a claimed filename."""
+    claimed_module = frame.f_globals.get("__name__")
+    if not isinstance(claimed_module, str):
+        return False
+    module = sys.modules.get(claimed_module)
+    if module is None or frame.f_globals is not vars(module):
+        return False
+    path = getattr(module, "__file__", None)
+    if not isinstance(path, str):
+        return False
+    real = os.path.realpath(path)
+    if os.path.realpath(frame.f_code.co_filename) != real:
+        return False
+    if module_name is not None and claimed_module.rsplit(".", 1)[-1] != module_name:
+        return False
+    if function_name is not None:
+        return frame.f_code in _code_tree(getattr(module, function_name, None))
+    if test_only:
+        tools_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
+        name = os.path.basename(real)
+        if not (real.startswith(tools_root) and name.startswith("test_") and name.endswith(".py")):
+            return False
+    return frame.f_code in _module_code_objects(module)
+
+
 def _test_adapter_allowed() -> bool:
-    tools_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
     frame = inspect.currentframe()
     try:
         frame = frame.f_back if frame is not None else None
         while frame is not None:
-            path = frame.f_code.co_filename
-            if isinstance(path, str):
-                real = os.path.realpath(path)
-                name = os.path.basename(real)
-                if real.startswith(tools_root) and name.startswith("test_") and name.endswith(".py"):
-                    return True
+            if _source_bound_frame(frame, test_only=True):
+                return True
             frame = frame.f_back
     finally:
         del frame
     return False
+
+
+@contextmanager
+def preactivation_local_scope(entry_id: str, *, project_root: str):
+    """Issue one exact attended capability for the setup-era local landing hint."""
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame is not None else None
+        allowed = False
+        while frame is not None:
+            if _source_bound_frame(frame, module_name="instantiator", function_name="retire"):
+                allowed = True
+                break
+            frame = frame.f_back
+        if not allowed:
+            raise MutationAuthorityError("pre-activation local authority is available only to instantiator.retire")
+    finally:
+        del frame
+    if entry_id != "attended-first-run-marker-stage":
+        raise MutationAuthorityError("pre-activation local authority names an unsupported writer")
+    root = os.path.realpath(project_root)
+    # macOS commonly presents temporary directories through the absolute ``/var`` -> ``/private/var``
+    # symlink. Bind the capability to the canonical target, but accept that ordinary absolute spelling:
+    # the guarded writer compares its own target through ``realpath`` below.
+    if not os.path.isabs(project_root) or not os.path.isdir(root):
+        raise MutationAuthorityError("pre-activation local authority requires one normalized project root")
+    token = _PRE_ACTIVATION_SCOPE.set({"entry_id": entry_id, "project_root": root, "used": False})
+    try:
+        yield
+    finally:
+        _PRE_ACTIVATION_SCOPE.reset(token)
 
 
 def _test_receipt(entry: dict, mode: str, measured: int) -> dict:
@@ -262,6 +346,19 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         yield _consume(context, entry, measured, supplied_capability)
         return
 
+    bootstrap = _PRE_ACTIVATION_SCOPE.get()
+    if bootstrap is not None:
+        if entry_id != bootstrap["entry_id"] or bootstrap["used"]:
+            raise MutationAuthorityError("pre-activation local capability is wrong or already consumed")
+        arguments = _call_arguments(function, args, kwargs)
+        target = arguments.get("main")
+        if (not isinstance(target, (str, os.PathLike))
+                or os.path.realpath(os.fspath(target)) != bootstrap["project_root"]):
+            raise MutationAuthorityError("pre-activation local capability target mismatch")
+        bootstrap["used"] = True
+        yield _test_receipt(entry, "attended", measured)
+        return
+
     scoped_test_mode = _TEST_SCOPE.get()
     if scoped_test_mode is not None:
         _THREAD.state = {"test_only": True, "mode": scoped_test_mode}
@@ -285,9 +382,16 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             _THREAD.state = None
         return
 
-    _validate_explicit_targets(context, entry, args, kwargs, function)
-    handle = _open_store_lock(context)
+    base_context = context
+    handle = _open_store_lock(base_context)
     try:
+        if (base_context["operation"]["registry_id"] == "attended-memory-mcp"
+                and entry_id != "attended-memory-mcp"):
+            try:
+                context = execution_context.refresh_for_operation(base_context, entry_id)
+            except execution_context.ContextError as exc:
+                raise MutationAuthorityError(f"MCP request context refused: {exc}") from exc
+        _validate_explicit_targets(context, entry, args, kwargs, function)
         _run_after_lock_test_hook()
         try:
             execution_context.revalidate_context(context)
@@ -298,6 +402,11 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             yield _consume(context, entry, measured, supplied_capability)
         finally:
             _THREAD.state = None
+        if base_context["operation"]["registry_id"] == "attended-memory-mcp":
+            try:
+                execution_context.refresh_current_context(base_context)
+            except execution_context.ContextError as exc:
+                raise MutationAuthorityError(f"MCP server context refresh refused: {exc}") from exc
     finally:
         _close_store_lock(handle)
 

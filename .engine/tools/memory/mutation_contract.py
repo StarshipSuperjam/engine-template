@@ -94,6 +94,9 @@ REGISTRY = (
     _entry("automatic-first-run-marker-consume", "first_run_health.clear_first_run_marker",
            "lifecycle-marker", "destructive-irreversible", _AUTO, 1, "files", "none",
            ["boot._relay_lines"]),
+    _entry("attended-first-run-marker-stage", "first_run_health.mark_first_run_applied",
+           "lifecycle-marker", "reversible-mutation", _ATTENDED, 1, "files",
+           "best-effort-diagnostic", ["instantiator.retire"]),
     _entry("accepted-tree-materialize", "accepted_hook_dispatch._materialize", "ephemeral-staging",
            "reversible-mutation", _AUTO, None, "files", "derived-rebuild",
            ["accepted_hook_dispatch.dispatch"]),
@@ -161,6 +164,8 @@ REGISTRY = (
            "records", "none", ["memory.mcp_server.main"]),
     _entry("read-withheld", "memory.mcp_server.list_withheld", "ledger", "semantic-read", _ATTENDED, None,
            "records", "none", ["memory.mcp_server.main"]),
+    _entry("attended-list-withheld", "memory.forget.main", "ledger", "semantic-read", _ATTENDED, None,
+           "records", "none", ["engine-restore-operator-pin fallback"]),
     _entry("read-backup-status", "memory.backup_vault.status", "backup-pointer", "semantic-read", _ATTENDED,
            1, "status-records", "none", ["memory.backup_vault.main"]),
     _entry("read-restore-status", "memory.restore_vault.status", "restore-journal", "semantic-read", _ATTENDED,
@@ -450,13 +455,6 @@ _GIT_WRITE_VERBS = frozenset({
 })
 _DEMO_FUNCTION_SUFFIX = "demo"
 
-# First-run setup necessarily predates the first reviewed activation it creates. This one explicitly bounded
-# exception is a checkout-local, gitignored presentation hint: it is not shared through git-common-dir, is not
-# memory or recovery state, and its loss only suppresses a one-time confirmation. Its later automatic cleanup
-# is registered and qualified. Keep the exception machine-visible so a new bootstrap writer still fails.
-PRE_ACTIVATION_LOCAL_WRITERS = frozenset({"first_run_health.mark_first_run_applied"})
-
-
 def _constant_string(node):
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
@@ -541,7 +539,7 @@ def discover_direct_writers(path: str, *, module: str | None = None) -> set[str]
 
 
 def coverage_failures(paths) -> list[str]:
-    registered = {entry["writer"] for entry in REGISTRY} | PRE_ACTIVATION_LOCAL_WRITERS
+    registered = {entry["writer"] for entry in REGISTRY}
     found = set()
     for item in paths:
         path, module = item if isinstance(item, tuple) else (item, None)

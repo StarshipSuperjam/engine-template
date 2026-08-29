@@ -6,9 +6,9 @@ slice that relay is LIVE: ``capture_turn_delta`` is exposed here, so the previou
 appends the completed turn's delta to the ledger instead of degrading to a no-op. The function is
 fail-soft (any fault is a clean no-op return, never a raise), so close is still never gated by capture.
 
-Importing ``memory`` binds the ``capture`` + ``ledger`` submodules but does **no filesystem work** —
-all reads/writes happen inside the called functions — so the import itself cannot fail or do work on a
-live session's turn. Callers reach the ledger/index primitives explicitly with ``from memory import
+Importing ``memory`` binds only lazy public wrappers and does **no filesystem work**. The ``capture`` and
+``ledger`` implementations load when their wrappers are called, keeping root-tool guard installation
+cycle-free; callers that need submodule primitives still import them explicitly with ``from memory import
 ledger`` / ``from memory import index``.
 
 Shipped: the ledger (``memory.ledger``), the derived index + plain-scan fallback (``memory.index``),

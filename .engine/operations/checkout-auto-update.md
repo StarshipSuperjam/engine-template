@@ -21,6 +21,8 @@ It never changes GitHub, pushes, merges, moves a session worktree, or broadens t
    the Engine still detects drift and offers **bring it up to date** as the existing consented action.
 2. Only after the operator clearly asks to change the setting, prepare the matching reviewed change:
 
+   First run `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`.
+
    ```text
    uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/checkout_auto_update.py --operation checkout-preference-write -- disable
    uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/checkout_auto_update.py --operation checkout-preference-write -- enable

@@ -150,6 +150,28 @@ class CursorTests(CaptureTestCase):
         self.assertEqual(capture.read_capture_status()["state"], "captured")
         self.assertTrue(index.query("recover").records)
 
+    def test_status_failure_keeps_the_recovery_journal(self):
+        t = self.transcript("status-failure.jsonl", [_msg("user", "keep the journal until status is durable")])
+        original = capture._write_capture_status
+
+        def fail_required(state, session_id=None, *, detail=None, required=False):
+            if required:
+                raise OSError("status device unavailable")
+            return original(state, session_id, detail=detail, required=required)
+
+        with mock.patch.object(capture, "_write_capture_status", side_effect=fail_required):
+            self.assertEqual(capture.capture_turn_delta(self.payload(t)), 0)
+        transaction = os.path.join(self.data_dir, capture.CAPTURE_TRANSACTION_FILENAME)
+        self.assertTrue(os.path.isfile(transaction))
+        self.assertEqual(self.texts(), ["keep the journal until status is durable"])
+
+    def test_cursor_file_and_directory_are_fsynced_before_return(self):
+        os.makedirs(self.data_dir, exist_ok=True)
+        with mock.patch.object(capture.os, "fsync", wraps=os.fsync) as synced:
+            capture._write_cursor(self.data_dir, "sess-A", 1)
+        self.assertGreaterEqual(synced.call_count, 2)
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 1)
+
     def test_deleted_cursor_file_is_treated_as_zero(self):
         t = self.transcript("s.jsonl", [_msg("user", "only turn")])
         capture.capture_turn_delta(self.payload(t))

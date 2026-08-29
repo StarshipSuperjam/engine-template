@@ -328,6 +328,20 @@ class TestAcceptedHookTopology(unittest.TestCase):
             self.assertFalse(topology["qualified"])
             self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
 
+    def test_missing_one_required_event_matcher_registration_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main, linked = self._qualified_pair(tmp)
+            settings = pathlib.Path(linked) / ".codex/hooks.json"
+            document = json.loads(settings.read_text(encoding="utf-8"))
+            resume = next(group for group in document["hooks"]["SessionStart"]
+                          if group.get("matcher") == "resume")
+            resume["hooks"] = [hook for hook in resume["hooks"]
+                               if ".engine/tools/memory/backup_vault.py" not in hook.get("command", "")]
+            settings.write_text(json.dumps(document), encoding="utf-8")
+            topology = hp.accepted_hook_topology(main)
+            self.assertFalse(topology["qualified"])
+            self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
+
     def test_dirty_missing_ambiguous_and_unreadable_runner_each_block(self):
         mutations = {
             "dirty": lambda path: path.write_text(path.read_text(encoding="utf-8") + "\n# dirty\n",

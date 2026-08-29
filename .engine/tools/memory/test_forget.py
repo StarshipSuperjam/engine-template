@@ -8,6 +8,8 @@ build-conformance invariant that this Layer-1 module reaches NO physical-erasure
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -671,6 +673,17 @@ class WithholdTests(_Base):
         self.assertEqual(self._hits(force_scan=True), 5)
         forget.withhold(session_id="s-summary")
         self.assertEqual(self._hits(force_scan=True), 0)
+
+    def test_cli_fallback_lists_identifiers_and_restores_one_record(self):
+        rid = self._turns("s-cli", count=1)[0]
+        forget.withhold(record_id=rid)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["list-withheld"]), 0)
+        self.assertIn(rid, output.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(forget.main(["restore-record", rid]), 0)
+        self.assertEqual(len(list(forget.live_records())), 1)
 
 
 if __name__ == "__main__":

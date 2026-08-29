@@ -1091,13 +1091,20 @@ class _AcceptedDispatchRepo:
             import json, os, sys
             endpoint = sys.argv[-1]
             commit = os.environ["ENGINE_TEST_ACCEPTED_COMMIT"]
-            if os.environ.get("ENGINE_TEST_GH_REFUSE") == "1":
-                print("[]")
+            if endpoint == "repos/owner/project":
+                print(json.dumps({"default_branch": os.environ.get("ENGINE_TEST_GH_DEFAULT", "main")}))
             elif endpoint.endswith("/pulls"):
+                if os.environ.get("ENGINE_TEST_GH_REFUSE") == "1":
+                    print("[]")
+                    raise SystemExit(0)
                 print(json.dumps([{"number": 42, "merged_at": "2026-01-01T00:00:00Z",
-                    "merge_commit_sha": commit, "base": {"ref": "main"}}]))
+                    "merge_commit_sha": commit,
+                    "base": {"ref": os.environ.get("ENGINE_TEST_GH_DEFAULT", "main")}}]))
             elif "/releases/tags/" in endpoint:
                 print(json.dumps({"id": 77, "tag_name": endpoint.rsplit("/", 1)[-1]}))
+            elif "/git/ref/tags/" in endpoint:
+                print(json.dumps({"object": {"type": "commit",
+                    "sha": os.environ.get("ENGINE_TEST_GH_TAG_SHA", commit)}}))
             elif "/actions/workflows/release-publish.yml/runs?" in endpoint:
                 print(json.dumps({"workflow_runs": [{"id": 88, "head_sha": commit,
                     "conclusion": "success"}]}))
@@ -1165,18 +1172,32 @@ class _AcceptedDispatchRepo:
         self.script = self.worktree / ".engine/tools/close.py"
 
     def activate(self, *, source="reviewed-merge", source_ref="refs/heads/main", expected_epoch=0,
-                 commit=None, accepted_proof=True):
+                 commit=None, accepted_proof=True, default_branch="main", tag_commit=None):
         selected = commit or self.commit
         env = dict(os.environ)
         env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
         env["ENGINE_TEST_ACCEPTED_COMMIT"] = selected
         if not accepted_proof:
             env["ENGINE_TEST_GH_REFUSE"] = "1"
+        env["ENGINE_TEST_GH_DEFAULT"] = default_branch
+        if tag_commit is not None:
+            env["ENGINE_TEST_GH_TAG_SHA"] = tag_commit
         return _accepted_call(
             sys.executable, str(self.dispatcher), "activate", "--root", str(self.worktree),
             "--repository", "owner/project", "--commit", selected, "--source", source,
             "--source-ref", source_ref, "--engine-release", "9.9.9", "--expected-epoch",
             str(expected_epoch), check=False, env=env)
+
+    def ensure(self, *, accepted_proof=True):
+        env = dict(os.environ)
+        env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
+        env["ENGINE_TEST_ACCEPTED_COMMIT"] = self.git("rev-parse", "main")
+        if not accepted_proof:
+            env["ENGINE_TEST_GH_REFUSE"] = "1"
+        return _accepted_call(
+            sys.executable, str(self.dispatcher), "ensure", "--root", str(self.worktree),
+            check=False, env=env,
+        )
 
     def common_dir(self):
         raw = self.git("rev-parse", "--git-common-dir")
@@ -1284,6 +1305,35 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertIn("no merged GitHub pull request", refused.stderr)
         self.assertNotIn("did not block the host action", refused.stderr)
         self.assertFalse((self.repo.common_dir() / "engine/accepted-hooks/activation.json").exists())
+
+    def test_candidate_manifest_cannot_redefine_the_github_default_branch(self):
+        self.repo.git("branch", "staging", self.repo.commit)
+        refused = self.repo.activate(source_ref="refs/heads/staging")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("GitHub's current default branch", refused.stderr)
+
+    def test_github_default_branch_may_be_a_valid_slash_name(self):
+        self.repo.git("branch", "release/stable", self.repo.commit)
+        activated = self.repo.activate(
+            source_ref="refs/heads/release/stable", default_branch="release/stable")
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.assertEqual(json.loads(activated.stdout)["source_ref"], "refs/heads/release/stable")
+
+    def test_release_proof_binds_the_github_tag_ref_to_the_selected_commit(self):
+        self.repo.git("tag", "v9.9.9", self.repo.commit)
+        refused = self.repo.activate(
+            source="published-release", source_ref="v9.9.9", tag_commit="f" * 40)
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("release tag does not name", refused.stderr)
+
+    def test_attended_ensure_bootstraps_once_and_keeps_the_exact_activation_offline(self):
+        first = self.repo.ensure()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        record = json.loads(first.stdout)
+        self.assertEqual(record["commit"], self.repo.commit)
+        second = self.repo.ensure(accepted_proof=False)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(second.stdout), record)
 
     def test_attended_maintenance_reenters_exact_accepted_code_with_one_registered_operation(self):
         self.assertEqual(self.repo.activate().returncode, 0)

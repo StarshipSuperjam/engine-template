@@ -47,6 +47,7 @@ import bootstrap          # noqa: E402  (ControlPlane + render — the control-p
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
 import repo_behavior      # noqa: E402  (the repository-behavior settings leg, #541 — same transport reuse)
 import engine_write       # noqa: E402  (the engine-owned write boundary — homed once, #862/#923)
+import mutation_guards    # noqa: E402  (the registered one-shot pre-activation local marker capability)
 
 # The #862 guard's definitions moved to engine_write (#923); aliased so every call site — and the shipped
 # #862 tests — stay verbatim. The aliases ARE the relocation proof: nothing else changed.
@@ -2003,7 +2004,9 @@ def retire(*, root=None, announce=None) -> dict:
     # #810: setup is APPLIED but not yet DURABLE (the tree is dirty with the transformation + these deletions).
     # Drop a local awaiting-landing marker (fail-soft) so boot can confirm completion ONCE after the changes land
     # through review, and report honestly — never a bare "Setup is complete" over an uncommitted transformation.
-    first_run_health.mark_first_run_applied(base)
+    with mutation_guards.preactivation_local_scope(
+            "attended-first-run-marker-stage", project_root=base):
+        first_run_health.mark_first_run_applied(base)
     say(copy["retire-applied"])
     return {"refused": False, "durable": False, "next": "land-through-review",
             "deleted": deleted, "already_absent": already, "preserved": preserved,

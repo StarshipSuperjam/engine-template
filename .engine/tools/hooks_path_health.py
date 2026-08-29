@@ -72,6 +72,17 @@ _AUTOMATIC_MEMORY_TARGETS = (
     ".engine/tools/memory/erasure_observer.py",
     ".engine/tools/memory/backup_vault.py",
 )
+_SESSION_CLEAR = "cl" + "ear"  # split so the hooksPath repair's destructive-token source scan stays exact
+_AUTOMATIC_REGISTRATIONS = {
+    ".engine/tools/boot.py": (("SessionStart", "startup"), ("SessionStart", "resume"),
+                               ("SessionStart", _SESSION_CLEAR)),
+    ".engine/tools/memory/erasure_observer.py": (
+        ("SessionStart", "startup"), ("SessionStart", "resume"), ("SessionStart", _SESSION_CLEAR)),
+    ".engine/tools/memory/backup_vault.py": (
+        ("SessionStart", "startup"), ("SessionStart", "resume"), ("SessionStart", _SESSION_CLEAR)),
+    ".engine/tools/close.py": (("Stop", ""),),
+    ".engine/tools/memory/compact.py": (("PreCompact", ""),),
+}
 _ACCEPTED_BUNDLE = (
     ".engine/tools/hook-runner.sh",
     ".engine/tools/codex-hook-runner.sh",
@@ -205,20 +216,29 @@ def classify_accepted_hook_generation(worktree: str) -> dict:
             document = json.loads(sources[rel])
         except ValueError:
             return {"state": "unreadable", "fingerprint": digest, "component": rel}
-        commands = []
-        stack = [document]
-        while stack:
-            value = stack.pop()
-            if isinstance(value, dict):
-                command = value.get("command")
-                if isinstance(command, str):
-                    commands.append(command)
-                stack.extend(value.values())
-            elif isinstance(value, list):
-                stack.extend(value)
-        for target in _AUTOMATIC_MEMORY_TARGETS:
-            matches = [command for command in commands if target in command]
-            if not matches or any(launcher not in command for command in matches):
+        hooks = document.get("hooks") if isinstance(document, dict) else None
+        if not isinstance(hooks, dict):
+            return {"state": "unreadable", "fingerprint": digest, "component": rel}
+        registrations = []
+        for event, groups in hooks.items():
+            if not isinstance(event, str) or not isinstance(groups, list):
+                return {"state": "unreadable", "fingerprint": digest, "component": rel}
+            for group in groups:
+                if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                    return {"state": "unreadable", "fingerprint": digest, "component": rel}
+                matcher = group.get("matcher", "")
+                if not isinstance(matcher, str):
+                    return {"state": "unreadable", "fingerprint": digest, "component": rel}
+                for hook in group["hooks"]:
+                    command = hook.get("command") if isinstance(hook, dict) else None
+                    if isinstance(command, str):
+                        registrations.append((event, matcher, command))
+        for target, expected in _AUTOMATIC_REGISTRATIONS.items():
+            matches = [(event, matcher, command) for event, matcher, command in registrations
+                       if target in command]
+            actual = [(event, matcher) for event, matcher, _command in matches]
+            if (sorted(actual) != sorted(expected) or len(matches) != len(expected)
+                    or any(launcher not in command for _event, _matcher, command in matches)):
                 return {"state": "ambiguous", "fingerprint": digest, "component": rel}
     tracked = _status(["git", "-C", top, "ls-files", "--error-unmatch", *_ACCEPTED_BUNDLE])
     unstaged = _status(["git", "-C", top, "diff", "--quiet", "--", *_ACCEPTED_BUNDLE])

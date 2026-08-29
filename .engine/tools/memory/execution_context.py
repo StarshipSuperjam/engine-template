@@ -721,6 +721,55 @@ def current_context() -> ExecutionContext:
     return context
 
 
+def _refreshed_context(context: ExecutionContext, operation_id: str | None = None) -> ExecutionContext:
+    """Re-seal current disk state, optionally narrowing an attended composite to one child operation."""
+    if _AUTHORIZED_CONTEXTS.get(context.digest) is not context:
+        raise ContextError("execution context is not authorized in this process")
+    document = context.to_document()
+    if operation_id is not None:
+        contract = _load_contract()
+        if operation_id not in _allowed_registry_ids(context, contract):
+            raise ContextError("registry operation is outside this invocation's closed transitive boundary")
+        selected = _entry(operation_id)
+        operation = {
+            key: copy.deepcopy(selected[key])
+            for key in ("capability_identity", "writer", "target_kind", "effect_class",
+                        "declared_cardinality", "schema_cutover")
+        }
+        operation.update({"registry_id": selected["id"], "invocation_mode": "attended"})
+        document["operation"] = operation
+    target, state = document["target"], document["state"]
+    document["state"] = _observe_state(
+        target["lifecycle"], target["store_identity"],
+        state["backup_pointer_identity"], state["backup_pointer_digest"],
+    )
+    document["receipt"] = {"context_id": secrets.token_hex(16), "context_digest": None}
+    document = _seal(document)
+    _validate_document(document)
+    refreshed = ExecutionContext(document, _trusted=True)
+    revalidate_context(refreshed)
+    _AUTHORIZED_CONTEXTS[refreshed.digest] = refreshed
+    return refreshed
+
+
+def refresh_for_operation(context: ExecutionContext, operation_id: str) -> ExecutionContext:
+    """Create one exact request context for the accepted memory server under its held store lock."""
+    if context["operation"]["registry_id"] != "attended-memory-mcp":
+        raise ContextError("per-request operation refresh is only available to the accepted memory server")
+    return _refreshed_context(context, operation_id)
+
+
+def refresh_current_context(context: ExecutionContext) -> ExecutionContext:
+    """Advance the long-lived memory server's root context after one successful request."""
+    global _CURRENT_CONTEXT
+    if context["operation"]["registry_id"] != "attended-memory-mcp":
+        raise ContextError("only the accepted memory server has a renewable root context")
+    refreshed = _refreshed_context(context)
+    _CURRENT_CONTEXT = refreshed
+    os.environ[CONTEXT_ENV] = refreshed.to_json()
+    return refreshed
+
+
 def observe_state_fingerprint(context: ExecutionContext) -> str:
     if _AUTHORIZED_CONTEXTS.get(context.digest) is not context:
         raise ContextError("execution context is not authorized in this process")

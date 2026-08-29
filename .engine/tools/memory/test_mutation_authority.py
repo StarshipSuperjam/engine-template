@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import capture, execution_context, ledger, mutation_authority, mutation_contract
+from memory import capture, execution_context, ledger, mutation_authority, mutation_contract, records
 import first_run_health
 
 
@@ -25,7 +25,7 @@ NATIVE_TRUST_ROOTS = frozenset({
 
 
 class _QualifiedFixture:
-    def __init__(self, *, automatic: bool = False):
+    def __init__(self, *, automatic: bool = False, mcp: bool = False):
         self.temp = tempfile.TemporaryDirectory(prefix="engine-authority-")
         self.base = os.path.realpath(self.temp.name)
         self.root = os.path.join(self.base, "project")
@@ -56,7 +56,10 @@ class _QualifiedFixture:
             "run_id": "run", "task_id": "task",
             "identity_initializer": execution_context._fixture_identity_initializer,
         }
-        if automatic:
+        if mcp:
+            arguments.update({"script": ".engine/tools/memory/mcp_server.py",
+                              "operation_id": "attended-memory-mcp"})
+        elif automatic:
             arguments.update({"script": ".engine/tools/close.py"})
         else:
             arguments.update({"script": ".engine/tools/memory/pins.py", "operation_id": "ledger-append"})
@@ -65,23 +68,24 @@ class _QualifiedFixture:
     def install(self):
         execution_context._CURRENT_CONTEXT = self.context
         os.environ[execution_context.CONTEXT_ENV] = self.context.to_json()
+        os.environ[ledger.ENV_DIR] = self.memory
 
     def cleanup(self):
         mutation_authority.set_after_lock_test_hook(None)
         mutation_authority._THREAD.state = None
         execution_context._CURRENT_CONTEXT = None
         os.environ.pop(execution_context.CONTEXT_ENV, None)
+        os.environ.pop(ledger.ENV_DIR, None)
         self.temp.cleanup()
 
 
 class ConvertedCallGraphTests(unittest.TestCase):
-    def test_pre_activation_first_run_hint_is_not_shared_memory(self):
-        entries = {entry["writer"] for entry in mutation_contract.REGISTRY}
-        self.assertNotIn("first_run_health.mark_first_run_applied", entries)
-        self.assertEqual(
-            mutation_contract.PRE_ACTIVATION_LOCAL_WRITERS,
-            {"first_run_health.mark_first_run_applied"},
-        )
+    def test_pre_activation_first_run_hint_is_registered_but_not_shared_memory(self):
+        entries = {entry["writer"]: entry for entry in mutation_contract.REGISTRY}
+        marker = entries["first_run_health.mark_first_run_applied"]
+        self.assertEqual(marker["id"], "attended-first-run-marker-stage")
+        self.assertEqual(marker["target_kind"], "lifecycle-marker")
+        self.assertEqual(marker["allowed_invocation_modes"], ["attended"])
         self.assertIn("first_run_health.clear_first_run_marker", entries)
         self.assertEqual(
             first_run_health._LANDING_MARKER_REL,
@@ -161,6 +165,22 @@ class ConvertedCallGraphTests(unittest.TestCase):
             "import os,sys,tempfile,unittest; sys.path.insert(0," + repr(str(TOOLS)) + "); "
             "from memory import ledger; d=tempfile.mkdtemp(); p=os.path.join(d,'ledger.ndjson'); "
             "\ntry: ledger.append({'body':'forbidden'},path=p)\n"
+            "except Exception as e: print(type(e).__name__, os.path.exists(p))\n"
+            "else: print('UNEXPECTED', os.path.exists(p))\n"
+        )
+        env = dict(os.environ)
+        env.pop(execution_context.CONTEXT_ENV, None)
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+
+    def test_a_compiled_frame_claiming_a_test_filename_has_no_test_authority(self):
+        script = (
+            "import os,sys,tempfile; sys.path.insert(0," + repr(str(TOOLS)) + "); "
+            "from memory import ledger; d=tempfile.mkdtemp(); p=os.path.join(d,'ledger.ndjson'); "
+            "src=\"ledger.append({'body':'forbidden'},path=p)\"; "
+            "code=compile(src," + repr(str(TOOLS / "test_spoofed_authority.py")) + ",'exec'); "
+            "\ntry: exec(code,{'ledger':ledger,'p':p})\n"
             "except Exception as e: print(type(e).__name__, os.path.exists(p))\n"
             "else: print('UNEXPECTED', os.path.exists(p))\n"
         )
@@ -255,6 +275,23 @@ class LockedAuthorityTests(unittest.TestCase):
             with mutation_authority.mutation_scope("automatic-capture", (), {}):
                 ledger.append({"body": "nested qualified"}, path=target)
         self.assertEqual(ledger.read(path=target).records, [{"body": "nested qualified"}])
+
+    def test_long_lived_mcp_resolves_each_mutation_against_fresh_state(self):
+        from memory import pins
+
+        self.fixture.cleanup()
+        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture.install()
+        first = pins.add("first standing preference")
+        second = pins.add("second standing preference")
+        self.assertNotEqual(first[records.RECORD_ID_KEY], second[records.RECORD_ID_KEY])
+        self.assertEqual(execution_context.current_context()["operation"]["registry_id"],
+                         "attended-memory-mcp")
+        target = os.path.join(self.fixture.memory, "ledger.ndjson")
+        with open(target, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"kind": "external-accepted-capture", "body": "intervening"}) + "\n")
+        third = pins.add("third preference after an automatic write")
+        self.assertTrue(third[records.RECORD_ID_KEY])
 
 
 if __name__ == "__main__":

@@ -34,3 +34,9 @@ def install(namespace: dict, registrations: dict[str, str]) -> tuple[str, ...]:
         namespace[function_name] = _lazy_guard(entry_id, function)
         installed.append(entry_id)
     return tuple(installed)
+
+
+def preactivation_local_scope(entry_id: str, *, project_root: str):
+    """Lazily enter the one registered setup-era local landing-hint capability."""
+    from memory import mutation_authority
+    return mutation_authority.preactivation_local_scope(entry_id, project_root=project_root)
