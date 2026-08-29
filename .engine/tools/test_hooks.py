@@ -25,6 +25,7 @@ These lock the laws hooks owns:
 """
 from __future__ import annotations
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -171,14 +172,17 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
     def test_the_launcher_waits_bounded_and_execs_only_the_given_interpreter(self):
         # the launcher source: a bounded (not infinite) wait, then a SINGLE exec of the resolved venv
         # interpreter (the named POSIX bin/python, or its Windows Scripts/python.exe sibling under the same
-        # venv root — #407) with the forwarded args — never a bare/system Python fallback.
+        # venv root — #407) with the forwarded args — never a bare/system Python fallback. There are two
+        # mutually exclusive exec sites now: the normal non-memory path and the qualification-health
+        # telemetry fallback when its owner-only transient stderr file cannot be created.
         with open(self.WRAPPER) as fh:
             src = fh.read()
         self.assertIn("while", src)
         self.assertIn("-lt", src)                       # a numeric cap, never an unbounded loop
         self.assertIn("shift", src)                     # the interpreter arg is consumed, so "$@" = script+args
         self.assertIn('exec "$interp" "$@"', src)       # one exec, of the passed interpreter, args forwarded
-        self.assertEqual(src.count("exec "), 1)
+        self.assertEqual(src.count('exec "$interp" "$@"'), 2)
+        self.assertEqual(src.count("exec "), 2)
         for forbidden in ("uv ", "/usr/bin/", "/usr/local/bin/", "exec python"):
             self.assertNotIn(forbidden, src)
 
@@ -196,6 +200,30 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
             ".engine/tools/memory/backup_vault.py",
         ):
             self.assertIn(target, src)
+
+    def test_automatic_roster_matches_dispatcher_and_both_provider_documents_are_closed(self):
+        import accepted_hook_dispatch
+        self.assertEqual(hooks.ACCEPTED_AUTOMATIC_SCRIPTS,
+                         accepted_hook_dispatch.AUTOMATIC_MUTATORS)
+        for provider, rel in (("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json")):
+            with self.subTest(provider=provider):
+                document = validate.load_json(os.path.join(validate.ROOT, rel))
+                self.assertEqual(hooks.automatic_hook_wiring_failures(document, provider), [])
+
+    def test_direct_dispatch_mutator_sibling_and_altered_effect_fail_mechanically(self):
+        unsafe = (
+            "python .engine/tools/accepted_hook_dispatch.py activate",
+            "python .engine/tools/memory/new_mutator.py",
+            hooks.hook_command(".engine/tools/memory/mutation_authority.py", provider="codex"),
+            hooks.hook_command(".engine/tools/memory/compact.py activate", provider="claude"),
+        )
+        for provider in ("claude", "codex"):
+            for command in unsafe:
+                with self.subTest(provider=provider, command=command):
+                    document = {"hooks": {"PreCompact": [{"hooks": [
+                        {"type": "command", "command": command},
+                    ]}]}}
+                    self.assertTrue(hooks.automatic_hook_wiring_failures(document, provider))
 
     def test_per_os_form_carries_its_own_venv_interpreter(self):
         self.assertIn(".engine/.venv/bin/python",
@@ -1072,7 +1100,7 @@ class _AcceptedDispatchRepo:
 
     def _accepted_tree(self):
         for name in ("accepted_hook_dispatch.py", "release_source.py", "hook-runner.sh",
-                     "codex-hook-runner.sh"):
+                     "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
             self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
         self._put(".engine/tools/validate.py",
                   "from pathlib import Path\nROOT = str(Path(__file__).resolve().parents[2])\n")
@@ -1089,6 +1117,10 @@ class _AcceptedDispatchRepo:
             """))
         self._put(".engine/tools/boot.py", "raise SystemExit(0)\n")
         self._put(".engine/tools/memory/__init__.py", "")
+        for name in ("execution_context.py", "mutation_contract.py", "mutation_authority.py",
+                     "candidate_invocation.py", "qualification_health.py"):
+            self._put(f".engine/tools/memory/{name}",
+                      (_ACCEPTED_TOOLS / "memory" / name).read_text(encoding="utf-8"))
         for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
             self._put(f".engine/tools/memory/{name}", "raise SystemExit(0)\n")
         self._put(".engine/engine.json",
@@ -1144,15 +1176,32 @@ class _AcceptedDispatchRepo:
             python.symlink_to(sys.executable)
 
     def run_launcher(self, provider, env):
+        return self.run_launcher_script(provider, ".engine/tools/close.py", env)
+
+    def run_launcher_script(self, provider, rel, env, *args):
         self._provision()
         if provider == "codex":
-            return _accepted_call("sh", ".engine/tools/codex-hook-runner.sh", ".engine/tools/close.py",
+            return _accepted_call("sh", ".engine/tools/codex-hook-runner.sh", rel, *args,
                                   cwd=str(self.worktree), env=env, check=False)
         clean = dict(env)
         clean.pop("ENGINE_PROVIDER", None)
         return _accepted_call("sh", str(self.worktree / ".engine/tools/hook-runner.sh"),
-                              str(self.worktree / ".engine/.venv/bin/python"), str(self.script),
+                              str(self.worktree / ".engine/.venv/bin/python"),
+                              str(self.worktree / rel), *args,
                               cwd=str(self.worktree), env=clean, check=False)
+
+    def canonical_inventory(self):
+        inventory = {}
+        for base in (self.root / ".engine/memory", self.root / ".engine/memory-backup"):
+            if not base.exists():
+                continue
+            for path in sorted(item for item in base.rglob("*") if item.is_file()):
+                inventory[str(path.relative_to(self.root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return inventory
+
+    def qualification_health(self):
+        path = self.common_dir() / "engine/accepted-hooks/qualification-health.json"
+        return json.loads(path.read_text(encoding="utf-8"))
 
 
 class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
@@ -1184,6 +1233,91 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         legacy = self.repo.activate(expected_epoch=1)
         self.assertEqual(legacy.returncode, 1)
         self.assertIn("retire or recreate", legacy.stderr)
+
+    def test_activation_rejects_dirty_ambiguous_missing_and_unreadable_generations(self):
+        mutations = {
+            "dirty": lambda path: path.write_text(path.read_text(encoding="utf-8") + "\n# dirty\n",
+                                                   encoding="utf-8"),
+            "ambiguous": lambda path: path.write_text(
+                path.read_text(encoding="utf-8") + "\n# ENGINE_ACCEPTED_HOOK_DISPATCH=1\n",
+                encoding="utf-8"),
+            "missing": lambda path: path.unlink(),
+            "unreadable": lambda path: (path.unlink(), path.symlink_to(os.devnull)),
+        }
+        for expected, mutate in mutations.items():
+            fixture = _AcceptedDispatchRepo()
+            try:
+                runner = fixture.worktree / ".engine/tools/hook-runner.sh"
+                mutate(runner)
+                refused = fixture.activate()
+                self.assertEqual(refused.returncode, 1, (expected, refused.stderr))
+                self.assertNotEqual(refused.returncode, 2)
+                self.assertIn(expected, refused.stderr)
+                self.assertFalse((fixture.common_dir() / "engine/accepted-hooks/activation.json").exists())
+            finally:
+                fixture.cleanup()
+
+    def test_activation_topology_must_remain_identical_across_the_locked_window(self):
+        import accepted_hook_dispatch
+        before = {"state": "qualified", "qualified": True,
+                  "worktrees": [{"path_digest": "a", "state": "qualified", "fingerprint": "1"}]}
+        after = {"state": "qualified", "qualified": True,
+                 "worktrees": [{"path_digest": "b", "state": "qualified", "fingerprint": "1"}]}
+        accepted_hook_dispatch._verify_unchanged_activation_barrier(before, dict(before))
+        with self.assertRaisesRegex(accepted_hook_dispatch.QualificationError, "changed while activation"):
+            accepted_hook_dispatch._verify_unchanged_activation_barrier(before, after)
+
+    def test_retiring_and_recreating_the_legacy_worktree_allows_one_epoch_without_payload_rewrite(self):
+        runner = self.repo.worktree / ".engine/tools/hook-runner.sh"
+        runner.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        before = self.repo.canonical_inventory()
+        refused = self.repo.activate()
+        self.assertEqual(refused.returncode, 1)
+        self.assertFalse((self.repo.common_dir() / "engine/accepted-hooks/activation.json").exists())
+
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "remove", "--force",
+                       str(self.repo.worktree))
+        self.repo.git("branch", "-D", "candidate")
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "add", "-b", "candidate",
+                       str(self.repo.worktree), self.repo.commit)
+        self.repo._refresh_paths()
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.assertEqual(json.loads(activated.stdout)["epoch"], 1)
+        stale = self.repo.activate(expected_epoch=0)
+        self.assertEqual(stale.returncode, 1)
+        self.assertIn("compare-and-set", stale.stderr)
+        self.assertEqual(self.repo.canonical_inventory(), before)
+
+    def test_rollback_is_a_new_epoch_to_a_prior_safe_acceptance_and_legacy_never_reactivates(self):
+        before = self.repo.canonical_inventory()
+        first = self.repo.activate()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.repo.git("tag", "safe-a", self.repo.commit)
+
+        (self.repo.root / "reviewed.txt").write_text("reviewed successor\n", encoding="utf-8")
+        self.repo.git("add", "reviewed.txt")
+        self.repo.git("commit", "-m", "reviewed successor")
+        successor = self.repo.git("rev-parse", "HEAD")
+        advanced = self.repo.activate(commit=successor, expected_epoch=1)
+        self.assertEqual(advanced.returncode, 0, advanced.stderr)
+        self.assertEqual(json.loads(advanced.stdout)["epoch"], 2)
+
+        rolled_back = self.repo.activate(
+            source="published-release", source_ref="safe-a", commit=self.repo.commit, expected_epoch=2)
+        self.assertEqual(rolled_back.returncode, 0, rolled_back.stderr)
+        rollback_record = json.loads(rolled_back.stdout)
+        self.assertEqual((rollback_record["commit"], rollback_record["epoch"]), (self.repo.commit, 3))
+        self.assertEqual(self.repo.canonical_inventory(), before)
+
+        (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text(
+            "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        refused = self.repo.activate(commit=successor, expected_epoch=3)
+        self.assertEqual(refused.returncode, 1)
+        current = json.loads(
+            (self.repo.common_dir() / "engine/accepted-hooks/activation.json").read_text(encoding="utf-8"))
+        self.assertEqual((current["commit"], current["epoch"]), (self.repo.commit, 3))
+        self.assertEqual(self.repo.canonical_inventory(), before)
 
     def test_dirty_worktree_and_python_poison_run_only_accepted_code_and_canonical_state(self):
         self.assertEqual(self.repo.activate().returncode, 0)
@@ -1218,6 +1352,55 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
                 self.assertEqual((receipt["provider"], receipt["value"]), (provider, "accepted"))
                 self.assertIn("accepted-hooks/trees", receipt["helper_origin"])
                 self.assertFalse(self.repo.marker.exists())
+
+    def test_repeated_precompact_refusal_is_bounded_nonblocking_and_recovers(self):
+        self.repo.dirty()
+        env = self.repo.poison_env()
+        before = self.repo.canonical_inventory()
+        outcomes = [
+            self.repo.run_launcher_script(provider, ".engine/tools/memory/compact.py", env, "pre-compact")
+            for provider in ("claude", "codex")
+        ]
+        self.assertTrue(all(result.returncode == 1 for result in outcomes))
+        self.assertTrue(all(result.returncode != 2 for result in outcomes))
+        self.assertEqual(self.repo.canonical_inventory(), before)
+        self.assertFalse(self.repo.marker.exists())
+        health = self.repo.qualification_health()
+        self.assertEqual((health["status"], health["skipped_effect_count"]), ("degraded", 2))
+        self.assertIn("Automatic memory work is being skipped", outcomes[0].stderr)
+        self.assertNotIn("Automatic memory work is being skipped", outcomes[1].stderr)
+        self.assertNotIn(self.repo.temp.name, json.dumps(health))
+
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        recovered = self.repo.run_launcher_script(
+            "codex", ".engine/tools/memory/compact.py", env, "pre-compact")
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        health = self.repo.qualification_health()
+        self.assertEqual((health["status"], health["skipped_effect_count"]), ("healthy", 2))
+        self.assertIsNotNone(health["last_recovery_at"])
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_dirty_candidate_precompact_uses_both_real_provider_paths_without_canonical_drift(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        initialized = self.repo.run_direct()
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        compact = self.repo.worktree / ".engine/tools/memory/compact.py"
+        compact.write_text(
+            f"from pathlib import Path\nPath({str(self.repo.marker)!r}).write_text('candidate-compact')\n",
+            encoding="utf-8")
+        env = self.repo.poison_env()
+        before = self.repo.canonical_inventory()
+        for provider in ("claude", "codex"):
+            with self.subTest(provider=provider):
+                result = self.repo.run_launcher_script(
+                    provider, ".engine/tools/memory/compact.py", env, "pre-compact")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.repo.canonical_inventory(), before)
+                self.assertFalse(self.repo.marker.exists())
+        health = self.repo.qualification_health()
+        self.assertEqual(health["status"], "healthy")
+        self.assertEqual(health["last_receipt"]["effect"]["operation_id"], "automatic-compaction")
 
     def test_missing_and_corrupt_authority_never_fall_back_or_exit_two(self):
         self.repo.dirty()

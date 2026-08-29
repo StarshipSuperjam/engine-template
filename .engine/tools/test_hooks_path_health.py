@@ -10,6 +10,8 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -279,6 +281,93 @@ class TestRepair(unittest.TestCase):
             self.assertEqual(res["status"], "needs-manual")
             self.assertIsNotNone(hp.detect_broken_hooks_path(cwd=wt))  # still disabled
 
+
+class TestAcceptedHookTopology(unittest.TestCase):
+    RUNNER = pathlib.Path(hp.__file__).with_name("hook-runner.sh")
+
+    def _commit_runner(self, root: str, source: str | None = None) -> None:
+        target = pathlib.Path(root) / ".engine/tools/hook-runner.sh"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source is None:
+            shutil.copyfile(self.RUNNER, target)
+        else:
+            target.write_text(source, encoding="utf-8")
+        _git(root, "add", ".engine/tools/hook-runner.sh")
+        _git(root, "commit", "-qm", "runner generation")
+
+    def _qualified_pair(self, tmp: str) -> tuple[str, str]:
+        main = _repo(tmp, "main")
+        self._commit_runner(main)
+        return main, _worktree(main, "linked")
+
+    def test_clean_qualified_registered_worktrees_pass_without_exposing_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main, linked = self._qualified_pair(tmp)
+            topology = hp.accepted_hook_topology(main)
+            self.assertTrue(topology["qualified"])
+            self.assertEqual(topology["state"], "qualified")
+            self.assertEqual(len(topology["worktrees"]), 2)
+            self.assertTrue(all(item["state"] == "qualified" for item in topology["worktrees"]))
+            rendered = repr(topology)
+            self.assertNotIn(main, rendered)
+            self.assertNotIn(linked, rendered)
+
+    def test_dirty_missing_ambiguous_and_unreadable_runner_each_block(self):
+        mutations = {
+            "dirty": lambda path: path.write_text(path.read_text(encoding="utf-8") + "\n# dirty\n",
+                                                   encoding="utf-8"),
+            "missing": lambda path: path.unlink(),
+            "ambiguous": lambda path: path.write_text(
+                path.read_text(encoding="utf-8") + "\n# ENGINE_ACCEPTED_HOOK_DISPATCH=1\n",
+                encoding="utf-8"),
+            "unreadable": lambda path: (path.unlink(), path.symlink_to(os.devnull)),
+        }
+        for expected, mutate in mutations.items():
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                main, linked = self._qualified_pair(tmp)
+                runner = pathlib.Path(linked) / ".engine/tools/hook-runner.sh"
+                mutate(runner)
+                topology = hp.accepted_hook_topology(main)
+                self.assertFalse(topology["qualified"])
+                self.assertIn(expected, {item["state"] for item in topology["worktrees"]})
+
+    def test_untouched_prefix_generation_blocks_until_retired_then_recreated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")
+            self._commit_runner(main, "#!/bin/sh\nexit 0\n")
+            legacy = _worktree(main, "untouched-legacy")
+            self._commit_runner(main)
+            blocked = hp.accepted_hook_topology(main)
+            self.assertFalse(blocked["qualified"])
+            self.assertIn("legacy", {item["state"] for item in blocked["worktrees"]})
+
+            removed = _git(main, "worktree", "remove", legacy)
+            self.assertEqual(removed.returncode, 0, removed.stderr)
+            recreated = _worktree(main, "recreated")
+            qualified = hp.accepted_hook_topology(main)
+            self.assertTrue(qualified["qualified"])
+            self.assertNotIn(legacy, repr(qualified))
+            self.assertNotIn(recreated, repr(qualified))
+
+    def test_duplicate_or_concurrently_changed_worktree_census_blocks(self):
+        first = "worktree /fixture/main\n\n"
+        with mock.patch.object(hp, "_toplevel", return_value="/fixture/main"), \
+                mock.patch.object(hp, "classify_accepted_hook_generation",
+                                  return_value={"state": "qualified", "fingerprint": "a" * 64}), \
+                mock.patch.object(hp, "_run", side_effect=[first, first + "worktree /fixture/new\n\n"]):
+            changed = hp.accepted_hook_topology("/fixture/main")
+        self.assertEqual(changed["state"], "concurrent-change")
+        self.assertFalse(changed["qualified"])
+
+        duplicate = "worktree /fixture/main\n\nworktree /fixture/main\n\n"
+        with mock.patch.object(hp, "_toplevel", return_value="/fixture/main"), \
+                mock.patch.object(hp, "_run", return_value=duplicate):
+            ambiguous = hp.accepted_hook_topology("/fixture/main")
+        self.assertEqual(ambiguous["state"], "ambiguous")
+        self.assertFalse(ambiguous["qualified"])
+
+
+class TestRepairResidualScopes(unittest.TestCase):
     def test_local_then_global_reports_needs_manual(self):
         # A broken absolute LOCAL value masking a broken GLOBAL value: unsetting local is correct, but the now
         # effective global value is still broken -> needs-manual, not "fixed".
