@@ -218,10 +218,6 @@ def classify_accepted_hook_generation(worktree: str) -> dict:
         component_digests,
         sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")).hexdigest()
-    if component_digests != _ACCEPTED_BUNDLE_SHA256:
-        changed = next((rel for rel in _ACCEPTED_BUNDLE
-                        if component_digests.get(rel) != _ACCEPTED_BUNDLE_SHA256.get(rel)), None)
-        return {"state": "ambiguous", "fingerprint": digest, "component": changed}
     runner_source = sources[".engine/tools/hook-runner.sh"]
     marker_count = runner_source.count(_ACCEPTED_MARKER)
     if marker_count == 0:
@@ -287,6 +283,10 @@ def classify_accepted_hook_generation(worktree: str) -> dict:
         return {"state": "unreadable", "fingerprint": digest}
     if unstaged != 0 or staged != 0:
         return {"state": "dirty", "fingerprint": digest}
+    if component_digests != _ACCEPTED_BUNDLE_SHA256:
+        changed = next((rel for rel in _ACCEPTED_BUNDLE
+                        if component_digests.get(rel) != _ACCEPTED_BUNDLE_SHA256.get(rel)), None)
+        return {"state": "ambiguous", "fingerprint": digest, "component": changed}
     return {"state": "qualified", "fingerprint": digest}
 
 

@@ -326,8 +326,9 @@ class ControlToolTests(_ServerBase):
         report = await self._call("list-withheld", {})
         self.assertEqual(report["notes"][0]["recovery_label"], "August decision")
         self.assertNotIn("withdrawn", json.dumps(report).casefold())
-        error = await mts.call_tool_expect_error(srv.server, "list-withheld", {"query": "withdrawn"})
-        self.assertTrue(error, "ambient content queries are not part of restore discovery")
+        legacy_query = await self._call("list-withheld", {"query": "withdrawn"})
+        self.assertEqual(legacy_query, report,
+                         "an ignored legacy argument must not become a withheld-content oracle")
         back = await self._call("restore", {"record_id": rid})
         self.assertIn("back in recall", back["restored"])
         self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)
