@@ -70,13 +70,12 @@ post-landing “Setup is now complete” message. It cannot authorize shared
 memory, recovery, repository, remote, or arbitrary lifecycle writes. This narrow boundary is operator-approved;
 the accepted automatic cleanup that later consumes the marker still uses the normal qualified capability path.
 
-The context-free unit-test adapter is source- and target-bounded: the live frame must match a regular
-`test_*.py` file under the Engine tools tree and that byte snapshot must equal its tracked `HEAD` blob. Dirty,
-staged-only, untracked, fabricated, borrowed-path, and same-named sources receive no test authority. Because a
-candidate must be able to exercise newly changed writers before activation, tracked `HEAD` is harness identity,
-not accepted-code identity; every guarded call is therefore also refused when its effective target overlaps the
-checkout, the Git common directory, the main checkout, or canonical shared memory. Candidate tests retain only
-non-canonical fixture writes.
+The context-free unit-test adapter requires a live frame matching a regular `test_*.py` file under the Engine
+tools tree whose byte snapshot equals its tracked `HEAD` blob. Dirty, staged-only, untracked, fabricated,
+borrowed-path, and same-named sources receive no test authority. This is harness identity, not accepted-code
+identity: candidate tests must exercise newly changed writers before activation, and existing suites bind those
+writes to disposable fixtures. Mechanically removing that remaining tracked-test exception requires a separate
+harness migration; it is not part of the production mutation boundary claimed here.
 
 ### Candidate maintenance
 
