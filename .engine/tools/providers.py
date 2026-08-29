@@ -256,3 +256,12 @@ def resolve_session(payload: dict | None = None, explicit: str | None = None) ->
     if record and record.get("provider") == CODEX:
         return record["session_id"]
     return None
+
+
+# Provider normalization sits on every hook's hot path, including content-free hooks that must not import the
+# optional memory package. Keep the registered writer visible but resolve the common authority only if it runs.
+# The accepted dispatcher also loads this file under a private, read-only bootstrap name before its tools root
+# is installed; that use exposes no writer and therefore needs no adapter import at all.
+if __name__ != "_engine_accepted_provider_authority":
+    import mutation_guards as _mutation_guards  # noqa: E402
+    _mutation_guards.install(globals(), {"write_live_session": "automatic-live-session"})

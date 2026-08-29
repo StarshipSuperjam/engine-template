@@ -25,6 +25,7 @@ These lock the laws hooks owns:
 """
 from __future__ import annotations
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -32,9 +33,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -169,16 +172,58 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
     def test_the_launcher_waits_bounded_and_execs_only_the_given_interpreter(self):
         # the launcher source: a bounded (not infinite) wait, then a SINGLE exec of the resolved venv
         # interpreter (the named POSIX bin/python, or its Windows Scripts/python.exe sibling under the same
-        # venv root — #407) with the forwarded args — never a bare/system Python fallback.
+        # venv root — #407) with the forwarded args — never a bare/system Python fallback. There are two
+        # mutually exclusive exec sites now: the normal non-memory path and the qualification-health
+        # telemetry fallback when its owner-only transient stderr file cannot be created.
         with open(self.WRAPPER) as fh:
             src = fh.read()
         self.assertIn("while", src)
         self.assertIn("-lt", src)                       # a numeric cap, never an unbounded loop
         self.assertIn("shift", src)                     # the interpreter arg is consumed, so "$@" = script+args
         self.assertIn('exec "$interp" "$@"', src)       # one exec, of the passed interpreter, args forwarded
-        self.assertEqual(src.count("exec "), 1)
+        self.assertEqual(src.count('exec "$interp" "$@"'), 2)
+        self.assertEqual(src.count("exec "), 2)
         for forbidden in ("uv ", "/usr/bin/", "/usr/local/bin/", "exec python"):
             self.assertNotIn(forbidden, src)
+
+    def test_memory_bearing_automatic_targets_enter_the_exact_accepted_dispatcher(self):
+        with open(self.WRAPPER) as fh:
+            src = fh.read()
+        self.assertIn("ENGINE_ACCEPTED_HOOK_DISPATCH=1", src)
+        self.assertIn("accepted_hook_dispatch.py", src)
+        self.assertIn('set -- -I -S "$dispatcher" run --root "$project" --script "$script" -- "$@"', src)
+        for target in (
+            ".engine/tools/boot.py",
+            ".engine/tools/close.py",
+            ".engine/tools/memory/compact.py",
+            ".engine/tools/memory/erasure_observer.py",
+            ".engine/tools/memory/backup_vault.py",
+        ):
+            self.assertIn(target, src)
+
+    def test_automatic_roster_matches_dispatcher_and_both_provider_documents_are_closed(self):
+        import accepted_hook_dispatch
+        self.assertEqual(hooks.ACCEPTED_AUTOMATIC_SCRIPTS,
+                         accepted_hook_dispatch.AUTOMATIC_MUTATORS)
+        for provider, rel in (("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json")):
+            with self.subTest(provider=provider):
+                document = validate.load_json(os.path.join(validate.ROOT, rel))
+                self.assertEqual(hooks.automatic_hook_wiring_failures(document, provider), [])
+
+    def test_direct_dispatch_mutator_sibling_and_altered_effect_fail_mechanically(self):
+        unsafe = (
+            "python .engine/tools/accepted_hook_dispatch.py activate",
+            "python .engine/tools/memory/new_mutator.py",
+            hooks.hook_command(".engine/tools/memory/mutation_authority.py", provider="codex"),
+            hooks.hook_command(".engine/tools/memory/compact.py activate", provider="claude"),
+        )
+        for provider in ("claude", "codex"):
+            for command in unsafe:
+                with self.subTest(provider=provider, command=command):
+                    document = {"hooks": {"PreCompact": [{"hooks": [
+                        {"type": "command", "command": command},
+                    ]}]}}
+                    self.assertTrue(hooks.automatic_hook_wiring_failures(document, provider))
 
     def test_per_os_form_carries_its_own_venv_interpreter(self):
         self.assertIn(".engine/.venv/bin/python",
@@ -1004,3 +1049,525 @@ class TestPostCompactionOwnerCoexistsWithMemory(unittest.TestCase):
         self.assertEqual(len(pre), 1, "memory acts once")
         self.assertEqual(len(post), 1, "re-grounding acts once")
         self.assertEqual(len(set(pre) & set(post)), 0, "and never the same command twice")
+
+
+# --- Accepted automatic-hook dispatch ---------------------------------------------------------------
+
+_ACCEPTED_TOOLS = Path(__file__).resolve().parent
+
+
+def _accepted_call(*args, cwd=None, env=None, check=True):
+    proc = subprocess.run(list(args), cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    if check and proc.returncode != 0:
+        raise AssertionError(f"command failed ({proc.returncode}): {args!r}\n{proc.stdout}\n{proc.stderr}")
+    return proc
+
+
+class _AcceptedDispatchRepo:
+    """A real clone + linked worktree fixture for the issue #1151 split-brain topology."""
+
+    def __init__(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name) / "main"
+        self.worktree = Path(self.temp.name) / "candidate"
+        self.poison = Path(self.temp.name) / "poison"
+        self.marker = Path(self.temp.name) / "startup-ran"
+        self.root.mkdir()
+        _accepted_call("git", "init", "-b", "main", str(self.root))
+        _accepted_call("git", "-C", str(self.root), "config", "user.email", "fixture@example.test")
+        _accepted_call("git", "-C", str(self.root), "config", "user.name", "Fixture")
+        _accepted_call("git", "-C", str(self.root), "remote", "add", "origin",
+                       "https://github.com/owner/project.git")
+        self._accepted_tree()
+        _accepted_call("git", "-C", str(self.root), "add", ".")
+        _accepted_call("git", "-C", str(self.root), "commit", "-m", "accepted")
+        self.commit = self.git("rev-parse", "HEAD")
+        self.tree = self.git("rev-parse", "HEAD^{tree}")
+        self.fake_bin = Path(self.temp.name) / "bin"
+        self.fake_bin.mkdir()
+        fake_gh = self.fake_bin / "gh"
+        fake_gh.write_text(textwrap.dedent("""\
+            #!/usr/bin/env python3
+            import json, os, sys
+            endpoint = sys.argv[-1]
+            commit = os.environ["ENGINE_TEST_ACCEPTED_COMMIT"]
+            if endpoint == "repos/owner/project":
+                print(json.dumps({"default_branch": os.environ.get("ENGINE_TEST_GH_DEFAULT", "main")}))
+            elif endpoint.endswith("/pulls"):
+                if os.environ.get("ENGINE_TEST_GH_REFUSE") == "1":
+                    print("[]")
+                    raise SystemExit(0)
+                print(json.dumps([{"number": 42, "merged_at": "2026-01-01T00:00:00Z",
+                    "merge_commit_sha": commit,
+                    "base": {"ref": os.environ.get("ENGINE_TEST_GH_DEFAULT", "main")}}]))
+            elif "/releases/tags/" in endpoint:
+                print(json.dumps({"id": 77, "tag_name": endpoint.rsplit("/", 1)[-1]}))
+            elif "/git/ref/tags/" in endpoint:
+                print(json.dumps({"object": {"type": "commit",
+                    "sha": os.environ.get("ENGINE_TEST_GH_TAG_SHA", commit)}}))
+            elif "/actions/workflows/release-publish.yml/runs?" in endpoint:
+                print(json.dumps({"workflow_runs": [{"id": 88, "head_sha": commit,
+                    "conclusion": "success"}]}))
+            else:
+                raise SystemExit(1)
+            """), encoding="utf-8")
+        fake_gh.chmod(0o755)
+        _accepted_call("git", "-C", str(self.root), "worktree", "add", "-b", "candidate",
+                       str(self.worktree), self.commit)
+        self._refresh_paths()
+
+    def cleanup(self):
+        self.temp.cleanup()
+
+    def git(self, *args):
+        return _accepted_call("git", "-C", str(self.root), *args).stdout.strip()
+
+    def _put(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _accepted_tree(self):
+        for name in ("accepted_hook_dispatch.py", "release_source.py", "moment.py", "mutation_guards.py",
+                     "hook-runner.sh", "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
+            self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
+        for rel in (".claude/settings.json", ".codex/hooks.json"):
+            self._put(rel, (_ACCEPTED_TOOLS.parents[1] / rel).read_text(encoding="utf-8"))
+        self._put(".engine/tools/validate.py",
+                  "from pathlib import Path\nROOT = str(Path(__file__).resolve().parents[2])\n")
+        self._put(".engine/tools/helper.py",
+                  "from pathlib import Path\nVALUE = 'accepted'\nORIGIN = str(Path(__file__).resolve())\n")
+        self._put(".engine/tools/close.py", textwrap.dedent("""\
+            import json, os
+            import helper, validate
+            context = json.loads(os.environ["ENGINE_ACCEPTED_HOOK_CONTEXT"])
+            print(json.dumps({"value": helper.VALUE, "helper_origin": helper.ORIGIN,
+                "validate_origin": validate.__file__, "root": validate.ROOT,
+                "memory_dir": os.environ.get("ENGINE_MEMORY_DIR"),
+                "provider": os.environ.get("ENGINE_PROVIDER"), "context": context}, sort_keys=True))
+            """))
+        self._put(".engine/tools/boot.py", "raise SystemExit(0)\n")
+        self._put(".engine/tools/memory/__init__.py", "")
+        for name in ("execution_context.py", "mutation_contract.py", "mutation_authority.py",
+                     "candidate_invocation.py", "qualification_health.py"):
+            self._put(f".engine/tools/memory/{name}",
+                      (_ACCEPTED_TOOLS / "memory" / name).read_text(encoding="utf-8"))
+        for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
+            self._put(f".engine/tools/memory/{name}", "raise SystemExit(0)\n")
+        self._put(".engine/tools/memory/mcp_server.py", textwrap.dedent("""\
+            import json, os
+            from memory import execution_context
+            context = execution_context.current_context().to_document()
+            print(json.dumps({"operation": context["operation"],
+                              "memory_dir": os.environ.get("ENGINE_MEMORY_DIR")}, sort_keys=True))
+            """))
+        self._put(".engine/engine.json",
+                  json.dumps({"engine_version": "9.9.9", "default_branch": "main"}) + "\n")
+        self._put(".engine/memory-backup/pointer.json", json.dumps({
+            "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
+            "namespace": "project-id"}) + "\n")
+
+    def _refresh_paths(self):
+        self.dispatcher = self.worktree / ".engine/tools/accepted_hook_dispatch.py"
+        self.script = self.worktree / ".engine/tools/close.py"
+
+    def activate(self, *, source="reviewed-merge", source_ref="refs/heads/main", expected_epoch=0,
+                 commit=None, accepted_proof=True, default_branch="main", tag_commit=None):
+        selected = commit or self.commit
+        env = dict(os.environ)
+        env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
+        env["ENGINE_TEST_ACCEPTED_COMMIT"] = selected
+        if not accepted_proof:
+            env["ENGINE_TEST_GH_REFUSE"] = "1"
+        env["ENGINE_TEST_GH_DEFAULT"] = default_branch
+        if tag_commit is not None:
+            env["ENGINE_TEST_GH_TAG_SHA"] = tag_commit
+        return _accepted_call(
+            sys.executable, str(self.dispatcher), "activate", "--root", str(self.worktree),
+            "--repository", "owner/project", "--commit", selected, "--source", source,
+            "--source-ref", source_ref, "--engine-release", "9.9.9", "--expected-epoch",
+            str(expected_epoch), check=False, env=env)
+
+    def ensure(self, *, accepted_proof=True):
+        env = dict(os.environ)
+        env["PATH"] = str(self.fake_bin) + os.pathsep + env.get("PATH", "")
+        env["ENGINE_TEST_ACCEPTED_COMMIT"] = self.git("rev-parse", "main")
+        if not accepted_proof:
+            env["ENGINE_TEST_GH_REFUSE"] = "1"
+        return _accepted_call(
+            sys.executable, str(self.dispatcher), "ensure", "--root", str(self.worktree),
+            check=False, env=env,
+        )
+
+    def common_dir(self):
+        raw = self.git("rev-parse", "--git-common-dir")
+        return Path(raw) if os.path.isabs(raw) else self.root / raw
+
+    def dirty(self):
+        (self.worktree / ".engine/tools/helper.py").write_text(
+            "from pathlib import Path\nVALUE = 'candidate'\nORIGIN = str(Path(__file__).resolve())\n",
+            encoding="utf-8")
+        self.script.write_text(
+            f"from pathlib import Path\nPath({str(self.marker)!r}).write_text('candidate-ran')\n",
+            encoding="utf-8")
+
+    def poison_env(self):
+        self.poison.mkdir(exist_ok=True)
+        (self.poison / "helper.py").write_text("VALUE='environment'\nORIGIN=__file__\n", encoding="utf-8")
+        for name in ("sitecustomize.py", "usercustomize.py", "startup.py"):
+            (self.poison / name).write_text(
+                f"from pathlib import Path\nPath({str(self.marker)!r}).write_text({name!r})\n",
+                encoding="utf-8")
+        return {**os.environ, "PYTHONPATH": str(self.poison), "PYTHONUSERBASE": str(self.poison),
+                "PYTHONSTARTUP": str(self.poison / "startup.py"),
+                "ENGINE_MEMORY_DIR": str(self.poison / "memory"), "ENGINE_PROVIDER": "codex"}
+
+    def run_direct(self, env=None):
+        return _accepted_call(sys.executable, "-I", "-S", str(self.dispatcher), "run", "--root",
+                              str(self.worktree), "--script", str(self.script), "--", env=env, check=False)
+
+    def run_attended(self, operation="attended-memory-mcp", script=None, *target_args):
+        target = script or ".engine/tools/memory/mcp_server.py"
+        return _accepted_call(
+            sys.executable, "-I", "-S", str(self.dispatcher), "attended", "--root", str(self.worktree),
+            "--script", target, "--operation", operation, "--", *target_args, check=False,
+        )
+
+    def _provision(self):
+        bindir = self.worktree / ".engine/.venv/bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        python = bindir / "python"
+        if not python.exists():
+            python.symlink_to(sys.executable)
+
+    def run_launcher(self, provider, env):
+        return self.run_launcher_script(provider, ".engine/tools/close.py", env)
+
+    def run_launcher_script(self, provider, rel, env, *args):
+        self._provision()
+        if provider == "codex":
+            return _accepted_call("sh", ".engine/tools/codex-hook-runner.sh", rel, *args,
+                                  cwd=str(self.worktree), env=env, check=False)
+        clean = dict(env)
+        clean.pop("ENGINE_PROVIDER", None)
+        return _accepted_call("sh", str(self.worktree / ".engine/tools/hook-runner.sh"),
+                              str(self.worktree / ".engine/.venv/bin/python"),
+                              str(self.worktree / rel), *args,
+                              cwd=str(self.worktree), env=clean, check=False)
+
+    def canonical_inventory(self):
+        inventory = {}
+        for base in (self.root / ".engine/memory", self.root / ".engine/memory-backup"):
+            if not base.exists():
+                continue
+            for path in sorted(item for item in base.rglob("*") if item.is_file()):
+                inventory[str(path.relative_to(self.root))] = hashlib.sha256(path.read_bytes()).hexdigest()
+        return inventory
+
+    def qualification_health(self):
+        path = self.common_dir() / "engine/accepted-hooks/qualification-health.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+
+class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
+    def setUp(self):
+        self.repo = _AcceptedDispatchRepo()
+
+    def tearDown(self):
+        self.repo.cleanup()
+
+    def test_activation_schema_exact_objects_epoch_cas_and_legacy_barrier(self):
+        import jsonschema
+        schema_path = _ACCEPTED_TOOLS.parent / "schemas/accepted-hook-activation.v1.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator.check_schema(schema)
+        self.assertFalse(schema["additionalProperties"])
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        record = json.loads(activated.stdout)
+        self.assertEqual((record["commit"], record["tree"], record["epoch"]),
+                         (self.repo.commit, self.repo.tree, 1))
+        path = self.repo.common_dir() / "engine/accepted-hooks/activation.json"
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), record)
+        stale = self.repo.activate(expected_epoch=0)
+        self.assertEqual(stale.returncode, 1)
+        self.assertNotEqual(stale.returncode, 2)
+        self.assertIn("compare-and-set", stale.stderr)
+        (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text("#!/bin/sh\nexit 0\n",
+                                                                         encoding="utf-8")
+        legacy = self.repo.activate(expected_epoch=1)
+        self.assertEqual(legacy.returncode, 1)
+        self.assertIn("retire or recreate", legacy.stderr)
+
+    def test_activation_requires_independent_github_acceptance_proof(self):
+        refused = self.repo.activate(accepted_proof=False)
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("no merged GitHub pull request", refused.stderr)
+        self.assertNotIn("did not block the host action", refused.stderr)
+        self.assertFalse((self.repo.common_dir() / "engine/accepted-hooks/activation.json").exists())
+
+    def test_candidate_manifest_cannot_redefine_the_github_default_branch(self):
+        self.repo.git("branch", "staging", self.repo.commit)
+        refused = self.repo.activate(source_ref="refs/heads/staging")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("GitHub's current default branch", refused.stderr)
+
+    def test_github_default_branch_may_be_a_valid_slash_name(self):
+        self.repo.git("branch", "release/stable", self.repo.commit)
+        activated = self.repo.activate(
+            source_ref="refs/heads/release/stable", default_branch="release/stable")
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.assertEqual(json.loads(activated.stdout)["source_ref"], "refs/heads/release/stable")
+
+    def test_release_proof_binds_the_github_tag_ref_to_the_selected_commit(self):
+        self.repo.git("tag", "v9.9.9", self.repo.commit)
+        refused = self.repo.activate(
+            source="published-release", source_ref="v9.9.9", tag_commit="f" * 40)
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("release tag does not name", refused.stderr)
+
+    def test_attended_ensure_bootstraps_once_and_keeps_the_exact_activation_offline(self):
+        first = self.repo.ensure()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        record = json.loads(first.stdout)
+        self.assertEqual(record["commit"], self.repo.commit)
+        second = self.repo.ensure(accepted_proof=False)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(json.loads(second.stdout), record)
+
+    def test_attended_ensure_preserves_an_older_rollback_epoch_after_canonical_advances_offline(self):
+        first = self.repo.ensure()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        rollback = json.loads(first.stdout)
+        rollback["epoch"] = 3
+        activation = self.repo.common_dir() / "engine/accepted-hooks/activation.json"
+        activation.write_text(json.dumps(rollback, sort_keys=True) + "\n", encoding="utf-8")
+        (self.repo.root / "product.txt").write_text("newer canonical product commit\n", encoding="utf-8")
+        self.repo.git("add", "product.txt")
+        self.repo.git("commit", "-m", "advance canonical checkout")
+        (self.repo.fake_bin / "gh").write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+        preserved = self.repo.ensure()
+        self.assertEqual(preserved.returncode, 0, preserved.stderr)
+        self.assertEqual(json.loads(preserved.stdout), rollback)
+
+    def test_attended_maintenance_reenters_exact_accepted_code_with_one_registered_operation(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        result = self.repo.run_attended()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["operation"]["registry_id"], "attended-memory-mcp")
+        self.assertEqual(payload["operation"]["invocation_mode"], "attended")
+        self.assertEqual(payload["memory_dir"], os.path.realpath(self.repo.root / ".engine/memory"))
+        mismatch = self.repo.run_attended("attended-pin-add")
+        self.assertEqual(mismatch.returncode, 1)
+        self.assertIn("does not belong", mismatch.stderr)
+
+    def test_activation_rejects_dirty_ambiguous_missing_and_unreadable_generations(self):
+        mutations = {
+            "dirty": lambda path: path.write_text(path.read_text(encoding="utf-8") + "\n# dirty\n",
+                                                   encoding="utf-8"),
+            "ambiguous": lambda path: path.write_text(
+                path.read_text(encoding="utf-8") + "\n# ENGINE_ACCEPTED_HOOK_DISPATCH=1\n",
+                encoding="utf-8"),
+            "missing": lambda path: path.unlink(),
+            "unreadable": lambda path: (path.unlink(), path.symlink_to(os.devnull)),
+        }
+        for expected, mutate in mutations.items():
+            fixture = _AcceptedDispatchRepo()
+            try:
+                runner = fixture.worktree / ".engine/tools/hook-runner.sh"
+                mutate(runner)
+                refused = fixture.activate()
+                self.assertEqual(refused.returncode, 1, (expected, refused.stderr))
+                self.assertNotEqual(refused.returncode, 2)
+                self.assertIn(expected, refused.stderr)
+                self.assertFalse((fixture.common_dir() / "engine/accepted-hooks/activation.json").exists())
+            finally:
+                fixture.cleanup()
+
+    def test_activation_topology_must_remain_identical_across_the_locked_window(self):
+        import accepted_hook_dispatch
+        before = {"state": "qualified", "qualified": True,
+                  "worktrees": [{"path_digest": "a", "state": "qualified", "fingerprint": "1"}]}
+        after = {"state": "qualified", "qualified": True,
+                 "worktrees": [{"path_digest": "b", "state": "qualified", "fingerprint": "1"}]}
+        accepted_hook_dispatch._verify_unchanged_activation_barrier(before, dict(before))
+        with self.assertRaisesRegex(accepted_hook_dispatch.QualificationError, "changed while activation"):
+            accepted_hook_dispatch._verify_unchanged_activation_barrier(before, after)
+
+    def test_retiring_and_recreating_the_legacy_worktree_allows_one_epoch_without_payload_rewrite(self):
+        runner = self.repo.worktree / ".engine/tools/hook-runner.sh"
+        runner.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        before = self.repo.canonical_inventory()
+        refused = self.repo.activate()
+        self.assertEqual(refused.returncode, 1)
+        self.assertFalse((self.repo.common_dir() / "engine/accepted-hooks/activation.json").exists())
+
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "remove", "--force",
+                       str(self.repo.worktree))
+        self.repo.git("branch", "-D", "candidate")
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "add", "-b", "candidate",
+                       str(self.repo.worktree), self.repo.commit)
+        self.repo._refresh_paths()
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.assertEqual(json.loads(activated.stdout)["epoch"], 1)
+        stale = self.repo.activate(expected_epoch=0)
+        self.assertEqual(stale.returncode, 1)
+        self.assertIn("compare-and-set", stale.stderr)
+        self.assertEqual(self.repo.canonical_inventory(), before)
+
+    def test_rollback_is_a_new_epoch_to_a_prior_safe_acceptance_and_legacy_never_reactivates(self):
+        before = self.repo.canonical_inventory()
+        first = self.repo.activate()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.repo.git("tag", "safe-a", self.repo.commit)
+
+        (self.repo.root / "reviewed.txt").write_text("reviewed successor\n", encoding="utf-8")
+        self.repo.git("add", "reviewed.txt")
+        self.repo.git("commit", "-m", "reviewed successor")
+        successor = self.repo.git("rev-parse", "HEAD")
+        advanced = self.repo.activate(commit=successor, expected_epoch=1)
+        self.assertEqual(advanced.returncode, 0, advanced.stderr)
+        self.assertEqual(json.loads(advanced.stdout)["epoch"], 2)
+
+        rolled_back = self.repo.activate(
+            source="published-release", source_ref="safe-a", commit=self.repo.commit, expected_epoch=2)
+        self.assertEqual(rolled_back.returncode, 0, rolled_back.stderr)
+        rollback_record = json.loads(rolled_back.stdout)
+        self.assertEqual((rollback_record["commit"], rollback_record["epoch"]), (self.repo.commit, 3))
+        self.assertEqual(self.repo.canonical_inventory(), before)
+
+        (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text(
+            "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        refused = self.repo.activate(commit=successor, expected_epoch=3)
+        self.assertEqual(refused.returncode, 1)
+        current = json.loads(
+            (self.repo.common_dir() / "engine/accepted-hooks/activation.json").read_text(encoding="utf-8"))
+        self.assertEqual((current["commit"], current["epoch"]), (self.repo.commit, 3))
+        self.assertEqual(self.repo.canonical_inventory(), before)
+
+    def test_dirty_worktree_and_python_poison_run_only_accepted_code_and_canonical_state(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        self.repo.dirty()
+        result = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["value"], "accepted")
+        self.assertIn("accepted-hooks/trees", receipt["helper_origin"])
+        self.assertIn("accepted-hooks/trees", receipt["validate_origin"])
+        self.assertEqual(receipt["root"], str(self.repo.root.resolve()))
+        self.assertEqual(receipt["memory_dir"], str((self.repo.root / ".engine/memory").resolve()))
+        self.assertEqual(receipt["context"]["canonical"]["backup_pointer_identity"]["namespace"],
+                         "project-id")
+        self.assertFalse(self.repo.marker.exists())
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text("{}\n", encoding="utf-8")
+        refused = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("canonical backup pointer differs", refused.stderr)
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_real_claude_and_codex_launchers_preserve_provider_and_closed_origins(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        self.repo.dirty()
+        env = self.repo.poison_env()
+        for provider in ("claude", "codex"):
+            with self.subTest(provider=provider):
+                self.repo.marker.unlink(missing_ok=True)
+                result = self.repo.run_launcher(provider, env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(result.stdout)
+                self.assertEqual((receipt["provider"], receipt["value"]), (provider, "accepted"))
+                self.assertIn("accepted-hooks/trees", receipt["helper_origin"])
+                self.assertFalse(self.repo.marker.exists())
+
+    def test_repeated_precompact_refusal_is_bounded_nonblocking_and_recovers(self):
+        self.repo.dirty()
+        env = self.repo.poison_env()
+        before = self.repo.canonical_inventory()
+        outcomes = [
+            self.repo.run_launcher_script(provider, ".engine/tools/memory/compact.py", env, "pre-compact")
+            for provider in ("claude", "codex")
+        ]
+        self.assertTrue(all(result.returncode == 1 for result in outcomes))
+        self.assertTrue(all(result.returncode != 2 for result in outcomes))
+        self.assertEqual(self.repo.canonical_inventory(), before)
+        self.assertFalse(self.repo.marker.exists())
+        health = self.repo.qualification_health()
+        self.assertEqual((health["status"], health["skipped_effect_count"]), ("degraded", 2))
+        self.assertIn("Automatic memory work was skipped because", outcomes[0].stderr)
+        self.assertNotIn("Automatic memory work is being skipped", outcomes[1].stderr)
+        self.assertNotIn(self.repo.temp.name, json.dumps(health))
+
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        recovered = self.repo.run_launcher_script(
+            "codex", ".engine/tools/memory/compact.py", env, "pre-compact")
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        health = self.repo.qualification_health()
+        self.assertEqual((health["status"], health["skipped_effect_count"]), ("healthy", 2))
+        self.assertIsNotNone(health["last_recovery_at"])
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_dirty_candidate_precompact_uses_both_real_provider_paths_without_canonical_drift(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        initialized = self.repo.run_direct()
+        self.assertEqual(initialized.returncode, 0, initialized.stderr)
+        compact = self.repo.worktree / ".engine/tools/memory/compact.py"
+        compact.write_text(
+            f"from pathlib import Path\nPath({str(self.repo.marker)!r}).write_text('candidate-compact')\n",
+            encoding="utf-8")
+        env = self.repo.poison_env()
+        before = self.repo.canonical_inventory()
+        for provider in ("claude", "codex"):
+            with self.subTest(provider=provider):
+                result = self.repo.run_launcher_script(
+                    provider, ".engine/tools/memory/compact.py", env, "pre-compact")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.repo.canonical_inventory(), before)
+                self.assertFalse(self.repo.marker.exists())
+        health = self.repo.qualification_health()
+        self.assertEqual(health["status"], "healthy")
+        self.assertEqual(health["last_receipt"]["effect"]["operation_id"], "automatic-compaction")
+
+    def test_missing_and_corrupt_authority_never_fall_back_or_exit_two(self):
+        self.repo.dirty()
+        missing = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(missing.returncode, 1)
+        self.assertNotEqual(missing.returncode, 2)
+        self.assertFalse(self.repo.marker.exists())
+        path = self.repo.common_dir() / "engine/accepted-hooks/activation.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not-json", encoding="utf-8")
+        corrupt = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(corrupt.returncode, 1)
+        self.assertNotEqual(corrupt.returncode, 2)
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_published_tag_is_resolved_once_and_accepted_exit_two_is_preserved(self):
+        self.repo.git("tag", "v9.9.9", self.repo.commit)
+        activated = self.repo.activate(source="published-release", source_ref="v9.9.9")
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.repo.dirty()
+        (self.repo.root / "later.txt").write_text("later\n", encoding="utf-8")
+        self.repo.git("add", "later.txt")
+        self.repo.git("commit", "-m", "later")
+        self.repo.git("tag", "-f", "v9.9.9", "HEAD")
+        still_exact = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(still_exact.returncode, 0, still_exact.stderr)
+        self.assertEqual(json.loads(still_exact.stdout)["context"]["activation"]["commit"], self.repo.commit)
+
+        # Legitimate target exit 2 is transparent; only qualification failures are normalized away from 2.
+        (self.repo.root / ".engine/tools/close.py").write_text("raise SystemExit(2)\n", encoding="utf-8")
+        self.repo.git("add", ".engine/tools/close.py")
+        self.repo.git("commit", "-m", "accepted block")
+        commit = self.repo.git("rev-parse", "HEAD")
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "remove", "--force",
+                       str(self.repo.worktree))
+        self.repo.git("branch", "-D", "candidate")
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "add", "-b", "candidate",
+                       str(self.repo.worktree), commit)
+        self.repo._refresh_paths()
+        advanced = self.repo.activate(commit=commit, expected_epoch=1)
+        self.assertEqual(advanced.returncode, 0, advanced.stderr)
+        self.assertEqual(self.repo.run_direct().returncode, 2)

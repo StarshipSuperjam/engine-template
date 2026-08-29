@@ -169,31 +169,71 @@ def detect_home_workshop(cwd: str | None = None) -> dict | None:
 # through the landing commit, and it survives the operator's own branch->PR->merge->pull. Its presence is what
 # lets the post-landing "Setup is now complete" confirmation fire EXACTLY ONCE in the operator's own checkout;
 # a repo set up before this shipped (no marker) never shows the confirmation spuriously.
+# This pre-activation bootstrap hint exists before a new project's first reviewed activation can exist. It is
+# nevertheless registered and consumes one source-verified, target-bound, one-use attended exception approved
+# by the operator and issued only to instantiator.retire before retirement changes any file;
+# it is neither shared through git-common-dir nor part of memory/recovery state, and its best-effort loss changes
+# only whether one confirmation is shown. The accepted automatic cleanup after landing is separately qualified.
 _LANDING_MARKER_REL = os.path.join(".engine", "boot", ".cache", "first-run-landing.json")
+_LANDING_MARKER_DIRS = (".engine", "boot", ".cache")
+_LANDING_MARKER_NAME = "first-run-landing.json"
+
+
+def _landing_marker_parent(main: str, *, create: bool) -> int:
+    """Open the checkout-local marker directory without following any path component symlink."""
+    root = os.path.realpath(main)
+    if not os.path.isabs(main) or not os.path.isdir(root):
+        raise OSError("first-run marker requires one existing checkout root")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    current = os.open(root, flags)
+    try:
+        for component in _LANDING_MARKER_DIRS:
+            if create:
+                try:
+                    os.mkdir(component, 0o700, dir_fd=current)
+                except FileExistsError:
+                    pass
+            child = os.open(component, flags, dir_fd=current)
+            os.close(current)
+            current = child
+        return current
+    except Exception:
+        os.close(current)
+        raise
 
 
 def mark_first_run_applied(main: str) -> bool:
     """Write the local awaiting-landing marker after retire applies setup. FAIL-SOFT: a write failure only means
     the one-time completion confirmation won't fire (setup itself still succeeded); it never raises into retire."""
+    parent = None
     try:
-        path = os.path.join(main, _LANDING_MARKER_REL)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as fh:
+        parent = _landing_marker_parent(main, create=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(_LANDING_MARKER_NAME, flags, 0o600, dir_fd=parent)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as fh:
             json.dump({"schema_version": 1, "awaiting_landing": True}, fh)
         return True
     except Exception:  # noqa: BLE001 — best-effort; retire must complete regardless of a marker write failure
         return False
+    finally:
+        if parent is not None:
+            os.close(parent)
 
 
 def clear_first_run_marker(main: str) -> None:
     """Remove the awaiting-landing marker once the completion confirmation has been surfaced (show-once). FAIL-SOFT:
     a failed clear only risks the confirmation showing again next start, never a crash."""
+    parent = None
     try:
-        os.remove(os.path.join(main, _LANDING_MARKER_REL))
+        parent = _landing_marker_parent(main, create=False)
+        os.unlink(_LANDING_MARKER_NAME, dir_fd=parent)
     except FileNotFoundError:
         pass
     except Exception:  # noqa: BLE001 — a failed clear is harmless (at worst a duplicate confirmation)
         pass
+    finally:
+        if parent is not None:
+            os.close(parent)
 
 
 def _current_branch(main: str) -> str | None:
@@ -357,6 +397,10 @@ def main(argv: list) -> int:
         return 0
     print("usage: first_run_health.py [demo|check]", file=sys.stderr)
     return 2
+
+
+from memory import mutation_authority as _mutation_authority  # noqa: E402
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

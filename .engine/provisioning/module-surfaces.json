@@ -765,6 +765,9 @@
   ".engine/conduct/defaults.md": [
    "core"
   ],
+  ".engine/docs/accepted-hook-qualification.md": [
+   "core"
+  ],
   ".engine/docs/ci-assurance.md": [
    "core"
   ],
@@ -987,6 +990,9 @@
   ".engine/provisioning/module-surfaces.json": [
    "core"
   ],
+  ".engine/schemas/accepted-hook-activation.v1.json": [
+   "core"
+  ],
   ".engine/schemas/agent.v1.json": [
    "core"
   ],
@@ -1021,6 +1027,9 @@
    "core"
   ],
   ".engine/schemas/build-state.v2.json": [
+   "core"
+  ],
+  ".engine/schemas/candidate-disposable-receipt.v1.json": [
    "core"
   ],
   ".engine/schemas/check.v1.json": [
@@ -1084,6 +1093,15 @@
    "core"
   ],
   ".engine/schemas/operation.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/persistent-execution-context.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/persistent-mutation-registry.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/persistent-store-identity.v1.json": [
    "core"
   ],
   ".engine/schemas/plan-record.v1.json": [
@@ -1180,6 +1198,9 @@
    "core"
   ],
   ".engine/templates/skill.md": [
+   "core"
+  ],
+  ".engine/tools/accepted_hook_dispatch.py": [
    "core"
   ],
   ".engine/tools/ack_status.py": [
@@ -1656,6 +1677,9 @@
   ".engine/tools/memory/backup_vault.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/candidate_invocation.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/capture.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1666,6 +1690,9 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/erasure_observer.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/execution_context.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/export.py": [
@@ -1692,7 +1719,16 @@
   ".engine/tools/memory/mcp_server.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/mutation_authority.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/mutation_contract.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/pins.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/qualification_health.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/recall.py": [
@@ -1743,6 +1779,9 @@
   ".engine/tools/memory/test_backup_vault.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/test_candidate_invocation.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/test_capture.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1780,6 +1819,12 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_mcp_server.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/test_mutation_authority.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/test_mutation_contract.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_pins.py": [
@@ -1843,6 +1888,9 @@
    "core"
   ],
   ".engine/tools/moment.py": [
+   "core"
+  ],
+  ".engine/tools/mutation_guards.py": [
    "core"
   ],
   ".engine/tools/nightly_demo_report.py": [

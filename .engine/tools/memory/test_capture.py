@@ -132,6 +132,85 @@ class CursorTests(CaptureTestCase):
         self.assertEqual(n, 1)              # re-captured (duplicate-over-loss), did not crash
         self.assertEqual(self.texts(), ["only turn", "only turn"])
 
+    def test_interrupted_multi_artifact_capture_rolls_forward_without_duplicate_records(self):
+        t = self.transcript("journal.jsonl", [_msg("user", "recover this exact turn once")])
+        with mock.patch.object(capture, "_write_cursor", side_effect=RuntimeError("power loss")):
+            self.assertEqual(capture.capture_turn_delta(self.payload(t)), 0)
+        transaction = os.path.join(self.data_dir, capture.CAPTURE_TRANSACTION_FILENAME)
+        self.assertTrue(os.path.isfile(transaction))
+        self.assertEqual(self.texts(), ["recover this exact turn once"])
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 0)
+
+        # The next normal Stop recovers the journal before reading a new delta. The ledger record id is used as
+        # the idempotency key; the cursor, derived index, and status catch up, and the journal disappears last.
+        self.assertEqual(capture.capture_turn_delta(self.payload(t)), 0)
+        self.assertEqual(self.texts(), ["recover this exact turn once"])
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 1)
+        self.assertFalse(os.path.exists(transaction))
+        self.assertEqual(capture.read_capture_status()["state"], "captured")
+        self.assertTrue(index.query("recover").records)
+
+    def test_status_failure_keeps_the_recovery_journal(self):
+        t = self.transcript("status-failure.jsonl", [_msg("user", "keep the journal until status is durable")])
+        original = capture._write_capture_status
+
+        def fail_required(state, session_id=None, *, detail=None, required=False):
+            if required:
+                raise OSError("status device unavailable")
+            return original(state, session_id, detail=detail, required=required)
+
+        with mock.patch.object(capture, "_write_capture_status", side_effect=fail_required):
+            self.assertEqual(capture.capture_turn_delta(self.payload(t)), 0)
+        transaction = os.path.join(self.data_dir, capture.CAPTURE_TRANSACTION_FILENAME)
+        self.assertTrue(os.path.isfile(transaction))
+        self.assertEqual(self.texts(), ["keep the journal until status is durable"])
+
+    def test_every_capture_transaction_boundary_recovers_without_loss_or_duplicate(self):
+        boundaries = (
+            "journal-file-fsync", "journal-replace", "journal-directory-fsync", "ledger-append",
+            "cursor-file-fsync", "cursor-replace", "cursor-directory-fsync", "index-apply",
+            "required-status", "journal-unlink", "journal-clear-directory-fsync",
+        )
+        journal_must_remain = {
+            "journal-replace", "journal-directory-fsync", "ledger-append", "cursor-file-fsync",
+            "cursor-replace", "cursor-directory-fsync", "index-apply", "required-status",
+        }
+        for number, boundary in enumerate(boundaries):
+            with self.subTest(boundary=boundary):
+                phrase = f"durability matrix boundaryword{number}"
+                session = f"matrix-{number}"
+                transcript = self.transcript(f"matrix-{number}.jsonl", [_msg("user", phrase)])
+                fired = False
+
+                def inject(observed):
+                    nonlocal fired
+                    if observed == boundary and not fired:
+                        fired = True
+                        raise OSError(f"injected crash after {boundary}")
+
+                with mock.patch.object(capture, "_capture_fault", side_effect=inject):
+                    self.assertEqual(capture.capture_turn_delta(
+                        self.payload(transcript, session_id=session)), 0)
+                self.assertTrue(fired, f"the {boundary} fault seam was not reached")
+                transaction = os.path.join(self.data_dir, capture.CAPTURE_TRANSACTION_FILENAME)
+                if boundary in journal_must_remain:
+                    self.assertTrue(os.path.isfile(transaction))
+                self.assertLessEqual(self.texts().count(phrase), 1)
+
+                capture.capture_turn_delta(self.payload(transcript, session_id=session))
+                self.assertEqual(self.texts().count(phrase), 1)
+                self.assertEqual(capture._read_cursor(self.data_dir, session), 1)
+                self.assertFalse(os.path.exists(transaction))
+                self.assertEqual(capture.read_capture_status()["state"], "captured")
+                self.assertTrue(index.query(f"boundaryword{number}").records)
+
+    def test_cursor_file_and_directory_are_fsynced_before_return(self):
+        os.makedirs(self.data_dir, exist_ok=True)
+        with mock.patch.object(capture.os, "fsync", wraps=os.fsync) as synced:
+            capture._write_cursor(self.data_dir, "sess-A", 1)
+        self.assertGreaterEqual(synced.call_count, 2)
+        self.assertEqual(capture._read_cursor(self.data_dir, "sess-A"), 1)
+
     def test_deleted_cursor_file_is_treated_as_zero(self):
         t = self.transcript("s.jsonl", [_msg("user", "only turn")])
         capture.capture_turn_delta(self.payload(t))

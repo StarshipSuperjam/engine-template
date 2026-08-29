@@ -226,5 +226,12 @@ def main(argv: list) -> int:
     return 0
 
 
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
+
+
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

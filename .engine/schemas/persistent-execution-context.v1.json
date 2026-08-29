@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://engine.local/schemas/persistent-execution-context.v1.json",
+  "title": "Qualified persistent execution context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "activation", "project", "target", "state", "operation", "invocation",
+    "receipt", "extensions"
+  ],
+  "properties": {
+    "schema_version": {"const": "persistent-execution-context.v1"},
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tree", "engine_release", "epoch", "future_code_generation"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "commit": {"$ref": "#/$defs/objectId"},
+        "tree": {"$ref": "#/$defs/objectId"},
+        "engine_release": {"type": "string", "minLength": 1},
+        "epoch": {"type": "integer", "minimum": 1},
+        "future_code_generation": {"type": ["string", "null"]}
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository", "namespace", "root", "root_identity", "git_common_dir", "git_common_identity"
+      ],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "minLength": 1},
+        "root": {"$ref": "#/$defs/absolutePath"},
+        "root_identity": {"$ref": "#/$defs/pathIdentity"},
+        "git_common_dir": {"$ref": "#/$defs/absolutePath"},
+        "git_common_identity": {"$ref": "#/$defs/pathIdentity"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "memory_dir", "store_identity", "store_namespace", "lifecycle"],
+      "properties": {
+        "kind": {"enum": ["canonical", "disposable"]},
+        "memory_dir": {"$ref": "#/$defs/absolutePath"},
+        "store_identity": {"$ref": "#/$defs/storeIdentity"},
+        "store_namespace": {"type": "string", "minLength": 1},
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ledger", "ledger_meta", "keyword_index", "semantic_index", "capture_cursor", "capture_lock",
+            "migration_in_flight", "backup_state", "migration_stamp", "restore_transaction", "store_identity",
+            "store_identity_lock",
+            "capture_status", "capture_failures", "runtime_health", "hook_crash_debug", "backup_pointer",
+            "canonical_backup_pointer", "erasure_proposal", "restore_staging_root", "accepted_activation", "accepted_cache",
+            "accepted_activation_lock", "accepted_materialization_lock"
+          ],
+          "properties": {
+            "ledger": {"$ref": "#/$defs/absolutePath"},
+            "ledger_meta": {"$ref": "#/$defs/absolutePath"},
+            "keyword_index": {"$ref": "#/$defs/absolutePath"},
+            "semantic_index": {"$ref": "#/$defs/absolutePath"},
+            "capture_cursor": {"$ref": "#/$defs/absolutePath"},
+            "capture_lock": {"$ref": "#/$defs/absolutePath"},
+            "migration_in_flight": {"$ref": "#/$defs/absolutePath"},
+            "backup_state": {"$ref": "#/$defs/absolutePath"},
+            "migration_stamp": {"$ref": "#/$defs/absolutePath"},
+            "restore_transaction": {"$ref": "#/$defs/absolutePath"},
+            "store_identity": {"$ref": "#/$defs/absolutePath"},
+            "store_identity_lock": {"$ref": "#/$defs/absolutePath"},
+            "capture_status": {"$ref": "#/$defs/absolutePath"},
+            "capture_failures": {"$ref": "#/$defs/absolutePath"},
+            "runtime_health": {"$ref": "#/$defs/absolutePath"},
+            "hook_crash_debug": {"$ref": "#/$defs/absolutePath"},
+            "backup_pointer": {"$ref": "#/$defs/absolutePath"},
+            "canonical_backup_pointer": {"$ref": "#/$defs/absolutePath"},
+            "erasure_proposal": {"$ref": "#/$defs/absolutePath"},
+            "restore_staging_root": {"$ref": "#/$defs/absolutePath"},
+            "accepted_activation": {"$ref": "#/$defs/absolutePath"},
+            "accepted_cache": {"$ref": "#/$defs/absolutePath"},
+            "accepted_activation_lock": {"$ref": "#/$defs/absolutePath"},
+            "accepted_materialization_lock": {"$ref": "#/$defs/absolutePath"}
+          }
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "store_id", "ledger_generation", "index_epoch", "ledger_meta_state", "keyword_index_meta",
+        "semantic_index_meta", "backup_pointer_digest", "backup_pointer_identity", "artifacts",
+        "expected_state_fingerprint"
+      ],
+      "properties": {
+        "store_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "ledger_generation": {"type": "integer", "minimum": 0},
+        "index_epoch": {"type": "integer", "minimum": 0},
+        "ledger_meta_state": {"enum": ["absent", "present"]},
+        "keyword_index_meta": {"$ref": "#/$defs/indexObservation"},
+        "semantic_index_meta": {"$ref": "#/$defs/indexObservation"},
+        "backup_pointer_digest": {"$ref": "#/$defs/digest"},
+        "backup_pointer_identity": {"type": "object"},
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {"$ref": "#/$defs/fileObservation"}
+        },
+        "expected_state_fingerprint": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registry_id", "capability_identity", "writer", "target_kind", "effect_class",
+        "declared_cardinality", "schema_cutover", "invocation_mode"
+      ],
+      "properties": {
+        "registry_id": {"type": "string", "minLength": 1},
+        "capability_identity": {"type": "string", "minLength": 1},
+        "writer": {"type": "string", "minLength": 1},
+        "target_kind": {"type": "string", "minLength": 1},
+        "effect_class": {
+          "enum": ["semantic-read", "durable-append", "reversible-mutation", "destructive-irreversible"]
+        },
+        "declared_cardinality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maximum", "unit"],
+          "properties": {
+            "maximum": {"type": ["integer", "null"], "minimum": 0},
+            "unit": {"type": "string", "minLength": 1}
+          }
+        },
+        "schema_cutover": {"type": "boolean"},
+        "invocation_mode": {"enum": ["automatic", "attended"]}
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["script", "provider", "run_id", "task_id"],
+      "properties": {
+        "script": {"type": "string", "minLength": 1},
+        "provider": {"enum": ["claude", "codex"]},
+        "run_id": {"type": ["string", "null"]},
+        "task_id": {"type": ["string", "null"]}
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["context_id", "context_digest"],
+      "properties": {
+        "context_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "context_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "extensions": {"type": "object"}
+  },
+  "$defs": {
+    "absolutePath": {"type": "string", "pattern": "^/"},
+    "objectId": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "pathIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device", "inode"],
+      "properties": {
+        "device": {"type": "integer", "minimum": 0},
+        "inode": {"type": "integer", "minimum": 0}
+      }
+    },
+    "storeIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "store_id", "project_repository", "target_kind"],
+      "properties": {
+        "schema_version": {"const": "persistent-store-identity.v1"},
+        "store_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "project_repository": {"type": "string", "minLength": 1},
+        "target_kind": {"enum": ["canonical", "disposable"]}
+      }
+    },
+    "indexObservation": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["readable"],
+          "properties": {
+            "readable": {"type": "boolean"},
+            "values": {"type": ["array", "null"]}
+          }
+        }
+      ]
+    },
+    "fileObservation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present"],
+          "properties": {"present": {"const": false}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present", "device", "inode", "size", "mtime_ns"],
+          "properties": {
+            "present": {"const": true},
+            "device": {"type": "integer", "minimum": 0},
+            "inode": {"type": "integer", "minimum": 0},
+            "size": {"type": "integer", "minimum": 0},
+            "mtime_ns": {"type": "integer", "minimum": 0},
+            "digest": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
+    }
+  }
+}

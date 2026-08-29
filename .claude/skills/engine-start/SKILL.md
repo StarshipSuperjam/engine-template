@@ -8,16 +8,23 @@ allowed-tools: Bash(uv run *)
 
 ## Steps
 
-1. Switch this session into building by running:
-   `uv run --directory .engine -- python tools/modes.py set-build --session "${CLAUDE_CODE_SESSION_ID}"`
+1. Ensure this clone has an exact accepted activation by running:
+   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`
+   This attended step preserves any valid existing activation without network access. Only when activation is
+   absent does it select the canonical checkout's current GitHub default-branch HEAD after GitHub proves that
+   exact commit was merged there; advancing or rolling back an existing activation uses the explicit attended
+   activation/upgrade path. If it refuses,
+   relay the recovery guidance and do not enter a write stance.
+2. Switch this session into building by running:
+   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/modes.py --operation session-stance-write -- set-build --session "${CLAUDE_CODE_SESSION_ID}"`
    (the engine works out this session's identity automatically. If the command reports it could not
    identify the session, say so plainly: the stance stays as it was, and building has not started.)
-2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
+3. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
-3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
+4. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
    the draft pull request and plan the work, then show the operator the risk assessment and get their
    how-careful depth choice, before changing anything.
-4. Once the Build is authorized, keep moving through its actionable work. A progress report is not a
+5. Once the Build is authorized, keep moving through its actionable work. A progress report is not a
    handoff: continue the next planned step unless the Build is submission-ready or a real authority
    boundary requires the operator's decision. Do not schedule a self-wakeup instead of working.
 

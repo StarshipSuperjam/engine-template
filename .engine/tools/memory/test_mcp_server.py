@@ -22,7 +22,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import capture, forget, index, ledger, records  # noqa: E402
+from memory import capture, forget, index, ledger, mutation_authority, records  # noqa: E402
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
 
@@ -42,8 +42,11 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
         self._prev = os.environ.get(ledger.ENV_DIR)
         os.environ[ledger.ENV_DIR] = self.tmp
         self.now = int(time.time())
+        self._authority = mutation_authority.test_scope("attended")
+        self._authority.__enter__()
 
     def tearDown(self):
+        self._authority.__exit__(None, None, None)
         if self._prev is None:
             os.environ.pop(ledger.ENV_DIR, None)
         else:
@@ -318,6 +321,13 @@ class ControlToolTests(_ServerBase):
         said = await self._call("withhold", {"record_id": rid})
         self.assertIn("still saved", said["withheld"])          # never reads as erasure
         self.assertEqual((await self._call("search", {"query": "withdrawn"}))["results"], [])
+        report = await self._call("list-withheld", {})
+        self.assertEqual(report["notes"][0]["id"], rid)
+        self.assertEqual(set(report["notes"][0]), {"id", "kind", "withheld_at"})
+        self.assertNotIn("withdrawn", json.dumps(report).casefold())
+        legacy_query = await self._call("list-withheld", {"query": "withdrawn"})
+        self.assertEqual(legacy_query, report,
+                         "an ignored legacy argument must not become a withheld-content oracle")
         back = await self._call("restore", {"record_id": rid})
         self.assertIn("back in recall", back["restored"])
         self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)

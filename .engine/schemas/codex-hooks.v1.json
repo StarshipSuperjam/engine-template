@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "codex-hooks.v1 — the engine's Codex hook registration file (.codex/hooks.json, whole file)",
-  "description": "The whole-file contract for the repository-level Codex hook registration the engine commits. The file shape is Codex's own: a top-level `hooks` object keyed by lifecycle event, each event holding a list of matcher groups, each group holding a list of command hooks. This schema pins the event keys to the closed set the Codex platform documents (SessionStart, SubagentStart, PreToolUse, PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStop, Stop) so a typo'd event cannot silently register nothing, and requires every hook to be a command hook with a non-empty command. It deliberately does NOT pin which events the engine binds, the matcher vocabulary, or the command form — the exact engine matrix (its mirror of the Claude registration, the deliberately absent plan-acceptance hook, the command grammar) is the provider-parity check's domain and the hook-command drift test's, so the registration policy lives in one leg rather than a schema that would have to change with every wiring edit. Per-hook platform extras (statusMessage, command_windows, timeouts, and whatever Codex adds next) pass through openly. Enforced live by the codex-hooks-schema check (a validators-core schema rule) via an explicit rule-level schema override, because this file is a wiring target, not a catalogued surface.",
+  "description": "The whole-file contract for the repository-level Codex hook registration the engine commits. The file shape is Codex's own: a top-level `hooks` object keyed by lifecycle event, each event holding a list of matcher groups, each group holding a list of command hooks. This schema pins the event keys to the closed set the Codex platform documents (SessionStart, SubagentStart, PreToolUse, PermissionRequest, PostToolUse, PreCompact, PostCompact, UserPromptSubmit, SubagentStop, Stop) so a typo'd event cannot silently register nothing, and requires every hook to be a command hook with a non-empty command. It does not pin which events the engine binds or the matcher vocabulary. It pins only the safety-critical part of command form: automatic persistent-state targets must use the Codex shim/shared launcher, and the attended dispatcher can never be a hook target. The exact engine matrix, provider asymmetries, and full renderer grammar remain the provider-parity and hook-command drift checks' domain. Per-hook platform extras (statusMessage, command_windows, timeouts, and whatever Codex adds next) pass through openly. Enforced live by the codex-hooks-schema check (a validators-core schema rule) via an explicit rule-level schema override, because this file is a wiring target, not a catalogued surface.",
   "type": "object",
   "additionalProperties": true,
   "required": ["hooks"],
@@ -39,9 +39,24 @@
                       "const": "command"
                     },
                     "command": {
-                      "description": "The shell command Codex runs for this hook.",
+                      "description": "The shell command Codex runs for this hook. Automatic memory-bearing targets must enter through the one Codex shim/shared accepted dispatcher path; a registration may never invoke the accepted dispatcher's attended activation or candidate commands directly.",
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "allOf": [
+                        {
+                          "if": {
+                            "pattern": "\\.engine/tools/(?:boot\\.py|close\\.py|memory/)"
+                          },
+                          "then": {
+                            "pattern": "\\.engine/tools/codex-hook-runner\\.sh"
+                          }
+                        },
+                        {
+                          "not": {
+                            "pattern": "accepted_hook_dispatch\\.py"
+                          }
+                        }
+                      ]
                     }
                   }
                 }
