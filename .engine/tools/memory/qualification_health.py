@@ -355,7 +355,7 @@ def _provider_and_session():
     return providers.detect(), providers.resolve_session()
 
 
-def _self_test() -> dict:
+def _fixture_self_test() -> dict:
     import pathlib
     import tempfile
 
@@ -403,7 +403,7 @@ def _self_test() -> dict:
 
 def main(argv: list[str]) -> int:
     if argv == ["self-test"]:
-        print(json.dumps(_self_test(), sort_keys=True))
+        print(json.dumps(_fixture_self_test(), sort_keys=True))
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("outcome", choices=("qualified", "skipped"))

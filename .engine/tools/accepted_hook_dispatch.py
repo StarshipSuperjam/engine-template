@@ -41,7 +41,6 @@ CANDIDATE_RECEIPT_VERSION = "candidate-disposable-receipt.v1"
 ACTIVATION_REL = os.path.join("engine", "accepted-hooks", "activation.json")
 CACHE_REL = os.path.join("engine", "accepted-hooks", "trees")
 LOCK_REL = os.path.join("engine", "accepted-hooks", "activation.lock")
-DISPATCH_MARKER = "ENGINE_ACCEPTED_HOOK_DISPATCH=1"
 AUTOMATIC_MUTATORS = frozenset({
     ".engine/tools/boot.py",
     ".engine/tools/close.py",
@@ -449,34 +448,49 @@ def _canonical_context(root: str, activation: dict, accepted_tree: str | None = 
     }
 
 
-def _registered_worktrees(root: str) -> list[str]:
-    text = _git(root, "worktree", "list", "--porcelain")
-    paths = []
-    for line in text.splitlines():
-        if line.startswith("worktree "):
-            paths.append(os.path.realpath(line[len("worktree "):].strip()))
-    if not paths:
-        raise QualificationError("registered Git worktrees could not be enumerated")
-    return paths
+def _activation_topology(root: str) -> dict:
+    """Load the dependency-light read-only topology authority from the attended checkout."""
+    path = os.path.join(root, ".engine", "tools", "hooks_path_health.py")
+    try:
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode) or info.st_size > 512 * 1024:
+            raise QualificationError("accepted-hook topology authority is unsafe")
+        spec = importlib.util.spec_from_file_location("_engine_accepted_hook_topology", path)
+        if spec is None or spec.loader is None:
+            raise QualificationError("accepted-hook topology authority is unavailable")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        if os.path.realpath(getattr(module, "__file__", "")) != os.path.realpath(path):
+            raise QualificationError("accepted-hook topology authority escaped the attended checkout")
+        topology = module.accepted_hook_topology(root)
+    except QualificationError:
+        raise
+    except Exception as exc:
+        raise QualificationError("registered Git worktree topology could not be qualified") from exc
+    if (not isinstance(topology, dict) or not isinstance(topology.get("qualified"), bool)
+            or not isinstance(topology.get("state"), str) or not isinstance(topology.get("worktrees"), list)):
+        raise QualificationError("registered Git worktree topology returned an invalid verdict")
+    return topology
 
 
-def _verify_activation_barrier(root: str) -> None:
-    legacy = []
-    for worktree in _registered_worktrees(root):
-        runner = os.path.join(worktree, ".engine", "tools", "hook-runner.sh")
-        try:
-            with open(runner, encoding="utf-8") as handle:
-                qualified = DISPATCH_MARKER in handle.read()
-        except OSError:
-            qualified = False
-        if not qualified:
-            legacy.append(worktree)
-    if legacy:
-        shown = ", ".join(legacy[:3])
-        more = f" (+{len(legacy) - 3} more)" if len(legacy) > 3 else ""
+def _verify_activation_barrier(root: str) -> dict:
+    topology = _activation_topology(root)
+    if not topology["qualified"]:
+        states = sorted({record.get("state", "unknown") for record in topology["worktrees"]
+                         if isinstance(record, dict)})
+        summary = ", ".join(states[:6]) or topology["state"]
         raise QualificationError(
-            "activation refused: retire or recreate pre-fix/unreadable worktrees before advancing the "
-            f"accepted epoch: {shown}{more}"
+            "activation refused: retire or recreate pre-fix, dirty, missing, ambiguous, unreadable, or "
+            f"concurrently changing worktrees before advancing the accepted epoch ({summary})"
+        )
+    return topology
+
+
+def _verify_unchanged_activation_barrier(before: dict, after: dict) -> None:
+    if _json_digest(before) != _json_digest(after):
+        raise QualificationError(
+            "activation refused: registered Git worktree topology changed while activation was in progress"
         )
 
 
@@ -535,9 +549,11 @@ def activate(args: argparse.Namespace) -> dict:
     actual_release = _engine_release_at(root, commit)
     if actual_release != args.engine_release:
         raise QualificationError("the declared Engine release differs from the accepted commit's manifest")
-    _verify_activation_barrier(root)
+    initial_topology = _verify_activation_barrier(root)
     activation_path, _, lock_path = _state_paths(root)
     with _exclusive_lock(lock_path):
+        locked_topology = _verify_activation_barrier(root)
+        _verify_unchanged_activation_barrier(initial_topology, locked_topology)
         if os.path.exists(activation_path):
             current = _validate_activation(_read_json(activation_path, "accepted-hook activation"))
             current_epoch = current["epoch"]
@@ -559,6 +575,8 @@ def activate(args: argparse.Namespace) -> dict:
             "activated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         _materialize(root, record)
+        final_topology = _verify_activation_barrier(root)
+        _verify_unchanged_activation_barrier(locked_topology, final_topology)
         _atomic_json(activation_path, record)
     return record
 
