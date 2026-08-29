@@ -2043,7 +2043,7 @@ def cmd_program_add(args) -> int:
     # and only the second one is what an operator adding to a branch is being told. Printing the union
     # here would attribute another branch's debts to a successor that can never answer for them.
     plan_slug = programs.plans.resolve(args.plan)
-    outstanding = _still_carried(programs, record, args.plan)
+    outstanding = _still_carried(programs, args.plan)
     ordinal = next((child["chain_ordinal"] for child in programs.child_view(record)
                     if child["plan_id"] == programs.plans.read_record(plan_slug)["plan_id"]),
                    len(record["children"]))
@@ -2116,7 +2116,7 @@ def cmd_program_insert(args) -> int:
     print(f"  {predecessor} -> {plan_id} -> {displaced_id}" if predecessor
           else f"  {plan_id} now starts this chain, and {displaced_id} succeeds it")
     print("Nothing was renumbered: the order every reader derives comes from these edges.")
-    outstanding = _still_carried(programs, record, args.plan)
+    outstanding = _still_carried(programs, args.plan)
     if outstanding:
         print(f"\n{displaced_id} now answers for {len(outstanding)} obligation(s) carried by "
               f"{plan_id}:")
@@ -2126,18 +2126,24 @@ def cmd_program_insert(args) -> int:
     return 0
 
 
-def _still_carried(programs, record: dict, plan_selector: str) -> list:
-    """What a plan hands on, with program-level releases subtracted — what the GATES enforce.
+def _still_carried(programs, plan_selector: str) -> list:
+    """What a plan hands on to the next child on its branch.
 
-    These reports used to read `carried_forward` raw, so they printed a debt that the release verb
-    had already let go and that no gate would refuse. A report that names more than the machinery
-    enforces trains an operator to discount it, which costs exactly when it is right.
+    No program-level release can apply here, and the reason is worth stating rather than guarding
+    against: a release is keyed to a child that is ALREADY in the program, and both doors this
+    serves — `add` and `insert` — refuse a plan that is already a child. So the released set for
+    the plan just joined is empty by construction.
+
+    An earlier round subtracted it anyway, in response to a review finding that these reports could
+    name a debt the gates no longer enforce. That is true of a long-standing child and not of a
+    newly joined one, and the subtraction here could never fire — inert code shaped like a guard,
+    which reads as protection nobody has. The one place the subtraction genuinely bites is
+    `_supersession_block`, where the obligations come from a predecessor that has been a child for
+    as long as the release has existed, and it is kept and tested there.
     """
     plan_slug = programs.plans.resolve(plan_selector)
-    plan_id = programs.plans.read_record(plan_slug)["plan_id"]
-    released = programs.released_at(record, plan_id)
-    return sorted((o for o in plan_program.carried_forward(programs.plans.head(plan_slug)).values()
-                   if o["id"] not in released), key=lambda o: o["id"])
+    return sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
+                  key=lambda o: o["id"])
 
 
 def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:

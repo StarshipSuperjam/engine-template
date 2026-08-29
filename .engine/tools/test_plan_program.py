@@ -1482,8 +1482,11 @@ class ReplacementInPlace(_Program):
         self._plan("pln_00000000001c", "A third")
         self.programs.add_child(slug, "pln_00000000001c", predecessor="pln_00000000001b")
         self._retire("pln_00000000001b")
-        with self.assertRaisesRegex(plan_program.ProgramError, "already a child"):
+        with self.assertRaises(plan_program.ProgramError) as caught:
             self.programs.mark_superseded(slug, "pln_00000000001b", "pln_00000000001c")
+        # The DISTINCTIVE message, not merely "already a child" — the shared join check raises that
+        # phrase a moment later, so regexing on it alone passed whether this branch ran or not.
+        self.assertIn("would then sit in two positions at once", str(caught.exception))
 
     def test_derivations_follow_the_record_edge_not_the_document_provenance_copy(self):
         """The divergence fixture. `clone --supersedes` writes the predecessor edge into the plan
@@ -1492,11 +1495,34 @@ class ReplacementInPlace(_Program):
         asserts every derivation follows it while the document copy says something else.
         """
         slug = self._program("Two copies", "One authority, one note about it.")
-        for plan_id, predecessor in (("pln_00000000002x".replace("x", "1"), None),
-                                     ("pln_00000000002x".replace("x", "2"), "pln_000000000021"),
-                                     ("pln_00000000002x".replace("x", "3"), "pln_000000000022")):
-            self._plan(plan_id, f"Child {plan_id[-1]}", predecessor=predecessor)
-            self.programs.add_child(slug, plan_id, predecessor=predecessor)
+        # Child 2 carries a debt child 3 does not answer for. THIS is what makes the fixture able to
+        # fail: `carry_forward_decay` is the one derivation here that holds the plan library and so
+        # could actually follow the document copy. Following the RECORD, child 3 succeeds child 1 and
+        # owes nothing, so decay is empty; following the DOCUMENT, it succeeds child 2 and owes OB-2,
+        # so decay is not. Without this obligation the decay assertion was [] either way — the
+        # fixture asserted four derivations of which three structurally cannot consult the document
+        # and the fourth could not tell the difference, which a reviewer proved by rewiring decay to
+        # prefer the document and watching 322 tests stay green.
+        self._plan("pln_000000000021", "Child 1")
+        self.programs.add_child(slug, "pln_000000000021")
+        self._plan("pln_000000000022", "Child 2",
+                   _obligation("OB-2", "Whoever succeeds child 2 must answer for this."),
+                   predecessor="pln_000000000021")
+        self.programs.add_child(slug, "pln_000000000022", predecessor="pln_000000000021")
+        self._plan("pln_000000000023", "Child 3",
+                   _obligation("OB-2", "Answered.", "satisfied"), predecessor="pln_000000000022")
+        self.programs.add_child(slug, "pln_000000000023", predecessor="pln_000000000022")
+        # Child 3 now SATISFIES OB-2, which is what let it join after child 2. Rewrite its document
+        # so it answers for nothing: against the record's edge (it will succeed child 1, who owes
+        # nothing) that is fine, and against the document's copy (child 2, who owes OB-2) it is a
+        # dropped obligation the decay sweep must report.
+        head = dict(self.plans.head(self.plans.resolve("pln_000000000023")))
+        head["program"] = {"program_id": self.program_id,
+                           "predecessor_plan_id": "pln_000000000022"}
+        head["revision"] = 2
+        head["revision_note"] = "stop answering for OB-2"
+        self.plans.append_revision(self.plans.resolve("pln_000000000023"), head,
+                                   expected_revision=1)
 
         # The document of child 3 still says it succeeds child 2. Re-point the RECORD so it
         # succeeds child 1 instead: the two sources now disagree, deliberately.
@@ -1521,9 +1547,16 @@ class ReplacementInPlace(_Program):
         self.assertEqual(view["pln_000000000023"]["predecessor_plan_id"], "pln_000000000021")
         self.assertIn("`pln_000000000021` is the declared predecessor of",
                       plan_program.render(self.programs, record))
-        # The carry-forward comparison reads the record's edge too: the decay sweep compares child
-        # 3 against child 1, which is what the RECORD says it succeeds, and finds nothing owed.
+        # THE discriminating assertion. Child 3 answers for nothing; the record says it succeeds
+        # child 1, who is owed nothing, so the sweep is empty. Were any reader to follow the
+        # document's copy instead, child 3 would succeed child 2 and OB-2 would be reported dropped.
         self.assertEqual(self.programs.carry_forward_decay(slug), [])
+        # And prove that assertion can distinguish: pointed at the document's edge by hand, the very
+        # same comparison DOES report the drop. Without this the empty list above proves nothing.
+        following_the_document = plan_program.dropped_obligations(
+            self.plans.head(self.plans.resolve("pln_000000000022")),
+            self.plans.head(self.plans.resolve("pln_000000000023")))
+        self.assertEqual([o["id"] for o in following_the_document], ["OB-2"])
 
     def test_supersede_checks_the_downstream_edge_it_creates(self):
         """REGRESSION, round 2. The first repair fixed the INHERITED edge and left the one supersede

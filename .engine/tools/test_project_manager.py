@@ -1298,6 +1298,29 @@ class ProgramVerbs(_Governed):
         for evidence in ("approval", "plan_review", "seal"):
             self.assertIsNone(record.get(evidence), evidence)
 
+    def test_clone_supersedes_does_not_resurrect_a_released_obligation(self):
+        """The one release-subtraction that can fire, and the only one worth a fixture.
+
+        The predecessor here has been a child for as long as the release has existed, so a release
+        against it is real. Pre-filling it back as `carried` would quietly reverse a decision the
+        operator recorded, in a generated block they are least likely to re-read.
+        """
+        program_id = self._superseded_setup()          # A carries OB-1; B satisfies it
+        # A release needs no live successor left to answer — which is exactly the shape supersede
+        # meets, since the plan being replaced is retired first. Retire B, then the release is open.
+        self._close_plan_record("pln_bbbbbbbbbbbb", "retired", "the approach was wrong")
+        self.assertEqual(self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                                          "--obligation", "OB-1",
+                                          "--reason", "the work it awaited is void")[0], 0)
+        code, out, err = self.run_command("clone", "pln_bbbbbbbbbbbb", "--supersedes",
+                                          "pln_bbbbbbbbbbbb", "--reason", "try again")
+        self.assertEqual(code, 0, err)
+        self.assertIn("nothing outstanding to inherit", out)
+        clone_id = out.split("into ")[1].split()[0]
+        program = self.lib.head(self.lib.resolve(clone_id))["program"]
+        self.assertNotIn("carried_obligations", program,
+                         "a released obligation must not come back as carried")
+
     def test_clone_supersedes_refuses_a_plan_in_no_program(self):
         self._plan_doc_standalone = _document(plan_id="pln_dddddddddddd", title="Standalone")
         self.lib.create(self._plan_doc_standalone)
