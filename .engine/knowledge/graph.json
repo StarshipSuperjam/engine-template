@@ -7094,7 +7094,7 @@
       },
       "slug": "persistent-mutation-registry.v1",
       "source": {
-        "fingerprint": "sha256:4b3185de12829646decad86760b93f4fbededd9651eb2a568024a55a7151a8b9",
+        "fingerprint": "sha256:f167cbff41f25fbed930d8cc448d296e40b399c82434e294ab723d8a99827fd5",
         "path": ".engine/schemas/persistent-mutation-registry.v1.json"
       },
       "status": "active",
@@ -8030,7 +8030,7 @@
       },
       "slug": "engine-restore-operator-pin",
       "source": {
-        "fingerprint": "sha256:7719d7e7d11d324b9f8d97f590a211a3f8d14e30db7b1180207243cce471ff7d",
+        "fingerprint": "sha256:e5889f76a6e36f1e2fb579cf7411d73cd34cabf17c1cb7caa939837097647eb1",
         "path": ".claude/skills/engine-restore-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -11941,7 +11941,7 @@
       "predicates": {
         "imports": [
           "tool:moment",
-          "tool:mutation_authority",
+          "tool:mutation_guards",
           "tool:providers",
           "tool:telemetry",
           "tool:validate"
@@ -11952,7 +11952,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:d60f28c7e582c4536da88af075a7fdc8b6205ba8d5944930f78cb01c83f1a612",
+        "fingerprint": "sha256:7a0877ea2d1ae7b314432650d78648478cc5ce76ccf78cff603f40752d15a71c",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -13113,7 +13113,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:63dd936523ca5194eb31ecf353f3a7a49f8c62d3818638a2c5d7f94fb078ce53",
+        "fingerprint": "sha256:93e98d1ef85e8869edc2a0eab1621117ca724cedd0131007f65957120703ce09",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -13737,7 +13737,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:mutation_authority"
+          "tool:mutation_guards"
         ],
         "provided_by": [
           "module:core"
@@ -13745,7 +13745,7 @@
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:6f730962ca33502106267ffffdbd55ea3906e030fe47cc1da5c233a2ac0f879a",
+        "fingerprint": "sha256:5cff2fbd75acc30119b5496ee9dfa115e6cc39694601d8edb9d7f4c9cf8c1a0e",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
@@ -16691,7 +16691,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:f4873458d36f9d8901de074db14869d035abe8111a4ac5ff8b8baaf994941547",
+        "fingerprint": "sha256:a6e57a8244d2b2929fff5343c9fd4d27af4fe03b3b9c65a5a038a23eae7be0d2",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17670,7 +17670,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:092a7cce2915e378a4951a9d1d5c28bb85731aa3b6c0a30610aefa79f172ce8e",
+        "fingerprint": "sha256:1b7fc7d663c5a46c5fbbef0488b2c790311b4e22983ceaf733e4c43e98a1f780",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
