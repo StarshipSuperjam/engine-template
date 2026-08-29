@@ -19,7 +19,7 @@
     "children": {
       "type": "array",
       "items": {"$ref": "#/$defs/child"},
-      "description": "The children of this program. ORDER IS NOT READ FROM THIS ARRAY: it is derived from each child's `predecessor_plan_id`, which is where the decision actually lives. Order is a record of a decision, never a schedule anything executes: nothing here starts, selects, or advances a child."
+      "description": "The children of this program. ORDER IS NOT READ FROM THIS ARRAY: it is derived from each child's `predecessor_plan_id`, which is where the decision actually lives, and which insert re-points rather than renumbering anything. Order is a record of a decision, never a schedule anything executes: nothing here starts, selects, or advances a child."
     },
     "closure": {
       "oneOf": [{"type": "null"}, {"$ref": "#/$defs/closure"}],
@@ -31,13 +31,13 @@
     "child": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["plan_id", "position", "added_at"],
+      "required": ["plan_id", "added_at"],
       "properties": {
         "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
         "position": {
           "type": "integer",
           "minimum": 1,
-          "description": "A display label, not an ordering key. Nothing reads it: the rendered ordinal is computed from the predecessor edges, so a record whose numbering has been permuted or duplicated still reads in the order its edges declare. Kept required for records written before that was true; whether it survives at all is a question for the verb that first has to invent a value for an inserted child."
+          "description": "LEGACY, and no longer written. It was a display label that nothing read: the rendered ordinal is computed from the predecessor edges, so a record whose numbering has been permuted or duplicated still reads in the order its edges declare. Its survival was deferred to the verb that would first have to invent a value for an INSERTED child — insert is that verb, and the answer is that it dies rather than being renumbered, because renumbering writes a record per displaced child and opens a window where the stored number and the derived order disagree. Still permitted so records written before this remain valid; nothing writes it and nothing reads it."
         },
         "added_at": {"$ref": "#/$defs/timestamp"},
         "predecessor_plan_id": {

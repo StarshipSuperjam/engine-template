@@ -239,48 +239,7 @@ class ProgramLibrary:
             record = self.read(slug)
             if record.get("closure"):
                 raise ProgramError(f"this program is {record['closure']['state']}; reopen it first")
-            plan_slug = self.plans.resolve(plan_selector)
-            plan_id = self.plans.read_record(plan_slug)["plan_id"]
-            if any(child["plan_id"] == plan_id for child in record["children"]):
-                raise ProgramError(f"{plan_id} is already a child of this program")
-
-            # The back-link is load-bearing, so it is required at the join rather than hoped for. It
-            # is the ONLY evidence of membership that survives a program record which will not parse:
-            # without it, a plan whose own program is corrupt is indistinguishable from a standalone
-            # plan, and its seal would skip the carry-forward re-check entirely. Required going
-            # forward only — children added before this cannot be retro-fitted without revising
-            # sealed plans, and that residual gap is disclosed at their seals instead.
-            declared = (self.plans.head(plan_slug).get("program") or {}).get("program_id")
-            if declared != record["program_id"]:
-                sealed = bool(self.plans.read_record(plan_slug).get("seal"))
-                raise ProgramError(
-                    f"{plan_id} does not declare that it belongs to this program. Its document must "
-                    f"carry `program.program_id` = {record['program_id']}"
-                    + (f", and it currently says {declared}." if declared else ".")
-                    + " That back-link is what lets this plan's seal find its program even when the "
-                      "program record cannot be read, so it is required before the plan can join."
-                    + (" This plan is already SEALED, and a seal is terminal, so the back-link can "
-                       "no longer be added to it. The way through is three steps, and the middle one "
-                       "is easy to miss: `clone` it, then `revise` the CLONE to add "
-                       f"`program.program_id` = {record['program_id']} — a clone deliberately carries "
-                       "no program block, because it carries none of the original's evidence either — "
-                       "then add the clone here. A plan is normally added to its program before it is "
-                       "sealed, which is when this is a one-line revision."
-                       if sealed else
-                       " Revise the plan to add it, then add it here."))
-
-            # Checked for EVERY child, including the first, and before the carry-forward comparison.
-            # A release is a decision to stop answering for something, and it costs a reason wherever
-            # it is made — the first plan in a program can release an obligation it inherited from
-            # outside the program just as a later one can, and there is no predecessor to catch it.
-            unexplained = unexplained_releases(self.plans.head(plan_slug))
-            if unexplained:
-                raise ProgramError(
-                    f"{plan_id} releases {len(unexplained)} obligation(s) without saying why:\n"
-                    + "\n".join(f"  - {o['id']}: {o['statement']}" for o in unexplained)
-                    + "\nReleasing is allowed and sometimes right, but the stated reason is its whole "
-                      "price: it is what lets a later reader tell a decision from an omission. Record "
-                      "why each was let go, or carry it.")
+            plan_slug, plan_id = self._joinable(record, plan_selector)
 
             predecessor_id = None
             if record["children"]:
@@ -306,9 +265,162 @@ class ProgramLibrary:
             elif predecessor is not None:
                 raise ProgramError("the first child of a program has no predecessor to declare")
 
-            child = {"plan_id": plan_id, "position": len(record["children"]) + 1, "added_at": _now()}
+            child = {"plan_id": plan_id, "added_at": _now()}
             if predecessor_id:
                 child["predecessor_plan_id"] = predecessor_id
+            record["children"].append(child)
+            self._write(slug, record)
+            return record
+
+    def _joinable(self, record: dict, plan_selector: str) -> tuple:
+        """The checks every join makes, whichever door it came through: `add` or `insert`.
+
+        Extracted when `insert` arrived rather than copied into it. These three rules — not already a
+        child, the back-link is present, no release goes unexplained — are properties of JOINING a
+        program, not of appending to it, and a second copy of them is a second place for them to drift.
+        The carry-forward comparison is deliberately NOT here: `add` checks one edge and `insert`
+        checks two, and which edges exist is exactly what differs between the doors.
+        """
+        plan_slug = self.plans.resolve(plan_selector)
+        plan_id = self.plans.read_record(plan_slug)["plan_id"]
+        if any(child["plan_id"] == plan_id for child in record["children"]):
+            raise ProgramError(f"{plan_id} is already a child of this program")
+
+        # The back-link is load-bearing, so it is required at the join rather than hoped for. It
+        # is the ONLY evidence of membership that survives a program record which will not parse:
+        # without it, a plan whose own program is corrupt is indistinguishable from a standalone
+        # plan, and its seal would skip the carry-forward re-check entirely. Required going
+        # forward only — children added before this cannot be retro-fitted without revising
+        # sealed plans, and that residual gap is disclosed at their seals instead.
+        declared = (self.plans.head(plan_slug).get("program") or {}).get("program_id")
+        if declared != record["program_id"]:
+            sealed = bool(self.plans.read_record(plan_slug).get("seal"))
+            raise ProgramError(
+                f"{plan_id} does not declare that it belongs to this program. Its document must "
+                f"carry `program.program_id` = {record['program_id']}"
+                + (f", and it currently says {declared}." if declared else ".")
+                + " That back-link is what lets this plan's seal find its program even when the "
+                  "program record cannot be read, so it is required before the plan can join."
+                + (" This plan is already SEALED, and a seal is terminal, so the back-link can "
+                   "no longer be added to it. The way through is three steps, and the middle one "
+                   "is easy to miss: `clone` it, then `revise` the CLONE to add "
+                   f"`program.program_id` = {record['program_id']} — a clone deliberately carries "
+                   "no program block, because it carries none of the original's evidence either — "
+                   "then add the clone here. A plan is normally added to its program before it is "
+                   "sealed, which is when this is a one-line revision."
+                   if sealed else
+                   " Revise the plan to add it, then add it here."))
+
+        # Checked for EVERY child, including the first, and before the carry-forward comparison.
+        # A release is a decision to stop answering for something, and it costs a reason wherever
+        # it is made — the first plan in a program can release an obligation it inherited from
+        # outside the program just as a later one can, and there is no predecessor to catch it.
+        unexplained = unexplained_releases(self.plans.head(plan_slug))
+        if unexplained:
+            raise ProgramError(
+                f"{plan_id} releases {len(unexplained)} obligation(s) without saying why:\n"
+                + "\n".join(f"  - {o['id']}: {o['statement']}" for o in unexplained)
+                + "\nReleasing is allowed and sometimes right, but the stated reason is its whole "
+                  "price: it is what lets a later reader tell a decision from an omission. Record "
+                  "why each was let go, or carry it.")
+        return plan_slug, plan_id
+
+    def insert_child(self, slug: str, plan_selector: str, *, before: str) -> dict:
+        """Place a plan AHEAD of an existing child, re-pointing the edge that used to reach it.
+
+        This is the door the program object was missing. `add_child` can only append after an
+        existing child, so work that turns out to belong BEFORE work already on the chain had no
+        honest way in: the only route was to abandon the tail and re-add it in the new order, which
+        destroys the decision record the chain exists to keep and orphans every obligation the
+        abandoned children were carrying. That is the hostage problem, and this is its answer.
+
+        Exactly two edges move, and both are re-checked for carry-forward, because an insertion
+        creates two new answerabilities rather than one:
+
+            before:   predecessor -> displaced
+            after:    predecessor -> inserted -> displaced
+
+        The inserted plan must answer for what the predecessor carries (it now stands between them),
+        and the displaced plan must answer for what the INSERTED plan carries (it no longer succeeds
+        what it used to). Nothing is renumbered: `position` is not written, and the order every reader
+        derives comes from these edges.
+
+        Two refusals, and each names a way through that is itself open:
+
+        - The displaced child's plan is COMPLETE. That is merged history, and history is corrected by
+          appended work, never by inserting ahead of it. Refused flat.
+        - The displaced child cannot answer for what the inserted plan carries. If it is still open,
+          revise it. If it is SEALED, a seal is terminal and revision is not available — the way
+          through is to supersede it, which is a different verb and a different decision.
+        """
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            if record.get("closure"):
+                raise ProgramError(f"this program is {record['closure']['state']}; reopen it first")
+            plan_slug, plan_id = self._joinable(record, plan_selector)
+
+            displaced_id = self.plans.read_record(self.plans.resolve(before))["plan_id"]
+            displaced = next((child for child in record["children"]
+                              if child["plan_id"] == displaced_id), None)
+            if displaced is None:
+                raise ProgramError(f"{displaced_id} is not a child of this program")
+            if displaced_id == plan_id:
+                raise ProgramError("a plan cannot be inserted before itself")
+
+            displaced_record = self.plans.read_record(self.plans.resolve(displaced_id))
+            displaced_status = plan_store.derived_status(displaced_record)
+            if displaced_status == "complete":
+                raise ProgramError(
+                    f"{displaced_id} is complete — its pull request is merged, and inserting ahead "
+                    "of merged history would claim work landed in an order it did not. History is "
+                    "corrected by APPENDED work: add the new plan after the last child on this "
+                    "branch with `program add --after`, and let it say what it changes about what "
+                    "already shipped.")
+
+            inherited = displaced.get("predecessor_plan_id")
+            inserted_head = self.plans.head(plan_slug)
+
+            # Edge one: the inserted plan now stands between the predecessor and the displaced child,
+            # so it answers for what the predecessor carries. Same comparison `add_child` makes, on
+            # the edge this verb creates rather than on an appended one.
+            if inherited:
+                dropped = dropped_obligations(
+                    self.plans.head(self.plans.resolve(inherited)), inserted_head)
+                if dropped:
+                    raise ProgramError(
+                        f"{plan_id} does not answer for {len(dropped)} obligation(s) that "
+                        f"{inherited} declared it was carrying, and inserting it here makes it the "
+                        f"plan that must:\n"
+                        + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
+                        + f"\nRevise {plan_id} so each appears in its carried_obligations as "
+                          "satisfied, still carried, or released with a reason, then insert it.")
+
+            # Edge two: the displaced child stops succeeding what it used to and starts succeeding
+            # the inserted plan, so it answers for what the INSERTED plan carries. This is the edge
+            # an append never creates, and skipping it would let an insertion mint a debt nothing
+            # downstream ever had to answer for — the decay this object exists to prevent, arriving
+            # through the new door.
+            dropped = dropped_obligations(inserted_head,
+                                          self.plans.head(self.plans.resolve(displaced_id)))
+            if dropped:
+                sealed = bool(displaced_record.get("seal"))
+                raise ProgramError(
+                    f"{displaced_id} would succeed {plan_id} once this insertion lands, and it does "
+                    f"not answer for {len(dropped)} obligation(s) that {plan_id} declares it is "
+                    f"carrying:\n"
+                    + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
+                    + ("\nThat plan is SEALED, and a seal is terminal, so it cannot be revised to "
+                       f"answer for them. The way through is to replace it: `program supersede "
+                       f"{displaced_id}` with a plan that does answer, which inherits its place on "
+                       "the chain and keeps it visible in the record."
+                       if sealed else
+                       f"\nRevise {displaced_id} so each appears in its carried_obligations as "
+                       "satisfied, still carried, or released with a reason, then insert."))
+
+            child = {"plan_id": plan_id, "added_at": _now()}
+            if inherited:
+                child["predecessor_plan_id"] = inherited
+            displaced["predecessor_plan_id"] = plan_id
             record["children"].append(child)
             self._write(slug, record)
             return record

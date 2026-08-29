@@ -1023,3 +1023,201 @@ class AFinishedProgramIsNotACorruptOne(_Program):
         report = self.programs.obligation_report(record)
         self.assertTrue(any("form a cycle" in reason for reason in report["unknown"]),
                         "the warning must survive for the case it was written for")
+
+
+class TheOrderCanBeReDecided(_Program):
+    """Insert places work AHEAD of work already on the chain, and re-points the edge that reached it.
+
+    These are NEW-CAPABILITY fixtures, and the label is deliberate. There is no defect here to
+    reproduce red-then-green: `insert_child` did not exist, so every assertion below would fail
+    against the prior code by AttributeError rather than by a wrong answer. Calling that a
+    reproduction would dress a new door up as a repair, which is the kind of evidence inflation the
+    red-then-green label exists to prevent. The genuine reproductions in this program's work are the
+    ones aimed at readers that gave a wrong answer, and they say so where they live.
+
+    What is worth pinning here is the second edge. Appending creates one answerability; inserting
+    creates two, and the one an operator does not picture is the DISPLACED child — it stops
+    succeeding what it used to and starts succeeding the newcomer. A verb that moved that edge
+    without re-checking it would mint a debt nothing downstream ever had to answer for, which is the
+    decay this whole object exists to prevent, arriving through the new door.
+    """
+
+    def _chain(self, *ids):
+        slug = self._program("Re-decidable", "Delivered across several PRs, in an order that moved.")
+        previous = None
+        for plan_id in ids:
+            self._plan(plan_id, f"Child {plan_id[-1]}", predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            previous = plan_id
+        return slug
+
+    def _seal(self, plan_id):
+        plan_slug = self.plans.resolve(plan_id)
+        digest = self.plans.read_record(plan_slug)["current"]["plan_digest"]
+        self.plans.update_record(plan_slug, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z", "delta_judgment": "none"}}))
+
+    def _complete(self, plan_id):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "complete", "at": "2026-08-29T05:00:00Z", "reason": "merged"}}))
+
+    def _edges(self, slug):
+        return {child["plan_id"]: child.get("predecessor_plan_id")
+                for child in self.programs.read(slug)["children"]}
+
+    def test_inserting_mid_chain_re_points_both_edges_and_reorders(self):
+        slug = self._chain("pln_1aaaaaaaaaaa", "pln_1bbbbbbbbbbb", "pln_1ccccccccccc")
+        self._plan("pln_1eeeeeeeeeee", "Child X")
+        record = self.programs.insert_child(slug, "pln_1eeeeeeeeeee", before="pln_1bbbbbbbbbbb")
+        self.assertEqual(self._edges(slug), {
+            "pln_1aaaaaaaaaaa": None,
+            "pln_1eeeeeeeeeee": "pln_1aaaaaaaaaaa",   # takes the displaced child's former edge
+            "pln_1bbbbbbbbbbb": "pln_1eeeeeeeeeee",   # and the displaced child now succeeds it
+            "pln_1ccccccccccc": "pln_1bbbbbbbbbbb",
+        })
+        self.assertEqual([child["plan_id"] for child in self.programs.child_view(record)],
+                         ["pln_1aaaaaaaaaaa", "pln_1eeeeeeeeeee",
+                          "pln_1bbbbbbbbbbb", "pln_1ccccccccccc"])
+        self.assertEqual([child["chain_ordinal"] for child in self.programs.child_view(record)],
+                         [1, 2, 3, 4])
+
+    def test_the_inserted_entry_carries_no_position(self):
+        slug = self._chain("pln_2aaaaaaaaaaa", "pln_2bbbbbbbbbbb")
+        self._plan("pln_2eeeeeeeeeee", "Child X")
+        self.programs.insert_child(slug, "pln_2eeeeeeeeeee", before="pln_2bbbbbbbbbbb")
+        inserted = next(child for child in self.programs.read(slug)["children"]
+                        if child["plan_id"] == "pln_2eeeeeeeeeee")
+        self.assertNotIn("position", inserted)
+
+    def test_appending_no_longer_writes_a_position_either(self):
+        """The stored field is dead on BOTH doors, not merely absent from the new one."""
+        slug = self._chain("pln_3aaaaaaaaaaa", "pln_3bbbbbbbbbbb")
+        for child in self.programs.read(slug)["children"]:
+            self.assertNotIn("position", child)
+
+    def test_a_record_whose_children_carry_no_position_validates(self):
+        slug = self._chain("pln_4aaaaaaaaaaa", "pln_4bbbbbbbbbbb")
+        record = self.programs.read(slug)          # read() validates against the schema
+        self.assertTrue(all("position" not in child for child in record["children"]))
+        self.assertIn("Child a", plan_program.render(self.programs, record))
+
+    def test_a_legacy_record_still_carrying_position_stays_valid(self):
+        """Records written before the field died must not become unreadable."""
+        slug = self._chain("pln_5aaaaaaaaaaa", "pln_5bbbbbbbbbbb")
+        record = self.programs.read(slug)
+        for number, child in enumerate(record["children"], start=1):
+            child["position"] = number
+        self.programs._write(slug, record)         # _write validates too
+        self.assertEqual([child["plan_id"] for child in
+                          self.programs.child_view(self.programs.read(slug))],
+                         ["pln_5aaaaaaaaaaa", "pln_5bbbbbbbbbbb"])
+
+    def test_inserting_before_the_first_child_makes_the_new_plan_the_root(self):
+        slug = self._chain("pln_6aaaaaaaaaaa", "pln_6bbbbbbbbbbb")
+        self._plan("pln_6eeeeeeeeeee", "Child X")
+        record = self.programs.insert_child(slug, "pln_6eeeeeeeeeee", before="pln_6aaaaaaaaaaa")
+        self.assertEqual(self._edges(slug), {
+            "pln_6eeeeeeeeeee": None,
+            "pln_6aaaaaaaaaaa": "pln_6eeeeeeeeeee",
+            "pln_6bbbbbbbbbbb": "pln_6aaaaaaaaaaa",
+        })
+        self.assertEqual(plan_program.chain_analysis(record)["roots"], ["pln_6eeeeeeeeeee"])
+
+    def test_inserting_ahead_of_merged_history_is_refused_naming_appended_work(self):
+        slug = self._chain("pln_7aaaaaaaaaaa", "pln_7bbbbbbbbbbb")
+        self._complete("pln_7bbbbbbbbbbb")
+        self._plan("pln_7eeeeeeeeeee", "Child X")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.insert_child(slug, "pln_7eeeeeeeeeee", before="pln_7bbbbbbbbbbb")
+        message = str(caught.exception)
+        self.assertIn("is complete", message)
+        self.assertIn("program add --after", message)
+        # And the record is untouched: a refusal that half-wrote would be worse than no verb.
+        self.assertEqual(self._edges(slug),
+                         {"pln_7aaaaaaaaaaa": None, "pln_7bbbbbbbbbbb": "pln_7aaaaaaaaaaa"})
+
+    def test_a_sealed_displaced_child_that_cannot_answer_is_told_to_supersede_it(self):
+        slug = self._chain("pln_8aaaaaaaaaaa", "pln_8bbbbbbbbbbb")
+        self._seal("pln_8bbbbbbbbbbb")
+        self._plan("pln_8eeeeeeeeeee", "Child X",
+                   _obligation("OB-NEW", "The displaced child must answer for this."))
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.insert_child(slug, "pln_8eeeeeeeeeee", before="pln_8bbbbbbbbbbb")
+        message = str(caught.exception)
+        self.assertIn("OB-NEW", message)
+        self.assertIn("SEALED", message)
+        self.assertIn("program supersede", message)
+
+    def test_an_open_displaced_child_that_cannot_answer_is_told_to_revise_it(self):
+        """The sealed refusal names supersede because revision is closed. Here it is open."""
+        slug = self._chain("pln_9aaaaaaaaaaa", "pln_9bbbbbbbbbbb")
+        self._plan("pln_9eeeeeeeeeee", "Child X",
+                   _obligation("OB-NEW", "The displaced child must answer for this."))
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.insert_child(slug, "pln_9eeeeeeeeeee", before="pln_9bbbbbbbbbbb")
+        message = str(caught.exception)
+        self.assertIn("OB-NEW", message)
+        self.assertIn("Revise pln_9bbbbbbbbbbb", message)
+        self.assertNotIn("supersede", message)
+
+    def test_the_inserted_plan_must_answer_for_what_its_new_predecessor_carries(self):
+        """The FIRST of the two edges: the newcomer now stands between predecessor and displaced."""
+        slug = self._program("Two edges", "Both are checked.")
+        self._plan("pln_aaaaaaaaaaa0", "Child A",
+                   _obligation("OB-OLD", "Someone downstream must answer for this."))
+        self.programs.add_child(slug, "pln_aaaaaaaaaaa0")
+        self._plan("pln_bbbbbbbbbbb0", "Child B",
+                   _obligation("OB-OLD", "Answered.", "satisfied"), predecessor="pln_aaaaaaaaaaa0")
+        self.programs.add_child(slug, "pln_bbbbbbbbbbb0", predecessor="pln_aaaaaaaaaaa0")
+        self._plan("pln_eeeeeeeeeee0", "Child X")          # says nothing about OB-OLD
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.insert_child(slug, "pln_eeeeeeeeeee0", before="pln_bbbbbbbbbbb0")
+        message = str(caught.exception)
+        self.assertIn("OB-OLD", message)
+        self.assertIn("inserting it here makes it the plan that must", message)
+
+    def test_an_insertion_that_answers_both_edges_lands(self):
+        slug = self._program("Two edges answered", "Both are checked, and both are answered.")
+        self._plan("pln_aaaaaaaaaaa7", "Child A",
+                   _obligation("OB-OLD", "Someone downstream must answer for this."))
+        self.programs.add_child(slug, "pln_aaaaaaaaaaa7")
+        self._plan("pln_bbbbbbbbbbb7", "Child B",
+                   _obligation("OB-OLD", "Answered.", "satisfied"), predecessor="pln_aaaaaaaaaaa7")
+        self.programs.add_child(slug, "pln_bbbbbbbbbbb7", predecessor="pln_aaaaaaaaaaa7")
+        # X answers for A's carry by re-declaring it, and carries nothing of its own, so B — which
+        # already satisfies OB-OLD — answers for everything X hands on.
+        self._plan("pln_eeeeeeeeeee7", "Child X",
+                   _obligation("OB-OLD", "Still carried, now by X."))
+        self.programs.insert_child(slug, "pln_eeeeeeeeeee7", before="pln_bbbbbbbbbbb7")
+        self.assertEqual(self._edges(slug), {
+            "pln_aaaaaaaaaaa7": None,
+            "pln_eeeeeeeeeee7": "pln_aaaaaaaaaaa7",
+            "pln_bbbbbbbbbbb7": "pln_eeeeeeeeeee7",
+        })
+
+    def test_a_plan_already_on_the_chain_cannot_be_inserted_again(self):
+        slug = self._chain("pln_caaaaaaaaaaa", "pln_cbbbbbbbbbbb")
+        with self.assertRaisesRegex(plan_program.ProgramError, "already a child"):
+            self.programs.insert_child(slug, "pln_caaaaaaaaaaa", before="pln_cbbbbbbbbbbb")
+
+    def test_inserting_before_a_plan_that_is_not_a_child_is_refused(self):
+        slug = self._chain("pln_daaaaaaaaaaa", "pln_dbbbbbbbbbbb")
+        self._plan("pln_deeeeeeeeeee", "Child X")
+        self._plan("pln_dfffffffffff", "A stranger")
+        with self.assertRaisesRegex(plan_program.ProgramError, "is not a child of this program"):
+            self.programs.insert_child(slug, "pln_deeeeeeeeeee", before="pln_dfffffffffff")
+
+    def test_a_closed_program_takes_no_insertion_either(self):
+        slug = self._chain("pln_eaaaaaaaaaaa", "pln_ebbbbbbbbbbb")
+        self.programs.close(slug, "retired", "superseded")
+        self._plan("pln_eeeeeeeeeeee", "Child X")
+        with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
+            self.programs.insert_child(slug, "pln_eeeeeeeeeeee", before="pln_ebbbbbbbbbbb")
+
+    def test_the_back_link_is_required_to_insert_as_much_as_to_add(self):
+        """Both doors run one copy of the join checks, so neither can drift from the other."""
+        slug = self._chain("pln_faaaaaaaaaaa", "pln_fbbbbbbbbbbb")
+        self._plan("pln_feeeeeeeeeee", "Child X", program_id="prg_ffffffffffff")
+        with self.assertRaisesRegex(plan_program.ProgramError, "does not declare that it belongs"):
+            self.programs.insert_child(slug, "pln_feeeeeeeeeee", before="pln_fbbbbbbbbbbb")

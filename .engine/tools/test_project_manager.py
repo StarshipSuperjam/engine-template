@@ -1192,6 +1192,60 @@ class ProgramVerbs(_Governed):
         out = self.run_command("program", "show", program_id)[1]
         self.assertIn("None of them can be dropped by saying nothing", out)
 
+    def _plan_doc(self, program_id, plan_id, title, *obligations, predecessor=None):
+        document = _document(plan_id=plan_id, title=title)
+        program = {"program_id": program_id}
+        if obligations:
+            program["carried_obligations"] = list(obligations)
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        document["program"] = program
+        self.lib.create(document)
+
+    def test_insert_places_a_plan_before_an_existing_child_and_says_which_edges_moved(self):
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        # X re-declares OB-1 as carried, so it answers for A; B satisfies OB-1, so it answers for X.
+        self._plan_doc(program_id, "pln_cccccccccccc", "PR X",
+                       self._obligation("OB-1", "Still carried, now by X."))
+        code, out, err = self.run_command("program", "insert", program_id, "pln_cccccccccccc",
+                                          "--before", "pln_bbbbbbbbbbbb")
+        self.assertEqual(code, 0, err)
+        self.assertIn("inserted pln_cccccccccccc as child 2", out)
+        self.assertIn("pln_aaaaaaaaaaaa -> pln_cccccccccccc -> pln_bbbbbbbbbbbb", out)
+        self.assertIn("Nothing was renumbered", out)
+        # The half an operator does not picture: the displaced child now answers for the newcomer.
+        self.assertIn("pln_bbbbbbbbbbbb now answers for 1 obligation(s)", out)
+        shown = self.run_command("program", "show", program_id)[1]
+        self.assertLess(shown.index("PR X"), shown.index("PR B"))
+
+    def test_insert_refuses_at_the_command_line_when_the_displaced_child_cannot_answer(self):
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self._plan_doc(program_id, "pln_cccccccccccc", "PR X",
+                       self._obligation("OB-1", "Still carried, now by X."),
+                       self._obligation("OB-NEW", "Something B has never heard of."))
+        code, _, err = self.run_command("program", "insert", program_id, "pln_cccccccccccc",
+                                        "--before", "pln_bbbbbbbbbbbb")
+        self.assertEqual(code, 2)
+        self.assertIn("OB-NEW", err)
+        self.assertIn("Revise pln_bbbbbbbbbbbb", err)
+
+    def test_the_verb_writes_no_position_for_either_door(self):
+        program_id = self._program_with_child()
+        record = json.loads((self.lib.root / "programs" / next(
+            d.name for d in (self.lib.root / "programs").iterdir()) / "record.json")
+            .read_text(encoding="utf-8"))
+        self.assertTrue(all("position" not in child for child in record["children"]))
+
 
 class FilesystemProbe(unittest.TestCase):
     """The df/stat shell-out itself, not a mock of the function that wraps it."""

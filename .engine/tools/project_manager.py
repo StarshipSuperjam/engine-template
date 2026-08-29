@@ -1965,6 +1965,35 @@ def cmd_program_add(args) -> int:
     return 0
 
 
+def cmd_program_insert(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.insert_child(slug, args.plan, before=args.before)
+    plan_slug = programs.plans.resolve(args.plan)
+    plan_id = programs.plans.read_record(plan_slug)["plan_id"]
+    view = programs.child_view(record)
+    ordinal = next((child["chain_ordinal"] for child in view if child["plan_id"] == plan_id), None)
+    displaced_id = programs.plans.read_record(programs.plans.resolve(args.before))["plan_id"]
+    print(f"inserted {plan_id} as child {ordinal} of {record['program_id']}, ahead of {displaced_id}")
+    # Say which edges moved. An insertion changes what TWO plans are answerable to, and the second
+    # one — the displaced child now succeeding the newcomer — is the half an operator does not
+    # picture on their own, because appending has never had a second edge to think about.
+    inserted = next(child for child in record["children"] if child["plan_id"] == plan_id)
+    predecessor = inserted.get("predecessor_plan_id")
+    print(f"  {predecessor} -> {plan_id} -> {displaced_id}" if predecessor
+          else f"  {plan_id} now starts this chain, and {displaced_id} succeeds it")
+    print("Nothing was renumbered: the order every reader derives comes from these edges.")
+    outstanding = sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
+                         key=lambda o: o["id"])
+    if outstanding:
+        print(f"\n{displaced_id} now answers for {len(outstanding)} obligation(s) carried by "
+              f"{plan_id}:")
+        for obligation in outstanding:
+            print(f"  - {obligation['id']}: {obligation['statement']}")
+    _report_decay(programs, slug)
+    return 0
+
+
 def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
     """Re-check every joined child against its predecessor's CURRENT head, and say what has decayed.
 
@@ -2214,6 +2243,15 @@ def build_parser() -> argparse.ArgumentParser:
     program_add.add_argument("plan")
     program_add.add_argument("--after", help="the plan this one succeeds; required after the first child")
     program_add.set_defaults(func=cmd_program_add)
+
+    program_insert = program.add_parser(
+        "insert", help="place a plan BEFORE an existing child, re-pointing the edge that reached it")
+    program_insert.add_argument("program")
+    program_insert.add_argument("plan")
+    program_insert.add_argument("--before", required=True,
+                                help="the child this plan is placed ahead of; it will succeed the "
+                                     "inserted plan instead of what it succeeds now")
+    program_insert.set_defaults(func=cmd_program_insert)
 
     for state, helptext in (("retire", "superseded, kept for the record"),
                             ("abandon", "deliberately dropped")):
