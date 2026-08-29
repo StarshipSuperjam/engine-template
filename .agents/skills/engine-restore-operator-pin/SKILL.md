@@ -7,4 +7,4 @@ description: Bring back a standing preference the operator earlier removed.
 
 ## Steps
 
-1. Only when the operator explicitly asks, restore a previously removed pin with the memory pin tool (`.engine/tools/memory/pins.py`).
+1. Only when the operator explicitly asks, restore a previously removed pin with the `engine-memory` MCP server's `restore` tool, naming its record id. The server itself enters through the accepted attended boundary.

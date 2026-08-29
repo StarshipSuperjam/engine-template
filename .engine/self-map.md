@@ -233,7 +233,7 @@ A note on runtimes: on Claude these routes are hidden from the operator's typed 
 | `engine-recall` | model-auto | operation `.engine/operations/memory-recall.md` (active); tool `.engine/tools/memory/recall.py` (active) | `core` |
 | `engine-release-project` | model-only | operation `.engine/operations/engine-release.md` (active); operation `.engine/operations/projects-release-advance.md` (module-conditional) | `core` |
 | `engine-remove-engine` | model-only | operation `.engine/operations/engine-remove.md` (active) | `core` |
-| `engine-restore-operator-pin` | model-only | tool `.engine/tools/memory/pins.py` (active) | `core` |
+| `engine-restore-operator-pin` | model-only | mcp `engine-memory.restore` (active) | `core` |
 | `engine-save-operator-pin` | model-only | tool `.engine/tools/memory/pins.py` (active) | `core` |
 | `engine-setup-dependency-discipline` | model-only | skill `engine-setup` (active) | `core` |
 | `engine-setup-design-review` | model-only | skill `engine-setup` (active) | `core` |

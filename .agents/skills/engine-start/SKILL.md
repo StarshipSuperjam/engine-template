@@ -8,7 +8,7 @@ description: Start building — switch from looking around to making changes, wh
 ## Steps
 
 1. Switch this session into building by running:
-   `uv run --directory .engine -- python tools/modes.py set-build`
+   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/modes.py --operation session-stance-write -- set-build`
    (the engine works out this session's identity automatically. If the command reports it could not
    identify the session, say so plainly: the stance stays as it was, and building has not started.)
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes

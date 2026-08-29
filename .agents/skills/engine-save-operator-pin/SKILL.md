@@ -7,4 +7,4 @@ description: Save a standing preference or instruction the operator asks to reme
 
 ## Steps
 
-1. Only when the operator explicitly asks to remember something as a standing preference, save it as a pin with the memory pin tool (`.engine/tools/memory/pins.py`), then confirm it is saved and will carry across sessions. Never pin something inferred rather than asked for.
+1. Only when the operator explicitly asks to remember something as a standing preference, save it through the accepted attended boundary: `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/pins.py --operation attended-pin-add -- add "<the operator's instruction>"`. Then confirm it is saved and will carry across sessions. Never pin something inferred rather than asked for.

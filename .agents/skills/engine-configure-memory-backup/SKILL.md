@@ -7,4 +7,7 @@ description: Set up or adjust backup of this project's Engine memory.
 
 ## Steps
 
-1. Help the operator set up or adjust backup of the Engine's memory using the memory backup tool (`.engine/tools/memory/backup_vault.py`), confirming the destination with them.
+1. Show the backup tool's read-only disclosure and confirm the destination with the operator.
+2. After confirmation, run setup through the accepted attended boundary: `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/backup_vault.py --operation attended-backup-setup -- setup --scope <shared|per-project> --consent y`.
+3. A requested foreground backup uses that same boundary with `--operation automatic-backup -- now`; never run the mutating `now` verb directly from candidate code.
+4. A requested vault restore uses that same boundary with `--script .engine/tools/memory/restore_vault.py --operation attended-restore-now -- restore`; relay its overwrite/resurrection prompt and do not supply consent on the operator's behalf.
