@@ -32,9 +32,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -1019,3 +1021,242 @@ class TestPostCompactionOwnerCoexistsWithMemory(unittest.TestCase):
         self.assertEqual(len(pre), 1, "memory acts once")
         self.assertEqual(len(post), 1, "re-grounding acts once")
         self.assertEqual(len(set(pre) & set(post)), 0, "and never the same command twice")
+
+
+# --- Accepted automatic-hook dispatch ---------------------------------------------------------------
+
+_ACCEPTED_TOOLS = Path(__file__).resolve().parent
+
+
+def _accepted_call(*args, cwd=None, env=None, check=True):
+    proc = subprocess.run(list(args), cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    if check and proc.returncode != 0:
+        raise AssertionError(f"command failed ({proc.returncode}): {args!r}\n{proc.stdout}\n{proc.stderr}")
+    return proc
+
+
+class _AcceptedDispatchRepo:
+    """A real clone + linked worktree fixture for the issue #1151 split-brain topology."""
+
+    def __init__(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name) / "main"
+        self.worktree = Path(self.temp.name) / "candidate"
+        self.poison = Path(self.temp.name) / "poison"
+        self.marker = Path(self.temp.name) / "startup-ran"
+        self.root.mkdir()
+        _accepted_call("git", "init", "-b", "main", str(self.root))
+        _accepted_call("git", "-C", str(self.root), "config", "user.email", "fixture@example.test")
+        _accepted_call("git", "-C", str(self.root), "config", "user.name", "Fixture")
+        _accepted_call("git", "-C", str(self.root), "remote", "add", "origin",
+                       "https://github.com/owner/project.git")
+        self._accepted_tree()
+        _accepted_call("git", "-C", str(self.root), "add", ".")
+        _accepted_call("git", "-C", str(self.root), "commit", "-m", "accepted")
+        self.commit = self.git("rev-parse", "HEAD")
+        self.tree = self.git("rev-parse", "HEAD^{tree}")
+        _accepted_call("git", "-C", str(self.root), "worktree", "add", "-b", "candidate",
+                       str(self.worktree), self.commit)
+        self._refresh_paths()
+
+    def cleanup(self):
+        self.temp.cleanup()
+
+    def git(self, *args):
+        return _accepted_call("git", "-C", str(self.root), *args).stdout.strip()
+
+    def _put(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def _accepted_tree(self):
+        for name in ("accepted_hook_dispatch.py", "release_source.py", "hook-runner.sh",
+                     "codex-hook-runner.sh"):
+            self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
+        self._put(".engine/tools/validate.py",
+                  "from pathlib import Path\nROOT = str(Path(__file__).resolve().parents[2])\n")
+        self._put(".engine/tools/helper.py",
+                  "from pathlib import Path\nVALUE = 'accepted'\nORIGIN = str(Path(__file__).resolve())\n")
+        self._put(".engine/tools/close.py", textwrap.dedent("""\
+            import json, os
+            import helper, validate
+            context = json.loads(os.environ["ENGINE_ACCEPTED_HOOK_CONTEXT"])
+            print(json.dumps({"value": helper.VALUE, "helper_origin": helper.ORIGIN,
+                "validate_origin": validate.__file__, "root": validate.ROOT,
+                "memory_dir": os.environ.get("ENGINE_MEMORY_DIR"),
+                "provider": os.environ.get("ENGINE_PROVIDER"), "context": context}, sort_keys=True))
+            """))
+        self._put(".engine/tools/boot.py", "raise SystemExit(0)\n")
+        self._put(".engine/tools/memory/__init__.py", "")
+        for name in ("compact.py", "erasure_observer.py", "backup_vault.py"):
+            self._put(f".engine/tools/memory/{name}", "raise SystemExit(0)\n")
+        self._put(".engine/engine.json",
+                  json.dumps({"engine_version": "9.9.9", "default_branch": "main"}) + "\n")
+        self._put(".engine/memory-backup/pointer.json", json.dumps({
+            "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
+            "namespace": "project-id"}) + "\n")
+
+    def _refresh_paths(self):
+        self.dispatcher = self.worktree / ".engine/tools/accepted_hook_dispatch.py"
+        self.script = self.worktree / ".engine/tools/close.py"
+
+    def activate(self, *, source="reviewed-merge", source_ref="refs/heads/main", expected_epoch=0,
+                 commit=None):
+        return _accepted_call(
+            sys.executable, str(self.dispatcher), "activate", "--root", str(self.worktree),
+            "--repository", "owner/project", "--commit", commit or self.commit, "--source", source,
+            "--source-ref", source_ref, "--engine-release", "9.9.9", "--expected-epoch",
+            str(expected_epoch), check=False)
+
+    def common_dir(self):
+        raw = self.git("rev-parse", "--git-common-dir")
+        return Path(raw) if os.path.isabs(raw) else self.root / raw
+
+    def dirty(self):
+        (self.worktree / ".engine/tools/helper.py").write_text(
+            "from pathlib import Path\nVALUE = 'candidate'\nORIGIN = str(Path(__file__).resolve())\n",
+            encoding="utf-8")
+        self.script.write_text(
+            f"from pathlib import Path\nPath({str(self.marker)!r}).write_text('candidate-ran')\n",
+            encoding="utf-8")
+
+    def poison_env(self):
+        self.poison.mkdir(exist_ok=True)
+        (self.poison / "helper.py").write_text("VALUE='environment'\nORIGIN=__file__\n", encoding="utf-8")
+        for name in ("sitecustomize.py", "usercustomize.py", "startup.py"):
+            (self.poison / name).write_text(
+                f"from pathlib import Path\nPath({str(self.marker)!r}).write_text({name!r})\n",
+                encoding="utf-8")
+        return {**os.environ, "PYTHONPATH": str(self.poison), "PYTHONUSERBASE": str(self.poison),
+                "PYTHONSTARTUP": str(self.poison / "startup.py"),
+                "ENGINE_MEMORY_DIR": str(self.poison / "memory"), "ENGINE_PROVIDER": "codex"}
+
+    def run_direct(self, env=None):
+        return _accepted_call(sys.executable, "-I", "-S", str(self.dispatcher), "run", "--root",
+                              str(self.worktree), "--script", str(self.script), "--", env=env, check=False)
+
+    def _provision(self):
+        bindir = self.worktree / ".engine/.venv/bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        python = bindir / "python"
+        if not python.exists():
+            python.symlink_to(sys.executable)
+
+    def run_launcher(self, provider, env):
+        self._provision()
+        if provider == "codex":
+            return _accepted_call("sh", ".engine/tools/codex-hook-runner.sh", ".engine/tools/close.py",
+                                  cwd=str(self.worktree), env=env, check=False)
+        clean = dict(env)
+        clean.pop("ENGINE_PROVIDER", None)
+        return _accepted_call("sh", str(self.worktree / ".engine/tools/hook-runner.sh"),
+                              str(self.worktree / ".engine/.venv/bin/python"), str(self.script),
+                              cwd=str(self.worktree), env=clean, check=False)
+
+
+class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
+    def setUp(self):
+        self.repo = _AcceptedDispatchRepo()
+
+    def tearDown(self):
+        self.repo.cleanup()
+
+    def test_activation_schema_exact_objects_epoch_cas_and_legacy_barrier(self):
+        import jsonschema
+        schema_path = _ACCEPTED_TOOLS.parent / "schemas/accepted-hook-activation.v1.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator.check_schema(schema)
+        self.assertFalse(schema["additionalProperties"])
+        activated = self.repo.activate()
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        record = json.loads(activated.stdout)
+        self.assertEqual((record["commit"], record["tree"], record["epoch"]),
+                         (self.repo.commit, self.repo.tree, 1))
+        path = self.repo.common_dir() / "engine/accepted-hooks/activation.json"
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8")), record)
+        stale = self.repo.activate(expected_epoch=0)
+        self.assertEqual(stale.returncode, 1)
+        self.assertNotEqual(stale.returncode, 2)
+        self.assertIn("compare-and-set", stale.stderr)
+        (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text("#!/bin/sh\nexit 0\n",
+                                                                         encoding="utf-8")
+        legacy = self.repo.activate(expected_epoch=1)
+        self.assertEqual(legacy.returncode, 1)
+        self.assertIn("retire or recreate", legacy.stderr)
+
+    def test_dirty_worktree_and_python_poison_run_only_accepted_code_and_canonical_state(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        self.repo.dirty()
+        result = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["value"], "accepted")
+        self.assertIn("accepted-hooks/trees", receipt["helper_origin"])
+        self.assertIn("accepted-hooks/trees", receipt["validate_origin"])
+        self.assertEqual(receipt["root"], str(self.repo.root.resolve()))
+        self.assertEqual(receipt["memory_dir"], str((self.repo.root / ".engine/memory").resolve()))
+        self.assertEqual(receipt["context"]["canonical"]["backup_pointer_identity"]["namespace"],
+                         "project-id")
+        self.assertFalse(self.repo.marker.exists())
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text("{}\n", encoding="utf-8")
+        refused = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("canonical backup pointer differs", refused.stderr)
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_real_claude_and_codex_launchers_preserve_provider_and_closed_origins(self):
+        self.assertEqual(self.repo.activate().returncode, 0)
+        self.repo.dirty()
+        env = self.repo.poison_env()
+        for provider in ("claude", "codex"):
+            with self.subTest(provider=provider):
+                self.repo.marker.unlink(missing_ok=True)
+                result = self.repo.run_launcher(provider, env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                receipt = json.loads(result.stdout)
+                self.assertEqual((receipt["provider"], receipt["value"]), (provider, "accepted"))
+                self.assertIn("accepted-hooks/trees", receipt["helper_origin"])
+                self.assertFalse(self.repo.marker.exists())
+
+    def test_missing_and_corrupt_authority_never_fall_back_or_exit_two(self):
+        self.repo.dirty()
+        missing = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(missing.returncode, 1)
+        self.assertNotEqual(missing.returncode, 2)
+        self.assertFalse(self.repo.marker.exists())
+        path = self.repo.common_dir() / "engine/accepted-hooks/activation.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not-json", encoding="utf-8")
+        corrupt = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(corrupt.returncode, 1)
+        self.assertNotEqual(corrupt.returncode, 2)
+        self.assertFalse(self.repo.marker.exists())
+
+    def test_published_tag_is_resolved_once_and_accepted_exit_two_is_preserved(self):
+        self.repo.git("tag", "v9.9.9", self.repo.commit)
+        activated = self.repo.activate(source="published-release", source_ref="v9.9.9")
+        self.assertEqual(activated.returncode, 0, activated.stderr)
+        self.repo.dirty()
+        (self.repo.root / "later.txt").write_text("later\n", encoding="utf-8")
+        self.repo.git("add", "later.txt")
+        self.repo.git("commit", "-m", "later")
+        self.repo.git("tag", "-f", "v9.9.9", "HEAD")
+        still_exact = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(still_exact.returncode, 0, still_exact.stderr)
+        self.assertEqual(json.loads(still_exact.stdout)["context"]["activation"]["commit"], self.repo.commit)
+
+        # Legitimate target exit 2 is transparent; only qualification failures are normalized away from 2.
+        (self.repo.root / ".engine/tools/close.py").write_text("raise SystemExit(2)\n", encoding="utf-8")
+        self.repo.git("add", ".engine/tools/close.py")
+        self.repo.git("commit", "-m", "accepted block")
+        commit = self.repo.git("rev-parse", "HEAD")
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "remove", "--force",
+                       str(self.repo.worktree))
+        self.repo.git("branch", "-D", "candidate")
+        _accepted_call("git", "-C", str(self.repo.root), "worktree", "add", "-b", "candidate",
+                       str(self.repo.worktree), commit)
+        self.repo._refresh_paths()
+        advanced = self.repo.activate(commit=commit, expected_epoch=1)
+        self.assertEqual(advanced.returncode, 0, advanced.stderr)
+        self.assertEqual(self.repo.run_direct().returncode, 2)
