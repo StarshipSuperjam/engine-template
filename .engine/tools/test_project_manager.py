@@ -1388,6 +1388,19 @@ class ProgramVerbs(_Governed):
         self.assertIn("Closed over an unknown",
                       self.run_command("program", "show", program_id)[1])
 
+    def test_revise_objective_shows_both_texts_and_keeps_the_old_one(self):
+        program_id = self._program_with_child()
+        code, out, err = self.run_command("program", "revise-objective", program_id,
+                                          "--objective", "What it is actually for.",
+                                          "--reason", "the original wording went stale")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Previously: Delivered across two PRs.", out)
+        self.assertIn("Now:        What it is actually for.", out)
+        shown = self.run_command("program", "show", program_id)[1]
+        self.assertIn("How the objective has been revised", shown)
+        self.assertIn("Delivered across two PRs.", shown)
+        self.assertIn("the original wording went stale", shown)
+
     def test_the_verb_writes_no_position_for_either_door(self):
         program_id = self._program_with_child()
         record = json.loads((self.lib.root / "programs" / next(

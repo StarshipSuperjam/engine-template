@@ -859,6 +859,38 @@ class ProgramLibrary:
                             + "; ".join(report["unknown"]))
         return blockers
 
+    def revise_objective(self, slug: str, objective: str, reason: str) -> dict:
+        """Replace the objective, keeping the text it replaced. Works on a closed program.
+
+        An objective is written before the work begins, which is exactly when the least is known
+        about it. This program object's OWN objective went stale within days of being written — it
+        still described an ordering the children's chain had already superseded — and there was no
+        verb to correct it, so the stale wording stood as the program's headline while the record
+        underneath it said something else.
+
+        Permitted on a closed program for the same reason a release is: this is a CORRECTION to the
+        record, not new structure, and a closed program whose objective is wrong should not have to
+        be reopened — a reversal of the operator's decision — merely to fix a sentence.
+        """
+        if not (objective or "").strip():
+            raise ProgramError("an objective cannot be empty — that is the one thing a program has "
+                               "to say for itself.")
+        if not (reason or "").strip():
+            raise ProgramError(
+                "revising the objective costs a reason. The old text is kept either way; what the "
+                "reason adds is why it stopped being true, which is the part a later reader needs "
+                "and the part nobody can reconstruct.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            if record["objective"] == objective:
+                raise ProgramError("that is the objective this program already carries; nothing "
+                                   "was written, and no history entry was minted for a no-op.")
+            record.setdefault("objective_history", []).append({
+                "objective": record["objective"], "replaced_at": _now(), "reason": reason})
+            record["objective"] = objective
+            self._write(slug, record)
+            return record
+
     def reopen(self, slug: str, reason: str) -> dict:
         """Undo a closure — any of the three — keeping what was undone on the record.
 

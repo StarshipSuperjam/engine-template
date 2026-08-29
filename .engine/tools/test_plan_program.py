@@ -1703,3 +1703,104 @@ class EndsThatSettleTheirBooks(_Program):
             self.programs.add_child(slug, "pln_00000000000c", predecessor="pln_00000000000a")
         with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
             self.programs.insert_child(slug, "pln_00000000000c", before="pln_00000000000b")
+
+
+class TheObjectiveCanFollowTheEvidence(_Program):
+    """An objective is written when the least is known. It must be correctable, with its history."""
+
+    def _one_child(self, title="Amendable", objective="The first thing we thought."):
+        slug = self._program(title, objective)
+        self._plan("pln_000000000e01", "Child A")
+        self.programs.add_child(slug, "pln_000000000e01")
+        return slug
+
+    def test_revising_twice_keeps_both_prior_texts_in_order_with_reasons(self):
+        slug = self._one_child()
+        self.programs.revise_objective(slug, "The second thing.", "the first was written too early")
+        record = self.programs.revise_objective(slug, "The third thing.",
+                                                "the evidence moved again")
+        self.assertEqual([entry["objective"] for entry in record["objective_history"]],
+                         ["The first thing we thought.", "The second thing."])
+        self.assertEqual([entry["reason"] for entry in record["objective_history"]],
+                         ["the first was written too early", "the evidence moved again"])
+        self.assertEqual(record["objective"], "The third thing.")
+
+    def test_the_history_is_rendered_where_an_operator_reads_it(self):
+        slug = self._one_child()
+        record = self.programs.revise_objective(slug, "The second thing.", "the order changed")
+        rendered = plan_program.render(self.programs, record)
+        self.assertIn("How the objective has been revised", rendered)
+        self.assertIn("The first thing we thought.", rendered)
+        self.assertIn("the order changed", rendered)
+
+    def test_a_revision_costs_a_reason_and_an_objective_cannot_be_emptied(self):
+        slug = self._one_child()
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.revise_objective(slug, "Something new.", "  ")
+        with self.assertRaisesRegex(plan_program.ProgramError, "cannot be empty"):
+            self.programs.revise_objective(slug, "   ", "a reason")
+
+    def test_rewriting_the_same_text_mints_no_history_entry(self):
+        slug = self._one_child()
+        with self.assertRaisesRegex(plan_program.ProgramError, "already carries"):
+            self.programs.revise_objective(slug, "The first thing we thought.", "no change")
+        self.assertNotIn("objective_history", self.programs.read(slug))
+
+    def test_a_closed_program_takes_corrections_but_still_refuses_new_structure(self):
+        """A correction is not a reversal: fixing a sentence must not require reopening a decision."""
+        slug = self._one_child()
+        self.programs.close(slug, "retired", "set down")
+        record = self.programs.revise_objective(slug, "What it was actually for.",
+                                                "the original wording was never accurate")
+        self.assertEqual(record["objective"], "What it was actually for.")
+        self._plan("pln_000000000e02", "Child B")
+        with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
+            self.programs.add_child(slug, "pln_000000000e02", predecessor="pln_000000000e01")
+
+
+class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
+    """Every verb a refusal points at must exist. Checked mechanically, not by reading the prose.
+
+    A refusal that names its way through is only as good as the door it names. This sweeps the
+    module's own source for the `program <verb>` and `clone --<flag>` forms its messages use and
+    asserts each resolves against the real command-line parser — so adding a refusal that points at
+    a verb nobody built, or renaming a verb out from under an existing refusal, turns this red.
+    """
+
+    def _named_program_verbs(self) -> set:
+        import re
+        source = Path(plan_program.__file__).read_text(encoding="utf-8")
+        # The literal form the refusal texts use, e.g. `program release`, `program add --after`.
+        return set(re.findall(r"`program ([a-z-]+)", source))
+
+    def _named_clone_flags(self) -> set:
+        import re
+        source = Path(plan_program.__file__).read_text(encoding="utf-8")
+        return set(re.findall(r"`clone (--[a-z-]+)", source))
+
+    def test_every_program_verb_a_refusal_names_is_a_real_verb(self):
+        import project_manager
+        parser = project_manager.build_parser()
+        program_action = next(
+            action for action in parser._subparsers._group_actions[0].choices["program"]._actions
+            if hasattr(action, "choices") and action.choices)
+        available = set(program_action.choices)
+        named = self._named_program_verbs()
+        self.assertTrue(named, "the sweep found no named verbs, so it is not checking anything")
+        self.assertEqual(named - available, set(),
+                         f"refusal text points at verbs that do not exist; available: {sorted(available)}")
+
+    def test_every_clone_flag_a_refusal_names_is_a_real_flag(self):
+        import project_manager
+        parser = project_manager.build_parser()
+        clone = parser._subparsers._group_actions[0].choices["clone"]
+        available = {option for action in clone._actions for option in action.option_strings}
+        named = self._named_clone_flags()
+        self.assertTrue(named, "the sweep found no named clone flags")
+        self.assertEqual(named - available, set())
+
+    def test_the_sweep_would_catch_a_verb_that_does_not_exist(self):
+        """THE function the guard rests on, proven against a seeded miss rather than assumed."""
+        available = {"add", "release"}
+        named = {"add", "release", "invent"}
+        self.assertEqual(named - available, {"invent"})

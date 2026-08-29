@@ -2154,6 +2154,20 @@ def cmd_program_release(args) -> int:
     return 0
 
 
+def cmd_program_revise_objective(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    before = programs.read(slug)["objective"]
+    record = programs.revise_objective(slug, args.objective, args.reason)
+    print(f"revised the objective of {record['program_id']}")
+    print(f"  {args.reason}")
+    print(f"\nPreviously: {before}")
+    print(f"Now:        {record['objective']}")
+    print("\nNothing was overwritten silently — `program show` lists every prior objective with "
+          "when it was replaced and why.")
+    return 0
+
+
 def cmd_program_reopen(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
@@ -2423,6 +2437,14 @@ def build_parser() -> argparse.ArgumentParser:
                                  "its record; the text is why, and it is recorded in the closure")
         closer.set_defaults(func=cmd_program_close,
                             state={"retire": "retired", "abandon": "abandoned"}[state])
+
+    program_revise = program.add_parser(
+        "revise-objective", help="replace the objective, keeping the text it replaced")
+    program_revise.add_argument("program")
+    program_revise.add_argument("--objective", required=True)
+    program_revise.add_argument("--reason", required=True,
+                                help="why the old wording stopped being true")
+    program_revise.set_defaults(func=cmd_program_revise_objective)
 
     program_complete = program.add_parser(
         "complete", help="record that the objective is met — never derived, only recorded")
