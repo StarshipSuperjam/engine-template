@@ -337,6 +337,7 @@ def _lifecycle(project_root: str, memory_dir: str, common_dir: str) -> dict:
     values.update({key: os.path.join(telemetry, filename) for key, filename in _HEALTH_FILENAMES.items()})
     values.update({
         "backup_pointer": os.path.join(project_root, ".engine", "memory-backup", "pointer.json"),
+        "canonical_backup_pointer": os.path.join(project_root, ".engine", "memory-backup", "pointer.json"),
         "erasure_proposal": os.path.join(project_root, ".engine", "erasures", "proposal.json"),
         "restore_staging_root": memory_dir,
         "accepted_activation": os.path.join(common_dir, "engine", "accepted-hooks", "activation.json"),
@@ -354,7 +355,7 @@ def _observe_state(lifecycle: dict, store_identity: dict, pointer: dict, pointer
     content_hashed = {
         "ledger_meta", "capture_cursor", "migration_in_flight", "backup_state", "migration_stamp",
         "restore_transaction", "capture_status", "capture_failures", "runtime_health", "hook_crash_debug",
-        "backup_pointer", "erasure_proposal", "store_identity",
+        "backup_pointer", "canonical_backup_pointer", "erasure_proposal", "store_identity",
     }
     for key, path in lifecycle.items():
         if key in ("restore_staging_root", "accepted_cache"):
@@ -477,7 +478,8 @@ def _validate_document(document: dict) -> None:
     if not isinstance(target.get("lifecycle"), dict) or set(target["lifecycle"]) != set(
             _LIFECYCLE_FILENAMES) | set(_HEALTH_FILENAMES) | {
                 "backup_pointer", "erasure_proposal", "restore_staging_root", "accepted_activation",
-                "accepted_cache", "accepted_activation_lock", "accepted_materialization_lock"}:
+                "accepted_cache", "accepted_activation_lock", "accepted_materialization_lock",
+                "canonical_backup_pointer"}:
         raise ContextError("execution context lifecycle binding is incomplete")
     if not isinstance(state.get("expected_state_fingerprint"), str):
         raise ContextError("execution context expected-state fingerprint is missing")
@@ -532,9 +534,14 @@ def revalidate_context(context: ExecutionContext) -> ExecutionContext:
         raise ContextError("execution context Git common-directory identity no longer matches")
     expected_lifecycle = _lifecycle(root, target["memory_dir"], common)
     if target["kind"] == "disposable":
-        private_health = os.path.join(os.path.dirname(target["memory_dir"]), "health")
+        target_root = os.path.dirname(target["memory_dir"])
+        private_health = os.path.join(target_root, "health")
         for key, filename in _HEALTH_FILENAMES.items():
             expected_lifecycle[key] = os.path.join(private_health, filename)
+        expected_lifecycle["backup_pointer"] = os.path.join(
+            target_root, ".engine", "memory-backup", "pointer.json")
+        expected_lifecycle["erasure_proposal"] = os.path.join(
+            target_root, ".engine", "erasures", "proposal.json")
     if target["lifecycle"] != expected_lifecycle:
         raise ContextError("execution context lifecycle paths no longer match their qualified roots")
     try:
@@ -558,7 +565,7 @@ def revalidate_context(context: ExecutionContext) -> ExecutionContext:
     identity = _read_identity(expected_lifecycle["store_identity"])
     if identity != target["store_identity"]:
         raise ContextError("execution context store identity no longer matches")
-    pointer, pointer_digest = _strict_pointer(expected_lifecycle["backup_pointer"])
+    pointer, pointer_digest = _strict_pointer(expected_lifecycle["canonical_backup_pointer"])
     state = document["state"]
     if pointer != state["backup_pointer_identity"] or pointer_digest != state["backup_pointer_digest"]:
         raise ContextError("execution context backup pointer no longer matches")
@@ -614,6 +621,9 @@ def resolve_execution_context(bootstrap: dict, *, accepted_tree: str, script: st
         private_health = os.path.join(target_root, "health")
         for key, filename in _HEALTH_FILENAMES.items():
             lifecycle[key] = os.path.join(private_health, filename)
+        lifecycle["backup_pointer"] = os.path.join(
+            target_root, ".engine", "memory-backup", "pointer.json")
+        lifecycle["erasure_proposal"] = os.path.join(target_root, ".engine", "erasures", "proposal.json")
     entry_id = operation_id or _AUTOMATIC_OPERATIONS.get(script)
     registered = _entry(entry_id) if entry_id else None
     if registered is None:
@@ -985,6 +995,20 @@ def _fixture_self_test() -> dict:
         validate_disposable_target(
             disposable, canonical_project_root=root, canonical_memory_dir=memory,
             canonical_git_common_dir=common)
+        disposable_context = resolve_execution_context(
+            bootstrap, accepted_tree=accepted, script=".engine/tools/memory/candidate.py",
+            target_kind="disposable", target_root=disposable, operation_id="ledger-append",
+            provider="codex", run_id="candidate-run", task_id="candidate-task",
+            extensions={"future_authorization": None},
+            identity_initializer=_fixture_identity_initializer,
+        )
+        private_lifecycle = disposable_context["target"]["lifecycle"]
+        for key in (*_HEALTH_FILENAMES, "backup_pointer", "erasure_proposal"):
+            if not _within(private_lifecycle[key], disposable):
+                raise AssertionError(f"disposable writable lifecycle path escaped private target: {key}")
+        if private_lifecycle["canonical_backup_pointer"] != pointer_path:
+            raise AssertionError("disposable context lost its read-only canonical recovery binding")
+        revalidate_context(disposable_context)
         alias_matrix = []
         pointer_link = os.path.join(temporary, "pointer-link.json")
         os.symlink(pointer_path, pointer_link)
@@ -1131,6 +1155,10 @@ def _fixture_self_test() -> dict:
             "capability_misuse_matrix": misuse,
             "identity_bootstrap": {"contenders": len(identities), "unique_ids": 1, "payload_unchanged": True},
             "path_alias_matrix": alias_matrix,
+            "disposable_binding": {
+                "writable_lifecycle_private": True, "canonical_recovery_read_only": True,
+                "future_authorization": disposable_context["extensions"]["future_authorization"],
+            },
             "pre_import_boundary": {
                 "context_before_validate": True, "context_before_target": True,
                 "memory_package_preimport_guard": 'if "memory" in sys.modules' in dispatcher_source,

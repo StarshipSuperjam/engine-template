@@ -9,9 +9,11 @@ Trust boundary: this closes accidental candidate/stale-code execution against ca
 operational provenance, not protection from malicious code running as the same user: such code can rewrite the
 launcher, Git common metadata, or the cache.  Stronger same-user isolation belongs to the future mediator work.
 
-Automatic callers may use only ``run`` or ``inspect``.  ``activate`` is an attended compare-and-set operation:
-it accepts a full commit already reachable from a reviewed default-branch ref, or exactly named by a published
-release tag, and is the sole command that can advance the activation epoch.
+Automatic callers may use only ``run`` or ``inspect``.  ``candidate`` is a separate attended lane: accepted
+code creates a fresh non-aliasing disposable target, gives selected candidate code authority only for one
+registered operation against that target, and emits a complete receipt.  ``activate`` is an attended
+compare-and-set operation: it accepts a full commit already reachable from a reviewed default-branch ref, or
+exactly named by a published release tag, and is the sole command that can advance the activation epoch.
 """
 from __future__ import annotations
 
@@ -35,6 +37,7 @@ from contextlib import contextmanager
 
 SCHEMA_VERSION = "accepted-hook-activation.v1"
 CONTEXT_VERSION = "accepted-hook-context.v1"
+CANDIDATE_RECEIPT_VERSION = "candidate-disposable-receipt.v1"
 ACTIVATION_REL = os.path.join("engine", "accepted-hooks", "activation.json")
 CACHE_REL = os.path.join("engine", "accepted-hooks", "trees")
 LOCK_REL = os.path.join("engine", "accepted-hooks", "activation.lock")
@@ -50,6 +53,12 @@ _FULL_OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", re.ASCII)
 _SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*", re.ASCII)
 _SOURCE_KINDS = frozenset({"reviewed-merge", "published-release"})
 _PYTHON_ENV_PREFIXES = ("PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "PYTHONSTARTUP")
+_DISPOSABLE_PREFIX = "engine-memory-candidate-"
+_DISPOSABLE_OPERATION_TARGETS = frozenset({
+    "ledger", "ledger-metadata", "derived-index", "capture-cursor", "lifecycle-marker",
+    "degraded-health", "backup-pointer", "restore-journal", "erasure-proposal", "ephemeral-staging",
+    "semantic-index", "project-repository", "tracked-finding",
+})
 
 
 class QualificationError(RuntimeError):
@@ -230,6 +239,47 @@ def _file_digest(path: str) -> str | None:
         return None
     except OSError as exc:
         raise QualificationError(f"state binding is unreadable: {path}") from exc
+
+
+def _json_digest(value) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _safe_inventory(root: str, *, details: bool) -> dict:
+    """Hash a tree without following or disclosing link targets; candidate receipts may include file details."""
+    if not os.path.isdir(root) or os.path.islink(root):
+        raise QualificationError(f"inventory root is not a regular directory: {root}")
+    base = os.path.realpath(root)
+    entries = []
+    total_bytes = 0
+    for current, dirs, files in os.walk(base, topdown=True, followlinks=False):
+        dirs.sort()
+        files.sort()
+        for name in dirs + files:
+            path = os.path.join(current, name)
+            rel = os.path.relpath(path, base).replace(os.sep, "/")
+            info = os.lstat(path)
+            if stat.S_ISLNK(info.st_mode):
+                raise QualificationError(f"inventory refused a symlink: {rel}")
+            if stat.S_ISDIR(info.st_mode):
+                entry = {"path": rel, "kind": "directory", "mode": stat.S_IMODE(info.st_mode)}
+            elif stat.S_ISREG(info.st_mode):
+                entry = {
+                    "path": rel, "kind": "file", "mode": stat.S_IMODE(info.st_mode),
+                    "size": info.st_size, "digest": _file_digest(path),
+                }
+                total_bytes += info.st_size
+            else:
+                raise QualificationError(f"inventory refused a special filesystem entry: {rel}")
+            entries.append(entry)
+    summary = {
+        "entry_count": len(entries), "total_file_bytes": total_bytes,
+        "inventory_digest": _json_digest(entries),
+    }
+    if details:
+        summary["entries"] = entries
+    return summary
 
 
 def _tree_inventory(root: str) -> str:
@@ -578,6 +628,38 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
     os.execve(sys.executable, argv, env)
 
 
+def dispatch_candidate(args: argparse.Namespace) -> None:
+    """Leave candidate code and re-enter the exact accepted dispatcher for the attended lane."""
+    root = _top(args.root)
+    activation = load_activation(root)
+    _verify_exact_object(root, activation)
+    accepted_tree = _materialize(root, activation)
+    accepted_dispatch = os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")
+    env = {
+        key: value for key, value in os.environ.items()
+        if key not in _PYTHON_ENV_PREFIXES and key not in {
+            "ENGINE_MEMORY_DIR", "ENGINE_PROJECT_ROOT", "ENGINE_PERSISTENT_EXECUTION_CONTEXT",
+            "ENGINE_CANDIDATE_DISPOSABLE",
+        }
+    }
+    env["PYTHONNOUSERSITE"] = "1"
+    argv = [
+        sys.executable, "-I", "-S", accepted_dispatch, "_run-candidate", "--tree", accepted_tree,
+        "--root", root, "--candidate-root", args.candidate_root, "--script", args.script,
+        "--target-root", args.target_root, "--operation", args.operation,
+        "--provider", args.provider, "--timeout", str(args.timeout),
+    ]
+    if args.run_id is not None:
+        argv.extend(["--run-id", args.run_id])
+    if args.task_id is not None:
+        argv.extend(["--task-id", args.task_id])
+    for site_path in _site_paths():
+        argv.extend(["--site-path", site_path])
+    argv.append("--")
+    argv.extend(args.target_args)
+    os.execve(sys.executable, argv, env)
+
+
 def _engine_names(tools_root: str) -> set[str]:
     names = set()
     stdlib = getattr(sys, "stdlib_module_names", set())
@@ -732,6 +814,291 @@ def run_accepted(args: argparse.Namespace) -> int:
     return code
 
 
+def _load_context_authority(accepted_tree: str):
+    path = os.path.join(accepted_tree, ".engine", "tools", "memory", "execution_context.py")
+    spec = importlib.util.spec_from_file_location("_engine_candidate_context_authority", path)
+    if spec is None or spec.loader is None:
+        raise QualificationError("accepted persistent context authority is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    if os.path.realpath(getattr(module, "__file__", "")) != os.path.realpath(path):
+        raise QualificationError("candidate context authority escaped the accepted tree")
+    return module
+
+
+def _candidate_code_identity(candidate_root: str, script: str) -> dict:
+    if (not os.path.isabs(candidate_root) or os.path.abspath(candidate_root) != candidate_root
+            or os.path.realpath(candidate_root) != candidate_root):
+        raise QualificationError("candidate root must be one normalized non-link absolute path")
+    root = _top(candidate_root)
+    if root != candidate_root:
+        raise QualificationError("candidate root must name its exact Git top-level directory")
+    tools = os.path.join(root, ".engine", "tools")
+    allowed = os.path.join(tools, "memory") + os.sep
+    raw_script = script if os.path.isabs(script) else os.path.join(root, script)
+    absolute = os.path.abspath(raw_script)
+    if absolute != raw_script or os.path.realpath(absolute) != absolute or not absolute.startswith(allowed):
+        raise QualificationError("candidate script must be a normalized non-link path under .engine/tools/memory")
+    try:
+        info = os.lstat(absolute)
+    except OSError as exc:
+        raise QualificationError("candidate script is absent or unreadable") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise QualificationError("candidate script is not a regular file")
+    commit = _git(root, "rev-parse", "HEAD^{commit}")
+    tree = _git(root, "rev-parse", "HEAD^{tree}")
+    status = _git(root, "status", "--porcelain=v1", "-z")
+    script_digest = _file_digest(absolute)
+    if script_digest is None:
+        raise QualificationError("candidate script disappeared during qualification")
+    return {
+        "repository": _origin_slug(root), "project_root": root, "commit": commit, "tree": tree,
+        "script": os.path.relpath(absolute, root).replace(os.sep, "/"),
+        "script_path": absolute, "script_digest": script_digest,
+        "worktree_dirty": bool(status), "worktree_status_digest": _json_digest(status),
+    }
+
+
+def _create_disposable_target(requested: str, canonical: dict) -> str:
+    if not isinstance(requested, str) or not os.path.isabs(requested):
+        raise QualificationError("candidate target must be an absolute path")
+    target = os.path.abspath(requested)
+    if target != requested or os.path.realpath(target) != target:
+        raise QualificationError("candidate target is normalized differently or crosses a symlink")
+    temporary_root = os.path.realpath(tempfile.gettempdir())
+    parent = os.path.dirname(target)
+    if parent != temporary_root:
+        raise QualificationError("candidate target must be a direct child of the operating-system temp directory")
+    if not os.path.basename(target).startswith(_DISPOSABLE_PREFIX):
+        raise QualificationError(f"candidate target basename must begin with {_DISPOSABLE_PREFIX}")
+    if os.path.lexists(target):
+        raise QualificationError("candidate target already exists; accepted code requires an absent path")
+    for path in (canonical["project_root"], canonical["memory_dir"], canonical["git_common_dir"]):
+        try:
+            if os.path.commonpath((target, path)) in (target, path):
+                raise QualificationError("candidate target aliases canonical project or Git state")
+        except ValueError:
+            continue
+    try:
+        os.mkdir(target, mode=0o700)
+    except OSError as exc:
+        raise QualificationError("accepted code could not create the candidate target") from exc
+    return target
+
+
+def _existing_store_lock(path: str):
+    try:
+        info = os.lstat(path)
+    except OSError as exc:
+        raise QualificationError("canonical store identity lock is absent") from exc
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+        raise QualificationError("canonical store identity lock is not a regular file")
+    return _exclusive_lock(path)
+
+
+def _candidate_registry_boundary(authority, operation_id: str) -> list[str]:
+    """Close one attended operation over registered call edges, then prove every target is private-bindable."""
+    contract = authority._load_contract()
+    entries = {entry["id"]: entry for entry in contract.REGISTRY}
+    if operation_id not in entries:
+        raise QualificationError("candidate operation is absent from the accepted registry")
+    allowed = {operation_id}
+    changed = True
+    while changed:
+        changed = False
+        writers = {entries[entry_id]["writer"] for entry_id in allowed}
+        for writer in tuple(writers):
+            for entry_id in contract.TRANSITIVE_BOUNDARIES.get(writer, ()):
+                if entry_id not in allowed:
+                    allowed.add(entry_id)
+                    changed = True
+        for entry_id, entry in entries.items():
+            if entry_id not in allowed and writers.intersection(entry.get("callers", ())):
+                allowed.add(entry_id)
+                changed = True
+    problems = []
+    for entry_id in sorted(allowed):
+        entry = entries.get(entry_id)
+        if entry is None:
+            problems.append(f"{entry_id}=missing")
+        elif "attended" not in entry["allowed_invocation_modes"]:
+            problems.append(f"{entry_id}=automatic-only")
+        elif entry["target_kind"] not in _DISPOSABLE_OPERATION_TARGETS:
+            problems.append(f"{entry_id}={entry['target_kind']}")
+    if problems:
+        raise QualificationError(
+            "candidate operation reaches authority outside its disposable target: " + ", ".join(problems[:8]))
+    return sorted(allowed)
+
+
+def _candidate_receipt(*, activation: dict, accepted_tree: str, candidate: dict, context,
+                       target_root: str, result, before: dict, after: dict, timed_out: bool) -> dict:
+    document = context.to_document()
+    script_after = _file_digest(candidate["script_path"])
+    status_after = _git(candidate["project_root"], "status", "--porcelain=v1", "-z")
+    candidate_receipt = {key: value for key, value in candidate.items() if key != "script_path"}
+    candidate_receipt.update({
+        "script_digest_after": script_after,
+        "worktree_status_digest_after": _json_digest(status_after),
+        "code_unchanged_during_run": (
+            script_after == candidate["script_digest"]
+            and _json_digest(status_after) == candidate["worktree_status_digest"]
+        ),
+    })
+    stdout = result.stdout or b""
+    stderr = result.stderr or b""
+    receipt = {
+        "schema_version": CANDIDATE_RECEIPT_VERSION,
+        "accepted": {
+            **{key: activation[key] for key in (
+                "repository", "commit", "tree", "engine_release", "epoch", "source", "source_ref")},
+            "materialized_tree": accepted_tree, "materialized_inventory": _tree_inventory(accepted_tree),
+        },
+        "candidate": candidate_receipt,
+        "target": {
+            "kind": "disposable", "root": target_root,
+            "memory_dir": document["target"]["memory_dir"],
+            "store_id": document["target"]["store_identity"]["store_id"],
+            "inventory": _safe_inventory(target_root, details=True),
+        },
+        "operation": {
+            **document["operation"],
+            "authorized_registry_ids": document["extensions"]["candidate_authorized_registry_ids"],
+        },
+        "invocation": document["invocation"],
+        "outcome": {
+            "exit_code": result.returncode, "timed_out": timed_out,
+            "stdout_size": len(stdout), "stdout_digest": "sha256:" + hashlib.sha256(stdout).hexdigest(),
+            "stderr_size": len(stderr), "stderr_digest": "sha256:" + hashlib.sha256(stderr).hexdigest(),
+        },
+        "canonical": {
+            "memory_inventory_before": before, "memory_inventory_after": after,
+            "unchanged": before == after,
+        },
+        "context_digest": context.digest,
+        "future_authorization": None,
+        "receipt_digest": None,
+    }
+    receipt["receipt_digest"] = _json_digest(receipt)
+    return receipt
+
+
+def run_candidate(args: argparse.Namespace) -> int:
+    """Accepted half of the attended candidate lane; automatic hook dispatch never reaches this command."""
+    accepted_tree = os.path.realpath(args.tree)
+    own_tree = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    if accepted_tree != own_tree:
+        raise QualificationError("candidate lane is not executing from the named accepted tree")
+    root = _top(args.root)
+    activation = load_activation(root)
+    _verify_exact_object(root, activation)
+    qualified = _valid_materialization(root, activation)
+    if qualified is None or os.path.realpath(qualified) != accepted_tree:
+        raise QualificationError("candidate lane no longer matches the active exact materialization")
+    authoritative = _canonical_context(root, activation, accepted_tree)
+    candidate = _candidate_code_identity(args.candidate_root, args.script)
+    if candidate["repository"] != activation["repository"].casefold():
+        raise QualificationError("candidate repository origin differs from the accepted activation")
+    if args.provider not in {"claude", "codex"}:
+        raise QualificationError("candidate invocation provider is not qualified")
+
+    authority = _load_context_authority(accepted_tree)
+    try:
+        registered = authority._entry(args.operation)
+    except authority.ContextError as exc:
+        raise QualificationError(f"candidate operation refused: {exc}") from exc
+    if "attended" not in registered["allowed_invocation_modes"]:
+        raise QualificationError("candidate operation is not registered for attended invocation")
+    authorized_registry_ids = _candidate_registry_boundary(authority, args.operation)
+    canonical_identity = authority.read_store_identity(authoritative["canonical"]["memory_dir"])
+    if (canonical_identity is None or canonical_identity.get("target_kind") != "canonical"
+            or canonical_identity.get("project_repository", "").casefold()
+            != activation["repository"].casefold()):
+        raise QualificationError("canonical store identity must exist before a disposable candidate run")
+
+    target_root = _create_disposable_target(args.target_root, authoritative["canonical"])
+    try:
+        def initialize_store_identity(identity_path: str, lock_path: str, value: dict) -> None:
+            with _exclusive_lock(lock_path):
+                _atomic_json(identity_path, value, create_only=True)
+
+        context = authority.resolve_execution_context(
+            authoritative, accepted_tree=accepted_tree, script=candidate["script"],
+            target_kind="disposable", target_root=target_root, operation_id=args.operation,
+            provider=args.provider, run_id=args.run_id, task_id=args.task_id,
+            extensions={
+                "candidate_code": {
+                    key: value for key, value in candidate.items() if key != "script_path"
+                },
+                "candidate_authorized_registry_ids": authorized_registry_ids,
+                "future_authorization": None,
+            },
+            identity_initializer=initialize_store_identity,
+        )
+        helper = os.path.join(accepted_tree, ".engine", "tools", "memory", "candidate_invocation.py")
+        if not os.path.isfile(helper):
+            raise QualificationError("accepted candidate invocation helper is absent")
+        env = {
+            key: value for key, value in os.environ.items()
+            if key not in _PYTHON_ENV_PREFIXES and key not in {
+                "ENGINE_MEMORY_DIR", "ENGINE_PROJECT_ROOT", "ENGINE_PERSISTENT_EXECUTION_CONTEXT",
+                "ENGINE_CANDIDATE_DISPOSABLE",
+            }
+        }
+        env.update({
+            "PYTHONNOUSERSITE": "1", "ENGINE_PROVIDER": args.provider,
+            "ENGINE_PERSISTENT_EXECUTION_CONTEXT": context.to_json(),
+        })
+        argv = [
+            sys.executable, "-I", "-S", helper, "--candidate-root", candidate["project_root"],
+            "--script", candidate["script_path"], "--target-root", target_root,
+        ]
+        for site_path in args.site_path:
+            if os.path.isdir(site_path):
+                argv.extend(["--site-path", os.path.realpath(site_path)])
+        argv.append("--")
+        argv.extend(args.target_args)
+
+        canonical_memory = authoritative["canonical"]["memory_dir"]
+        canonical_lock = os.path.join(canonical_memory, authority.STORE_IDENTITY_LOCK_FILENAME)
+        timed_out = False
+        with _existing_store_lock(canonical_lock):
+            before = _safe_inventory(canonical_memory, details=False)
+            try:
+                authority.revalidate_context(context)
+            except authority.ContextError as exc:
+                raise QualificationError(f"candidate context changed before execution: {exc}") from exc
+            try:
+                result = subprocess.run(argv, capture_output=True, timeout=args.timeout, env=env)
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                result = subprocess.CompletedProcess(
+                    argv, 124, stdout=exc.stdout or b"", stderr=exc.stderr or b"",
+                )
+            after = _safe_inventory(canonical_memory, details=False)
+        receipt = _candidate_receipt(
+            activation=activation, accepted_tree=accepted_tree, candidate=candidate, context=context,
+            target_root=target_root, result=result, before=before, after=after, timed_out=timed_out,
+        )
+        print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+        if not receipt["canonical"]["unchanged"]:
+            print("candidate run refused: canonical memory changed during disposable execution", file=sys.stderr)
+            return 1
+        if not receipt["candidate"]["code_unchanged_during_run"]:
+            print("candidate run refused: candidate code changed during execution", file=sys.stderr)
+            return 1
+        return result.returncode
+    except BaseException:
+        # Remove only a still-empty directory that this accepted invocation just created.  Any private evidence
+        # written before a later refusal remains available for inspection and is never recursively deleted.
+        try:
+            os.rmdir(target_root)
+        except OSError:
+            pass
+        raise
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -749,11 +1116,35 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--root", required=True)
     run.add_argument("--script", required=True)
     run.add_argument("target_args", nargs=argparse.REMAINDER)
+    candidate = sub.add_parser("candidate")
+    candidate.add_argument("--root", required=True)
+    candidate.add_argument("--candidate-root", required=True)
+    candidate.add_argument("--script", required=True)
+    candidate.add_argument("--target-root", required=True)
+    candidate.add_argument("--operation", required=True)
+    candidate.add_argument("--provider", required=True, choices=("claude", "codex"))
+    candidate.add_argument("--run-id")
+    candidate.add_argument("--task-id")
+    candidate.add_argument("--timeout", type=int, default=120, choices=range(1, 601))
+    candidate.add_argument("target_args", nargs=argparse.REMAINDER)
     internal = sub.add_parser("_run-accepted")
     internal.add_argument("--tree", required=True)
     internal.add_argument("--script", required=True)
     internal.add_argument("--site-path", action="append", default=[])
     internal.add_argument("target_args", nargs=argparse.REMAINDER)
+    internal_candidate = sub.add_parser("_run-candidate")
+    internal_candidate.add_argument("--tree", required=True)
+    internal_candidate.add_argument("--root", required=True)
+    internal_candidate.add_argument("--candidate-root", required=True)
+    internal_candidate.add_argument("--script", required=True)
+    internal_candidate.add_argument("--target-root", required=True)
+    internal_candidate.add_argument("--operation", required=True)
+    internal_candidate.add_argument("--provider", required=True)
+    internal_candidate.add_argument("--run-id")
+    internal_candidate.add_argument("--task-id")
+    internal_candidate.add_argument("--timeout", type=int, default=120, choices=range(1, 601))
+    internal_candidate.add_argument("--site-path", action="append", default=[])
+    internal_candidate.add_argument("target_args", nargs=argparse.REMAINDER)
     return parser
 
 
@@ -777,8 +1168,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "run":
             dispatch(args.root, args.script, args.target_args)
             return 1  # os.execve never returns
+        if args.command == "candidate":
+            dispatch_candidate(args)
+            return 1  # os.execve never returns
         if args.command == "_run-accepted":
             return run_accepted(args)
+        if args.command == "_run-candidate":
+            return run_candidate(args)
         raise QualificationError("unknown accepted-hook operation")
     except QualificationError as exc:
         print(f"Engine memory mutation skipped: {exc}. This did not block the host action.", file=sys.stderr)

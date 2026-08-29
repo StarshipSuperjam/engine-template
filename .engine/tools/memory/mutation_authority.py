@@ -105,8 +105,9 @@ def _validate_explicit_targets(context, entry: dict, kwargs: dict) -> None:
     if target_kind in _STORE_TARGETS:
         roots = (memory_root,)
     elif target_kind in _PROJECT_TARGETS:
-        roots = (project_root, os.path.dirname(memory_root)) if document["target"]["kind"] == "disposable" \
-            else (project_root,)
+        # A disposable context may observe canonical recovery identity, but it never authorizes a project-level
+        # write there.  Its pointer, proposal, health, and staging surfaces all live beneath the private target.
+        roots = (os.path.dirname(memory_root),) if document["target"]["kind"] == "disposable" else (project_root,)
     else:
         roots = ()
     if not roots:

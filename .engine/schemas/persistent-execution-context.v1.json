@@ -55,7 +55,7 @@
             "migration_in_flight", "backup_state", "migration_stamp", "restore_transaction", "store_identity",
             "store_identity_lock",
             "capture_status", "capture_failures", "runtime_health", "hook_crash_debug", "backup_pointer",
-            "erasure_proposal", "restore_staging_root", "accepted_activation", "accepted_cache",
+            "canonical_backup_pointer", "erasure_proposal", "restore_staging_root", "accepted_activation", "accepted_cache",
             "accepted_activation_lock", "accepted_materialization_lock"
           ],
           "properties": {
@@ -76,6 +76,7 @@
             "runtime_health": {"$ref": "#/$defs/absolutePath"},
             "hook_crash_debug": {"$ref": "#/$defs/absolutePath"},
             "backup_pointer": {"$ref": "#/$defs/absolutePath"},
+            "canonical_backup_pointer": {"$ref": "#/$defs/absolutePath"},
             "erasure_proposal": {"$ref": "#/$defs/absolutePath"},
             "restore_staging_root": {"$ref": "#/$defs/absolutePath"},
             "accepted_activation": {"$ref": "#/$defs/absolutePath"},
