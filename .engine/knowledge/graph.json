@@ -13097,7 +13097,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:dbea7965ec8562d984fc4a2e2ac306fd3f8416a7d52d554897ba3074464251cf",
+        "fingerprint": "sha256:04cf01d507edd0d2f3d914bca73f39fc7f2171f92d752f2ecb71a797e2250c65",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",

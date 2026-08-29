@@ -18,6 +18,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import inspect
+import io
 import json
 import os
 import stat
@@ -216,7 +217,9 @@ def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | No
         before = os.lstat(real)
         if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > 4 * 1024 * 1024:
             return False
-        with open(real, encoding="utf-8") as handle:
+        # Use the concrete I/O module rather than ``builtins.open``: callers legitimately patch the latter to
+        # test their own filesystem failure handling, and that must not disable the source-verification gate.
+        with io.open(real, encoding="utf-8") as handle:
             source = handle.read()
         after = os.lstat(real)
         if ((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
