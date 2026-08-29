@@ -451,17 +451,14 @@ def list_pins() -> dict:
         "every way memory is read, so a withheld conversation is not merely unsearchable but unquoted, "
         "including in the summary a new session starts from. Name exactly one target: `record_id` for a "
         "single note, or `session_id` for a whole conversation — both, or neither, is refused rather than "
-        "guessed at. When the operator gives a short label that is safe to keep visible for later recovery, "
-        "pass it as `recovery_label`; it is scrubbed and stored on the control marker, never inferred from the "
-        "withheld wording. This is NOT erasure: erasing something for good is a separate act the operator drives "
+        "guessed at. This is NOT erasure: erasing something for good is a separate act the operator drives "
         "through a pull request, and nothing here reaches it."
     ),
 )
-def withhold(record_id: str | None = None, session_id: str | None = None,
-             recovery_label: str | None = None) -> dict:
+def withhold(record_id: str | None = None, session_id: str | None = None) -> dict:
     from memory import forget as _forget
 
-    _forget.withhold(record_id=record_id, session_id=session_id, recovery_label=recovery_label)
+    _forget.withhold(record_id=record_id, session_id=session_id)
     what = "that conversation" if session_id else "that note"
     return {"withheld": f"{what} is out of recall now. It is still saved — say the word and it comes back."}
 
@@ -471,9 +468,8 @@ def withhold(record_id: str | None = None, session_id: str | None = None,
     description=(
         "Read back what the operator has taken out of recall, with the identifiers `restore` needs. Reach for "
         "this whenever they ask what they have forgotten, or want something back and cannot name it — search "
-        "cannot find these by construction, so this is the only route. It returns identifiers, dates, and only "
-        "the short recovery labels explicitly saved when items were withheld; it never searches or returns "
-        "withheld wording. Unlabelled legacy entries remain selectable by content-free metadata."
+        "cannot find these by construction, so this is the only route. It returns identifiers, kinds, and "
+        "dates, never the wording, and it never searches withheld content."
     ),
 )
 def list_withheld() -> dict:

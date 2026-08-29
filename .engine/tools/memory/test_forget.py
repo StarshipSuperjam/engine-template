@@ -583,19 +583,18 @@ class WithholdTests(_Base):
         forget.restore(record_id=report["notes"][0]["id"])
         self.assertEqual(forget.withheld_report()["notes"], [])
 
-    def test_safe_recovery_labels_disambiguate_without_querying_withheld_content(self):
+    def test_withheld_report_never_queries_or_derives_withheld_content(self):
         from memory import pins as _pins
 
         amber = _pins.add("Prefer amber alerts for deployment warnings")
         violet = _pins.add("Use violet labels for research follow-ups")
-        forget.withhold(record_id=amber[records.RECORD_ID_KEY], recovery_label="deployment preference")
-        forget.withhold(record_id=violet[records.RECORD_ID_KEY], recovery_label="research follow-up")
+        forget.withhold(record_id=amber[records.RECORD_ID_KEY])
+        forget.withhold(record_id=violet[records.RECORD_ID_KEY])
         report = forget.withheld_report()
-        by_label = {note["recovery_label"]: note["id"] for note in report["notes"]}
-        self.assertEqual(by_label, {
-            "deployment preference": amber[records.RECORD_ID_KEY],
-            "research follow-up": violet[records.RECORD_ID_KEY],
+        self.assertEqual({note["id"] for note in report["notes"]}, {
+            amber[records.RECORD_ID_KEY], violet[records.RECORD_ID_KEY],
         })
+        self.assertTrue(all(set(note) == {"id", "kind", "withheld_at"} for note in report["notes"]))
         rendered = json.dumps(report, sort_keys=True)
         self.assertNotIn("amber alerts", rendered.casefold())
         self.assertNotIn("violet labels", rendered.casefold())
@@ -603,8 +602,9 @@ class WithholdTests(_Base):
         with contextlib.redirect_stdout(output):
             self.assertEqual(forget.main(["list-withheld"]), 0)
         payload = json.loads(output.getvalue())
-        self.assertEqual({note["recovery_label"] for note in payload["notes"]},
-                         {"deployment preference", "research follow-up"})
+        self.assertEqual({note["id"] for note in payload["notes"]}, {
+            amber[records.RECORD_ID_KEY], violet[records.RECORD_ID_KEY],
+        })
         self.assertNotIn("violet labels", output.getvalue().casefold())
 
         with self.assertRaises(TypeError):

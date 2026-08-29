@@ -241,16 +241,14 @@ PIN_TAG = "pin"                     # the pin's tag (kept out of the search body
 # arbitrary. The ledger is append-only, so its own order is the authority — the LAST marker naming a target
 # decides, exactly as `_closed_batches` derives closure from position rather than time.
 #
-# Both markers carry no withheld wording and no `session_id` of their own. A withhold may carry one short,
-# scrubbed RECOVERY_LABEL chosen at removal time and explicitly safe to show later; it is metadata, never
-# inferred by searching the withheld record. `forget._is_bookkeeping` drops the markers themselves from recall.
-# Layer-1 to the letter: nothing is deleted, and `recall`'s window reader honours them too, so a withheld
-# session is not merely unsearchable but unquoted.
+# Both markers are pure non-content provenance: no `text`, no `session_id` of their own, so `index` keeps
+# their uuid-hex target fields OUT of the search body (index._NON_BODY_KEYS) and `forget._is_bookkeeping`
+# drops the markers themselves from recall. Layer-1 to the letter: nothing is deleted, and `recall`'s window
+# reader honours them too, so a withheld session is not merely unsearchable but unquoted.
 WITHHOLD_KIND = "withheld"           # the marker that takes a record, or a session, out of recall
 RESTORE_KIND = "restored"            # the marker that reverses a withhold — the same two target keys
 TARGET_SESSION_KEY = "target_session"  # a whole session's conversation (a session id, never a record id)
 WITHHOLD_TAG = "withheld"            # the markers' tag (kept out of the search body like every tag)
-RECOVERY_LABEL_KEY = "recovery_label"  # optional operator-safe label captured when the item is withheld
 
 # The operator-adjudicated-erasure marker (Layer-2 physical erasure). Its OWN evidence class (NOT a
 # stretch of `operator-directed`): the one marker that authorises COMPACTION to physically REMOVE a recall record

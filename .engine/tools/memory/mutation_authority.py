@@ -70,6 +70,8 @@ _PREACTIVATION_ISSUER = object()
 _PREACTIVATION_GRANTS = weakref.WeakKeyDictionary()
 _TRACKED_SOURCE_LOCK = threading.RLock()
 _TRACKED_SOURCE_CACHE = {}
+_TEST_TARGET_LOCK = threading.RLock()
+_TEST_FORBIDDEN_ROOTS = None
 
 
 def _digest(value) -> str:
@@ -148,6 +150,67 @@ def _validate_explicit_targets(context, entry: dict, args: tuple, kwargs: dict, 
         if not any(_within(resolved, root) for root in roots):
             raise MutationAuthorityError(
                 f"persistent writer {entry['writer']} target {key} escapes its qualified context")
+
+
+def _test_forbidden_roots() -> tuple[str, ...]:
+    """Repository and shared-state roots a candidate test adapter must never mutate."""
+    global _TEST_FORBIDDEN_ROOTS
+    with _TEST_TARGET_LOCK:
+        if _TEST_FORBIDDEN_ROOTS is not None:
+            return _TEST_FORBIDDEN_ROOTS
+        roots = {_ENGINE_ROOT}
+        try:
+            result = subprocess.run(
+                ["git", "-C", _ENGINE_ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                capture_output=True, text=True, check=False, timeout=15,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                common = os.path.realpath(result.stdout.strip())
+                roots.add(common)
+                if os.path.basename(common) == ".git":
+                    main = os.path.realpath(os.path.dirname(common))
+                    roots.update({main, os.path.join(main, ".engine", "memory")})
+        except (OSError, subprocess.SubprocessError, ValueError):
+            # The current checkout still remains forbidden. Failure to resolve shared Git state must never
+            # make that checkout writable through the adapter.
+            pass
+        _TEST_FORBIDDEN_ROOTS = tuple(sorted(roots))
+        return _TEST_FORBIDDEN_ROOTS
+
+
+def _looks_like_path(key: str) -> bool:
+    return (key in _PATH_ARGUMENTS or key in {"main", "project_root", "common_dir"}
+            or key.endswith(("_path", "_file", "_dir", "_root", "_target", "_destination")))
+
+
+def _validate_test_targets(entry: dict, args: tuple, kwargs: dict, function=None) -> None:
+    """Keep the checked-in test adapter outside the checkout and canonical shared state.
+
+    Candidate tests must exercise newly changed writers, so their source cannot equal the already activated
+    commit. Source identity therefore narrows who can enter this harness seam; target confinement is what keeps
+    that seam from becoming candidate authority over durable project data.
+    """
+    arguments = _call_arguments(function, args, kwargs)
+    candidates = []
+    for key, value in arguments.items():
+        if _looks_like_path(key) and isinstance(value, (str, os.PathLike)):
+            raw = os.path.expanduser(os.fspath(value))
+            candidates.append(os.path.realpath(raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw)))
+    if entry["target_kind"] in _STORE_TARGETS:
+        memory_dir = os.environ.get("ENGINE_MEMORY_DIR")
+        if memory_dir:
+            candidates.append(os.path.realpath(os.path.abspath(os.path.expanduser(memory_dir))))
+        elif not candidates:
+            # A pathless persistent writer resolves through the repository's shared memory root. Treat the
+            # current checkout as the effective target so the adapter fails closed instead of guessing.
+            candidates.append(_ENGINE_ROOT)
+    elif entry["target_kind"] in _PROJECT_TARGETS and not candidates:
+        candidates.append(os.path.realpath(os.getcwd()))
+    forbidden = _test_forbidden_roots()
+    for candidate in candidates:
+        if any(_within(candidate, root) or _within(root, candidate) for root in forbidden):
+            raise MutationAuthorityError(
+                f"test adapter for {entry['writer']} cannot target the checkout or canonical shared state")
 
 
 def _code_tree(value) -> set:
@@ -454,6 +517,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
     state = getattr(_THREAD, "state", None)
     if state is not None:
         if state.get("test_only"):
+            _validate_test_targets(entry, args, kwargs, function)
             yield _test_receipt(entry, state["mode"], measured)
             return
         context = state["context"]
@@ -477,6 +541,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
 
     scoped_test_mode = _TEST_SCOPE.get()
     if scoped_test_mode is not None:
+        _validate_test_targets(entry, args, kwargs, function)
         _THREAD.state = {"test_only": True, "mode": scoped_test_mode}
         try:
             yield _test_receipt(entry, scoped_test_mode, measured)
@@ -491,6 +556,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             raise MutationAuthorityError(
                 f"persistent writer {entry['writer']} has no accepted execution context") from exc
         mode = "automatic" if "automatic" in entry["allowed_invocation_modes"] else "attended"
+        _validate_test_targets(entry, args, kwargs, function)
         _THREAD.state = {"test_only": True, "mode": mode}
         try:
             yield _test_receipt(entry, mode, measured)

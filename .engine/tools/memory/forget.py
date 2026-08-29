@@ -74,9 +74,6 @@ if _PARENT not in sys.path:
 
 from memory import ledger, records  # noqa: E402
 
-MAX_RECOVERY_LABEL_CHARS = 160
-
-
 def _closed_batches(src: str) -> set:
     """The set of `batch` ids that a *completed* pass closed — i.e. carried by a `consolidated` marker."""
     closed = set()
@@ -236,38 +233,29 @@ def withheld_report(path: "str | None" = None) -> dict:
     back" was unactionable short of hand-reading the store. A control that is reversible in principle and
     one-way in practice is not the control the operator was told they had.
 
-    IDENTIFIERS, WHEN, AND AN OPTIONAL SAFE RECOVERY LABEL — NEVER THE WITHHELD WORDING. That is the same line
-    `set_aside` draws and for the same reason: reading or probing withheld text is exactly what the operator
-    asked not to happen. The label is captured explicitly when the item is withheld, scrubbed, and safe to
-    display; this report never opens the target record to derive one. Unlabelled legacy entries remain
-    recoverable by their content-free kind, date, and identifier."""
+    IDENTIFIERS AND WHEN, NEVER THE WORDING. That is the same line `set_aside` draws and for the same reason:
+    reading or probing withheld text is exactly what the operator asked not to happen. A note carries its kind
+    and the date it was withheld, which lets the operator choose without turning restoration into a content
+    oracle."""
     src = ledger.ledger_path() if path is None else path
     withheld_ids, withheld_sessions = withheld_targets(src)
     all_records = [record for record in ledger.iter_records(path=src) if isinstance(record, dict)]
     when: dict = {}
-    labels: dict = {}
     for record in all_records:
-        if record.get("kind") not in (records.WITHHOLD_KIND, records.RESTORE_KIND):
+        if record.get("kind") != records.WITHHOLD_KIND:
             continue
         target = record.get(records.TARGET_KEY) or record.get(records.TARGET_SESSION_KEY)
         if isinstance(target, str) and target:
-            if record.get("kind") == records.WITHHOLD_KIND:
-                when[target] = record.get("ts")
-                label = record.get(records.RECOVERY_LABEL_KEY)
-                labels[target] = label if isinstance(label, str) and label else None
-            else:
-                labels.pop(target, None)
+            when[target] = record.get("ts")
     kinds: dict = {}
     for record in all_records:
         rid = record.get(records.RECORD_ID_KEY)
         if isinstance(rid, str) and rid in withheld_ids:
             kinds[rid] = record.get("kind") or "note"
     return {
-        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid),
-                          "recovery_label": labels.get(rid)}
+        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid)}
                          for rid in withheld_ids), key=lambda r: r["id"]),
-        "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid),
-                             "recovery_label": labels.get(sid)}
+        "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid)}
                             for sid in withheld_sessions), key=lambda r: r["session_id"]),
     }
 
@@ -339,7 +327,7 @@ def _target_state(src: str, rid, sid) -> tuple:
     return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
 
 
-def _write_control(kind: str, *, record_id=None, session_id=None, recovery_label=None,
+def _write_control(kind: str, *, record_id=None, session_id=None,
                    path: "str | None" = None, now: "int | None" = None) -> dict:
     """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
 
@@ -369,20 +357,6 @@ def _write_control(kind: str, *, record_id=None, session_id=None, recovery_label
     sid = session_id if isinstance(session_id, str) and session_id else None
     if (rid is None) == (sid is None):
         raise ControlNotRecorded("name exactly one thing to act on — a single note, or a whole session.")
-    label = None
-    if recovery_label is not None:
-        if kind != records.WITHHOLD_KIND:
-            raise ControlNotRecorded("a recovery label can be recorded only when something is withheld.")
-        if not isinstance(recovery_label, str) or not recovery_label.strip():
-            raise ControlNotRecorded("the recovery label needs a few recognizable words.")
-        from memory import scrub  # lazy: keep the module's cycle-free import floor
-        label = " ".join(scrub.scrub_text(recovery_label).split())
-        if not label:
-            raise ControlNotRecorded("the recovery label contained no safe words after secret scrubbing.")
-        if len(label) > MAX_RECOVERY_LABEL_CHARS:
-            raise ControlNotRecorded(
-                f"the recovery label is too long ({len(label)} characters; maximum {MAX_RECOVERY_LABEL_CHARS})."
-            )
     target = path if path is not None else ledger.ledger_path()
     exists, already = _target_state(target, rid, sid)
     if not exists:
@@ -421,8 +395,6 @@ def _write_control(kind: str, *, record_id=None, session_id=None, recovery_label
             marker[records.TARGET_KEY] = rid
         else:
             marker[records.TARGET_SESSION_KEY] = sid
-        if label is not None:
-            marker[records.RECOVERY_LABEL_KEY] = label
         ledger.bump_index_epoch(for_path=target)
         ledger.append(marker, path=path)
         return marker
@@ -434,7 +406,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None, recovery_label
         capture._release_lock(lock_fd)
 
 
-def withhold(*, record_id=None, session_id=None, recovery_label=None, path: "str | None" = None,
+def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
              now: "int | None" = None) -> dict:
     """Take one note, or one whole session's conversation, out of everything recall surfaces. Reversible.
 
@@ -443,7 +415,7 @@ def withhold(*, record_id=None, session_id=None, recovery_label=None, path: "str
     different act entirely, reachable only by merging a single-purpose erasure pull request, and the two are
     kept apart in vocabulary as well as in mechanism (`records.WITHHOLD_KIND`)."""
     return _write_control(records.WITHHOLD_KIND, record_id=record_id, session_id=session_id,
-                          recovery_label=recovery_label, path=path, now=now)
+                          path=path, now=now)
 
 
 def restore(*, record_id=None, session_id=None, path: "str | None" = None,
@@ -1053,7 +1025,7 @@ def main(argv: list) -> int:
         return _demo_identity()
     parser = argparse.ArgumentParser(prog="forget.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("list-withheld", help="list reversible withheld targets and their safe recovery labels")
+    sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
     restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
     restore_record.add_argument("record_id")
     restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")

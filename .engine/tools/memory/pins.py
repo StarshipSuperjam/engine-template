@@ -147,10 +147,10 @@ def list_pins(*, path: "str | None" = None, limit: "int | None" = None) -> list:
     return out[:limit] if isinstance(limit, int) and limit >= 0 else out
 
 
-def remove(record_id: str, *, recovery_label: "str | None" = None, path: "str | None" = None) -> dict:
+def remove(record_id: str, *, path: "str | None" = None) -> dict:
     """Stop surfacing one pin. Withholds it (module docstring) — nothing is deleted and `forget.restore` on the
     same id brings it back."""
-    return forget.withhold(record_id=record_id, recovery_label=recovery_label, path=path)
+    return forget.withhold(record_id=record_id, path=path)
 
 
 def _print_list(path: "str | None" = None) -> int:
@@ -184,10 +184,6 @@ def main(argv: list) -> int:
     sub.add_parser("list", help="read back every live pin")
     rm = sub.add_parser("remove", help="stop surfacing one pin (reversible)")
     rm.add_argument("record_id", help="the pin's id, as shown by `list`")
-    rm.add_argument(
-        "--recovery-label-base64", default=None,
-        help="canonical URL-safe Base64 of the operator-safe label that remains visible for restoration",
-    )
     args = parser.parse_args(argv)
     if args.cmd == "add":
         try:
@@ -215,19 +211,8 @@ def main(argv: list) -> int:
         print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
         return 0
     if args.cmd == "remove":
-        recovery_label = None
-        if args.recovery_label_base64 is not None:
-            try:
-                encoded = args.recovery_label_base64.encode("ascii")
-                raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
-                if base64.urlsafe_b64encode(raw) != encoded:
-                    raise ValueError("non-canonical encoding")
-                recovery_label = raw.decode("utf-8")
-            except (UnicodeEncodeError, UnicodeDecodeError, binascii.Error, ValueError):
-                print("Not removed: the recovery label must be canonical URL-safe Base64 of UTF-8 text.")
-                return 1
         try:
-            remove(args.record_id, recovery_label=recovery_label)
+            remove(args.record_id)
         except forget.ControlNotRecorded as exc:
             # The shared verb speaks of "a single note, or a whole session" because it serves both; this
             # command takes a pin id and nothing else, so offering a session here names a choice the operator

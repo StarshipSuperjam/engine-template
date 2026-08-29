@@ -236,6 +236,17 @@ class ConvertedCallGraphTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
 
+    def test_a_tracked_candidate_test_cannot_target_the_checkout(self):
+        target = TOOLS / ".candidate-authority-probe.ndjson"
+        self.assertFalse(target.exists())
+        try:
+            with self.assertRaisesRegex(
+                    mutation_authority.MutationAuthorityError, "cannot target the checkout"):
+                ledger.append({"body": "forbidden"}, path=str(target))
+            self.assertFalse(target.exists())
+        finally:
+            target.unlink(missing_ok=True)
+
     def test_same_named_direct_script_cannot_preflight_instantiator_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
             script_path = Path(tmp) / "instantiator.py"

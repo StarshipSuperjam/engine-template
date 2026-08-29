@@ -318,13 +318,12 @@ class ControlToolTests(_ServerBase):
     async def test_withhold_and_restore_round_trip_through_the_server(self):
         rid = self.add("a decision that was withdrawn", role="decision")
         self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)
-        said = await self._call("withhold", {
-            "record_id": rid, "recovery_label": "August decision",
-        })
+        said = await self._call("withhold", {"record_id": rid})
         self.assertIn("still saved", said["withheld"])          # never reads as erasure
         self.assertEqual((await self._call("search", {"query": "withdrawn"}))["results"], [])
         report = await self._call("list-withheld", {})
-        self.assertEqual(report["notes"][0]["recovery_label"], "August decision")
+        self.assertEqual(report["notes"][0]["id"], rid)
+        self.assertEqual(set(report["notes"][0]), {"id", "kind", "withheld_at"})
         self.assertNotIn("withdrawn", json.dumps(report).casefold())
         legacy_query = await self._call("list-withheld", {"query": "withdrawn"})
         self.assertEqual(legacy_query, report,
