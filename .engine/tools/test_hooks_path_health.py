@@ -8,6 +8,7 @@ Throwaway `git init` repos in a TemporaryDirectory, git identity injected per-re
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -315,6 +316,24 @@ class TestAcceptedHookTopology(unittest.TestCase):
             self.assertNotIn(main, rendered)
             self.assertNotIn(linked, rendered)
             self.assertTrue(all(item["ref"] for item in topology["worktrees"]))
+
+    def test_checked_in_generation_digests_match_the_exact_bundle(self):
+        actual = {
+            rel: hashlib.sha256((self.ROOT / rel).read_bytes()).hexdigest()
+            for rel in hp._ACCEPTED_BUNDLE
+        }
+        self.assertEqual(actual, hp._ACCEPTED_BUNDLE_SHA256)
+
+    def test_clean_committed_runner_that_exits_before_dispatch_is_not_a_qualified_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")
+            source = self.RUNNER.read_text(encoding="utf-8")
+            inert = "#!/bin/sh\nexit 0\n" + source
+            self._commit_runner(main, inert)
+            _worktree(main, "linked")
+            topology = hp.accepted_hook_topology(main)
+            self.assertFalse(topology["qualified"])
+            self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
 
     def test_dirty_or_direct_routing_in_any_bundle_component_blocks(self):
         with tempfile.TemporaryDirectory() as tmp:

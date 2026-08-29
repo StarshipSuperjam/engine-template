@@ -71,9 +71,10 @@ class PinTests(_Base):
         record = pins.add("a preference that changed")
         rid = record[records.RECORD_ID_KEY]
         index.rebuild()
-        pins.remove(rid)
+        pins.remove(rid, recovery_label="changed preference")
         self.assertEqual(index.search("preference").records, [])
         self.assertEqual(pins.list_pins(), [])
+        self.assertEqual(forget.withheld_report()["notes"][0]["recovery_label"], "changed preference")
         # Still in the ledger, byte for byte — removal is a withhold, so restore is the operator's undo.
         self.assertIn(rid, {r.get(records.RECORD_ID_KEY) for r in ledger.iter_records()})
         forget.restore(record_id=rid)
@@ -116,6 +117,14 @@ class PinTests(_Base):
         self.assertEqual(pins.main(["add-base64", encoded]), 0)
         self.assertEqual(pins.list_pins()[0]["text"], text)
         self.assertEqual(pins.main(["add-base64", encoded.rstrip("=")]), 1)
+
+    def test_remove_accepts_only_canonical_base64_for_visible_recovery_label(self):
+        record = pins.add("one removable preference")
+        label = base64.urlsafe_b64encode(b"workflow preference").decode("ascii")
+        self.assertEqual(pins.main([
+            "remove", record[records.RECORD_ID_KEY], "--recovery-label-base64", label,
+        ]), 0)
+        self.assertEqual(forget.withheld_report()["notes"][0]["recovery_label"], "workflow preference")
 
 
 if __name__ == "__main__":

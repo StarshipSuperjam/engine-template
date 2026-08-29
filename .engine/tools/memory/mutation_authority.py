@@ -22,8 +22,10 @@ import io
 import json
 import os
 import stat
+import subprocess
 import sys
 import threading
+import weakref
 from contextvars import ContextVar
 from contextlib import contextmanager
 
@@ -60,6 +62,14 @@ _PATH_ARGUMENTS = frozenset({
     "data_dir", "target", "destination",
 })
 _SKIP_WRAPPERS = frozenset({"capture-lock-create"})
+_TOOLS_ROOT = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ENGINE_ROOT = os.path.realpath(os.path.dirname(os.path.dirname(_TOOLS_ROOT)))
+_INSTANTIATOR_SOURCE = os.path.join(_TOOLS_ROOT, "instantiator.py")
+_PREACTIVATION_LOCK = threading.RLock()
+_PREACTIVATION_ISSUER = object()
+_PREACTIVATION_GRANTS = weakref.WeakKeyDictionary()
+_TRACKED_SOURCE_LOCK = threading.RLock()
+_TRACKED_SOURCE_CACHE = {}
 
 
 def _digest(value) -> str:
@@ -200,9 +210,32 @@ def _module_code_objects(module) -> set:
     return found
 
 
+def _tracked_head_source(path: str, payload: bytes) -> bool:
+    """Whether one source snapshot is the exact tracked blob at this checkout's committed HEAD."""
+    cache_key = (path, hashlib.sha256(payload).digest())
+    with _TRACKED_SOURCE_LOCK:
+        cached = _TRACKED_SOURCE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        rel = os.path.relpath(path, _ENGINE_ROOT)
+        if rel == ".." or rel.startswith(".." + os.sep) or os.path.isabs(rel):
+            return False
+        result = subprocess.run(
+            ["git", "-C", _ENGINE_ROOT, "show", f"HEAD:{rel.replace(os.sep, '/') }"],
+            capture_output=True, check=False, timeout=15,
+        )
+        matched = result.returncode == 0 and result.stdout == payload
+    except (OSError, subprocess.SubprocessError, ValueError):
+        matched = False
+    with _TRACKED_SOURCE_LOCK:
+        _TRACKED_SOURCE_CACHE[cache_key] = matched
+    return matched
+
+
 def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | None = None,
                         function_name: str | None = None) -> bool:
-    """Trust code that is present in the current regular-file source, never claimed module metadata alone."""
+    """Trust exact loaded code only when its regular-file source is also the tracked HEAD blob."""
     claimed_module = frame.f_globals.get("__name__")
     if not isinstance(claimed_module, str):
         return False
@@ -219,8 +252,9 @@ def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | No
             return False
         # Use the concrete I/O module rather than ``builtins.open``: callers legitimately patch the latter to
         # test their own filesystem failure handling, and that must not disable the source-verification gate.
-        with io.open(real, encoding="utf-8") as handle:
-            source = handle.read()
+        with io.open(real, "rb") as handle:
+            payload = handle.read()
+        source = payload.decode("utf-8")
         after = os.lstat(real)
         if ((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
                 != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)):
@@ -234,14 +268,19 @@ def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | No
         return False
     if not any(_same_compiled_code(frame.f_code, candidate) for candidate in compiled):
         return False
-    if module_name is not None and os.path.basename(real) != f"{module_name}.py":
-        return False
+    if module_name is not None:
+        if module_name != "instantiator" or real != _INSTANTIATOR_SOURCE:
+            return False
+        if not _tracked_head_source(real, payload):
+            return False
     if function_name is not None:
         return any(frame.f_code is candidate for candidate in _code_tree(getattr(module, function_name, None)))
     if test_only:
-        tools_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
+        tools_root = _TOOLS_ROOT + os.sep
         name = os.path.basename(real)
         if not (real.startswith(tools_root) and name.startswith("test_") and name.endswith(".py")):
+            return False
+        if not _tracked_head_source(real, payload):
             return False
     return any(frame.f_code is candidate for candidate in _module_code_objects(module))
 
@@ -262,12 +301,11 @@ def _test_adapter_allowed() -> bool:
 class _PreActivationCapability:
     """Opaque one-use handle for the approved setup-era presentation-marker exception."""
 
-    __slots__ = ("entry_id", "project_root", "used")
+    __slots__ = ("__weakref__",)
 
-    def __init__(self, entry_id: str, project_root: str):
-        self.entry_id = entry_id
-        self.project_root = project_root
-        self.used = False
+    def __init__(self, issuer=None):
+        if issuer is not _PREACTIVATION_ISSUER:
+            raise MutationAuthorityError("pre-activation local capabilities are issuer-created only")
 
 
 def acquire_preactivation_local_capability(entry_id: str, *, project_root: str):
@@ -293,10 +331,13 @@ def acquire_preactivation_local_capability(entry_id: str, *, project_root: str):
     # the guarded writer compares its own target through ``realpath`` below.
     if not os.path.isabs(project_root) or not os.path.isdir(root):
         raise MutationAuthorityError("pre-activation local authority requires one normalized project root")
-    return _PreActivationCapability(entry_id, root)
+    capability = _PreActivationCapability(_PREACTIVATION_ISSUER)
+    with _PREACTIVATION_LOCK:
+        _PREACTIVATION_GRANTS[capability] = {"entry_id": entry_id, "project_root": root}
+    return capability
 
 
-def _preactivation_receipt(entry: dict, measured: int, capability: _PreActivationCapability) -> dict:
+def _preactivation_receipt(entry: dict, measured: int, grant: dict) -> dict:
     try:
         mutation_contract.classify(
             writer=entry["writer"], target_kind=entry["target_kind"], effect_class=entry["effect_class"],
@@ -308,7 +349,7 @@ def _preactivation_receipt(entry: dict, measured: int, capability: _PreActivatio
     receipt = {
         "exception": "operator-approved-first-run-presentation-marker",
         "registry_id": entry["id"], "writer": entry["writer"], "mode": "attended",
-        "measured_cardinality": measured, "project_root": capability.project_root,
+        "measured_cardinality": measured, "project_root": grant["project_root"],
         "one_use": True,
     }
     receipt["receipt_digest"] = _digest(receipt)
@@ -422,15 +463,16 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
 
     if isinstance(supplied_capability, _PreActivationCapability):
         bootstrap = supplied_capability
-        if entry_id != bootstrap.entry_id or bootstrap.used:
-            raise MutationAuthorityError("pre-activation local capability is wrong or already consumed")
         arguments = _call_arguments(function, args, kwargs)
         target = arguments.get("main")
+        with _PREACTIVATION_LOCK:
+            grant = _PREACTIVATION_GRANTS.pop(bootstrap, None)
+        if grant is None or entry_id != grant["entry_id"]:
+            raise MutationAuthorityError("pre-activation local capability is wrong or already consumed")
         if (not isinstance(target, (str, os.PathLike))
-                or os.path.realpath(os.fspath(target)) != bootstrap.project_root):
+                or os.path.realpath(os.fspath(target)) != grant["project_root"]):
             raise MutationAuthorityError("pre-activation local capability target mismatch")
-        bootstrap.used = True
-        yield _preactivation_receipt(entry, measured, bootstrap)
+        yield _preactivation_receipt(entry, measured, grant)
         return
 
     scoped_test_mode = _TEST_SCOPE.get()
@@ -479,10 +521,10 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         if base_context["operation"]["registry_id"] == "attended-memory-mcp":
             try:
                 execution_context.refresh_current_context(base_context)
-            except execution_context.ContextError:
+            except Exception:  # noqa: BLE001 — the durable writer already committed; never invite a retry
                 # The writer has already committed successfully. Keep the previous renewable root alive so the
-                # next request can refresh under the lock; a cache refresh fault must never turn a committed
-                # mutation into an apparent failure that callers retry.
+                # next request can refresh under the lock; any ordinary cache-refresh fault must never turn a
+                # committed mutation into an apparent failure that callers retry. BaseException still escapes.
                 pass
     finally:
         _close_store_lock(handle)

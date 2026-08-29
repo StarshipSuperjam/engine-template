@@ -97,6 +97,17 @@ _ACCEPTED_BUNDLE = (
     ".claude/settings.json",
     ".codex/hooks.json",
 )
+# One reviewed launcher generation, not a vocabulary of strings. This authority is deliberately outside the
+# bundle it certifies: changing a runner, dispatcher, or provider manifest requires updating these digests in
+# the same reviewed Engine change. A clean candidate commit that keeps marker strings but changes behavior is
+# therefore not a qualifying generation merely because Git considers it tracked.
+_ACCEPTED_BUNDLE_SHA256 = {
+    ".engine/tools/hook-runner.sh": "d6be55bf4dbd9ed375a171d26d0a2ca355b619f78df712080242e50931211f9e",
+    ".engine/tools/codex-hook-runner.sh": "3f9ae7fe4a6d191754a2ebf05f0f48afc4ccfaa4f5005fb96b7e366742d6afd9",
+    ".engine/tools/accepted_hook_dispatch.py": "ac856d336f3f681601d1a71d85f2ce235aef664dcd6acca708c2958361b22998",
+    ".claude/settings.json": "b71eb04ae3d5fe0517b51b536c8b6e77ff9cdb61dfd9b26f1673ea1cd9b0490c",
+    ".codex/hooks.json": "debdc4669b3eb40e79eaeb390a526171884a5faf994a4b390540d7c1c27a2f4d",
+}
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 15) -> str | None:
@@ -200,10 +211,17 @@ def classify_accepted_hook_generation(worktree: str) -> dict:
         if first != second:
             return {"state": "concurrent-change", "fingerprint": None, "component": rel}
         coordinates[rel] = first
+    component_digests = {
+        rel: hashlib.sha256(source.encode("utf-8")).hexdigest() for rel, source in sources.items()
+    }
     digest = hashlib.sha256(json.dumps(
-        {rel: hashlib.sha256(source.encode("utf-8")).hexdigest() for rel, source in sources.items()},
+        component_digests,
         sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")).hexdigest()
+    if component_digests != _ACCEPTED_BUNDLE_SHA256:
+        changed = next((rel for rel in _ACCEPTED_BUNDLE
+                        if component_digests.get(rel) != _ACCEPTED_BUNDLE_SHA256.get(rel)), None)
+        return {"state": "ambiguous", "fingerprint": digest, "component": changed}
     runner_source = sources[".engine/tools/hook-runner.sh"]
     marker_count = runner_source.count(_ACCEPTED_MARKER)
     if marker_count == 0:

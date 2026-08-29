@@ -209,7 +209,34 @@ class ConvertedCallGraphTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
 
-    def test_direct_script_main_can_preflight_the_exact_instantiator_retire_frame(self):
+    def test_an_untracked_real_test_module_cannot_obtain_context_free_authority(self):
+        candidate = TOOLS / "test_untracked_candidate_authority.py"
+        target = None
+        try:
+            candidate.write_text(
+                "import os, sys, tempfile\n"
+                f"sys.path.insert(0, {str(TOOLS)!r})\n"
+                "from memory import ledger\n"
+                "p = os.path.join(tempfile.mkdtemp(), 'ledger.ndjson')\n"
+                "try:\n"
+                "    ledger.append({'body': 'forbidden'}, path=p)\n"
+                "except Exception as exc:\n"
+                "    print(type(exc).__name__, os.path.exists(p))\n"
+                "else:\n"
+                "    print('UNEXPECTED', os.path.exists(p))\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(candidate)], capture_output=True, text=True,
+                env={key: value for key, value in os.environ.items()
+                     if key != execution_context.CONTEXT_ENV},
+            )
+        finally:
+            candidate.unlink(missing_ok=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+
+    def test_same_named_direct_script_cannot_preflight_instantiator_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
             script_path = Path(tmp) / "instantiator.py"
             script_path.write_text(
@@ -228,8 +255,48 @@ class ConvertedCallGraphTests(unittest.TestCase):
                 env={key: value for key, value in os.environ.items()
                      if key != execution_context.CONTEXT_ENV},
             )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "_PreActivationCapability")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("MutationAuthorityError", result.stderr)
+
+    def test_preactivation_capability_is_issuer_created_registry_backed_and_one_use(self):
+        from unittest import mock
+
+        with self.assertRaises(mutation_authority.MutationAuthorityError):
+            mutation_authority._PreActivationCapability()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+                mutation_authority, "_source_bound_frame", return_value=True):
+            capability = mutation_authority.acquire_preactivation_local_capability(
+                "attended-first-run-marker-stage", project_root=tmp)
+            self.assertFalse(hasattr(capability, "used"))
+            self.assertTrue(first_run_health.mark_first_run_applied(
+                tmp, _engine_capability=capability))
+            with self.assertRaisesRegex(
+                    mutation_authority.MutationAuthorityError, "already consumed"):
+                first_run_health.mark_first_run_applied(tmp, _engine_capability=capability)
+
+    def test_preactivation_marker_refuses_symlink_escape_without_touching_external_file(self):
+        from unittest import mock
+
+        for final_symlink in (False, True):
+            with self.subTest(final_symlink=final_symlink), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / "project"
+                outside = Path(tmp) / "outside"
+                outside.mkdir()
+                external = outside / "external.json"
+                external.write_text("ORIGINAL", encoding="utf-8")
+                if final_symlink:
+                    cache = root / ".engine" / "boot" / ".cache"
+                    cache.mkdir(parents=True)
+                    (cache / "first-run-landing.json").symlink_to(external)
+                else:
+                    (root / ".engine" / "boot").mkdir(parents=True)
+                    (root / ".engine" / "boot" / ".cache").symlink_to(outside, target_is_directory=True)
+                with mock.patch.object(mutation_authority, "_source_bound_frame", return_value=True):
+                    capability = mutation_authority.acquire_preactivation_local_capability(
+                        "attended-first-run-marker-stage", project_root=str(root))
+                self.assertFalse(first_run_health.mark_first_run_applied(
+                    str(root), _engine_capability=capability))
+                self.assertEqual(external.read_text(encoding="utf-8"), "ORIGINAL")
 
 
 class LockedAuthorityTests(unittest.TestCase):
@@ -341,15 +408,16 @@ class LockedAuthorityTests(unittest.TestCase):
         self.fixture.cleanup()
         self.fixture = _QualifiedFixture(mcp=True)
         self.fixture.install()
-        with mock.patch.object(
-                execution_context, "refresh_current_context",
-                side_effect=execution_context.ContextError("injected refresh failure")):
-            first = pins.add("committed despite refresh cache failure")
-        second = pins.add("next request refreshes from the renewable root")
-        self.assertTrue(first[records.RECORD_ID_KEY])
-        self.assertTrue(second[records.RECORD_ID_KEY])
+        for failure in (execution_context.ContextError("injected refresh failure"),
+                        OSError("injected ordinary refresh failure")):
+            with self.subTest(failure=type(failure).__name__), mock.patch.object(
+                    execution_context, "refresh_current_context", side_effect=failure):
+                record = pins.add(f"committed despite {type(failure).__name__}")
+            self.assertTrue(record[records.RECORD_ID_KEY])
+        third = pins.add("next request refreshes from the renewable root")
+        self.assertTrue(third[records.RECORD_ID_KEY])
         self.assertEqual(len(list(ledger.iter_records(path=os.path.join(
-            self.fixture.memory, "ledger.ndjson")))), 2)
+            self.fixture.memory, "ledger.ndjson")))), 3)
 
     def test_long_lived_mcp_authority_state_is_bounded_after_many_requests(self):
         from memory import pins

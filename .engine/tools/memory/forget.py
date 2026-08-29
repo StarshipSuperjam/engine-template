@@ -56,8 +56,6 @@ second applying them.
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
 import json
 import math
 import os
@@ -75,6 +73,8 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 from memory import ledger, records  # noqa: E402
+
+MAX_RECOVERY_LABEL_CHARS = 160
 
 
 def _closed_batches(src: str) -> set:
@@ -226,14 +226,7 @@ def withheld_targets(src: str) -> tuple:
     return withheld_ids, withheld_sessions
 
 
-def _record_matches_query(record: dict, query: str) -> bool:
-    terms = query.casefold().split()
-    text = " ".join(value for key, value in record.items()
-                    if key in {"text", "body", "summary"} and isinstance(value, str)).casefold()
-    return bool(terms) and all(term in text for term in terms)
-
-
-def withheld_report(path: "str | None" = None, query: "str | None" = None) -> dict:
+def withheld_report(path: "str | None" = None) -> dict:
     """`{"notes": [...], "sessions": [...]}` — what is currently withheld, named so it can be restored.
 
     WHY THIS EXISTS. Every surface promises the operator that a withhold is reversible, and `restore` needs the
@@ -243,47 +236,38 @@ def withheld_report(path: "str | None" = None, query: "str | None" = None) -> di
     back" was unactionable short of hand-reading the store. A control that is reversible in principle and
     one-way in practice is not the control the operator was told they had.
 
-    IDENTIFIERS AND WHEN, NEVER THE WORDING. That is the same line `set_aside` draws and for the same reason:
-    reading withheld text back is exactly what the operator asked not to happen. An optional operator-supplied
-    query is matched internally against resident records and only filters these content-free identifiers; the
-    wording is never returned. A note carries its kind and the date it was withheld."""
+    IDENTIFIERS, WHEN, AND AN OPTIONAL SAFE RECOVERY LABEL — NEVER THE WITHHELD WORDING. That is the same line
+    `set_aside` draws and for the same reason: reading or probing withheld text is exactly what the operator
+    asked not to happen. The label is captured explicitly when the item is withheld, scrubbed, and safe to
+    display; this report never opens the target record to derive one. Unlabelled legacy entries remain
+    recoverable by their content-free kind, date, and identifier."""
     src = ledger.ledger_path() if path is None else path
     withheld_ids, withheld_sessions = withheld_targets(src)
-    if query is not None and (not isinstance(query, str) or not query.strip()):
-        raise ValueError("withheld query must contain recognizable words")
     all_records = [record for record in ledger.iter_records(path=src) if isinstance(record, dict)]
-    if query is not None:
-        normalized = " ".join(query.split())
-        matching_ids = {
-            record.get(records.RECORD_ID_KEY) for record in all_records
-            if _record_matches_query(record, normalized)
-        }
-        matching_sessions = set()
-        for record in all_records:
-            if not _record_matches_query(record, normalized):
-                continue
-            for key in ("session_id", records.PIN_SOURCE_SESSION_KEY):
-                value = record.get(key)
-                if isinstance(value, str) and value:
-                    matching_sessions.add(value)
-        withheld_ids.intersection_update(rid for rid in matching_ids if isinstance(rid, str))
-        withheld_sessions.intersection_update(matching_sessions)
     when: dict = {}
+    labels: dict = {}
     for record in all_records:
-        if record.get("kind") != records.WITHHOLD_KIND:
+        if record.get("kind") not in (records.WITHHOLD_KIND, records.RESTORE_KIND):
             continue
         target = record.get(records.TARGET_KEY) or record.get(records.TARGET_SESSION_KEY)
         if isinstance(target, str) and target:
-            when[target] = record.get("ts")
+            if record.get("kind") == records.WITHHOLD_KIND:
+                when[target] = record.get("ts")
+                label = record.get(records.RECOVERY_LABEL_KEY)
+                labels[target] = label if isinstance(label, str) and label else None
+            else:
+                labels.pop(target, None)
     kinds: dict = {}
     for record in all_records:
         rid = record.get(records.RECORD_ID_KEY)
         if isinstance(rid, str) and rid in withheld_ids:
             kinds[rid] = record.get("kind") or "note"
     return {
-        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid)}
+        "notes": sorted(({"id": rid, "kind": kinds.get(rid, "note"), "withheld_at": when.get(rid),
+                          "recovery_label": labels.get(rid)}
                          for rid in withheld_ids), key=lambda r: r["id"]),
-        "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid)}
+        "sessions": sorted(({"session_id": sid, "withheld_at": when.get(sid),
+                             "recovery_label": labels.get(sid)}
                             for sid in withheld_sessions), key=lambda r: r["session_id"]),
     }
 
@@ -355,7 +339,7 @@ def _target_state(src: str, rid, sid) -> tuple:
     return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
 
 
-def _write_control(kind: str, *, record_id=None, session_id=None,
+def _write_control(kind: str, *, record_id=None, session_id=None, recovery_label=None,
                    path: "str | None" = None, now: "int | None" = None) -> dict:
     """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
 
@@ -385,6 +369,20 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
     sid = session_id if isinstance(session_id, str) and session_id else None
     if (rid is None) == (sid is None):
         raise ControlNotRecorded("name exactly one thing to act on — a single note, or a whole session.")
+    label = None
+    if recovery_label is not None:
+        if kind != records.WITHHOLD_KIND:
+            raise ControlNotRecorded("a recovery label can be recorded only when something is withheld.")
+        if not isinstance(recovery_label, str) or not recovery_label.strip():
+            raise ControlNotRecorded("the recovery label needs a few recognizable words.")
+        from memory import scrub  # lazy: keep the module's cycle-free import floor
+        label = " ".join(scrub.scrub_text(recovery_label).split())
+        if not label:
+            raise ControlNotRecorded("the recovery label contained no safe words after secret scrubbing.")
+        if len(label) > MAX_RECOVERY_LABEL_CHARS:
+            raise ControlNotRecorded(
+                f"the recovery label is too long ({len(label)} characters; maximum {MAX_RECOVERY_LABEL_CHARS})."
+            )
     target = path if path is not None else ledger.ledger_path()
     exists, already = _target_state(target, rid, sid)
     if not exists:
@@ -423,6 +421,8 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             marker[records.TARGET_KEY] = rid
         else:
             marker[records.TARGET_SESSION_KEY] = sid
+        if label is not None:
+            marker[records.RECOVERY_LABEL_KEY] = label
         ledger.bump_index_epoch(for_path=target)
         ledger.append(marker, path=path)
         return marker
@@ -434,7 +434,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         capture._release_lock(lock_fd)
 
 
-def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
+def withhold(*, record_id=None, session_id=None, recovery_label=None, path: "str | None" = None,
              now: "int | None" = None) -> dict:
     """Take one note, or one whole session's conversation, out of everything recall surfaces. Reversible.
 
@@ -443,7 +443,7 @@ def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
     different act entirely, reachable only by merging a single-purpose erasure pull request, and the two are
     kept apart in vocabulary as well as in mechanism (`records.WITHHOLD_KIND`)."""
     return _write_control(records.WITHHOLD_KIND, record_id=record_id, session_id=session_id,
-                          path=path, now=now)
+                          recovery_label=recovery_label, path=path, now=now)
 
 
 def restore(*, record_id=None, session_id=None, path: "str | None" = None,
@@ -1053,34 +1053,14 @@ def main(argv: list) -> int:
         return _demo_identity()
     parser = argparse.ArgumentParser(prog="forget.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    list_withheld = sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
-    list_withheld.add_argument(
-        "--query-base64", default=None,
-        help="canonical URL-safe Base64 of words used only to filter withheld targets internally",
-    )
+    sub.add_parser("list-withheld", help="list reversible withheld targets and their safe recovery labels")
     restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
     restore_record.add_argument("record_id")
     restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")
     restore_session.add_argument("session_id")
     args = parser.parse_args(argv)
     if args.cmd == "list-withheld":
-        query = None
-        if args.query_base64 is not None:
-            try:
-                encoded = args.query_base64.encode("ascii")
-                raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
-                if base64.urlsafe_b64encode(raw) != encoded:
-                    raise ValueError("non-canonical encoding")
-                query = raw.decode("utf-8")
-            except (UnicodeEncodeError, UnicodeDecodeError, binascii.Error, ValueError):
-                print("The withheld-note query must be canonical URL-safe Base64 of UTF-8 text.")
-                return 2
-        try:
-            report = withheld_report(query=query)
-        except ValueError as exc:
-            print(str(exc))
-            return 2
-        print(json.dumps(report, sort_keys=True))
+        print(json.dumps(withheld_report(), sort_keys=True))
         return 0
     if args.cmd == "restore-record":
         restore(record_id=args.record_id)

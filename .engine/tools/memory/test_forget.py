@@ -9,7 +9,6 @@ build-conformance invariant that this Layer-1 module reaches NO physical-erasure
 from __future__ import annotations
 
 import contextlib
-import base64
 import io
 import json
 import os
@@ -584,26 +583,32 @@ class WithholdTests(_Base):
         forget.restore(record_id=report["notes"][0]["id"])
         self.assertEqual(forget.withheld_report()["notes"], [])
 
-    def test_description_query_privately_disambiguates_multiple_withheld_pins(self):
+    def test_safe_recovery_labels_disambiguate_without_querying_withheld_content(self):
         from memory import pins as _pins
 
         amber = _pins.add("Prefer amber alerts for deployment warnings")
         violet = _pins.add("Use violet labels for research follow-ups")
-        forget.withhold(record_id=amber[records.RECORD_ID_KEY])
-        forget.withhold(record_id=violet[records.RECORD_ID_KEY])
-        report = forget.withheld_report(query="amber deployment")
-        self.assertEqual([note["id"] for note in report["notes"]], [amber[records.RECORD_ID_KEY]])
+        forget.withhold(record_id=amber[records.RECORD_ID_KEY], recovery_label="deployment preference")
+        forget.withhold(record_id=violet[records.RECORD_ID_KEY], recovery_label="research follow-up")
+        report = forget.withheld_report()
+        by_label = {note["recovery_label"]: note["id"] for note in report["notes"]}
+        self.assertEqual(by_label, {
+            "deployment preference": amber[records.RECORD_ID_KEY],
+            "research follow-up": violet[records.RECORD_ID_KEY],
+        })
         rendered = json.dumps(report, sort_keys=True)
         self.assertNotIn("amber alerts", rendered.casefold())
         self.assertNotIn("violet labels", rendered.casefold())
-
-        encoded = base64.urlsafe_b64encode(b"violet research").decode("ascii")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
-            self.assertEqual(forget.main(["list-withheld", "--query-base64", encoded]), 0)
+            self.assertEqual(forget.main(["list-withheld"]), 0)
         payload = json.loads(output.getvalue())
-        self.assertEqual([note["id"] for note in payload["notes"]], [violet[records.RECORD_ID_KEY]])
+        self.assertEqual({note["recovery_label"] for note in payload["notes"]},
+                         {"deployment preference", "research follow-up"})
         self.assertNotIn("violet labels", output.getvalue().casefold())
+
+        with self.assertRaises(TypeError):
+            forget.withheld_report(query="deployment")
 
     def test_ledger_order_decides_a_tie_that_timestamps_cannot(self):
         # Capture stamps whole seconds, so withhold-then-restore inside one second shares a `ts`. Ordering by

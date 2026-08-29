@@ -11,4 +11,6 @@ engine-targets:
 
 ## Steps
 
-1. Only when the operator explicitly asks, first run `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`, then remove the named pin through the accepted attended boundary: `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/pins.py --operation attended-pin-remove -- remove <record-id>`. It stops being surfaced but stays recoverable.
+1. Only when the operator explicitly asks, first run `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`.
+2. Use the operator's own description to make one short recovery label that is safe to remain visible after the pin itself is withheld. Tell them that label will remain as the way to identify the reversible removal. Never copy the pin's withheld wording into the label unless the operator themselves used those words in the removal request.
+3. Encode that recovery label as canonical URL-safe Base64, then remove the named pin through the accepted attended boundary: `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/pins.py --operation attended-pin-remove -- remove <record-id> --recovery-label-base64 <encoded-label>`. It stops being surfaced but stays recoverable under the visible label. Never interpolate raw operator wording into a shell command.

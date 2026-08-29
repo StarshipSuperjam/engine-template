@@ -2231,8 +2231,8 @@ class TestRetire(unittest.TestCase):
                 with mock.patch.object(
                         inst.mutation_guards, "acquire_preactivation_local_capability",
                         side_effect=RuntimeError("injected authority refusal")):
-                    with self.assertRaisesRegex(RuntimeError, "authority refusal"):
-                        inst.retire(announce=lambda _text: None)
+                    said = []
+                    result = inst.retire(announce=said.append)
                 after = {
                     rel: (Path(d, rel).read_bytes() if Path(d, rel).is_file() else None)
                     for rel in inst._FIRST_RUN_ASSET_FILES
@@ -2243,6 +2243,12 @@ class TestRetire(unittest.TestCase):
                 }
             self.assertEqual(after, before)
             self.assertEqual(after_dirs, before_dirs)
+            self.assertTrue(result["refused"])
+            self.assertEqual(result["reason"], "marker-authority-unavailable")
+            message = "\n".join(said)
+            self.assertIn("Nothing was removed", message)
+            self.assertIn("Re-run", message)
+            self.assertNotIn("Traceback", message)
 
     def test_reports_applied_not_complete_and_drops_the_landing_marker(self):
         # #810: retire runs mid-transformation (the tree is dirty with the just-applied setup), so it must NOT

@@ -318,9 +318,16 @@ class ControlToolTests(_ServerBase):
     async def test_withhold_and_restore_round_trip_through_the_server(self):
         rid = self.add("a decision that was withdrawn", role="decision")
         self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)
-        said = await self._call("withhold", {"record_id": rid})
+        said = await self._call("withhold", {
+            "record_id": rid, "recovery_label": "August decision",
+        })
         self.assertIn("still saved", said["withheld"])          # never reads as erasure
         self.assertEqual((await self._call("search", {"query": "withdrawn"}))["results"], [])
+        report = await self._call("list-withheld", {})
+        self.assertEqual(report["notes"][0]["recovery_label"], "August decision")
+        self.assertNotIn("withdrawn", json.dumps(report).casefold())
+        error = await mts.call_tool_expect_error(srv.server, "list-withheld", {"query": "withdrawn"})
+        self.assertTrue(error, "ambient content queries are not part of restore discovery")
         back = await self._call("restore", {"record_id": rid})
         self.assertIn("back in recall", back["restored"])
         self.assertEqual(len((await self._call("search", {"query": "withdrawn"}))["results"]), 1)

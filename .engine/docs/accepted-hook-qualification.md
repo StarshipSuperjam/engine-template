@@ -49,7 +49,8 @@ retire or recreate any legacy worktree named by the topology diagnostic, then ru
 an attended session.
 
 Before and during that advance, the Engine inventories every Git-registered worktree twice. Each worktree must
-have one tracked, clean qualified launcher generation. A pre-fix, dirty, missing, symlinked, unreadable,
+have the exact tracked, clean launcher generation whose per-file digests are reviewed by the topology
+authority; marker strings or a clean commit alone are not qualification. A pre-fix, altered, dirty, missing, symlinked, unreadable,
 ambiguous, duplicated, or concurrently changing topology refuses activation. The Engine does not rewrite or
 delete those worktrees. Retire the legacy worktree or recreate it from the qualified generation, then retry the
 attended activation. Activation writes only accepted metadata and materialization; it does not rewrite ledger,
@@ -63,9 +64,15 @@ One setup-era presentation marker is deliberately outside this normal activation
 first reviewed activation cannot exist until its first setup pull request lands. Before deleting any first-run
 asset, `instantiator.retire` preflights one source-verified, target-bound, one-use attended exception for
 `.engine/boot/.cache/first-run-landing.json`. That path is checkout-local, gitignored, and presentation-only;
-losing it can only suppress the single post-landing “Setup is now complete” message. It cannot authorize shared
+the issuer requires the actual tracked `instantiator.py` source, keeps consumption in an opaque registry, and
+opens every marker path component without following symlinks. Losing the marker can only suppress the single
+post-landing “Setup is now complete” message. It cannot authorize shared
 memory, recovery, repository, remote, or arbitrary lifecycle writes. This narrow boundary is operator-approved;
 the accepted automatic cleanup that later consumes the marker still uses the normal qualified capability path.
+
+The context-free unit-test adapter is likewise exact-source-only: the live frame must match a regular
+`test_*.py` file under the Engine tools tree and that byte snapshot must equal its tracked `HEAD` blob. Dirty,
+staged-only, untracked, fabricated, borrowed-path, and same-named sources receive no mutation authority.
 
 ### Candidate maintenance
 

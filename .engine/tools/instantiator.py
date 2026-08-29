@@ -1955,8 +1955,18 @@ def retire(*, root=None, announce=None) -> dict:
     # operator-approved exception before the first irreversible delete, then carry its target-bound one-use
     # handle to the presentation-marker writer at the end. An authority defect therefore leaves every setup
     # asset untouched instead of producing a half-retired tree.
-    landing_capability = mutation_guards.acquire_preactivation_local_capability(
-        "attended-first-run-marker-stage", project_root=base)
+    try:
+        landing_capability = mutation_guards.acquire_preactivation_local_capability(
+            "attended-first-run-marker-stage", project_root=base)
+    except Exception as exc:  # noqa: BLE001 — authority refusal is a structured no-change setup pause
+        say("Setup cleanup could not start because the checkout-local completion marker could not be "
+            "authorized. Nothing was removed. Re-run the setup cleanup from this checkout; if it still "
+            f"stops, repair or update the Engine first ({type(exc).__name__}).")
+        return {"refused": True, "reason": "marker-authority-unavailable",
+                "deleted": [], "already_absent": [], "preserved": [],
+                "graph": "unchanged", "self_map": "unchanged",
+                "steps": [{"step": "retire", "status": "refused",
+                           "reason": "marker-authority-unavailable"}]}
     deleted, already = [], []
     for rel in _FIRST_RUN_ASSET_FILES:
         p = os.path.join(base, rel)
