@@ -4121,7 +4121,7 @@
       },
       "slug": "engine-restore-operator-pin",
       "source": {
-        "fingerprint": "sha256:cd978845dbc0ae2de5abe80f463037a384f8db6decad932ec63a7c24be3b4cc3",
+        "fingerprint": "sha256:247673289d2d59476c8524a89a1ab879aaa0f6e9e5556e4771f1b4f9c6bd6a53",
         "path": ".agents/skills/engine-restore-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4721,7 +4721,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:73ef78a16629ceb0dbf7c461d0cdb392b259d8ca8000d653acbb3e82d917f974",
+        "fingerprint": "sha256:383c913e6c63d519b862461e5e9216f732910d7648702b2a93d1ea4646a562be",
         "path": ".agents/skills/engine-start/SKILL.md"
       },
       "status": "active",
