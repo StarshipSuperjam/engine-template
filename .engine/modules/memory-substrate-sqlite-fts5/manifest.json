@@ -99,15 +99,7 @@
           "--frozen",
           "--",
           "python",
-          "tools/accepted_hook_dispatch.py",
-          "attended",
-          "--root",
-          "..",
-          "--script",
-          ".engine/tools/memory/mcp_server.py",
-          "--operation",
-          "attended-memory-mcp",
-          "--"
+          "tools/memory/mcp_server.py"
         ]
       }
     },
@@ -123,15 +115,7 @@
           "--frozen",
           "--",
           "python",
-          "tools/accepted_hook_dispatch.py",
-          "attended",
-          "--root",
-          "..",
-          "--script",
-          ".engine/tools/memory/mcp_server.py",
-          "--operation",
-          "attended-memory-mcp",
-          "--"
+          "tools/memory/mcp_server.py"
         ],
         "default_tools_approval_mode": "auto"
       }

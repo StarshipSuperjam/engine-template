@@ -564,9 +564,8 @@ def query(
 # --- Ranked recall: the `search` interface ------------------------------------------------------
 # `query` (above) answers UNRANKED — it is the rebuild/scan workhorse and must stay order-stable for its callers
 # and tests. `search` is the ranked, filtered recall the `search.json` contract names: best-first by lexical
-# relevance, reinforced by usage, with optional role/tag filters. It never reinforces or writes the ledger; it
-# may rebuild the throwaway index when stale, a reversible derived-cache mutation declared in the registry. The
-# live reinforcement-on-recall caller is the engine-memory MCP server (mcp_server.py),
+# relevance, reinforced by usage, with optional role/tag filters. It is SIDE-EFFECT-FREE — it never reinforces and
+# never writes the ledger; the live reinforcement-on-recall caller is the engine-memory MCP server (mcp_server.py),
 # at the recall boundary, never here (rebuild/_scan/the demos all call read-only).
 
 # RANKING: lexical relevance alone, ties broken NEWEST FIRST.
@@ -866,10 +865,8 @@ def search(
     A blank string is treated as no filter rather than as a session nothing can match, so a caller passing an
     empty value through gets the whole store instead of a silent nothing.
 
-    LEDGER-SIDE-EFFECT-FREE, and now free of the ledger entirely on a current fast path: it reads no records the
-    index does not already hold, so what a search costs tracks how much it matched rather than how much is
-    stored. A stale fast index is rebuilt before that read and is therefore an attended reversible cache
-    mutation, not a semantic-read-only operation."""
+    SIDE-EFFECT-FREE, and now free of the ledger entirely on the fast path: it reads no records the index does
+    not already hold, so what a search costs tracks how much it matched rather than how much is stored."""
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
     tags_set = set(tags) if tags is not None else None
@@ -1052,13 +1049,6 @@ def main(argv: list) -> int:
         return _demo()
     print("usage: index.py demo")
     return 0
-
-
-try:
-    from . import mutation_authority as _mutation_authority
-except ImportError:  # direct CLI
-    from memory import mutation_authority as _mutation_authority
-_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

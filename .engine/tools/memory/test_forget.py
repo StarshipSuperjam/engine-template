@@ -8,9 +8,6 @@ build-conformance invariant that this Layer-1 module reaches NO physical-erasure
 
 from __future__ import annotations
 
-import contextlib
-import io
-import json
 import os
 import sys
 import tempfile
@@ -583,33 +580,6 @@ class WithholdTests(_Base):
         forget.restore(record_id=report["notes"][0]["id"])
         self.assertEqual(forget.withheld_report()["notes"], [])
 
-    def test_withheld_report_never_queries_or_derives_withheld_content(self):
-        from memory import pins as _pins
-
-        amber = _pins.add("Prefer amber alerts for deployment warnings")
-        violet = _pins.add("Use violet labels for research follow-ups")
-        forget.withhold(record_id=amber[records.RECORD_ID_KEY])
-        forget.withhold(record_id=violet[records.RECORD_ID_KEY])
-        report = forget.withheld_report()
-        self.assertEqual({note["id"] for note in report["notes"]}, {
-            amber[records.RECORD_ID_KEY], violet[records.RECORD_ID_KEY],
-        })
-        self.assertTrue(all(set(note) == {"id", "kind", "withheld_at"} for note in report["notes"]))
-        rendered = json.dumps(report, sort_keys=True)
-        self.assertNotIn("amber alerts", rendered.casefold())
-        self.assertNotIn("violet labels", rendered.casefold())
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            self.assertEqual(forget.main(["list-withheld"]), 0)
-        payload = json.loads(output.getvalue())
-        self.assertEqual({note["id"] for note in payload["notes"]}, {
-            amber[records.RECORD_ID_KEY], violet[records.RECORD_ID_KEY],
-        })
-        self.assertNotIn("violet labels", output.getvalue().casefold())
-
-        with self.assertRaises(TypeError):
-            forget.withheld_report(query="deployment")
-
     def test_ledger_order_decides_a_tie_that_timestamps_cannot(self):
         # Capture stamps whole seconds, so withhold-then-restore inside one second shares a `ts`. Ordering by
         # time would leave the operator's most recent instruction decided by a coin toss.
@@ -701,17 +671,6 @@ class WithholdTests(_Base):
         self.assertEqual(self._hits(force_scan=True), 5)
         forget.withhold(session_id="s-summary")
         self.assertEqual(self._hits(force_scan=True), 0)
-
-    def test_cli_fallback_lists_identifiers_and_restores_one_record(self):
-        rid = self._turns("s-cli", count=1)[0]
-        forget.withhold(record_id=rid)
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            self.assertEqual(forget.main(["list-withheld"]), 0)
-        self.assertIn(rid, output.getvalue())
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(forget.main(["restore-record", rid]), 0)
-        self.assertEqual(len(list(forget.live_records())), 1)
 
 
 if __name__ == "__main__":

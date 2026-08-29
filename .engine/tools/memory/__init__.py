@@ -6,9 +6,9 @@ slice that relay is LIVE: ``capture_turn_delta`` is exposed here, so the previou
 appends the completed turn's delta to the ledger instead of degrading to a no-op. The function is
 fail-soft (any fault is a clean no-op return, never a raise), so close is still never gated by capture.
 
-Importing ``memory`` binds only lazy public wrappers and does **no filesystem work**. The ``capture`` and
-``ledger`` implementations load when their wrappers are called, keeping root-tool guard installation
-cycle-free; callers that need submodule primitives still import them explicitly with ``from memory import
+Importing ``memory`` binds the ``capture`` + ``ledger`` submodules but does **no filesystem work** —
+all reads/writes happen inside the called functions — so the import itself cannot fail or do work on a
+live session's turn. Callers reach the ledger/index primitives explicitly with ``from memory import
 ledger`` / ``from memory import index``.
 
 Shipped: the ledger (``memory.ledger``), the derived index + plain-scan fallback (``memory.index``),
@@ -23,27 +23,9 @@ audit-gated physical erasure has shipped its enactment core (the gated removal +
 ``memory.compact``) and its cross-session observer (``memory.erasure_observer``).
 """
 
-def capture_turn_delta(*args, **kwargs):
-    """Lazy public seam; keep package import cycle-free for root-tool mutation guards."""
-    from memory.capture import capture_turn_delta as implementation
-    return implementation(*args, **kwargs)
-
-
-def migration_backup_available(*args, **kwargs):
-    """Lazy public seam for the migration pre-flight readiness probe."""
-    from memory.backup_vault import migration_backup_available as implementation
-    return implementation(*args, **kwargs)
-
-
-def snapshot_for_migration(*args, **kwargs):
-    """Lazy public seam for the module manager's pre-migration snapshot."""
-    from memory.backup_vault import snapshot_for_migration as implementation
-    return implementation(*args, **kwargs)
-
-
-def restore_pre_migration(*args, **kwargs):
-    """Lazy public seam for the migration-revert restore detector."""
-    from memory.restore_vault import restore_pre_migration as implementation
-    return implementation(*args, **kwargs)
+from memory.capture import capture_turn_delta  # noqa: F401 — the public capture entry close's relay calls
+from memory.backup_vault import migration_backup_available  # noqa: F401 — the migration pre-flight readiness probe
+from memory.backup_vault import snapshot_for_migration  # noqa: F401 — the pre-migration backup seam module_manager calls
+from memory.restore_vault import restore_pre_migration  # noqa: F401 — the migration-revert restore detector calls
 
 __all__ = ["capture_turn_delta", "migration_backup_available", "snapshot_for_migration", "restore_pre_migration"]

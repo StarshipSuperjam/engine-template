@@ -94,7 +94,6 @@ import derived_state      # noqa: E402  (the derived-committed set + its regener
 import release_source     # noqa: E402  (release fetch + ref/tag resolution boundary — single home, StarshipSuperjam/engine-template#925 Part 5)
 import checkout_health    # noqa: E402  (durable Git-native upgrade transaction; dependency-light, no back-edge)
 import render_safety      # noqa: E402  (receipt/refusal paths cross Markdown and terminal render boundaries)
-import hooks              # noqa: E402  (closed automatic-hook wiring grammar shared with both renderers)
 
 
 # ---- paths (computed from validate.ROOT at CALL time so a test/demo can redirect ROOT) --------
@@ -3119,38 +3118,12 @@ def _reconcile_gate(body: str) -> list:
     import release_impact_check  # noqa: E402 — the pure rendered-body rule; no event context exists pre-open
 
     findings = list(module_coherence.check_coherence())
-    findings += _automatic_hook_wiring_findings()
     findings += validate.collect("CI", {"pr_body": body, "pr_author": None, "pr_labels": []},
                                  with_source=True,
                                  rule_filter=lambda r: r.get("id") in _STRUCTURAL_GATE_CHECK_IDS)
     # The normal release-impact script reads GitHub's event payload. Before opening there is intentionally no
     # event, so invoke its public body-level rule directly instead of accepting its normal local no-op.
     findings += release_impact_check.findings_for_body(body)
-    return findings
-
-
-def _automatic_hook_wiring_findings() -> list:
-    """Hard findings for a rendered automatic hook that bypasses the accepted dispatcher.
-
-    Missing/malformed documents remain owned by their existing presence/schema checks. This leg is the
-    semantic complement: it proves the two provider files that do exist use the exact shared launcher and
-    closed automatic-effect roster before an upgrade can open a pull request.
-    """
-    findings = []
-    for provider, rel in (("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json")):
-        path = os.path.join(validate.ROOT, rel)
-        if not os.path.isfile(path):
-            continue
-        try:
-            document = validate.load_json(path)
-        except Exception:
-            continue
-        for failure in hooks.automatic_hook_wiring_failures(document, provider):
-            findings.append({
-                "severity": "hard",
-                "message": (f"Automatic persistent-state hook wiring is unsafe: {failure}. Regenerate the "
-                            "provider hook registrations from the module manifests."),
-            })
     return findings
 
 

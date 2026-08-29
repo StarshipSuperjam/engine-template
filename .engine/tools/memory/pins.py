@@ -35,8 +35,6 @@ the operator withheld. One mechanism, one mental model, and the append-only law 
 """
 
 import argparse
-import base64
-import binascii
 import os
 import sys
 import time
@@ -177,10 +175,6 @@ def main(argv: list) -> int:
     add_cmd = sub.add_parser("add", help="save a pin (something the operator asked to be remembered)")
     add_cmd.add_argument("text", help="the standing instruction to keep, in the operator's own terms")
     add_cmd.add_argument("--session", default=None, help="the session it was asked for in")
-    encoded_cmd = sub.add_parser(
-        "add-base64", help="save one UTF-8 pin carried as canonical URL-safe Base64 (shell-safe transport)")
-    encoded_cmd.add_argument("text_base64", help="canonical URL-safe Base64 of the exact standing instruction")
-    encoded_cmd.add_argument("--session", default=None, help="the session it was asked for in")
     sub.add_parser("list", help="read back every live pin")
     rm = sub.add_parser("remove", help="stop surfacing one pin (reversible)")
     rm.add_argument("record_id", help="the pin's id, as shown by `list`")
@@ -188,23 +182,6 @@ def main(argv: list) -> int:
     if args.cmd == "add":
         try:
             record = add(args.text, session_id=args.session, via=records.PIN_VIA_CLI)
-        except PinRefused as exc:
-            print(f"Not saved: {exc}")
-            return 1
-        print(f"Pinned [{record[records.RECORD_ID_KEY]}].")
-        return 0
-    if args.cmd == "add-base64":
-        try:
-            encoded = args.text_base64.encode("ascii")
-            raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
-            if base64.urlsafe_b64encode(raw) != encoded:
-                raise ValueError("non-canonical encoding")
-            text = raw.decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError, binascii.Error, ValueError):
-            print("Not saved: the pin transport must be canonical URL-safe Base64 of UTF-8 text.")
-            return 1
-        try:
-            record = add(text, session_id=args.session, via=records.PIN_VIA_CLI)
         except PinRefused as exc:
             print(f"Not saved: {exc}")
             return 1
@@ -229,13 +206,6 @@ def main(argv: list) -> int:
         return _print_list()
     parser.print_help()
     return 2
-
-
-try:
-    from . import mutation_authority as _mutation_authority
-except ImportError:  # direct CLI
-    from memory import mutation_authority as _mutation_authority
-_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

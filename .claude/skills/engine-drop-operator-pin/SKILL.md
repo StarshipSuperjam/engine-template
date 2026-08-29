@@ -11,4 +11,4 @@ engine-targets:
 
 ## Steps
 
-1. Only when the operator explicitly asks, first run `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`, then remove the named pin through the accepted attended boundary: `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/pins.py --operation attended-pin-remove -- remove <record-id>`. It stops being surfaced but stays recoverable.
+1. Only when the operator explicitly asks, remove the named pin with the memory pin tool (`.engine/tools/memory/pins.py`); it stops being surfaced but stays recoverable.

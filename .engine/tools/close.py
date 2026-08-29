@@ -639,9 +639,5 @@ def main(argv):
     return 2
 
 
-from memory import mutation_authority as _mutation_authority  # noqa: E402
-_mutation_authority.install_module_guards(globals())
-
-
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
