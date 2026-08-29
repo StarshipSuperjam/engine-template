@@ -19,6 +19,7 @@ import unittest
 from unittest import mock
 
 import plan_program
+from plan_program import DEAD_BRANCH_STATES
 import plan_store
 
 from test_plan_store import _document
@@ -1167,6 +1168,26 @@ class TheOrderCanBeReDecided(_Program):
         self.assertIn("SEALED", message)
         self.assertIn("program supersede", message)
 
+    def test_an_active_displaced_child_is_not_sent_at_a_verb_that_would_refuse_it(self):
+        """REGRESSION, round 2. An ACTIVE plan carries a seal too, so testing bool(seal) sent the
+        operator to `program supersede` — which refuses an active target. A real verb, named as the
+        fix, that would refuse the moment it was run: the round-1 dead-end shape, a third time.
+        """
+        slug = self._chain("pln_00000000ba01", "pln_00000000bb01")
+        self._seal("pln_00000000bb01")
+        self.plans.update_record(self.plans.resolve("pln_00000000bb01"),
+                                 lambda r: r.update({"build_binding": _BUILD_BINDING}))
+        self._plan("pln_00000000be01", "Child X",
+                   _obligation("OB-NEW", "The displaced child must answer for this."))
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.insert_child(slug, "pln_00000000be01", before="pln_00000000bb01")
+        message = str(caught.exception)
+        self.assertIn("OB-NEW", message)
+        self.assertIn("A Build is bound to", message)
+        self.assertIn("abandon it", message)
+        # And it must NOT hand them the verb that would turn round and refuse.
+        self.assertNotIn("`program supersede", message)
+
     def test_an_open_displaced_child_that_cannot_answer_is_told_to_revise_it(self):
         """The sealed refusal names supersede because revision is closed. Here it is open."""
         slug = self._chain("pln_9aaaaaaaaaaa", "pln_9bbbbbbbbbbb")
@@ -1271,6 +1292,13 @@ class ReplacementInPlace(_Program):
     def _retire(self, plan_id, reason="replaced"):
         self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
             "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": reason}}))
+
+    def _seal(self, plan_id):
+        plan_slug = self.plans.resolve(plan_id)
+        digest = self.plans.read_record(plan_slug)["current"]["plan_digest"]
+        self.plans.update_record(plan_slug, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z", "delta_judgment": "none"}}))
 
     def _complete(self, plan_id):
         self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
@@ -1496,6 +1524,75 @@ class ReplacementInPlace(_Program):
         # The carry-forward comparison reads the record's edge too: the decay sweep compares child
         # 3 against child 1, which is what the RECORD says it succeeds, and finds nothing owed.
         self.assertEqual(self.programs.carry_forward_decay(slug), [])
+
+    def test_supersede_checks_the_downstream_edge_it_creates(self):
+        """REGRESSION, round 2. The first repair fixed the INHERITED edge and left the one supersede
+        creates downstream. Everything that succeeded the replaced child comes to succeed the
+        REPLACEMENT, so it must answer for what the replacement carries — the same edge `insert`
+        already refused on, at a door that did not. Reproduced against the unfixed code: the
+        replacement's new obligation vanished from `obligation_report`, which read `None
+        outstanding` over a live, unanswered debt, and the completion gate saw nothing owed.
+        """
+        slug = self._program("Edge two", "The edge supersede creates, not only the one it inherits.")
+        self._plan("pln_0000000000a0", "A")
+        self.programs.add_child(slug, "pln_0000000000a0")
+        self._plan("pln_0000000000c0", "S, the one that turned out wrong",
+                   predecessor="pln_0000000000a0")
+        self.programs.add_child(slug, "pln_0000000000c0", predecessor="pln_0000000000a0")
+        self._plan("pln_0000000000d0", "D, downstream", predecessor="pln_0000000000c0")
+        self.programs.add_child(slug, "pln_0000000000d0", predecessor="pln_0000000000c0")
+        self._plan("pln_0000000000e0", "R, the replacement",
+                   _obligation("OB-NEW", "Whoever comes after R must finish this."))
+        self._retire("pln_0000000000c0")
+
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.mark_superseded(slug, "pln_0000000000c0", "pln_0000000000e0")
+        message = str(caught.exception)
+        self.assertIn("OB-NEW", message)
+        self.assertIn("pln_0000000000d0", message)
+        self.assertIn("Revise pln_0000000000d0", message)
+        # Nothing was written, so the chain is untouched and the debt is still findable.
+        self.assertEqual(
+            {c["plan_id"]: c.get("predecessor_plan_id")
+             for c in self.programs.read(slug)["children"]},
+            {"pln_0000000000a0": None, "pln_0000000000c0": "pln_0000000000a0",
+             "pln_0000000000d0": "pln_0000000000c0"})
+
+    def test_a_sealed_downstream_child_that_cannot_answer_is_told_to_supersede_it_too(self):
+        slug = self._program("Edge two, sealed", "The downstream child cannot be revised.")
+        self._plan("pln_0000000000a1", "A")
+        self.programs.add_child(slug, "pln_0000000000a1")
+        self._plan("pln_0000000000c1", "S", predecessor="pln_0000000000a1")
+        self.programs.add_child(slug, "pln_0000000000c1", predecessor="pln_0000000000a1")
+        self._plan("pln_0000000000d1", "D, sealed", predecessor="pln_0000000000c1")
+        self.programs.add_child(slug, "pln_0000000000d1", predecessor="pln_0000000000c1")
+        self._seal("pln_0000000000d1")
+        self._plan("pln_0000000000e1", "R", _obligation("OB-NEW", "Someone must finish this."))
+        self._retire("pln_0000000000c1")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.mark_superseded(slug, "pln_0000000000c1", "pln_0000000000e1")
+        self.assertIn("SEALED", str(caught.exception))
+        self.assertIn("program supersede pln_0000000000d1", str(caught.exception))
+
+    def test_a_dead_downstream_child_is_owed_nothing_and_does_not_bar_the_supersession(self):
+        """A retired successor answers for nothing, so it must not block a replacement either."""
+        slug = self._program("Edge two, dead", "The downstream child was abandoned.")
+        self._plan("pln_0000000000a2", "A")
+        self.programs.add_child(slug, "pln_0000000000a2")
+        self._plan("pln_0000000000c2", "S", predecessor="pln_0000000000a2")
+        self.programs.add_child(slug, "pln_0000000000c2", predecessor="pln_0000000000a2")
+        self._plan("pln_0000000000d2", "D, abandoned", predecessor="pln_0000000000c2")
+        self.programs.add_child(slug, "pln_0000000000d2", predecessor="pln_0000000000c2")
+        self.plans.update_record(self.plans.resolve("pln_0000000000d2"),
+                                 lambda r: r.update({"closure": {
+                                     "state": "abandoned", "at": "2026-08-29T06:00:00Z",
+                                     "reason": "dropped"}}))
+        self._plan("pln_0000000000e2", "R", _obligation("OB-NEW", "Someone must finish this."))
+        self._retire("pln_0000000000c2")
+        record = self.programs.mark_superseded(slug, "pln_0000000000c2", "pln_0000000000e2")
+        self.assertEqual(
+            next(c for c in record["children"]
+                 if c["plan_id"] == "pln_0000000000c2")["superseded_by"], "pln_0000000000e2")
 
     def test_a_plan_cannot_supersede_itself(self):
         slug = self._chain("pln_0000000000ae", "pln_0000000000be")
@@ -1751,6 +1848,24 @@ class EndsThatSettleTheirBooks(_Program):
 
     # -- reopen keeps what it undoes ---------------------------------------------------------
 
+    def test_close_is_not_a_second_door_into_completion(self):
+        """`complete` has one door because it is the only closure with a gate of its own."""
+        slug = self._program("One door", "Completion is not written through close.")
+        self._plan("pln_00000000000d", "Child A")
+        self.programs.add_child(slug, "pln_00000000000d")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.close(slug, "complete", "sneaking past the gate")
+        self.assertIn("not written through `close`", str(caught.exception))
+        self.assertIsNone(self.programs.read(slug).get("closure"))
+
+    def test_acknowledging_an_unknown_that_does_not_exist_is_refused(self):
+        """Silently dropping it would leave the record holding less than the operator believes."""
+        slug = self._program("Nothing unknown", "Its books compute fine.")
+        self._plan("pln_00000000000e", "Child A")
+        self.programs.add_child(slug, "pln_00000000000e")
+        with self.assertRaisesRegex(plan_program.ProgramError, "nothing to "):
+            self.programs.close(slug, "retired", "down", acknowledged_unknown="just in case")
+
     def test_reopen_requires_a_reason_for_every_state_and_keeps_what_it_undid(self):
         for index, (state, close) in enumerate((
                 ("retired", lambda s: self.programs.close(s, "retired", "set down")),
@@ -1937,3 +2052,103 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
         source = self._sources()
         self.assertIn("does not start a Build", source,
                       "the bind refusal must be inside the swept text, not merely nearby")
+
+
+class NoRefusalSendsYouAtADoorThatRefuses(_Program):
+    """The defect CLASS, closed by exhaustion rather than by fixing the instances one at a time.
+
+    Three separate refusals in this change named a way through that would itself refuse: the bind
+    door named `reopen` for a sealed plan, and both edge-two refusals named `program supersede` for
+    an ACTIVE plan, because an active plan carries a seal and `bool(seal)` cannot tell the two apart.
+    Each was found by a different reviewer, one round after the last, which is the signal that
+    patching instances was not going to finish the job.
+
+    So this drives the real refusals against a displaced or downstream child in EVERY lifecycle
+    status, and asserts of each message that whatever it names is something that would not turn
+    round and refuse. It is a matrix, so a status nobody thought about is covered by construction.
+    """
+
+    STATUSES = ("draft", "sealed", "active", "retired", "abandoned")
+
+    def _put_in_status(self, plan_id, status):
+        slug = self.plans.resolve(plan_id)
+        if status == "draft":
+            return
+        if status in ("sealed", "active"):
+            digest = self.plans.read_record(slug)["current"]["plan_digest"]
+            self.plans.update_record(slug, lambda r: r.update({"seal": {
+                "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+                "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z",
+                "delta_judgment": "none"}}))
+        if status == "active":
+            self.plans.update_record(slug, lambda r: r.update({"build_binding": _BUILD_BINDING}))
+        if status in DEAD_BRANCH_STATES:
+            self.plans.update_record(slug, lambda r: r.update({"closure": {
+                "state": status, "at": "2026-08-29T06:00:00Z", "reason": "stopped"}}))
+
+    def _assert_no_dead_end(self, message, plan_id, status):
+        """The named verb must be one that would actually run for a plan in THIS status."""
+        if "`program supersede" in message:
+            # supersede refuses complete and active targets, so naming it for one is a dead end.
+            self.assertNotIn(status, ("complete", "active"),
+                             f"the refusal names supersede for a {status} plan, which supersede "
+                             f"itself refuses:\n{message}")
+        if "Revise " in message and "`program supersede" not in message:
+            # A sealed plan is terminal and cannot be revised.
+            self.assertNotIn(status, ("sealed", "active"),
+                             f"the refusal says to revise a {status} plan, which cannot be "
+                             f"revised:\n{message}")
+        if status == "active":
+            self.assertIn("Build", message,
+                          "an active plan's refusal must say the Build has to stop first")
+
+    def test_inserts_edge_two_refusal_never_names_a_door_that_would_refuse(self):
+        for index, status in enumerate(self.STATUSES):
+            with self.subTest(status=status):
+                slug = self._program(f"Matrix insert {index}", "Every status of a displaced child.")
+                first = f"pln_00000000c{index}01"
+                displaced = f"pln_00000000c{index}02"
+                newcomer = f"pln_00000000c{index}03"
+                self._plan(first, "First")
+                self.programs.add_child(slug, first)
+                self._plan(displaced, "Displaced", predecessor=first)
+                self.programs.add_child(slug, displaced, predecessor=first)
+                self._put_in_status(displaced, status)
+                self._plan(newcomer, "Newcomer",
+                           _obligation("OB-NEW", "The displaced child must answer for this."))
+                try:
+                    self.programs.insert_child(slug, newcomer, before=displaced)
+                except plan_program.ProgramError as refusal:
+                    self._assert_no_dead_end(str(refusal), displaced, status)
+
+    def test_supersedes_edge_two_refusal_never_names_a_door_that_would_refuse(self):
+        for index, status in enumerate(self.STATUSES):
+            with self.subTest(status=status):
+                slug = self._program(f"Matrix supersede {index}", "Every status of a downstream child.")
+                first = f"pln_00000000d{index}01"
+                target = f"pln_00000000d{index}02"
+                downstream = f"pln_00000000d{index}03"
+                replacement = f"pln_00000000d{index}04"
+                self._plan(first, "First")
+                self.programs.add_child(slug, first)
+                self._plan(target, "The one being replaced", predecessor=first)
+                self.programs.add_child(slug, target, predecessor=first)
+                self._plan(downstream, "Downstream", predecessor=target)
+                self.programs.add_child(slug, downstream, predecessor=target)
+                self._put_in_status(downstream, status)
+                self._plan(replacement, "Replacement",
+                           _obligation("OB-NEW", "Whoever follows must answer for this."))
+                self.plans.update_record(self.plans.resolve(target), lambda r: r.update({"closure": {
+                    "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "replaced"}}))
+                try:
+                    self.programs.mark_superseded(slug, target, replacement)
+                except plan_program.ProgramError as refusal:
+                    self._assert_no_dead_end(str(refusal), downstream, status)
+
+    def test_the_matrix_would_catch_the_defect_it_was_written_for(self):
+        """THE assertion the matrix rests on, exercised against the exact message that was wrong."""
+        was_wrong = ("pln_x does not answer for 1 obligation(s):\n  - OB-NEW: x\n"
+                     "That plan is SEALED, and a seal is terminal, so it cannot be revised to "
+                     "answer for them. Replace it: `program supersede pln_x` with a plan that does.")
+        with self.assertRaises(AssertionError):
+            self._assert_no_dead_end(was_wrong, "pln_x", "active")

@@ -99,6 +99,31 @@ def dropped_obligations(predecessor: dict, successor: dict, *, released=()) -> l
 DEAD_BRANCH_STATES = ("retired", "abandoned")
 
 
+def way_through_for(plan_id: str, status: str, sealed: bool) -> str:
+    """What the operator can actually DO about a child that cannot answer for an obligation.
+
+    One owner, because two callers each worked it out for themselves and both got the same case
+    wrong: they tested `bool(record["seal"])` and named supersede, but an ACTIVE plan carries a seal
+    too — a Build is bound to it — and supersede refuses an active target. So the refusal named a
+    real verb that would refuse the moment it was run, which is the dead-end shape this change
+    exists to close, arriving a third time.
+
+    A plan that is still open can simply be revised. A sealed one cannot — a seal is terminal — so
+    it is replaced. An active one cannot be replaced either until its Build stops, and saying so is
+    the difference between a way through and a door that opens onto a wall.
+    """
+    if status == "active":
+        return (f"\nA Build is bound to {plan_id} right now, so it can be neither revised (its seal "
+                "is terminal) nor superseded (superseding a plan with a Build running would strand "
+                "it). Let that Build merge, or abandon it, and then supersede "
+                f"{plan_id} with a plan that answers.")
+    if sealed:
+        return (f"\nThat plan is SEALED, and a seal is terminal, so it cannot be revised to answer "
+                f"for them. Replace it: `program supersede {plan_id}` with a plan that does.")
+    return (f"\nRevise {plan_id} so each appears in its carried_obligations as satisfied, still "
+            "carried, or released with a reason, then try again.")
+
+
 def chain_analysis(record: dict) -> dict:
     """Order the children by their DECLARED predecessor edges, and name every anomaly found.
 
@@ -415,19 +440,13 @@ class ProgramLibrary:
                                           self.plans.head(self.plans.resolve(displaced_id)),
                                           released=self.released_at(record, plan_id))
             if dropped:
-                sealed = bool(displaced_record.get("seal"))
                 raise ProgramError(
                     f"{displaced_id} would succeed {plan_id} once this insertion lands, and it does "
                     f"not answer for {len(dropped)} obligation(s) that {plan_id} declares it is "
                     f"carrying:\n"
                     + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
-                    + ("\nThat plan is SEALED, and a seal is terminal, so it cannot be revised to "
-                       f"answer for them. The way through is to replace it: `program supersede "
-                       f"{displaced_id}` with a plan that does answer, which inherits its place on "
-                       "the chain and keeps it visible in the record."
-                       if sealed else
-                       f"\nRevise {displaced_id} so each appears in its carried_obligations as "
-                       "satisfied, still carried, or released with a reason, then insert."))
+                    + way_through_for(displaced_id, displaced_status,
+                                      bool(displaced_record.get("seal"))))
 
             child = {"plan_id": plan_id, "added_at": _now()}
             if inherited:
@@ -607,6 +626,41 @@ class ProgramLibrary:
                           f"{superseded_id}` pre-fills exactly this set from the predecessor, which is "
                           "the honest source: the plan being replaced never landed, so its own claims "
                           "about what it satisfied describe work that does not exist.")
+            # Edge two, and supersede owes it for exactly the reason insert does: everything that
+            # succeeded the replaced child is about to succeed the REPLACEMENT instead, so each of
+            # them must answer for what the replacement carries. Checking only the inherited edge
+            # was the round-1 defect wearing its other face — a replacement that declares a new
+            # obligation had it vanish from the report the moment the downstream edge moved, with
+            # `program show` reading "None outstanding" over a live, unanswered debt. Reproduced
+            # before this existed. The decay sweep did notice, but decay is a warning printed once
+            # to a terminal; the report is the surface a close and a completion gate on.
+            replacement_head = self.plans.head(replacement_slug)
+            for other in record["children"]:
+                if other["plan_id"] in (superseded_id, replacement_id):
+                    continue
+                if other.get("predecessor_plan_id") != superseded_id or other.get("superseded_by"):
+                    continue
+                try:
+                    downstream_record = self.plans.read_record(self.plans.resolve(other["plan_id"]))
+                    downstream_status = plan_store.derived_status(downstream_record)
+                    downstream_head = self.plans.head(self.plans.resolve(other["plan_id"]))
+                except Exception:  # noqa: BLE001 — an unreadable child is reported by other readers
+                    continue
+                if downstream_status in DEAD_BRANCH_STATES:
+                    continue      # a dead successor answers for nothing, and is owed nothing
+                dropped = dropped_obligations(
+                    replacement_head, downstream_head,
+                    released=self.released_at(record, replacement_id))
+                if not dropped:
+                    continue
+                raise ProgramError(
+                    f"{other['plan_id']} succeeds {superseded_id} today, so this supersession would "
+                    f"move it onto {replacement_id} — and it does not answer for "
+                    f"{len(dropped)} obligation(s) that {replacement_id} declares it is carrying:\n"
+                    + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
+                    + way_through_for(other["plan_id"], downstream_status,
+                                      bool(downstream_record.get("seal"))))
+
         return {"superseded_id": superseded_id, "replacement_id": replacement_id,
                 "replacement_slug": replacement_slug, "inherited": inherited, "already": already}
 
@@ -766,7 +820,7 @@ class ProgramLibrary:
 
     def close(self, slug: str, state: str, reason: str, *,
               acknowledged_unknown: str | None = None) -> dict:
-        """End a program — retired, abandoned, or complete — after settling its books.
+        """End a program — retired or abandoned — after settling its books. NOT completion.
 
         Closing used to write the closure without consulting the obligation report, so a program
         could be retired while its own `show` went on listing debts as outstanding under a closed
@@ -783,6 +837,14 @@ class ProgramLibrary:
           and would permanently wedge exactly the wrecked programs `abandon` exists for. So they close
           on a recorded decision: not a wall, and not a silent pass.
         """
+        if state == "complete":
+            # `complete` has exactly one door, and this is not it. The signature admits the state
+            # because the schema does, but reaching completion here would skip `completion_blockers`
+            # entirely — a second entrance standing open beside the one this change exists to build.
+            raise ProgramError(
+                "completion is not written through `close`. It has one door — `complete` — because "
+                "it is the only closure with a gate of its own: every live child complete, something "
+                "actually shipped, and nothing owed or unknown.")
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
             record = self.read(slug)
             if record.get("closure"):
@@ -812,6 +874,13 @@ class ProgramLibrary:
             closure = {"state": state, "at": _now(), "reason": reason}
             if report["unknown"]:
                 closure["acknowledged_unknown"] = acknowledged_unknown
+            elif (acknowledged_unknown or "").strip():
+                # Passed defensively when there was nothing to acknowledge. Silently dropping it
+                # would leave the operator believing the record holds something it does not.
+                raise ProgramError(
+                    "nothing about this program's books is unknown, so there is nothing to "
+                    "acknowledge — and recording an acknowledgement of nothing would put a claim on "
+                    "the record that misdescribes it. Close without --acknowledge-unknown.")
             record["closure"] = closure
             self._write(slug, record)
             return record

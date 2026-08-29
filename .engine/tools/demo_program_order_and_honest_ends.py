@@ -47,12 +47,20 @@ from test_plan_store import _document  # noqa: E402  — the same minimal plan s
 
 OK = True
 
+# Plan identifiers are how the machinery talks; titles are how a person does. Every refusal below is
+# the REAL message, so it names ids — and a reader who has been following "First: the foundation"
+# should not suddenly be asked to track `pln_0000000000a1`. Titles are substituted back in for
+# display only; nothing about the check changes.
+TITLES: dict = {}
+
 
 def check(claim: str, condition: bool, detail: str = "") -> None:
     global OK
     OK = OK and bool(condition)
     print(f"  {'PASS' if condition else 'FAIL'}  {claim}")
     if detail:
+        for plan_id, title in TITLES.items():
+            detail = detail.replace(plan_id, f'"{title}"')
         print(f"        {detail}")
 
 
@@ -61,6 +69,7 @@ def obligation(identifier, statement, state="carried"):
 
 
 def make_plan(library, program_id, plan_id, title, *obligations, predecessor=None):
+    TITLES[plan_id] = title
     document = _document(plan_id=plan_id, title=title)
     program = {"program_id": program_id}
     if obligations:
@@ -171,7 +180,7 @@ def scene_three_completion(programs, library):
         check("recording completion over unfinished work is refused", False)
     except plan_program.ProgramError as refusal:
         check("recording completion over unfinished work is refused",
-              "pln_0000000000d2" in str(refusal), str(refusal).splitlines()[0])
+              "pln_0000000000d2" in str(refusal), str(refusal).splitlines()[1].strip())
 
     close_plan(library, "pln_0000000000d2", "complete", "merged")
     programs.complete(slug, "both pull requests landed and the objective is met")

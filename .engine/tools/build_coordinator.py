@@ -1001,12 +1001,20 @@ def _library() -> "plan_store.PlanLibrary":
 # without assurance, and the operator named it governance overreach.
 
 
-def _sealed_plan(selector: str) -> tuple[str, str, dict]:
+def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dict]:
     """Resolve a sealed plan in the local library: (plan_id, sealed_digest, build payload).
 
     This is the ONLY door a plan comes through. Anything unsealed is refused here rather than at some
     later gate, because a Build that has already started against an unreviewed plan is exactly the
     failure the seal exists to prevent.
+
+    `entering` says whether this call is a Build STARTING on the plan. The closed-plan refusal below
+    applies only then, and the distinction is load-bearing: the rule is that a closed plan does not
+    start a Build, not that a Build already legitimately under way stops existing when someone
+    retires its plan. Applied to the resume paths as well, it stranded exactly the sessions that
+    most needed to hand their work on — handoff export and cold continuation both refused, and told
+    the operator to clone and start again, discarding a Build with an open pull request. Those two
+    callers pass `entering=False` and disclose the closure instead of refusing on it.
     """
     import plan_contract
     library = _library()
@@ -1027,7 +1035,13 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
             "lifecycle first — preview, approve with a depth, record the one cold plan review, "
             f"disposition its findings, then `project_manager.py seal {record['plan_id']}`.")
     closure = record.get("closure")
-    if closure:
+    if closure and not entering:
+        # Disclosed, never swallowed: the operator is finishing a Build whose plan was closed under
+        # it, and that is worth saying out loud even though it does not stop the resume.
+        print(f"note: {record['plan_id']} is {closure['state']} ({closure['reason']}). This Build "
+              "was bound before that, so it continues; a NEW Build could not start on this plan.",
+              file=sys.stderr)
+    if closure and entering:
         # A closed plan stayed BINDABLE, and a seal is forever: a plan retired because it was
         # superseded, or abandoned because the work was dropped, could still start a Build months
         # later — a loaded gun on the shelf under a record saying it had been put away. "No longer
@@ -3614,7 +3628,7 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
             "operator authority, and a cold resume would recover the SEALED payload rather than the "
             "one being built. Finish this Build in the session that holds the revised plan, or re-plan "
             "from intent into a new plan and start a fresh Build.")
-    _, _, sealed = _sealed_plan(state["plan"]["plan_id"])
+    _, _, sealed = _sealed_plan(state["plan"]["plan_id"], entering=False)
     _assert_plan(state, sealed)
     _assert_spec_boundary(state, sealed)
     value = _handoff(state)
@@ -3743,7 +3757,7 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # this is BC-19's amended form, and it fails closed in every direction.
     plan_id = value["plan"]["plan_id"]
     try:
-        recorded_id, sealed_digest, plan = _sealed_plan(plan_id)
+        recorded_id, sealed_digest, plan = _sealed_plan(plan_id, entering=False)
     except CoordinatorError as exc:
         raise CoordinatorError(f"the sealed plan this Build was bound to is unusable, so cold "
                                f"continuation is blocked: {exc}") from exc

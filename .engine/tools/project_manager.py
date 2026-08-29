@@ -1440,19 +1440,33 @@ def cmd_close(args) -> int:
     return 0
 
 
-def _close_plan(library, slug: str, state: str, reason: str) -> None:
+def _close_plan(library, slug: str, state: str, reason: str, *,
+                refuse_if_active: bool = False) -> None:
     """Write a plan's closure and re-project the library. THE close path, and the only one.
 
     Extracted so `program supersede` retires the plan it replaces through exactly this door rather
     than through a second implementation of it. A supersession that wrote a closure some other way
     would be a plan marked closed in the record while the projection still advertised it — which is
     the shape of the loaded gun supersede exists to unload.
+
+    `refuse_if_active` re-asserts supersede's own precondition INSIDE the lock. Supersede reads the
+    target's status before it writes anything, and that read is unlocked: a Build binding to the
+    plan in the window between the read and this write would leave a plan retired underneath a
+    running Build — the one outcome supersede calls unrecoverable, and one `derived_status` then
+    hides, because it reports the closure before it looks at the binding. The store's own discipline
+    is that every gate re-asserts its precondition in the mutator; this is supersede honouring it.
     """
     def close(current):
         if current.get("closure"):       # re-asserted inside the lock
             raise ProjectManagerError(
                 f"another session closed this plan as {current['closure']['state']} while this one was "
                 "reading it; reopen it before closing it differently")
+        if refuse_if_active and current.get("build_binding"):
+            raise ProjectManagerError(
+                "a Build bound to this plan while the supersession was being prepared, so retiring "
+                "it now would strand that Build under a retired plan — it would go on publishing "
+                "from it, and its completion could never be recorded. Nothing was written. Finish "
+                "that Build and let it merge, or abandon it, then supersede.")
         current["closure"] = {"state": state, "at": _now(), "reason": reason}
 
     library.update_record(slug, close)
@@ -2059,13 +2073,18 @@ def cmd_program_supersede(args) -> int:
     resolved = programs.supersede_check(slug, args.plan, args.With)
 
     superseded_slug = library.resolve(resolved["superseded_id"])
-    if not library.read_record(superseded_slug).get("closure"):
-        _close_plan(library, superseded_slug, "retired", args.reason)
+    existing = library.read_record(superseded_slug).get("closure")
+    if not existing:
+        _close_plan(library, superseded_slug, "retired", args.reason, refuse_if_active=True)
         print(f"retired {resolved['superseded_id']}: {args.reason}")
     else:
-        # The half-completed state: the plan was retired by an earlier run that did not reach the
-        # record. Said out loud, because silence here would read as though nothing had happened.
-        print(f"{resolved['superseded_id']} was already retired; completing the supersession.")
+        # The half-completed state: the plan was closed by an earlier run that did not reach the
+        # record. Said out loud, because silence here would read as though nothing had happened —
+        # and named by its ACTUAL state, since a concurrent session may have abandoned it rather
+        # than retired it, and reporting the state we expected instead of the one on the record
+        # would be this message asserting something untrue.
+        print(f"{resolved['superseded_id']} was already {existing['state']}; "
+              "completing the supersession.")
 
     record = programs.mark_superseded(slug, args.plan, args.With)
     print(f"{resolved['replacement_id']} supersedes {resolved['superseded_id']} "
