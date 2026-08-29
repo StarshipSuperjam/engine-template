@@ -1239,6 +1239,73 @@ class ProgramVerbs(_Governed):
         self.assertIn("OB-NEW", err)
         self.assertIn("Revise pln_bbbbbbbbbbbb", err)
 
+    def _superseded_setup(self):
+        """A -> B, where B is sealed and about to be replaced. Returns the program id."""
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        return program_id
+
+    def test_supersede_retires_the_plan_first_and_then_marks_the_record(self):
+        program_id = self._superseded_setup()
+        self._plan_doc(program_id, "pln_cccccccccccc", "PR B, second attempt",
+                       self._obligation("OB-1", "Cut over, properly this time.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, out, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                          "--with", "pln_cccccccccccc",
+                                          "--reason", "the cut-over shape was wrong")
+        self.assertEqual(code, 0, err)
+        self.assertIn("retired pln_bbbbbbbbbbbb", out)
+        self.assertIn("pln_cccccccccccc supersedes pln_bbbbbbbbbbbb", out)
+        # The plan is retired through the ordinary close path, so `show` reports it that way.
+        self.assertIn("retired", self.run_command("show", "pln_bbbbbbbbbbbb")[1])
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("superseded by `pln_cccccccccccc`", rendered)
+        self.assertIn("PR B, second attempt", rendered)
+        self.assertIn("PR B", rendered)          # nothing was deleted to make room
+
+    def test_supersede_refuses_before_it_retires_anything(self):
+        """A refusal must not leave the replaced plan out of play for a supersession that never landed."""
+        program_id = self._superseded_setup()
+        self._plan_doc(program_id, "pln_cccccccccccc", "A replacement that forgot",
+                       predecessor="pln_aaaaaaaaaaaa")     # says nothing about OB-1
+        code, _, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                        "--with", "pln_cccccccccccc", "--reason", "no")
+        self.assertEqual(code, 2)
+        self.assertIn("OB-1", err)
+        self.assertNotIn("retired", self.run_command("show", "pln_bbbbbbbbbbbb")[1])
+
+    def test_clone_supersedes_sources_obligations_from_the_predecessor(self):
+        """Not from the plan being replaced: its own claims describe work that never landed."""
+        program_id = self._superseded_setup()
+        code, out, err = self.run_command("clone", "pln_bbbbbbbbbbbb", "--supersedes",
+                                          "pln_bbbbbbbbbbbb", "--reason", "the shape was wrong")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Pre-filled to supersede pln_bbbbbbbbbbbb", out)
+        self.assertIn("OB-1", out)
+        clone_id = out.split("into ")[1].split()[0]
+        document = self.lib.head(self.lib.resolve(clone_id))
+        program = document["program"]
+        self.assertEqual(program["program_id"], program_id)
+        self.assertEqual(program["predecessor_plan_id"], "pln_aaaaaaaaaaaa")
+        # B SATISFIED OB-1. The clone re-declares it as CARRIED, because B never landed.
+        self.assertEqual([(o["id"], o["state"]) for o in program["carried_obligations"]],
+                         [("OB-1", "carried")])
+        record = self.lib.read_record(self.lib.resolve(clone_id))
+        for evidence in ("approval", "plan_review", "seal"):
+            self.assertIsNone(record.get(evidence), evidence)
+
+    def test_clone_supersedes_refuses_a_plan_in_no_program(self):
+        self._plan_doc_standalone = _document(plan_id="pln_dddddddddddd", title="Standalone")
+        self.lib.create(self._plan_doc_standalone)
+        code, _, err = self.run_command("clone", "pln_dddddddddddd", "--supersedes",
+                                        "pln_dddddddddddd", "--reason", "why")
+        self.assertEqual(code, 2)
+        self.assertIn("is not a child of any program", err)
+
     def test_the_verb_writes_no_position_for_either_door(self):
         program_id = self._program_with_child()
         record = json.loads((self.lib.root / "programs" / next(

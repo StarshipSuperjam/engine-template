@@ -40,6 +40,11 @@
           "description": "LEGACY, and no longer written. It was a display label that nothing read: the rendered ordinal is computed from the predecessor edges, so a record whose numbering has been permuted or duplicated still reads in the order its edges declare. Its survival was deferred to the verb that would first have to invent a value for an INSERTED child — insert is that verb, and the answer is that it dies rather than being renumbered, because renumbering writes a record per displaced child and opens a window where the stored number and the derived order disagree. Still permitted so records written before this remain valid; nothing writes it and nothing reads it."
         },
         "added_at": {"$ref": "#/$defs/timestamp"},
+        "superseded_by": {
+          "type": "string",
+          "pattern": "^pln_[0-9a-f]{12}$",
+          "description": "The plan that replaced this one in the order. Set by supersede, which keeps the replaced child VISIBLE rather than deleting it — history is never removed from this record — and re-points the edges so the replacement inherits its place on the chain. The replaced plan is separately retired through the Project Manager's own close path, which is what stops it being bindable to a Build; this marker is the program's side of that decision, not a second authority over it."
+        },
         "predecessor_plan_id": {
           "type": "string",
           "pattern": "^pln_[0-9a-f]{12}$",

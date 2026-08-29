@@ -1221,3 +1221,188 @@ class TheOrderCanBeReDecided(_Program):
         self._plan("pln_feeeeeeeeeee", "Child X", program_id="prg_ffffffffffff")
         with self.assertRaisesRegex(plan_program.ProgramError, "does not declare that it belongs"):
             self.programs.insert_child(slug, "pln_feeeeeeeeeee", before="pln_fbbbbbbbbbbb")
+
+
+_BUILD_BINDING = {
+    "sealed_digest": "sha256:" + "a" * 64,
+    "build_plan_digest": "sha256:" + "b" * 64,
+    "at": "2026-08-29T07:00:00Z",
+    "repository": "owner/repo",
+    "pull_request": 7,
+}
+
+
+class ReplacementInPlace(_Program):
+    """Supersede: a child that turned out wrong is replaced, and nothing is deleted to do it.
+
+    The record half only. The ordered two-step — retire the plan first, then mark the record — lives
+    in the Project Manager's command layer, because plan_program may not write the plan library at
+    all, and `test_project_manager` drives it end to end. What is pinned here is the shape the
+    program record ends up in, and every refusal decided before a single write.
+    """
+
+    def _chain(self, *ids):
+        slug = self._program("Replaceable", "Delivered across PRs, one of which turned out wrong.")
+        previous = None
+        for plan_id in ids:
+            self._plan(plan_id, f"Child {plan_id[-2:]}", predecessor=previous)
+            self.programs.add_child(slug, plan_id, predecessor=previous)
+            previous = plan_id
+        return slug
+
+    def _retire(self, plan_id, reason="replaced"):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": reason}}))
+
+    def _complete(self, plan_id):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "complete", "at": "2026-08-29T05:00:00Z", "reason": "merged"}}))
+
+    def _bind(self, plan_id):
+        """A Build bound to this plan — what makes `derived_status` read `active`."""
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({
+            "build_binding": _BUILD_BINDING}))
+
+    def _edges(self, slug):
+        return {child["plan_id"]: child.get("predecessor_plan_id")
+                for child in self.programs.read(slug)["children"]}
+
+    def test_a_mid_chain_supersession_re_points_the_downstream_edges(self):
+        slug = self._chain("pln_0000000000a1", "pln_0000000000b1", "pln_0000000000c1")
+        self._plan("pln_0000000000d1", "Replacement for B")
+        self._retire("pln_0000000000b1")
+        record = self.programs.mark_superseded(slug, "pln_0000000000b1", "pln_0000000000d1")
+        self.assertEqual(self._edges(slug), {
+            "pln_0000000000a1": None,
+            # The replaced child keeps its TRUE ancestry: it really did succeed A. Re-pointing it at
+            # its own replacement would assert an answerability that never existed.
+            "pln_0000000000b1": "pln_0000000000a1",
+            "pln_0000000000d1": "pln_0000000000a1",   # the replacement inherits the place
+            "pln_0000000000c1": "pln_0000000000d1",   # and everything downstream follows it
+        })
+        marked = next(c for c in record["children"] if c["plan_id"] == "pln_0000000000b1")
+        self.assertEqual(marked["superseded_by"], "pln_0000000000d1")
+
+    def test_nothing_is_deleted_and_the_replaced_child_says_what_replaced_it(self):
+        slug = self._chain("pln_0000000000a2", "pln_0000000000b2")
+        self._plan("pln_0000000000d2", "Replacement for B")
+        self._retire("pln_0000000000b2")
+        record = self.programs.mark_superseded(slug, "pln_0000000000b2", "pln_0000000000d2")
+        self.assertEqual(len(record["children"]), 3)
+        rendered = plan_program.render(self.programs, record)
+        self.assertIn("superseded by `pln_0000000000d2`", rendered)
+        self.assertIn("pln_0000000000b2", rendered)
+
+    def test_superseding_merged_history_is_refused_naming_appended_work(self):
+        slug = self._chain("pln_0000000000a3", "pln_0000000000b3")
+        self._plan("pln_0000000000d3", "Replacement for B")
+        self._complete("pln_0000000000b3")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000b3", "pln_0000000000d3")
+        message = str(caught.exception)
+        self.assertIn("is complete", message)
+        self.assertIn("program add --after", message)
+
+    def test_superseding_a_plan_with_a_build_running_is_refused_naming_the_build(self):
+        slug = self._chain("pln_0000000000a4", "pln_0000000000b4")
+        self._plan("pln_0000000000d4", "Replacement for B")
+        self._bind("pln_0000000000b4")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000b4", "pln_0000000000d4")
+        message = str(caught.exception)
+        self.assertIn("ACTIVE", message)
+        self.assertIn("Finish that Build", message)
+
+    def test_the_replacement_inherits_the_place_and_the_debt(self):
+        slug = self._program("Inherited debt", "A replacement takes on what its place owed.")
+        self._plan("pln_0000000000a5", "Child A",
+                   _obligation("OB-1", "Someone after this must answer."))
+        self.programs.add_child(slug, "pln_0000000000a5")
+        self._plan("pln_0000000000b5", "Child B",
+                   _obligation("OB-1", "Answered.", "satisfied"), predecessor="pln_0000000000a5")
+        self.programs.add_child(slug, "pln_0000000000b5", predecessor="pln_0000000000a5")
+        self._plan("pln_0000000000d5", "Replacement that forgot")   # says nothing about OB-1
+        self._retire("pln_0000000000b5")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000b5", "pln_0000000000d5")
+        message = str(caught.exception)
+        self.assertIn("OB-1", message)
+        self.assertIn("clone --supersedes", message)
+
+    def test_a_half_completed_supersession_re_runs_to_convergence(self):
+        """The crash window: the plan is retired, the record was never marked. Run it again."""
+        slug = self._chain("pln_0000000000a6", "pln_0000000000b6")
+        self._plan("pln_0000000000d6", "Replacement for B")
+        self._retire("pln_0000000000b6")              # step 2 landed
+        self.programs.mark_superseded(slug, "pln_0000000000b6", "pln_0000000000d6")
+        before = self._edges(slug)
+        # Step 3 again, on an already-marked record: converges rather than raising or duplicating.
+        self.programs.mark_superseded(slug, "pln_0000000000b6", "pln_0000000000d6")
+        self.assertEqual(self._edges(slug), before)
+        self.assertEqual(len(self.programs.read(slug)["children"]), 3)
+
+    def test_a_second_different_replacement_is_refused_rather_than_overwriting_the_first(self):
+        slug = self._chain("pln_0000000000a7", "pln_0000000000b7")
+        self._plan("pln_0000000000d7", "First replacement")
+        self._plan("pln_0000000000e7", "Second replacement")
+        self._retire("pln_0000000000b7")
+        self.programs.mark_superseded(slug, "pln_0000000000b7", "pln_0000000000d7")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000b7", "pln_0000000000e7")
+        self.assertIn("was already superseded by pln_0000000000d7", str(caught.exception))
+
+    def test_the_decay_sweep_goes_quiet_on_a_superseded_child(self):
+        """Otherwise every deliberate supersession mints a permanent, unanswerable complaint."""
+        slug = self._program("Decay", "A superseded child must not nag forever.")
+        self._plan("pln_0000000000a8", "Child A")
+        self.programs.add_child(slug, "pln_0000000000a8")
+        self._plan("pln_0000000000b8", "Child B", predecessor="pln_0000000000a8")
+        self.programs.add_child(slug, "pln_0000000000b8", predecessor="pln_0000000000a8")
+        # A mints an obligation after B joined: exactly the decay the sweep exists to report.
+        slug_a = self.plans.resolve("pln_0000000000a8")
+        revised = dict(self.plans.head(slug_a))
+        revised["program"] = {"program_id": self.program_id,
+                              "carried_obligations": [
+                                  _obligation("OB-LATE", "Minted after B joined.")]}
+        revised["revision"] = 2
+        revised["revision_note"] = "mint an obligation after the successor joined"
+        self.plans.append_revision(slug_a, revised, expected_revision=1)
+        self.assertTrue(self.programs.carry_forward_decay(slug), "the sweep should see it first")
+        # The replacement answers for the late obligation — that is a separate guarantee, asserted
+        # in its own fixture. What is under test here is that B stops being nagged about it.
+        self._plan("pln_0000000000d8", "Replacement for B",
+                   _obligation("OB-LATE", "Answered by the replacement.", "satisfied"))
+        self._retire("pln_0000000000b8")
+        self.programs.mark_superseded(slug, "pln_0000000000b8", "pln_0000000000d8")
+        decay = self.programs.carry_forward_decay(slug)
+        self.assertNotIn("pln_0000000000b8", [entry["plan_id"] for entry in decay])
+
+    def test_superseding_the_first_child_is_not_reported_as_two_broken_chains(self):
+        """The replacement becomes a second root, and the replaced one is retired. Not corruption."""
+        slug = self._chain("pln_0000000000a9", "pln_0000000000b9")
+        self._plan("pln_0000000000d9", "Replacement for A")
+        self._retire("pln_0000000000a9")
+        record = self.programs.mark_superseded(slug, "pln_0000000000a9", "pln_0000000000d9")
+        rendered = plan_program.render(self.programs, record)
+        self.assertNotIn("several disconnected chains", rendered)
+
+    def test_two_live_roots_are_still_reported(self):
+        """The liveness filter must not swallow the real alarm it was narrowed around."""
+        slug = self._chain("pln_0000000000af", "pln_0000000000bf")
+        record = self.programs.read(slug)
+        record["children"][1].pop("predecessor_plan_id")
+        self.programs._write(slug, record)
+        self.assertIn("several disconnected chains",
+                      plan_program.render(self.programs, self.programs.read(slug)))
+
+    def test_a_plan_cannot_supersede_itself(self):
+        slug = self._chain("pln_0000000000ae", "pln_0000000000be")
+        with self.assertRaisesRegex(plan_program.ProgramError, "cannot supersede itself"):
+            self.programs.supersede_check(slug, "pln_0000000000be", "pln_0000000000be")
+
+    def test_superseding_something_that_is_not_a_child_is_refused(self):
+        slug = self._chain("pln_0000000000ad", "pln_0000000000bd")
+        self._plan("pln_0000000000cd", "A stranger")
+        self._plan("pln_0000000000dd", "Replacement")
+        with self.assertRaisesRegex(plan_program.ProgramError, "is not a child of this program"):
+            self.programs.supersede_check(slug, "pln_0000000000cd", "pln_0000000000dd")

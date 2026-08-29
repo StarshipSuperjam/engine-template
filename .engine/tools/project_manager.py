@@ -1434,18 +1434,29 @@ def cmd_close(args) -> int:
     if record.get("closure"):
         raise ProjectManagerError(
             f"this plan is already {record['closure']['state']}; reopen it before closing it differently")
+    _close_plan(library, slug, args.state, args.reason)
+    print(f"{record['plan_id']} is now {args.state}: {args.reason}")
+    print("Nothing was deleted — the plan and every revision stay on the shelf.")
+    return 0
+
+
+def _close_plan(library, slug: str, state: str, reason: str) -> None:
+    """Write a plan's closure and re-project the library. THE close path, and the only one.
+
+    Extracted so `program supersede` retires the plan it replaces through exactly this door rather
+    than through a second implementation of it. A supersession that wrote a closure some other way
+    would be a plan marked closed in the record while the projection still advertised it — which is
+    the shape of the loaded gun supersede exists to unload.
+    """
     def close(current):
         if current.get("closure"):       # re-asserted inside the lock
             raise ProjectManagerError(
                 f"another session closed this plan as {current['closure']['state']} while this one was "
                 "reading it; reopen it before closing it differently")
-        current["closure"] = {"state": args.state, "at": _now(), "reason": args.reason}
+        current["closure"] = {"state": state, "at": _now(), "reason": reason}
 
     library.update_record(slug, close)
     plan_projection.project_library(library)
-    print(f"{record['plan_id']} is now {args.state}: {args.reason}")
-    print("Nothing was deleted — the plan and every revision stay on the shelf.")
-    return 0
 
 
 def cmd_reopen(args) -> int:
@@ -1534,6 +1545,8 @@ def cmd_clone(args) -> int:
     document["created_at"] = document["revised_at"] = _now()
     document["revision_note"] = args.reason
     document.pop("program", None)
+    if getattr(args, "supersedes", None):
+        document["program"] = _supersession_block(library, args.supersedes)
     new_slug = library.create(document, intake={
         "provenance": f"cloned from {source_id} at revision {library.read_record(slug)['current']['revision']}: "
                       f"{args.reason}",
@@ -1541,7 +1554,58 @@ def cmd_clone(args) -> int:
     plan_projection.project_library(library)
     print(f"cloned {source_id} into {document['plan_id']} at {library.plan_dir(new_slug)}")
     print("It carries no approval, no review and no seal — none of that was granted for this document.")
+    if getattr(args, "supersedes", None):
+        program = document["program"]
+        carried = program.get("carried_obligations", [])
+        print(f"\nPre-filled to supersede {args.supersedes}: the back-link to "
+              f"{program['program_id']}"
+              + (f", and {len(carried)} obligation(s) re-declared as carried."
+                 if carried else ", and nothing outstanding to inherit."))
+        for obligation in carried:
+            print(f"  - {obligation['id']}: {obligation['statement']}")
+        print("Those come from the PREDECESSOR of the plan being replaced, which is the only honest "
+              "source: the replaced plan never landed, so its own claims about what it satisfied or "
+              "released describe work that does not exist.")
+        print(f"Complete the supersession with `program supersede <program> {args.supersedes} "
+              f"--with {document['plan_id']} --reason \"...\"`.")
     return 0
+
+
+def _supersession_block(library, superseded_selector: str) -> dict:
+    """The `program` block a `clone --supersedes` starts life with.
+
+    Three things, and the third is the one worth stating. The back-link, so the clone can join its
+    program at all. The replaced plan's predecessor edge, recorded as AUTHORING-TIME PROVENANCE — the
+    program record's edge is the sole order authority, and this copy is a note about where the clone
+    was written to fit, never a second claim about the chain. And the obligations, sourced from that
+    PREDECESSOR's carried set rather than from the plan being replaced.
+
+    That last choice is the whole point. The replaced plan's own block says what IT meant to satisfy
+    or release, and none of that happened — it is being replaced precisely because it never landed.
+    Copying its satisfied claims into the replacement would hand the new plan credit for work nobody
+    did, which is exactly the laundering the carry-forward guarantee exists to prevent.
+    """
+    import plan_program
+    programs = plan_program.ProgramLibrary(library)
+    superseded_id = library.read_record(library.resolve(superseded_selector))["plan_id"]
+    slug = programs.program_for_plan(superseded_id)
+    if not slug:
+        raise ProjectManagerError(
+            f"{superseded_id} is not a child of any program in this library, so there is no place "
+            "for a replacement to inherit. Supersession is a program-order decision; a standalone "
+            "plan is simply cloned.")
+    record = programs.read(slug)
+    child = next(c for c in record["children"] if c["plan_id"] == superseded_id)
+    block = {"program_id": record["program_id"]}
+    inherited = child.get("predecessor_plan_id")
+    if inherited:
+        block["predecessor_plan_id"] = inherited
+        carried = plan_program.carried_forward(library.head(library.resolve(inherited)))
+        if carried:
+            block["carried_obligations"] = [
+                {"id": o["id"], "statement": o["statement"], "state": "carried"}
+                for o in sorted(carried.values(), key=lambda o: o["id"])]
+    return block
 
 
 # --- importing an accepted native plan --------------------------------------
@@ -1965,6 +2029,41 @@ def cmd_program_add(args) -> int:
     return 0
 
 
+def cmd_program_supersede(args) -> int:
+    """Replace a child that turned out wrong, keeping it visible and its place on the chain.
+
+    The ORDER of the two writes is the safety argument, and it is enforced here because this is the
+    only layer that may touch both records: plan_program never writes the plan library, which a
+    mechanical allowlist pins. Refuse, then retire the plan, then mark the program record. A crash
+    between the last two leaves a retired plan and an unmarked record — out of play, and repaired by
+    running the verb again — never a marked record over a plan a Build could still bind.
+    """
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    library = programs.plans
+    resolved = programs.supersede_check(slug, args.plan, args.With)
+
+    superseded_slug = library.resolve(resolved["superseded_id"])
+    if not library.read_record(superseded_slug).get("closure"):
+        _close_plan(library, superseded_slug, "retired", args.reason)
+        print(f"retired {resolved['superseded_id']}: {args.reason}")
+    else:
+        # The half-completed state: the plan was retired by an earlier run that did not reach the
+        # record. Said out loud, because silence here would read as though nothing had happened.
+        print(f"{resolved['superseded_id']} was already retired; completing the supersession.")
+
+    record = programs.mark_superseded(slug, args.plan, args.With)
+    print(f"{resolved['replacement_id']} supersedes {resolved['superseded_id']} "
+          f"in {record['program_id']}")
+    print(f"  it inherits the place after "
+          f"{resolved['inherited'] or '(the start of the chain)'}, and everything that succeeded "
+          f"{resolved['superseded_id']} now succeeds it")
+    print("Nothing was deleted: the replaced child stays in the record, marked with what replaced "
+          "it, and its plan and every revision stay on the shelf.")
+    _report_decay(programs, slug)
+    return 0
+
+
 def cmd_program_insert(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
@@ -2189,6 +2288,10 @@ def build_parser() -> argparse.ArgumentParser:
     clone.add_argument("plan")
     clone.add_argument("--reason", required=True)
     clone.add_argument("--title")
+    clone.add_argument("--supersedes",
+                       help="the program child this clone is being written to replace: pre-fills the "
+                            "back-link, the replaced plan's predecessor edge as provenance, and that "
+                            "PREDECESSOR's carried obligations re-declared as carried")
     clone.set_defaults(func=cmd_clone)
 
     export = sub.add_parser("export", help="write a self-verifying local bundle (uploads nothing)")
@@ -2252,6 +2355,16 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="the child this plan is placed ahead of; it will succeed the "
                                      "inserted plan instead of what it succeeds now")
     program_insert.set_defaults(func=cmd_program_insert)
+
+    program_supersede = program.add_parser(
+        "supersede", help="replace a child that turned out wrong, keeping it and its place visible")
+    program_supersede.add_argument("program")
+    program_supersede.add_argument("plan", help="the child being replaced")
+    program_supersede.add_argument("--with", dest="With", required=True,
+                                   help="the plan that takes its place on the chain")
+    program_supersede.add_argument("--reason", required=True,
+                                   help="why — recorded as the replaced plan's retirement reason")
+    program_supersede.set_defaults(func=cmd_program_supersede)
 
     for state, helptext in (("retire", "superseded, kept for the record"),
                             ("abandon", "deliberately dropped")):

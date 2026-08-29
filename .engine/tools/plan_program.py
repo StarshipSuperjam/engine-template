@@ -425,6 +425,133 @@ class ProgramLibrary:
             self._write(slug, record)
             return record
 
+    # Supersede is TWO records — the replaced plan's, and this program's — and two records cannot be
+    # written atomically: two files, two locks. So the two halves are split deliberately and ordered,
+    # and the order is the whole safety argument rather than an implementation detail:
+    #
+    #   1. `supersede_check` refuses, reading only.
+    #   2. The command layer RETIRES the replaced plan through the Project Manager's own close path.
+    #   3. `mark_superseded` re-checks under the program lock and writes the program record.
+    #
+    # Step 2 is what stops the replaced plan being bindable, and it happens FIRST. Every crash window
+    # therefore leaves `retired-but-unmarked` — a plan that is out of play and a program record that
+    # has not yet noticed — and never `marked-but-bindable`, which would be a loaded gun on the shelf
+    # under a record claiming it had been put away. Re-running converges from the half state.
+    #
+    # The program lock is NEVER held across step 2. plan_program does not write the plan library at
+    # all (a mechanical AST allowlist pins that seam), and holding this lock across a call that takes
+    # the plan lock would invert the two locks' order and invite a deadlock with any session going the
+    # other way. Nothing may reverse this.
+
+    SUPERSEDE_REFUSED_STATUSES = ("complete", "active")
+
+    def supersede_check(self, slug: str, superseded_selector: str,
+                        replacement_selector: str) -> dict:
+        """Everything supersede refuses on, decided before ANY record is written. Reads only.
+
+        Returns the resolved ids and, in `already`, whether this supersession is already recorded —
+        the caller re-runs a half-completed one rather than treating it as an error.
+        """
+        record = self.read(slug)
+        if record.get("closure"):
+            raise ProgramError(f"this program is {record['closure']['state']}; reopen it first")
+
+        superseded_id = self.plans.read_record(self.plans.resolve(superseded_selector))["plan_id"]
+        child = next((c for c in record["children"] if c["plan_id"] == superseded_id), None)
+        if child is None:
+            raise ProgramError(f"{superseded_id} is not a child of this program")
+        replacement_slug = self.plans.resolve(replacement_selector)
+        replacement_id = self.plans.read_record(replacement_slug)["plan_id"]
+        if replacement_id == superseded_id:
+            raise ProgramError("a plan cannot supersede itself")
+
+        already = child.get("superseded_by") == replacement_id
+        if child.get("superseded_by") and not already:
+            raise ProgramError(
+                f"{superseded_id} was already superseded by {child['superseded_by']}. Supersede that "
+                "plan instead, so the chain records one replacement after another rather than two "
+                "plans claiming the same place.")
+
+        superseded_record = self.plans.read_record(self.plans.resolve(superseded_id))
+        status = plan_store.derived_status(superseded_record)
+        if status == "complete":
+            raise ProgramError(
+                f"{superseded_id} is complete — its pull request is merged. Merged history is not "
+                "replaced, it is CORRECTED by appended work: add a new plan after the last child on "
+                "this branch with `program add --after`, and let it say what it changes about what "
+                "already shipped.")
+        if status == "active":
+            raise ProgramError(
+                f"{superseded_id} is ACTIVE — a Build is bound to it right now, and retiring the plan "
+                "underneath a running Build strands it: it would go on publishing from a retired plan, "
+                "and its completion could never be recorded afterwards. Finish that Build and let it "
+                "merge, or abandon it, then supersede.")
+
+        # The replacement inherits the replaced child's predecessor edge, so it inherits the
+        # answerability that came with it. Checked here, before anything is retired, because a
+        # refusal after step 2 would leave a plan out of play for a supersession that never landed.
+        inherited = child.get("predecessor_plan_id")
+        if inherited and not already:
+            declared = (self.plans.head(replacement_slug).get("program") or {}).get("program_id")
+            if declared == record["program_id"]:
+                dropped = dropped_obligations(
+                    self.plans.head(self.plans.resolve(inherited)),
+                    self.plans.head(replacement_slug))
+                if dropped:
+                    raise ProgramError(
+                        f"{replacement_id} would take {superseded_id}'s place after {inherited}, and "
+                        f"it does not answer for {len(dropped)} obligation(s) that {inherited} "
+                        f"declares it is carrying:\n"
+                        + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
+                        + f"\nA replacement inherits the place AND the debt. `clone --supersedes "
+                          f"{superseded_id}` pre-fills exactly this set from the predecessor, which is "
+                          "the honest source: the plan being replaced never landed, so its own claims "
+                          "about what it satisfied describe work that does not exist.")
+        return {"superseded_id": superseded_id, "replacement_id": replacement_id,
+                "replacement_slug": replacement_slug, "inherited": inherited, "already": already}
+
+    def mark_superseded(self, slug: str, superseded_selector: str,
+                        replacement_selector: str) -> dict:
+        """The program record's half of a supersession. Step 3; the plan is already retired.
+
+        Idempotent: re-running a supersession that is already recorded returns the record unchanged,
+        which is what lets a crash between the two writes be repaired by simply running the verb again.
+        """
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            # Re-derived under the lock. The pre-check ran outside it and against a record another
+            # session may have moved since; a check whose result is trusted across a lock boundary is
+            # not a check.
+            resolved = self.supersede_check(slug, superseded_selector, replacement_selector)
+            if resolved["already"]:
+                return self.read(slug)
+            record = self.read(slug)
+            superseded_id, replacement_id = resolved["superseded_id"], resolved["replacement_id"]
+            child = next(c for c in record["children"] if c["plan_id"] == superseded_id)
+
+            child["superseded_by"] = replacement_id
+            entry = next((c for c in record["children"] if c["plan_id"] == replacement_id), None)
+            if entry is None:
+                entry = {"plan_id": replacement_id, "added_at": _now()}
+                record["children"].append(entry)
+            if resolved["inherited"]:
+                entry["predecessor_plan_id"] = resolved["inherited"]
+            else:
+                entry.pop("predecessor_plan_id", None)
+            # The replaced child's OWN predecessor edge is left exactly as it was. It is a true
+            # statement about the plan that was authored — it did succeed that plan — and re-pointing
+            # it at the replacement would assert an answerability that never existed: the replaced
+            # plan never saw the replacement's obligations and was never checked against them. What
+            # moves is everything DOWNSTREAM: its former successors succeed the replacement now.
+            # The result is a fork with one dead branch, which is what superseding already looks like
+            # in this record and what `render` already describes as needing no fixing.
+            for other in record["children"]:
+                if other["plan_id"] in (superseded_id, replacement_id):
+                    continue
+                if other.get("predecessor_plan_id") == superseded_id:
+                    other["predecessor_plan_id"] = replacement_id
+            self._write(slug, record)
+            return record
+
     def carry_forward_decay(self, slug: str, *, plan_id: str | None = None) -> list:
         """Carry-forward obligations a successor no longer answers for, re-checked against CURRENT heads.
 
@@ -448,6 +575,21 @@ class ProgramLibrary:
             if not predecessor_id:
                 continue
             if plan_id and child["plan_id"] != plan_id:
+                continue
+            # Liveness. A superseded, retired or abandoned child is not going to be revised — a
+            # superseded one CANNOT be, since supersede retires it — so complaining that it no longer
+            # answers for something is a demand with no door behind it. Left unfiltered, every
+            # deliberate supersession would mint a permanent warning on `program show` that no action
+            # could ever clear, which trains an operator to read past warnings. The complaint is only
+            # useful where a plan can still act on it.
+            if child.get("superseded_by"):
+                continue
+            try:
+                if plan_store.derived_status(
+                        self.plans.read_record(self.plans.resolve(child["plan_id"]))) \
+                        in DEAD_BRANCH_STATES:
+                    continue
+            except Exception:  # noqa: BLE001 — an unreadable child is reported by other readers
                 continue
             try:
                 dropped = dropped_obligations(
@@ -719,6 +861,11 @@ def render(library: ProgramLibrary, record: dict) -> str:
         title = child["title"].replace("|", "\\|")
         succeeds = f"`{child['predecessor_plan_id']}`" if child.get("predecessor_plan_id") else "—"
         flag = f" ⚠ {child['anomaly']}" if child.get("anomaly") else ""
+        # A replaced child stays in the table rather than vanishing — history is not deleted from
+        # this record — and says what replaced it, so its retired status reads as a decision someone
+        # made rather than as a plan that quietly died.
+        if child.get("superseded_by"):
+            flag += f" — superseded by `{child['superseded_by']}`"
         # The ordinal is COMPUTED from the chain, not the stored `position` field: a record whose
         # numbering was permuted or duplicated still reads in the order its edges actually declare.
         out.append(f"| {child['chain_ordinal']} | {title} (`{child['plan_id']}`){flag} | "
@@ -749,7 +896,10 @@ def render(library: ProgramLibrary, record: dict) -> str:
                        "abandoned, which is what superseding a plan looks like in the record._")
         out.append("")
 
-    if analysis["dangling"] or analysis["unreachable"] or len(analysis["roots"]) > 1:
+    status_of_all = {child["plan_id"]: child["status"] for child in view}
+    if analysis["dangling"] or analysis["unreachable"] or len(
+            [name for name in analysis["roots"]
+             if status_of_all.get(name) not in DEAD_BRANCH_STATES]) > 1:
         out += ["## What does not add up in this record", ""]
         for entry in analysis["dangling"]:
             out.append(f"- `{entry['plan_id']}` declares `{entry['predecessor_plan_id']}` as its "
@@ -759,9 +909,15 @@ def render(library: ProgramLibrary, record: dict) -> str:
                 continue
             out.append(f"- `{plan_id}` cannot be reached from the start of the chain; its predecessor "
                        "edges lead in a circle.")
-        if len(analysis["roots"]) > 1:
+        live_roots = [name for name in analysis["roots"]
+                      if status_of_all.get(name) not in DEAD_BRANCH_STATES]
+        if len(live_roots) > 1:
+            # Counted over LIVE roots only, for the same reason the fork section is: superseding the
+            # FIRST child of a program leaves its replacement as a second root, and the replaced one
+            # is retired. Counting both would report the ordinary shape of a changed mind as a record
+            # that holds several disconnected chains — a false alarm about the very verb that made it.
             out.append("- More than one child declares no predecessor: "
-                       + ", ".join(f"`{name}`" for name in analysis["roots"])
+                       + ", ".join(f"`{name}`" for name in live_roots)
                        + " — so this record holds several disconnected chains rather than one.")
         out.append("")
 
