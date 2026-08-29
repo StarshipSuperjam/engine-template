@@ -765,6 +765,9 @@
   ".engine/conduct/defaults.md": [
    "core"
   ],
+  ".engine/docs/accepted-hook-qualification.md": [
+   "core"
+  ],
   ".engine/docs/ci-assurance.md": [
    "core"
   ],
