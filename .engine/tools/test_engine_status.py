@@ -33,8 +33,7 @@ class TestRenderReusesBootSeam(unittest.TestCase):
         # The whole value of the slice: ONE renderer, two callers. render() must be byte-identical to
         # render_dashboard over the gathered signals — never a second, drifting status view.
         known = test_boot._signals()
-        with mock.patch.object(boot, "gather_signals", return_value=known), \
-                mock.patch.object(es, "_qualification_health", return_value=None):
+        with mock.patch.object(boot, "gather_signals", return_value=known):
             out = es.render()
         self.assertEqual(out, boot.render_dashboard(known))
 
@@ -55,30 +54,6 @@ class TestRenderReusesBootSeam(unittest.TestCase):
             out = es.render()
         for marker in (f"## {boot.PRESENT_MARKER}", "What merged last", "Needs your attention", "Recently shipped"):
             self.assertIn(marker, out, f"the pulled dashboard must carry the '{marker}' section")
-
-    def test_render_appends_degraded_qualification_health(self):
-        health = {"status": "degraded", "skipped_effect_count": 2,
-                  "last_failure_at": "2026-08-28T12:00:00Z",
-                  "last_failure": {"reason_code": "accepted-dispatcher-absent",
-                                   "effect": {"script": ".engine/tools/close.py"}},
-                  "guidance": "Restore the accepted dispatcher, then retry."}
-        with mock.patch.object(boot, "gather_signals", return_value=test_boot._signals()), \
-                mock.patch.object(es, "_qualification_health", return_value=health):
-            out = es.render()
-        self.assertIn(es._QUALIFICATION_HEADING, out)
-        self.assertIn("skipped 2 automatic effect(s)", out)
-        self.assertIn("Canonical memory was left untouched", out)
-        self.assertIn("accepted-code dispatcher is missing", out)
-        self.assertIn(".engine/tools/close.py", out)
-        self.assertIn("Restore the accepted dispatcher", out)
-
-    def test_render_appends_recovered_qualification_health(self):
-        health = {"status": "healthy", "last_recovery_at": "2026-08-28T12:00:00Z"}
-        with mock.patch.object(boot, "gather_signals", return_value=test_boot._signals()), \
-                mock.patch.object(es, "_qualification_health", return_value=health):
-            out = es.render()
-        self.assertIn(es._QUALIFICATION_RECOVERED, out)
-        self.assertIn("2026-08-28T12:00:00Z", out)
 
 
 class TestAlwaysAnswers(unittest.TestCase):

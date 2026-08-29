@@ -47,7 +47,6 @@ import bootstrap          # noqa: E402  (ControlPlane + render — the control-p
 import security_floor     # noqa: E402  (the native-scanning toggles — reuses ControlPlane's transport)
 import repo_behavior      # noqa: E402  (the repository-behavior settings leg, #541 — same transport reuse)
 import engine_write       # noqa: E402  (the engine-owned write boundary — homed once, #862/#923)
-import mutation_guards    # noqa: E402  (the registered one-shot pre-activation local marker capability)
 
 # The #862 guard's definitions moved to engine_write (#923); aliased so every call site — and the shipped
 # #862 tests — stay verbatim. The aliases ARE the relocation proof: nothing else changed.
@@ -1951,22 +1950,6 @@ def retire(*, root=None, announce=None) -> dict:
         return {"refused": True, "reason": "inconsistent", "deleted": [], "already_absent": [],
                 "preserved": [], "graph": "unchanged", "self_map": "unchanged",
                 "steps": [{"step": "retire", "status": "refused", "issues": len(hard)}]}
-    # The first reviewed activation cannot exist until this first setup change lands. Preflight the one
-    # operator-approved exception before the first irreversible delete, then carry its target-bound one-use
-    # handle to the presentation-marker writer at the end. An authority defect therefore leaves every setup
-    # asset untouched instead of producing a half-retired tree.
-    try:
-        landing_capability = mutation_guards.acquire_preactivation_local_capability(
-            "attended-first-run-marker-stage", project_root=base)
-    except Exception as exc:  # noqa: BLE001 — authority refusal is a structured no-change setup pause
-        say("Setup cleanup could not start because the checkout-local completion marker could not be "
-            "authorized. Nothing was removed. Re-run the setup cleanup from this checkout; if it still "
-            f"stops, repair or update the Engine first ({type(exc).__name__}).")
-        return {"refused": True, "reason": "marker-authority-unavailable",
-                "deleted": [], "already_absent": [], "preserved": [],
-                "graph": "unchanged", "self_map": "unchanged",
-                "steps": [{"step": "retire", "status": "refused",
-                           "reason": "marker-authority-unavailable"}]}
     deleted, already = [], []
     for rel in _FIRST_RUN_ASSET_FILES:
         p = os.path.join(base, rel)
@@ -2020,7 +2003,7 @@ def retire(*, root=None, announce=None) -> dict:
     # #810: setup is APPLIED but not yet DURABLE (the tree is dirty with the transformation + these deletions).
     # Drop a local awaiting-landing marker (fail-soft) so boot can confirm completion ONCE after the changes land
     # through review, and report honestly — never a bare "Setup is complete" over an uncommitted transformation.
-    first_run_health.mark_first_run_applied(base, _engine_capability=landing_capability)
+    first_run_health.mark_first_run_applied(base)
     say(copy["retire-applied"])
     return {"refused": False, "durable": False, "next": "land-through-review",
             "deleted": deleted, "already_absent": already, "preserved": preserved,

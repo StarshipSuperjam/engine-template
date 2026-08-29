@@ -162,20 +162,6 @@ def interpreter_path(os_name: str | None = None) -> str:
 # a hook fires stays short and legible to the non-engineer operator (it otherwise reads as a wall of code).
 HOOK_RUNNER = f"{PROJECT_DIR_VAR}/.engine/tools/hook-runner.sh"
 
-# Closed automatic-effect roster. These are the only hook invocations allowed to cross the accepted-code
-# dispatcher into canonical persistent state. Keep the invocation (including its fixed lifecycle argument)
-# here rather than accepting an arbitrary tail: a syntactically valid launcher command must not be able to
-# smuggle an activation/candidate operation, sibling guard, or unregistered mutator through the shell.
-ACCEPTED_AUTOMATIC_INVOCATIONS = frozenset({
-    ".engine/tools/boot.py",
-    ".engine/tools/close.py",
-    ".engine/tools/memory/compact.py pre-compact",
-    ".engine/tools/memory/erasure_observer.py session-start",
-    ".engine/tools/memory/backup_vault.py session-start",
-})
-ACCEPTED_AUTOMATIC_SCRIPTS = frozenset(item.partition(" ")[0]
-                                       for item in ACCEPTED_AUTOMATIC_INVOCATIONS)
-
 
 def hook_command(script_relpath: str, os_name: str | None = None, provider: str = "claude") -> str:
     """The full hook `command` string a settings.json registration carries: a call to the hook launcher
@@ -215,52 +201,6 @@ def hook_command(script_relpath: str, os_name: str | None = None, provider: str 
                 f'sh ".engine/tools/codex-hook-runner.sh" "{script_path}"{args_tail}')
     interp = interpreter_path(os_name)
     return f'sh "{HOOK_RUNNER}" "{interp}" "{PROJECT_DIR_VAR}/{script_path}"{args_tail}'
-
-
-def automatic_hook_wiring_failures(document: dict, provider: str) -> list[str]:
-    """Return closed-vocabulary failures for automatic persistent-state hook registrations.
-
-    This is deliberately stricter than provider parity. Parity can prove that Claude and Codex both carry
-    the same capability while still missing that both copies bypass the accepted dispatcher. This check
-    round-trips every automatic command through ``hook_command`` and rejects any other memory script, direct
-    dispatcher command, or altered argument tail. It performs no shell parsing or execution.
-    """
-    if provider not in {"claude", "codex"}:
-        raise ValueError("provider must be claude or codex")
-    failures = []
-    hooks_doc = document.get("hooks") if isinstance(document, dict) else None
-    if not isinstance(hooks_doc, dict):
-        return [f"{provider} hook registration has no hooks object"]
-    for event, groups in hooks_doc.items():
-        if not isinstance(groups, list):
-            continue  # the provider's shape/schema check owns malformed containers
-        for group_index, group in enumerate(groups):
-            entries = group.get("hooks") if isinstance(group, dict) else None
-            if not isinstance(entries, list):
-                continue
-            for hook_index, entry in enumerate(entries):
-                command = entry.get("command") if isinstance(entry, dict) else None
-                if not isinstance(command, str):
-                    continue
-                where = f"{provider}:{event}[{group_index}].hooks[{hook_index}]"
-                if "accepted_hook_dispatch.py" in command:
-                    failures.append(f"{where} invokes the accepted dispatcher directly")
-                    continue
-                mentioned = [item for item in ACCEPTED_AUTOMATIC_INVOCATIONS
-                             if item.partition(" ")[0] in command]
-                if ".engine/tools/memory/" in command and not mentioned:
-                    failures.append(f"{where} registers an unrecognized automatic memory target")
-                    continue
-                if not mentioned:
-                    continue
-                if len(mentioned) != 1:
-                    failures.append(f"{where} names more than one automatic target")
-                    continue
-                invocation = mentioned[0]
-                if command != hook_command(invocation, provider=provider):
-                    failures.append(
-                        f"{where} does not use the exact shared accepted-dispatch launcher form")
-    return failures
 
 
 # ---- shared payload classifier: is this tool call a `git commit`? ------------------------------
@@ -724,13 +664,6 @@ def main(argv: list) -> int:
         return _demo(argv[1:])
     print(f"usage: hooks.py demo\nunknown command {cmd!r}", file=sys.stderr)
     return 2
-
-
-import mutation_guards as _mutation_guards  # noqa: E402
-_mutation_guards.install(globals(), {
-    "_record_crash_debug": "hook-crash-debug",
-    "_do_promote_fail_open": "hook-fail-open-promote",
-})
 
 
 if __name__ == "__main__":

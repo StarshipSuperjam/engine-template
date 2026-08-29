@@ -7,6 +7,6 @@ default_tools_approval_mode = "auto"
 # BEGIN engine-managed block: engine-memory - do not edit inside
 [mcp_servers.engine-memory]
 command = "uv"
-args = ["run", "--directory", ".engine", "--frozen", "--", "python", "tools/accepted_hook_dispatch.py", "attended", "--root", "..", "--script", ".engine/tools/memory/mcp_server.py", "--operation", "attended-memory-mcp", "--"]
+args = ["run", "--directory", ".engine", "--frozen", "--", "python", "tools/memory/mcp_server.py"]
 default_tools_approval_mode = "auto"
 # END engine-managed block: engine-memory

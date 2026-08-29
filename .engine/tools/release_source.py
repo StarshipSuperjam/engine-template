@@ -93,18 +93,17 @@ def _fetch_release_tree(ref: str, dest_dir: str, repo: str | None = None,
     return os.path.join(dest_dir, tops.pop())
 
 
-def _archive_tree(ref: str, dest_dir: str, *, root: "str | None" = None) -> str:
+def _archive_tree(ref: str, dest_dir: str) -> str:
     """The OFFLINE sibling of `_fetch_release_tree`: materialize a local tag/ref's tree via `git archive`
     piped into `dest_dir` — no network, no token. The cut-time deployment gate uses it to project a genuine
     past release to its deployed shape and practice-upgrade it to the release candidate, asserting the
     structural gate stays green — the proof a synthetic fixture cannot make. Returns `dest_dir` ITSELF: `git
     archive` writes the tree with NO owner-repo-sha wrapper directory (unlike GitHub's tarball), so there is no
     top-level dir to descend into (arch-N2). Raises if the ref's tree object is absent (a shallow checkout with
-    no tags — the gate blocks the cut on that). ``root`` is an explicit repository override for another local
-    exact-object consumer; existing release callers omit it and retain the validate.ROOT behavior."""
+    no tags — the gate blocks the cut on that)."""
     import subprocess   # local: only the offline projection needs it
     os.makedirs(dest_dir, exist_ok=True)
-    proc = subprocess.run(["git", "-C", root or validate.ROOT, "archive", "--format=tar", ref],
+    proc = subprocess.run(["git", "-C", validate.ROOT, "archive", "--format=tar", ref],
                           capture_output=True, timeout=120)
     if proc.returncode != 0:
         raise RuntimeError(f"git archive {ref} failed: {(proc.stderr or b'').decode('utf-8', 'replace')[:200]}")
