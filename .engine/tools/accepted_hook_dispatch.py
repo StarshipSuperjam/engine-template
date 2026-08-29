@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import importlib.abc
 import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -134,7 +135,12 @@ def _exclusive_lock(path: str):
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _atomic_json(path: str, value: dict) -> None:
+def _atomic_json(path: str, value: dict, *, create_only: bool = False) -> bool:
+    """Publish JSON atomically, optionally as a create-if-absent compare-and-set.
+
+    The create-only form is used for persistent store identity.  It never replaces a winning identity and
+    therefore cannot rewrite an existing store or any ledger payload.
+    """
     os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".accepted-hook-", dir=os.path.dirname(path))
     try:
@@ -144,7 +150,15 @@ def _atomic_json(path: str, value: dict) -> None:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        if create_only:
+            try:
+                os.link(tmp, path)
+                published = True
+            except FileExistsError:
+                published = False
+        else:
+            os.replace(tmp, path)
+            published = True
         try:
             dir_fd = os.open(os.path.dirname(path), os.O_RDONLY)
             try:
@@ -158,12 +172,18 @@ def _atomic_json(path: str, value: dict) -> None:
             os.unlink(tmp)
         except FileNotFoundError:
             pass
+    return published
 
 
 def _read_json(path: str, label: str) -> dict:
     try:
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise QualificationError(f"{label} is not a regular file")
         with open(path, encoding="utf-8") as handle:
             value = json.load(handle)
+    except QualificationError:
+        raise
     except (OSError, ValueError) as exc:
         raise QualificationError(f"{label} is absent or unreadable") from exc
     if not isinstance(value, dict):
@@ -348,13 +368,16 @@ def _canonical_context(root: str, activation: dict, accepted_tree: str | None = 
             pointer_identity = None
     root_stat = os.stat(canonical)
     lifecycle = {
-        "ledger": os.path.join(memory_dir, "ledger.jsonl"),
-        "index": os.path.join(memory_dir, "index.sqlite3"),
-        "generation": os.path.join(memory_dir, "generation.json"),
+        "ledger": os.path.join(memory_dir, "ledger.ndjson"),
+        "ledger_meta": os.path.join(memory_dir, "ledger-meta.json"),
+        "keyword_index": os.path.join(memory_dir, "index.sqlite3"),
+        "semantic_index": os.path.join(memory_dir, "vectors.sqlite3"),
         "restore_transaction": os.path.join(memory_dir, ".restore-transaction.json"),
         "migration_in_flight": os.path.join(memory_dir, "migration-in-flight.json"),
         "migration_stamp": os.path.join(memory_dir, "migration-stamp.json"),
-        "capture_cursors": os.path.join(memory_dir, "cursors"),
+        "capture_cursor": os.path.join(memory_dir, "capture-state.json"),
+        "capture_lock": os.path.join(memory_dir, ".capture.lock"),
+        "backup_state": os.path.join(memory_dir, "backup-vault-state.json"),
         "erasure_proposal": os.path.join(canonical, ".engine", "erasures", "proposal.json"),
         "backup_pointer": pointer,
     }
@@ -631,6 +654,25 @@ def run_accepted(args: argparse.Namespace) -> int:
     canonical = context.get("canonical")
     if not isinstance(canonical, dict) or os.environ.get("ENGINE_MEMORY_DIR") != canonical.get("memory_dir"):
         raise QualificationError("accepted hook context and canonical memory binding disagree")
+    # The outer bootstrap is candidate code.  Treat its envelope only as evidence and independently rebuild
+    # every durable binding from this accepted dispatcher before any target or memory package can import.
+    root = _top(canonical.get("project_root", os.getcwd()))
+    activation = load_activation(root)
+    _verify_exact_object(root, activation)
+    qualified_tree = _valid_materialization(root, activation)
+    if qualified_tree is None or os.path.realpath(qualified_tree) != accepted_tree:
+        raise QualificationError("accepted interpreter tree no longer matches the active exact materialization")
+    authoritative = _canonical_context(root, activation, accepted_tree)
+    if context.get("activation") != authoritative["activation"]:
+        raise QualificationError("outer and accepted activation bindings disagree")
+    if canonical != authoritative["canonical"]:
+        raise QualificationError("outer and accepted canonical state bindings disagree")
+    invocation = context.get("invocation")
+    if not isinstance(invocation, dict) or invocation.get("script") != rel:
+        raise QualificationError("outer invocation does not name this accepted mutator")
+    if invocation.get("provider") not in {"claude", "codex"}:
+        raise QualificationError("outer invocation provider is not qualified")
+    authoritative["invocation"] = invocation
     _verify_tools_do_not_escape(accepted_tree, tools_root)
     clean_sites = [os.path.realpath(path) for path in args.site_path if os.path.isdir(path)]
     sys.path[:] = [tools_root, *[
@@ -639,9 +681,32 @@ def run_accepted(args: argparse.Namespace) -> int:
     ], *clean_sites]
     names = _engine_names(tools_root)
     sys.meta_path.insert(0, _AcceptedEngineFinder(tools_root, names))
+    if "memory" in sys.modules:
+        raise QualificationError("memory package imported before persistent context installation")
+    context_path = os.path.join(tools_root, "memory", "execution_context.py")
+    spec = importlib.util.spec_from_file_location("_engine_execution_context", context_path)
+    if spec is None or spec.loader is None:
+        raise QualificationError("accepted persistent context authority is unavailable")
+    context_authority = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = context_authority
+    spec.loader.exec_module(context_authority)
+    if os.path.realpath(getattr(context_authority, "__file__", "")) != os.path.realpath(context_path):
+        raise QualificationError("persistent context authority escaped the accepted tree")
+
+    def initialize_store_identity(identity_path: str, lock_path: str, candidate: dict) -> None:
+        with _exclusive_lock(lock_path):
+            _atomic_json(identity_path, candidate, create_only=True)
+
+    try:
+        persistent_context = context_authority.install_automatic_context(
+            authoritative, accepted_tree=accepted_tree, script=rel,
+            identity_initializer=initialize_store_identity,
+        )
+    except context_authority.ContextError as exc:
+        raise QualificationError(f"persistent execution context refused: {exc}") from exc
     import validate
     _origin_report(accepted_tree, names)
-    validate.ROOT = canonical["project_root"]
+    validate.ROOT = persistent_context["project"]["root"]
     old_argv = sys.argv
     sys.argv = [target, *args.target_args]
     code = 0
