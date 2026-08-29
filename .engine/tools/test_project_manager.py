@@ -1306,6 +1306,88 @@ class ProgramVerbs(_Governed):
         self.assertEqual(code, 2)
         self.assertIn("is not a child of any program", err)
 
+    def _close_plan_record(self, plan_id, state, reason="x"):
+        self.lib.update_record(self.lib.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": state, "at": "2026-08-29T05:00:00Z", "reason": reason}}))
+
+    def test_closing_over_a_debt_is_refused_at_the_command_line_and_release_clears_it(self):
+        program_id = self._program_with_child()          # child A carries OB-1
+        code, _, err = self.run_command("program", "retire", program_id, "--reason", "setting down")
+        self.assertEqual(code, 2)
+        self.assertIn("OB-1", err)
+        self.assertIn("program release", err)
+
+        code, out, err = self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                                          "--obligation", "OB-1",
+                                          "--reason", "the successor was abandoned, so it is void")
+        self.assertEqual(code, 0, err)
+        self.assertIn("released OB-1", out)
+        self.assertIn("PROGRAM level", out)
+        self.assertEqual(self.run_command("program", "retire", program_id,
+                                          "--reason", "setting down")[0], 0)
+        self.assertIn("released at PROGRAM level",
+                      self.run_command("program", "show", program_id)[1])
+
+    def test_completion_takes_the_verb_and_the_list_never_says_complete_on_its_own(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-1", "--reason", "void")
+        self._close_plan_record("pln_aaaaaaaaaaaa", "complete", "merged")
+        listed = self.run_command("program", "list")[1]
+        # The one word an operator scans must not be the one they will read as finished, so assert
+        # the status COLUMN rather than a substring — `complete` legitimately occurs inside the
+        # token, and a substring check would pass for the very lie this is guarding against.
+        status = listed.split()[1]
+        self.assertEqual(status, "children-complete")
+        self.assertNotEqual(status, "complete")
+        shown = self.run_command("program", "show", program_id)[1]
+        self.assertIn("This program is not recorded as complete", shown)
+
+        code, out, err = self.run_command("program", "complete", program_id,
+                                          "--reason", "the objective is met")
+        self.assertEqual(code, 0, err)
+        self.assertIn("is recorded complete", out)
+        self.assertIn("Recorded, not derived", out)
+        self.assertIn("recorded by an explicit close, not derived",
+                      self.run_command("program", "show", program_id)[1])
+
+    def test_reopen_needs_a_reason_and_the_undone_closure_is_rendered(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-1", "--reason", "void")
+        self.assertEqual(self.run_command("program", "retire", program_id, "--reason", "down")[0], 0)
+        with self.assertRaises(SystemExit):        # argparse refuses the missing --reason itself
+            self.run_command("program", "reopen", program_id)
+        code, out, err = self.run_command("program", "reopen", program_id,
+                                          "--reason", "the evidence changed")
+        self.assertEqual(code, 0, err)
+        self.assertIn("it was retired", out)
+        shown = self.run_command("program", "show", program_id)[1]
+        self.assertIn("Closures that were undone", shown)
+        self.assertIn("the evidence changed", shown)
+
+    def test_an_unknown_closes_only_through_the_recorded_acknowledgement(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-1", "--reason", "void")
+        programs_root = self.lib.root / "programs"
+        record_path = next(programs_root.iterdir()) / "record.json"
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        record["children"].append({"plan_id": "pln_ffffffffffff",
+                                   "added_at": "2026-08-29T06:00:00Z",
+                                   "predecessor_plan_id": "pln_aaaaaaaaaaaa"})
+        record_path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+
+        code, _, err = self.run_command("program", "abandon", program_id, "--reason", "giving up")
+        self.assertEqual(code, 2)
+        self.assertIn("--acknowledge-unknown", err)
+        code, out, err = self.run_command("program", "abandon", program_id, "--reason", "giving up",
+                                          "--acknowledge-unknown", "that child was never authored")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Closed over an unknown", out)
+        self.assertIn("Closed over an unknown",
+                      self.run_command("program", "show", program_id)[1])
+
     def test_the_verb_writes_no_position_for_either_door(self):
         program_id = self._program_with_child()
         record = json.loads((self.lib.root / "programs" / next(

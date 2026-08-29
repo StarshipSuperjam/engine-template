@@ -23,7 +23,22 @@
     },
     "closure": {
       "oneOf": [{"type": "null"}, {"$ref": "#/$defs/closure"}],
-      "description": "Set only to abandon or retire a program outright. Ordinary completion is DERIVED from the children being complete, so a program cannot be marked finished while a child is not."
+      "description": "How this program ended, and the ONLY place completion is recorded. Completion used to be derived from every stored child being complete, which made 'complete' mean 'nothing left recorded' — absent successors rendered as done, and a program with one of five pull requests landed read as finished. A program is not complete while its objective is unmet, and no record can derive that: it takes the operator's explicit close. Nothing here is derived."
+    },
+    "closure_history": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/erased_closure"},
+      "description": "Every closure that was undone, with the reason for undoing it. Reopen is reversible for all three states — a program's completion records the operator's JUDGMENT that the objective is met, and judgments may be revisited as evidence arrives, unlike a plan's completion, which records merged history and is terminal. What must never happen is a silent reversal: what was undone, when, and why stays here."
+    },
+    "releases": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/release"},
+      "description": "Obligations let go at PROGRAM level, each keyed to the child that carries it. The ordinary release lives inside a successor plan's own carried_obligations, and that stays the normal door. This one exists for a debt whose successors were all abandoned: seals are terminal and abandoned plans are closed, so there is no successor left to revise, and the only honest surface remaining is the program record itself. Same price as any release — a stated reason — and refused while a live child still succeeds the carrier, because a live successor must answer instead."
+    },
+    "objective_history": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/revised_objective"},
+      "description": "Every prior objective text, with when it was replaced and why. An objective written before the work began goes stale as evidence arrives; nothing is overwritten silently."
     }
   },
   "$defs": {
@@ -57,8 +72,51 @@
       "additionalProperties": false,
       "required": ["state", "at", "reason"],
       "properties": {
-        "state": {"enum": ["retired", "abandoned"]},
+        "state": {
+          "enum": ["retired", "abandoned", "complete"],
+          "description": "retired: superseded, kept for the record. abandoned: deliberately dropped. complete: the operator judged the objective met. All three are plain records of the same shape — state, time, reason. Completion carries no attestation of the operator's words: no local field can prove someone was present, and one implying it would be false confidence. What makes completion trustworthy is that it takes an explicit verb no derivation can reach."
+        },
         "at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1},
+        "acknowledged_unknown": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Present only when the program was closed while its obligation report held UNKNOWN entries — a missing or unreadable child, or a cycle. Unknown entries are sentences about a broken record, not obligations; nothing keyed to an obligation id can clear them, so refusing over them would point at a door that cannot open and would wedge permanently exactly the wrecked programs abandon exists for. Closing over them is therefore allowed, but only as a recorded decision: this is what was acknowledged and why."
+        }
+      }
+    },
+    "erased_closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["closure", "reopened_at", "reason"],
+      "properties": {
+        "closure": {"$ref": "#/$defs/closure"},
+        "reopened_at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["child_plan_id", "obligation_id", "at", "reason"],
+      "properties": {
+        "child_plan_id": {
+          "type": "string",
+          "pattern": "^pln_[0-9a-f]{12}$",
+          "description": "The child that CARRIES the obligation being released. Keyed to the child rather than released program-wide, because the same obligation id can be owed on more than one branch of a forked chain, and letting a dead branch's release clear a live branch's debt would be the silent drop this object exists to prevent."
+        },
+        "obligation_id": {"type": "string", "minLength": 1},
+        "at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "revised_objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "replaced_at", "reason"],
+      "properties": {
+        "objective": {"type": "string", "minLength": 1},
+        "replaced_at": {"$ref": "#/$defs/timestamp"},
         "reason": {"type": "string", "minLength": 1}
       }
     }

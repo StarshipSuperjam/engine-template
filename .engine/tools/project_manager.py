@@ -2115,16 +2115,54 @@ def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
 
 def cmd_program_close(args) -> int:
     programs = _programs(args)
-    record = programs.close(programs.resolve(args.program), args.state, args.reason)
+    record = programs.close(programs.resolve(args.program), args.state, args.reason,
+                            acknowledged_unknown=getattr(args, "acknowledge_unknown", None))
     print(f"{record['program_id']} is now {args.state}: {args.reason}")
+    if record["closure"].get("acknowledged_unknown"):
+        print("Closed over an unknown, on the record: "
+              f"{record['closure']['acknowledged_unknown']}")
+        print("That is a decision, not a resolution — what this program owed still cannot be "
+              "computed from its record.")
     print("Nothing was deleted — every child plan and every revision stays on the shelf.")
+    return 0
+
+
+def cmd_program_complete(args) -> int:
+    """The only door to a complete program. Nothing derives it, and nothing else writes it."""
+    programs = _programs(args)
+    record = programs.complete(programs.resolve(args.program), args.reason)
+    print(f"{record['program_id']} is recorded complete: {args.reason}")
+    print("Recorded, not derived — this is your judgment that the objective is met, and the record "
+          "now says so with your reason attached.")
+    print("It is reversible: `program reopen` undoes it, with a reason, and keeps what was undone.")
+    return 0
+
+
+def cmd_program_release(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.release(slug, args.child, args.obligation, args.reason)
+    child_id = programs.plans.read_record(programs.plans.resolve(args.child))["plan_id"]
+    print(f"released {args.obligation}, carried at {child_id}, in {record['program_id']}")
+    print(f"  {args.reason}")
+    print("Released at PROGRAM level, which is a different decision from a release written inside a "
+          "successor plan: it says no successor was left to answer for this at all.")
+    report = programs.obligation_report(programs.read(slug))
+    if report["obligations"]:
+        print(f"\n{len(report['obligations'])} obligation(s) still outstanding: "
+              + ", ".join(o["id"] for o in report["obligations"]))
     return 0
 
 
 def cmd_program_reopen(args) -> int:
     programs = _programs(args)
-    record = programs.reopen(programs.resolve(args.program))
-    print(f"reopened {record['program_id']}")
+    slug = programs.resolve(args.program)
+    was = programs.read(slug).get("closure") or {}
+    record = programs.reopen(slug, args.reason)
+    print(f"reopened {record['program_id']} — it was {was.get('state', 'closed')}")
+    print(f"  {args.reason}")
+    print("What was undone stays on the record: `program show` lists every closure that was "
+          "reversed, with the reason for reversing it.")
     return 0
 
 
@@ -2366,16 +2404,37 @@ def build_parser() -> argparse.ArgumentParser:
                                    help="why — recorded as the replaced plan's retirement reason")
     program_supersede.set_defaults(func=cmd_program_supersede)
 
+    program_release = program.add_parser(
+        "release", help="let go of an obligation whose successors are all gone, with a reason")
+    program_release.add_argument("program")
+    program_release.add_argument("child", help="the child that CARRIES the obligation")
+    program_release.add_argument("--obligation", required=True, dest="obligation")
+    program_release.add_argument("--reason", required=True,
+                                 help="why the debt is void — its whole price")
+    program_release.set_defaults(func=cmd_program_release)
+
     for state, helptext in (("retire", "superseded, kept for the record"),
                             ("abandon", "deliberately dropped")):
         closer = program.add_parser(state, help=f"close a program: {helptext}")
         closer.add_argument("program")
         closer.add_argument("--reason", required=True)
+        closer.add_argument("--acknowledge-unknown", dest="acknowledge_unknown",
+                            help="close even though what this program owes cannot be computed from "
+                                 "its record; the text is why, and it is recorded in the closure")
         closer.set_defaults(func=cmd_program_close,
                             state={"retire": "retired", "abandon": "abandoned"}[state])
 
-    program_reopen = program.add_parser("reopen", help="undo a program retirement or abandonment")
+    program_complete = program.add_parser(
+        "complete", help="record that the objective is met — never derived, only recorded")
+    program_complete.add_argument("program")
+    program_complete.add_argument("--reason", required=True)
+    program_complete.set_defaults(func=cmd_program_complete)
+
+    program_reopen = program.add_parser(
+        "reopen", help="undo a program closure — retired, abandoned or complete — keeping the record")
     program_reopen.add_argument("program")
+    program_reopen.add_argument("--reason", required=True,
+                                help="why the closure is being undone; kept in the closure history")
     program_reopen.set_defaults(func=cmd_program_reopen)
     return parser
 

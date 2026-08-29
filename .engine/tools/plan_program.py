@@ -77,16 +77,23 @@ def unexplained_releases(document: dict) -> list:
             if o["state"] == "released" and not (o.get("reason") or "").strip()]
 
 
-def dropped_obligations(predecessor: dict, successor: dict) -> list:
+def dropped_obligations(predecessor: dict, successor: dict, *, released=()) -> list:
     """Obligations the predecessor was carrying that the successor does not mention at all.
 
     Not mentioning one is the failure this object exists for — it is indistinguishable, from the
     outside, from having decided it no longer matters, except that nobody decided anything.
+
+    `released` is the set of obligation ids let go at PROGRAM level AT THE PREDECESSOR. It is an
+    answer, not an exemption: someone stated a reason on the record, which is the same price the
+    in-plan release has always cost. Passed in rather than read here because this function sees two
+    documents and no program, and the keying — which CHILD the release was granted at — is exactly
+    the part that must not be lost.
     """
     successor_program = successor.get("program") or {}
     named = {o["id"] for o in successor_program.get("carried_obligations", [])}
+    released = set(released)
     return [obligation for identifier, obligation in sorted(carried_forward(predecessor).items())
-            if identifier not in named]
+            if identifier not in named and identifier not in released]
 
 
 DEAD_BRANCH_STATES = ("retired", "abandoned")
@@ -253,7 +260,8 @@ class ProgramLibrary:
                     raise ProgramError(f"{predecessor_id} is not a child of this program")
                 dropped = dropped_obligations(
                     self.plans.head(self.plans.resolve(predecessor_id)),
-                    self.plans.head(plan_slug))
+                    self.plans.head(plan_slug),
+                    released=self.released_at(record, predecessor_id))
                 if dropped:
                     raise ProgramError(
                         f"{plan_id} does not answer for {len(dropped)} obligation(s) that "
@@ -385,7 +393,8 @@ class ProgramLibrary:
             # the edge this verb creates rather than on an appended one.
             if inherited:
                 dropped = dropped_obligations(
-                    self.plans.head(self.plans.resolve(inherited)), inserted_head)
+                    self.plans.head(self.plans.resolve(inherited)), inserted_head,
+                    released=self.released_at(record, inherited))
                 if dropped:
                     raise ProgramError(
                         f"{plan_id} does not answer for {len(dropped)} obligation(s) that "
@@ -401,7 +410,8 @@ class ProgramLibrary:
             # downstream ever had to answer for — the decay this object exists to prevent, arriving
             # through the new door.
             dropped = dropped_obligations(inserted_head,
-                                          self.plans.head(self.plans.resolve(displaced_id)))
+                                          self.plans.head(self.plans.resolve(displaced_id)),
+                                          released=self.released_at(record, plan_id))
             if dropped:
                 sealed = bool(displaced_record.get("seal"))
                 raise ProgramError(
@@ -422,6 +432,76 @@ class ProgramLibrary:
                 child["predecessor_plan_id"] = inherited
             displaced["predecessor_plan_id"] = plan_id
             record["children"].append(child)
+            self._write(slug, record)
+            return record
+
+    # -- program-level releases --
+    #
+    # An obligation is normally released INSIDE a successor plan, with a reason, and that stays the
+    # ordinary door. This one exists for the shape that has no successor left to revise: a completed
+    # child carrying debts whose successors were every one of them abandoned. Seals are terminal and
+    # abandoned plans are closed, so there is nothing left to write the release into — and the debt
+    # sits outstanding forever against work someone consciously decided was void. The only honest
+    # surface remaining is this record.
+    #
+    # It is keyed to (child, obligation) rather than released program-wide. On a forked chain the same
+    # obligation id can be owed on more than one branch, and a release granted because ONE branch died
+    # must not clear the debt the live branch still owes. That keying is the whole difference between
+    # a decision and a silent drop.
+
+    @staticmethod
+    def released_at(record: dict, child_plan_id: str) -> set:
+        """The obligation ids let go at program level AT this child. Empty for every other child."""
+        return {entry["obligation_id"] for entry in record.get("releases", [])
+                if entry["child_plan_id"] == child_plan_id}
+
+    def release(self, slug: str, child_selector: str, obligation_id: str, reason: str) -> dict:
+        """Let go of one obligation at one child, on a stated reason. Works on a closed program.
+
+        A closed program may still be CORRECTED — that is what this is, and refusing it would leave
+        a retired program's books permanently wrong with no door. What a closed program may not take
+        is new structure, and the structural verbs still refuse.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "a release costs a reason — that is its whole price, and what lets a later reader "
+                "tell a decision from an omission.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            child_id = self.plans.read_record(self.plans.resolve(child_selector))["plan_id"]
+            if not any(child["plan_id"] == child_id for child in record["children"]):
+                raise ProgramError(f"{child_id} is not a child of this program")
+            if obligation_id in self.released_at(record, child_id):
+                return record                       # idempotent: already let go, with its reason
+            if not any(o["id"] == obligation_id
+                       for o in carried_forward(self.plans.head(self.plans.resolve(child_id))).values()):
+                raise ProgramError(
+                    f"{child_id} does not carry an obligation called {obligation_id}. Program-level "
+                    "release answers for what a child DECLARES it is carrying; run `program show` to "
+                    "see what each child actually owes.")
+
+            # The precondition that keeps this from becoming the easy door around answering. If a
+            # live child succeeds the carrier, the ordinary route is open: that successor answers for
+            # the debt in its own document, where the decision is read alongside the work. This verb
+            # is for the case where no such successor can exist.
+            view = {child["plan_id"]: child for child in self.child_view(record)}
+            live_successors = [
+                child["plan_id"] for child in record["children"]
+                if child.get("predecessor_plan_id") == child_id
+                and not child.get("superseded_by")
+                and view.get(child["plan_id"], {}).get("status") not in DEAD_BRANCH_STATES
+                and view.get(child["plan_id"], {}).get("status") not in ("missing", "unreadable")]
+            if live_successors:
+                raise ProgramError(
+                    f"{child_id} still has a live successor — "
+                    + ", ".join(live_successors)
+                    + f" — so {obligation_id} has somewhere to be answered. Release it there, in that "
+                      "plan's own carried_obligations with a reason, where the decision is read "
+                      "beside the work. This verb is for a debt whose successors are all gone.")
+
+            record.setdefault("releases", []).append({
+                "child_plan_id": child_id, "obligation_id": obligation_id,
+                "at": _now(), "reason": reason})
             self._write(slug, record)
             return record
 
@@ -496,7 +576,8 @@ class ProgramLibrary:
             if declared == record["program_id"]:
                 dropped = dropped_obligations(
                     self.plans.head(self.plans.resolve(inherited)),
-                    self.plans.head(replacement_slug))
+                    self.plans.head(replacement_slug),
+                    released=self.released_at(record, inherited))
                 if dropped:
                     raise ProgramError(
                         f"{replacement_id} would take {superseded_id}'s place after {inherited}, and "
@@ -594,7 +675,8 @@ class ProgramLibrary:
             try:
                 dropped = dropped_obligations(
                     self.plans.head(self.plans.resolve(predecessor_id)),
-                    self.plans.head(self.plans.resolve(child["plan_id"])))
+                    self.plans.head(self.plans.resolve(child["plan_id"])),
+                    released=self.released_at(record, predecessor_id))
             except Exception:  # noqa: BLE001 — an unreadable sibling must not hide the rest
                 continue
             if dropped:
@@ -663,20 +745,139 @@ class ProgramLibrary:
         could not be read must ask that instead — this shape cannot say."""
         return self.program_membership(plan_id)["slug"]
 
-    def close(self, slug: str, state: str, reason: str) -> dict:
+    def close(self, slug: str, state: str, reason: str, *,
+              acknowledged_unknown: str | None = None) -> dict:
+        """End a program — retired, abandoned, or complete — after settling its books.
+
+        Closing used to write the closure without consulting the obligation report, so a program
+        could be retired while its own `show` went on listing debts as outstanding under a closed
+        status. That is the carry-forward guarantee failing at the one moment nobody looks again:
+        the debts do not stop existing because the program stopped.
+
+        The two kinds of debt are answered differently, and the difference is not fussiness:
+
+        - READABLE debts refuse. Each is named, and the refusal names `program release`, which is a
+          door that opens. This refusal IS carry-forward, arriving at the end of a program's life.
+        - UNKNOWN entries take an explicit acknowledgement instead. They are sentences about a broken
+          record — a missing child, an unreadable one, a cycle — not obligations, and nothing keyed to
+          an obligation id can clear them. Refusing over them would point at a door that cannot open
+          and would permanently wedge exactly the wrecked programs `abandon` exists for. So they close
+          on a recorded decision: not a wall, and not a silent pass.
+        """
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
             record = self.read(slug)
             if record.get("closure"):
                 raise ProgramError(f"this program is already {record['closure']['state']}")
-            record["closure"] = {"state": state, "at": _now(), "reason": reason}
+            report = self.obligation_report(record)
+            if report["obligations"]:
+                raise ProgramError(
+                    f"this program still owes {len(report['obligations'])} obligation(s), and "
+                    f"closing it as {state} would leave them reporting as outstanding under a closed "
+                    "status — owed by nobody, answerable by nothing:\n"
+                    + "\n".join(
+                        f"  - {obligation['id']} (carried at {leaf}): {obligation['statement']}"
+                        for leaf, obligations in sorted(report["by_leaf"].items())
+                        for obligation in obligations)
+                    + "\nAnswer each before closing. If the work they awaited is genuinely void — "
+                      "its successors abandoned, nothing left to revise — let it go on the record "
+                      "with `program release <program> <child> --obligation <id> --reason \"...\"`.")
+            if report["unknown"] and not (acknowledged_unknown or "").strip():
+                raise ProgramError(
+                    "what this program owes cannot be computed from its record, so closing it would "
+                    "claim its books are settled when nobody can tell:\n"
+                    + "\n".join(f"  - {reason_text}" for reason_text in report["unknown"])
+                    + "\nThese are not obligations and no release can clear them — they are what a "
+                      "broken record looks like. Repair the record if you can. If you cannot, close "
+                      "with --acknowledge-unknown \"<why this is being accepted>\", which records the "
+                      "decision rather than hiding it.")
+            closure = {"state": state, "at": _now(), "reason": reason}
+            if report["unknown"]:
+                closure["acknowledged_unknown"] = acknowledged_unknown
+            record["closure"] = closure
             self._write(slug, record)
             return record
 
-    def reopen(self, slug: str) -> dict:
+    def complete(self, slug: str, reason: str) -> dict:
+        """Record that the operator judged this program's objective met. Never derived.
+
+        Completion used to be derived: every STORED child complete meant the program was complete.
+        That makes 'complete' mean 'nothing left recorded' — and the absence of authored successors
+        is UNKNOWN, not done. It was observed live, on this object's own program, reading complete
+        with one of five pull requests landed. The same rule the obligation count already follows:
+        unknown must never render as finished.
+
+        So completion takes an explicit act. It carries no attestation of the operator's words — no
+        local field can prove someone was present, and one implying it would be false confidence.
+        What makes it trustworthy is simply that no derivation can reach it.
+        """
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            if record.get("closure"):
+                raise ProgramError(f"this program is already {record['closure']['state']}")
+            blockers = self.completion_blockers(record)
+            if blockers:
+                raise ProgramError(
+                    "this program cannot be recorded complete yet:\n"
+                    + "\n".join(f"  - {blocker}" for blocker in blockers)
+                    + "\nCompletion says the objective is MET. Recording it over unfinished work "
+                      "would be the same lie in a different place — reach for `program retire` if "
+                      "the program is being set down rather than finished.")
+            record["closure"] = {"state": "complete", "at": _now(), "reason": reason}
+            self._write(slug, record)
+            return record
+
+    def completion_blockers(self, record: dict) -> list:
+        """Why this program may not be recorded complete yet, in plain sentences.
+
+        The live-children refusal here is a deliberate, recorded WIDENING of this object's boundary,
+        which is otherwise 'refuse only on obligation carry-forward'. It is widened because a stored
+        `complete` sitting over incomplete live children is a record that lies, which is the exact
+        defect class this program exists to kill — and a disclosure that the record contradicts
+        itself, printed beside the contradiction, is not an answer to it.
+        """
+        blockers = []
+        view = self.child_view(record)
+        statuses = {child["plan_id"]: child["status"] for child in view}
+        superseded = {child["plan_id"] for child in record["children"] if child.get("superseded_by")}
+        # Superseded, retired and abandoned children do not bar completion: they are decisions
+        # someone made, not work left undone.
+        live = [plan_id for plan_id, status in statuses.items()
+                if plan_id not in superseded and status not in DEAD_BRANCH_STATES]
+        incomplete = [plan_id for plan_id in live if statuses[plan_id] != "complete"]
+        if incomplete:
+            blockers.append(
+                "these children are not complete: "
+                + ", ".join(f"{plan_id} ({statuses[plan_id]})" for plan_id in sorted(incomplete)))
+        if not any(status == "complete" for status in statuses.values()):
+            blockers.append("no child of this program is complete, so nothing has actually shipped")
+        report = self.obligation_report(record)
+        if report["obligations"]:
+            blockers.append(f"{len(report['obligations'])} obligation(s) are still outstanding: "
+                            + ", ".join(o["id"] for o in report["obligations"]))
+        if report["unknown"]:
+            blockers.append("what this program owes cannot be computed from its record: "
+                            + "; ".join(report["unknown"]))
+        return blockers
+
+    def reopen(self, slug: str, reason: str) -> dict:
+        """Undo a closure — any of the three — keeping what was undone on the record.
+
+        A plan's completion is terminal because it records MERGED HISTORY, which does not become
+        untrue. A program's records the operator's judgment that the objective is met, and a judgment
+        may be revisited as evidence arrives. The divergence from the plan-level rule is deliberate
+        and is the reason a reason is required: reversible, never silent.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "reopening costs a reason. A closure that can be undone without saying why is a "
+                "record that changes with nothing to show for it — and completion in particular is "
+                "the operator's judgment, so reversing it is a second judgment worth reading.")
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
             record = self.read(slug)
             if not record.get("closure"):
                 raise ProgramError("this program is not closed")
+            record.setdefault("closure_history", []).append({
+                "closure": record["closure"], "reopened_at": _now(), "reason": reason})
             record["closure"] = None
             self._write(slug, record)
             return record
@@ -710,7 +911,14 @@ class ProgramLibrary:
             plan_record = self.plans.read_record(plan_slug)
             try:
                 document = self.plans.head(plan_slug)
-                outstanding = sorted(carried_forward(document).values(), key=lambda o: o["id"])
+                # Program-level releases are subtracted HERE, at the one place every reader of a
+                # child's debts goes through, rather than at each of them. A release honored in some
+                # readers and not others would be the worst of both: a debt that disappears from the
+                # count an operator scans and reappears at the gate that refuses their next action.
+                released = self.released_at(record, child["plan_id"])
+                outstanding = sorted(
+                    (o for o in carried_forward(document).values() if o["id"] not in released),
+                    key=lambda o: o["id"])
                 status = plan_store.derived_status(plan_record)
             except ProgramError:
                 outstanding, status = [], "unreadable"
@@ -821,12 +1029,29 @@ class ProgramLibrary:
         says whose debt each one is and when the answer is not computable."""
         return self.obligation_report(record)["obligations"]
 
-    def derived_status(self, record: dict) -> str:
-        """Programs have no seal and no separate completion act.
+    CHILDREN_COMPLETE = "children-complete"
 
-        Sealing a child seals that child. Completion is derived from every child being complete, so a
-        program can never be marked finished while a child is not — the one thing a human summary of
-        a multi-PR effort reliably gets wrong.
+    #: What the children-complete token does NOT claim, said in full wherever there is room for a
+    #: sentence. The token itself is deliberately not the word `complete`: an operator scanning a
+    #: list reads one word, and that word must not be one they will take for a finished program.
+    CHILDREN_COMPLETE_SENTENCE = (
+        "every child on record is complete, which is not the same as this program being complete: "
+        "successors that were never authored are UNKNOWN, not done, and only an explicit "
+        "`program complete` records that the objective was met")
+
+    def derived_status(self, record: dict) -> str:
+        """What can be told from the record. Programs have no seal, and completion is NOT derivable.
+
+        Sealing a child seals that child. Completion used to be derived here — every stored child
+        complete meant the program was complete — and that was a defect, not a design choice. It
+        makes `complete` mean "nothing left recorded", so a program with one of five planned pull
+        requests landed reads as finished, because the four unwritten successors derive as done.
+        Absent work is unknown, and unknown must never render as finished: the same rule the
+        obligation count follows, applied to the headline an operator actually reads.
+
+        So the ceiling here is `children-complete` — a token that claims only what the record shows.
+        The word `complete` appears for a program in exactly one circumstance: the operator recorded
+        it with an explicit verb, in which case it comes from the stored closure above, not from here.
         """
         if record.get("closure"):
             return record["closure"]["state"]
@@ -834,13 +1059,27 @@ class ProgramLibrary:
         if not view:
             return "empty"
         statuses = [child["status"] for child in view]
-        if all(status == "complete" for status in statuses):
-            return "complete"
         if any(status in ("missing", "unreadable") for status in statuses):
             return "needs-attention"
         if any(status == "active" for status in statuses):
             return "active"
+        superseded = {child["plan_id"] for child in record["children"] if child.get("superseded_by")}
+        live = [child["status"] for child in view
+                if child["plan_id"] not in superseded
+                and child["status"] not in DEAD_BRANCH_STATES]
+        if live and all(status == "complete" for status in live):
+            return self.CHILDREN_COMPLETE
         return "in-progress"
+
+    def status_is_recorded(self, record: dict) -> bool:
+        """Whether the status word came from the operator's stored closure or from a derivation.
+
+        The distinction is the whole point of the caption: `retired` read off a closure is a decision
+        somebody made, and `in-progress` read off the children is a computation. Labelling both the
+        same way would let an operator's recorded judgment be mistaken for something the engine
+        worked out, and the reverse.
+        """
+        return bool(record.get("closure"))
 
 
 def render(library: ProgramLibrary, record: dict) -> str:
@@ -852,8 +1091,21 @@ def render(library: ProgramLibrary, record: dict) -> str:
     out = [f"# {record['title']}", "",
            "<!-- generated from the program record and its children; edits here are overwritten -->", "",
            f"- **Program**: `{record['program_id']}`",
-           f"- **Status**: {library.derived_status(record)} — derived from the children, never stored",
+           f"- **Status**: {library.derived_status(record)} — "
+           + ("recorded by an explicit close, not derived"
+              if library.status_is_recorded(record)
+              else "derived from the children, never stored"),
            f"- **Children**: {len(view)}", ""]
+    if library.derived_status(record) == library.CHILDREN_COMPLETE:
+        # The token is short enough to be misread on its own, so wherever there is room for a
+        # sentence it gets one. This is the render an operator reads when deciding whether the work
+        # is done, which is exactly the moment the old derived `complete` misled them.
+        out += [f"> **This program is not recorded as complete.** {library.CHILDREN_COMPLETE_SENTENCE}.",
+                ""]
+    if record.get("closure", {}) and record["closure"].get("acknowledged_unknown"):
+        out += ["> **Closed over an unknown.** What this program owed could not be computed from its "
+                "record when it was closed, and that was accepted deliberately rather than resolved: "
+                f"{record['closure']['acknowledged_unknown']}", ""]
     out += ["## Objective", "", record["objective"], ""]
     out += ["## Children, in the order their predecessor edges declare", "",
             "| # | Plan | Status | Succeeds |", "|---:|---|---|---|"]
@@ -978,8 +1230,17 @@ def render(library: ProgramLibrary, record: dict) -> str:
     elif not report["unknown"]:
         out.append("_None outstanding._")
     released = _released(library, record)
-    if released:
+    program_releases = record.get("releases", [])
+    if released or program_releases:
         out += ["", "## Obligations released along the way", ""]
+        for entry in sorted(program_releases,
+                            key=lambda e: (e["child_plan_id"], e["obligation_id"])):
+            # Attributed at PROGRAM level, and said so. A release granted here was granted because
+            # no successor was left to answer — a different decision from one written inside a plan,
+            # and an operator should not have to work out which they are looking at.
+            out.append(f"- **{entry['obligation_id']}** — carried at `{entry['child_plan_id']}`, "
+                       "released at PROGRAM level because no successor was left to answer for it")
+            out.append(f"  - Released {entry['at']}: {entry['reason']}")
         for obligation, plan_id in released:
             out.append(f"- **{obligation['id']}** — {obligation['statement']}")
             # No fallback string. There used to be a "(no reason given)" here, and printing it was the
@@ -987,6 +1248,20 @@ def render(library: ProgramLibrary, record: dict) -> str:
             # its reason by schema and by add_child, so a missing one is a corrupt record, and the
             # KeyError that follows is the honest report of that — not a hole to paper over.
             out.append(f"  - Released in `{plan_id}`: {obligation['reason']}")
+    if record.get("closure_history"):
+        out += ["", "## Closures that were undone", ""]
+        for entry in record["closure_history"]:
+            closure = entry["closure"]
+            out.append(f"- **{closure['state']}** ({closure['at']}): {closure['reason']}")
+            out.append(f"  - Reopened {entry['reopened_at']}: {entry['reason']}")
+        out.append("")
+        out.append("_Nothing was erased. A program's completion records a judgment, and a judgment "
+                   "may be revisited — but never silently._")
+    if record.get("objective_history"):
+        out += ["", "## How the objective has been revised", ""]
+        for entry in record["objective_history"]:
+            out.append(f"- Replaced {entry['replaced_at']}: {entry['reason']}")
+            out.append(f"  - Previously: {entry['objective']}")
     return "\n".join(out).rstrip() + "\n"
 
 

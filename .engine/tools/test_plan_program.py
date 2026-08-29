@@ -236,7 +236,13 @@ class DerivedProgramStatus(_Program):
             "build_plan_digest": digest, "at": "2026-08-23T03:00:00Z", "delta_judgment": "none"}}))
         self.assertEqual(self.programs.derived_status(self.programs.read(slug)), "in-progress")
 
-    def test_completing_every_child_derives_program_completion(self):
+    def test_every_child_complete_does_not_derive_program_completion(self):
+        """THE reproduction. This asserted `complete` against the prior code, and that was the bug.
+
+        Deriving completion from the stored children makes `complete` mean "nothing left recorded":
+        successors nobody has authored yet derive as done. It was observed live on this object's own
+        program, which read complete with one of five planned pull requests landed.
+        """
         slug = self._two_pr_program()
         self._plan("pln_bbbbbbbbbbbb", "PR B",
                    _obligation("OB-1", "Cut over.", "satisfied"),
@@ -245,14 +251,18 @@ class DerivedProgramStatus(_Program):
         self._complete("pln_aaaaaaaaaaaa")
         self.assertEqual(self.programs.derived_status(self.programs.read(slug)), "in-progress")
         self._complete("pln_bbbbbbbbbbbb")
-        self.assertEqual(self.programs.derived_status(self.programs.read(slug)), "complete")
+        self.assertEqual(self.programs.derived_status(self.programs.read(slug)), "children-complete")
+        self.assertNotEqual(self.programs.derived_status(self.programs.read(slug)), "complete")
 
     def test_a_program_has_no_seal_of_its_own(self):
         schema = json.loads(plan_program.PROGRAM_SCHEMA.read_text(encoding="utf-8"))
         self.assertNotIn("seal", schema["properties"])
         self.assertNotIn("status", schema["properties"])
+        # `complete` joined the closure states when completion stopped being derived. A program has
+        # still never had a seal or a stored status: what it gained is a way for the OPERATOR to
+        # record a judgment, not a way for the record to compute one.
         self.assertEqual(set(schema["$defs"]["closure"]["properties"]["state"]["enum"]),
-                         {"retired", "abandoned"})
+                         {"retired", "abandoned", "complete"})
 
     def test_a_missing_child_is_reported_rather_than_skipped(self):
         slug = self._two_pr_program()
@@ -267,15 +277,23 @@ class DerivedProgramStatus(_Program):
 
     def test_closing_and_reopening_a_program(self):
         slug = self._two_pr_program()
+        # The one child carries OB-1, so closing now settles its books first: released on the record
+        # with a reason, which is the door the refusal names.
+        for obligation_id in ("OB-1", "OB-2"):
+            self.programs.release(slug, "pln_aaaaaaaaaaaa", obligation_id,
+                                  "the successor that would have answered was never written")
         self.programs.close(slug, "abandoned", "the split was wrong")
         self.assertEqual(self.programs.derived_status(self.programs.read(slug)), "abandoned")
         with self.assertRaisesRegex(plan_program.ProgramError, "already abandoned"):
             self.programs.close(slug, "retired", "again")
-        self.programs.reopen(slug)
+        self.programs.reopen(slug, "the split may be salvageable after all")
         self.assertEqual(self.programs.derived_status(self.programs.read(slug)), "in-progress")
 
     def test_a_closed_program_takes_no_new_children(self):
         slug = self._two_pr_program()
+        for obligation_id in ("OB-1", "OB-2"):
+            self.programs.release(slug, "pln_aaaaaaaaaaaa", obligation_id,
+                                  "the work it awaited is void")
         self.programs.close(slug, "retired", "superseded")
         self._plan("pln_bbbbbbbbbbbb", "PR B",
                    _obligation("OB-1", "Cut over.", "satisfied"),
@@ -1406,3 +1424,282 @@ class ReplacementInPlace(_Program):
         self._plan("pln_0000000000dd", "Replacement")
         with self.assertRaisesRegex(plan_program.ProgramError, "is not a child of this program"):
             self.programs.supersede_check(slug, "pln_0000000000cd", "pln_0000000000dd")
+
+
+class EndsThatSettleTheirBooks(_Program):
+    """Closing a program used to leave its debts reporting as outstanding under a closed status.
+
+    Two of the assertions here are genuine red-then-green reproductions of readers that gave a wrong
+    answer, and they say which: `close` succeeded over outstanding debts, and `derived_status`
+    returned `complete` for a program whose objective nobody had judged met. The rest — the release
+    verb, the acknowledged-unknown path, the completion verb — are new doors, and the fixtures for
+    them are labelled as new capability rather than dressed up as repairs.
+    """
+
+    def _retire_plan(self, plan_id):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "stopped"}}))
+
+    def _abandon_plan(self, plan_id):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "abandoned", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+
+    def _complete_plan(self, plan_id):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "complete", "at": "2026-08-29T05:00:00Z", "reason": "merged"}}))
+
+    def _orphaned_debt(self):
+        """The live shelf's shape, with synthetic ids: a completed child carrying debts whose
+        successors were every one of them abandoned without releasing anything."""
+        slug = self._program("Orphaned", "A program whose successors were abandoned.")
+        self._plan("pln_00000000000a", "Child A",
+                   _obligation("MECH-ONE", "The successor was to finish this."),
+                   _obligation("MECH-TWO", "And this."))
+        self.programs.add_child(slug, "pln_00000000000a")
+        self._plan("pln_00000000000b", "Child B",
+                   _obligation("MECH-ONE", "Still carried."),
+                   _obligation("MECH-TWO", "Still carried."),
+                   predecessor="pln_00000000000a")
+        self.programs.add_child(slug, "pln_00000000000b", predecessor="pln_00000000000a")
+        self._complete_plan("pln_00000000000a")
+        self._abandon_plan("pln_00000000000b")
+        return slug
+
+    # -- reproduction: close settled nothing --------------------------------------------------
+
+    def test_closing_over_a_readable_debt_is_refused_and_names_the_release_verb(self):
+        """RED-THEN-GREEN. Against the prior code this close SUCCEEDED, leaving the debt
+        outstanding under a closed status — owed by nobody and answerable by nothing."""
+        slug = self._orphaned_debt()
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.close(slug, "retired", "setting it down")
+        message = str(caught.exception)
+        self.assertIn("MECH-ONE", message)
+        self.assertIn("MECH-TWO", message)
+        self.assertIn("program release", message)
+        self.assertIsNone(self.programs.read(slug).get("closure"))
+
+    def test_releasing_each_debt_lets_the_program_close(self):
+        slug = self._orphaned_debt()
+        for obligation_id in ("MECH-ONE", "MECH-TWO"):
+            self.programs.release(slug, "pln_00000000000a", obligation_id,
+                                  "the work it awaited was abandoned with its program, so it is void")
+        self.assertEqual(self.programs.obligation_report(self.programs.read(slug))["obligations"], [])
+        record = self.programs.close(slug, "retired", "setting it down")
+        self.assertEqual(record["closure"]["state"], "retired")
+        rendered = plan_program.render(self.programs, record)
+        self.assertIn("MECH-ONE", rendered)
+        self.assertIn("released at PROGRAM level", rendered)
+        self.assertIn("abandoned with its program", rendered)
+
+    def test_a_release_costs_a_reason(self):
+        slug = self._orphaned_debt()
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.release(slug, "pln_00000000000a", "MECH-ONE", "   ")
+
+    def test_a_release_is_refused_while_a_live_successor_could_answer(self):
+        """The precondition that keeps this from becoming the easy door around answering."""
+        slug = self._program("Live successor", "Somebody can still answer.")
+        self._plan("pln_00000000001a", "Child A", _obligation("OB-1", "Answer this."))
+        self.programs.add_child(slug, "pln_00000000001a")
+        self._plan("pln_00000000001b", "Child B", _obligation("OB-1", "Still carried."),
+                   predecessor="pln_00000000001a")
+        self.programs.add_child(slug, "pln_00000000001b", predecessor="pln_00000000001a")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.release(slug, "pln_00000000001a", "OB-1", "cannot be bothered")
+        message = str(caught.exception)
+        self.assertIn("still has a live successor", message)
+        self.assertIn("pln_00000000001b", message)
+
+    def test_a_release_on_one_branch_end_leaves_the_other_branch_still_owing(self):
+        """THE keying, proven. Two live branch ends owe the SAME obligation id; one branch's
+        continuation was abandoned, so its debt is released there. The other still owes it.
+
+        Released program-wide instead of per-child, this would clear both — which is the silent drop
+        the whole object exists to prevent, arriving through the door built to prevent it.
+        """
+        slug = self._program("Forked", "Two live ends owe the same id.")
+        self._plan("pln_00000000002a", "Root", _obligation("OB-1", "Both branches carry this."))
+        self.programs.add_child(slug, "pln_00000000002a")
+        # Branch one: X is complete and still carries OB-1; its only successor Y was abandoned, so
+        # X is itself a live branch end and the debt sits on it with nothing left to answer.
+        self._plan("pln_00000000002b", "Branch one", _obligation("OB-1", "Still carried."),
+                   predecessor="pln_00000000002a")
+        self.programs.add_child(slug, "pln_00000000002b", predecessor="pln_00000000002a")
+        self._plan("pln_00000000002d", "Branch one, successor", _obligation("OB-1", "Still carried."),
+                   predecessor="pln_00000000002b")
+        self.programs.add_child(slug, "pln_00000000002d", predecessor="pln_00000000002b")
+        self._complete_plan("pln_00000000002b")
+        self._abandon_plan("pln_00000000002d")
+        # Branch two: open, carrying OB-1, and perfectly able to answer for it.
+        self._plan("pln_00000000002c", "Branch two", _obligation("OB-1", "Still carried."),
+                   predecessor="pln_00000000002a")
+        self.programs.add_child(slug, "pln_00000000002c", predecessor="pln_00000000002a")
+
+        before = self.programs.obligation_report(self.programs.read(slug))
+        self.assertEqual(sorted(before["by_leaf"]), ["pln_00000000002b", "pln_00000000002c"])
+
+        self.programs.release(slug, "pln_00000000002b", "OB-1",
+                              "this branch's continuation was abandoned, so the debt is void here")
+        after = self.programs.obligation_report(self.programs.read(slug))
+        self.assertNotIn("pln_00000000002b", after["by_leaf"])
+        self.assertEqual([o["id"] for o in after["obligations"]], ["OB-1"])
+        self.assertIn("pln_00000000002c", after["by_leaf"])
+
+    def test_a_released_debt_stops_refusing_add_child_and_stops_the_decay_complaint(self):
+        """Honored by every program-side reader, not only the report an operator reads."""
+        slug = self._program("Honored", "A release must mean the same thing everywhere.")
+        self._plan("pln_00000000003a", "Child A", _obligation("OB-1", "Answer this."))
+        self.programs.add_child(slug, "pln_00000000003a")
+        self._plan("pln_00000000003b", "Child B")          # answers for nothing
+        with self.assertRaises(plan_program.ProgramError):
+            self.programs.add_child(slug, "pln_00000000003b", predecessor="pln_00000000003a")
+        self.programs.release(slug, "pln_00000000003a", "OB-1", "the debt is void")
+        self.programs.add_child(slug, "pln_00000000003b", predecessor="pln_00000000003a")
+        self.assertEqual(self.programs.carry_forward_decay(slug), [])
+
+    # -- the acknowledged-unknown path -------------------------------------------------------
+
+    def test_closing_over_an_unknown_takes_an_acknowledgement_rather_than_a_refusal(self):
+        """New capability. Refusing here would wedge exactly the wrecked programs abandon exists
+        for: unknown entries carry no obligation id, so no release could ever clear them."""
+        slug = self._program("Wrecked", "Its record no longer parses cleanly.")
+        self._plan("pln_00000000004a", "Child A")
+        self.programs.add_child(slug, "pln_00000000004a")
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_00000000004f",
+                                   "added_at": "2026-08-29T06:00:00Z",
+                                   "predecessor_plan_id": "pln_00000000004a"})
+        self.programs._write(slug, record)
+        self.assertTrue(self.programs.obligation_report(self.programs.read(slug))["unknown"])
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.close(slug, "abandoned", "giving up on it")
+        self.assertIn("--acknowledge-unknown", str(caught.exception))
+        closed = self.programs.close(slug, "abandoned", "giving up on it",
+                                     acknowledged_unknown="the missing child was never authored")
+        self.assertEqual(closed["closure"]["acknowledged_unknown"],
+                         "the missing child was never authored")
+        self.assertIn("Closed over an unknown",
+                      plan_program.render(self.programs, closed))
+
+    # -- reproduction: completion was derived ------------------------------------------------
+
+    def test_completion_is_recorded_by_a_verb_and_never_derived(self):
+        """RED-THEN-GREEN on the derivation; the verb itself is new capability."""
+        slug = self._program("Judged", "Finished when the operator says so.")
+        self._plan("pln_00000000005a", "Child A")
+        self.programs.add_child(slug, "pln_00000000005a")
+        self._complete_plan("pln_00000000005a")
+        record = self.programs.read(slug)
+        # Against the prior code this read `complete` with one child on record and no judgment made.
+        self.assertEqual(self.programs.derived_status(record), "children-complete")
+        self.assertFalse(self.programs.status_is_recorded(record))
+        completed = self.programs.complete(slug, "the objective is met")
+        self.assertEqual(self.programs.derived_status(completed), "complete")
+        self.assertTrue(self.programs.status_is_recorded(completed))
+        self.assertEqual(completed["closure"]["reason"], "the objective is met")
+        self.assertIn("at", completed["closure"])
+        # And no attestation of anyone's words: struck as ceremony, since no local field can prove
+        # someone was present, and one implying it would be false confidence.
+        self.assertEqual(set(completed["closure"]), {"state", "at", "reason"})
+
+    def test_the_children_complete_token_and_its_sentence_say_what_they_do_not_claim(self):
+        slug = self._program("Not finished", "Five PRs planned; one written.")
+        self._plan("pln_00000000006a", "Child A")
+        self.programs.add_child(slug, "pln_00000000006a")
+        self._complete_plan("pln_00000000006a")
+        record = self.programs.read(slug)
+        self.assertNotEqual(self.programs.derived_status(record), "complete")
+        rendered = plan_program.render(self.programs, record)
+        self.assertIn("This program is not recorded as complete", rendered)
+        self.assertIn("UNKNOWN, not done", rendered)
+        self.assertIn("derived from the children, never stored", rendered)
+
+    def test_the_caption_tells_a_recorded_closure_from_a_derived_state(self):
+        slug = self._program("Captions", "A stored decision must not read as a computation.")
+        self._plan("pln_00000000007a", "Child A")
+        self.programs.add_child(slug, "pln_00000000007a")
+        self._complete_plan("pln_00000000007a")
+        derived = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("derived from the children, never stored", derived)
+        recorded = plan_program.render(
+            self.programs, self.programs.complete(slug, "the objective is met"))
+        self.assertIn("recorded by an explicit close, not derived", recorded)
+        self.assertNotIn("derived from the children, never stored", recorded)
+
+    def test_complete_refuses_over_an_incomplete_live_child(self):
+        """The operator's recorded WIDENING of the refuse-only-on-carry-forward boundary."""
+        slug = self._program("Half done", "One child landed, one did not.")
+        self._plan("pln_00000000008a", "Child A")
+        self.programs.add_child(slug, "pln_00000000008a")
+        self._plan("pln_00000000008b", "Child B", predecessor="pln_00000000008a")
+        self.programs.add_child(slug, "pln_00000000008b", predecessor="pln_00000000008a")
+        self._complete_plan("pln_00000000008a")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.complete(slug, "close enough")
+        self.assertIn("pln_00000000008b", str(caught.exception))
+        self.assertIn("not complete", str(caught.exception))
+
+    def test_complete_refuses_when_nothing_has_shipped(self):
+        slug = self._program("Nothing shipped", "No child is complete.")
+        self._plan("pln_00000000009a", "Child A")
+        self.programs.add_child(slug, "pln_00000000009a")
+        self._retire_plan("pln_00000000009a")
+        with self.assertRaisesRegex(plan_program.ProgramError, "nothing has actually shipped"):
+            self.programs.complete(slug, "calling it done")
+
+    def test_complete_refuses_over_an_outstanding_debt_and_over_an_unknown(self):
+        slug = self._orphaned_debt()
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.complete(slug, "done")
+        self.assertIn("MECH-ONE", str(caught.exception))
+
+    def test_a_superseded_child_does_not_bar_completion(self):
+        slug = self._program("Replaced", "One child was replaced, the rest landed.")
+        self._plan("pln_0000000000ba", "Child A")
+        self.programs.add_child(slug, "pln_0000000000ba")
+        self._plan("pln_0000000000bb", "Replacement for A")
+        self._retire_plan("pln_0000000000ba")
+        self.programs.mark_superseded(slug, "pln_0000000000ba", "pln_0000000000bb")
+        self._complete_plan("pln_0000000000bb")
+        record = self.programs.complete(slug, "the objective is met")
+        self.assertEqual(record["closure"]["state"], "complete")
+
+    # -- reopen keeps what it undoes ---------------------------------------------------------
+
+    def test_reopen_requires_a_reason_for_every_state_and_keeps_what_it_undid(self):
+        for index, (state, close) in enumerate((
+                ("retired", lambda s: self.programs.close(s, "retired", "set down")),
+                ("abandoned", lambda s: self.programs.close(s, "abandoned", "dropped")),
+                ("complete", lambda s: self.programs.complete(s, "objective met")))):
+            with self.subTest(state=state):
+                slug = self._program(f"Reopenable {index}", "A closure that can be undone.")
+                plan_id = f"pln_0000000000c{index}"
+                self._plan(plan_id, f"Child {index}")
+                self.programs.add_child(slug, plan_id)
+                self._complete_plan(plan_id)
+                close(slug)
+                with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+                    self.programs.reopen(slug, "  ")
+                record = self.programs.reopen(slug, "the evidence changed")
+                self.assertIsNone(record["closure"])
+                self.assertEqual(len(record["closure_history"]), 1)
+                self.assertEqual(record["closure_history"][0]["closure"]["state"], state)
+                self.assertEqual(record["closure_history"][0]["reason"], "the evidence changed")
+                rendered = plan_program.render(self.programs, record)
+                self.assertIn("Closures that were undone", rendered)
+                self.assertIn("the evidence changed", rendered)
+
+    # -- a closed program takes corrections, never new structure ------------------------------
+
+    def test_a_closed_program_takes_a_release_but_no_new_structure(self):
+        slug = self._orphaned_debt()
+        self.programs.release(slug, "pln_00000000000a", "MECH-ONE", "void")
+        self.programs.release(slug, "pln_00000000000a", "MECH-TWO", "void")
+        self.programs.close(slug, "retired", "set down")
+        # A correction is permitted on a closed record; structure is not.
+        self._plan("pln_00000000000c", "A late arrival")
+        with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
+            self.programs.add_child(slug, "pln_00000000000c", predecessor="pln_00000000000a")
+        with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
+            self.programs.insert_child(slug, "pln_00000000000c", before="pln_00000000000b")
