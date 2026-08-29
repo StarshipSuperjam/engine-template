@@ -113,10 +113,25 @@ def way_through_for(plan_id: str, status: str, sealed: bool) -> str:
     the difference between a way through and a door that opens onto a wall.
     """
     if status == "active":
+        # The two outcomes of that Build lead to DIFFERENT doors, and saying only "let it merge, or
+        # abandon it, then supersede" was this function's own defect arriving inside the fix for it:
+        # a merged Build makes the plan complete, and supersede refuses a complete target flat. So
+        # each route names the door that is actually open at the end of it.
         return (f"\nA Build is bound to {plan_id} right now, so it can be neither revised (its seal "
                 "is terminal) nor superseded (superseding a plan with a Build running would strand "
-                "it). Let that Build merge, or abandon it, and then supersede "
-                f"{plan_id} with a plan that answers.")
+                "it). Two ways on, and they end somewhere different: ABANDON that Build, and "
+                f"`program supersede {plan_id}` then works. Or let it MERGE — after which the plan "
+                "is complete and merged history is not replaced but CORRECTED, so the way through "
+                "becomes appended work: `program add --after` a new plan that answers.")
+    if status == "complete":
+        # A complete plan carries a seal, so it fell into the sealed branch below and was told to
+        # supersede — which refuses a complete target flat. Unlike the sealed case there is no
+        # precondition that opens supersede here: merged history is never replaced. The door that
+        # does open is the one the complete-refusal already names, and now this names it too.
+        return (f"\n{plan_id} is complete — its pull request has merged, and merged history is not "
+                "replaced but CORRECTED. Nothing can make it answer retrospectively. Append the "
+                "work instead: `program add --after` a new plan that answers for these, placed "
+                "after the last child on that branch.")
     if sealed:
         return (f"\nThat plan is SEALED, and a seal is terminal, so it cannot be revised to answer "
                 f"for them. Replace it: `program supersede {plan_id}` with a plan that does.")
@@ -436,9 +451,12 @@ class ProgramLibrary:
             # an append never creates, and skipping it would let an insertion mint a debt nothing
             # downstream ever had to answer for — the decay this object exists to prevent, arriving
             # through the new door.
-            dropped = dropped_obligations(inserted_head,
-                                          self.plans.head(self.plans.resolve(displaced_id)),
-                                          released=self.released_at(record, plan_id))
+            # A retired or abandoned displaced child answers for nothing and is owed nothing —
+            # the same call supersede's downstream check makes, and made here too so the two doors
+            # do not demand different things of the same dead plan.
+            dropped = ([] if displaced_status in DEAD_BRANCH_STATES else
+                       dropped_obligations(inserted_head,
+                                           self.plans.head(self.plans.resolve(displaced_id))))
             if dropped:
                 raise ProgramError(
                     f"{displaced_id} would succeed {plan_id} once this insertion lands, and it does "
@@ -648,9 +666,12 @@ class ProgramLibrary:
                     continue
                 if downstream_status in DEAD_BRANCH_STATES:
                     continue      # a dead successor answers for nothing, and is owed nothing
-                dropped = dropped_obligations(
-                    replacement_head, downstream_head,
-                    released=self.released_at(record, replacement_id))
+                # No `released=` here, and the omission is deliberate: a release is refused
+                # unless its target is already a child, and supersede refuses a replacement that
+                # already is one, so the set would be empty on every path reaching this line.
+                # Passing it anyway would be inert code shaped like a guard — the same thing removed
+                # from the display reports a round ago, and the same argument applies.
+                dropped = dropped_obligations(replacement_head, downstream_head)
                 if not dropped:
                     continue
                 raise ProgramError(
@@ -850,6 +871,24 @@ class ProgramLibrary:
             if record.get("closure"):
                 raise ProgramError(f"this program is already {record['closure']['state']}")
             report = self.obligation_report(record)
+            # A KNOWN GAP, deliberately left, and named here rather than discovered again later.
+            #
+            # This gate reads the outstanding-debt report, which answers what the live branch ENDS
+            # carry. An obligation a predecessor mints AFTER its successor has sealed sits mid-chain
+            # on a child that is not an end, so the report cannot attribute it; the decay sweep sees
+            # it and warns, but decay does not gate. A close can therefore pass over that one shape.
+            #
+            # Gating on decay as well was built and REVERTED, because it wedges: the successor is
+            # sealed and so can never answer, and the program-level release refuses while any live
+            # successor exists — a sealed successor being live. The program would become permanently
+            # unclosable, which is the exact failure the acknowledged-unknown path exists to avoid.
+            # Closing it properly means changing what "a live successor" means in the release
+            # precondition, and that precondition is an operator decision recorded in this plan.
+            #
+            # ENGINE-TODO: a debt minted after its successor sealed is seen by carry_forward_decay
+            # but not by obligation_report, so the close and completion gates pass over it; closing
+            # that needs the release precondition to treat a sealed successor as unable to answer,
+            # which is an operator decision rather than an implementation one.
             if report["obligations"]:
                 raise ProgramError(
                     f"this program still owes {len(report['obligations'])} obligation(s), and "
@@ -942,6 +981,8 @@ class ProgramLibrary:
         if report["obligations"]:
             blockers.append(f"{len(report['obligations'])} obligation(s) are still outstanding: "
                             + ", ".join(o["id"] for o in report["obligations"]))
+        # The same gap the close gate carries, and it is the same shape: a decayed obligation is
+        # invisible here too. See the note in `close`; it is disclosed rather than half-closed.
         if report["unknown"]:
             blockers.append("what this program owes cannot be computed from its record: "
                             + "; ".join(report["unknown"]))

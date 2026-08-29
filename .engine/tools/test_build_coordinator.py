@@ -566,6 +566,35 @@ class TestSealedPlanEntry(CoordinatorCase):
         self.assertEqual(sealed_digest, seal["sealed_digest"])
         self.assertEqual(bc._digest(payload), bc._digest(plan()))
 
+    def test_a_build_already_under_way_resumes_on_a_closed_plan_and_is_warned(self):
+        """The `entering` narrowing, which shipped without a fixture until a reviewer said so.
+
+        A closed plan does not START a Build; one already legitimately under way does not cease to
+        exist because someone retired its plan. The resume paths therefore disclose rather than
+        refuse — and the disclosure has to WARN, because a plan carrying a build binding is by
+        construction sealed, so the closure can never be reopened and a merge will have nowhere to
+        record its completion.
+        """
+        self.seal_it()
+        self._close("retired")
+        with self.assertRaises(bc.CoordinatorError):
+            bc._sealed_plan(self.document["plan_id"])                    # entering: refused
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            plan_id, _, _ = bc._sealed_plan(self.document["plan_id"], entering=False)
+        self.assertEqual(plan_id, self.document["plan_id"])              # not entering: continues
+        note = err.getvalue()
+        self.assertIn("warning", note)
+        self.assertIn("retired", note)
+        self.assertIn("can no longer be recorded", note)
+        self.assertIn("before the Build reaches its merge", note)
+
+    def test_an_open_plan_resuming_says_nothing(self):
+        """The warning must be about the closure, not a line printed on every resume."""
+        self.seal_it()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            bc._sealed_plan(self.document["plan_id"], entering=False)
+        self.assertEqual(err.getvalue(), "")
+
     def test_the_closed_refusal_comes_after_the_unsealed_one(self):
         """An unsealed AND closed plan should hear about the seal: it is the more basic fact, and
         naming the closure first would send someone to reopen a plan that could not bind anyway."""

@@ -1038,8 +1038,16 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
     if closure and not entering:
         # Disclosed, never swallowed: the operator is finishing a Build whose plan was closed under
         # it, and that is worth saying out loud even though it does not stop the resume.
-        print(f"note: {record['plan_id']} is {closure['state']} ({closure['reason']}). This Build "
-              "was bound before that, so it continues; a NEW Build could not start on this plan.",
+        # Warn, do not reassure. Letting the resume through is right; leaving it there is not.
+        # A plan carrying a build_binding is by construction sealed, so `reopen` can never clear
+        # this closure — and `plan complete` refuses a plan that is already closed. The Build below
+        # can therefore run and merge and still have nowhere to record that it did.
+        print(f"warning: {record['plan_id']} is {closure['state']} ({closure['reason']}). This "
+              "Build was bound before that, so it continues and a NEW Build could not start here — "
+              "but the closure cannot be undone: this plan is sealed, so `reopen` refuses it, and a "
+              "closed plan will not take a completion. If this Build merges, its completion can no "
+              "longer be recorded against this plan. Undo the closure now if that was a mistake, "
+              "before the Build reaches its merge.",
               file=sys.stderr)
     if closure and entering:
         # A closed plan stayed BINDABLE, and a seal is forever: a plan retired because it was

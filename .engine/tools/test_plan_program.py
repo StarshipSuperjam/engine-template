@@ -1184,9 +1184,13 @@ class TheOrderCanBeReDecided(_Program):
         message = str(caught.exception)
         self.assertIn("OB-NEW", message)
         self.assertIn("A Build is bound to", message)
-        self.assertIn("abandon it", message)
-        # And it must NOT hand them the verb that would turn round and refuse.
-        self.assertNotIn("`program supersede", message)
+        # Naming supersede here is honest ONLY because the step that opens it is named too. The
+        # other route — letting the Build merge — leads somewhere else entirely, and the message
+        # must say so rather than implying supersede works at the end of both.
+        self.assertIn("ABANDON that Build", message)
+        self.assertIn("`program supersede", message)
+        self.assertIn("program add --after", message)
+        self.assertIn("merged history is not replaced", message)
 
     def test_an_open_displaced_child_that_cannot_answer_is_told_to_revise_it(self):
         """The sealed refusal names supersede because revision is closed. Here it is open."""
@@ -1881,6 +1885,49 @@ class EndsThatSettleTheirBooks(_Program):
 
     # -- reopen keeps what it undoes ---------------------------------------------------------
 
+    def test_a_debt_minted_after_its_successor_sealed_is_a_KNOWN_GAP(self):
+        """Pins the gap as it actually stands, so nobody rediscovers it as a surprise.
+
+        A reviewer asked to find a third path by which an obligation leaves the books found this
+        one. The outstanding-debt report answers what the live branch ENDS carry, so an obligation
+        minted after its successor sealed sits mid-chain where the report cannot attribute it, and
+        the closure gates read the report. Gating on the decay sweep as well was built and reverted:
+        it wedges, because the sealed successor can never answer and the program-level release
+        refuses while a live successor exists. Closing it needs the release precondition to change,
+        and that precondition is an operator decision recorded in the sealed plan.
+
+        This test asserts the CURRENT behaviour, marked plainly as a gap rather than as a guarantee,
+        and will fail the moment someone closes it — which is the point.
+        """
+        slug = self._program("Known gap", "A debt the report cannot place.")
+        self._plan("pln_00000000000f", "Child one")
+        self.programs.add_child(slug, "pln_00000000000f")
+        self._plan("pln_0000000000f2", "Child two", predecessor="pln_00000000000f")
+        self.programs.add_child(slug, "pln_0000000000f2", predecessor="pln_00000000000f")
+        digest = self.plans.read_record(
+            self.plans.resolve("pln_0000000000f2"))["current"]["plan_digest"]
+        self.plans.update_record(self.plans.resolve("pln_0000000000f2"), lambda r: r.update({
+            "seal": {"revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+                     "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z",
+                     "delta_judgment": "none"}}))
+        slug_one = self.plans.resolve("pln_00000000000f")
+        revised = dict(self.plans.head(slug_one))
+        revised["program"] = {"program_id": self.program_id,
+                              "carried_obligations": [
+                                  _obligation("OB-LATE", "Minted after the successor sealed.")]}
+        revised["revision"] = 2
+        revised["revision_note"] = "mint an obligation the successor can never answer for"
+        self.plans.append_revision(slug_one, revised, expected_revision=1)
+
+        record = self.programs.read(slug)
+        # The decay sweep SEES it and says so; the report cannot place it.
+        self.assertEqual([e["plan_id"] for e in self.programs.carry_forward_decay(slug)],
+                         ["pln_0000000000f2"])
+        self.assertEqual(self.programs.obligation_report(record)["obligations"], [])
+        # And so the close passes over it. Asserted as the gap it is, not as correct behaviour.
+        self.assertEqual(
+            self.programs.close(slug, "retired", "setting it down")["closure"]["state"], "retired")
+
     def test_close_is_not_a_second_door_into_completion(self):
         """`complete` has one door because it is the only closure with a gate of its own."""
         slug = self._program("One door", "Completion is not written through close.")
@@ -2101,13 +2148,17 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
     round and refuse. It is a matrix, so a status nobody thought about is covered by construction.
     """
 
-    STATUSES = ("draft", "sealed", "active", "retired", "abandoned")
+    # `complete` belongs here and was missing, which is the hole this class was written to make
+    # impossible: the assertion below explicitly names complete as a dead end, and the matrix never
+    # drove it. A guard that reads as enforcing and is slipped past on one path is exactly the shape
+    # under review, committed inside the guard against it.
+    STATUSES = ("draft", "sealed", "active", "complete", "retired", "abandoned")
 
     def _put_in_status(self, plan_id, status):
         slug = self.plans.resolve(plan_id)
         if status == "draft":
             return
-        if status in ("sealed", "active"):
+        if status in ("sealed", "active", "complete"):
             digest = self.plans.read_record(slug)["current"]["plan_digest"]
             self.plans.update_record(slug, lambda r: r.update({"seal": {
                 "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
@@ -2115,17 +2166,38 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
                 "delta_judgment": "none"}}))
         if status == "active":
             self.plans.update_record(slug, lambda r: r.update({"build_binding": _BUILD_BINDING}))
-        if status in DEAD_BRANCH_STATES:
+        if status in DEAD_BRANCH_STATES or status == "complete":
             self.plans.update_record(slug, lambda r: r.update({"closure": {
-                "state": status, "at": "2026-08-29T06:00:00Z", "reason": "stopped"}}))
+                "state": status, "at": "2026-08-29T06:00:00Z",
+                "reason": "merged" if status == "complete" else "stopped"}}))
+
+    #: The precondition each status needs stated before a verb it would otherwise refuse can be
+    #: named. A two-step route whose first step is spelled out is a way through; the same verb named
+    #: bare is a dead end. Empty means the verb may not be named at all for that status.
+    PRECONDITION = {"active": "ABANDON", "complete": None}
 
     def _assert_no_dead_end(self, message, plan_id, status):
-        """The named verb must be one that would actually run for a plan in THIS status."""
-        if "`program supersede" in message:
-            # supersede refuses complete and active targets, so naming it for one is a dead end.
-            self.assertNotIn(status, ("complete", "active"),
-                             f"the refusal names supersede for a {status} plan, which supersede "
-                             f"itself refuses:\n{message}")
+        """The named verb must be one that would actually run for a plan in THIS status — or the
+        message must state, in the message itself, what has to happen first to make it run."""
+        # Detect the ADVICE shape — supersede named against THIS plan — not the word in passing.
+        # "superseding a plan with a Build running would strand it" is explanation; "supersede
+        # pln_x" is an instruction. Matching only the backticked form missed the second, which my
+        # own seeded case below caught.
+        if f"supersede {plan_id}" in message:
+            # supersede refuses complete and active targets. For a complete plan there is no
+            # precondition that helps: merged history is corrected by appended work, never replaced,
+            # so naming supersede at all is a dead end. For an active plan there IS one — abandon
+            # the Build — and naming the verb is honest only if the message names that step too.
+            if status in self.PRECONDITION:
+                precondition = self.PRECONDITION[status]
+                self.assertIsNotNone(
+                    precondition,
+                    f"the refusal names supersede for a {status} plan, which supersede refuses "
+                    f"with no precondition that would open it:\n{message}")
+                self.assertIn(
+                    precondition, message,
+                    f"the refusal names supersede for a {status} plan without stating the step "
+                    f"that has to happen first, so as written it is a dead end:\n{message}")
         if "Revise " in message and "`program supersede" not in message:
             # A sealed plan is terminal and cannot be revised.
             self.assertNotIn(status, ("sealed", "active"),
@@ -2134,6 +2206,10 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
         if status == "active":
             self.assertIn("Build", message,
                           "an active plan's refusal must say the Build has to stop first")
+        if status == "complete":
+            self.assertIn("program add --after", message,
+                          "merged history is corrected by appended work, and nothing else opens; "
+                          f"the refusal must name that door:\n{message}")
 
     def test_inserts_edge_two_refusal_never_names_a_door_that_would_refuse(self):
         for index, status in enumerate(self.STATUSES):
@@ -2180,8 +2256,17 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
 
     def test_the_matrix_would_catch_the_defect_it_was_written_for(self):
         """THE assertion the matrix rests on, exercised against the exact message that was wrong."""
+        # The round-two defect: supersede named for an ACTIVE plan with no precondition stated.
         was_wrong = ("pln_x does not answer for 1 obligation(s):\n  - OB-NEW: x\n"
                      "That plan is SEALED, and a seal is terminal, so it cannot be revised to "
                      "answer for them. Replace it: `program supersede pln_x` with a plan that does.")
         with self.assertRaises(AssertionError):
             self._assert_no_dead_end(was_wrong, "pln_x", "active")
+        # The round-three defect: a precondition IS stated, but the route it describes ends at a
+        # verb that refuses anyway — "let the Build merge, then supersede" leaves a complete plan.
+        also_wrong = ("A Build is bound to pln_x. Let that Build merge, or abandon it, and then "
+                      "supersede pln_x with a plan that answers.")
+        with self.assertRaises(AssertionError):
+            self._assert_no_dead_end(also_wrong, "pln_x", "active")
+        # And supersede named for a COMPLETE plan is a dead end no precondition can open.
+        self.assertIsNone(self.PRECONDITION["complete"])

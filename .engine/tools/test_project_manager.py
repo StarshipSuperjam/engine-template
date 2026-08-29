@@ -1267,6 +1267,32 @@ class ProgramVerbs(_Governed):
         self.assertIn("PR B, second attempt", rendered)
         self.assertIn("PR B", rendered)          # nothing was deleted to make room
 
+    def test_a_build_binding_arriving_late_stops_the_retirement_under_the_lock(self):
+        """The TOCTOU guard, which shipped without a fixture until a reviewer said so.
+
+        supersede reads the target's status before it writes anything, and that read is unlocked. A
+        Build binding in the window would retire a plan underneath running work — the outcome
+        supersede's own refusal calls unrecoverable. The guard re-asserts the precondition inside
+        the mutator; this drives that path directly by binding the plan after the pre-check has
+        already passed, which is exactly the race, made deterministic.
+        """
+        import project_manager
+        program_id = self._superseded_setup()
+        slug_b = self.lib.resolve("pln_bbbbbbbbbbbb")
+        self.lib.update_record(slug_b, lambda r: r.update({"build_binding": {
+            "sealed_digest": "sha256:" + "a" * 64, "build_plan_digest": "sha256:" + "b" * 64,
+            "at": "2026-08-29T07:00:00Z", "repository": "owner/repo", "pull_request": 7}}))
+        with self.assertRaises(project_manager.ProjectManagerError) as caught:
+            project_manager._close_plan(self.lib, slug_b, "retired", "replaced",
+                                        refuse_if_active=True)
+        self.assertIn("strand that Build", str(caught.exception))
+        # Nothing was written: raising from inside the mutator must abort before the record lands.
+        self.assertIsNone(self.lib.read_record(slug_b).get("closure"))
+        # And without the flag the same call writes, so the fixture is testing the guard and not
+        # some unrelated refusal standing in front of it.
+        project_manager._close_plan(self.lib, slug_b, "retired", "replaced")
+        self.assertEqual(self.lib.read_record(slug_b)["closure"]["state"], "retired")
+
     def test_supersede_refuses_before_it_retires_anything(self):
         """A refusal must not leave the replaced plan out of play for a supersession that never landed."""
         program_id = self._superseded_setup()
