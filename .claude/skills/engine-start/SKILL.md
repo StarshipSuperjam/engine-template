@@ -10,8 +10,10 @@ allowed-tools: Bash(uv run *)
 
 1. Ensure this clone has an exact accepted activation by running:
    `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`
-   This attended step keeps an already-active exact commit, or selects the canonical checkout's current
-   GitHub default-branch HEAD only after GitHub proves that exact commit was merged there. If it refuses,
+   This attended step preserves any valid existing activation without network access. Only when activation is
+   absent does it select the canonical checkout's current GitHub default-branch HEAD after GitHub proves that
+   exact commit was merged there; advancing or rolling back an existing activation uses the explicit attended
+   activation/upgrade path. If it refuses,
    relay the recovery guidance and do not enter a write stance.
 2. Switch this session into building by running:
    `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/modes.py --operation session-stance-write -- set-build --session "${CLAUDE_CODE_SESSION_ID}"`

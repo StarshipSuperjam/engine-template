@@ -1951,6 +1951,12 @@ def retire(*, root=None, announce=None) -> dict:
         return {"refused": True, "reason": "inconsistent", "deleted": [], "already_absent": [],
                 "preserved": [], "graph": "unchanged", "self_map": "unchanged",
                 "steps": [{"step": "retire", "status": "refused", "issues": len(hard)}]}
+    # The first reviewed activation cannot exist until this first setup change lands. Preflight the one
+    # operator-approved exception before the first irreversible delete, then carry its target-bound one-use
+    # handle to the presentation-marker writer at the end. An authority defect therefore leaves every setup
+    # asset untouched instead of producing a half-retired tree.
+    landing_capability = mutation_guards.acquire_preactivation_local_capability(
+        "attended-first-run-marker-stage", project_root=base)
     deleted, already = [], []
     for rel in _FIRST_RUN_ASSET_FILES:
         p = os.path.join(base, rel)
@@ -2004,9 +2010,7 @@ def retire(*, root=None, announce=None) -> dict:
     # #810: setup is APPLIED but not yet DURABLE (the tree is dirty with the transformation + these deletions).
     # Drop a local awaiting-landing marker (fail-soft) so boot can confirm completion ONCE after the changes land
     # through review, and report honestly — never a bare "Setup is complete" over an uncommitted transformation.
-    with mutation_guards.preactivation_local_scope(
-            "attended-first-run-marker-stage", project_root=base):
-        first_run_health.mark_first_run_applied(base)
+    first_run_health.mark_first_run_applied(base, _engine_capability=landing_capability)
     say(copy["retire-applied"])
     return {"refused": False, "durable": False, "next": "land-through-review",
             "deleted": deleted, "already_absent": already, "preserved": preserved,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import gc
 import json
 import os
 import subprocess
@@ -190,6 +191,46 @@ class ConvertedCallGraphTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
 
+    def test_a_fabricated_module_cannot_borrow_a_real_test_source_path(self):
+        script = (
+            "import os,sys,tempfile,types; sys.path.insert(0," + repr(str(TOOLS)) + "); "
+            "from memory import ledger; d=tempfile.mkdtemp(); p=os.path.join(d,'ledger.ndjson'); "
+            "name='test_fabricated_authority'; m=types.ModuleType(name); "
+            "m.__file__=" + repr(str(Path(__file__).resolve())) + "; sys.modules[name]=m; "
+            "src=\"ledger.append({'body':'forbidden'},path=p)\"; "
+            "m.__dict__.update({'ledger':ledger,'p':p}); code=compile(src,m.__file__,'exec'); "
+            "\ntry: exec(code,m.__dict__)\n"
+            "except Exception as e: print(type(e).__name__, os.path.exists(p))\n"
+            "else: print('UNEXPECTED', os.path.exists(p))\n"
+        )
+        env = dict(os.environ)
+        env.pop(execution_context.CONTEXT_ENV, None)
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+
+    def test_direct_script_main_can_preflight_the_exact_instantiator_retire_frame(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            script_path = Path(tmp) / "instantiator.py"
+            script_path.write_text(
+                "import sys\n"
+                f"sys.path.insert(0, {str(TOOLS)!r})\n"
+                "from memory import mutation_authority\n"
+                "def retire(root):\n"
+                "    capability = mutation_authority.acquire_preactivation_local_capability(\n"
+                "        'attended-first-run-marker-stage', project_root=root)\n"
+                "    print(type(capability).__name__)\n"
+                "retire(sys.argv[1])\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [sys.executable, str(script_path), tmp], capture_output=True, text=True,
+                env={key: value for key, value in os.environ.items()
+                     if key != execution_context.CONTEXT_ENV},
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "_PreActivationCapability")
+
 
 class LockedAuthorityTests(unittest.TestCase):
     def setUp(self):
@@ -292,6 +333,35 @@ class LockedAuthorityTests(unittest.TestCase):
             handle.write(json.dumps({"kind": "external-accepted-capture", "body": "intervening"}) + "\n")
         third = pins.add("third preference after an automatic write")
         self.assertTrue(third[records.RECORD_ID_KEY])
+
+    def test_post_commit_mcp_refresh_failure_does_not_turn_success_into_failure(self):
+        from memory import pins
+        from unittest import mock
+
+        self.fixture.cleanup()
+        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture.install()
+        with mock.patch.object(
+                execution_context, "refresh_current_context",
+                side_effect=execution_context.ContextError("injected refresh failure")):
+            first = pins.add("committed despite refresh cache failure")
+        second = pins.add("next request refreshes from the renewable root")
+        self.assertTrue(first[records.RECORD_ID_KEY])
+        self.assertTrue(second[records.RECORD_ID_KEY])
+        self.assertEqual(len(list(ledger.iter_records(path=os.path.join(
+            self.fixture.memory, "ledger.ndjson")))), 2)
+
+    def test_long_lived_mcp_authority_state_is_bounded_after_many_requests(self):
+        from memory import pins
+
+        self.fixture.cleanup()
+        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture.install()
+        for number in range(80):
+            pins.add(f"bounded request {number}")
+        gc.collect()
+        self.assertLessEqual(len(execution_context._AUTHORIZED_CONTEXTS), 2)
+        self.assertEqual(len(execution_context._GRANTS), 0)
 
 
 if __name__ == "__main__":

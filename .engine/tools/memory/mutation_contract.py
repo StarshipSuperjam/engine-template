@@ -2,8 +2,8 @@
 """Canonical persistent-mutation inventory and fail-closed request classifier.
 
 This module is intentionally substrate-neutral.  It names effects and exact writer identities without granting
-authority to execute them; S03 binds these entries into operation-scoped capabilities.  Until then the registry
-is an executable census: automatic entry points, attended operations, low-level writers, and degraded-health
+authority to execute them; the execution-context boundary binds these entries into operation-scoped
+capabilities. The registry is also an executable census: automatic entry points, attended operations, low-level writers, and degraded-health
 writers all have one closed description, and an unknown or understated request is refused.
 """
 from __future__ import annotations

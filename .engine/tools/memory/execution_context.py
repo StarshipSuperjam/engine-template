@@ -2,7 +2,7 @@
 """Immutable persistent-state context and single-use operation capability.
 
 The accepted dispatcher loads this file directly from the materialized accepted tree before importing the
-``memory`` package (whose compatibility ``__init__`` eagerly imports several mutators).  Resolution distrusts
+``memory`` package. Resolution distrusts
 the outer bootstrap's derived state: it accepts only its already-qualified activation and canonical roots,
 then observes store/recovery state again from accepted code, creates the opaque store identity through a locked
 create-if-absent compare-and-set, and seals the result.
@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import weakref
 from collections.abc import Mapping
 from pathlib import Path
 from types import MappingProxyType
@@ -415,7 +416,7 @@ def _seal(document: dict) -> dict:
 class ExecutionContext:
     """Deeply immutable context with exact JSON round-trip and self-authenticating digest."""
 
-    __slots__ = ("_document",)
+    __slots__ = ("_document", "__weakref__")
 
     def __init__(self, document: dict, *, _trusted=False):
         if not _trusted:
@@ -518,8 +519,19 @@ def _validate_document(document: dict) -> None:
         raise ContextError("execution context digest is inconsistent")
 
 
-_AUTHORIZED_CONTEXTS: dict[str, ExecutionContext] = {}
+_AUTHORIZED_CONTEXTS = weakref.WeakValueDictionary()
 _CURRENT_CONTEXT: ExecutionContext | None = None
+_CONTEXT_LOCK = threading.RLock()
+
+
+def _remember_context(context: ExecutionContext) -> None:
+    with _CONTEXT_LOCK:
+        _AUTHORIZED_CONTEXTS[context.digest] = context
+
+
+def _is_authorized_context(context: ExecutionContext) -> bool:
+    with _CONTEXT_LOCK:
+        return _AUTHORIZED_CONTEXTS.get(context.digest) is context
 
 
 def revalidate_context(context: ExecutionContext) -> ExecutionContext:
@@ -668,7 +680,7 @@ def resolve_execution_context(bootstrap: dict, *, accepted_tree: str, script: st
     })
     _validate_document(document)
     context = ExecutionContext(document, _trusted=True)
-    _AUTHORIZED_CONTEXTS[context.digest] = context
+    _remember_context(context)
     return context
 
 
@@ -716,14 +728,14 @@ def current_context() -> ExecutionContext:
     except (KeyError, ValueError) as exc:
         raise ContextError("no persistent execution context is installed") from exc
     context = revalidate_context(ExecutionContext.from_document(document))
-    _AUTHORIZED_CONTEXTS[context.digest] = context
+    _remember_context(context)
     _CURRENT_CONTEXT = context
     return context
 
 
 def _refreshed_context(context: ExecutionContext, operation_id: str | None = None) -> ExecutionContext:
     """Re-seal current disk state, optionally narrowing an attended composite to one child operation."""
-    if _AUTHORIZED_CONTEXTS.get(context.digest) is not context:
+    if not _is_authorized_context(context):
         raise ContextError("execution context is not authorized in this process")
     document = context.to_document()
     if operation_id is not None:
@@ -748,7 +760,7 @@ def _refreshed_context(context: ExecutionContext, operation_id: str | None = Non
     _validate_document(document)
     refreshed = ExecutionContext(document, _trusted=True)
     revalidate_context(refreshed)
-    _AUTHORIZED_CONTEXTS[refreshed.digest] = refreshed
+    _remember_context(refreshed)
     return refreshed
 
 
@@ -771,7 +783,7 @@ def refresh_current_context(context: ExecutionContext) -> ExecutionContext:
 
 
 def observe_state_fingerprint(context: ExecutionContext) -> str:
-    if _AUTHORIZED_CONTEXTS.get(context.digest) is not context:
+    if not _is_authorized_context(context):
         raise ContextError("execution context is not authorized in this process")
     document = context.to_document()
     state = _observe_state(
@@ -784,7 +796,7 @@ def observe_state_fingerprint(context: ExecutionContext) -> str:
 class OperationCapability:
     """Opaque immutable handle; the mutable used/budget state lives only in ``_GRANTS``."""
 
-    __slots__ = ("_document",)
+    __slots__ = ("_document", "__weakref__")
 
     def __init__(self, document: dict, seal):
         if seal is not _CAPABILITY_SEAL:
@@ -812,7 +824,7 @@ class CapabilityReceipt:
 
 
 _CAPABILITY_SEAL = object()
-_GRANTS: dict[str, dict] = {}
+_GRANTS = weakref.WeakKeyDictionary()
 _CAPABILITY_LOCK = threading.RLock()
 
 
@@ -843,7 +855,7 @@ def _allowed_registry_ids(context: ExecutionContext, contract) -> set[str]:
 
 def mint_capability(context: ExecutionContext, *, measured_cardinality: int,
                     registry_id: str | None = None) -> OperationCapability:
-    if _AUTHORIZED_CONTEXTS.get(context.digest) is not context:
+    if not _is_authorized_context(context):
         raise ContextError("execution context is not authorized in this process")
     contract = _load_contract()
     selected_id = registry_id or context["operation"]["registry_id"]
@@ -870,7 +882,7 @@ def mint_capability(context: ExecutionContext, *, measured_cardinality: int,
     }
     capability = OperationCapability(document, _CAPABILITY_SEAL)
     with _CAPABILITY_LOCK:
-        _GRANTS[document["grant_id"]] = {"capability": capability, "used": False}
+        _GRANTS[capability] = False
     return capability
 
 
@@ -897,18 +909,16 @@ def consume_capability(capability: OperationCapability, *, context: ExecutionCon
         raise ContextError("operation capability crossed a process boundary")
     if observed_state_fingerprint != context.expected_state_fingerprint:
         raise ContextError("operation capability expected-state fingerprint is stale")
-    if _AUTHORIZED_CONTEXTS.get(context.digest) is not context:
+    if not _is_authorized_context(context):
         raise ContextError("operation capability crossed to an unauthorized context")
     with _CAPABILITY_LOCK:
         try:
-            grant = _GRANTS[value["grant_id"]]
+            used = _GRANTS[capability]
         except KeyError as exc:
             raise ContextError("forged or unknown operation capability") from exc
-        if grant["capability"] is not capability:
-            raise ContextError("forged operation capability")
-        if grant["used"]:
+        if used:
             raise ContextError("operation capability was already consumed")
-        grant["used"] = True  # consume before the writer begins; a crash never restores authority
+        _GRANTS[capability] = True  # consume before the writer begins; a crash never restores authority
     receipt = {
         "receipt_id": secrets.token_hex(16), "grant_id": value["grant_id"],
         "context_digest": context.digest, "registry_id": value["registry_id"], "writer": writer,

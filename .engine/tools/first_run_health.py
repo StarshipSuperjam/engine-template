@@ -170,7 +170,8 @@ def detect_home_workshop(cwd: str | None = None) -> dict | None:
 # lets the post-landing "Setup is now complete" confirmation fire EXACTLY ONCE in the operator's own checkout;
 # a repo set up before this shipped (no marker) never shows the confirmation spuriously.
 # This pre-activation bootstrap hint exists before a new project's first reviewed activation can exist. It is
-# nevertheless registered and consumes one source-bound attended capability issued only to instantiator.retire;
+# nevertheless registered and consumes one source-verified, target-bound, one-use attended exception approved
+# by the operator and issued only to instantiator.retire before retirement changes any file;
 # it is neither shared through git-common-dir nor part of memory/recovery state, and its best-effort loss changes
 # only whether one confirmation is shown. The accepted automatic cleanup after landing is separately qualified.
 _LANDING_MARKER_REL = os.path.join(".engine", "boot", ".cache", "first-run-landing.json")

@@ -56,6 +56,8 @@ second applying them.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import math
 import os
@@ -224,7 +226,14 @@ def withheld_targets(src: str) -> tuple:
     return withheld_ids, withheld_sessions
 
 
-def withheld_report(path: "str | None" = None) -> dict:
+def _record_matches_query(record: dict, query: str) -> bool:
+    terms = query.casefold().split()
+    text = " ".join(value for key, value in record.items()
+                    if key in {"text", "body", "summary"} and isinstance(value, str)).casefold()
+    return bool(terms) and all(term in text for term in terms)
+
+
+def withheld_report(path: "str | None" = None, query: "str | None" = None) -> dict:
     """`{"notes": [...], "sessions": [...]}` — what is currently withheld, named so it can be restored.
 
     WHY THIS EXISTS. Every surface promises the operator that a withhold is reversible, and `restore` needs the
@@ -235,20 +244,40 @@ def withheld_report(path: "str | None" = None) -> dict:
     one-way in practice is not the control the operator was told they had.
 
     IDENTIFIERS AND WHEN, NEVER THE WORDING. That is the same line `set_aside` draws and for the same reason:
-    reading withheld text back is exactly what the operator asked not to happen. A note carries its kind and
-    the date it was withheld, which is enough to say which one you mean without saying what it said."""
+    reading withheld text back is exactly what the operator asked not to happen. An optional operator-supplied
+    query is matched internally against resident records and only filters these content-free identifiers; the
+    wording is never returned. A note carries its kind and the date it was withheld."""
     src = ledger.ledger_path() if path is None else path
     withheld_ids, withheld_sessions = withheld_targets(src)
+    if query is not None and (not isinstance(query, str) or not query.strip()):
+        raise ValueError("withheld query must contain recognizable words")
+    all_records = [record for record in ledger.iter_records(path=src) if isinstance(record, dict)]
+    if query is not None:
+        normalized = " ".join(query.split())
+        matching_ids = {
+            record.get(records.RECORD_ID_KEY) for record in all_records
+            if _record_matches_query(record, normalized)
+        }
+        matching_sessions = set()
+        for record in all_records:
+            if not _record_matches_query(record, normalized):
+                continue
+            for key in ("session_id", records.PIN_SOURCE_SESSION_KEY):
+                value = record.get(key)
+                if isinstance(value, str) and value:
+                    matching_sessions.add(value)
+        withheld_ids.intersection_update(rid for rid in matching_ids if isinstance(rid, str))
+        withheld_sessions.intersection_update(matching_sessions)
     when: dict = {}
-    for record in ledger.iter_records(path=src):
-        if not isinstance(record, dict) or record.get("kind") != records.WITHHOLD_KIND:
+    for record in all_records:
+        if record.get("kind") != records.WITHHOLD_KIND:
             continue
         target = record.get(records.TARGET_KEY) or record.get(records.TARGET_SESSION_KEY)
         if isinstance(target, str) and target:
             when[target] = record.get("ts")
     kinds: dict = {}
-    for record in ledger.iter_records(path=src):
-        rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
+    for record in all_records:
+        rid = record.get(records.RECORD_ID_KEY)
         if isinstance(rid, str) and rid in withheld_ids:
             kinds[rid] = record.get("kind") or "note"
     return {
@@ -1024,14 +1053,34 @@ def main(argv: list) -> int:
         return _demo_identity()
     parser = argparse.ArgumentParser(prog="forget.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
+    list_withheld = sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
+    list_withheld.add_argument(
+        "--query-base64", default=None,
+        help="canonical URL-safe Base64 of words used only to filter withheld targets internally",
+    )
     restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
     restore_record.add_argument("record_id")
     restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")
     restore_session.add_argument("session_id")
     args = parser.parse_args(argv)
     if args.cmd == "list-withheld":
-        print(json.dumps(withheld_report(), sort_keys=True))
+        query = None
+        if args.query_base64 is not None:
+            try:
+                encoded = args.query_base64.encode("ascii")
+                raw = base64.b64decode(encoded, altchars=b"-_", validate=True)
+                if base64.urlsafe_b64encode(raw) != encoded:
+                    raise ValueError("non-canonical encoding")
+                query = raw.decode("utf-8")
+            except (UnicodeEncodeError, UnicodeDecodeError, binascii.Error, ValueError):
+                print("The withheld-note query must be canonical URL-safe Base64 of UTF-8 text.")
+                return 2
+        try:
+            report = withheld_report(query=query)
+        except ValueError as exc:
+            print(str(exc))
+            return 2
+        print(json.dumps(report, sort_keys=True))
         return 0
     if args.cmd == "restore-record":
         restore(record_id=args.record_id)

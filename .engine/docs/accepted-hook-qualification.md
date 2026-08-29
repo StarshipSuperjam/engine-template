@@ -39,10 +39,12 @@ epoch with compare-and-set. A candidate manifest cannot redefine the default bra
 tag, and successful publisher run must converge on the selected commit.
 
 Normal attended workflows bootstrap this state with `uv run --directory .engine --frozen -- python
-tools/accepted_hook_dispatch.py ensure --root ..`. The command keeps an already exact activation without a
-network advance; otherwise it selects the canonical checkout's local GitHub-default-branch HEAD and requires
-the independent merge proof. Automatic hooks and unattended Routines never call `ensure` and cannot advance
-the epoch. If a fresh clone reports that activation is absent, update its canonical default branch cleanly,
+tools/accepted_hook_dispatch.py ensure --root ..`. The command preserves any valid existing activation without
+network access, even when the canonical checkout has advanced or an explicit rollback selected an older safe
+commit. Only when activation is absent does `ensure` select the canonical checkout's local
+GitHub-default-branch HEAD and require the independent merge proof. Advancing or rolling back an existing epoch
+always uses the explicit attended activation/upgrade path. Automatic hooks and unattended Routines never call
+`ensure` and cannot advance the epoch. If a fresh clone reports that activation is absent, update its canonical default branch cleanly,
 retire or recreate any legacy worktree named by the topology diagnostic, then run Engine Start or `ensure` in
 an attended session.
 
@@ -56,6 +58,14 @@ index, cursor, sidecar, pointer, vault, or credential payloads.
 Rollback follows the same rule: select a previously reviewed safe commit or published release through a new
 compare-and-set activation. Never restore an old activation record by copying it over the current one, because
 that would bypass the worktree census and epoch check.
+
+One setup-era presentation marker is deliberately outside this normal activation path because the project's
+first reviewed activation cannot exist until its first setup pull request lands. Before deleting any first-run
+asset, `instantiator.retire` preflights one source-verified, target-bound, one-use attended exception for
+`.engine/boot/.cache/first-run-landing.json`. That path is checkout-local, gitignored, and presentation-only;
+losing it can only suppress the single post-landing “Setup is now complete” message. It cannot authorize shared
+memory, recovery, repository, remote, or arbitrary lifecycle writes. This narrow boundary is operator-approved;
+the accepted automatic cleanup that later consumes the marker still uses the normal qualified capability path.
 
 ### Candidate maintenance
 

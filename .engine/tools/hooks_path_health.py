@@ -83,6 +83,13 @@ _AUTOMATIC_REGISTRATIONS = {
     ".engine/tools/close.py": (("Stop", ""),),
     ".engine/tools/memory/compact.py": (("PreCompact", ""),),
 }
+_AUTOMATIC_ARGUMENTS = {
+    ".engine/tools/boot.py": (),
+    ".engine/tools/memory/erasure_observer.py": ("session-start",),
+    ".engine/tools/memory/backup_vault.py": ("session-start",),
+    ".engine/tools/close.py": (),
+    ".engine/tools/memory/compact.py": ("pre-compact",),
+}
 _ACCEPTED_BUNDLE = (
     ".engine/tools/hook-runner.sh",
     ".engine/tools/codex-hook-runner.sh",
@@ -210,8 +217,7 @@ def classify_accepted_hook_generation(worktree: str) -> dict:
     dispatcher = sources[".engine/tools/accepted_hook_dispatch.py"]
     if any(target not in dispatcher for target in _AUTOMATIC_MEMORY_TARGETS):
         return {"state": "ambiguous", "fingerprint": digest}
-    for rel, launcher in ((".claude/settings.json", "hook-runner.sh"),
-                          (".codex/hooks.json", "codex-hook-runner.sh")):
+    for rel in (".claude/settings.json", ".codex/hooks.json"):
         try:
             document = json.loads(sources[rel])
         except ValueError:
@@ -232,13 +238,27 @@ def classify_accepted_hook_generation(worktree: str) -> dict:
                 for hook in group["hooks"]:
                     command = hook.get("command") if isinstance(hook, dict) else None
                     if isinstance(command, str):
-                        registrations.append((event, matcher, command))
+                        registrations.append((event, matcher, hook.get("type"), command))
         for target, expected in _AUTOMATIC_REGISTRATIONS.items():
-            matches = [(event, matcher, command) for event, matcher, command in registrations
+            suffix = "".join(f" {argument}" for argument in _AUTOMATIC_ARGUMENTS[target])
+            if rel == ".claude/settings.json":
+                expected_command = (
+                    'sh "${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh" '
+                    '"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" '
+                    f'"${{CLAUDE_PROJECT_DIR}}/{target}"{suffix}'
+                )
+            else:
+                expected_command = (
+                    'cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && '
+                    f'sh ".engine/tools/codex-hook-runner.sh" "{target}"{suffix}'
+                )
+            matches = [(event, matcher, hook_type, command)
+                       for event, matcher, hook_type, command in registrations
                        if target in command]
-            actual = [(event, matcher) for event, matcher, _command in matches]
+            actual = [(event, matcher) for event, matcher, _hook_type, _command in matches]
             if (sorted(actual) != sorted(expected) or len(matches) != len(expected)
-                    or any(launcher not in command for _event, _matcher, command in matches)):
+                    or any(hook_type != "command" or command != expected_command
+                           for _event, _matcher, hook_type, command in matches)):
                 return {"state": "ambiguous", "fingerprint": digest, "component": rel}
     tracked = _status(["git", "-C", top, "ls-files", "--error-unmatch", *_ACCEPTED_BUNDLE])
     unstaged = _status(["git", "-C", top, "diff", "--quiet", "--", *_ACCEPTED_BUNDLE])

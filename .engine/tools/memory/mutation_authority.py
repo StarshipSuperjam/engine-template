@@ -44,7 +44,6 @@ class MutationAuthorityError(RuntimeError):
 
 _THREAD = threading.local()
 _TEST_SCOPE = ContextVar("engine_mutation_test_scope", default=None)
-_PRE_ACTIVATION_SCOPE = ContextVar("engine_pre_activation_mutation_scope", default=None)
 _TEST_HOOK_LOCK = threading.RLock()
 _TEST_AFTER_LOCK_HOOK = None
 _STORE_TARGETS = frozenset({
@@ -156,6 +155,36 @@ def _code_tree(value) -> set:
     return found
 
 
+def _compiled_code_tree(code) -> set:
+    """Return every code object compiled from one exact on-disk source snapshot."""
+    found = {code}
+    pending = [code]
+    while pending:
+        current = pending.pop()
+        for item in current.co_consts:
+            if isinstance(item, type(current)) and item not in found:
+                found.add(item)
+                pending.append(item)
+    return found
+
+
+def _code_signature(code):
+    """Stable executable structure; unlike code hashing/marshal output this survives interpreter quickening."""
+    constants = tuple(_code_signature(value) if isinstance(value, type(code)) else value
+                      for value in code.co_consts)
+    return (
+        code.co_name, getattr(code, "co_qualname", code.co_name), code.co_firstlineno,
+        code.co_argcount, getattr(code, "co_posonlyargcount", 0), code.co_kwonlyargcount, code.co_nlocals,
+        code.co_stacksize, code.co_flags, code.co_code, constants, code.co_names, code.co_varnames,
+        code.co_freevars, code.co_cellvars, getattr(code, "co_linetable", b""),
+        getattr(code, "co_exceptiontable", b""),
+    )
+
+
+def _same_compiled_code(left, right) -> bool:
+    return _code_signature(left) == _code_signature(right)
+
+
 def _module_code_objects(module) -> set:
     found = set()
     for value in vars(module).values():
@@ -172,7 +201,7 @@ def _module_code_objects(module) -> set:
 
 def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | None = None,
                         function_name: str | None = None) -> bool:
-    """Trust an exact code object exported by its loaded on-disk module, never a claimed filename."""
+    """Trust code that is present in the current regular-file source, never claimed module metadata alone."""
     claimed_module = frame.f_globals.get("__name__")
     if not isinstance(claimed_module, str):
         return False
@@ -183,18 +212,35 @@ def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | No
     if not isinstance(path, str):
         return False
     real = os.path.realpath(path)
+    try:
+        before = os.lstat(real)
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > 4 * 1024 * 1024:
+            return False
+        with open(real, encoding="utf-8") as handle:
+            source = handle.read()
+        after = os.lstat(real)
+        if ((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+                != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)):
+            return False
+        # The source decides its own future flags. Inheriting this module's ``annotations`` future would make
+        # an otherwise identical Python file compile to different code and silently deny legitimate callers.
+        compiled = _compiled_code_tree(compile(source, real, "exec", dont_inherit=True))
+    except (OSError, UnicodeError, SyntaxError):
+        return False
     if os.path.realpath(frame.f_code.co_filename) != real:
         return False
-    if module_name is not None and claimed_module.rsplit(".", 1)[-1] != module_name:
+    if not any(_same_compiled_code(frame.f_code, candidate) for candidate in compiled):
+        return False
+    if module_name is not None and os.path.basename(real) != f"{module_name}.py":
         return False
     if function_name is not None:
-        return frame.f_code in _code_tree(getattr(module, function_name, None))
+        return any(frame.f_code is candidate for candidate in _code_tree(getattr(module, function_name, None)))
     if test_only:
         tools_root = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) + os.sep
         name = os.path.basename(real)
         if not (real.startswith(tools_root) and name.startswith("test_") and name.endswith(".py")):
             return False
-    return frame.f_code in _module_code_objects(module)
+    return any(frame.f_code is candidate for candidate in _module_code_objects(module))
 
 
 def _test_adapter_allowed() -> bool:
@@ -210,9 +256,19 @@ def _test_adapter_allowed() -> bool:
     return False
 
 
-@contextmanager
-def preactivation_local_scope(entry_id: str, *, project_root: str):
-    """Issue one exact attended capability for the setup-era local landing hint."""
+class _PreActivationCapability:
+    """Opaque one-use handle for the approved setup-era presentation-marker exception."""
+
+    __slots__ = ("entry_id", "project_root", "used")
+
+    def __init__(self, entry_id: str, project_root: str):
+        self.entry_id = entry_id
+        self.project_root = project_root
+        self.used = False
+
+
+def acquire_preactivation_local_capability(entry_id: str, *, project_root: str):
+    """Preflight one exact operator-approved capability before first-run retirement changes anything."""
     frame = inspect.currentframe()
     try:
         frame = frame.f_back if frame is not None else None
@@ -234,11 +290,26 @@ def preactivation_local_scope(entry_id: str, *, project_root: str):
     # the guarded writer compares its own target through ``realpath`` below.
     if not os.path.isabs(project_root) or not os.path.isdir(root):
         raise MutationAuthorityError("pre-activation local authority requires one normalized project root")
-    token = _PRE_ACTIVATION_SCOPE.set({"entry_id": entry_id, "project_root": root, "used": False})
+    return _PreActivationCapability(entry_id, root)
+
+
+def _preactivation_receipt(entry: dict, measured: int, capability: _PreActivationCapability) -> dict:
     try:
-        yield
-    finally:
-        _PRE_ACTIVATION_SCOPE.reset(token)
+        mutation_contract.classify(
+            writer=entry["writer"], target_kind=entry["target_kind"], effect_class=entry["effect_class"],
+            invocation_mode="attended", measured_cardinality=measured,
+            schema_cutover=entry["schema_cutover"],
+        )
+    except Exception as exc:
+        raise MutationAuthorityError(str(exc)) from exc
+    receipt = {
+        "exception": "operator-approved-first-run-presentation-marker",
+        "registry_id": entry["id"], "writer": entry["writer"], "mode": "attended",
+        "measured_cardinality": measured, "project_root": capability.project_root,
+        "one_use": True,
+    }
+    receipt["receipt_digest"] = _digest(receipt)
+    return receipt
 
 
 def _test_receipt(entry: dict, mode: str, measured: int) -> dict:
@@ -346,17 +417,17 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         yield _consume(context, entry, measured, supplied_capability)
         return
 
-    bootstrap = _PRE_ACTIVATION_SCOPE.get()
-    if bootstrap is not None:
-        if entry_id != bootstrap["entry_id"] or bootstrap["used"]:
+    if isinstance(supplied_capability, _PreActivationCapability):
+        bootstrap = supplied_capability
+        if entry_id != bootstrap.entry_id or bootstrap.used:
             raise MutationAuthorityError("pre-activation local capability is wrong or already consumed")
         arguments = _call_arguments(function, args, kwargs)
         target = arguments.get("main")
         if (not isinstance(target, (str, os.PathLike))
-                or os.path.realpath(os.fspath(target)) != bootstrap["project_root"]):
+                or os.path.realpath(os.fspath(target)) != bootstrap.project_root):
             raise MutationAuthorityError("pre-activation local capability target mismatch")
-        bootstrap["used"] = True
-        yield _test_receipt(entry, "attended", measured)
+        bootstrap.used = True
+        yield _preactivation_receipt(entry, measured, bootstrap)
         return
 
     scoped_test_mode = _TEST_SCOPE.get()
@@ -405,8 +476,11 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         if base_context["operation"]["registry_id"] == "attended-memory-mcp":
             try:
                 execution_context.refresh_current_context(base_context)
-            except execution_context.ContextError as exc:
-                raise MutationAuthorityError(f"MCP server context refresh refused: {exc}") from exc
+            except execution_context.ContextError:
+                # The writer has already committed successfully. Keep the previous renewable root alive so the
+                # next request can refresh under the lock; a cache refresh fault must never turn a committed
+                # mutation into an apparent failure that callers retry.
+                pass
     finally:
         _close_store_lock(handle)
 

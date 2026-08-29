@@ -342,6 +342,23 @@ class TestAcceptedHookTopology(unittest.TestCase):
             self.assertFalse(topology["qualified"])
             self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
 
+    def test_inert_hook_type_or_wrong_target_arguments_block(self):
+        mutations = (
+            lambda hook: hook.__setitem__("type", "prompt"),
+            lambda hook: hook.__setitem__("command", hook["command"] + " wrong-argument"),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate), tempfile.TemporaryDirectory() as tmp:
+                main, linked = self._qualified_pair(tmp)
+                settings = pathlib.Path(linked) / ".codex/hooks.json"
+                document = json.loads(settings.read_text(encoding="utf-8"))
+                hook = document["hooks"]["Stop"][0]["hooks"][0]
+                mutate(hook)
+                settings.write_text(json.dumps(document), encoding="utf-8")
+                topology = hp.accepted_hook_topology(main)
+                self.assertFalse(topology["qualified"])
+                self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
+
     def test_dirty_missing_ambiguous_and_unreadable_runner_each_block(self):
         mutations = {
             "dirty": lambda path: path.write_text(path.read_text(encoding="utf-8") + "\n# dirty\n",

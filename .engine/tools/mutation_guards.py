@@ -36,7 +36,7 @@ def install(namespace: dict, registrations: dict[str, str]) -> tuple[str, ...]:
     return tuple(installed)
 
 
-def preactivation_local_scope(entry_id: str, *, project_root: str):
-    """Lazily enter the one registered setup-era local landing-hint capability."""
+def acquire_preactivation_local_capability(entry_id: str, *, project_root: str):
+    """Lazily preflight the one registered setup-era local landing-hint capability."""
     from memory import mutation_authority
-    return mutation_authority.preactivation_local_scope(entry_id, project_root=project_root)
+    return mutation_authority.acquire_preactivation_local_capability(entry_id, project_root=project_root)

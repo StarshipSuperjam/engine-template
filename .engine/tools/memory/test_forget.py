@@ -9,7 +9,9 @@ build-conformance invariant that this Layer-1 module reaches NO physical-erasure
 from __future__ import annotations
 
 import contextlib
+import base64
 import io
+import json
 import os
 import sys
 import tempfile
@@ -581,6 +583,27 @@ class WithholdTests(_Base):
         self.assertNotIn("text", report["notes"][0])       # identifiers and when — never the wording
         forget.restore(record_id=report["notes"][0]["id"])
         self.assertEqual(forget.withheld_report()["notes"], [])
+
+    def test_description_query_privately_disambiguates_multiple_withheld_pins(self):
+        from memory import pins as _pins
+
+        amber = _pins.add("Prefer amber alerts for deployment warnings")
+        violet = _pins.add("Use violet labels for research follow-ups")
+        forget.withhold(record_id=amber[records.RECORD_ID_KEY])
+        forget.withhold(record_id=violet[records.RECORD_ID_KEY])
+        report = forget.withheld_report(query="amber deployment")
+        self.assertEqual([note["id"] for note in report["notes"]], [amber[records.RECORD_ID_KEY]])
+        rendered = json.dumps(report, sort_keys=True)
+        self.assertNotIn("amber alerts", rendered.casefold())
+        self.assertNotIn("violet labels", rendered.casefold())
+
+        encoded = base64.urlsafe_b64encode(b"violet research").decode("ascii")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(forget.main(["list-withheld", "--query-base64", encoded]), 0)
+        payload = json.loads(output.getvalue())
+        self.assertEqual([note["id"] for note in payload["notes"]], [violet[records.RECORD_ID_KEY]])
+        self.assertNotIn("violet labels", output.getvalue().casefold())
 
     def test_ledger_order_decides_a_tie_that_timestamps_cannot(self):
         # Capture stamps whole seconds, so withhold-then-restore inside one second shares a `ts`. Ordering by

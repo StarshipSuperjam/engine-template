@@ -357,6 +357,10 @@ def _validate_transcript_path(path_str: str, cwd=None):
 
 # --- The cursor (per-session captured-message count) ------------------------------------------
 
+def _capture_fault(_boundary: str) -> None:
+    """No-op seam used by the deterministic crash-boundary matrix in the checked-in tests."""
+
+
 def _read_cursor(data_dir: str, session_id: str) -> int:
     """The count of messages already captured for this session; 0 if missing/corrupt (benign
     re-capture). Read inside the capture lock, so no torn-read race."""
@@ -390,10 +394,13 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
         json.dump(state, fh, separators=(",", ":"))
         fh.flush()
         os.fsync(fh.fileno())
+        _capture_fault("cursor-file-fsync")
     os.replace(tmp, path)
+    _capture_fault("cursor-replace")
     directory = os.open(data_dir, os.O_RDONLY)
     try:
         os.fsync(directory)
+        _capture_fault("cursor-directory-fsync")
     finally:
         os.close(directory)
 
@@ -411,10 +418,13 @@ def _write_capture_transaction(data_dir: str, document: dict) -> None:
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
+        _capture_fault("journal-file-fsync")
     os.replace(tmp, path)
+    _capture_fault("journal-replace")
     directory = os.open(data_dir, os.O_RDONLY)
     try:
         os.fsync(directory)
+        _capture_fault("journal-directory-fsync")
     finally:
         os.close(directory)
 
@@ -444,9 +454,11 @@ def _clear_capture_transaction(data_dir: str) -> None:
         os.unlink(_capture_transaction_path(data_dir))
     except FileNotFoundError:
         return
+    _capture_fault("journal-unlink")
     directory = os.open(data_dir, os.O_RDONLY)
     try:
         os.fsync(directory)
+        _capture_fault("journal-clear-directory-fsync")
     finally:
         os.close(directory)
 
@@ -466,6 +478,7 @@ def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -
         if record[records.RECORD_ID_KEY] in existing_ids:
             continue
         ledger.append(record, path=ledger_file)
+        _capture_fault("ledger-append")
         appended.append(record)
         existing_ids.add(record[records.RECORD_ID_KEY])
     _write_cursor(data_dir, transaction["session_id"], transaction["cursor_after"])
@@ -477,7 +490,9 @@ def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -
         index.rebuild(ledger_file=ledger_file, index_file=index_file)
     elif transaction["records"]:
         index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file)
+    _capture_fault("index-apply")
     _write_capture_status("captured", transaction["session_id"], required=True)
+    _capture_fault("required-status")
     _clear_capture_transaction(data_dir)
     return len(appended)
 

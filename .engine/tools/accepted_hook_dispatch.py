@@ -713,20 +713,20 @@ def activate(args: argparse.Namespace) -> dict:
 
 
 def ensure_activation(root: str) -> dict:
-    """Keep an exact existing activation, or attend activation of the canonical default-branch HEAD."""
+    """Keep any exact valid activation, or bootstrap the canonical default-branch HEAD when none exists."""
     root = _top(root)
     repository = _origin_slug(root)
-    canonical = _main_checkout(root)
-    commit = _git(canonical, "rev-parse", "HEAD^{commit}")
-    try:
+    activation_path, _, _ = _state_paths(root)
+    if os.path.lexists(activation_path):
         current = load_activation(root)
-    except QualificationError:
-        current = None
-    if current is not None and current["repository"] == repository and current["commit"] == commit:
+        if current["repository"] != repository:
+            raise QualificationError("the accepted activation belongs to a different repository")
         _verify_exact_object(root, current)
         _verify_activation_barrier(root)
         _materialize(root, current)
         return current
+    canonical = _main_checkout(root)
+    commit = _git(canonical, "rev-parse", "HEAD^{commit}")
     branch = _github_default_branch(repository)
     ref = f"refs/heads/{branch}"
     if _git(canonical, "rev-parse", f"{ref}^{{commit}}", check=False) != commit:
@@ -736,10 +736,9 @@ def ensure_activation(root: str) -> dict:
                 "the canonical checkout is not at its locally recorded GitHub default-branch tip; update it and retry"
             )
         ref = remote_ref
-    expected_epoch = current["epoch"] if current is not None else 0
     namespace = argparse.Namespace(
         root=root, repository=repository, commit=commit, source="reviewed-merge", source_ref=ref,
-        engine_release=_engine_release_at(root, commit), expected_epoch=expected_epoch,
+        engine_release=_engine_release_at(root, commit), expected_epoch=0,
     )
     return activate(namespace)
 

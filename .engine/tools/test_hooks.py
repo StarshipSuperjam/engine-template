@@ -1335,6 +1335,21 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(json.loads(second.stdout), record)
 
+    def test_attended_ensure_preserves_an_older_rollback_epoch_after_canonical_advances_offline(self):
+        first = self.repo.ensure()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        rollback = json.loads(first.stdout)
+        rollback["epoch"] = 3
+        activation = self.repo.common_dir() / "engine/accepted-hooks/activation.json"
+        activation.write_text(json.dumps(rollback, sort_keys=True) + "\n", encoding="utf-8")
+        (self.repo.root / "product.txt").write_text("newer canonical product commit\n", encoding="utf-8")
+        self.repo.git("add", "product.txt")
+        self.repo.git("commit", "-m", "advance canonical checkout")
+        (self.repo.fake_bin / "gh").write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+        preserved = self.repo.ensure()
+        self.assertEqual(preserved.returncode, 0, preserved.stderr)
+        self.assertEqual(json.loads(preserved.stdout), rollback)
+
     def test_attended_maintenance_reenters_exact_accepted_code_with_one_registered_operation(self):
         self.assertEqual(self.repo.activate().returncode, 0)
         result = self.repo.run_attended()

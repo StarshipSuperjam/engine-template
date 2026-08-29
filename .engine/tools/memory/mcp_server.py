@@ -468,14 +468,15 @@ def withhold(record_id: str | None = None, session_id: str | None = None) -> dic
     description=(
         "Read back what the operator has taken out of recall, with the identifiers `restore` needs. Reach for "
         "this whenever they ask what they have forgotten, or want something back and cannot name it — search "
-        "cannot find these by construction, so this is the only route. It returns identifiers and dates, never "
-        "the wording: reading a withheld note back at them is the thing they asked not to happen."
+        "cannot find these by construction, so this is the only route. Pass the operator's own description as "
+        "`query` to match it privately against resident notes. It returns identifiers and dates, never the "
+        "wording: reading a withheld note back at them is the thing they asked not to happen."
     ),
 )
-def list_withheld() -> dict:
+def list_withheld(query: str | None = None) -> dict:
     from memory import forget as _forget
 
-    return _forget.withheld_report()
+    return _forget.withheld_report(query=query)
 
 
 @server.tool(
