@@ -45,7 +45,7 @@
           "required": ["maximum", "unit"],
           "properties": {
             "maximum": {"type": ["integer", "null"], "minimum": 0},
-            "unit": {"enum": ["records", "files", "rows", "repositories", "status-records"]}
+            "unit": {"enum": ["records", "files", "rows", "repositories", "servers", "status-records"]}
           }
         },
         "schema_cutover": {"type": "boolean"},

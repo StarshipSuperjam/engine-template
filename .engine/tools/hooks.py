@@ -726,8 +726,11 @@ def main(argv: list) -> int:
     return 2
 
 
-from memory import mutation_authority as _mutation_authority  # noqa: E402
-_mutation_authority.install_module_guards(globals())
+import mutation_guards as _mutation_guards  # noqa: E402
+_mutation_guards.install(globals(), {
+    "_record_crash_debug": "hook-crash-debug",
+    "_do_promote_fail_open": "hook-fail-open-promote",
+})
 
 
 if __name__ == "__main__":

@@ -1121,8 +1121,8 @@ class _AcceptedDispatchRepo:
         path.write_text(text, encoding="utf-8")
 
     def _accepted_tree(self):
-        for name in ("accepted_hook_dispatch.py", "release_source.py", "moment.py", "hook-runner.sh",
-                     "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
+        for name in ("accepted_hook_dispatch.py", "release_source.py", "moment.py", "mutation_guards.py",
+                     "hook-runner.sh", "codex-hook-runner.sh", "providers.py", "hooks_path_health.py"):
             self._put(f".engine/tools/{name}", (_ACCEPTED_TOOLS / name).read_text(encoding="utf-8"))
         for rel in (".claude/settings.json", ".codex/hooks.json"):
             self._put(rel, (_ACCEPTED_TOOLS.parents[1] / rel).read_text(encoding="utf-8"))

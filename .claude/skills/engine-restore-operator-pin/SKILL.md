@@ -4,7 +4,7 @@ description: Bring back a standing preference the operator earlier removed.
 invocation: model-only
 user-invocable: false
 engine-targets:
-  - kind: mcp
+  - kind: tool
     ref: engine-memory.restore
     availability: active
 ---

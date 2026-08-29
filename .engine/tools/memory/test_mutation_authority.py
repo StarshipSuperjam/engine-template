@@ -78,6 +78,10 @@ class ConvertedCallGraphTests(unittest.TestCase):
     def test_pre_activation_first_run_hint_is_not_shared_memory(self):
         entries = {entry["writer"] for entry in mutation_contract.REGISTRY}
         self.assertNotIn("first_run_health.mark_first_run_applied", entries)
+        self.assertEqual(
+            mutation_contract.PRE_ACTIVATION_LOCAL_WRITERS,
+            {"first_run_health.mark_first_run_applied"},
+        )
         self.assertIn("first_run_health.clear_first_run_marker", entries)
         self.assertEqual(
             first_run_health._LANDING_MARKER_REL,

@@ -104,7 +104,7 @@ REGISTRY = (
            None, "files", "durable-journal", ["hooks.run_hook"]),
     _entry("automatic-close-operation", "close.handler", "ledger", "durable-append", _AUTO, None,
            "records", "append-lock", ["hooks.run_hook"]),
-    _entry("automatic-hook-harness", "hooks.run_hook", "degraded-health", "reversible-mutation", _AUTO,
+    _entry("automatic-hook-harness", "hooks.run_hook", "degraded-health", "semantic-read", _AUTO,
            None, "status-records", "best-effort-diagnostic", ["automatic provider hook launchers"]),
     _entry("attended-accepted-activation", "accepted_hook_dispatch.activate", "lifecycle-marker",
            "reversible-mutation", _ATTENDED, 1, "status-records", "compare-and-set",
@@ -141,26 +141,26 @@ REGISTRY = (
            ["memory.mcp_server._recall"], schema_cutover=True),
     _entry("attended-keyword-mcp-search", "memory.mcp_server.search", "derived-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
-           ["memory.mcp_server.server"], schema_cutover=True),
+           ["memory.mcp_server.main"], schema_cutover=True),
     _entry("attended-semantic-search-reconcile", "memory.semantic.store.search", "semantic-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
            ["memory.mcp_server.recall_by_meaning"], schema_cutover=True),
     _entry("attended-semantic-mcp-search", "memory.mcp_server.recall_by_meaning", "semantic-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
-           ["memory.mcp_server.server"], schema_cutover=True),
+           ["memory.mcp_server.main"], schema_cutover=True),
     _entry("attended-semantic-sync", "memory.semantic.store.sync", "semantic-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
            ["memory.semantic.store.main"], schema_cutover=True),
-    _entry("attended-memory-mcp", "memory.mcp_server.server", "ledger", "semantic-read", _ATTENDED,
-           1, "servers", "none", []),
+    _entry("attended-memory-mcp", "memory.mcp_server.main", "ledger", "semantic-read", _ATTENDED,
+           1, "servers", "none", ["configured MCP launchers"]),
     _entry("read-memory-health", "memory.mcp_server.health", "degraded-health", "semantic-read", _ATTENDED,
-           1, "status-records", "none", ["memory.mcp_server.server"]),
+           1, "status-records", "none", ["memory.mcp_server.main"]),
     _entry("read-recall-window", "memory.mcp_server.recall_window", "ledger", "semantic-read", _ATTENDED,
-           None, "records", "none", ["memory.mcp_server.server"]),
+           None, "records", "none", ["memory.mcp_server.main"]),
     _entry("read-pins", "memory.mcp_server.list_pins", "ledger", "semantic-read", _ATTENDED, None,
-           "records", "none", ["memory.mcp_server.server"]),
+           "records", "none", ["memory.mcp_server.main"]),
     _entry("read-withheld", "memory.mcp_server.list_withheld", "ledger", "semantic-read", _ATTENDED, None,
-           "records", "none", ["memory.mcp_server.server"]),
+           "records", "none", ["memory.mcp_server.main"]),
     _entry("read-backup-status", "memory.backup_vault.status", "backup-pointer", "semantic-read", _ATTENDED,
            1, "status-records", "none", ["memory.backup_vault.main"]),
     _entry("read-restore-status", "memory.restore_vault.status", "restore-journal", "semantic-read", _ATTENDED,
@@ -382,7 +382,7 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
     "hooks.run_hook": (
         "hook-crash-debug", "hook-fail-open-promote", "telemetry-finding-emit",
     ),
-    "memory.mcp_server.server": (
+    "memory.mcp_server.main": (
         "attended-pin-add", "attended-withhold", "attended-restore-withheld",
         "attended-keyword-mcp-search", "attended-semantic-mcp-search",
         "read-memory-health", "read-recall-window", "read-pins", "read-withheld",
@@ -449,6 +449,12 @@ _GIT_WRITE_VERBS = frozenset({
     "reset", "restore", "rm", "switch", "tag", "update-ref", "worktree",
 })
 _DEMO_FUNCTION_SUFFIX = "demo"
+
+# First-run setup necessarily predates the first reviewed activation it creates. This one explicitly bounded
+# exception is a checkout-local, gitignored presentation hint: it is not shared through git-common-dir, is not
+# memory or recovery state, and its loss only suppresses a one-time confirmation. Its later automatic cleanup
+# is registered and qualified. Keep the exception machine-visible so a new bootstrap writer still fails.
+PRE_ACTIVATION_LOCAL_WRITERS = frozenset({"first_run_health.mark_first_run_applied"})
 
 
 def _constant_string(node):
@@ -535,7 +541,7 @@ def discover_direct_writers(path: str, *, module: str | None = None) -> set[str]
 
 
 def coverage_failures(paths) -> list[str]:
-    registered = {entry["writer"] for entry in REGISTRY}
+    registered = {entry["writer"] for entry in REGISTRY} | PRE_ACTIVATION_LOCAL_WRITERS
     found = set()
     for item in paths:
         path, module = item if isinstance(item, tuple) else (item, None)
