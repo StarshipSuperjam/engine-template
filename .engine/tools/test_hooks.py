@@ -1162,7 +1162,7 @@ class _AcceptedDispatchRepo:
                               "memory_dir": os.environ.get("ENGINE_MEMORY_DIR")}, sort_keys=True))
             """))
         self._put(".engine/engine.json",
-                  json.dumps({"engine_version": "9.9.9", "default_branch": "main"}) + "\n")
+                  json.dumps({"engine_release": "9.9.9", "default_branch": "main"}) + "\n")
         self._put(".engine/memory-backup/pointer.json", json.dumps({
             "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
             "namespace": "project-id"}) + "\n")

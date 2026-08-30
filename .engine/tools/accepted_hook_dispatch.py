@@ -547,9 +547,12 @@ def _engine_manifest_at(root: str, commit: str) -> dict:
 
 
 def _engine_release_at(root: str, commit: str) -> str:
+    """The release string the accepted commit declares. The key is `engine_release`, which is what
+    `.engine/engine.json` has always carried; reading a key the real manifest never had is what made
+    every activation refuse in #1153."""
     value = _engine_manifest_at(root, commit)
-    version = value.get("engine_version")
-    if not isinstance(version, str) or not version:
+    version = value.get("engine_release")
+    if not isinstance(version, str) or not version.strip():
         raise QualificationError("the accepted commit's Engine release is missing")
     return version
 
