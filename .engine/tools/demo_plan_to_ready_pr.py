@@ -300,19 +300,35 @@ def _arc_one(copy, head, env, pr_state, holder):
     claim = _build_cmd(copy, env, state_path, "work", "claim", "--item", "W1",
                        "--provider", "claude", "--plan", payload, "--worktree", copy)
     attempt = json.loads(claim.stdout)["attempt_id"] if claim.returncode == 0 else ""
+    # The integration is now proven, not asserted: the node is integrator-inline, so the Engine observes
+    # the staged candidate tree itself and integration binds a real commit whose receipt names the base,
+    # the attributable range, and the changed paths. So the demo does real work — writes the file, stages
+    # it, records the Engine-observed identity, commits, and integrates that commit.
+    with open(os.path.join(copy, ".engine", "tools", "widget_cache.py"), "w", encoding="utf-8") as fh:
+        fh.write("CACHE = {}\n\n\ndef get(key, load):\n    if key not in CACHE:\n        CACHE[key] = load(key)\n    return CACHE[key]\n")
+    _git(copy, "add", "-A")
+    staged = _build_cmd(copy, env, state_path, "work", "stage-digest", "--item", "W1", "--plan", payload)
+    tree_digest = json.loads(staged.stdout)["tree_digest"] if staged.returncode == 0 else ""
     result = _write(os.path.join(holder, "w1-result.json"),
-                    {"outcome": "returned", "base_sha": head,
+                    {"outcome": "returned", "base_sha": head, "artifact_digest": tree_digest,
                      "evidence": {"changed_paths": [".engine/tools/widget_cache.py"],
                                   "verification_results": ["The widget-cache tests pass."]}})
     _build_cmd(copy, env, state_path, "work", "result", "--item", "W1", "--attempt", attempt,
                "--plan", payload, "--input", result)
+    _git(copy, "-c", "user.email=e@x", "-c", "user.name=n", "commit", "-q", "-m", "Add the widget cache")
+    new_head = _git(copy, "rev-parse", "HEAD").stdout.strip()
+    with open(pr_state, encoding="utf-8") as fh:
+        pr = json.load(fh)
+    pr["headRefOid"] = new_head
+    with open(pr_state, "w", encoding="utf-8") as fh:
+        json.dump(pr, fh)
     integrated = _build_cmd(copy, env, state_path, "work", "integrate", "--item", "W1",
-                            "--attempt", attempt, "--commit", head,
+                            "--attempt", attempt, "--commit", new_head, "--plan", payload,
                             "--verification-input", "The widget-cache tests pass at this commit.")
     ok &= _pass("the work is integrated", integrated.returncode == 0,
-                "one node, done and proven on the branch")
+                "one node, done and proven on the branch by an Engine-computed receipt")
 
-    _seed_submission(state_path, head, json.loads(bound.stdout)["plan_digest"] if bound.returncode == 0 else "")
+    _seed_submission(state_path, new_head, json.loads(bound.stdout)["plan_digest"] if bound.returncode == 0 else "")
     submitted = _build_cmd(copy, env, state_path, "submit", "apply", "--plan", payload)
     with open(pr_state, encoding="utf-8") as fh:
         final = json.load(fh)

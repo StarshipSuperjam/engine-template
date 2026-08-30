@@ -3863,8 +3863,13 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # the plan's content. Those are restored here, which is what a ratchet measured against real
         # content costs when the content comes back. Do not read the raise as slack: it is 8 lines of
         # Build-side rules with a named home, not room to grow into.
+        # 259 -> 267 for the receipt-enforcement recovery path (#1126). `work integrate` now records a
+        # failed receipt check as a durable integration-class refusal with no lifecycle advance, and a
+        # session that meets one must know the node stays recoverable — re-integrate a corrected commit,
+        # no plan revision — or it reads the refusal as a wedge. Priced at 8 lines, the minimal essential
+        # instruction: the individual check remedies live in the refusal messages, not the runbook.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 259)
+        self.assertLessEqual(len(text.splitlines()), 267)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -3952,7 +3957,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # though the pause itself is now taught upstream. Like the line cap, this settled ABOVE the
         # figure first committed (3614): the same reviewer finding restored the cold-handoff and
         # data-minimisation rules, and both numbers are the file's exact measurement with them back.
-        self.assertLessEqual(len(text.split()), 3666)
+        # 3666 -> 3774, the word half of the line-cap raise above: the receipt-enforcement recovery path
+        # (#1126), measured at +108 words. Same justification — a durable integration refusal a session
+        # cannot resolve without knowing recovery needs no plan revision — and the same minimality: the
+        # per-check remedies stay in the refusal messages. The preservation-source ratio (448/6296) is
+        # unchanged, and every phrase pinned below still reads from this file.
+        self.assertLessEqual(len(text.split()), 3774)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
