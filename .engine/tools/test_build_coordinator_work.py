@@ -671,6 +671,143 @@ class TestWorkRouting(unittest.TestCase):
         self.assertEqual(route["executor_class"], "builder")
 
 
+class TestGoverningContextPacket(WorkCase):
+    """W1: the bounded packet carries the plan's governing context, and stays bounded doing it."""
+
+    DISPATCHED = {"executor_class": "builder", "provider": "claude", "model": "sonnet",
+                  "effort": "medium", "inline": False}
+    INLINE = {"executor_class": "builder", "provider": "claude", "model": "inherit",
+              "effort": "inherit", "inline": True}
+
+    def _rich_plan(self):
+        """A normal v2 plan with a SETTLED spec whose criteria map to different nodes.
+
+        C1 -> shared only; C2 -> adapter only; C3 -> both; C4 not_applicable. So `shared` should see
+        C1 and C3 and never C2 or C4, which is what proves the per-node selection is bounded.
+        """
+        value = plan_v2(items=[_work_item_v2("shared", []), _work_item_v2("adapter", ["shared"])])
+        value["spec"] = {
+            "posture": "settled",
+            "selection_basis": "A settled product spec governs this change.",
+            "documents": [{
+                "path": "docs/spec/thing.md", "selection_reason": "the governing spec",
+                "digest": "sha256:" + "1" * 64,
+                "criteria": [
+                    {"id": "C1", "digest": "sha256:" + "2" * 64, "text": "shared does X",
+                     "how_verified": "test A", "disposition": "mapped",
+                     "work_item_ids": ["shared"], "planned_verification": ["run A"]},
+                    {"id": "C2", "digest": "sha256:" + "3" * 64, "text": "adapter does Y",
+                     "how_verified": "test B", "disposition": "mapped",
+                     "work_item_ids": ["adapter"], "planned_verification": ["run B"]},
+                    {"id": "C3", "digest": "sha256:" + "4" * 64, "text": "both do Z",
+                     "how_verified": "test C", "disposition": "mapped",
+                     "work_item_ids": ["shared", "adapter"], "planned_verification": ["run C"]},
+                    {"id": "C4", "digest": "sha256:" + "5" * 64, "text": "not applicable here",
+                     "how_verified": "n/a", "disposition": "not_applicable", "reason": "out of scope"},
+                ],
+            }],
+        }
+        return value
+
+    def _packet_for(self, value, node_id="shared", route=None):
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, None)
+        return work.build_packet(value, state, node_id, route or self.DISPATCHED,
+                                 HEAD_A, "0" * 32, "/tmp/wt")
+
+    # -- packet coverage --
+
+    def test_packet_carries_every_governing_context_field(self):
+        value = self._rich_plan()
+        gc = self._packet_for(value, "shared")["governing_context"]
+        self.assertEqual(gc["success_obligations"], value["success_obligations"])
+        self.assertEqual(gc["risks"], value["risks"])
+        self.assertEqual(gc["assumptions"], value["assumptions"])
+        self.assertEqual(gc["scope_boundary"], value["scope_boundary"])
+        self.assertEqual(gc["interpretation"], value["interpretation"])
+        self.assertEqual({c["id"] for c in gc["spec_criteria"]}, {"C1", "C3"})
+
+    def test_schema_version_is_the_v2_marker(self):
+        self.assertEqual(self._packet_for(self._rich_plan())["schema_version"], "build-work-packet.v2")
+
+    def test_criteria_carry_document_provenance_and_strip_work_item_ids(self):
+        gc = self._packet_for(self._rich_plan(), "shared")["governing_context"]
+        c3 = next(c for c in gc["spec_criteria"] if c["id"] == "C3")
+        self.assertEqual(c3["document_path"], "docs/spec/thing.md")
+        self.assertEqual(c3["document_digest"], "sha256:" + "1" * 64)
+        self.assertEqual(c3["text"], "both do Z")
+        self.assertEqual(c3["how_verified"], "test C")
+        self.assertEqual(c3["planned_verification"], ["run C"])
+        self.assertNotIn("work_item_ids", c3)
+
+    def test_packet_excludes_raw_intent_and_evidence(self):
+        value = self._rich_plan()
+        packet = self._packet_for(value, "shared")
+        blob = json.dumps(packet)
+        self.assertNotIn(value["raw_intent"], blob)          # no-verbatim directive
+        self.assertNotIn("graphlib is stdlib", blob)          # the evidence claim is reviewer grounding
+        self.assertNotIn("evidence", packet["governing_context"])
+
+    # -- sibling exclusion: the bounded guarantee the governing context must not break --
+
+    def test_sibling_only_criterion_excluded_and_no_sibling_id_serialized(self):
+        packet = self._packet_for(self._rich_plan(), "shared")
+        self.assertNotIn("C2", {c["id"] for c in packet["governing_context"]["spec_criteria"]})
+        # the whole serialized packet is free of the sibling node id — no node object, and the mapped
+        # criteria stripped their work_item_ids so a shared criterion cannot leak "adapter".
+        self.assertNotIn("adapter", json.dumps(packet))
+
+    # -- context versus deliverable --
+
+    def test_context_is_labeled_context_not_the_deliverable(self):
+        packet = self._packet_for(self._rich_plan(), "shared")
+        self.assertIn("not your assignment", packet["governing_context"]["note"])
+        self.assertIn("not this node's deliverable",
+                      packet["required_result"]["envelope_is_context_not_deliverable"])
+        self.assertEqual(packet["required_result"]["required_evidence"],
+                         packet["node"]["output_contract"]["required_evidence"])
+
+    def test_identity_duty_follows_the_route_mode(self):
+        self.assertEqual(self._packet_for(self._rich_plan(), route=self.DISPATCHED)
+                         ["required_result"]["identity"]["mode"], "worker-commit")
+        self.assertEqual(self._packet_for(self._rich_plan(), route=self.INLINE)
+                         ["required_result"]["identity"]["mode"], "accepted-candidate")
+
+    # -- profile defaults and refusals --
+
+    def test_normal_plan_missing_a_governing_field_refuses(self):
+        value = self._rich_plan()
+        del value["scope_boundary"]
+        with self.assertRaisesRegex(bc.CoordinatorError,
+                                    "missing governing-context field 'scope_boundary'"):
+            self._packet_for(value, "shared")
+
+    def test_trivial_profile_defaults_the_absent_optional_fields(self):
+        value = self._rich_plan()
+        value["profile"] = "trivial"
+        for key in ("risks", "assumptions", "scope_boundary", "interpretation"):
+            value.pop(key, None)
+        gc = self._packet_for(value, "shared")["governing_context"]
+        self.assertEqual(gc["risks"], [])
+        self.assertEqual(gc["assumptions"], [])
+        self.assertEqual(gc["scope_boundary"], [])
+        self.assertEqual(gc["interpretation"], "")
+
+    def test_no_settled_spec_yields_empty_criteria_not_a_refusal(self):
+        gc = self._packet_for(plan_v2(), "shared")["governing_context"]
+        self.assertEqual(gc["spec_criteria"], [])
+
+    # -- persona diff carrying the duties --
+
+    def test_personas_carry_the_new_duties(self):
+        root = Path(__file__).resolve().parents[2]
+        for name in ("engine-worker-builder", "engine-worker-bounded"):
+            text = (root / ".claude" / "agents" / f"{name}.md").read_text(encoding="utf-8")
+            self.assertIn("governing context", text)
+            self.assertIn("unresolved_concerns", text)
+            self.assertIn("worker-commit", text)
+            self.assertIn("accepted-candidate", text)
+
+
 if __name__ == "__main__":
     unittest.main()
 
