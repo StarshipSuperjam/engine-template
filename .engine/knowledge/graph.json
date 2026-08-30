@@ -8963,6 +8963,7 @@
           "tool:boot_slice",
           "tool:checkout_auto_update",
           "tool:checkout_health",
+          "tool:drain",
           "tool:execution_environment",
           "tool:first_run_health",
           "tool:forget",
@@ -8996,7 +8997,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e7dc9aaa3f8b851fc04929c5169b3971cd28620a6dc241962b9b7b7c58056ebc",
+        "fingerprint": "sha256:1838af6bc6680d31dcbc5878b5c28c5117f28f6afd3c54ad842f83b9897a0d65",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9432,7 +9433,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:b2e5dd73ee3d466de12e9a0ee3ec977c2237868d6ce30fcf5bfcf83467b9c763",
+        "fingerprint": "sha256:1071eb6bb18fa57a7cf8abfe90a6dda6f9c3abd11a9076716ce28b2c2ca59702",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -9783,6 +9784,7 @@
       "owner": "memory-substrate-sqlite-fts5",
       "predicates": {
         "imports": [
+          "tool:backup_vault",
           "tool:capture",
           "tool:forget",
           "tool:hooks",
@@ -9798,7 +9800,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:ba83845d704213db1ec43cd10da0705655639ba8490eea22d8418966fb5e96c1",
+        "fingerprint": "sha256:972cde074acaa5915776838d3348602cbcc26c493df669a7683a761578f8e030",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -11461,6 +11463,32 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:drain",
+      "name": ".engine/tools/memory/drain.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:capture",
+          "tool:execution_context",
+          "tool:ledger",
+          "tool:records"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "drain",
+      "source": {
+        "fingerprint": "sha256:dc757b795ac93b213614042dde1f558cd6937f0c6facd9b23146e6709a5bb3c9",
+        "path": ".engine/tools/memory/drain.py"
+      },
+      "status": "active",
+      "summary": "drain.py — catching up the capture the unqualified sessions deliberately did not write.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "library",
       "guarded": false,
       "id": "tool:embed",
@@ -11979,7 +12007,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:0a7722b62c12c05fae786d83cd6d7f1b2a2c39d6fe52c41c4634c11c2a183ed9",
+        "fingerprint": "sha256:e3bbe1c3fd52de8bfefee13b9b2c7d2c953fffae0bba5f11bcda840f92ab7aed",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -13097,7 +13125,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:2062ded8884af44bbf2ac310299f0f961ab905eb2f6d8e08abdb67a19dc15be0",
+        "fingerprint": "sha256:28db4c0305c6d2bcbae519e73b737fe26c8ac4815f2358ebf579efcf7baff006",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13117,7 +13145,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:3bbc1bbb9d3ba3ec4fea9feefa3d4ec92172b89762994d92cba8b593553106c2",
+        "fingerprint": "sha256:a430962c49bd0e53f72914f11e75bef64cd291f28336ecd8d5345a438989a2ef",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -13773,7 +13801,7 @@
       },
       "slug": "qualification_health",
       "source": {
-        "fingerprint": "sha256:8b24245dede5635848f5ec405c8874702cd8e568d8f983827b84d09d31b8d221",
+        "fingerprint": "sha256:b3291e12a7752781d36b1e52380be65667b9db4d4407e12aa3ab93b9322c902c",
         "path": ".engine/tools/memory/qualification_health.py"
       },
       "status": "active",
@@ -16245,6 +16273,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_drain",
+      "name": ".engine/tools/memory/test_drain.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:capture",
+          "tool:drain",
+          "tool:ledger"
+        ]
+      },
+      "slug": "test_drain",
+      "source": {
+        "fingerprint": "sha256:105034e018548266d746e38dc745a3b8446d6007b4769a4f6ac4efd83e9810eb",
+        "path": ".engine/tools/memory/test_drain.py"
+      },
+      "status": "active",
+      "summary": "Tests for the session-start transcript drain (issue StarshipSuperjam/engine-template#1158).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_engine_fixture",
       "name": ".engine/tools/test_engine_fixture.py",
       "owner": "core",
@@ -16695,7 +16748,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:11e88d9a2fd51d525b42a4556311b4040c95c70f15030e5fd9f76e95b8ff3a7c",
+        "fingerprint": "sha256:a1ca02fa2b221a989726d4eeba2fd37e905829c0aeff7840130c9f0a645e13ea",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17394,6 +17447,7 @@
           "tool:mcp_server",
           "tool:mcp_test_support",
           "tool:mutation_authority",
+          "tool:mutation_contract",
           "tool:pins",
           "tool:records",
           "tool:validate"
@@ -17401,7 +17455,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:38b48512b0a484b6010926f1e51d370ca63fd55be665044341d5b157d7595368",
+        "fingerprint": "sha256:9f1926d20a25c254ab85946378a90eed401d62e6cc1006ba85348ed6a4873d60",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -17676,11 +17730,11 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:60fa03a98be9402ce2988e173e499c3c18a3740a4e3cd79779f76e30c29bde83",
+        "fingerprint": "sha256:9f2fd52bf88717ae53073622c348fd5935710a75eb10519834b068c54559ab0f",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
-      "summary": "Authority, under-lock drift, and converted-call-graph tests for issue #1151 S04.",
+      "summary": "Authority, under-lock drift, and converted-call-graph tests for issue StarshipSuperjam/engine-template#1151 S04.",
       "type": "tool"
     },
     {
@@ -17695,6 +17749,7 @@
         ],
         "tests": [
           "tool:accepted_hook_dispatch",
+          "tool:compact",
           "tool:index",
           "tool:ledger",
           "tool:mutation_contract"
@@ -17702,11 +17757,11 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:65b9dc3de1f51f14457d4a0e6ca9bb29af6536704aa3db35e70a2b3fabb17f1b",
+        "fingerprint": "sha256:ed60ee9dbb368fe488b2bb43fc3c7dda7a84e7a06cccbabe891fe3ad448c6197",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",
-      "summary": "Coverage and refusal tests for the persistent mutation registry (issue #1151 S02).",
+      "summary": "Coverage and refusal tests for the persistent mutation registry (issue StarshipSuperjam/engine-template#1151 S02).",
       "type": "tool"
     },
     {

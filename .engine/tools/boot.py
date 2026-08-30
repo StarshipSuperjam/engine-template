@@ -3421,6 +3421,23 @@ def handler(payload: dict) -> dict:
     payload = dict(payload) if isinstance(payload, dict) else {}
     payload["_automatic_checkout"] = automatic_checkout
     payload["_qualification_notices"] = qualification_notices
+    # AFTER qualification, never before: the drain is the qualified session paying off what the unqualified
+    # ones deliberately left in the transcripts. It runs here rather than at Stop because a session start is
+    # the moment there is slack, and it returns a receipt instead of raising, so a long catch-up or a broken
+    # transcript is a line in the pack rather than a session that will not begin.
+    try:
+        from memory import drain as _drain
+        drain_receipt = _drain.drain_if_qualified()
+    except Exception:  # noqa: BLE001 — SessionStart is fail-open
+        drain_receipt = None
+    if isinstance(drain_receipt, dict) and drain_receipt.get("records_appended"):
+        qualification_notices.append(
+            f"Engine memory caught up on {drain_receipt['sessions_drained']} earlier session(s) that could "
+            f"not be saved at the time ({drain_receipt['records_appended']} notes).")
+    if isinstance(drain_receipt, dict) and drain_receipt.get("gaps"):
+        qualification_notices.append(
+            f"{len(drain_receipt['gaps'])} earlier session(s) can no longer be caught up: their transcripts "
+            f"are gone. Those conversations are not in memory.")
     # Interrupted-restore repair is intentionally exclusive to this write-capable SessionStart seam. The
     # status verb and pack debug path call gather_signals directly and therefore only observe quarantine.
     # The marker itself keeps every memory writer paused until this recovery either restores the durable prior

@@ -713,7 +713,8 @@ def detect_orphaned_migration(data_dir: str):
     return marker if (marker is not None and _marker_orphaned(marker)) else None
 
 
-def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected: bool = False) -> dict:
+def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected: bool = False,
+                 origin: "str | None" = None) -> dict:
     """The turn-delta record envelope. `ts`/`seq` are INTEGERS on purpose: the derived index's
     record-text projection indexes only string leaves, so integers stay out of the search body. `id` is the
     stable, content-free record id minted at capture — kept out of the search body too
@@ -725,6 +726,10 @@ def _make_record(session_id: str, seq: int, speaker: str, text: str, *, injected
     tags = ["transcript", "stop"]
     if injected:
         tags.append(records.INJECTED_TAG)
+    if origin:
+        # Provenance for a record captured LATE, by the session-start drain rather than at its own Stop. A
+        # reader deserves to know a note was recovered from a transcript afterwards rather than filed live.
+        tags.append(origin)
     return {
         "v": RECORD_VERSION,
         "kind": RECORD_KIND,
@@ -883,6 +888,7 @@ def _capture(payload, *, cwd) -> int:
     if transcript_path is None:
         _write_capture_status("invalid-path", session_id, detail={"reason": path_reason})
         return 0
+    origin = payload.get("origin") if isinstance(payload.get("origin"), str) else None
 
     data_dir = ledger.ledger_dir(cwd)
     os.makedirs(data_dir, exist_ok=True)
@@ -931,7 +937,8 @@ def _capture(payload, *, cwd) -> int:
             # (issue StarshipSuperjam/engine-template#274). The record still lands + stays recoverable; consolidation skips it as fuel.
             injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
-                record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)
+                record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected,
+                                      origin=origin)
                 fresh.append(record)
         transaction = {
             "schema_version": "capture-transaction.v1",
