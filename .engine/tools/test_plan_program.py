@@ -2476,5 +2476,224 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
         self._assert_no_dead_end(sound, "pln_x", "active")
 
 
+class LaneRecord(_Program):
+    """The decided lane split on the program record: advisory, exhaustively input-validated, with a
+    discriminated history. Its ONLY refusal surface is input validity — liveness, ordering, and
+    disagreement with what `propose` recommended are never refused. Every enumerated refusal fires
+    with its own named message, and nothing else refuses.
+    """
+
+    A = "pln_a00000000001"
+    B = "pln_b00000000002"
+    C = "pln_c00000000003"
+
+    def _shelf(self, *ids):
+        """A program carrying the given children on one chain. Returns its slug."""
+        slug = self._program("A program with lanes", "Children that may ride in parallel.")
+        prev = None
+        for index, plan_id in enumerate(ids, start=1):
+            self._plan(plan_id, f"PR {index}", predecessor=prev)
+            self.programs.add_child(slug, plan_id, predecessor=prev)
+            prev = plan_id
+        return slug
+
+    # -- the enumerated input refusals, each asserting its own message --
+
+    def test_set_refuses_without_a_reason(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]}], "   ")
+
+    def test_set_refuses_an_empty_split(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "at least one lane"):
+            self.programs.set_lanes(slug, [], "a reason")
+
+    def test_set_refuses_an_empty_lane_name(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "lane name cannot be empty"):
+            self.programs.set_lanes(slug, [{"name": "  ", "children": [self.A]}], "a reason")
+
+    def test_set_refuses_a_duplicate_lane_name(self):
+        slug = self._shelf(self.A, self.B)
+        with self.assertRaisesRegex(plan_program.ProgramError, "used twice"):
+            self.programs.set_lanes(slug, [{"name": "L", "children": [self.A]},
+                                           {"name": "L", "children": [self.B]}], "a reason")
+
+    def test_set_refuses_a_lane_with_no_members(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "has no members"):
+            self.programs.set_lanes(slug, [{"name": "L", "children": []}], "a reason")
+
+    def test_set_refuses_a_child_twice_in_one_lane(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "appears twice in lane"):
+            self.programs.set_lanes(slug, [{"name": "L", "children": [self.A, self.A]}], "a reason")
+
+    def test_set_refuses_a_child_in_two_lanes(self):
+        slug = self._shelf(self.A, self.B)
+        with self.assertRaisesRegex(plan_program.ProgramError, "in two lanes"):
+            self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]},
+                                           {"name": "L2", "children": [self.A]}], "a reason")
+
+    def test_set_refuses_a_child_not_stored_in_the_program(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "not stored in this program"):
+            self.programs.set_lanes(slug, [{"name": "L", "children": ["pln_f00000000009"]}],
+                                    "a reason")
+
+    def test_set_refuses_a_child_stored_but_missing_from_the_library(self):
+        # Stored in the program record, but its plan is not in this library — a distinct case from an
+        # unknown child, and it must name itself honestly rather than surface a bare resolver error.
+        slug = self._shelf(self.A)
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_d00000000004",
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": self.A})
+        self.programs._write(slug, record)
+        with self.assertRaisesRegex(plan_program.ProgramError, "missing from this library"):
+            self.programs.set_lanes(slug, [{"name": "L", "children": ["pln_d00000000004"]}],
+                                    "a reason")
+
+    def test_an_identical_re_set_is_a_no_op_that_mints_no_history(self):
+        slug = self._shelf(self.A, self.B)
+        self.programs.set_lanes(slug, [{"name": "L", "children": [self.A, self.B]}], "first")
+        with self.assertRaisesRegex(plan_program.ProgramError, "already carries"):
+            self.programs.set_lanes(slug, [{"name": "L", "children": [self.A, self.B]}],
+                                    "a different reason entirely")
+        self.assertNotIn("lanes_history", self.programs.read(slug))
+
+    # -- what it never refuses: liveness, ordering, disagreement --
+
+    def test_a_split_lanes_a_superseded_or_dead_child_cleanly(self):
+        slug = self._shelf(self.A, self.B)
+        # B's plan is retired and marked superseded on the record — both are liveness facts, and
+        # set_lanes reads neither: it records the operator's decision as given.
+        self.plans.update_record(
+            self.plans.resolve(self.B),
+            lambda current: current.__setitem__(
+                "closure", {"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "superseded"}))
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == self.B:
+                child["superseded_by"] = self.A
+        self.programs._write(slug, record)
+        result = self.programs.set_lanes(
+            slug, [{"name": "L1", "children": [self.A, self.B]}], "lane both, B retired")
+        self.assertEqual(result["lanes"]["lanes"], [{"name": "L1", "children": [self.A, self.B]}])
+
+    def test_the_operator_may_override_a_standing_split_freely(self):
+        slug = self._shelf(self.A, self.B, self.C)
+        self.programs.set_lanes(slug, [{"name": "one", "children": [self.A, self.B, self.C]}],
+                                "all together")
+        result = self.programs.set_lanes(
+            slug, [{"name": "x", "children": [self.A]}, {"name": "y", "children": [self.B]},
+                   {"name": "z", "children": [self.C]}], "split them apart")
+        self.assertEqual(len(result["lanes"]["lanes"]), 3)
+        self.assertEqual(result["lanes_history"][0]["split"]["lanes"],
+                         [{"name": "one", "children": [self.A, self.B, self.C]}])
+
+    # -- the discriminated history --
+
+    def test_history_is_discriminated_across_set_reset_clear_set(self):
+        slug = self._shelf(self.A, self.B, self.C)
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]}], "first split")
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A, self.B]}], "widen it")
+        self.programs.clear_lanes(slug, "pause concurrency")
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.C]}], "resume, differently")
+        record = self.programs.read(slug)
+        history = record["lanes_history"]
+        # set -> set -> clear -> set: two endings, replaced then cleared, and a gap where none stood.
+        self.assertEqual([entry["ended_by"] for entry in history], ["replaced", "cleared"])
+        # Each ended split keeps its OWN reason; the entry's reason is why it ended.
+        self.assertEqual(history[0]["split"]["reason"], "first split")
+        self.assertEqual(history[0]["reason"], "widen it")
+        self.assertEqual(history[1]["split"]["reason"], "widen it")
+        self.assertEqual(history[1]["reason"], "pause concurrency")
+        # The current split is the one set after the gap.
+        self.assertEqual(record["lanes"]["reason"], "resume, differently")
+        self.assertEqual(record["lanes"]["lanes"], [{"name": "L1", "children": [self.C]}])
+        for entry in history:
+            self.assertRegex(entry["ended_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
+    def test_clear_refuses_without_a_reason_and_when_nothing_stands(self):
+        slug = self._shelf(self.A)
+        with self.assertRaisesRegex(plan_program.ProgramError, "no decided lane split to clear"):
+            self.programs.clear_lanes(slug, "a reason")
+        self.programs.set_lanes(slug, [{"name": "L", "children": [self.A]}], "stand up a split")
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.clear_lanes(slug, "   ")
+
+    # -- concurrency: a second session's write is not lost --
+
+    def test_a_concurrent_second_set_is_not_lost(self):
+        import threading
+        slug = self._shelf(self.A, self.B)
+        start = threading.Barrier(2)
+        errors: list = []
+
+        def worker(name, child):
+            start.wait()
+            try:
+                self.programs.set_lanes(slug, [{"name": name, "children": [child]}], f"reason {name}")
+            except plan_program.ProgramError as exc:   # a lost-update would surface here or below
+                errors.append(str(exc))
+
+        threads = [threading.Thread(target=worker, args=("L1", self.A)),
+                   threading.Thread(target=worker, args=("L2", self.B))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(errors, [], f"a concurrent set was refused: {errors}")
+        record = self.programs.read(slug)
+        # Both splits are accounted for: one stands, the other is in history as REPLACED. Without the
+        # lock both writers would read the empty record and the second would clobber the first with no
+        # history entry — so exactly one history entry, holding the other split, is the proof.
+        standing = {lane["name"] for lane in record["lanes"]["lanes"]}
+        historic = {lane["name"] for entry in record["lanes_history"]
+                    for lane in entry["split"]["lanes"]}
+        self.assertEqual(standing | historic, {"L1", "L2"})
+        self.assertEqual(len(record["lanes_history"]), 1)
+        self.assertEqual(record["lanes_history"][0]["ended_by"], "replaced")
+
+
+class LaneSchema(_Program):
+    """The schema pins the lane block's shape; the code pins what the schema cannot express."""
+
+    def _record_with_lanes(self, lanes_block):
+        slug = self._program("Schema", "Pin the lane block.")
+        record = self.programs.read(slug)
+        record["lanes"] = lanes_block
+        return slug, record
+
+    def _assert_refused(self, lanes_block):
+        slug, record = self._record_with_lanes(lanes_block)
+        with self.assertRaises(plan_store.PlanStoreError):
+            self.programs._write(slug, record)
+
+    def test_a_split_needs_at_least_one_lane(self):
+        self._assert_refused({"decided_at": "2026-01-01T00:00:00Z", "reason": "why", "lanes": []})
+
+    def test_a_lane_needs_at_least_one_child(self):
+        self._assert_refused({"decided_at": "2026-01-01T00:00:00Z", "reason": "why",
+                              "lanes": [{"name": "L", "children": []}]})
+
+    def test_a_lane_name_cannot_be_empty(self):
+        self._assert_refused({"decided_at": "2026-01-01T00:00:00Z", "reason": "why",
+                              "lanes": [{"name": "", "children": ["pln_a00000000001"]}]})
+
+    def test_the_split_reason_is_required(self):
+        self._assert_refused({"decided_at": "2026-01-01T00:00:00Z",
+                              "lanes": [{"name": "L", "children": ["pln_a00000000001"]}]})
+
+    def test_a_valid_split_writes(self):
+        slug, record = self._record_with_lanes(
+            {"decided_at": "2026-01-01T00:00:00Z", "reason": "why",
+             "lanes": [{"name": "L", "children": ["pln_a00000000001"]}]})
+        self.programs._write(slug, record)   # does not raise
+        self.assertEqual(self.programs.read(slug)["lanes"]["lanes"][0]["name"], "L")
+
+
 if __name__ == "__main__":
     unittest.main()

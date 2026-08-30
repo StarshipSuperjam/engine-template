@@ -1105,6 +1105,107 @@ class ProgramLibrary:
             self._write(slug, record)
             return record
 
+    def set_lanes(self, slug: str, lanes: list, reason: str) -> dict:
+        """Record the concurrency split the operator DECIDED, keeping any split it replaces.
+
+        Advisory only: a lane split is a record of which children may ride at once, never a schedule
+        anything executes. Its ONLY refusal surface is input validity, and that surface is enumerated
+        exhaustively below — liveness, ordering, and disagreement with what `propose` recommended are
+        never refused, so a split that lanes a superseded child, or contradicts the recommendation,
+        records cleanly. The read → mutate → write is one hold on the record lock, mirroring
+        revise_objective, so a concurrent record write cannot be lost; and an identical re-set is a
+        no-op that mints no history, exactly as revise_objective refuses an identical objective.
+
+        `lanes` is the decided split as a list of {"name", "children"} — children are plan_ids in the
+        order the operator wants them read. The reason is stored ON the split; when a later set or
+        clear ends this split, that reason travels with it into lanes_history.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "recording a lane split costs a reason. The split is the operator's decision about "
+                "concurrency, and a decision with nothing to show for why it was made is the silent "
+                "record this object exists to prevent.")
+        # Structural validity of the proposed split — pure checks on the input, before the lock.
+        # Enumerated, each with its own message, because input validation is the whole refusal
+        # surface here and a caught-together error would blur which rule an operator tripped.
+        if not lanes:
+            raise ProgramError(
+                "a lane split needs at least one lane; an empty split records no decision and is "
+                "refused. To withdraw a split, use `program lanes clear`.")
+        proposed: list = []
+        seen_names: set = set()
+        seen_children: dict = {}   # plan_id -> the lane name that first claimed it, in input order
+        for lane in lanes:
+            name = lane.get("name") or ""
+            children = list(lane.get("children") or [])
+            if not name.strip():
+                raise ProgramError("a lane name cannot be empty; every lane is named.")
+            if name in seen_names:
+                raise ProgramError(f"lane name {name!r} is used twice; lane names must be unique.")
+            seen_names.add(name)
+            if not children:
+                raise ProgramError(
+                    f"lane {name!r} has no members; a lane with no children records nothing and is "
+                    "refused.")
+            for child in children:
+                if child in seen_children:
+                    if seen_children[child] == name:
+                        raise ProgramError(f"child {child} appears twice in lane {name!r}.")
+                    raise ProgramError(
+                        f"child {child} is placed in two lanes ({seen_children[child]!r} and "
+                        f"{name!r}); a child rides at most one lane.")
+                seen_children[child] = name
+            proposed.append({"name": name, "children": children})
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            member_ids = {child["plan_id"] for child in record["children"]}
+            for child in seen_children:   # insertion order == input order, so the message is stable
+                if child not in member_ids:
+                    raise ProgramError(
+                        f"child {child} is not stored in this program, so it cannot be laned. Add it "
+                        "to the program first, or correct the plan id.")
+                try:
+                    self.plans.resolve(child)
+                except plan_store.PlanStoreError:
+                    raise ProgramError(
+                        f"child {child} is stored in this program but missing from this library, so "
+                        "its territory cannot be read; laning it would record a decision over a plan "
+                        "this workstation cannot see.") from None
+            standing = record.get("lanes")
+            if standing and standing["lanes"] == proposed:
+                raise ProgramError(
+                    "that is the split this program already carries; nothing was written, and no "
+                    "history entry was minted for a no-op.")
+            now = _now()
+            if standing:
+                record.setdefault("lanes_history", []).append(
+                    {"split": standing, "ended_at": now, "ended_by": "replaced", "reason": reason})
+            record["lanes"] = {"decided_at": now, "reason": reason, "lanes": proposed}
+            self._write(slug, record)
+            return record
+
+    def clear_lanes(self, slug: str, reason: str) -> dict:
+        """Withdraw the standing lane split, keeping it in a discriminated history.
+
+        The withdrawal is recorded as `ended_by: cleared`, distinct from the `replaced` a set writes,
+        so a later reader of set → set → clear → set can tell a withdrawal from a replacement and
+        reconstruct when no split stood at all. Same lock discipline as set_lanes.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "withdrawing a lane split costs a reason. Clearing a decided split without saying "
+                "why is a record that changes with nothing to show for it.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            standing = record.get("lanes")
+            if not standing:
+                raise ProgramError("this program has no decided lane split to clear.")
+            record.setdefault("lanes_history", []).append(
+                {"split": standing, "ended_at": _now(), "ended_by": "cleared", "reason": reason})
+            record.pop("lanes", None)
+            self._write(slug, record)
+            return record
+
     # -- derivation --
     def child_view(self, record: dict) -> list:
         """Each child with its plan's derived status, in CHAIN order, every stored child exactly once.

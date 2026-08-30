@@ -2366,6 +2366,65 @@ def cmd_program_reopen(args) -> int:
     return 0
 
 
+def _looks_like_plan_id(token: str) -> bool:
+    return (token.startswith("pln_") and len(token) == 16
+            and all(c in "0123456789abcdef" for c in token[4:]))
+
+
+def _resolve_child_token(programs, token: str) -> str:
+    """Turn a `--lane` member token into the plan_id the record stores.
+
+    A plan_id passes through UNTOUCHED, and that matters: a child stored in the program but missing
+    from this library is a real plan_id that will not resolve, and its honest refusal must come from
+    `set_lanes` naming exactly that case — not a bare resolver error here. A non-id token (a slug or
+    name) is resolved for the operator's convenience; if it will not resolve, it is passed through so
+    `set_lanes` owns the message rather than this helper.
+    """
+    if _looks_like_plan_id(token):
+        return token
+    try:
+        return programs.plans.read_record(programs.plans.resolve(token))["plan_id"]
+    except plan_store.PlanStoreError:
+        return token
+
+
+def cmd_program_lanes_set(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    lanes = []
+    for spec in args.lane:
+        if "=" not in spec:
+            raise ProjectManagerError(
+                f"--lane expects NAME=plan,plan,...; {spec!r} has no '=' to split the name from its "
+                "members.")
+        name, _, members = spec.partition("=")
+        children = [_resolve_child_token(programs, token.strip())
+                    for token in members.split(",") if token.strip()]
+        lanes.append({"name": name.strip(), "children": children})
+    record = programs.set_lanes(slug, lanes, args.reason)
+    split = record["lanes"]
+    print(f"recorded a {len(split['lanes'])}-lane split on {record['program_id']}")
+    print(f"  {args.reason}")
+    for lane in split["lanes"]:
+        print(f"  {lane['name']}: {', '.join(lane['children'])}")
+    if record.get("lanes_history"):
+        print("\nThe split it replaced is kept in the lane history — `program show` lists every split "
+              "that stopped standing, and whether it was replaced or cleared.")
+    print("\nAdvisory only: this records which children may ride at once. It dispatches nothing, "
+          "selects nothing, and gates no Build.")
+    return 0
+
+
+def cmd_program_lanes_clear(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.clear_lanes(slug, args.reason)
+    print(f"cleared the lane split on {record['program_id']}")
+    print(f"  {args.reason}")
+    print("What was cleared is kept in the lane history — `program show` lists it, marked cleared.")
+    return 0
+
+
 def _consent_argument(command, gate: str) -> None:
     """The one flag that carries an operator decision, worded the same at every gate it guards."""
     command.add_argument(
@@ -2645,6 +2704,27 @@ def build_parser() -> argparse.ArgumentParser:
     program_reopen.add_argument("--reason", required=True,
                                 help="why the closure is being undone; kept in the closure history")
     program_reopen.set_defaults(func=cmd_program_reopen)
+
+    program_lanes = program.add_parser(
+        "lanes", help="record or withdraw the operator's DECIDED concurrency split (advisory only)"
+    ).add_subparsers(dest="lanes_command", required=True)
+
+    lanes_set = program_lanes.add_parser(
+        "set", help="record the decided split — which children may ride which lane at once")
+    lanes_set.add_argument("program")
+    lanes_set.add_argument("--lane", action="append", required=True, metavar="NAME=plan,plan,...",
+                           help="one lane: its name, then the plan ids riding it, comma-separated; "
+                                "repeat --lane for each lane")
+    lanes_set.add_argument("--reason", required=True,
+                           help="why this split — stored on the split and kept when it later ends")
+    lanes_set.set_defaults(func=cmd_program_lanes_set)
+
+    lanes_clear = program_lanes.add_parser(
+        "clear", help="withdraw the standing split, keeping it in the lane history")
+    lanes_clear.add_argument("program")
+    lanes_clear.add_argument("--reason", required=True,
+                             help="why the split is being withdrawn; kept in the lane history")
+    lanes_clear.set_defaults(func=cmd_program_lanes_clear)
     return parser
 
 

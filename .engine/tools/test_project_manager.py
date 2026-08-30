@@ -2668,5 +2668,95 @@ class TestSealHandback(unittest.TestCase):
         self.assertNotIn("Codex", text)
 
 
+class LaneCommands(ProgramVerbs):
+    """`program lanes set|clear` at the command line: it records the operator's decided split,
+    surfaces every input refusal honestly, and the emitted set line round-trips."""
+
+    def _two_child_program(self):
+        program_id = self._program_with_child()   # child pln_aaaaaaaaaaaa, carrying OB-1
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        return program_id
+
+    def _record(self, program_id):
+        programs = plan_program.ProgramLibrary(self.lib)
+        return programs.read(programs.resolve(program_id))
+
+    def test_lanes_set_records_the_decided_split(self):
+        program_id = self._two_child_program()
+        code, out, err = self.run_command(
+            "program", "lanes", "set", program_id,
+            "--lane", "fast=pln_aaaaaaaaaaaa", "--lane", "slow=pln_bbbbbbbbbbbb",
+            "--reason", "the two touch different files")
+        self.assertEqual(code, 0, err)
+        self.assertIn("2-lane split", out)
+        self.assertIn("Advisory only", out)
+        record = self._record(program_id)
+        self.assertEqual(record["lanes"]["lanes"],
+                         [{"name": "fast", "children": ["pln_aaaaaaaaaaaa"]},
+                          {"name": "slow", "children": ["pln_bbbbbbbbbbbb"]}])
+        self.assertEqual(record["lanes"]["reason"], "the two touch different files")
+
+    def test_set_override_then_clear_keeps_a_discriminated_history(self):
+        program_id = self._two_child_program()
+        self.assertEqual(self.run_command(
+            "program", "lanes", "set", program_id,
+            "--lane", "both=pln_aaaaaaaaaaaa,pln_bbbbbbbbbbbb", "--reason", "together")[0], 0)
+        self.assertEqual(self.run_command(
+            "program", "lanes", "set", program_id,
+            "--lane", "a=pln_aaaaaaaaaaaa", "--lane", "b=pln_bbbbbbbbbbbb", "--reason", "apart")[0], 0)
+        code, out, _ = self.run_command("program", "lanes", "clear", program_id,
+                                        "--reason", "hold off on concurrency")
+        self.assertEqual(code, 0)
+        self.assertIn("cleared the lane split", out)
+        record = self._record(program_id)
+        self.assertNotIn("lanes", record)   # nothing stands after a clear
+        self.assertEqual([entry["ended_by"] for entry in record["lanes_history"]],
+                         ["replaced", "cleared"])
+
+    def test_a_lane_refusal_surfaces_at_the_command_line(self):
+        program_id = self._two_child_program()
+        code, _, err = self.run_command("program", "lanes", "set", program_id,
+                                        "--lane", "L=pln_ffffffffffff", "--reason", "r")
+        self.assertEqual(code, 2)
+        self.assertIn("not stored in this program", err)
+
+    def test_the_missing_from_library_refusal_is_honest_at_the_cli(self):
+        program_id = self._two_child_program()
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.resolve(program_id)
+        record = programs.read(slug)
+        record["children"].append({"plan_id": "pln_d00000000004",
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_bbbbbbbbbbbb"})
+        programs._write(slug, record)
+        code, _, err = self.run_command("program", "lanes", "set", program_id,
+                                        "--lane", "L=pln_d00000000004", "--reason", "r")
+        self.assertEqual(code, 2)
+        self.assertIn("missing from this library", err)
+
+    def test_a_malformed_lane_spec_is_refused_with_guidance(self):
+        program_id = self._two_child_program()
+        code, _, err = self.run_command("program", "lanes", "set", program_id,
+                                        "--lane", "no-equals-here", "--reason", "r")
+        self.assertEqual(code, 2)
+        self.assertIn("NAME=plan", err)
+
+    def test_a_set_line_round_trips_through_the_cli(self):
+        # `program lanes propose` (a later PR) ends its output with exactly this command shape; the
+        # round-trip is pinned here so that emitted line records the split it printed.
+        program_id = self._two_child_program()
+        argv = ["program", "lanes", "set", program_id, "--reason", "proposed split",
+                "--lane", "fast=pln_aaaaaaaaaaaa", "--lane", "slow=pln_bbbbbbbbbbbb"]
+        self.assertEqual(self.run_command(*argv)[0], 0)
+        record = self._record(program_id)
+        self.assertEqual([lane["name"] for lane in record["lanes"]["lanes"]], ["fast", "slow"])
+        self.assertEqual([lane["children"] for lane in record["lanes"]["lanes"]],
+                         [["pln_aaaaaaaaaaaa"], ["pln_bbbbbbbbbbbb"]])
+
+
 if __name__ == "__main__":
     unittest.main()
