@@ -357,6 +357,27 @@ def _best_by_record(cursor, live: dict, question):
     return best, scanned
 
 
+def _unavailable(exc) -> dict:
+    """The no-trustworthy-answer result, saying WHICH kind of unavailable it is.
+
+    Two very different things reach it, and collapsing them was a real objection: a qualification refusal is
+    ordinary and resolves itself, while a corrupt store or a dead embedding backend is a fault someone has to
+    know about. Reporting the second as "not qualified yet" would send the operator to wait for something
+    that is never going to fix it. The exception CLASS name is carried, never its message, which can embed
+    paths or record text.
+    """
+    # Keyed on the refusal's own words, NOT on the exception class. `MutationAuthorityError` is the authority
+    # layer's generic type: it also carries "advisory locking is unavailable", "the lock is not a regular
+    # file", cardinality overruns and source-binding failures. Classifying those as "not qualified yet" would
+    # tell the operator to wait for a session start that is never going to fix it — the exact outcome this
+    # function exists to prevent, and the review caught it doing so. `degraded_refusal` is the one place that
+    # phrase is minted, so matching it identifies a qualification refusal and nothing else.
+    refused = "qualified to write memory" in str(exc)
+    return {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
+            "unavailable": "not-qualified" if refused else "store-fault",
+            "fault_class": None if refused else type(exc).__name__}
+
+
 def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" = None,
            store_file: "str | None" = None) -> dict:
     """The records closest in meaning to `query`, best first, each with how close it was.
@@ -364,11 +385,35 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     Reconciles first, so the answer covers everything currently in the ledger and nothing that has left it.
     Every returned record comes from the live read of the ledger performed in that same pass, and a record
     scores as well as its best passage.
+
+    Carries `unavailable`: True when this session could not open or reconcile the store and therefore has no
+    trustworthy answer to give — which is NOT the same as having searched and found nothing, and a caller
+    must never report it as such.
     """
     live = _live_text(ledger_file)
-    conn = _connect(store_path(store_file))
     try:
-        reconciled = _reconcile(conn, live)
+        conn = _connect(store_path(store_file))
+    except Exception as exc:  # noqa: BLE001 — an unqualified session may not open-or-migrate the store
+        return _unavailable(exc)
+    try:
+        try:
+            reconciled = _reconcile(conn, live)
+        except Exception as exc:  # noqa: BLE001 — without the repair, this store's answer cannot be trusted
+            # An unqualified session may not write embeddings: the passage store holds record text, so
+            # rewriting it is a way to put invented content in front of recall without touching the ledger.
+            #
+            # An earlier attempt answered anyway from whatever was already embedded, and the repair review
+            # showed two things wrong with that. A record REWRITTEN under the same id is still in `live`, so
+            # it is not filtered out — it scores on its stale vector, and the evidence passage is then read
+            # from the NEW text at the OLD offset: a hit for a question the record has nothing to do with,
+            # carrying a quotation that had nothing to do with the match, when the passage BEING the evidence
+            # is this tool's whole offer. And the `degraded` flag meant to carry that caveat was dropped by
+            # both return paths, so the caller could not tell — and told the operator their project memory
+            # was empty when it was not.
+            #
+            # So an unreconciled store reports itself UNAVAILABLE instead of answering. Keyword recall is
+            # unaffected and still covers everything; the next qualified session reconciles and this returns.
+            return _unavailable(exc)
         # Streamed in blocks, never fetchall(): the row set grows with the store, and materialising it whole
         # would make peak memory linear in store size — the same unbounded read the keyword path already fixed.
         best, scanned = _best_by_record(
@@ -381,7 +426,7 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
         # positionally, and a deployed repo starts with an empty ledger — so the shape a fresh project sees
         # FIRST is this one, and an omitted key is a crash on the first question ever asked.
         return {"records": [], "scores": [], "passages": [], "searched": scanned,
-                "embedded": reconciled["embedded"]}
+                "embedded": reconciled["embedded"], "unavailable": False}
 
     ranked = sorted(best.items(), key=lambda pair: -pair[1][0])[:max(int(limit), 1)]
     records, scores_out, matched = [], [], []
@@ -397,7 +442,7 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
         scores_out.append(round(score, 4))
         matched.append(found[ordinal])
     return {"records": records, "scores": scores_out, "passages": matched,
-            "searched": scanned, "embedded": reconciled["embedded"]}
+            "searched": scanned, "embedded": reconciled["embedded"], "unavailable": False}
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
@@ -495,6 +540,13 @@ def main(argv: list) -> int:
         return _demo()
     print("usage: store.py demo")
     return 2
+
+
+try:
+    from .. import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

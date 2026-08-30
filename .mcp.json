@@ -21,7 +21,15 @@
         "--frozen",
         "--",
         "python",
-        "tools/memory/mcp_server.py"
+        "tools/accepted_hook_dispatch.py",
+        "attended",
+        "--root",
+        "..",
+        "--script",
+        ".engine/tools/memory/mcp_server.py",
+        "--operation",
+        "attended-memory-mcp",
+        "--"
       ]
     }
   }

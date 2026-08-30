@@ -55,6 +55,8 @@ second applying them.
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
 import os
 import sys
@@ -71,7 +73,6 @@ if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
 from memory import ledger, records  # noqa: E402
-
 
 def _closed_batches(src: str) -> set:
     """The set of `batch` ids that a *completed* pass closed — i.e. carried by a `consolidated` marker."""
@@ -233,20 +234,22 @@ def withheld_report(path: "str | None" = None) -> dict:
     one-way in practice is not the control the operator was told they had.
 
     IDENTIFIERS AND WHEN, NEVER THE WORDING. That is the same line `set_aside` draws and for the same reason:
-    reading withheld text back is exactly what the operator asked not to happen. A note carries its kind and
-    the date it was withheld, which is enough to say which one you mean without saying what it said."""
+    reading or probing withheld text is exactly what the operator asked not to happen. A note carries its kind
+    and the date it was withheld, which lets the operator choose without turning restoration into a content
+    oracle."""
     src = ledger.ledger_path() if path is None else path
     withheld_ids, withheld_sessions = withheld_targets(src)
+    all_records = [record for record in ledger.iter_records(path=src) if isinstance(record, dict)]
     when: dict = {}
-    for record in ledger.iter_records(path=src):
-        if not isinstance(record, dict) or record.get("kind") != records.WITHHOLD_KIND:
+    for record in all_records:
+        if record.get("kind") != records.WITHHOLD_KIND:
             continue
         target = record.get(records.TARGET_KEY) or record.get(records.TARGET_SESSION_KEY)
         if isinstance(target, str) and target:
             when[target] = record.get("ts")
     kinds: dict = {}
-    for record in ledger.iter_records(path=src):
-        rid = record.get(records.RECORD_ID_KEY) if isinstance(record, dict) else None
+    for record in all_records:
+        rid = record.get(records.RECORD_ID_KEY)
         if isinstance(rid, str) and rid in withheld_ids:
             kinds[rid] = record.get("kind") or "note"
     return {
@@ -1020,9 +1023,33 @@ def main(argv: list) -> int:
         return _demo()
     if cmd == "identity":
         return _demo_identity()
-    print(f"usage: forget.py [duplicates|set-aside|demo|identity]\nunknown command {cmd!r}",
-          file=sys.stderr)
+    parser = argparse.ArgumentParser(prog="forget.py")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
+    restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
+    restore_record.add_argument("record_id")
+    restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")
+    restore_session.add_argument("session_id")
+    args = parser.parse_args(argv)
+    if args.cmd == "list-withheld":
+        print(json.dumps(withheld_report(), sort_keys=True))
+        return 0
+    if args.cmd == "restore-record":
+        restore(record_id=args.record_id)
+        print(f"Restored record {args.record_id}.")
+        return 0
+    if args.cmd == "restore-session":
+        restore(session_id=args.session_id)
+        print(f"Restored session {args.session_id}.")
+        return 0
     return 2
+
+
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

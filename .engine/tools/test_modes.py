@@ -16,6 +16,7 @@ import contextlib
 import io
 import json
 import os
+import stat
 import tempfile
 import unittest
 from unittest import mock
@@ -138,8 +139,13 @@ class TestStanceSignal(unittest.TestCase):
         self.assertIsNone(modes._signal_path(""))
 
     def test_permission_denied_is_structured_and_gives_both_possible_remedies(self):
-        with mock.patch("builtins.open", side_effect=PermissionError("sandbox denied")):
+        # A REAL denial, not a patched one: the marker directory is made unwritable, which is exactly the
+        # shape a Codex Read Only task or a wrong-ownership temp directory produces.
+        os.chmod(self._tmp.name, 0o500)
+        try:
             result = modes.set_stance("sess-1", modes.BUILD)
+        finally:
+            os.chmod(self._tmp.name, 0o700)
         self.assertFalse(result)
         self.assertEqual(result.reason, "permission-denied")
         line = modes._stance_write_failure("Build", result)
@@ -149,12 +155,84 @@ class TestStanceSignal(unittest.TestCase):
         self.assertNotIn("sandbox denied", line)
 
     def test_other_filesystem_failure_is_not_misreported_as_sandbox_denial(self):
-        with mock.patch("builtins.open", side_effect=OSError("disk unavailable")):
+        with mock.patch.object(modes.tempfile, "mkstemp", side_effect=OSError("disk unavailable")):
             result = modes.set_stance("sess-1", modes.BUILD)
         self.assertEqual(result.reason, "filesystem-error")
         line = modes._stance_write_failure("Build", result)
         self.assertIn("disk unavailable", line)
         self.assertNotIn("Workspace Write", line)
+
+
+class TestStanceMarkerHardening(unittest.TestCase):
+    """The stance marker is deliberately NOT a governed persistent mutation (#1158): governing it locked the
+    operator out of Build whenever qualification was unavailable. These are the properties that replace that
+    governance — the marker must be private, must refuse a planted path, and must land atomically."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._patch = mock.patch.object(modes.tempfile, "gettempdir", return_value=self._tmp.name)
+        self._patch.start()
+
+    def tearDown(self):
+        self._patch.stop()
+        self._tmp.cleanup()
+
+    def test_entering_build_needs_no_execution_context(self):
+        # The regression itself: with no accepted activation and no execution context anywhere in the
+        # process, the typed verb must still work. modes imports no mutation authority at all.
+        self.assertNotIn("mutation_authority", dir(modes))
+        os.environ.pop("ENGINE_PERSISTENT_EXECUTION_CONTEXT", None)
+        self.assertTrue(modes.set_stance("sess-offline", modes.BUILD))
+        self.assertEqual(modes.current_stance("sess-offline"), modes.BUILD)
+
+    def test_marker_is_owner_only(self):
+        modes.set_stance("sess-1", modes.BUILD)
+        mode = os.stat(modes._signal_path("sess-1")).st_mode
+        self.assertEqual(stat.S_IMODE(mode), 0o600)
+
+    def test_a_symlink_planted_at_the_marker_path_is_refused_and_not_followed(self):
+        target = os.path.join(self._tmp.name, "someone-elses-file")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("untouched")
+        os.symlink(target, modes._signal_path("sess-1"))
+        result = modes.set_stance("sess-1", modes.BUILD)
+        self.assertFalse(result)
+        with open(target, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "untouched")   # the write never went through the link
+        self.assertEqual(modes.current_stance("sess-1"), modes.EXPLORE)
+
+    def test_the_read_honours_a_marker_this_user_owns_and_refuses_a_symlink(self):
+        """The read side of the same property, which the write side alone never covered.
+
+        Refusing to write THROUGH a planted path does nothing about READING one, and the read is what
+        actually decides the stance — so a file another user left at the marker path resolved a session to
+        BUILD that the operator never typed. Narrow in practice (the path carries an unguessable session id,
+        and macOS gives each user their own temp directory), but the marker left the governed mutation
+        registry on the strength of this hardening, so it has to hold for the operation that reads it.
+        """
+        with open(modes._signal_path("sess-planted"), "w", encoding="utf-8") as handle:
+            handle.write(modes.BUILD)
+        os.chmod(modes._signal_path("sess-planted"), 0o644)
+        # Same-owner, so this one IS honoured — the check is ownership and file type, not a blanket refusal.
+        self.assertEqual(modes.current_stance("sess-planted"), modes.BUILD)
+        # …but a symlink at the path is never followed on the read either.
+        target = os.path.join(self._tmp.name, "planted-stance")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write(modes.BUILD)
+        os.symlink(target, modes._signal_path("sess-linked"))
+        self.assertEqual(modes.current_stance("sess-linked"), modes.EXPLORE)
+
+    def test_a_marker_that_is_not_a_regular_file_reads_as_the_floor(self):
+        os.mkdir(modes._signal_path("sess-dir"))
+        self.assertEqual(modes.current_stance("sess-dir"), modes.EXPLORE)
+
+    def test_no_temporary_file_is_left_behind_on_success_or_failure(self):
+        modes.set_stance("sess-1", modes.BUILD)
+        with mock.patch.object(modes.tempfile, "gettempdir", return_value=self._tmp.name):
+            with mock.patch.object(modes.os, "replace", side_effect=OSError("no")):
+                modes.set_stance("sess-2", modes.BUILD)
+        leftovers = [n for n in os.listdir(self._tmp.name) if n.startswith(".engine-stance-")]
+        self.assertEqual(leftovers, [])
 
 
 class TestBuildAndRoutinePermit(unittest.TestCase):

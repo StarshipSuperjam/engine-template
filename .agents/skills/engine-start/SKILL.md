@@ -8,9 +8,11 @@ description: Start building — switch from looking around to making changes, wh
 ## Steps
 
 1. Switch this session into building by running:
-   `uv run --directory .engine -- python tools/modes.py set-build`
+   `uv run --directory .engine --frozen -- python tools/modes.py set-build`
    (the engine works out this session's identity automatically. If the command reports it could not
    identify the session, say so plainly: the stance stays as it was, and building has not started.)
+   This step needs no network and no accepted activation — entering Build is the operator's own control, and
+   it must work whether or not memory-write qualification has converged on this machine.
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
 3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
@@ -25,3 +27,7 @@ description: Start building — switch from looking around to making changes, wh
 This is a command you type to begin building. I won't start building on my own — that is your call: type
 `$engine-start` and the work begins. (In Claude Code, approving a plan I've shown you also starts it; in
 Codex, the typed command is the only way in.)
+
+Memory-write qualification is not part of this command. It converges by itself at session start, and when it
+has not, the session simply runs unqualified: memory still reads, and writing waits. If that matters to what
+you are about to do, `$engine-status` says so in plain words.

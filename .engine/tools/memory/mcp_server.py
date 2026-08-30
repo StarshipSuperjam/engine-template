@@ -18,8 +18,9 @@ nothing. `recall-by-meaning` always has a nearest neighbour, so it returns the m
 and expects the caller to read it. No closeness figure is relayed: it ranks within one answer but does not
 track relevance, and a number beside a result is read as confidence whatever the surrounding words say. A
 caller chooses between the two; nothing here blends them or falls back from one to the other.
-Reading changes nothing. Recall used to append an access marker for each record it returned, and the ranking
-read those back as a usage tiebreak; both are gone with the curation lifecycle. Registered
+Reading changes no canonical memory. Recall used to append an access marker for each record it returned, and
+the ranking read those back as a usage tiebreak; both are gone with the curation lifecycle. Keyword and meaning
+search may still repair their throwaway local indexes before answering. Registered
 definition-only in the root .mcp.json AND the memory manifest's `wires` (handle 'engine-memory', the search.json
 fallback); the operator's one-time approval of the tool is the operator's own (never engine-written), so until they
 approve it the tool is simply switched off — recall never half-runs.
@@ -52,7 +53,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, index, ledger, recall, records  # noqa: E402
+from memory import forget, index, ledger, mutation_authority as _mutation_authority, recall, records  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
@@ -81,10 +82,9 @@ def _recall(query: str, *, tags=None, session=None, limit=None):
     """The recall the `search` tool performs, as a plain function shared by the tool and the operator demo so
     BOTH exercise the real path. Returns the library `QueryResult`.
 
-    A READ IS NOW A READ. Recall used to append an access marker for every record it returned, and the ranking
-    read those back as a usage tiebreak. Both are gone with per-record scoring, so searching writes
-    nothing at all — which is also what made the fast path stop reading the ledger, since collecting those
-    markers was a full pass over it on every single query.
+    A READ NEVER MUTATES THE LEDGER. Recall used to append an access marker for every record it returned, and
+    the ranking read those back as a usage tiebreak. Both are gone with per-record scoring. The derived keyword
+    index may still heal when stale; that reversible cache mutation is declared by the mutation registry.
 
     An omitted `limit` becomes `_DEFAULT_LIMIT` rather than staying unbounded. A caller that genuinely wants
     everything asks for a large number; nobody is served by the accidental unbounded read."""
@@ -155,12 +155,14 @@ _RECALL_COMPLETENESS_NOTE = (
         "turns carry only transcript tags, never an entity reference, so a tag filter silently "
         "drops the conversation. Search unfiltered first. Returns narrative recall only, never structural fact "
         "(knowledge's job). Every result carries `text`, `tags`, `session_id`, `ts` and `score`; a conversation "
-        "hit ADDS `speaker` and `seq`, and a pin carries `kind: pin`. Reading changes nothing — a search records "
-        "no access and writes nothing at all. AN EMPTY ANSWER HERE MEANS THE WORDS ARE ABSENT, not that the project has no "
+        "hit ADDS `speaker` and `seq`, and a pin carries `kind: pin`. Search never changes the ledger or records "
+        "access, but it may rebuild the throwaway local keyword index when that derived cache is stale. "
+        "AN EMPTY ANSWER HERE MEANS THE WORDS ARE ABSENT, not that the project has no "
         "history on the subject: if `recall-by-meaning` is among your tools, ask it the same question in "
         "ordinary words before concluding anything, because it reaches records that share no wording with you."
     ),
 )
+@_mutation_authority.guard("attended-keyword-mcp-search")
 def search(query: str, tags: list[str] | None = None,
            session: str | None = None, limit: int | None = None) -> dict:
     out = _recall(query, tags=tags, session=session, limit=limit).records
@@ -229,10 +231,12 @@ if _semantic_installed():
             "a correct reworded match did, so no closeness figure is reported, because any such figure would be "
             "read as confidence it cannot carry. Being first here means nearest, not right. Each result also "
             "carries the record's `session_id`, so take a "
-            "promising one to `recall-window` to read the conversation around it. Reads only; it changes "
-            "nothing. Searches the same records `search` does, so an erased memory is absent here too."
+            "promising one to `recall-window` to read the conversation around it. It never changes the ledger, "
+            "but it reconciles the throwaway local semantic index to the current live records before answering. "
+            "Searches the same records `search` does, so an erased memory is absent here too."
         ),
     )
+    @_mutation_authority.guard("attended-semantic-mcp-search")
     def recall_by_meaning(query: str, limit: int = 10) -> dict:
         from memory.semantic import embed as _embed
         from memory.semantic import store as _store
@@ -242,6 +246,31 @@ if _semantic_installed():
             # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
             return {"results": [], "unavailable": reason}
         found = _store.search(query, limit=limit)
+        if found.get("unavailable"):
+            # NOT the same as "searched and found nothing", and the difference is the whole point: saying
+            # "your memory is empty" here would be a false statement about the operator's own project, which
+            # is what the repair review caught this tool doing on an unqualified machine. The two reasons are
+            # kept apart too — one resolves itself and the other needs someone to look at it.
+            if found["unavailable"] == "not-qualified":
+                return {"results": [], "unavailable": (
+                    "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
+                    "index. This says NOTHING about what is in memory: keyword search works normally and "
+                    "covers everything. It sorts itself out at a session start that can reach GitHub.")}
+            # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
+            # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
+            # delete it loses a possibly-fine cache and gets the identical error back. The internal class
+            # name is not relayed either — a raw Python identifier in operator text is the jargon leak the
+            # status renderer has a dedicated guard against.
+            if found.get("fault_class") == "TableUnavailable":
+                remedy = ("The word table this needs is missing or damaged, which is part of the engine's "
+                          "own install rather than anything you wrote — reinstalling the memory add-on is "
+                          "what fixes it.")
+            else:
+                remedy = ("Deleting `vectors.sqlite3` in the memory folder makes it rebuild from scratch; "
+                          "nothing you said is stored there, so there is nothing to lose by doing it.")
+            return {"results": [], "unavailable": (
+                "Searching by meaning is not working right now. This says NOTHING about what is in memory: "
+                "keyword search works normally and covers everything. " + remedy)}
         results = []
         for record, passage in zip(found["records"], found["passages"]):
             # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
@@ -321,7 +350,7 @@ def _demo_body() -> bool:
     ok = ok and ok2
 
     print("\n" + "=" * 80)
-    print("PART 3 — looking something up changes nothing at all")
+    print("PART 3 — looking something up never changes the memory ledger")
     print("=" * 80)
     before = sum(1 for _ in ledger.iter_records())
     for _ in range(10):
@@ -464,8 +493,8 @@ def withhold(record_id: str | None = None, session_id: str | None = None) -> dic
     description=(
         "Read back what the operator has taken out of recall, with the identifiers `restore` needs. Reach for "
         "this whenever they ask what they have forgotten, or want something back and cannot name it — search "
-        "cannot find these by construction, so this is the only route. It returns identifiers and dates, never "
-        "the wording: reading a withheld note back at them is the thing they asked not to happen."
+        "cannot find these by construction, so this is the only route. It returns identifiers, kinds, and "
+        "dates, never the wording, and it never searches withheld content."
     ),
 )
 def list_withheld() -> dict:
@@ -495,6 +524,9 @@ def main(argv) -> int:
         return _demo()
     server.run()  # stdio transport by default
     return 0
+
+
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

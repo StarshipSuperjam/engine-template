@@ -876,7 +876,11 @@ def _run_parent(args: argparse.Namespace) -> int:
         child_cmd += ["--run-record-path", os.path.abspath(args.run_record_path)]
     if selection_path:
         child_cmd += ["--selection-path", selection_path]
-    env = {**os.environ, _NESTED_ENV: "1"}
+    # Ambient qualification OFF for the whole suite. It reaches live GitHub and writes activation state into
+    # the repository's Git common directory, so a test that exercises the SessionStart handler would qualify
+    # the developer's own machine as a side effect of running the tests. A test that wants the seam ON turns
+    # it on for itself; see boot.AMBIENT_QUALIFICATION_OFF_ENV.
+    env = {**os.environ, _NESTED_ENV: "1", "ENGINE_AMBIENT_QUALIFICATION_OFF": "1"}
 
     progress = _Progress()
     captured: list = []   # the run's own output, held in memory for a concurrency-safe result printout

@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import yaml  # the #416 uv-pin tie parses the CI workflows structurally (already a runtime dep)
@@ -2214,6 +2215,40 @@ class TestRetire(unittest.TestCase):
             self.assertEqual(res["reason"], "inconsistent")
             self.assertEqual(res["deleted"], [])
             self.assertTrue(present, "the irreversible tidy-up never runs on an inconsistent setup")
+
+    def test_marker_authority_preflight_failure_leaves_every_retirement_asset_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)
+                before = {
+                    rel: (Path(d, rel).read_bytes() if Path(d, rel).is_file() else None)
+                    for rel in inst._FIRST_RUN_ASSET_FILES
+                }
+                before_dirs = {
+                    rel: sorted(str(path.relative_to(Path(d, rel))) for path in Path(d, rel).rglob("*"))
+                    for rel in inst._FIRST_RUN_ASSET_DIRS if Path(d, rel).is_dir()
+                }
+                with mock.patch.object(
+                        inst.mutation_guards, "acquire_preactivation_local_capability",
+                        side_effect=RuntimeError("injected authority refusal")):
+                    said = []
+                    result = inst.retire(announce=said.append)
+                after = {
+                    rel: (Path(d, rel).read_bytes() if Path(d, rel).is_file() else None)
+                    for rel in inst._FIRST_RUN_ASSET_FILES
+                }
+                after_dirs = {
+                    rel: sorted(str(path.relative_to(Path(d, rel))) for path in Path(d, rel).rglob("*"))
+                    for rel in inst._FIRST_RUN_ASSET_DIRS if Path(d, rel).is_dir()
+                }
+            self.assertEqual(after, before)
+            self.assertEqual(after_dirs, before_dirs)
+            self.assertTrue(result["refused"])
+            self.assertEqual(result["reason"], "marker-authority-unavailable")
+            message = "\n".join(said)
+            self.assertIn("Nothing was removed", message)
+            self.assertIn("Re-run", message)
+            self.assertNotIn("Traceback", message)
 
     def test_reports_applied_not_complete_and_drops_the_landing_marker(self):
         # #810: retire runs mid-transformation (the tree is dirty with the just-applied setup), so it must NOT

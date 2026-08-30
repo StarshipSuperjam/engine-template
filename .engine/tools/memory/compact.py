@@ -235,7 +235,132 @@ def _write_compacted_temp(data_dir: str, raw_records,
     return tmp
 
 
-def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after: "str | None" = None) -> dict:
+#: What the PreCompact hook may spend proving the recovery copy is current. `push_now`'s own foreground
+#: default is 180 seconds, which is right for an attended run and wrong for a hook whose contract is that it
+#: never blocks the operator's context squash. Exceeding it is a clean refusal, not a crash: the pass is
+#: skipped and the ledger is left exactly as it was.
+HOOK_RECOVERY_DEADLINE_SECONDS = 10.0
+
+
+def _recovery_not_ready(deadline_seconds: "float | None") -> "dict | None":
+    """Refuse a destructive pass on the real store when the operator's own recovery copy is behind.
+
+    Recovery readiness is StarshipSuperjam/engine-template#1151's fourth fail-closed trigger, and it is the
+    one that would have mattered in PR StarshipSuperjam/engine-template#1148: the bytes were about to be rewritten, and whether there was a
+    copy to go back to was nobody's precondition. So when a backup vault IS configured, a successful push has
+    to happen first, and a failed push stops the compaction rather than proceeding without a net.
+
+    A machine with NO vault configured is not blocked. The repair review pushed hard on this, and it is
+    worth recording where the argument landed rather than just the outcome. Its case: taking attendance off
+    compaction moved the protective weight onto this check, and this check does nothing on a machine with no
+    vault — which is the default, since a vault is an explicit setup step — so an unattended hook can rewrite
+    the ledger with neither consent behind it nor a copy to go back to.
+
+    Two things make that the wrong place to add a refusal. An unmarked compaction cannot DESTROY recall
+    content: physical removal is limited to the ids a valid merge-gated erasure marker names, and with no
+    marker the removal set is empty — the fold rewrites records and prunes bookkeeping, which
+    `NeverDropsRecallContentTests` pins record by record. And PR StarshipSuperjam/engine-template#1148 was a
+    retirement CLASSIFIER, not this fold; the lifecycle that produced it no longer exists. So a recovery copy
+    here protects against a bug in a mechanical, content-preserving pass, not against a policy violation —
+    and refusing an operator's housekeeping over a backup they declined would stop tidying altogether on the
+    default machine, which is availability theatre with nothing bought.
+
+    What that argument DOES correctly reject is the claim, made elsewhere in this build, that recovery
+    readiness is "what guards the rewrite" now that attendance is gone. It is not, and nothing should say so.
+    It guards the one case it can: where the operator HAS a recovery copy, a destructive pass does not run
+    until that copy is current.
+
+    A pointer that is absent or not a mapping is the "no vault configured" answer; an EXCEPTION reading it is
+    the different case, where the recovery story cannot be established, and that always refuses. It applies
+    only to the real store: a caller that passes an explicit `path` is operating on a fixture or a copy.
+
+    The push runs under `deadline_seconds`, and the caller supplies it because the tolerable wait depends on
+    who is waiting: `push_now`'s own 180-second foreground default is right for an attended run and wrong
+    inside the PreCompact hook, whose contract is that it never blocks the squash.
+    """
+    try:
+        from memory import backup_vault
+        pointer = backup_vault.read_pointer()
+        if not isinstance(pointer, dict) or pointer.get("configured") is False:
+            return None
+        result = (backup_vault.push_now() if deadline_seconds is None
+                  else backup_vault.push_now(deadline_seconds=deadline_seconds))
+    except Exception as exc:  # noqa: BLE001 — an unreadable recovery story is a refusal, never a crash
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": f"recovery readiness could not be established, so nothing was rewritten: {exc}"}
+    if isinstance(result, dict) and result.get("ok"):
+        return None
+    detail = (result or {}).get("error") if isinstance(result, dict) else "unknown"
+    return {"status": "skipped", "folded": 0, "pruned": 0,
+            "reason": f"the memory backup could not be brought up to date first ({detail}), so nothing "
+                      f"was rewritten"}
+
+
+def _unreadable_bytes(target: str) -> "dict | None":
+    """Refuse to rewrite a ledger this process cannot read losslessly.
+
+    A WRITER MUST NOT READ THROUGH A LOSSY READER. That is not a new rule — `rescrub._rescrub` and
+    `restore_vault` are the other two whole-ledger rewriters and both already refuse on exactly this, in those
+    words. Compaction was the third, and the only one that runs unattended, and it rewrote anyway.
+
+    Two losses, both reproduced by the repair review, both silent:
+
+    * `ledger.read` counts a line it cannot parse and DISCARDS its bytes, so the rewrite emits only what
+      parsed and the unparseable line is gone at the swap. The trigger is ordinary rather than adversarial:
+      `ledger.append` writes a newline before appending to a file that lacks one, which turns a crash-torn
+      tail — carefully preserved verbatim by `torn_raw` — into a mid-file malformed line that nothing
+      preserves. The protection lasted until the next memory write.
+    * The read decodes with `errors="replace"`, so a damaged byte inside an otherwise valid record still
+      parses, and the rewrite bakes U+FFFD in over the original bytes. That one does not even raise the
+      malformed count, so it was invisible in the report as well as on disk.
+
+    This is what makes the "an unmarked pass cannot destroy recall content" argument true rather than
+    aspirational: with damage present the pass declines, and says so. A healthy ledger is unaffected, so
+    routine housekeeping keeps working on every machine — which is why this is the proportionate gate and
+    refusing over an absent backup was not.
+    """
+    try:
+        with open(target, "rb") as handle:
+            blob = handle.read()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": f"your saved memory file could not be opened, so nothing was rewritten ({exc})"}
+    body = blob[:blob.rfind(b"\n") + 1] if b"\n" in blob else b""
+    if b"\r" in body:
+        # A third shape, found by a cold check on this very gate. `ledger.read` opens in text mode, so
+        # Python's universal-newline translation treats a bare CR as a line break — and if the halves either
+        # side of it both happen to be valid JSON, the reader sees two clean records where the file's own law
+        # (one object per line, terminated by a single \n) says there is one corrupt one. Both of this gate's
+        # other checks pass: 0x0D is valid UTF-8, and nothing counts as malformed. The rewrite then bakes the
+        # reinterpretation in, silently, which is the exact failure class this gate exists to close.
+        #
+        # A raw CR cannot come from this engine: `json.dumps` escapes every control character inside a
+        # string, so an appended line never contains one. Its presence means something outside wrote here.
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": "your saved memory contains line endings this engine never writes, so something "
+                          "outside it has altered the file. Rewriting it could change what your records say, "
+                          "so nothing was changed. Ask me to look at your memory's health."}
+    try:
+        body.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": "part of your saved memory is damaged and cannot be read exactly as written. "
+                          "Rewriting the file would replace those characters for good, so nothing was "
+                          "changed. Ask me to look at your memory's health."}
+    malformed = ledger.read(path=target).malformed
+    if malformed:
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": f"{malformed} line{'' if malformed == 1 else 's'} of your saved memory could not "
+                          f"be read, and rewriting the file would delete "
+                          f"{'it' if malformed == 1 else 'them'} for good. Nothing was changed. This usually "
+                          f"means a damaged file — ask me to look at your memory's health."}
+    return None
+
+
+def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after: "str | None" = None,
+            recovery_deadline_seconds: "float | None" = None) -> dict:
     """Run one compaction pass over the ledger (the default store, or `path`). Returns a small report dict:
     `{status, folded, pruned, generation}` (or `{status: "busy", ...}` on lock contention — the pass retries
     later, never writes lock-free). Held under the single-writer `.capture.lock` across the whole
@@ -248,6 +373,15 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
     leaves exactly one intact ledger — old for `"write"` (the tidy never took), new for `"swap"` — and a temp /
     stale index that the next pass reaps / the generation gate routes to the scan until rebuilt."""
     target = path if path is not None else ledger.ledger_path()
+    # Applies to a fixture copy as well as the real store: the rule is about the FILE being rewritten, not
+    # about which file it is.
+    damaged = _unreadable_bytes(target)
+    if damaged:
+        return damaged
+    if path is None:
+        blocked = _recovery_not_ready(recovery_deadline_seconds)
+        if blocked:
+            return blocked
     data_dir = os.path.dirname(target) or "."
     index_dst = os.path.join(data_dir, _index_filename())
     from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
@@ -386,7 +520,7 @@ def should_compact(path: "str | None" = None) -> bool:
     return reclaimable_waste(path) >= _COMPACT_WASTE_THRESHOLD
 
 
-def maybe_compact(path: "str | None" = None) -> dict:
+def maybe_compact(path: "str | None" = None, *, recovery_deadline_seconds: "float | None" = None) -> dict:
     """The auto-trigger memory's `PreCompact` hook rides: compact ONLY when enough waste has piled up, else a
     clean no-op. FAIL-OPEN by construction — it NEVER raises (any fault degrades to a skipped report so the host
     action, the context squash, always proceeds).
@@ -416,13 +550,13 @@ def maybe_compact(path: "str | None" = None) -> dict:
             # Say WHY it fired. Physical erasure is the one act here that cannot be undone, and without this
             # the report is indistinguishable from routine housekeeping — a caller (or a later reader of a
             # log) could not tell a tidy from a deletion having just been carried out.
-            report = compact(path)
+            report = compact(path, recovery_deadline_seconds=recovery_deadline_seconds)
             if isinstance(report, dict):
                 report["fired_for"] = "a merged erasure was waiting"
             return report
         if waste < _COMPACT_WASTE_THRESHOLD:
             return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}
-        report = compact(path)
+        report = compact(path, recovery_deadline_seconds=recovery_deadline_seconds)
         if isinstance(report, dict):
             report["fired_for"] = "reclaimable bookkeeping had built up"
         return report
@@ -937,10 +1071,106 @@ def _pre_compact_handler(payload) -> dict:
 
     Fires regardless of accumulated waste when an erasure is pending, so an approved deletion never waits on
     unrelated housekeeping. `maybe_compact` is fail-open and never raises; this handler ALWAYS proceeds —
-    PreCompact must never block the squash."""
-    maybe_compact()               # a pending merged erasure, or the waste gate; report dropped (a leaf renders
-                                  # no prose); fail-open
+    PreCompact must never block the squash, and "never blocks" means the wall clock too, which is why the
+    recovery-readiness push below it is given a hook-sized deadline rather than the foreground one.
+
+    This automatic caller CAN enact. An earlier revision of this build required attendance here, on the
+    reasoning that compaction rewrites the record; the deliverable review showed what that cost — this is the
+    only production trigger for physical erasure, so requiring a person present meant an erasure the operator
+    had already consented to by merging was never carried out.
+
+    What bounds this pass, stated without overclaiming, and corrected once already because the first version
+    of this claim was false: physical removal is limited to ids a merge-gated marker names
+    (`NeverDropsRecallContentTests` pins it), AND the pass refuses outright on a ledger it cannot read
+    losslessly (`_unreadable_bytes`) — without which "cannot destroy recall content" was simply untrue, since
+    the rewrite dropped any line the reader could not parse. Where the operator keeps a recovery copy,
+    `_recovery_not_ready` refuses until that copy is current. None of these is attendance, and none is
+    claimed to be."""
+    # fail-open; the report is what tells us whether anything was enacted
+    report = maybe_compact(recovery_deadline_seconds=HOOK_RECOVERY_DEADLINE_SECONDS)
+    warning = unenacted_warning(report)
+    if warning:
+        print(warning, file=sys.stderr)
     return hooks.proceed()
+
+
+# Every reason a pass can decline WHILE IT HAD WORK TO DO, each paired with what to actually say about it.
+#
+# This started as a list of match strings feeding one fixed sentence, and that shape produced the same defect
+# twice. First the list named only the qualification refusals while the protection had moved to recovery
+# readiness, so a merged erasure blocked by a failed backup push was neither enacted nor mentioned. Then the
+# list was widened and the SENTENCE was not, so the same erasure was reported as waiting on qualification —
+# wrong cause, wrong remedy, and a promise that it would be carried out at the next qualified session start
+# when a failing push recurs every pass. A reason and its remedy are one thing; splitting them let them drift.
+#
+# So each entry carries its own sentence, and the pairing is what a test enumerates.
+_UNENACTED_REASONS = (
+    ("qualified to write memory",
+     "this session is not qualified to write memory yet. Nothing was changed, and any approved erasure is "
+     "still pending. Qualification converges by itself at a session start that can reach GitHub, and the "
+     "erasure is carried out then."),
+    ("persistent execution context",
+     "this session is not qualified to write memory yet. Nothing was changed, and any approved erasure is "
+     "still pending. Qualification converges by itself at a session start that can reach GitHub, and the "
+     "erasure is carried out then."),
+    ("backup could not be brought up to date",
+     "the backup copy of your memory could not be brought up to date first, so nothing was rewritten. Any "
+     "approved erasure is still pending, and it will KEEP waiting until the backup can be pushed — this is "
+     "usually a network problem, and it does not clear itself."),
+    ("recovery readiness could not be established",
+     "whether there is a backup copy to go back to could not be established, so nothing was rewritten. Any "
+     "approved erasure is still pending. This does not clear itself: check the memory backup setup."),
+    ("could not be opened",
+     "your saved memory file could not be opened at all, so nothing was changed — this is a file or "
+     "permissions problem rather than anything wrong with what is in your memory. Any approved erasure is "
+     "still pending until it can be read."),
+    ("could not be read",
+     "part of your saved memory could not be read, and rewriting the file would have destroyed it, so "
+     "nothing was changed. Any approved erasure is still pending. This does not clear itself — ask me to "
+     "look at your memory's health."),
+    ("line endings this engine never writes",
+     "something outside this engine has altered your saved memory file, so nothing was changed — rewriting "
+     "it could change what your records say. Any approved erasure is still pending. This does not clear "
+     "itself — ask me to look at your memory's health."),
+    ("cannot be read exactly as written",
+     "part of your saved memory is damaged, and rewriting the file would have replaced those characters for "
+     "good, so nothing was changed. Any approved erasure is still pending. This does not clear itself — ask "
+     "me to look at your memory's health."),
+    ("held the single-writer lock",
+     "another memory write was in progress, so nothing was rewritten. Any approved erasure is still pending "
+     "and is retried on the next pass; this ordinarily clears itself."),
+    ("migration is in progress",
+     "a memory migration was in progress, so nothing was rewritten. Any approved erasure is still pending "
+     "and is retried once the migration finishes; this ordinarily clears itself."),
+    ("compaction faulted",
+     "memory housekeeping hit an unexpected fault and stopped without changing anything. Any approved "
+     "erasure is still pending. If this repeats, ask me to look at your memory's health."),
+)
+
+#: Kept as a name because tests and readers reach for it; derived so it cannot drift from the sentences.
+_UNENACTED_MARKS = tuple(mark for mark, _ in _UNENACTED_REASONS)
+
+#: Reasons that mean "there was nothing to do", which must stay SILENT — the warning exists for a pass that
+#: had work and declined it, and a line on every quiet squash is the noise the bound is there to prevent.
+#: Named rather than left implicit so the pairing guard can tell a deliberate silence from a missed sentence.
+_NO_WORK_REASONS = ("below the compaction threshold",)
+
+
+def unenacted_warning(report) -> "str | None":
+    """One bounded line when compaction had work to do and deliberately did not do it.
+
+    PreCompact fires often, and it cannot inject context, so this goes to the hook log as a single sentence.
+    Bounded on purpose: a paragraph on every squash is noise that teaches the reader to skip it. The sentence
+    is chosen by the reason, so it names the actual cause and — the part that matters most — whether this is
+    something that clears itself or something the operator has to act on.
+    """
+    if not isinstance(report, dict):
+        return None
+    detail = f"{report.get('reason', '')} {report.get('error', '')}"
+    for mark, sentence in _UNENACTED_REASONS:
+        if mark in detail:
+            return f"Engine memory housekeeping did not run: {sentence}"
+    return None
 
 
 def main(argv: list) -> int:
@@ -960,6 +1190,13 @@ def main(argv: list) -> int:
     print(f"usage: compact.py [pre-compact|run|demo|demo-trigger|demo-erase]\nunknown command {cmd!r}",
           file=sys.stderr)
     return 2
+
+
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

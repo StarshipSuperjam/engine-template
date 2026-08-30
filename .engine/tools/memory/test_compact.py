@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -65,6 +66,16 @@ class _Base(unittest.TestCase):
 
     def _by_id(self, rid):
         return [r for r in ledger.iter_records() if isinstance(r, dict) and r.get(records.RECORD_ID_KEY) == rid]
+
+    def _dirty_ledger(self):
+        """Enough foldable markers that `maybe_compact`'s waste gate actually fires, not just enough records."""
+        record = self._episodic("fold me")
+        for _ in range(compact._COMPACT_WASTE_THRESHOLD + 4):
+            ledger.append(legacy.reinforcement(record[records.RECORD_ID_KEY]))
+
+    def _bytes(self):
+        with open(ledger.ledger_path(), "rb") as handle:
+            return handle.read()
 
 
 class CrashSafeSwapTests(_Base):
@@ -439,13 +450,75 @@ class LedgerIntegrityCompactionTests(_Base):
         self.assertIn("torn but complete", texts)   # the once-torn fragment, now recovered
         self.assertIn("kept content", texts)         # the real content, never at risk
 
-    def test_a_malformed_line_is_reported_by_compaction_not_silently_erased(self):
+    def test_a_malformed_line_stops_the_rewrite_instead_of_being_deleted_by_it(self):
+        """The repair review reproduced this as an outright content loss, and it broke the argument I had
+        just used to reject a blocking finding.
+
+        `ledger.read` counts an unparseable line and discards its BYTES, and the rewrite emits only what
+        parsed — so the line was gone at the swap, with `erased: 0` in the report. The old test asserted the
+        malformed COUNT and passed while the text was destroyed; the word "silently" in its name was doing
+        all the work. The trigger is ordinary: `ledger.append` writes a newline before appending to a file
+        that lacks one, turning a crash-torn tail — preserved verbatim by `torn_raw` — into a mid-file
+        malformed line that nothing preserved.
+
+        A writer must not read through a lossy reader. `rescrub` and `restore_vault` are the other two
+        whole-ledger rewriters and both already refuse on exactly this; compaction was the one that did not,
+        and the only one that runs unattended.
+        """
         self._episodic("real content")
         with open(ledger.ledger_path(), "a", encoding="utf-8") as fh:
             fh.write("this is not json at all\n")
         report = compact.compact()
-        self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["malformed"], 1)     # skipped-and-REPORTED, never a silent erased:0
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("could not be read", report["reason"])
+        with open(ledger.ledger_path(), encoding="utf-8") as fh:
+            self.assertIn("this is not json at all", fh.read())    # the bytes are still there
+        self.assertIsNotNone(compact.unenacted_warning(report))    # …and the operator is told
+
+    def test_a_damaged_byte_inside_a_record_stops_the_rewrite_too(self):
+        """The quieter half: the read decodes with errors="replace", so a damaged byte inside an otherwise
+        valid record still parses, and the rewrite would bake U+FFFD in over the original bytes. That one
+        does not even raise the malformed count, so it was invisible in the report as well as on disk."""
+        self._episodic("a note about the deployment key")
+        with open(ledger.ledger_path(), "rb") as fh:
+            blob = fh.read()
+        damaged = blob.replace(b"deployment", b"deploym\xffnt", 1)
+        self.assertNotEqual(damaged, blob)
+        with open(ledger.ledger_path(), "wb") as fh:
+            fh.write(damaged)
+        report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("cannot be read exactly as written", report["reason"])
+        with open(ledger.ledger_path(), "rb") as fh:
+            self.assertEqual(fh.read(), damaged)        # byte-for-byte untouched
+
+    def test_a_bare_carriage_return_stops_the_rewrite_too(self):
+        """The third shape, found by a cold check ON this gate after the first two were closed.
+
+        `ledger.read` opens in text mode, so Python's universal-newline translation treats a bare CR as a
+        line break. When the halves either side of it both happen to be valid JSON, the reader sees two clean
+        records where the file's own law says there is one corrupt line — and both of the gate's other checks
+        pass, because 0x0D is valid UTF-8 and nothing counts as malformed. The rewrite then baked the
+        reinterpretation in silently, which is the exact failure class the gate exists to close.
+        """
+        self._episodic("a real note")
+        with open(ledger.ledger_path(), "rb") as fh:
+            blob = fh.read()
+        corrupted = blob + b'{"a":1}\r{"b":2}\n'
+        with open(ledger.ledger_path(), "wb") as fh:
+            fh.write(corrupted)
+        report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("line endings this engine never writes", report["reason"])
+        with open(ledger.ledger_path(), "rb") as fh:
+            self.assertEqual(fh.read(), corrupted)      # byte-for-byte untouched
+        self.assertIsNotNone(compact.unenacted_warning(report))
+
+    def test_a_healthy_ledger_is_not_held_up_by_that_gate(self):
+        """The gate has to be narrow, or it becomes the refusal-without-a-backup I already rejected: routine
+        housekeeping must keep working on every undamaged machine."""
+        self._dirty_ledger()
+        self.assertEqual(compact.compact()["status"], "ok")
 
     def test_a_clean_compaction_reports_no_corruption(self):
         self._episodic("clean note")
@@ -495,6 +568,201 @@ class MigrationWindowRefusalTests(_Base):
         self._write_marker({"pid": os.getpid(), "started_at": time.time()})   # a genuinely in-progress migration
         compact.maybe_compact()
         self.assertTrue(os.path.exists(self._marker_path()))            # never reaped while live
+
+
+class RecoveryReadinessTests(_Base):
+    """The fourth fail-closed trigger, whose refusal path shipped untested.
+
+    Issue StarshipSuperjam/engine-template#1151 names four: code qualification, state identity, target
+    fingerprint, and recovery readiness. The first three each had a per-trigger test; this one — written for
+    the exact PR StarshipSuperjam/engine-template#1148 shape, where the bytes were about to be rewritten and
+    whether there was a copy to go back to was nobody's precondition — had none. Every existing call reached
+    `compact()` with no vault configured, which takes the trivial "not configured, proceed" branch and never
+    exercises the refusal at all. An untested precondition on a destructive rewrite is the defect class the
+    trigger exists to prevent.
+    """
+
+    def test_a_failed_push_refuses_the_pass_and_leaves_the_ledger_byte_identical(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        before = self._bytes()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now",
+                                  return_value={"ok": False, "error": "no network"}):
+            report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("backup could not be brought up to date", report["reason"])
+        self.assertEqual(report["folded"], 0)
+        self.assertEqual(self._bytes(), before)
+
+    def test_an_unreadable_recovery_story_refuses_rather_than_crashing(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        before = self._bytes()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now", side_effect=RuntimeError("vault unreachable")):
+            report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("recovery readiness could not be established", report["reason"])
+        self.assertEqual(self._bytes(), before)
+
+    def test_a_successful_push_lets_the_pass_proceed(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now", return_value={"ok": True}):
+            report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+
+    def test_a_machine_with_no_vault_is_not_blocked(self):
+        """Both real pointer shapes, because a machine that never configured a vault returns None, not a
+        mapping — the repair review caught the old test asserting only the shape reality does not produce.
+
+        The review also argued this branch should REFUSE without a recovery copy. It should not, and the
+        reasoning is recorded at `_recovery_not_ready`: an unmarked pass cannot destroy recall content, so
+        what a backup would protect here is a bug in a content-preserving fold, and refusing would stop
+        housekeeping altogether on the default machine.
+        """
+        from memory import backup_vault
+        for pointer in (None, {"configured": False}):
+            with self.subTest(pointer=pointer):
+                self._dirty_ledger()
+                with mock.patch.object(backup_vault, "read_pointer", return_value=pointer), \
+                        mock.patch.object(backup_vault, "push_now",
+                                          side_effect=AssertionError("must not push when unconfigured")):
+                    report = compact.compact()
+                self.assertEqual(report["status"], "ok")
+
+    def test_an_unmarked_pass_cannot_destroy_recall_content_which_is_what_bounds_it(self):
+        """Named here because this is the protection the build actually leans on now that compaction runs
+        unattended, and the repair review was right that nothing should claim recovery readiness is."""
+        kept = self._episodic("a decision nobody asked to erase")
+        for _ in range(compact._COMPACT_WASTE_THRESHOLD + 4):
+            ledger.append(legacy.reinforcement(kept[records.RECORD_ID_KEY]))
+        report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+        self.assertGreater(report["pruned"], 0)          # bookkeeping WAS folded away
+        survivors = [r for r in ledger.iter_records()
+                     if isinstance(r, dict) and r.get(records.RECORD_ID_KEY) == kept[records.RECORD_ID_KEY]]
+        self.assertEqual(len(survivors), 1)              # …and the content record is still there, once
+
+    def test_the_pre_compact_hook_gives_the_push_a_hook_sized_deadline_not_the_foreground_one(self):
+        """`push_now`'s own default is 180 seconds. PreCompact's contract is that it never blocks the squash,
+        and a slow-but-not-dead network is exactly the case a hard failure would not cover."""
+        from memory import backup_vault
+        self._dirty_ledger()
+        seen = {}
+
+        def record_deadline(**kwargs):
+            seen.update(kwargs)
+            return {"ok": True}
+
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now", record_deadline):
+            compact._pre_compact_handler({})
+        self.assertEqual(seen.get("deadline_seconds"), compact.HOOK_RECOVERY_DEADLINE_SECONDS)
+        self.assertLess(compact.HOOK_RECOVERY_DEADLINE_SECONDS,
+                        backup_vault._FOREGROUND_DEADLINE_SECONDS)
+
+
+class EveryDeclineReasonHasItsOwnSentenceTests(unittest.TestCase):
+    """The guard the comment above `_UNENACTED_REASONS` promised and did not have.
+
+    A cold check grepped for it and found nothing — and the same comment explains that a reason drifting out
+    of sync with the sentence shown to the operator has already happened TWICE in this file. Hand-verifying
+    the pairing is exactly the prose rule this project's own conduct says to replace with something a machine
+    runs, so here it is: the reason strings are extracted from the source rather than restated, which is what
+    makes a new one impossible to add without either pairing it or failing here.
+    """
+
+    def _emitted_reasons(self):
+        """Every literal that reaches a report's `reason` key, read out of compact.py's own syntax tree.
+
+        An f-string contributes its literal segments; a reason built entirely from interpolation would
+        contribute nothing and is therefore refused outright below, because such a reason could never be
+        matched by a fixed phrase either.
+        """
+        import ast
+        source = open(compact.__file__, encoding="utf-8").read()
+        found = []
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values):
+                if not (isinstance(key, ast.Constant) and key.value == "reason"):
+                    continue
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    found.append((node.lineno, value.value))
+                elif isinstance(value, ast.JoinedStr):
+                    literal = "".join(part.value for part in value.values
+                                      if isinstance(part, ast.Constant) and isinstance(part.value, str))
+                    found.append((node.lineno, literal))
+        return found
+
+    def test_every_reason_this_module_emits_matches_exactly_one_sentence(self):
+        emitted = self._emitted_reasons()
+        self.assertGreaterEqual(len(emitted), 8, "the extractor found suspiciously few reasons")
+        for lineno, reason in emitted:
+            matches = [mark for mark, _ in compact._UNENACTED_REASONS if mark in reason]
+            silent = any(quiet in reason for quiet in compact._NO_WORK_REASONS)
+            with self.subTest(line=lineno, reason=reason[:60]):
+                if silent:
+                    # "nothing to do" must stay silent, and deliberately so — the very first run of this
+                    # guard caught this reason as unpaired, which is the distinction worth making explicit
+                    # rather than the guard being loosened to let it through.
+                    self.assertEqual(matches, [])
+                    self.assertIsNone(compact.unenacted_warning({"status": "skipped", "reason": reason}))
+                    continue
+                self.assertEqual(len(matches), 1,
+                                 f"compact.py:{lineno} emits a reason matching {len(matches)} sentences; "
+                                 f"every decline must map to exactly one, or the operator is told the wrong "
+                                 f"cause and the wrong remedy")
+                self.assertIsNotNone(compact.unenacted_warning({"status": "skipped", "reason": reason}))
+
+    def test_no_sentence_is_paired_with_a_phrase_nothing_produces(self):
+        """The other direction, because a dead entry is how the list drifted in the first place: it was
+        written from the narrative rather than from the strings, so it carried one phrase nothing emitted and
+        was missing three that everything did."""
+        emitted = [reason for _, reason in self._emitted_reasons()]
+        # Two marks are deliberately NOT emitted by this module — they come from the layers a refused
+        # compaction is reported THROUGH, so they are pinned against those sources instead of the syntax tree.
+        from memory import execution_context, mutation_contract
+        try:
+            execution_context.current_context()
+            context_error = ""
+        except Exception as exc:  # noqa: BLE001 — the message is the thing under test
+            context_error = str(exc)
+        external = [mutation_contract.degraded_refusal(mutation_contract.entry_by_id("automatic-compaction")),
+                    context_error]
+        for mark, _ in compact._UNENACTED_REASONS:
+            with self.subTest(mark=mark):
+                self.assertTrue(any(mark in reason for reason in emitted + external),
+                                f"{mark!r} is paired with a sentence but nothing produces it")
+
+
+class ErasureIsActuallyEnactedTests(_Base):
+    """A merged erasure has to be CARRIED OUT, not just consented to.
+
+    An earlier revision of this build required attendance for compaction. Compaction is the only production
+    executor of physical erasure and its only automatic trigger is this hook, so that rule meant an erasure
+    the operator had approved by merging was never enacted — and since nothing filters erased records out of
+    recall, it was not even hidden. Consent honoured but not executed is its own defect.
+    """
+
+    def test_the_automatic_pre_compact_hook_physically_removes_a_merged_erasure(self):
+        target = self._episodic("the sensitive thing")
+        compact.enact_erasure(target[records.RECORD_ID_KEY], "d" * 40)
+        compact._pre_compact_handler({})
+        remaining = [json.dumps(r) for r in ledger.iter_records() if isinstance(r, dict)]
+        self.assertFalse(any("the sensitive thing" in blob for blob in remaining))
+
+    def test_the_hook_still_proceeds_and_says_so_when_it_could_not_enact(self):
+        report = {"status": "skipped", "reason": "needs this session to be qualified to write memory"}
+        with mock.patch.object(compact, "maybe_compact", return_value=report):
+            decision = compact._pre_compact_handler({})
+        self.assertTrue(decision)
+        warning = compact.unenacted_warning(report)
+        self.assertIn("approved erasure is still pending", warning)
 
 
 if __name__ == "__main__":

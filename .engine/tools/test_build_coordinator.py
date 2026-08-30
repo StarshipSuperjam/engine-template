@@ -4569,10 +4569,6 @@ class TestCoordinatorOwnedTag(CoordinatorCase):
         self.assertIn("gh pr ready", out.getvalue())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestEvidenceDurability(CoordinatorCase):
     """A finding lives exactly as long as a receipt demands it, and review bindings survive a rebase.
 
@@ -5995,3 +5991,7 @@ class TestReceiptReporting(unittest.TestCase):
                                                       "unresolved_concerns": ["scope boundary looks tight"]}}}})
         node = bc._work_projection(plan, state)["nodes"]["shared"]
         self.assertEqual(node["unresolved_concerns"], ["scope boundary looks tight"])
+
+
+if __name__ == "__main__":
+    unittest.main()

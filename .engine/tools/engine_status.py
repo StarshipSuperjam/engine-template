@@ -17,6 +17,7 @@ not a layering breach — and it keeps the one renderer in one place so the two 
 from __future__ import annotations
 import sys
 import os
+import importlib.util
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import boot  # noqa: E402  (the lifecycle tool that owns the signals seam + the shared pure renderer)
@@ -28,6 +29,182 @@ _DEGRADED = "I couldn't put the full status together just now. Please try again 
 _DEMO_INTRO = "What /engine-status shows you — where your project stands right now:"
 _DEMO_EXAMPLE_BANNER = "─── EXAMPLE — a made-up situation, NOT your project ───"
 _DEMO_EXAMPLE_INTRO = "And here is what the view looks like when something needs your attention:"
+_QUALIFICATION_HEADING = "## ⚠ Automatic memory work is degraded"
+_QUALIFICATION_RECOVERED = "Automatic memory qualification recovered"
+_QUALIFICATION_REASONS = {
+    "accepted-dispatch-refused": "the accepted commit or its canonical-state binding was refused",
+    "accepted-dispatcher-absent": "this worktree's accepted-code dispatcher is missing",
+    "accepted-runtime-unavailable": "the Engine's private Python runtime was unavailable",
+}
+
+
+def _qualification_health():
+    """Read the shared non-memory qualification channel without importing memory's eager package surface."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory", "qualification_health.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_engine_status_qualification_health", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return module.read(root)
+    except Exception as exc:  # status always answers; unreadable health is itself a visible degraded state
+        return {"status": "unreadable", "error_type": type(exc).__name__}
+
+
+def _render_qualification_health(value) -> str:
+    if not isinstance(value, dict):
+        return ""
+    if value.get("status") == "degraded":
+        count = value.get("skipped_effect_count")
+        count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else "unknown"
+        latest = value.get("last_failure_at")
+        when = f"; latest at {latest}" if isinstance(latest, str) and len(latest) <= 32 else ""
+        failure = value.get("last_failure") if isinstance(value.get("last_failure"), dict) else {}
+        reason = _QUALIFICATION_REASONS.get(
+            failure.get("reason_code"), "the accepted execution boundary did not qualify")
+        effect = failure.get("effect") if isinstance(failure.get("effect"), dict) else {}
+        script = effect.get("script")
+        affected = f" Affected hook: `{script}`." if isinstance(script, str) and len(script) <= 160 else ""
+        guidance = value.get("guidance")
+        guidance = guidance if isinstance(guidance, str) and len(guidance) <= 900 else (
+            "Inspect the accepted activation and worktree wiring, repair the failing boundary, then retry."
+        )
+        return (
+            f"{_QUALIFICATION_HEADING}\n"
+            f"Accepted-code qualification has skipped {count} automatic effect(s){when} because {reason}."
+            f"{affected} Canonical memory was left untouched. {guidance}"
+        )
+    if value.get("status") == "unreadable":
+        return (
+            f"{_QUALIFICATION_HEADING}\n"
+            "The qualification-health record could not be read, so current automatic-memory freshness "
+            "cannot be verified. Canonical memory was not used to repair this diagnostic."
+        )
+    recovered = value.get("last_recovery_at")
+    if value.get("status") == "healthy" and isinstance(recovered, str) and len(recovered) <= 32:
+        return f"{_QUALIFICATION_RECOVERED} at {recovered}; the latest accepted hook is qualified."
+    return ""
+
+
+_UNCOVERED_HEADING = "## Engine memory: what is protected and what is waiting"
+
+
+def _activation_state():
+    """Read this machine's activation and worktree coverage. Read-only, and never raises."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accepted_hook_dispatch.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_engine_status_accepted_hook_dispatch", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        activation = None
+        try:
+            activation = module.load_activation(root)
+        except Exception:  # noqa: BLE001 — an absent or unreadable activation is itself the state to report
+            activation = None
+        return {"activation": activation, "coverage": module.uncovered_worktrees(root),
+                "backlog": _capture_backlog(), "pending_erasures": _pending_erasures()}
+    except Exception:  # noqa: BLE001 — status always answers
+        return None
+
+
+def _capture_backlog():
+    """How much conversation is waiting to be written to memory. Read-only, and never raises.
+
+    This is the number the availability-first design leans on. An unqualified session deliberately writes
+    nothing and leaves its cursor where it found it, so nothing is lost — but "nothing is lost" is only true
+    while a qualified session eventually arrives to catch it up, and until this was on the status block the
+    operator had no way to see how much was waiting or how long it had been. The only signal was a one-off
+    boot line AFTER a catch-up had already happened, which is the one moment the backlog is not the question.
+    """
+    try:
+        from memory import drain
+        return drain.backlog()
+    except Exception:  # noqa: BLE001 — a backlog we cannot count is simply not reported
+        return None
+
+
+def _pending_erasures():
+    """How many deletions the operator approved that have not been carried out yet. Never raises.
+
+    This is the channel half of a finding that was fixed twice and reported twice. Compaction is the only
+    thing that physically removes a record, and when it declines with an approved erasure waiting it says so
+    — to `sys.stderr`, from inside a hook that exits 0. Nothing shows the operator that stream, so "we told
+    them" was not true. The message was corrected; the channel was not, and a correct message nobody reads is
+    the same defect it was before.
+
+    So the state is reported HERE, where the operator asks. A pending count is derived, not remembered: a
+    marker exists only because they merged an erasure pull request, and it stays pending only while the
+    record it names is still in the ledger — so this reads zero the moment the deletion actually happens,
+    with nothing to reset.
+    """
+    try:
+        from memory import compact
+        return compact._gate_counts()[1]
+    except Exception:  # noqa: BLE001 — status always answers
+        return None
+
+
+def _render_activation_state(value) -> str:
+    """Disclose qualification and the worktrees it does not reach — the honest replacement for StarshipSuperjam/engine-template#1153's
+    refusal, which blocked activation over the same topology while protecting none of those worktrees."""
+    if not isinstance(value, dict):
+        return ""
+    lines = []
+    activation = value.get("activation")
+    if not isinstance(activation, dict):
+        lines.append(
+            "Memory protection is not active on this machine yet: nothing has qualified to write canonical "
+            "memory, so reads work and writes wait. It converges on its own at a session start that can "
+            "reach GitHub."
+        )
+    pending = value.get("pending_erasures")
+    if isinstance(pending, int) and pending > 0:
+        lines.append(
+            f"{pending} deletion(s) you approved have not been carried out yet. They are still in memory and "
+            f"still findable until they are. This normally happens on its own within a session or two; if it "
+            f"persists, ask me to look at your memory's health — the usual causes are a backup that cannot be "
+            f"brought up to date, or a damaged memory file, and neither clears itself."
+        )
+    backlog = value.get("backlog")
+    if isinstance(backlog, dict) and backlog.get("sessions_waiting"):
+        waiting = backlog["sessions_waiting"]
+        age = backlog.get("oldest_waiting_age_days")
+        if not isinstance(age, (int, float)):
+            age_clause = ""
+        elif age < 1:
+            age_clause = ", the oldest from today"
+        else:
+            days = int(age)
+            age_clause = f", the oldest from {days} day{'s' if days != 1 else ''} ago"
+        at_least = "at least " if backlog.get("partial") else ""
+        lines.append(
+            f"{at_least}{waiting} earlier conversation(s) are waiting to be written to memory{age_clause}. "
+            f"Nothing is lost — the conversation transcripts still hold them, and the next session that can "
+            f"write memory catches them up automatically."
+        )
+    coverage = value.get("coverage")
+    if isinstance(coverage, dict) and coverage.get("readable") is False:
+        lines.append(
+            "This machine's worktree list could not be read, so how many worktrees the protection covers "
+            "cannot be verified."
+        )
+    elif isinstance(coverage, dict) and isinstance(coverage.get("uncovered"), int) and coverage["uncovered"]:
+        total, uncovered = coverage.get("total"), coverage["uncovered"]
+        lines.append(
+            f"{uncovered} of {total} registered worktrees run their own older copy of this wiring, so a "
+            f"session started inside one of them can write memory without these checks. That is worth "
+            f"clearing rather than living with. Removing a worktree you have finished with is what clears it: "
+            f"`git worktree remove <path>`, or `git worktree prune` for ones already deleted."
+        )
+        lines.extend(f"  - {item}" for item in coverage.get("sample", []))
+    return (_UNCOVERED_HEADING + "\n" + "\n".join(lines)) if lines else ""
 
 
 def render(session_id: str | None = None) -> str:
@@ -35,7 +212,12 @@ def render(session_id: str | None = None) -> str:
     pure operator-toned body. Always answers — if assembling it raises, degrade to a plain line rather than
     blanking or erroring (the same always-answers posture as `/engine-help` and boot's own pack guard)."""
     try:
-        return boot.render_dashboard(boot.gather_signals(session_id))
+        dashboard = boot.render_dashboard(boot.gather_signals(session_id))
+        sections = [
+            _render_qualification_health(_qualification_health()),
+            _render_activation_state(_activation_state()),
+        ]
+        return dashboard + "".join("\n\n" + section for section in sections if section)
     except Exception:
         return f"## {boot.PRESENT_MARKER}\n{_DEGRADED}"
 

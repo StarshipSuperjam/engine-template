@@ -92,6 +92,7 @@ import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the
 import github_client     # noqa: E402  (the neutral GitHub reader the generic in-flight/standing/PR reads take)
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
+import accepted_hook_dispatch  # noqa: E402  (ambient activation: converge memory-write qualification at boot)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import checkout_auto_update  # noqa: E402  (the one boot-only bounded checkout mutation controller)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
@@ -1426,6 +1427,9 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     boot reaches the substrates, so the status verb re-gathers and renders the same way."""
     state, refused = read_state()
     automatic_checkout = (payload or {}).get("_automatic_checkout") if isinstance(payload, dict) else None
+    # Threaded through the payload exactly like the automatic-checkout result above: ambient activation runs
+    # once, in the write-capable SessionStart handler, and its disclosure rides this one pack.
+    qualification_notices = (payload or {}).get("_qualification_notices") if isinstance(payload, dict) else None
     repo, token = repo_slug(), gh_token()
     # Resolve the authoritative default branch ONCE and thread it into both the gate probe and the operator
     # copy, so the safety-gate line names the branch the gate actually checked (not the display fallback).
@@ -1836,6 +1840,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # A one-boot-only outcome from the controller. It is never persisted, so an already-current checkout is
         # silent on later sessions; ordinary status collection remains a read-only snapshot for every other caller.
         "automatic_checkout": automatic_checkout,
+        "qualification_notices": qualification_notices,
         # the off-main Stage-1 signal (StarshipSuperjam/engine-template#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
@@ -2893,6 +2898,20 @@ def _pushed_alarms(s: dict) -> list:
     return alarms
 
 
+def _qualification_relay(s: dict) -> list[str]:
+    """Relay what ambient activation did this session — a first qualification, an advance, or a degrade.
+
+    Each of these is something the operator would want to know and cannot see for themselves: which code is
+    now allowed to write their memory, or that nothing currently is. Like the automatic-checkout relay this
+    carries no ledger entry — it exists only for the boot that produced it, so it is stated once, here.
+    """
+    notices = s.get("qualification_notices")
+    if not isinstance(notices, list):
+        return []
+    return [f"{RELAY_MARKER} {notice}" for notice in notices
+            if isinstance(notice, str) and notice.strip()][:3]
+
+
 def _automatic_checkout_relay(s: dict) -> list[str]:
     """The one-boot operator relay for a bounded automatic-checkout attempt.
 
@@ -2959,7 +2978,7 @@ def must_push(s: dict) -> list:
     governance-critical alarms and the grounding-failure tell (the must-push set). This is the fresh
     render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
     collapse via _relay_lines instead. A fixed relay over detected signals."""
-    return _automatic_checkout_relay(s) + [a["full"] for a in _pushed_alarms(s)]
+    return _qualification_relay(s) + _automatic_checkout_relay(s) + [a["full"] for a in _pushed_alarms(s)]
 
 
 def _off_main_value(s: dict):
@@ -3158,7 +3177,7 @@ def _relay_lines(s: dict) -> list:
             lines.append(a["worse"])
         else:
             lines.append(a["full"])
-    return _automatic_checkout_relay(s) + lines
+    return _qualification_relay(s) + _automatic_checkout_relay(s) + lines
 
 
 # The set-aside ladder's pin-block name (briefing budget) — named once so the two-pass loud
@@ -3363,6 +3382,54 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 
 # ---- the hook handler + CLI -----------------------------------------------------------------
 
+#: Set to "1" to stop `ambient_qualification` reaching GitHub and writing activation state.
+AMBIENT_QUALIFICATION_OFF_ENV = "ENGINE_AMBIENT_QUALIFICATION_OFF"
+
+
+def ambient_qualification_suppressed() -> bool:
+    """Whether ambient qualification is switched off for this process.
+
+    An explicit seam rather than the ``"unittest" in sys.modules`` sniff it replaces. The need is real: this
+    reaches live GitHub and writes activation state into the repository's Git common directory, and a suite
+    exercising the SessionStart handler must do neither — it would qualify the developer's own machine as a
+    side effect of running the tests, and it did until this was gated. But sniffing an imported module is a
+    global-state switch nothing can assert on, so the wiring from SessionStart to activation — the whole point
+    of the re-land — had no test, and a future transitive ``unittest`` import would have silently disabled it.
+    An env variable the harness sets can be turned OFF in a test, which is what makes `handler`'s call to this
+    provable. The lifecycle itself is tested against a real git+gh fixture in
+    ``test_hooks.TestAmbientActivationLifecycle``.
+    """
+    return os.environ.get(AMBIENT_QUALIFICATION_OFF_ENV) == "1"
+
+
+def ambient_qualification() -> list:
+    """Converge this machine's memory-write qualification at SessionStart, and return what to disclose.
+
+    This is the whole answer to StarshipSuperjam/engine-template#1153's bootstrap deadlock. Qualification used to require a typed operator
+    verb, which the MCP launch was sequenced before — so nothing could ever activate, and the memory server
+    that the verb needed was the thing activation was gating. Here it is ambient: no operator step, bounded
+    by a wall-clock budget, and every failure degrades the session rather than delaying or breaking it.
+
+    It stays honest about what it did: a first activation and an advance both return a notice, because
+    "the code allowed to write your memory just changed" is not something to do silently.
+    """
+    if ambient_qualification_suppressed():
+        # Disclosed, never silent. The seam exists for the test suite, but it is an ordinary environment
+        # variable, so a shell export or a CI wrapper can inherit into a real session and stop qualification
+        # converging FOREVER. Under the `unittest` sniff this replaced, that state was unreachable; now it is
+        # reachable, so it has to announce itself rather than leave an operator staring at a machine that
+        # never qualifies with nothing anywhere saying why.
+        return [f"Engine memory qualification is switched OFF for this session by "
+                f"{AMBIENT_QUALIFICATION_OFF_ENV}={os.environ.get(AMBIENT_QUALIFICATION_OFF_ENV)!r} in the "
+                f"environment. It will not converge while that is set. If you did not set it deliberately, "
+                f"unset it and start a new session."]
+    try:
+        _, notices = accepted_hook_dispatch.ensure_activation_ambient(validate.ROOT)
+        return list(notices)
+    except Exception:  # noqa: BLE001 — SessionStart is fail-open; an unqualified session still boots
+        return ["Engine memory is running unqualified: activation could not be attempted this session."]
+
+
 def handler(payload: dict) -> dict:
     """The SessionStart handler. FIRST it clears the modes stance signal for this session (modes' own
     operation, run at boot's SessionStart moment) so every session — including a resume — boots Explore
@@ -3373,6 +3440,7 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
+    qualification_notices = ambient_qualification()
     # The sole automatic checkout mutation lives at this boot-only seam: stance has reset, but no orientation
     # signal has been gathered or rendered. Its structured, in-memory result is threaded into this one pack so a
     # successful update is disclosed exactly now and is silent once the next boot sees the folder current.
@@ -3382,6 +3450,28 @@ def handler(payload: dict) -> dict:
         automatic_checkout = {"status": "unavailable", "reason": "controller-failed"}
     payload = dict(payload) if isinstance(payload, dict) else {}
     payload["_automatic_checkout"] = automatic_checkout
+    payload["_qualification_notices"] = qualification_notices
+    # AFTER qualification, never before: the drain is the qualified session paying off what the unqualified
+    # ones deliberately left in the transcripts. It runs here rather than at Stop because a session start is
+    # the moment there is slack, and it returns a receipt instead of raising, so a long catch-up or a broken
+    # transcript is a line in the pack rather than a session that will not begin.
+    try:
+        from memory import drain as _drain
+        drain_receipt = _drain.drain_if_qualified()
+    except Exception:  # noqa: BLE001 — SessionStart is fail-open
+        drain_receipt = None
+    if isinstance(drain_receipt, dict) and drain_receipt.get("records_appended"):
+        qualification_notices.append(
+            f"Engine memory caught up on {drain_receipt['sessions_drained']} earlier session(s) that could "
+            f"not be saved at the time ({drain_receipt['records_appended']} notes).")
+    if isinstance(drain_receipt, dict) and drain_receipt.get("gaps"):
+        # Say what actually happened. This line used to announce the transcripts as GONE, which was written
+        # for a gap reason the drain no longer reports: the only gap it records now is a transcript that is
+        # present but could not be read. Calling a permissions fault or a half-written file a permanent loss
+        # is a false alarm that repeats at every session start.
+        qualification_notices.append(
+            f"{len(drain_receipt['gaps'])} earlier session(s) could not be caught up: their transcript files "
+            f"are present but unreadable, so those conversations are not in memory yet.")
     # Interrupted-restore repair is intentionally exclusive to this write-capable SessionStart seam. The
     # status verb and pack debug path call gather_signals directly and therefore only observe quarantine.
     # The marker itself keeps every memory writer paused until this recovery either restores the durable prior
@@ -3419,6 +3509,10 @@ def main(argv: list) -> int:
         return hooks.run_hook("SessionStart", handler)
     print("usage: boot.py [pack | hook]", file=sys.stderr)
     return 2
+
+
+from memory import mutation_authority as _mutation_authority  # noqa: E402
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

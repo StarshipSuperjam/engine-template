@@ -3,7 +3,7 @@ name: engine-setup
 description: Set up the Engine in a new project, and afterwards manage add-ons, conduct, reviewers, protection, backup, and settings.
 invocation: operator-typed
 disable-model-invocation: true
-allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py disclosure*), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py setup*), Bash(uv run --directory .engine -- python tools/checkout_auto_update.py *)
+allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --directory .engine -- python tools/memory/backup_vault.py disclosure*), Bash(uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended *), Bash(uv run --directory .engine -- python tools/checkout_auto_update.py *)
 ---
 
 ## Steps
@@ -27,7 +27,7 @@ allowed-tools: Bash(python3 .engine/tools/instantiator.py *), Bash(uv run --dire
      - show, disable, or re-enable automatic project-folder updates — `.engine/operations/checkout-auto-update.md`
      - switch the review team or reviewer mode — `.engine/operations/engine-team-switch.md`
      - turn on branch protection and the control-plane safeguards — `.engine/operations/control-plane-bootstrap.md`
-     - set up or adjust the memory backup — `uv run --directory .engine -- python tools/memory/backup_vault.py setup`
+     - set up or adjust the memory backup through the accepted attended boundary — `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/memory/backup_vault.py --operation attended-backup-setup -- setup`
      - configure an installed module — follow that module's own setup, when it has one
    Never install, remove, or change a setting because the operator merely mentioned it; each is their decision,
    made on a clear yes.

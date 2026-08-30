@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -130,16 +131,62 @@ def _signal_path(session_id: str | None) -> str | None:
 def current_stance(session_id: str | None) -> str:
     """The session's stance. Absent / unreadable / unrecognized signal → EXPLORE — the safe floor in
     every ambiguous case (so a missing session id, a deleted marker, or a garbled file all resolve to
-    the gated default, never to a write stance)."""
+    the gated default, never to a write stance).
+
+    The ownership check is the same one ``_harden_marker_write`` makes, and it belongs on BOTH sides. The
+    write side alone refuses to write THROUGH a planted symlink; it does nothing about reading a marker
+    someone else placed, and a read is what actually decides the stance. Without this, a file another user
+    left at the marker path resolves a session to a write stance the operator never typed. Narrow in practice
+    — the path carries an unguessable session id, and on macOS the temp directory is already per-user — but
+    the marker left the governed mutation registry on the strength of this hardening, so the hardening has to
+    be true of the operation that reads it.
+    """
     path = _signal_path(session_id)
     if not path:
         return EXPLORE
     try:
+        info = os.lstat(path)
+        if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()):
+            return EXPLORE
         with open(path, encoding="utf-8") as fh:
             value = fh.read().strip().lower()
     except Exception:  # noqa: BLE001 — absent / unreadable marker → the floor, never a crash
         return EXPLORE
     return value if value in STANCES else EXPLORE
+
+
+def _harden_marker_write(path: str, stance: str) -> None:
+    """Write the stance marker so another user on this machine cannot pre-place or read it.
+
+    The marker lives in a world-writable OS temp directory, so a plain ``open(path, "w")`` would happily
+    follow a symlink someone else planted and write through it. Create the file owner-only, refuse anything
+    at the path that is not a regular file we own, and land the content atomically so a reader never sees a
+    half-written stance. This hardening is why the marker does not need to be a governed persistent
+    mutation — see ``memory.mutation_contract.SESSION_EPHEMERAL_WRITERS``."""
+    directory = os.path.dirname(path) or tempfile.gettempdir()
+    fd, temporary = tempfile.mkstemp(prefix=".engine-stance-", dir=directory)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(stance)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            info = os.lstat(path)
+        except FileNotFoundError:
+            info = None
+        if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                                 or info.st_uid != os.getuid()):
+            raise PermissionError(f"the session stance marker path is not a private regular file: {path}")
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 @dataclass(frozen=True)
@@ -176,8 +223,7 @@ def set_stance(session_id: str | None, stance: str) -> StanceWriteResult:
     if not path:
         return StanceWriteResult(False, "no-session")
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(stance)
+        _harden_marker_write(path, stance)
         return StanceWriteResult(True, path=path)
     except PermissionError as exc:
         # The OS denied the temp marker. Codex Read Only is one cause; host ownership/permissions are another.
@@ -914,6 +960,12 @@ def main(argv: list) -> int:
           "$CLAUDE_CODE_SESSION_ID; set-routine also requires a dedicated worktree)",
           file=sys.stderr)
     return 2
+
+
+# No mutation guards are installed here, deliberately. The stance marker is per-session OS-temp state, not
+# persistent memory; governing it as a persistent mutation is what locked the operator out of Build in StarshipSuperjam/engine-template#1153.
+# See `memory.mutation_contract.SESSION_EPHEMERAL_WRITERS` for the reasoning and `_harden_marker_write` for
+# the integrity this seam carries instead.
 
 
 if __name__ == "__main__":
