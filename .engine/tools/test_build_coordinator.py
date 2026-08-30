@@ -3863,8 +3863,13 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # the plan's content. Those are restored here, which is what a ratchet measured against real
         # content costs when the content comes back. Do not read the raise as slack: it is 8 lines of
         # Build-side rules with a named home, not room to grow into.
+        # 259 -> 267 for the receipt-enforcement recovery path (#1126). `work integrate` now records a
+        # failed receipt check as a durable integration-class refusal with no lifecycle advance, and a
+        # session that meets one must know the node stays recoverable — re-integrate a corrected commit,
+        # no plan revision — or it reads the refusal as a wedge. Priced at 8 lines, the minimal essential
+        # instruction: the individual check remedies live in the refusal messages, not the runbook.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 259)
+        self.assertLessEqual(len(text.splitlines()), 267)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -3952,7 +3957,12 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # though the pause itself is now taught upstream. Like the line cap, this settled ABOVE the
         # figure first committed (3614): the same reviewer finding restored the cold-handoff and
         # data-minimisation rules, and both numbers are the file's exact measurement with them back.
-        self.assertLessEqual(len(text.split()), 3666)
+        # 3666 -> 3774, the word half of the line-cap raise above: the receipt-enforcement recovery path
+        # (#1126), measured at +108 words. Same justification — a durable integration refusal a session
+        # cannot resolve without knowing recovery needs no plan revision — and the same minimality: the
+        # per-check remedies stay in the refusal messages. The preservation-source ratio (448/6296) is
+        # unchanged, and every phrase pinned below still reads from this file.
+        self.assertLessEqual(len(text.split()), 3774)
         for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
                        "no automatic audit recursion", "operator alone merges",
                        # The routing targets are load-bearing prose, not decoration: a runbook that
@@ -4201,7 +4211,7 @@ class TestV2CompletionGate(CoordinatorCase):
         claim = bc.work.new_claim("1" * 32, HEAD_A, "/tmp/wt", [], {"executor_class": "builder",
                                  "provider": "claude", "model": "sonnet", "effort": "medium", "inline": False})
         item = next(i for i in self.v2["work_items"] if i["id"] == "shared")
-        payload = {"outcome": "returned", "base_sha": HEAD_A,
+        payload = {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_A,
                    "evidence": {"changed_paths": [".engine/tools/shared.py"],
                                 "verification_results": ["focused tests green"]}}
         def stage_returned_attempt(state):
@@ -4211,8 +4221,13 @@ class TestV2CompletionGate(CoordinatorCase):
             nw["latest_result"] = bc.work.bind_result(nw, item, "1" * 32, HEAD_A, payload)
         self.store.mutate(stage_returned_attempt)
         args = argparse.Namespace(item="shared", attempt="1" * 32, commit=HEAD_B,
-                                  verification_input="focused tests green")
+                                  verification_input="focused tests green", plan=str(self.plan_path))
+        canned = {"schema_version": "build-integration-receipt.v1", "claim_base": HEAD_A,
+                  "integration_commit": HEAD_B, "attributable_range": [HEAD_B],
+                  "patch_digest": "sha256:" + "b" * 64, "tree_digest": "sha256:" + "a" * 64,
+                  "paths": [], "identity_mode": "worker-commit", "degraded": False, "degraded_reason": None}
         with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                mock.patch.object(bc, "_integration_receipt", return_value=canned), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
             bc.cmd_work_integrate(args, self.store)
         # The correction is announced: an operator recovering from the refusal must see that a stale
@@ -5461,3 +5476,522 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         with mock.patch.object(bc.build_state_store, "bound_snapshots",
                                side_effect=RuntimeError("library is unreadable")):
             self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())
+
+
+class ScrubbedGitRepo:
+    """A throwaway git repo built under a scrubbed environment, for receipt-fact tests.
+
+    Global/system config neutralized, an explicit default branch, gpgsign off, hooks cleared, and a
+    fixed identity and commit dates so commits are deterministic across machines — the shared
+    scrubbed-git-env fixture obligation 4 calls for.
+    """
+
+    def __init__(self, path):
+        self.path = str(path)
+        Path(self.path).mkdir(parents=True, exist_ok=True)
+        self.env = {**os.environ,
+                    "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                    "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+                    "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C",
+                    "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+                    "GIT_AUTHOR_DATE": "2026-01-01T00:00:00 +0000",
+                    "GIT_COMMITTER_DATE": "2026-01-01T00:00:00 +0000"}
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "commit.gpgsign", "false")
+        self.git("config", "core.hooksPath", os.devnull)
+
+    def git(self, *args):
+        result = subprocess.run(["git", "-C", self.path, *args], text=True, capture_output=True,
+                                env=self.env)
+        if result.returncode:
+            raise AssertionError(f"git {' '.join(args)} failed: {result.stderr or result.stdout}")
+        return result.stdout.strip()
+
+    def write(self, rel, content):
+        target = Path(self.path) / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+
+    def commit_file(self, rel, content, message):
+        self.write(rel, content)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+
+class TestReceiptGitFacts(unittest.TestCase):
+    """W2: the git-fact gatherer over real temporary repositories under the scrubbed fixture."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = ScrubbedGitRepo(Path(self.tmp.name) / "r")
+        self.base = self.repo.commit_file("a.py", "one\n", "base")
+
+    def test_simple_change_range_and_paths(self):
+        self.repo.write("a.py", "two\n")
+        commit = self.repo.commit("edit a")
+        facts = bc._git_facts(self.repo.path, self.base, commit)
+        self.assertEqual(facts["range"], [commit])
+        self.assertEqual(facts["paths"], [{"status": "M", "path": "a.py", "old_path": None}])
+        self.assertRegex(facts["tree_digest"], r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(facts["patch_digest"], r"^sha256:[0-9a-f]{64}$")
+
+    def test_rename_is_normalized(self):
+        self.repo.git("mv", "a.py", "b.py")
+        commit = self.repo.commit("rename a to b")
+        rows = bc._git_facts(self.repo.path, self.base, commit)["paths"]
+        self.assertEqual(rows, [{"status": "R", "path": "b.py", "old_path": "a.py"}])
+
+    def test_delete_is_normalized(self):
+        self.repo.git("rm", "-q", "a.py")
+        commit = self.repo.commit("remove a")
+        rows = bc._git_facts(self.repo.path, self.base, commit)["paths"]
+        self.assertEqual(rows, [{"status": "D", "path": "a.py", "old_path": None}])
+
+    def test_multi_commit_first_parent_range(self):
+        self.repo.write("a.py", "two\n"); c1 = self.repo.commit("e1")
+        self.repo.write("a.py", "three\n"); c2 = self.repo.commit("e2")
+        self.assertEqual(bc._git_facts(self.repo.path, self.base, c2)["range"], [c2, c1])
+
+    def test_staged_tree_digest_matches_the_committed_tree(self):
+        self.repo.write("a.py", "two\n")
+        commit = self.repo.commit("edit")
+        committed = bc._tree_digest_at(self.repo.path, f"{commit}^{{tree}}")
+        self.repo.git("add", "-A")  # index equals HEAD tree
+        self.assertEqual(bc._staged_tree_digest(self.repo.path), committed)
+
+
+class TestComputeReceipt(unittest.TestCase):
+    """W2: receipt computation over real repositories, including the degraded fallback."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = ScrubbedGitRepo(Path(self.tmp.name) / "r")
+        self.base = self.repo.commit_file("root.py", "0\n", "base")
+        self.plan = plan_v2()  # nodes: shared, adapter
+
+    def _sibling_receipt(self, commit):
+        return bc.work.assemble_receipt(
+            {"range": [commit], "tree_digest": "sha256:" + "a" * 64,
+             "patch_digest": "sha256:" + "b" * 64, "paths": []},
+            self.base, commit, "worker-commit", [])
+
+    def test_no_siblings_full_range(self):
+        commit = self.repo.commit_file("shared.py", "1\n", "shared work")
+        receipt = bc._compute_receipt(self.repo.path, self.plan, {"work": {}}, "shared",
+                                      self.base, commit, "worker-commit")
+        self.assertEqual(receipt["attributable_range"], [commit])
+        self.assertFalse(receipt["degraded"])
+
+    def test_a_sibling_with_a_receipt_is_subtracted(self):
+        c1 = self.repo.commit_file("shared.py", "1\n", "shared")
+        c2 = self.repo.commit_file("adapter.py", "2\n", "adapter")
+        state = {"work": {"shared": {"integration": {"attempt_id": "a" * 32, "commit": c1,
+                 "focused_verification": "v", "receipt": self._sibling_receipt(c1)}}}}
+        receipt = bc._compute_receipt(self.repo.path, self.plan, state, "adapter",
+                                      self.base, c2, "worker-commit")
+        self.assertEqual(receipt["attributable_range"], [c2])
+        self.assertFalse(receipt["degraded"])
+
+    def test_a_receiptless_sibling_degrades_the_attribution(self):
+        c1 = self.repo.commit_file("shared.py", "1\n", "shared")
+        c2 = self.repo.commit_file("adapter.py", "2\n", "adapter")
+        state = {"work": {"shared": {"integration": {"attempt_id": "a" * 32, "commit": c1,
+                 "focused_verification": "v"}}}}  # no receipt: predates this change
+        receipt = bc._compute_receipt(self.repo.path, self.plan, state, "adapter",
+                                      self.base, c2, "worker-commit")
+        self.assertEqual(receipt["attributable_range"], [c2])
+        self.assertTrue(receipt["degraded"])
+        self.assertIn("no receipt", receipt["degraded_reason"])
+
+
+class TestRestoredReceiptRederivation(unittest.TestCase):
+    """W2 (perimeter): a restored receipt is re-derived from its commits or the continuation refuses."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = ScrubbedGitRepo(Path(self.tmp.name) / "r")
+        self.base = self.repo.commit_file("root.py", "0\n", "base")
+        self.commit = self.repo.commit_file("shared.py", "1\n", "shared")
+        self.plan = plan_v2()
+        patched = mock.patch.object(bc, "ROOT", Path(self.repo.path))
+        patched.start()
+        self.addCleanup(patched.stop)
+        self.receipt = bc._compute_receipt(self.repo.path, self.plan, {"work": {}}, "shared",
+                                           self.base, self.commit, "worker-commit")
+
+    def _state(self):
+        return {"work": {"shared": {"integration": {
+            "attempt_id": "a" * 32, "commit": self.commit, "focused_verification": "v",
+            "restored": True, "receipt": json.loads(json.dumps(self.receipt))}}}}
+
+    def test_a_matching_restored_receipt_is_rederived_and_accepted(self):
+        state = self._state()
+        bc._rederive_restored_receipts(self.plan, state)
+        self.assertEqual(state["work"]["shared"]["integration"]["receipt"], self.receipt)
+
+    def test_a_tampered_restored_receipt_is_refused(self):
+        state = self._state()
+        state["work"]["shared"]["integration"]["receipt"]["tree_digest"] = "sha256:" + "9" * 64
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not match a fresh derivation"):
+            bc._rederive_restored_receipts(self.plan, state)
+
+    def test_a_receipt_naming_an_absent_commit_is_refused(self):
+        state = self._state()
+        state["work"]["shared"]["integration"]["receipt"]["integration_commit"] = "e" * 40
+        with self.assertRaisesRegex(bc.CoordinatorError, "could not be re-derived"):
+            bc._rederive_restored_receipts(self.plan, state)
+
+
+class TestReceiptPerimeter(unittest.TestCase):
+    """W2 (perimeter): schema evolution and the bounded PR-body projection of a receipt."""
+
+    def _receipt(self, degraded_reason=None):
+        return {"schema_version": "build-integration-receipt.v1", "claim_base": BASE,
+                "integration_commit": HEAD_A, "attributable_range": [HEAD_A],
+                "patch_digest": "sha256:" + "b" * 64, "tree_digest": "sha256:" + "a" * 64,
+                "paths": [{"status": "M", "path": "a.py", "old_path": None}],
+                "identity_mode": "worker-commit", "degraded": degraded_reason is not None,
+                "degraded_reason": degraded_reason}
+
+    def _state_with_integration(self, integration):
+        value = plan_v2()
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, None)
+        state["approval"] = {"plan_digest": bc._digest(value), "spec_digest": None, "depth": "thorough"}
+        state["work"] = {"shared": {"attempt_count": 1, "claim": None, "latest_result": None,
+                                    "latest_failure": None, "integration": integration}}
+        return state
+
+    def test_a_receiptless_integration_still_validates(self):
+        # Historical snapshots predate receipts; the schema keeps reading them (receipt is optional).
+        state = self._state_with_integration(
+            {"attempt_id": "a" * 32, "commit": HEAD_A, "focused_verification": "v"})
+        bc._validate(state, bc._state_schema_for(state))
+
+    def test_an_integration_carrying_a_receipt_validates(self):
+        state = self._state_with_integration(
+            {"attempt_id": "a" * 32, "commit": HEAD_A, "focused_verification": "v",
+             "receipt": self._receipt(), "restored": False})
+        bc._validate(state, bc._state_schema_for(state))
+
+    def test_bounded_projection_publishes_machine_facts_and_redacts_degraded_reason(self):
+        receipt = self._receipt(degraded_reason="sibling s had no receipt; commit deadbeef1234 stood in")
+        work_map = {"n": {"attempt_count": 1, "claim": None, "latest_result": None,
+                    "latest_failure": None,
+                    "integration": {"attempt_id": "a" * 32, "commit": HEAD_A,
+                                    "focused_verification": "tests pass", "receipt": receipt}}}
+        published = bc._bounded_work(work_map)["n"]["integration"]["receipt"]
+        self.assertEqual(published["tree_digest"], "sha256:" + "a" * 64)
+        self.assertEqual(published["patch_digest"], "sha256:" + "b" * 64)
+        self.assertEqual(published["attributable_range"], [HEAD_A])
+        self.assertEqual(published["paths"], [{"status": "M", "path": "a.py", "old_path": None}])
+        self.assertEqual(published["identity_mode"], "worker-commit")
+        self.assertEqual(published["degraded_reason"], "redacted from durable handoff")
+        # the local snapshot's receipt is untouched — only the published projection redacts
+        self.assertIn("deadbeef1234", receipt["degraded_reason"])
+
+    def test_a_handoff_round_trips_a_receipt_through_its_schema(self):
+        state = self._state_with_integration(
+            {"attempt_id": "a" * 32, "commit": HEAD_A, "focused_verification": "v",
+             "receipt": self._receipt(degraded_reason="sibling x had no receipt"), "restored": False})
+        state["plan"]["authorizing_issue"] = 11
+        value = bc._handoff(state)  # _handoff validates against build-handoff.v2 internally
+        projected = value["work"]["shared"]["integration"]["receipt"]
+        self.assertEqual(projected["tree_digest"], "sha256:" + "a" * 64)
+        self.assertEqual(projected["degraded_reason"], "redacted from durable handoff")
+
+
+class EnforcementCase(unittest.TestCase):
+    """W3: work integrate enforces the receipt against a real repository (ROOT points at it).
+
+    Nodes are worker-commit (the default builder route). Each case stages a claim and a returned result
+    directly, then drives the real verb — no enforcement mocking — so the refusals and acceptances are
+    exercised end to end.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = ScrubbedGitRepo(Path(self.tmp.name) / "r")
+        self.base = self.repo.commit_file(".engine/tools/root.py", "0\n", "base")
+        self.plan = plan_v2()  # shared -> .engine/tools/shared.py, adapter -> .engine/tools/adapter.py
+        self.plan_path = Path(self.tmp.name) / "plan.json"
+        self.plan_path.write_text(json.dumps(self.plan), encoding="utf-8")
+        self.store = bc.StateStore(str(Path(self.tmp.name) / "state.json"))
+        state = bc._initial_state("owner/repo", 7, self.base, PLAN_ID, SEALED, self.plan, None)
+        state["approval"] = {"plan_digest": bc._digest(self.plan), "spec_digest": None, "depth": "thorough"}
+        self.store.create(state)
+        patched = mock.patch.object(bc, "ROOT", Path(self.repo.path))
+        patched.start()
+        self.addCleanup(patched.stop)
+
+    def _stage(self, item, base, *, inline=False, artifact_ref=None, artifact_digest=None,
+               changed=None):
+        route = {"executor_class": "builder", "provider": "claude",
+                 "model": "inherit" if inline else "sonnet",
+                 "effort": "inherit" if inline else "medium", "inline": inline}
+        item_def = bc.work.node_item(self.plan, item)
+        payload = {"outcome": "returned", "base_sha": base,
+                   "evidence": {"changed_paths": changed or [item_def["paths"][0]],
+                                "verification_results": ["ok"]}}
+        if artifact_ref:
+            payload["artifact_ref"] = artifact_ref
+        if artifact_digest:
+            payload["artifact_digest"] = artifact_digest
+
+        def change(state):
+            nw = state["work"].setdefault(item, bc.work.empty_node())
+            nw["attempt_count"] = 1
+            nw["claim"] = bc.work.new_claim("1" * 32, base, "/tmp/wt", [], route)
+            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, base, payload)
+        self.store.mutate(change)
+        return "1" * 32
+
+    def _integrate(self, item, attempt, commit, *, plan_path=None, mock_on_branch=True):
+        # `_commit_on_branch` runs git in the module-global ROOT (bound at import), which a mocked ROOT
+        # does not reach, and its branch check is redundant with enforcement's own reachability leg — so
+        # it is mocked here and the enforcement is what actually decides.
+        args = argparse.Namespace(item=item, attempt=attempt, commit=commit,
+                                  verification_input="focused tests pass",
+                                  plan=str(plan_path or self.plan_path))
+        with mock.patch.object(bc, "_commit_on_branch", return_value=mock_on_branch), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            bc.cmd_work_integrate(args, self.store)
+        return out.getvalue()
+
+    def _integration(self, item="shared"):
+        return self.store.read()["work"][item].get("integration")
+
+    def _failure(self, item="shared"):
+        return self.store.read()["work"][item].get("latest_failure")
+
+    # -- positive witnesses --
+
+    def test_clean_worker_commit_integration_records_a_receipt(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared work")
+        attempt = self._stage("shared", self.base, artifact_ref=commit)
+        self._integrate("shared", attempt, commit)
+        receipt = self._integration("shared")["receipt"]
+        self.assertEqual(receipt["identity_mode"], "worker-commit")
+        self.assertEqual(receipt["attributable_range"], [commit])
+        self.assertEqual(receipt["paths"], [{"status": "A", "path": ".engine/tools/shared.py",
+                                             "old_path": None}])
+        self.assertFalse(receipt["degraded"])
+
+    def test_a_commit_touching_a_derived_artifact_output_is_accepted(self):
+        # graph.json is a regenerated derived-artifact output — admissible beyond the node's declared paths.
+        self.repo.write(".engine/tools/shared.py", "x\n")
+        self.repo.write(".engine/knowledge/graph.json", "{}\n")
+        commit = self.repo.commit("shared work plus regenerated graph")
+        attempt = self._stage("shared", self.base, artifact_ref=commit)
+        self._integrate("shared", attempt, commit)
+        self.assertIsNotNone(self._integration("shared")["receipt"])
+
+    def test_a_legitimately_shared_sibling_path_is_accepted(self):
+        # adapter is integrated first with a receipt naming adapter.py; a later shared commit that also
+        # touches adapter.py is admissible because that path is owned by an integrated sibling.
+        adapter_commit = self.repo.commit_file(".engine/tools/adapter.py", "a\n", "adapter")
+        adapter_attempt = self._stage("adapter", self.base, artifact_ref=adapter_commit)
+        self._integrate("adapter", adapter_attempt, adapter_commit)
+        self.repo.write(".engine/tools/shared.py", "s\n")
+        self.repo.write(".engine/tools/adapter.py", "a2\n")
+        shared_commit = self.repo.commit("shared work touching a shared-sibling path")
+        shared_attempt = self._stage("shared", adapter_commit, artifact_ref=shared_commit)
+        self._integrate("shared", shared_attempt, shared_commit)
+        self.assertIsNotNone(self._integration("shared")["receipt"])
+
+    def test_empty_range_with_a_no_op_permission_is_accepted(self):
+        # A node whose sealed output_contract.artifact_kinds carries "no-op" may integrate an empty range.
+        noop_plan = plan_v2()
+        noop_plan["work_items"][0]["output_contract"]["artifact_kinds"] = ["worker-commit", "no-op"]
+        path = Path(self.tmp.name) / "noop-plan.json"
+        path.write_text(json.dumps(noop_plan), encoding="utf-8")
+        state = bc._initial_state("owner/repo", 7, self.base, PLAN_ID, SEALED, noop_plan, None)
+        state["approval"] = {"plan_digest": bc._digest(noop_plan), "spec_digest": None, "depth": "thorough"}
+        self.store = bc.StateStore(str(Path(self.tmp.name) / "noop-state.json"))
+        self.store.create(state)
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "a commit")
+        attempt = self._stage("shared", commit, artifact_ref=commit)  # claim base == commit: empty range
+        self._integrate("shared", attempt, commit, plan_path=path)
+        receipt = self._integration("shared")["receipt"]
+        self.assertEqual(receipt["attributable_range"], [])
+
+    # -- negative witnesses (each recorded durably, no lifecycle advance) --
+
+    def _assert_durable_refusal(self, item, attempt, commit, needle, **kw):
+        with self.assertRaisesRegex(bc.CoordinatorError, needle):
+            self._integrate(item, attempt, commit, **kw)
+        self.assertIsNone(self._integration(item), "a refused integration must not advance the lifecycle")
+        failure = self._failure(item)
+        self.assertIsNotNone(failure, "the refusal must be recorded durably")
+        self.assertEqual(failure["class"], "integration")
+        self.assertEqual(failure["disposition"], "open")
+
+    def test_a_commit_not_descending_from_the_claim_base_is_refused(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        # claim base is the LATER commit; integrating the earlier base does not descend from it.
+        attempt = self._stage("shared", commit, artifact_ref=self.base)
+        self._assert_durable_refusal("shared", attempt, self.base, "does not descend from the claim base")
+
+    def test_a_commit_unreachable_from_the_observed_head_is_refused(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        self.repo.git("reset", "-q", "--hard", self.base)  # commit is now unreachable from HEAD
+        attempt = self._stage("shared", self.base, artifact_ref=commit)
+        # _commit_on_branch is mocked True so enforcement's own reachability check is what refuses.
+        self._assert_durable_refusal("shared", attempt, commit, "not reachable from HEAD",
+                                     mock_on_branch=True)
+
+    def test_worker_commit_identity_mismatch_is_refused(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        # artifact_ref names a different commit (the base) whose tree differs from the integrated one.
+        attempt = self._stage("shared", self.base, artifact_ref=self.base)
+        self._assert_durable_refusal("shared", attempt, commit, "worker-commit identity")
+
+    def test_accepted_candidate_identity_mismatch_is_refused(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        attempt = self._stage("shared", self.base, inline=True,
+                              artifact_digest="sha256:" + "9" * 64)  # not the integrated tree
+        self._assert_durable_refusal("shared", attempt, commit, "accepted-candidate identity")
+
+    def test_a_contradicting_supplied_digest_is_refused(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        attempt = self._stage("shared", self.base, artifact_ref=commit,
+                              artifact_digest="sha256:" + "9" * 64)
+        self._assert_durable_refusal("shared", attempt, commit, "contradicts the Engine-derived")
+
+    def test_an_empty_range_without_permission_is_refused(self):
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        attempt = self._stage("shared", commit, artifact_ref=commit)  # claim base == commit
+        self._assert_durable_refusal("shared", attempt, commit, "no attributable commit")
+
+    def test_out_of_scope_path_residue_is_refused(self):
+        self.repo.write(".engine/tools/shared.py", "x\n")
+        self.repo.write(".engine/tools/escapee.py", "nope\n")  # outside shared's declared paths
+        commit = self.repo.commit("shared work that escaped its scope")
+        attempt = self._stage("shared", self.base, artifact_ref=commit,
+                              changed=[".engine/tools/shared.py"])
+        self._assert_durable_refusal("shared", attempt, commit, "outside the node's admissible set")
+
+    def test_a_self_issued_exemption_is_refused(self):
+        # The integrating session cannot grant itself a no-op permission by editing the plan it passes:
+        # the plan is digest-checked against the approved one, so a hand-added artifact_kind is rejected.
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "a commit")
+        tampered = plan_v2()
+        tampered["work_items"][0]["output_contract"]["artifact_kinds"] = ["worker-commit", "no-op"]
+        path = Path(self.tmp.name) / "tampered.json"
+        path.write_text(json.dumps(tampered), encoding="utf-8")
+        attempt = self._stage("shared", commit, artifact_ref=commit)  # empty range
+        with self.assertRaisesRegex(bc.CoordinatorError, "does not match approved Build plan"):
+            self._integrate("shared", attempt, commit, plan_path=path)
+
+    # -- refusal-to-recovery, without revising the sealed plan --
+
+    def test_a_refused_integration_recovers_on_a_corrected_commit(self):
+        self.repo.write(".engine/tools/shared.py", "x\n")
+        self.repo.write(".engine/tools/escapee.py", "nope\n")
+        bad = self.repo.commit("out of scope")
+        attempt = self._stage("shared", self.base, artifact_ref=bad, changed=[".engine/tools/shared.py"])
+        with self.assertRaisesRegex(bc.CoordinatorError, "outside the node's admissible set"):
+            self._integrate("shared", attempt, bad)
+        self.assertIsNone(self._integration("shared"))
+        # Recovery without revising the sealed plan: drop the out-of-scope commit and re-do the work
+        # within scope, then integrate the corrected commit. It integrates cleanly and clears the
+        # recorded failure. (A fresh attempt id models the redispatch a real recovery would use.)
+        self.repo.git("reset", "-q", "--hard", self.base)
+        good = self.repo.commit_file(".engine/tools/shared.py", "y\n", "corrected, in scope")
+        good_attempt = self._stage("shared", self.base, artifact_ref=good)
+        self._integrate("shared", good_attempt, good)
+        self.assertIsNotNone(self._integration("shared")["receipt"])
+        self.assertIsNone(self._failure("shared"))
+
+    def test_integrate_surfaces_the_workers_unresolved_concerns(self):
+        # Obligation 2: a returned result's unresolved concerns are said out loud AT the integrate
+        # action for the integrator's judgment — never an auto-block.
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        item_def = bc.work.node_item(self.plan, "shared")
+
+        def change(state):
+            nw = state["work"].setdefault("shared", bc.work.empty_node())
+            nw["attempt_count"] = 1
+            nw["claim"] = bc.work.new_claim("1" * 32, self.base, "/tmp/wt", [],
+                {"executor_class": "builder", "provider": "claude", "model": "sonnet",
+                 "effort": "medium", "inline": False})
+            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, self.base,
+                {"outcome": "returned", "base_sha": self.base, "artifact_ref": commit,
+                 "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                              "verification_results": ["ok"],
+                              "unresolved_concerns": ["scope_boundary looks tight for this node"]}})
+        self.store.mutate(change)
+        out = self._integrate("shared", "1" * 32, commit)
+        self.assertIn("unresolved concern", out)
+        self.assertIn("scope_boundary looks tight", out)
+        self.assertIsNotNone(self._integration("shared"))  # surfaced, not blocked
+
+
+class TestReceiptReporting(unittest.TestCase):
+    """W3: the receipt cross-check beside the git aggregate, and unresolved-concern surfacing."""
+
+    def _state_with(self, work):
+        plan = plan_v2()
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, plan, None)
+        state["approval"] = {"plan_digest": bc._digest(plan), "spec_digest": None, "depth": "thorough"}
+        state["work"] = work
+        return plan, state
+
+    def _receipt(self, commit, rng):
+        return {"schema_version": "build-integration-receipt.v1", "claim_base": BASE,
+                "integration_commit": commit, "attributable_range": rng,
+                "patch_digest": "sha256:" + "b" * 64, "tree_digest": "sha256:" + "a" * 64,
+                "paths": [], "identity_mode": "worker-commit", "degraded": False, "degraded_reason": None}
+
+    def test_crosscheck_counts_receipts_and_marks_the_uncounted(self):
+        plan, state = self._state_with({
+            "shared": {"attempt_count": 1, "claim": None, "latest_result": None, "latest_failure": None,
+                       "integration": {"attempt_id": "a" * 32, "commit": HEAD_A,
+                                       "focused_verification": "v", "receipt": self._receipt(HEAD_A, [HEAD_A])}},
+            "adapter": {"attempt_count": 1, "claim": None, "latest_result": None, "latest_failure": None,
+                        "integration": {"attempt_id": "b" * 32, "commit": HEAD_B,
+                                        "focused_verification": "v"}}})  # receiptless -> uncounted
+        crosscheck = bc._work_projection(plan, state)["receipt_crosscheck"]
+        self.assertEqual(crosscheck["nodes_with_receipts"], ["shared"])
+        self.assertEqual(crosscheck["uncounted_nodes"], ["adapter"])
+        self.assertEqual(crosscheck["attributed_commits"], [HEAD_A])
+
+    def test_crosscheck_surfaces_a_disagreement(self):
+        # a receipted node whose own integration commit is attributed to no receipt at all
+        plan, state = self._state_with({
+            "shared": {"attempt_count": 1, "claim": None, "latest_result": None, "latest_failure": None,
+                       "integration": {"attempt_id": "a" * 32, "commit": HEAD_C,
+                                       "focused_verification": "v", "receipt": self._receipt(HEAD_C, [HEAD_A])}}})
+        crosscheck = bc._work_projection(plan, state)["receipt_crosscheck"]
+        self.assertTrue(any("attributed to no receipt" in d for d in crosscheck["disagreements"]))
+
+    def test_a_no_op_empty_range_is_not_flagged_as_a_disagreement(self):
+        # A sanctioned no-op integrates an empty range by design — its commit is in no receipt's range,
+        # and that is correct, not a disagreement to surface.
+        plan, state = self._state_with({
+            "shared": {"attempt_count": 1, "claim": None, "latest_result": None, "latest_failure": None,
+                       "integration": {"attempt_id": "a" * 32, "commit": HEAD_A,
+                                       "focused_verification": "v", "receipt": self._receipt(HEAD_A, [])}}})
+        crosscheck = bc._work_projection(plan, state)["receipt_crosscheck"]
+        self.assertEqual(crosscheck["disagreements"], [])
+
+    def test_unresolved_concerns_are_surfaced_per_node(self):
+        plan, state = self._state_with({
+            "shared": {"attempt_count": 1, "claim": None, "latest_failure": None, "integration": None,
+                       "latest_result": {"attempt_id": "a" * 32, "base_sha": BASE, "outcome": "returned",
+                                         "artifact_ref": HEAD_A, "artifact_digest": None,
+                                         "evidence": {"changed_paths": [], "verification_results": [],
+                                                      "assumptions": [],
+                                                      "unresolved_concerns": ["scope boundary looks tight"]}}}})
+        node = bc._work_projection(plan, state)["nodes"]["shared"]
+        self.assertEqual(node["unresolved_concerns"], ["scope boundary looks tight"])

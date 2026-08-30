@@ -16,9 +16,18 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
 import build_coordinator_work as work  # noqa: E402
-from test_build_coordinator import plan_v1, plan_v2, _work_item_v2, HEAD_A, BASE, PLAN_ID, SEALED  # noqa: E402
+from test_build_coordinator import plan_v1, plan_v2, _work_item_v2, HEAD_A, HEAD_B, BASE, PLAN_ID, SEALED  # noqa: E402
 import build_coordinator_dag as dag  # noqa: E402
 import build_coordinator_github as ghub  # noqa: E402
+
+
+def _canned_receipt(commit):
+    """A schema-valid receipt for lifecycle tests that mock enforcement away (they use fake commits
+    real git cannot resolve; the receipt machinery itself is exercised on real repos elsewhere)."""
+    return {"schema_version": "build-integration-receipt.v1", "claim_base": BASE,
+            "integration_commit": commit, "attributable_range": [commit],
+            "patch_digest": "sha256:" + "b" * 64, "tree_digest": "sha256:" + "a" * 64,
+            "paths": [], "identity_mode": "worker-commit", "degraded": False, "degraded_reason": None}
 
 
 class WorkCase(unittest.TestCase):
@@ -48,6 +57,12 @@ class WorkCase(unittest.TestCase):
         return json.loads(out.getvalue())
 
     def result(self, item, attempt, payload):
+        # These fixtures dispatch worker-commit nodes (the default builder route), so a returned result
+        # now owes a commit id as its identity. Inject a valid default where a case does not speak to
+        # identity; a case that tests identity's ABSENCE sets artifact_ref explicitly (even to None).
+        payload = dict(payload)
+        if payload.get("outcome") == "returned" and "artifact_ref" not in payload:
+            payload["artifact_ref"] = HEAD_A
         path = Path(self.temp.name) / "result.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
         args = argparse.Namespace(item=item, attempt=attempt, plan=str(self.plan_path), input=str(path))
@@ -126,7 +141,7 @@ class TestWorkClaims(WorkCase):
     def test_result_verb_guards_with_compare_and_swap(self):
         packet = self.claim("shared")   # revision advances to 2
         path = Path(self.temp.name) / "r.json"
-        path.write_text(json.dumps({"outcome": "returned", "base_sha": HEAD_A,
+        path.write_text(json.dumps({"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_A,
                                     "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}}))
         stale = bc.StateStore(self.state_path, expected_revision=1)
         args = argparse.Namespace(item="shared", attempt=packet["attempt_id"], plan=str(self.plan_path), input=str(path))
@@ -162,7 +177,8 @@ class TestWorkClaims(WorkCase):
             lambda s: bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="redispatch", reason="x"), s),
             lambda s: bc.cmd_work_abandon(argparse.Namespace(item="shared", attempt="0" * 32, reason="x"), s),
             lambda s: bc.cmd_work_integrate(argparse.Namespace(item="shared", attempt="0" * 32,
-                                                               commit=HEAD_A, verification_input="v"), s),
+                                                               commit=HEAD_A, verification_input="v",
+                                                               plan=str(self.plan_path)), s),
         ):
             stale = bc.StateStore(self.state_path, expected_revision=1)
             with self.assertRaisesRegex(bc.CoordinatorError, "reload status"):
@@ -367,8 +383,12 @@ class TestWorkDispositions(WorkCase):
             bc.cmd_work_reject(args, self.store)
 
     def _integrate(self, item, attempt, commit=HEAD_A, verification="focused tests pass"):
-        args = argparse.Namespace(item=item, attempt=attempt, commit=commit, verification_input=verification)
-        with mock.patch.object(bc, "_commit_on_branch", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+        args = argparse.Namespace(item=item, attempt=attempt, commit=commit,
+                                  verification_input=verification, plan=str(self.plan_path))
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                mock.patch.object(bc, "_integration_receipt",
+                                  side_effect=lambda plan, state, item, nw, c: _canned_receipt(c)), \
+                contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_integrate(args, self.store)
 
     def test_reject_releases_resources_and_marks_failed(self):
@@ -441,7 +461,8 @@ class TestWorkDispositions(WorkCase):
 
     def test_integration_off_branch_commit_is_refused(self):
         attempt = self._return("shared")
-        args = argparse.Namespace(item="shared", attempt=attempt, commit="c" * 40, verification_input="v")
+        args = argparse.Namespace(item="shared", attempt=attempt, commit="c" * 40,
+                                  verification_input="v", plan=str(self.plan_path))
         with mock.patch.object(bc, "_commit_on_branch", return_value=False):
             with self.assertRaisesRegex(bc.CoordinatorError, "not on the PR branch"):
                 bc.cmd_work_integrate(args, self.store)
@@ -461,7 +482,8 @@ class TestWorkDispositions(WorkCase):
 
     def test_integrate_requires_a_focused_verification_summary(self):
         attempt = self._return("shared")
-        args = argparse.Namespace(item="shared", attempt=attempt, commit=HEAD_A, verification_input="   ")
+        args = argparse.Namespace(item="shared", attempt=attempt, commit=HEAD_A,
+                                  verification_input="   ", plan=str(self.plan_path))
         with mock.patch.object(bc, "_commit_on_branch", return_value=True):
             with self.assertRaisesRegex(bc.CoordinatorError, "focused-verification"):
                 bc.cmd_work_integrate(args, self.store)
@@ -595,8 +617,10 @@ class TestHandoffV2(WorkCase):
         # The handoff reaches the public PR body: local paths and unreviewed worker free-text are
         # redacted; identifiers, digests, outcomes, and repo-relative changed paths travel.
         packet = self.claim("shared")
+        # A worker-commit attempt's artifact_ref is its commit id; the bounded projection redacts it
+        # anyway (the receipt's own integration_commit is the published fact), which this pins.
         self.result("shared", packet["attempt_id"],
-                    {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": "/Users/someone/bundle.git",
+                    {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_B,
                      "evidence": {"changed_paths": [".engine/tools/shared.py"],
                                   "verification_results": ["ran the suite: 3 passed"],
                                   "assumptions": ["assumed the flag stays default"]}})
@@ -671,6 +695,261 @@ class TestWorkRouting(unittest.TestCase):
         self.assertEqual(route["executor_class"], "builder")
 
 
+class TestGoverningContextPacket(WorkCase):
+    """W1: the bounded packet carries the plan's governing context, and stays bounded doing it."""
+
+    DISPATCHED = {"executor_class": "builder", "provider": "claude", "model": "sonnet",
+                  "effort": "medium", "inline": False}
+    INLINE = {"executor_class": "builder", "provider": "claude", "model": "inherit",
+              "effort": "inherit", "inline": True}
+
+    def _rich_plan(self):
+        """A normal v2 plan with a SETTLED spec whose criteria map to different nodes.
+
+        C1 -> shared only; C2 -> adapter only; C3 -> both; C4 not_applicable. So `shared` should see
+        C1 and C3 and never C2 or C4, which is what proves the per-node selection is bounded.
+        """
+        value = plan_v2(items=[_work_item_v2("shared", []), _work_item_v2("adapter", ["shared"])])
+        value["spec"] = {
+            "posture": "settled",
+            "selection_basis": "A settled product spec governs this change.",
+            "documents": [{
+                "path": "docs/spec/thing.md", "selection_reason": "the governing spec",
+                "digest": "sha256:" + "1" * 64,
+                "criteria": [
+                    {"id": "C1", "digest": "sha256:" + "2" * 64, "text": "shared does X",
+                     "how_verified": "test A", "disposition": "mapped",
+                     "work_item_ids": ["shared"], "planned_verification": ["run A"]},
+                    {"id": "C2", "digest": "sha256:" + "3" * 64, "text": "adapter does Y",
+                     "how_verified": "test B", "disposition": "mapped",
+                     "work_item_ids": ["adapter"], "planned_verification": ["run B"]},
+                    {"id": "C3", "digest": "sha256:" + "4" * 64, "text": "both do Z",
+                     "how_verified": "test C", "disposition": "mapped",
+                     "work_item_ids": ["shared", "adapter"], "planned_verification": ["run C"]},
+                    {"id": "C4", "digest": "sha256:" + "5" * 64, "text": "not applicable here",
+                     "how_verified": "n/a", "disposition": "not_applicable", "reason": "out of scope"},
+                ],
+            }],
+        }
+        return value
+
+    def _packet_for(self, value, node_id="shared", route=None):
+        state = bc._initial_state("owner/repo", 7, BASE, PLAN_ID, SEALED, value, None)
+        return work.build_packet(value, state, node_id, route or self.DISPATCHED,
+                                 HEAD_A, "0" * 32, "/tmp/wt")
+
+    # -- packet coverage --
+
+    def test_packet_carries_every_governing_context_field(self):
+        value = self._rich_plan()
+        gc = self._packet_for(value, "shared")["governing_context"]
+        self.assertEqual(gc["success_obligations"], value["success_obligations"])
+        self.assertEqual(gc["risks"], value["risks"])
+        self.assertEqual(gc["assumptions"], value["assumptions"])
+        self.assertEqual(gc["scope_boundary"], value["scope_boundary"])
+        self.assertEqual(gc["interpretation"], value["interpretation"])
+        self.assertEqual({c["id"] for c in gc["spec_criteria"]}, {"C1", "C3"})
+
+    def test_schema_version_is_the_v2_marker(self):
+        self.assertEqual(self._packet_for(self._rich_plan())["schema_version"], "build-work-packet.v2")
+
+    def test_criteria_carry_document_provenance_and_strip_work_item_ids(self):
+        gc = self._packet_for(self._rich_plan(), "shared")["governing_context"]
+        c3 = next(c for c in gc["spec_criteria"] if c["id"] == "C3")
+        self.assertEqual(c3["document_path"], "docs/spec/thing.md")
+        self.assertEqual(c3["document_digest"], "sha256:" + "1" * 64)
+        self.assertEqual(c3["text"], "both do Z")
+        self.assertEqual(c3["how_verified"], "test C")
+        self.assertEqual(c3["planned_verification"], ["run C"])
+        self.assertNotIn("work_item_ids", c3)
+
+    def test_packet_excludes_raw_intent_and_evidence(self):
+        value = self._rich_plan()
+        packet = self._packet_for(value, "shared")
+        blob = json.dumps(packet)
+        self.assertNotIn(value["raw_intent"], blob)          # no-verbatim directive
+        self.assertNotIn("graphlib is stdlib", blob)          # the evidence claim is reviewer grounding
+        self.assertNotIn("evidence", packet["governing_context"])
+
+    # -- sibling exclusion: the bounded guarantee the governing context must not break --
+
+    def test_sibling_only_criterion_excluded_and_no_sibling_id_serialized(self):
+        packet = self._packet_for(self._rich_plan(), "shared")
+        self.assertNotIn("C2", {c["id"] for c in packet["governing_context"]["spec_criteria"]})
+        # the whole serialized packet is free of the sibling node id — no node object, and the mapped
+        # criteria stripped their work_item_ids so a shared criterion cannot leak "adapter".
+        self.assertNotIn("adapter", json.dumps(packet))
+
+    # -- context versus deliverable --
+
+    def test_context_is_labeled_context_not_the_deliverable(self):
+        packet = self._packet_for(self._rich_plan(), "shared")
+        self.assertIn("not your assignment", packet["governing_context"]["note"])
+        self.assertIn("not this node's deliverable",
+                      packet["required_result"]["envelope_is_context_not_deliverable"])
+        self.assertEqual(packet["required_result"]["required_evidence"],
+                         packet["node"]["output_contract"]["required_evidence"])
+
+    def test_identity_duty_follows_the_route_mode(self):
+        self.assertEqual(self._packet_for(self._rich_plan(), route=self.DISPATCHED)
+                         ["required_result"]["identity"]["mode"], "worker-commit")
+        self.assertEqual(self._packet_for(self._rich_plan(), route=self.INLINE)
+                         ["required_result"]["identity"]["mode"], "accepted-candidate")
+
+    def test_accepted_candidate_duty_names_the_stage_digest_sequence(self):
+        # The inline session sees the sequence it must run at the point of use, not only in a demo.
+        duty = self._packet_for(self._rich_plan(), route=self.INLINE)["required_result"]["identity"]["duty"]
+        self.assertIn("stage-digest", duty)
+        self.assertIn("artifact_digest", duty)
+
+    # -- profile defaults and refusals --
+
+    def test_normal_plan_missing_a_governing_field_refuses(self):
+        value = self._rich_plan()
+        del value["scope_boundary"]
+        with self.assertRaisesRegex(bc.CoordinatorError,
+                                    "missing governing-context field 'scope_boundary'"):
+            self._packet_for(value, "shared")
+
+    def test_trivial_profile_defaults_the_absent_optional_fields(self):
+        value = self._rich_plan()
+        value["profile"] = "trivial"
+        for key in ("risks", "assumptions", "scope_boundary", "interpretation"):
+            value.pop(key, None)
+        gc = self._packet_for(value, "shared")["governing_context"]
+        self.assertEqual(gc["risks"], [])
+        self.assertEqual(gc["assumptions"], [])
+        self.assertEqual(gc["scope_boundary"], [])
+        self.assertEqual(gc["interpretation"], "")
+
+    def test_no_settled_spec_yields_empty_criteria_not_a_refusal(self):
+        gc = self._packet_for(plan_v2(), "shared")["governing_context"]
+        self.assertEqual(gc["spec_criteria"], [])
+
+    # -- persona diff carrying the duties --
+
+    def test_personas_carry_the_new_duties(self):
+        root = Path(__file__).resolve().parents[2]
+        for name in ("engine-worker-builder", "engine-worker-bounded"):
+            text = (root / ".claude" / "agents" / f"{name}.md").read_text(encoding="utf-8")
+            self.assertIn("governing context", text)
+            self.assertIn("unresolved_concerns", text)
+            self.assertIn("worker-commit", text)
+            self.assertIn("accepted-candidate", text)
+
+
+class TestIdentityBinding(unittest.TestCase):
+    """W2: bind_result enforces the Engine-selected identity, chosen from the claim's route."""
+
+    ITEM = {"id": "n", "paths": [".engine/tools/n.py"],
+            "output_contract": {"required_evidence": ["changed_paths", "verification_results"]}}
+
+    def _nw(self, inline):
+        route = {"executor_class": "builder", "provider": "claude",
+                 "model": "inherit" if inline else "sonnet",
+                 "effort": "inherit" if inline else "medium", "inline": inline}
+        return {"claim": {"attempt_id": "a" * 32, "base_sha": "0" * 40, "requested_route": route}}
+
+    def _payload(self, **over):
+        payload = {"outcome": "returned",
+                   "evidence": {"changed_paths": [".engine/tools/n.py"], "verification_results": ["ok"]}}
+        payload.update(over)
+        return payload
+
+    def _bind(self, nw, payload):
+        return work.bind_result(nw, self.ITEM, "a" * 32, "0" * 40, payload)
+
+    def test_identity_mode_follows_the_route(self):
+        self.assertEqual(work.identity_mode_for_route({"inline": True}), "accepted-candidate")
+        self.assertEqual(work.identity_mode_for_route({"inline": False}), "worker-commit")
+
+    def test_worker_commit_requires_a_commit_id(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "worker-commit identity requires artifact_ref"):
+            self._bind(self._nw(False), self._payload())
+
+    def test_worker_commit_rejects_a_non_commit_ref(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "worker-commit identity"):
+            self._bind(self._nw(False), self._payload(artifact_ref="/tmp/bundle.git"))
+
+    def test_worker_commit_accepts_a_commit_id(self):
+        result = self._bind(self._nw(False), self._payload(artifact_ref="b" * 40))
+        self.assertEqual(result["artifact_ref"], "b" * 40)
+
+    def test_accepted_candidate_requires_the_staged_digest(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "accepted-candidate identity requires artifact_digest"):
+            self._bind(self._nw(True), self._payload())
+
+    def test_accepted_candidate_accepts_a_staged_digest(self):
+        digest = "sha256:" + "c" * 64
+        result = self._bind(self._nw(True), self._payload(artifact_digest=digest))
+        self.assertEqual(result["artifact_digest"], digest)
+
+
+class TestReceiptAssembly(unittest.TestCase):
+    """W2: the pure attribution rule and receipt shape (git facts arrive as an argument)."""
+
+    FACTS = {"range": ["1" * 40, "2" * 40], "tree_digest": "sha256:" + "a" * 64,
+             "patch_digest": "sha256:" + "b" * 64,
+             "paths": [{"status": "M", "path": "a.py", "old_path": None}]}
+
+    def _receipt(self, mode="worker-commit", siblings=()):
+        return work.assemble_receipt(self.FACTS, "0" * 40, "2" * 40, mode, list(siblings))
+
+    def test_full_receipt_with_no_siblings(self):
+        receipt = self._receipt()
+        self.assertEqual(receipt["schema_version"], "build-integration-receipt.v1")
+        self.assertEqual(receipt["attributable_range"], ["1" * 40, "2" * 40])
+        self.assertEqual(receipt["identity_mode"], "worker-commit")
+        self.assertFalse(receipt["degraded"])
+        self.assertIsNone(receipt["degraded_reason"])
+
+    def test_attribution_subtracts_a_sibling_receipt_range(self):
+        receipt = self._receipt(siblings=[{"node": "s", "receipt_range": ["1" * 40]}])
+        self.assertEqual(receipt["attributable_range"], ["2" * 40])
+        self.assertFalse(receipt["degraded"])
+
+    def test_a_receiptless_sibling_triggers_the_degraded_fallback(self):
+        receipt = self._receipt(siblings=[{"node": "s", "fallback_commit": "1" * 40}])
+        self.assertEqual(receipt["attributable_range"], ["2" * 40])
+        self.assertTrue(receipt["degraded"])
+        self.assertIn("no receipt", receipt["degraded_reason"])
+
+    def test_assemble_rejects_an_unknown_identity_mode(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "unknown identity mode"):
+            self._receipt(mode="bogus")
+
+    def test_validate_rejects_a_malformed_digest(self):
+        bad = dict(self._receipt())
+        bad["tree_digest"] = "not-a-digest"
+        with self.assertRaisesRegex(bc.CoordinatorError, "tree_digest must be a sha256"):
+            work.validate_receipt(bad)
+
+    def test_validate_rejects_a_malformed_path_entry(self):
+        bad = dict(self._receipt())
+        bad["paths"] = [{"status": "Z", "path": "a.py", "old_path": None}]
+        with self.assertRaisesRegex(bc.CoordinatorError, "path entry is malformed"):
+            work.validate_receipt(bad)
+
+    def test_check_identity_refuses_a_contradicting_supplied_digest(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "contradicts the Engine-derived"):
+            work.check_artifact_identity({"artifact_digest": "sha256:" + "9" * 64},
+                                         "sha256:" + "a" * 64, "worker-commit")
+
+    def test_contradicting_digest_refusal_names_a_remedy(self):
+        try:
+            work.check_artifact_identity({"artifact_digest": "sha256:" + "9" * 64},
+                                         "sha256:" + "a" * 64, "worker-commit")
+            self.fail("expected a refusal")
+        except bc.CoordinatorError as exc:
+            self.assertIn("Remedy", str(exc))
+            self.assertIn("drop artifact_digest", str(exc))
+
+    def test_check_identity_passes_when_absent_or_matching(self):
+        work.check_artifact_identity({"artifact_digest": None}, "sha256:" + "a" * 64, "worker-commit")
+        work.check_artifact_identity({"artifact_digest": "sha256:" + "a" * 64},
+                                     "sha256:" + "a" * 64, "worker-commit")
+
+
 if __name__ == "__main__":
     unittest.main()
 
@@ -721,8 +1000,10 @@ class MidBuildRevision(WorkCase):
             "evidence": {"changed_paths": [f".engine/tools/{item}.py"],
                          "verification_results": ["green"]}})
         args = argparse.Namespace(item=item, attempt=claim["attempt_id"], commit=HEAD_A,
-                                  verification_input="focused tests pass")
+                                  verification_input="focused tests pass", plan=str(self.plan_path))
         with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                mock.patch.object(bc, "_integration_receipt",
+                                  side_effect=lambda plan, state, item, nw, c: _canned_receipt(c)), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_integrate(args, self.store)
 

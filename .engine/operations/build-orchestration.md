@@ -148,6 +148,14 @@ follows [external contribution submission](external-contribution-submit.md). A v
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair
 cohesion, and re-dispatch or complete the missing work without inventing workflow state.
 
+`work integrate` completes a v2 node only against an Engine-computed integration receipt (base descent, HEAD
+reachability, Engine-selected identity, an attributable range, and no path outside the node's admissible set);
+a failed check refuses with a named remedy, recorded durably as an integration-class node failure with no
+lifecycle advance, so the node stays incomplete rather than the Build wedging. Recovering a wrongly refused
+integration needs no plan revision: read the refusal, re-integrate a corrected commit, and a clean
+integration clears the failure. Only a genuinely too-narrow declared scope needs the operator — the session
+cannot self-grant an exemption (the plan is digest-checked), so the operator revises the sealed plan.
+
 Before each commit, run `checkpoint` with the exact plan and a short JSON note containing objective, current
 work, named `work_item`, assumptions and accepted risks, non-goals, planned scope, remaining verification, and one judgment:
 `aligned`, `plan_revision_required`, or `operator_decision_required`. The coordinator adds changed paths.
