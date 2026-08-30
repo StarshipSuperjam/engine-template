@@ -812,6 +812,44 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
     os.execve(sys.executable, argv, env)
 
 
+DEGRADED_ENV = "ENGINE_QUALIFICATION_DEGRADED"
+
+
+def _dispatch_attended_degraded(root: str, absolute: str, rel: str, reason: str,
+                                target_args: list[str]) -> None:
+    """Run one attended tool from the live checkout when no accepted tree can be resolved.
+
+    Availability comes first: an attended tool the operator launched — above all the memory MCP server,
+    which a host starts once per session — must never fail to start because qualification is unavailable.
+    The degrade hands the tool the canonical roots and NO execution context, which is precisely the signal
+    the mutation authority tiers on: reads and health answer, canonical authoring refuses.
+    """
+    canonical = _main_checkout(root)
+    if _common_dir(canonical) != _common_dir(root):
+        raise QualificationError("the canonical checkout does not share this repository")
+    memory_dir = os.path.realpath(os.path.join(canonical, ".engine", "memory"))
+    env = {
+        key: value for key, value in os.environ.items()
+        if key not in {"ENGINE_MEMORY_DIR", "ENGINE_PROJECT_ROOT", "ENGINE_ACCEPTED_HOOK_CONTEXT",
+                       "ENGINE_PERSISTENT_EXECUTION_CONTEXT"}
+    }
+    # The tool is launched by absolute path, so its own directory — not the tools root its package imports
+    # resolve against — would be sys.path[0]. Name the tools root explicitly.
+    tools_root = os.path.dirname(os.path.dirname(absolute))
+    existing_path = env.get("PYTHONPATH")
+    env.update({
+        "ENGINE_PROJECT_ROOT": canonical,
+        "ENGINE_MEMORY_DIR": memory_dir,
+        "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical, ".engine", "telemetry", ".cache"),
+        "PYTHONPATH": tools_root + (os.pathsep + existing_path if existing_path else ""),
+        DEGRADED_ENV: reason,
+    })
+    print(f"Engine {rel} is running unqualified: {reason}. Reads and health work; "
+          f"writing to memory waits for qualification.", file=sys.stderr)
+    os.chdir(canonical)
+    os.execve(sys.executable, [sys.executable, absolute, *target_args], env)
+
+
 def dispatch_attended(root: str, script: str, operation: str, target_args: list[str]) -> None:
     """Leave the attended checkout and re-enter one exact registered operation in accepted code."""
     root = _top(root)
@@ -821,9 +859,13 @@ def dispatch_attended(root: str, script: str, operation: str, target_args: list[
             or not absolute.endswith(".py") or not os.path.isfile(absolute)):
         raise QualificationError("attended script must be one normalized regular Python tool")
     rel = os.path.relpath(absolute, root).replace(os.sep, "/")
-    activation = load_activation(root)
-    _verify_exact_object(root, activation)
-    accepted_tree = _materialize(root, activation)
+    try:
+        activation = load_activation(root)
+        _verify_exact_object(root, activation)
+        accepted_tree = _materialize(root, activation)
+    except QualificationError as exc:
+        _dispatch_attended_degraded(root, absolute, rel, str(exc), target_args)
+        return  # os.execve never returns
     context = _canonical_context(root, activation, accepted_tree)
     provider_authority = _provider_authority(accepted_tree)
     context["invocation"] = {
