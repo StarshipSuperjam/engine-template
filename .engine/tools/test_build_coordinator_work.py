@@ -16,7 +16,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import build_coordinator as bc  # noqa: E402
 import build_coordinator_work as work  # noqa: E402
-from test_build_coordinator import plan_v1, plan_v2, _work_item_v2, HEAD_A, BASE, PLAN_ID, SEALED  # noqa: E402
+from test_build_coordinator import plan_v1, plan_v2, _work_item_v2, HEAD_A, HEAD_B, BASE, PLAN_ID, SEALED  # noqa: E402
 import build_coordinator_dag as dag  # noqa: E402
 import build_coordinator_github as ghub  # noqa: E402
 
@@ -48,6 +48,12 @@ class WorkCase(unittest.TestCase):
         return json.loads(out.getvalue())
 
     def result(self, item, attempt, payload):
+        # These fixtures dispatch worker-commit nodes (the default builder route), so a returned result
+        # now owes a commit id as its identity. Inject a valid default where a case does not speak to
+        # identity; a case that tests identity's ABSENCE sets artifact_ref explicitly (even to None).
+        payload = dict(payload)
+        if payload.get("outcome") == "returned" and "artifact_ref" not in payload:
+            payload["artifact_ref"] = HEAD_A
         path = Path(self.temp.name) / "result.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
         args = argparse.Namespace(item=item, attempt=attempt, plan=str(self.plan_path), input=str(path))
@@ -126,7 +132,7 @@ class TestWorkClaims(WorkCase):
     def test_result_verb_guards_with_compare_and_swap(self):
         packet = self.claim("shared")   # revision advances to 2
         path = Path(self.temp.name) / "r.json"
-        path.write_text(json.dumps({"outcome": "returned", "base_sha": HEAD_A,
+        path.write_text(json.dumps({"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_A,
                                     "evidence": {"changed_paths": [".engine/tools/shared.py"], "verification_results": ["ok"]}}))
         stale = bc.StateStore(self.state_path, expected_revision=1)
         args = argparse.Namespace(item="shared", attempt=packet["attempt_id"], plan=str(self.plan_path), input=str(path))
@@ -595,8 +601,10 @@ class TestHandoffV2(WorkCase):
         # The handoff reaches the public PR body: local paths and unreviewed worker free-text are
         # redacted; identifiers, digests, outcomes, and repo-relative changed paths travel.
         packet = self.claim("shared")
+        # A worker-commit attempt's artifact_ref is its commit id; the bounded projection redacts it
+        # anyway (the receipt's own integration_commit is the published fact), which this pins.
         self.result("shared", packet["attempt_id"],
-                    {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": "/Users/someone/bundle.git",
+                    {"outcome": "returned", "base_sha": HEAD_A, "artifact_ref": HEAD_B,
                      "evidence": {"changed_paths": [".engine/tools/shared.py"],
                                   "verification_results": ["ran the suite: 3 passed"],
                                   "assumptions": ["assumed the flag stays default"]}})
@@ -806,6 +814,109 @@ class TestGoverningContextPacket(WorkCase):
             self.assertIn("unresolved_concerns", text)
             self.assertIn("worker-commit", text)
             self.assertIn("accepted-candidate", text)
+
+
+class TestIdentityBinding(unittest.TestCase):
+    """W2: bind_result enforces the Engine-selected identity, chosen from the claim's route."""
+
+    ITEM = {"id": "n", "paths": [".engine/tools/n.py"],
+            "output_contract": {"required_evidence": ["changed_paths", "verification_results"]}}
+
+    def _nw(self, inline):
+        route = {"executor_class": "builder", "provider": "claude",
+                 "model": "inherit" if inline else "sonnet",
+                 "effort": "inherit" if inline else "medium", "inline": inline}
+        return {"claim": {"attempt_id": "a" * 32, "base_sha": "0" * 40, "requested_route": route}}
+
+    def _payload(self, **over):
+        payload = {"outcome": "returned",
+                   "evidence": {"changed_paths": [".engine/tools/n.py"], "verification_results": ["ok"]}}
+        payload.update(over)
+        return payload
+
+    def _bind(self, nw, payload):
+        return work.bind_result(nw, self.ITEM, "a" * 32, "0" * 40, payload)
+
+    def test_identity_mode_follows_the_route(self):
+        self.assertEqual(work.identity_mode_for_route({"inline": True}), "accepted-candidate")
+        self.assertEqual(work.identity_mode_for_route({"inline": False}), "worker-commit")
+
+    def test_worker_commit_requires_a_commit_id(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "worker-commit identity requires artifact_ref"):
+            self._bind(self._nw(False), self._payload())
+
+    def test_worker_commit_rejects_a_non_commit_ref(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "worker-commit identity"):
+            self._bind(self._nw(False), self._payload(artifact_ref="/tmp/bundle.git"))
+
+    def test_worker_commit_accepts_a_commit_id(self):
+        result = self._bind(self._nw(False), self._payload(artifact_ref="b" * 40))
+        self.assertEqual(result["artifact_ref"], "b" * 40)
+
+    def test_accepted_candidate_requires_the_staged_digest(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "accepted-candidate identity requires artifact_digest"):
+            self._bind(self._nw(True), self._payload())
+
+    def test_accepted_candidate_accepts_a_staged_digest(self):
+        digest = "sha256:" + "c" * 64
+        result = self._bind(self._nw(True), self._payload(artifact_digest=digest))
+        self.assertEqual(result["artifact_digest"], digest)
+
+
+class TestReceiptAssembly(unittest.TestCase):
+    """W2: the pure attribution rule and receipt shape (git facts arrive as an argument)."""
+
+    FACTS = {"range": ["1" * 40, "2" * 40], "tree_digest": "sha256:" + "a" * 64,
+             "patch_digest": "sha256:" + "b" * 64,
+             "paths": [{"status": "M", "path": "a.py", "old_path": None}]}
+
+    def _receipt(self, mode="worker-commit", siblings=()):
+        return work.assemble_receipt(self.FACTS, "0" * 40, "2" * 40, mode, list(siblings))
+
+    def test_full_receipt_with_no_siblings(self):
+        receipt = self._receipt()
+        self.assertEqual(receipt["schema_version"], "build-integration-receipt.v1")
+        self.assertEqual(receipt["attributable_range"], ["1" * 40, "2" * 40])
+        self.assertEqual(receipt["identity_mode"], "worker-commit")
+        self.assertFalse(receipt["degraded"])
+        self.assertIsNone(receipt["degraded_reason"])
+
+    def test_attribution_subtracts_a_sibling_receipt_range(self):
+        receipt = self._receipt(siblings=[{"node": "s", "receipt_range": ["1" * 40]}])
+        self.assertEqual(receipt["attributable_range"], ["2" * 40])
+        self.assertFalse(receipt["degraded"])
+
+    def test_a_receiptless_sibling_triggers_the_degraded_fallback(self):
+        receipt = self._receipt(siblings=[{"node": "s", "fallback_commit": "1" * 40}])
+        self.assertEqual(receipt["attributable_range"], ["2" * 40])
+        self.assertTrue(receipt["degraded"])
+        self.assertIn("no receipt", receipt["degraded_reason"])
+
+    def test_assemble_rejects_an_unknown_identity_mode(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "unknown identity mode"):
+            self._receipt(mode="bogus")
+
+    def test_validate_rejects_a_malformed_digest(self):
+        bad = dict(self._receipt())
+        bad["tree_digest"] = "not-a-digest"
+        with self.assertRaisesRegex(bc.CoordinatorError, "tree_digest must be a sha256"):
+            work.validate_receipt(bad)
+
+    def test_validate_rejects_a_malformed_path_entry(self):
+        bad = dict(self._receipt())
+        bad["paths"] = [{"status": "Z", "path": "a.py", "old_path": None}]
+        with self.assertRaisesRegex(bc.CoordinatorError, "path entry is malformed"):
+            work.validate_receipt(bad)
+
+    def test_check_identity_refuses_a_contradicting_supplied_digest(self):
+        with self.assertRaisesRegex(bc.CoordinatorError, "contradicts the Engine-derived"):
+            work.check_artifact_identity({"artifact_digest": "sha256:" + "9" * 64},
+                                         "sha256:" + "a" * 64, "worker-commit")
+
+    def test_check_identity_passes_when_absent_or_matching(self):
+        work.check_artifact_identity({"artifact_digest": None}, "sha256:" + "a" * 64, "worker-commit")
+        work.check_artifact_identity({"artifact_digest": "sha256:" + "a" * 64},
+                                     "sha256:" + "a" * 64, "worker-commit")
 
 
 if __name__ == "__main__":

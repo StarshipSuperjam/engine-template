@@ -9,6 +9,7 @@ has no backward dependency on the worker-persona surfaces rendered later.
 """
 from __future__ import annotations
 
+import re
 import secrets
 
 import build_coordinator_core as core
@@ -122,6 +123,18 @@ def governing_context(plan: dict, node_id: str) -> dict:
     return context
 
 
+IDENTITY_MODES = ("worker-commit", "accepted-candidate")
+RECEIPT_SCHEMA_VERSION = "build-integration-receipt.v1"
+
+
+def identity_mode_for_route(route: dict) -> str:
+    """The Engine-selected identity mode for a route — never the result supplier's choice.
+
+    A dispatched (non-inline) route is worker-commit; an integrator-inline route is accepted-candidate.
+    """
+    return "accepted-candidate" if route.get("inline") else "worker-commit"
+
+
 def identity_duty(route: dict) -> dict:
     """The artifact identity a worker owes, per the Engine-selected mode for its route.
 
@@ -130,7 +143,7 @@ def identity_duty(route: dict) -> dict:
     the senior session, which computes the digest over the staged tree, so the worker owes no commit.
     W1 states this duty; the mechanism that enforces it is built in W2.
     """
-    if route.get("inline"):
+    if identity_mode_for_route(route) == "accepted-candidate":
         return {"mode": "accepted-candidate",
                 "duty": "Your change is integrated inline by the senior session, which computes the "
                         "artifact tree digest over the staged tree. You owe no worker commit id."}
@@ -138,6 +151,102 @@ def identity_duty(route: dict) -> dict:
             "duty": "Commit your candidate in this worktree and return its commit id as artifact_ref. "
                     "The Engine derives the artifact tree digest from that commit, so identity is "
                     "Engine-observed, not trusted from your report."}
+
+
+def attribute_range(full_range: list, sibling_attributions: list) -> tuple:
+    """The commits attributable to THIS node, given the full first-parent range and its siblings.
+
+    ``full_range`` is the first-parent commit list reachable from the integration commit and not from
+    the claim base — the git side computes it. ``sibling_attributions`` names what each INTEGRATED
+    sibling already owns: ``{'node': id, 'receipt_range': [...]}`` for a sibling that carries a receipt,
+    or ``{'node': id, 'fallback_commit': sha}`` for a receiptless one, whose completion commit stands in
+    for its range under the defined fallback. Returns ``(attributed, degraded, degraded_reason)``.
+    """
+    owned_by_siblings = set()
+    degraded = False
+    reasons = []
+    for sib in sibling_attributions:
+        if sib.get("receipt_range") is not None:
+            owned_by_siblings.update(sib["receipt_range"])
+        else:
+            owned_by_siblings.add(sib["fallback_commit"])
+            degraded = True
+            reasons.append(
+                f"integrated sibling {sib.get('node')} had no receipt; its completion commit "
+                f"{str(sib.get('fallback_commit', ''))[:12]} stood in for its attributable range")
+    attributed = [c for c in full_range if c not in owned_by_siblings]
+    return attributed, degraded, ("; ".join(reasons) if reasons else None)
+
+
+def validate_receipt(receipt: dict) -> None:
+    """Structural validation of an integration receipt — fail closed on anything malformed."""
+    if not isinstance(receipt, dict):
+        raise CoordinatorError("integration receipt must be an object")
+    if receipt.get("schema_version") != RECEIPT_SCHEMA_VERSION:
+        raise CoordinatorError(f"integration receipt must be {RECEIPT_SCHEMA_VERSION}")
+    for key in ("claim_base", "integration_commit"):
+        if not (isinstance(receipt.get(key), str) and re.fullmatch(r"[0-9a-f]{40}", receipt[key])):
+            raise CoordinatorError(f"integration receipt {key} must be a 40-hex commit id")
+    for key in ("patch_digest", "tree_digest"):
+        if not (isinstance(receipt.get(key), str) and re.fullmatch(r"sha256:[0-9a-f]{64}", receipt[key])):
+            raise CoordinatorError(f"integration receipt {key} must be a sha256 digest")
+    rng = receipt.get("attributable_range")
+    if not isinstance(rng, list) or any(
+            not (isinstance(c, str) and re.fullmatch(r"[0-9a-f]{40}", c)) for c in rng):
+        raise CoordinatorError("integration receipt attributable_range must be a list of commit ids")
+    if receipt.get("identity_mode") not in IDENTITY_MODES:
+        raise CoordinatorError("integration receipt identity_mode is invalid")
+    if not isinstance(receipt.get("degraded"), bool):
+        raise CoordinatorError("integration receipt degraded must be a boolean")
+    if not isinstance(receipt.get("paths"), list):
+        raise CoordinatorError("integration receipt paths must be a list")
+    for entry in receipt["paths"]:
+        if (not isinstance(entry, dict) or entry.get("status") not in ("A", "M", "D", "R")
+                or not isinstance(entry.get("path"), str) or not entry["path"]):
+            raise CoordinatorError("integration receipt path entry is malformed")
+
+
+def assemble_receipt(git_facts: dict, claim_base: str, integration_commit: str,
+                     identity_mode: str, sibling_attributions: list) -> dict:
+    """Assemble the versioned integration receipt from Engine-gathered git facts. Pure.
+
+    The git side gathers ``git_facts`` (range, tree/patch digests, normalized paths) through a gatherer
+    taking an explicit repository root; this function applies the fixed attribution rule and records the
+    identity mode proved. It touches no git and imports nothing outside core and dag.
+    """
+    if identity_mode not in IDENTITY_MODES:
+        raise CoordinatorError(f"unknown identity mode {identity_mode!r}")
+    attributed, degraded, reason = attribute_range(git_facts["range"], sibling_attributions)
+    receipt = {
+        "schema_version": RECEIPT_SCHEMA_VERSION,
+        "claim_base": claim_base,
+        "integration_commit": integration_commit,
+        "attributable_range": attributed,
+        "patch_digest": git_facts["patch_digest"],
+        "tree_digest": git_facts["tree_digest"],
+        "paths": git_facts["paths"],
+        "identity_mode": identity_mode,
+        "degraded": degraded,
+        "degraded_reason": reason,
+    }
+    validate_receipt(receipt)
+    return receipt
+
+
+def check_artifact_identity(result: dict, engine_tree_digest: str, identity_mode: str) -> None:
+    """Refuse a returned result whose SUPPLIED artifact digest contradicts the Engine-derived one.
+
+    The Engine derives the tree digest itself — from the worker's named commit in worker-commit mode,
+    or over the staged candidate tree in accepted-candidate mode. A digest carried on the result is
+    only ever a cross-check; when present and disagreeing, the result is refused rather than trusting
+    the supplier over the Engine's own observation.
+    """
+    supplied = (result or {}).get("artifact_digest")
+    if supplied and supplied != engine_tree_digest:
+        raise CoordinatorError(
+            f"supplied artifact_digest {supplied} contradicts the Engine-derived tree digest "
+            f"{engine_tree_digest} for the {identity_mode} artifact; refusing rather than trusting the "
+            "supplied value")
 
 
 def build_packet(plan: dict, state: dict, node_id: str, route: dict, base_sha: str,
@@ -220,6 +329,23 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
         if escaped:
             raise CoordinatorError(
                 "returned result changed paths outside the node's declared scope: " + ", ".join(sorted(escaped)))
+        # Identity, Engine-selected from the claim's stored route — never offered to the supplier. A
+        # worker-commit attempt must name its commit; an accepted-candidate attempt must carry the
+        # Engine-observed staged tree digest (`work stage-digest`). The digest is re-derived and
+        # cross-checked at integration; here we only refuse a result lacking its mode's identity.
+        mode = identity_mode_for_route((claim or {}).get("requested_route") or {})
+        if mode == "worker-commit":
+            ref = payload.get("artifact_ref")
+            if not (isinstance(ref, str) and re.fullmatch(r"[0-9a-f]{40}", ref)):
+                raise CoordinatorError(
+                    "worker-commit identity requires artifact_ref to be the worker's 40-hex commit id; "
+                    "the Engine derives the artifact tree digest from that commit")
+        else:
+            supplied = payload.get("artifact_digest")
+            if not (isinstance(supplied, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", supplied)):
+                raise CoordinatorError(
+                    "accepted-candidate identity requires artifact_digest to be the Engine-observed "
+                    "staged tree digest from `work stage-digest`")
     return {"attempt_id": attempt_id, "base_sha": base_sha, "outcome": outcome,
             "artifact_ref": payload.get("artifact_ref"), "artifact_digest": payload.get("artifact_digest"),
             "evidence": evidence}
