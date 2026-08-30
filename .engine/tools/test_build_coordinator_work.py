@@ -21,6 +21,15 @@ import build_coordinator_dag as dag  # noqa: E402
 import build_coordinator_github as ghub  # noqa: E402
 
 
+def _canned_receipt(commit):
+    """A schema-valid receipt for lifecycle tests that mock enforcement away (they use fake commits
+    real git cannot resolve; the receipt machinery itself is exercised on real repos elsewhere)."""
+    return {"schema_version": "build-integration-receipt.v1", "claim_base": BASE,
+            "integration_commit": commit, "attributable_range": [commit],
+            "patch_digest": "sha256:" + "b" * 64, "tree_digest": "sha256:" + "a" * 64,
+            "paths": [], "identity_mode": "worker-commit", "degraded": False, "degraded_reason": None}
+
+
 class WorkCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -168,7 +177,8 @@ class TestWorkClaims(WorkCase):
             lambda s: bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="redispatch", reason="x"), s),
             lambda s: bc.cmd_work_abandon(argparse.Namespace(item="shared", attempt="0" * 32, reason="x"), s),
             lambda s: bc.cmd_work_integrate(argparse.Namespace(item="shared", attempt="0" * 32,
-                                                               commit=HEAD_A, verification_input="v"), s),
+                                                               commit=HEAD_A, verification_input="v",
+                                                               plan=str(self.plan_path)), s),
         ):
             stale = bc.StateStore(self.state_path, expected_revision=1)
             with self.assertRaisesRegex(bc.CoordinatorError, "reload status"):
@@ -373,8 +383,12 @@ class TestWorkDispositions(WorkCase):
             bc.cmd_work_reject(args, self.store)
 
     def _integrate(self, item, attempt, commit=HEAD_A, verification="focused tests pass"):
-        args = argparse.Namespace(item=item, attempt=attempt, commit=commit, verification_input=verification)
-        with mock.patch.object(bc, "_commit_on_branch", return_value=True), contextlib.redirect_stdout(io.StringIO()):
+        args = argparse.Namespace(item=item, attempt=attempt, commit=commit,
+                                  verification_input=verification, plan=str(self.plan_path))
+        with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                mock.patch.object(bc, "_integration_receipt",
+                                  side_effect=lambda plan, state, item, nw, c: _canned_receipt(c)), \
+                contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_integrate(args, self.store)
 
     def test_reject_releases_resources_and_marks_failed(self):
@@ -447,7 +461,8 @@ class TestWorkDispositions(WorkCase):
 
     def test_integration_off_branch_commit_is_refused(self):
         attempt = self._return("shared")
-        args = argparse.Namespace(item="shared", attempt=attempt, commit="c" * 40, verification_input="v")
+        args = argparse.Namespace(item="shared", attempt=attempt, commit="c" * 40,
+                                  verification_input="v", plan=str(self.plan_path))
         with mock.patch.object(bc, "_commit_on_branch", return_value=False):
             with self.assertRaisesRegex(bc.CoordinatorError, "not on the PR branch"):
                 bc.cmd_work_integrate(args, self.store)
@@ -467,7 +482,8 @@ class TestWorkDispositions(WorkCase):
 
     def test_integrate_requires_a_focused_verification_summary(self):
         attempt = self._return("shared")
-        args = argparse.Namespace(item="shared", attempt=attempt, commit=HEAD_A, verification_input="   ")
+        args = argparse.Namespace(item="shared", attempt=attempt, commit=HEAD_A,
+                                  verification_input="   ", plan=str(self.plan_path))
         with mock.patch.object(bc, "_commit_on_branch", return_value=True):
             with self.assertRaisesRegex(bc.CoordinatorError, "focused-verification"):
                 bc.cmd_work_integrate(args, self.store)
@@ -969,8 +985,10 @@ class MidBuildRevision(WorkCase):
             "evidence": {"changed_paths": [f".engine/tools/{item}.py"],
                          "verification_results": ["green"]}})
         args = argparse.Namespace(item=item, attempt=claim["attempt_id"], commit=HEAD_A,
-                                  verification_input="focused tests pass")
+                                  verification_input="focused tests pass", plan=str(self.plan_path))
         with mock.patch.object(bc, "_commit_on_branch", return_value=True), \
+                mock.patch.object(bc, "_integration_receipt",
+                                  side_effect=lambda plan, state, item, nw, c: _canned_receipt(c)), \
                 contextlib.redirect_stdout(io.StringIO()):
             bc.cmd_work_integrate(args, self.store)
 

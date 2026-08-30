@@ -148,6 +148,21 @@ follows [external contribution submission](external-contribution-submit.md). A v
 follows [Build work dispatch](build-work-dispatch.md). If a worker fails, inspect what returned, repair
 cohesion, and re-dispatch or complete the missing work without inventing workflow state.
 
+`work integrate` completes a v2 node only against an Engine-computed integration receipt: it verifies, under
+one state-lock and one HEAD observation, that the commit descends from the claim base and is reachable from
+HEAD, that the artifact identity matches the Engine-selected mode (the worker's named commit, or the staged
+tree digest for an inline node), that the attributable range is non-empty unless the sealed plan permits a
+no-op, and that no changed path escapes the node's admissible set (its declared paths, regenerated
+derived-artifact outputs, and paths a sibling's receipt already owns). A failed check refuses and is
+**recorded durably as an integration-class node failure with no lifecycle advance** — the node stays
+incomplete rather than the Build wedging. **Recovering a wrongly refused integration needs no plan revision:**
+read the refusal (it names its remedy), correct the commit so it satisfies the check — commit the worker's
+own tree, fold the work into a real commit, or keep the change within the node's declared paths — and run
+`work integrate` again; a clean integration clears the recorded failure. The one case that does need the
+operator is a change the node's declared scope was genuinely too narrow for: the integrating session cannot
+grant itself an exemption (the plan is read digest-checked), so the operator revises the sealed plan through
+the plan-revise route and the widened scope makes the same commit admissible.
+
 Before each commit, run `checkpoint` with the exact plan and a short JSON note containing objective, current
 work, named `work_item`, assumptions and accepted risks, non-goals, planned scope, remaining verification, and one judgment:
 `aligned`, `plan_revision_required`, or `operator_decision_required`. The coordinator adds changed paths.
