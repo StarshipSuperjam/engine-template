@@ -208,6 +208,23 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
                                                  "mode": "same-session", "worktree": str(bc.ROOT)})
 
+    def test_a_second_bind_over_an_existing_snapshot_refuses_before_it_writes(self):
+        """Two cold reviewers independently proved the regression this pins: with the binding write
+        ahead of `store.create`, a plain operator retry — bind again over an existing Build —
+        rewrote `build_binding` to a PR carrying no Build and appended a consent attestation for a
+        bind that was then refused. The snapshot-exists refusal must land before ANY write."""
+        pr = {"number": 9, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        # A snapshot already on disk, the way a killed-and-retried Build leaves one.
+        self.store.path.parent.mkdir(parents=True, exist_ok=True)
+        self.store.path.write_text("{}", encoding="utf-8")
+        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_record_build_binding") as binding, \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(bc.CoordinatorError, "already exists"):
+                bc.cmd_plan_bind(self.bind_args(pr=9), self.store)
+        binding.assert_not_called()
+
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding") as binding, contextlib.redirect_stdout(io.StringIO()):
@@ -496,6 +513,114 @@ class TestSealedPlanEntry(CoordinatorCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "moved since it was sealed"):
             bc._sealed_plan(self.document["plan_id"])
 
+    def _close(self, state, reason="because"):
+        record = self.library.read_record(self.slug)
+        self.library.update_record(
+            self.slug,
+            lambda current: current.update({"closure": {
+                "state": state, "at": "2026-08-29T08:00:00Z", "reason": reason}}),
+            expected_revision=record["current"]["revision"])
+
+    def test_a_closed_sealed_plan_is_refused_by_the_bind_verb_itself(self):
+        """The GATE, not the advice text. `_next_step` said a closed plan was no longer bindable
+        while the door went on binding it — a claim nothing enforced. These assert the door."""
+        for state, phrase in (("retired", "set aside"),
+                              ("abandoned", "deliberately dropped"),
+                              ("complete", "already merged")):
+            with self.subTest(state=state):
+                self.seal_it()
+                self._close(state)
+                with self.assertRaises(bc.CoordinatorError) as caught:
+                    bc._sealed_plan(self.document["plan_id"])
+                message = str(caught.exception)
+                self.assertIn(f"is {state}", message)
+                self.assertIn("does not start a Build", message)
+                self.assertIn(phrase, message)
+                # Reset for the next state: a closure is replaced, not stacked.
+                record = self.library.read_record(self.slug)
+                self.library.update_record(
+                    self.slug, lambda current: current.update({"closure": None}),
+                    expected_revision=record["current"]["revision"])
+
+    def test_the_way_through_the_refusal_names_actually_opens(self):
+        """Existence is not openness, and this is the gap that let the first version through.
+
+        The refusal originally named `project_manager.py reopen`. That verb exists — a sweep for
+        verbs that do not exist passes it happily — but it refuses EVERY sealed plan, and only a
+        sealed plan can reach this message at all, because the unsealed refusal returns first. So
+        the door was named, real, and locked. This asserts the property the sweep cannot: that what
+        the message tells the operator to run is something that works for the plan in front of them.
+        """
+        import project_manager as pm
+        for state in ("retired", "abandoned", "complete"):
+            with self.subTest(state=state):
+                self.seal_it()
+                self._close(state)
+                with self.assertRaises(bc.CoordinatorError) as caught:
+                    bc._sealed_plan(self.document["plan_id"])
+                message = str(caught.exception)
+                self.assertNotIn("reopen", message,
+                                 "reopen refuses every sealed plan, so naming it is a locked door")
+                self.assertIn("clone", message)
+
+                # And clone genuinely opens for this plan, right now, in this state.
+                args = argparse.Namespace(plan=self.document["plan_id"], reason="carrying it on",
+                                          title=None, supersedes=None,
+                                          library=str(self.library.root))
+                with contextlib.redirect_stdout(io.StringIO()) as out:
+                    self.assertEqual(pm.cmd_clone(args), 0)
+                self.assertIn("cloned", out.getvalue())
+
+                record = self.library.read_record(self.slug)
+                self.library.update_record(
+                    self.slug, lambda current: current.update({"closure": None}),
+                    expected_revision=record["current"]["revision"])
+
+    def test_an_open_sealed_plan_still_binds_exactly_as_before(self):
+        seal = self.seal_it()
+        plan_id, sealed_digest, payload = bc._sealed_plan(self.document["plan_id"])
+        self.assertEqual(plan_id, self.document["plan_id"])
+        self.assertEqual(sealed_digest, seal["sealed_digest"])
+        self.assertEqual(bc._digest(payload), bc._digest(plan()))
+
+    def test_a_build_already_under_way_resumes_on_a_closed_plan_and_is_warned(self):
+        """The `entering` narrowing, which shipped without a fixture until a reviewer said so.
+
+        A closed plan does not START a Build; one already legitimately under way does not cease to
+        exist because someone retired its plan. The resume paths therefore disclose rather than
+        refuse — and the disclosure has to WARN, because a plan carrying a build binding is by
+        construction sealed, so the closure can never be reopened and a merge will have nowhere to
+        record its completion.
+        """
+        self.seal_it()
+        self._close("retired")
+        with self.assertRaises(bc.CoordinatorError):
+            bc._sealed_plan(self.document["plan_id"])                    # entering: refused
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            plan_id, _, _ = bc._sealed_plan(self.document["plan_id"], entering=False)
+        self.assertEqual(plan_id, self.document["plan_id"])              # not entering: continues
+        note = err.getvalue()
+        self.assertIn("warning", note)
+        self.assertIn("retired", note)
+        self.assertIn("will be recorded only in the pull request itself", note)
+        # The warning once ended by instructing "undo the closure now" — an undo it had itself just
+        # called impossible, since `reopen` refuses every sealed plan. It must name no action.
+        self.assertNotIn("Undo the closure", note)
+
+    def test_an_open_plan_resuming_says_nothing(self):
+        """The warning must be about the closure, not a line printed on every resume."""
+        self.seal_it()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            bc._sealed_plan(self.document["plan_id"], entering=False)
+        self.assertEqual(err.getvalue(), "")
+
+    def test_the_closed_refusal_comes_after_the_unsealed_one(self):
+        """An unsealed AND closed plan should hear about the seal: it is the more basic fact, and
+        naming the closure first would send someone to reopen a plan that could not bind anyway."""
+        self._close("abandoned")
+        with self.assertRaisesRegex(bc.CoordinatorError, "is not sealed"):
+            bc._sealed_plan(self.document["plan_id"])
+
     def test_binding_records_the_binding_on_the_plan_itself(self):
         seal = self.seal_it()
         bc._record_build_binding(self.document["plan_id"], "owner/repo", 7, seal["sealed_digest"],
@@ -505,13 +630,98 @@ class TestSealedPlanEntry(CoordinatorCase):
         self.assertEqual(binding["repository"], "owner/repo")
         self.assertEqual(binding["sealed_digest"], seal["sealed_digest"])
 
-    def test_a_library_that_cannot_be_written_does_not_strand_the_build(self):
+    def test_a_library_that_cannot_be_written_refuses_the_bind(self):
+        """The write is the interlock now, so failing to land it fails the bind — never a shrug.
+
+        This test used to assert the OPPOSITE: that the failure was disclosed on stderr and the
+        Build proceeded unbound. An unbound Build is invisible to `refuse_if_active` on the
+        supersede side, which re-asserts "no build_binding" under the plan lock — so best-effort
+        here hollowed out that guard entirely.
+        """
         seal = self.seal_it()
-        with mock.patch.object(self.library, "update_record", side_effect=OSError("read-only")), \
-                contextlib.redirect_stderr(io.StringIO()) as err:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7, seal["sealed_digest"],
-                                     seal["build_plan_digest"])
-        self.assertIn("could not record the Build binding", err.getvalue())
+        with mock.patch.object(self.library, "update_record", side_effect=OSError("read-only")):
+            with self.assertRaises(bc.CoordinatorError) as caught:
+                bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                         seal["sealed_digest"], seal["build_plan_digest"])
+        self.assertIn("could not record the Build binding", str(caught.exception))
+        self.assertIn("refuses rather than proceeding", str(caught.exception))
+
+    def test_a_crash_retry_of_the_same_bind_does_not_double_record_consent(self):
+        """The trail is published verbatim into the PR body; a retry re-writes the marker but must
+        not record the operator saying the same thing twice. A different decision still appends."""
+        seal = self.seal_it()
+        consent = {"gate": "bind", "decision": "Yes, begin.", "at": "2026-08-29T10:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
+        record = self.library.read_record(self.slug)
+        self.assertEqual(len(record.get("consent") or []), 1)
+        different = {"gate": "bind", "decision": "Yes, begin again.", "at": "2026-08-29T11:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], different)
+        self.assertEqual(len(self.library.read_record(self.slug).get("consent") or []), 2)
+
+    def test_a_second_bind_onto_a_new_pr_records_the_operators_words_again(self):
+        """`state supersede` makes a second Build of the same plan a first-class act, and the
+        operator repeating "yes" is a NEW consent for a NEW binding. Keyed on the words alone,
+        the dedup swallowed it — two reviewers drove the published trail attesting a bind hours
+        before the bind it authorized. Suppression is for the crash-retry of an IDENTICAL binding
+        and nothing else."""
+        seal = self.seal_it()
+        same_words_am = {"gate": "bind", "decision": "Go.", "at": "2026-08-29T09:00:00Z"}
+        same_words_pm = {"gate": "bind", "decision": "Go.", "at": "2026-08-29T17:30:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], same_words_am)
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 99,
+                                 seal["sealed_digest"], seal["build_plan_digest"], same_words_pm)
+        entries = self.library.read_record(self.slug).get("consent") or []
+        self.assertEqual([entry["at"] for entry in entries],
+                         ["2026-08-29T09:00:00Z", "2026-08-29T17:30:00Z"])
+
+    def test_the_rollback_restores_only_what_this_command_wrote(self):
+        """The rollback is the one write on its path that used to carry no precondition, and a
+        reviewer drove the consequence: a concurrent bind landing in the window was erased —
+        binding AND consent — silently. It now asserts, inside the mutator, that the record's
+        binding is still the one this command wrote, and refuses to touch anything else's."""
+        seal = self.seal_it()
+        mine = {"gate": "bind", "decision": "adopt it", "at": "2026-08-29T12:00:00Z"}
+        written = {"repository": "owner/repo", "pull_request": 7,
+                   "sealed_digest": seal["sealed_digest"],
+                   "build_plan_digest": seal["build_plan_digest"]}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(mine))
+        # The clean case: nothing moved, so the restore lands and removes only this entry.
+        bc._restore_binding(self.slug, None, [], written, dict(mine))
+        record = self.library.read_record(self.slug)
+        self.assertIsNone(record.get("build_binding"))
+        self.assertNotIn("consent", record)
+        # The raced case: another session's bind moved the record; the rollback refuses whole.
+        theirs = {"gate": "bind", "decision": "start the other Build", "at": "2026-08-29T13:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 4242,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(theirs))
+        with self.assertRaisesRegex(bc.CoordinatorError, "another session moved"):
+            bc._restore_binding(self.slug, None, [], written, dict(mine))
+        record = self.library.read_record(self.slug)
+        self.assertEqual(record["build_binding"]["pull_request"], 4242)
+        self.assertEqual([entry["decision"] for entry in record["consent"]],
+                         ["start the other Build"])
+
+    def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
+        """The bind half of the supersede interlock, driven at exactly the racing write.
+
+        `_sealed_plan` checks closure on an unlocked read; a supersession landing after that check
+        used to leave a Build starting on a plan the record had just put away. The re-assertion
+        lives inside the mutator, under the same lock `refuse_if_active` runs under — this closes
+        the plan after the pre-check would have passed and drives the write directly.
+        """
+        seal = self.seal_it()
+        self._close("retired")     # the closure lands after any earlier check, before the write
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                     seal["sealed_digest"], seal["build_plan_digest"])
+        self.assertIn("closed plan does not start a Build", str(caught.exception))
+        self.assertIsNone(self.library.read_record(self.slug).get("build_binding"))
 
     def test_cold_restore_is_blocked_when_the_sealed_plan_is_gone(self):
         self.seal_it()

@@ -1001,12 +1001,20 @@ def _library() -> "plan_store.PlanLibrary":
 # without assurance, and the operator named it governance overreach.
 
 
-def _sealed_plan(selector: str) -> tuple[str, str, dict]:
+def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dict]:
     """Resolve a sealed plan in the local library: (plan_id, sealed_digest, build payload).
 
     This is the ONLY door a plan comes through. Anything unsealed is refused here rather than at some
     later gate, because a Build that has already started against an unreviewed plan is exactly the
     failure the seal exists to prevent.
+
+    `entering` says whether this call is a Build STARTING on the plan. The closed-plan refusal below
+    applies only then, and the distinction is load-bearing: the rule is that a closed plan does not
+    start a Build, not that a Build already legitimately under way stops existing when someone
+    retires its plan. Applied to the resume paths as well, it stranded exactly the sessions that
+    most needed to hand their work on — handoff export and cold continuation both refused, and told
+    the operator to clone and start again, discarding a Build with an open pull request. Those two
+    callers pass `entering=False` and disclose the closure instead of refusing on it.
     """
     import plan_contract
     library = _library()
@@ -1026,6 +1034,45 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
             f"{record['plan_id']} is not sealed, and only a sealed plan enters a Build. Finish its "
             "lifecycle first — preview, approve with a depth, record the one cold plan review, "
             f"disposition its findings, then `project_manager.py seal {record['plan_id']}`.")
+    closure = record.get("closure")
+    if closure and not entering:
+        # Disclosed, never swallowed: the operator is finishing a Build whose plan was closed under
+        # it, and that is worth saying out loud even though it does not stop the resume.
+        # Warn, do not reassure. Letting the resume through is right; leaving it there is not.
+        # A plan carrying a build_binding is by construction sealed, so `reopen` can never clear
+        # this closure — and `plan complete` refuses a plan that is already closed. The Build below
+        # can therefore run and merge and still have nowhere to record that it did.
+        print(f"warning: {record['plan_id']} is {closure['state']} ({closure['reason']}). This "
+              "Build was bound before that, so it continues and a NEW Build could not start here — "
+              "but the closure cannot be undone: this plan is sealed, so `reopen` refuses it, and a "
+              "closed plan will not take a completion. If this Build merges, its completion will be "
+              "recorded only in the pull request itself — this plan's record will not carry it. "
+              "Nothing here needs an action; it is said so the record's silence later is not a "
+              "surprise.",
+              file=sys.stderr)
+    if closure and entering:
+        # A closed plan stayed BINDABLE, and a seal is forever: a plan retired because it was
+        # superseded, or abandoned because the work was dropped, could still start a Build months
+        # later — a loaded gun on the shelf under a record saying it had been put away. "No longer
+        # bindable" was advice printed by the next-step helper and nothing more; this is the door
+        # itself, which is what makes it true.
+        # Every way through named here must actually open for a plan that can REACH this message,
+        # and only a SEALED plan can — the unsealed refusal above returns first. `reopen` is
+        # therefore not among them: it refuses every sealed plan outright, since unsealing would let
+        # an edited plan keep a digest a Build already trusted. Naming it would send an operator at
+        # a locked door, which the retired and abandoned branches did until a cold reviewer tried it.
+        # For all three states the door that opens is the same one: clone.
+        clone = (f"`project_manager.py clone {record['plan_id']} --reason \"...\"` starts a new plan "
+                 "from this one's thinking, carrying none of the evidence nobody granted the copy.")
+        ways = {
+            "retired": "It was set aside, and a seal cannot be undone to bring it back. Build the "
+                       f"plan that replaced it, or start again from this one: {clone}",
+            "abandoned": f"It was deliberately dropped, and a seal cannot be undone. {clone}",
+            "complete": f"Its Build already merged, and completed Build history is terminal. {clone}",
+        }
+        raise CoordinatorError(
+            f"{record['plan_id']} is {closure['state']} ({closure['reason']}), and a closed plan "
+            "does not start a Build. " + ways.get(closure["state"], ""))
     document = library.head(slug)
     if record["current"]["plan_digest"] != seal["sealed_digest"]:
         raise CoordinatorError(
@@ -1043,15 +1090,27 @@ def _sealed_plan(selector: str) -> tuple[str, str, dict]:
 
 def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest: str,
                           build_plan_digest: str, consent: dict | None = None) -> None:
-    """Mark the sealed plan as the one now driving a Build. Best-effort and non-fatal.
+    """Mark the sealed plan as the one now driving a Build. The bind half of an interlock — fatal.
 
-    The binding is a record, not a lock: the plan library is the plan's home and the Build snapshot is
-    the Build's, and a library that cannot be written must not strand a Build that is otherwise sound.
+    This write used to be best-effort, and that hollowed out the guard on the other side:
+    `program supersede` re-asserts "no build_binding" inside the plan record's own lock before it
+    retires a plan, which only means something if every Build actually writes its binding — and
+    writes it BEFORE the Build exists. So three things changed together and stand together:
 
-    The bind ATTESTATION rides along here rather than into build-state, because the plan record is
-    where the other three gates' attestations already live and a consent trail split across two
-    stores is a trail with a seam to lose things in. The refusal that demands it is in `cmd_plan_bind`
-    and is NOT best-effort — this write is what records it, not what enforces it.
+    - The closure precondition is re-asserted HERE, inside the mutator, under the same lock the
+      supersede-side check runs under. `_sealed_plan` checked it earlier, but that read was
+      unlocked, and a supersession landing in the gap left a Build starting on a plan the record
+      had just put away. Whichever of the two writes lands first now wins; the other refuses.
+    - A failure REFUSES the bind instead of disclosing and proceeding: an unbound running Build is
+      exactly the state the interlock exists to prevent, so "the Build proceeds without a binding"
+      was the failure wearing a shrug.
+    - Callers run this before creating or mutating Build state. A crash after this write leaves a
+      plan marked bound with no Build behind it — supersede then refuses (the safe direction), and
+      re-running the bind overwrites the marker and converges.
+
+    The bind ATTESTATION rides along here because the plan record is where the other three gates'
+    attestations already live, and a consent trail split across two stores has a seam to lose
+    things in.
     """
     import moment
     library = _library()
@@ -1062,14 +1121,81 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
                    "at": moment.utc_now(), "pull_request": pr, "repository": repository}
 
         def mark(current):
+            closure = current.get("closure")
+            # The dedup exists for ONE case: a crash-retry of THIS SAME bind, which re-writes the
+            # marker and must not record the operator's words twice. Keyed on the words alone it
+            # swallowed real acts — `state supersede` makes a second bind of the same plan onto a
+            # new PR a first-class operator decision, and an operator who says "yes" both times
+            # deserves both times on the trail. So the entry is suppressed only when the record's
+            # current binding already IS this binding (same repository, PR and both digests —
+            # `at` excluded, since a retry mints a fresh clock) and the same words are present.
+            def same_binding(existing):
+                return existing and all(
+                    existing.get(key) == binding.get(key)
+                    for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest"))
+            entries = current.get("consent") or []
+            already_attested = consent and same_binding(current.get("build_binding")) and any(
+                entry.get("gate") == consent.get("gate")
+                and entry.get("decision") == consent.get("decision") for entry in entries)
+            if closure:
+                raise CoordinatorError(
+                    f"{plan_id} was closed ({closure['state']}: {closure['reason']}) while this "
+                    "bind was being prepared, and a closed plan does not start a Build. Nothing "
+                    "was bound. If the closure is a mistake and the plan is unsealed, `reopen` "
+                    "undoes it; a sealed plan's closure is permanent — clone it into a new plan, "
+                    "or build its replacement if one exists.")
             current["build_binding"] = binding
-            if consent:
+            # Idempotent per (gate, decision): a crash-retry of the same bind re-writes the marker
+            # but must not record the operator saying the same thing twice — the consent trail is
+            # published verbatim into the pull request body, where a duplicate reads as two acts.
+            if consent and not already_attested:
                 current.setdefault("consent", []).append(consent)
 
         library.update_record(slug, mark, expected_revision=record["current"]["revision"])
-    except Exception as exc:  # noqa: BLE001 — disclosed, never fatal
-        print(f"build-coordinator: could not record the Build binding on {plan_id} ({exc}); the Build "
-              "proceeds and the plan's record simply does not name this PR.", file=sys.stderr)
+    except CoordinatorError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — refused, never shrugged past
+        raise CoordinatorError(
+            f"could not record the Build binding on {plan_id} ({exc}), and an unbound Build is the "
+            "state the supersede interlock exists to prevent — so the bind refuses rather than "
+            "proceeding without it. Repair the plan library and run the bind again.") from exc
+
+
+def _restore_binding(slug: str, previous_binding: dict | None, previous_consent: list,
+                     written_binding: dict, appended_consent: dict | None) -> None:
+    """Undo exactly the binding write a now-refused command made — and nothing anyone else wrote.
+
+    The first cut restored a pre-image captured before the binding write, through a mutator with no
+    precondition — the one write on this path that did not re-assert its own precondition under the
+    lock, and a reviewer drove the consequence: a concurrent session's bind landed in the window,
+    and the rollback erased its binding AND its consent attestation, silently. So this asserts,
+    INSIDE the mutator, that the record's binding is still the one this command wrote (identity
+    fields, not `at` — the clock is fresh on every write); if anything else moved it, the rollback
+    refuses and the caller discloses instead of overwriting. And it removes only the single consent
+    entry this command appended, by equality, never the whole array — the trail is append-only for
+    every act that HAPPENED; the one sanctioned retraction is a command taking back the attestation
+    it itself just wrote for an act it then refused to perform.
+    """
+    library = _library()
+
+    def unmark(current):
+        existing = current.get("build_binding") or {}
+        if any(existing.get(key) != written_binding.get(key)
+               for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest")):
+            raise CoordinatorError(
+                "another session moved this plan's binding while the rollback was being prepared; "
+                "leaving the record as that session wrote it")
+        current["build_binding"] = previous_binding
+        entries = current.get("consent") or []
+        if appended_consent and appended_consent in entries and \
+                appended_consent not in previous_consent:
+            entries = [entry for entry in entries if entry != appended_consent]
+        if entries:
+            current["consent"] = entries
+        else:
+            current.pop("consent", None)
+
+    library.update_record(slug, unmark)
 
 
 def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
@@ -1178,9 +1304,20 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
     if store is None:
         store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
-    store.create(state)
+    # The refusal `store.create` would raise is asserted HERE, before the binding write. Two cold
+    # reviewers independently proved the alternative: with the write first, a plain operator retry —
+    # bind again over an existing Build — rewrote `build_binding` to a PR that carries no Build and
+    # appended a consent attestation for a bind that was then refused. A refused command must leave
+    # nothing behind. (A crash BETWEEN the binding write and `create` still converges: the snapshot
+    # does not exist yet, so this check passes on the re-run and the same binding is rewritten.)
+    if store.path.exists():
+        raise CoordinatorError(
+            f"a durable Build snapshot already exists at {store.path} — this plan's Build is "
+            "already bound. Resume it (`status`, or `handoff export`) rather than re-binding; "
+            "nothing was written.")
     _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],
                           consent)
+    store.create(state)
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -1388,9 +1525,32 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
             {"reviewed_plan_digest": previous_digest, "plan_digest": _digest(successor),
              "operator_change": f"adopted sealed successor {successor_id}: {args.operator_decision}"})
 
-    store.mutate(change, from_revision=state["revision"])
+    # The successor's binding lands first so the Build never runs on an unbound plan — but adoption
+    # involves TWO records, and a `mutate` that then refuses (a revision race, a validation failure)
+    # must not leave the successor marked bound to a Build that never switched onto it. So the prior
+    # binding state is captured, and a failed mutate restores it before the refusal propagates. If
+    # the restore itself fails, that is said out loud with the exact repair, never swallowed.
+    successor_slug = _library().resolve(successor_id)
+    previous_record = _library().read_record(successor_slug)
+    previous_binding = previous_record.get("build_binding")
+    previous_consent = list(previous_record.get("consent") or [])
+    written_binding = {"repository": state["build"]["repository"],
+                       "pull_request": state["build"]["pr"],
+                       "sealed_digest": sealed_digest, "build_plan_digest": _digest(successor)}
     _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
                           sealed_digest, _digest(successor), consent)
+    try:
+        store.mutate(change, from_revision=state["revision"])
+    except BaseException:
+        try:
+            _restore_binding(successor_slug, previous_binding, previous_consent,
+                             written_binding, consent)
+        except BaseException as rollback_exc:  # noqa: BLE001 — disclosed with the exact repair
+            print(f"build-coordinator: the adoption failed AND the successor's binding could not be "
+                  f"restored ({rollback_exc}) — {successor_id} may be marked bound to a Build that "
+                  "is still on its predecessor. Repair by re-running this adopt, or clear the "
+                  "marker by completing/abandoning through the ordinary verbs.", file=sys.stderr)
+        raise
     preserved = sorted(keep)
     print(f"adopted sealed successor {successor_id}; the Build continues on PR "
           f"{state['build']['pr']} with its binding intact")
@@ -3590,7 +3750,7 @@ def cmd_handoff_export(args, store: Snapshot) -> None:
             "operator authority, and a cold resume would recover the SEALED payload rather than the "
             "one being built. Finish this Build in the session that holds the revised plan, or re-plan "
             "from intent into a new plan and start a fresh Build.")
-    _, _, sealed = _sealed_plan(state["plan"]["plan_id"])
+    _, _, sealed = _sealed_plan(state["plan"]["plan_id"], entering=False)
     _assert_plan(state, sealed)
     _assert_spec_boundary(state, sealed)
     value = _handoff(state)
@@ -3719,7 +3879,7 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # this is BC-19's amended form, and it fails closed in every direction.
     plan_id = value["plan"]["plan_id"]
     try:
-        recorded_id, sealed_digest, plan = _sealed_plan(plan_id)
+        recorded_id, sealed_digest, plan = _sealed_plan(plan_id, entering=False)
     except CoordinatorError as exc:
         raise CoordinatorError(f"the sealed plan this Build was bound to is unusable, so cold "
                                f"continuation is blocked: {exc}") from exc
