@@ -15329,7 +15329,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:8163d1b00a28d3aedfba8db24b4f8489cdfb373b5071e0167e9ca4d03d5e397d",
+        "fingerprint": "sha256:417e977ac20db7f8c1359f6cd3b80c9c09526b01ebd72e20fe2487da936a8815",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
