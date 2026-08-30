@@ -15990,7 +15990,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:835fe3b273a2f4918638f119dc61d7d5d6edac097203dd5f4f715bec7ed46810",
+        "fingerprint": "sha256:8b1fe1ba0f91427db65af64f990ce41b6893060652bd2b2096778c526b71f2cd",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
