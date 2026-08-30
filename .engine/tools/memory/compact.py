@@ -326,8 +326,22 @@ def _unreadable_bytes(target: str) -> "dict | None":
         return None
     except OSError as exc:
         return {"status": "skipped", "folded": 0, "pruned": 0,
-                "reason": f"your saved memory could not be read, so nothing was rewritten ({exc})"}
+                "reason": f"your saved memory file could not be opened, so nothing was rewritten ({exc})"}
     body = blob[:blob.rfind(b"\n") + 1] if b"\n" in blob else b""
+    if b"\r" in body:
+        # A third shape, found by a cold check on this very gate. `ledger.read` opens in text mode, so
+        # Python's universal-newline translation treats a bare CR as a line break — and if the halves either
+        # side of it both happen to be valid JSON, the reader sees two clean records where the file's own law
+        # (one object per line, terminated by a single \n) says there is one corrupt one. Both of this gate's
+        # other checks pass: 0x0D is valid UTF-8, and nothing counts as malformed. The rewrite then bakes the
+        # reinterpretation in, silently, which is the exact failure class this gate exists to close.
+        #
+        # A raw CR cannot come from this engine: `json.dumps` escapes every control character inside a
+        # string, so an appended line never contains one. Its presence means something outside wrote here.
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": "your saved memory contains line endings this engine never writes, so something "
+                          "outside it has altered the file. Rewriting it could change what your records say, "
+                          "so nothing was changed. Ask me to look at your memory's health."}
     try:
         body.decode("utf-8")
     except UnicodeDecodeError:
@@ -1095,7 +1109,7 @@ _UNENACTED_REASONS = (
      "this session is not qualified to write memory yet. Nothing was changed, and any approved erasure is "
      "still pending. Qualification converges by itself at a session start that can reach GitHub, and the "
      "erasure is carried out then."),
-    ("no accepted execution context",
+    ("persistent execution context",
      "this session is not qualified to write memory yet. Nothing was changed, and any approved erasure is "
      "still pending. Qualification converges by itself at a session start that can reach GitHub, and the "
      "erasure is carried out then."),
@@ -1106,10 +1120,18 @@ _UNENACTED_REASONS = (
     ("recovery readiness could not be established",
      "whether there is a backup copy to go back to could not be established, so nothing was rewritten. Any "
      "approved erasure is still pending. This does not clear itself: check the memory backup setup."),
+    ("could not be opened",
+     "your saved memory file could not be opened at all, so nothing was changed — this is a file or "
+     "permissions problem rather than anything wrong with what is in your memory. Any approved erasure is "
+     "still pending until it can be read."),
     ("could not be read",
      "part of your saved memory could not be read, and rewriting the file would have destroyed it, so "
      "nothing was changed. Any approved erasure is still pending. This does not clear itself — ask me to "
      "look at your memory's health."),
+    ("line endings this engine never writes",
+     "something outside this engine has altered your saved memory file, so nothing was changed — rewriting "
+     "it could change what your records say. Any approved erasure is still pending. This does not clear "
+     "itself — ask me to look at your memory's health."),
     ("cannot be read exactly as written",
      "part of your saved memory is damaged, and rewriting the file would have replaced those characters for "
      "good, so nothing was changed. Any approved erasure is still pending. This does not clear itself — ask "
@@ -1127,6 +1149,11 @@ _UNENACTED_REASONS = (
 
 #: Kept as a name because tests and readers reach for it; derived so it cannot drift from the sentences.
 _UNENACTED_MARKS = tuple(mark for mark, _ in _UNENACTED_REASONS)
+
+#: Reasons that mean "there was nothing to do", which must stay SILENT — the warning exists for a pass that
+#: had work and declined it, and a line on every quiet squash is the noise the bound is there to prevent.
+#: Named rather than left implicit so the pairing guard can tell a deliberate silence from a missed sentence.
+_NO_WORK_REASONS = ("below the compaction threshold",)
 
 
 def unenacted_warning(report) -> "str | None":

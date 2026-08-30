@@ -9800,7 +9800,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:d218b8af5842edc99b0d67b4e4f715d2bc5e27aa270ab2af6c5123b17e1f9171",
+        "fingerprint": "sha256:9c021776760cbf0d7eb7732ab09f81c320c659bc67a613ca4b69d777eb4dce00",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -15979,16 +15979,18 @@
           "tool:backup_vault",
           "tool:capture",
           "tool:compact",
+          "tool:execution_context",
           "tool:forget",
           "tool:index",
           "tool:ledger",
           "tool:legacy_shapes",
+          "tool:mutation_contract",
           "tool:records"
         ]
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:82db696ca6b51511b144a0d8f02139b2fa28b626a789ba49c40000203d2b8b04",
+        "fingerprint": "sha256:835fe3b273a2f4918638f119dc61d7d5d6edac097203dd5f4f715bec7ed46810",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",

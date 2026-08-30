@@ -492,6 +492,28 @@ class LedgerIntegrityCompactionTests(_Base):
         with open(ledger.ledger_path(), "rb") as fh:
             self.assertEqual(fh.read(), damaged)        # byte-for-byte untouched
 
+    def test_a_bare_carriage_return_stops_the_rewrite_too(self):
+        """The third shape, found by a cold check ON this gate after the first two were closed.
+
+        `ledger.read` opens in text mode, so Python's universal-newline translation treats a bare CR as a
+        line break. When the halves either side of it both happen to be valid JSON, the reader sees two clean
+        records where the file's own law says there is one corrupt line — and both of the gate's other checks
+        pass, because 0x0D is valid UTF-8 and nothing counts as malformed. The rewrite then baked the
+        reinterpretation in silently, which is the exact failure class the gate exists to close.
+        """
+        self._episodic("a real note")
+        with open(ledger.ledger_path(), "rb") as fh:
+            blob = fh.read()
+        corrupted = blob + b'{"a":1}\r{"b":2}\n'
+        with open(ledger.ledger_path(), "wb") as fh:
+            fh.write(corrupted)
+        report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("line endings this engine never writes", report["reason"])
+        with open(ledger.ledger_path(), "rb") as fh:
+            self.assertEqual(fh.read(), corrupted)      # byte-for-byte untouched
+        self.assertIsNotNone(compact.unenacted_warning(report))
+
     def test_a_healthy_ledger_is_not_held_up_by_that_gate(self):
         """The gate has to be narrow, or it becomes the refusal-without-a-backup I already rejected: routine
         housekeeping must keep working on every undamaged machine."""
@@ -641,6 +663,81 @@ class RecoveryReadinessTests(_Base):
         self.assertEqual(seen.get("deadline_seconds"), compact.HOOK_RECOVERY_DEADLINE_SECONDS)
         self.assertLess(compact.HOOK_RECOVERY_DEADLINE_SECONDS,
                         backup_vault._FOREGROUND_DEADLINE_SECONDS)
+
+
+class EveryDeclineReasonHasItsOwnSentenceTests(unittest.TestCase):
+    """The guard the comment above `_UNENACTED_REASONS` promised and did not have.
+
+    A cold check grepped for it and found nothing — and the same comment explains that a reason drifting out
+    of sync with the sentence shown to the operator has already happened TWICE in this file. Hand-verifying
+    the pairing is exactly the prose rule this project's own conduct says to replace with something a machine
+    runs, so here it is: the reason strings are extracted from the source rather than restated, which is what
+    makes a new one impossible to add without either pairing it or failing here.
+    """
+
+    def _emitted_reasons(self):
+        """Every literal that reaches a report's `reason` key, read out of compact.py's own syntax tree.
+
+        An f-string contributes its literal segments; a reason built entirely from interpolation would
+        contribute nothing and is therefore refused outright below, because such a reason could never be
+        matched by a fixed phrase either.
+        """
+        import ast
+        source = open(compact.__file__, encoding="utf-8").read()
+        found = []
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Dict):
+                continue
+            for key, value in zip(node.keys, node.values):
+                if not (isinstance(key, ast.Constant) and key.value == "reason"):
+                    continue
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    found.append((node.lineno, value.value))
+                elif isinstance(value, ast.JoinedStr):
+                    literal = "".join(part.value for part in value.values
+                                      if isinstance(part, ast.Constant) and isinstance(part.value, str))
+                    found.append((node.lineno, literal))
+        return found
+
+    def test_every_reason_this_module_emits_matches_exactly_one_sentence(self):
+        emitted = self._emitted_reasons()
+        self.assertGreaterEqual(len(emitted), 8, "the extractor found suspiciously few reasons")
+        for lineno, reason in emitted:
+            matches = [mark for mark, _ in compact._UNENACTED_REASONS if mark in reason]
+            silent = any(quiet in reason for quiet in compact._NO_WORK_REASONS)
+            with self.subTest(line=lineno, reason=reason[:60]):
+                if silent:
+                    # "nothing to do" must stay silent, and deliberately so — the very first run of this
+                    # guard caught this reason as unpaired, which is the distinction worth making explicit
+                    # rather than the guard being loosened to let it through.
+                    self.assertEqual(matches, [])
+                    self.assertIsNone(compact.unenacted_warning({"status": "skipped", "reason": reason}))
+                    continue
+                self.assertEqual(len(matches), 1,
+                                 f"compact.py:{lineno} emits a reason matching {len(matches)} sentences; "
+                                 f"every decline must map to exactly one, or the operator is told the wrong "
+                                 f"cause and the wrong remedy")
+                self.assertIsNotNone(compact.unenacted_warning({"status": "skipped", "reason": reason}))
+
+    def test_no_sentence_is_paired_with_a_phrase_nothing_produces(self):
+        """The other direction, because a dead entry is how the list drifted in the first place: it was
+        written from the narrative rather than from the strings, so it carried one phrase nothing emitted and
+        was missing three that everything did."""
+        emitted = [reason for _, reason in self._emitted_reasons()]
+        # Two marks are deliberately NOT emitted by this module — they come from the layers a refused
+        # compaction is reported THROUGH, so they are pinned against those sources instead of the syntax tree.
+        from memory import execution_context, mutation_contract
+        try:
+            execution_context.current_context()
+            context_error = ""
+        except Exception as exc:  # noqa: BLE001 — the message is the thing under test
+            context_error = str(exc)
+        external = [mutation_contract.degraded_refusal(mutation_contract.entry_by_id("automatic-compaction")),
+                    context_error]
+        for mark, _ in compact._UNENACTED_REASONS:
+            with self.subTest(mark=mark):
+                self.assertTrue(any(mark in reason for reason in emitted + external),
+                                f"{mark!r} is paired with a sentence but nothing produces it")
 
 
 class ErasureIsActuallyEnactedTests(_Base):
