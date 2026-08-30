@@ -145,8 +145,11 @@ def identity_duty(route: dict) -> dict:
     """
     if identity_mode_for_route(route) == "accepted-candidate":
         return {"mode": "accepted-candidate",
-                "duty": "Your change is integrated inline by the senior session, which computes the "
-                        "artifact tree digest over the staged tree. You owe no worker commit id."}
+                "duty": "Your change is integrated inline by the senior session. Stage the candidate "
+                        "(`git add`), run `build_coordinator.py work stage-digest --item <id> --plan "
+                        "<plan>` to capture the Engine-observed staged tree digest, and carry that value "
+                        "back as the result's artifact_digest; the session then commits and integrates "
+                        "it. You owe no worker commit id."}
     return {"mode": "worker-commit",
             "duty": "Commit your candidate in this worktree and return its commit id as artifact_ref. "
                     "The Engine derives the artifact tree digest from that commit, so identity is "
@@ -246,7 +249,9 @@ def check_artifact_identity(result: dict, engine_tree_digest: str, identity_mode
         raise CoordinatorError(
             f"supplied artifact_digest {supplied} contradicts the Engine-derived tree digest "
             f"{engine_tree_digest} for the {identity_mode} artifact; refusing rather than trusting the "
-            "supplied value")
+            "supplied value. Remedy: drop artifact_digest from the result (in worker-commit mode the "
+            "Engine derives identity from the commit itself and needs no digest), or integrate the "
+            "commit whose tree actually matches the digest you reported")
 
 
 def build_packet(plan: dict, state: dict, node_id: str, route: dict, base_sha: str,

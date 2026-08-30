@@ -748,6 +748,10 @@ def _receipt_crosscheck(plan: dict, state: dict) -> dict:
         integ = ((state.get("work") or {}).get(item["id"]) or {}).get("integration")
         if not integ or not integ.get("receipt"):
             continue
+        # A sanctioned no-op integrates an empty range on purpose — its commit belongs to no receipt by
+        # design, so it is not a disagreement. Only a node that DID claim commits is checked.
+        if not integ["receipt"]["attributable_range"]:
+            continue
         commit = integ["commit"]
         # A node's own integration commit belongs to some receipt's range — its own, or a sibling's for
         # a legitimately shared commit. Attributed to none is a real disagreement between the graph and
@@ -2418,11 +2422,10 @@ def _normalized_paths(name_status: str) -> list:
     i = 0
     while i < len(fields):
         letter = fields[i][0]
-        if letter in ("R", "C"):
+        if letter == "R":  # `--find-renames` yields R with old and new; copies are not requested
             old, new = fields[i + 1], fields[i + 2]
             i += 3
-            rows.append({"status": "R" if letter == "R" else "A",
-                         "path": new, "old_path": old if letter == "R" else None})
+            rows.append({"status": "R", "path": new, "old_path": old})
         else:
             path = fields[i + 1]
             i += 2
@@ -4014,12 +4017,18 @@ def _rederive_restored_receipts(plan: dict, state: dict) -> None:
         except CoordinatorError as exc:
             raise CoordinatorError(
                 f"a restored integration receipt for {node_id} could not be re-derived, so cold "
-                f"continuation is blocked rather than trusting it: {exc}") from exc
+                f"continuation is blocked rather than trusting it: {exc}. Remedy: fetch the commits it "
+                f"names ({stored['claim_base'][:12]}..{stored['integration_commit'][:12]}) into this "
+                "checkout and restore again; if that history is genuinely gone, re-export the handoff "
+                "from the session that holds this Build, or abandon and re-run the node "
+                "(`work abandon` then `work retry`)") from exc
         if machine(fresh) != machine(stored):
             raise CoordinatorError(
                 f"a restored integration receipt for {node_id} does not match a fresh derivation from "
                 "the commits it names, so cold continuation is blocked rather than trusting an unproven "
-                "restored receipt")
+                "restored receipt. Remedy: re-export the handoff from the session that holds this Build "
+                "(a stale export can carry a receipt the branch has since moved past), or abandon and "
+                "re-run the node (`work abandon` then `work retry`)")
         integ["receipt"] = fresh
 
 
@@ -4505,7 +4514,12 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
         except _IntegrationRefused as refusal:
             nw["latest_failure"] = work.failure_record(args.attempt, "integration", str(refusal),
                                                        dag.DISP_OPEN)
-            return ("refused", str(refusal))
+            return ("refused", str(refusal), [])
+        # The worker's unresolved concerns are surfaced HERE, at the integrate action, for the
+        # integrator's judgment (obligation 2). They never auto-block and never auto-redispatch — the
+        # integrator saw them and chose to integrate — but they are said out loud rather than left only
+        # in a status projection the integrator was not required to consult.
+        concerns = list((result.get("evidence") or {}).get("unresolved_concerns") or [])
         nw["integration"] = {"attempt_id": args.attempt, "commit": args.commit,
                              "focused_verification": args.verification_input.strip(),
                              "receipt": receipt, "restored": False}
@@ -4520,17 +4534,23 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
                          if entry["id"] == args.item), None)
         if existing is None:
             state["progress"]["completed"].append({"id": args.item, "commit": args.commit})
-            return ("integrated", None)
+            return ("integrated", None, concerns)
         corrected = existing["commit"]
         existing["commit"] = args.commit
-        return ("integrated", corrected)
+        return ("integrated", corrected, concerns)
 
-    outcome, detail = _work_mutate(store, change)
+    outcome, detail, concerns = _work_mutate(store, change)
     if outcome == "refused":
         raise CoordinatorError(
             f"integration of {args.item} refused and recorded as an integration failure (no lifecycle "
             f"advance): {detail}")
     print(f"integrated {args.item} at {args.commit}; focused verification and receipt recorded")
+    if concerns:
+        # Not a block — a disclosure for the judgment the integrator just made and the operator reads later.
+        print(f"note: {args.item} returned {len(concerns)} unresolved concern(s) against the governing "
+              "context, integrated on the integrator's judgment:")
+        for concern in concerns:
+            print(f"  - {' '.join(str(concern).split())[:200]}")
     if detail and detail != args.commit:
         # An operator running this to escape the unearned-completion refusal should see that the
         # correction happened, not just that an integration did.
@@ -4684,8 +4704,10 @@ def _integration_receipt(plan: dict, state: dict, item: dict, nw: dict, commit: 
             worker_tree = _tree_digest_at(root, f"{worker_commit}^{{tree}}")
         except CoordinatorError as exc:
             raise _IntegrationRefused(
-                f"worker-commit identity: the worker's commit {str(worker_commit)[:12]} is not readable "
-                f"here, so its tree cannot be verified ({exc}); integrate the worker's own commit") from exc
+                f"worker-commit identity: the worker's commit {str(worker_commit)[:12]} is not in this "
+                f"repository's object store, so its tree cannot be verified ({exc}); fetch or apply that "
+                "commit onto this checkout (a dispatched worker's commit lives in its own worktree until "
+                "the orchestrator brings it over) before integrating") from exc
         if worker_tree != engine_tree:
             raise _IntegrationRefused(
                 f"worker-commit identity: the integrated tree does not match the worker's returned commit "

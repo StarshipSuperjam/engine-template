@@ -5913,6 +5913,29 @@ class EnforcementCase(unittest.TestCase):
         self.assertIsNotNone(self._integration("shared")["receipt"])
         self.assertIsNone(self._failure("shared"))
 
+    def test_integrate_surfaces_the_workers_unresolved_concerns(self):
+        # Obligation 2: a returned result's unresolved concerns are said out loud AT the integrate
+        # action for the integrator's judgment — never an auto-block.
+        commit = self.repo.commit_file(".engine/tools/shared.py", "x\n", "shared")
+        item_def = bc.work.node_item(self.plan, "shared")
+
+        def change(state):
+            nw = state["work"].setdefault("shared", bc.work.empty_node())
+            nw["attempt_count"] = 1
+            nw["claim"] = bc.work.new_claim("1" * 32, self.base, "/tmp/wt", [],
+                {"executor_class": "builder", "provider": "claude", "model": "sonnet",
+                 "effort": "medium", "inline": False})
+            nw["latest_result"] = bc.work.bind_result(nw, item_def, "1" * 32, self.base,
+                {"outcome": "returned", "base_sha": self.base, "artifact_ref": commit,
+                 "evidence": {"changed_paths": [".engine/tools/shared.py"],
+                              "verification_results": ["ok"],
+                              "unresolved_concerns": ["scope_boundary looks tight for this node"]}})
+        self.store.mutate(change)
+        out = self._integrate("shared", "1" * 32, commit)
+        self.assertIn("unresolved concern", out)
+        self.assertIn("scope_boundary looks tight", out)
+        self.assertIsNotNone(self._integration("shared"))  # surfaced, not blocked
+
 
 class TestReceiptReporting(unittest.TestCase):
     """W3: the receipt cross-check beside the git aggregate, and unresolved-concern surfacing."""
@@ -5951,6 +5974,16 @@ class TestReceiptReporting(unittest.TestCase):
                                        "focused_verification": "v", "receipt": self._receipt(HEAD_C, [HEAD_A])}}})
         crosscheck = bc._work_projection(plan, state)["receipt_crosscheck"]
         self.assertTrue(any("attributed to no receipt" in d for d in crosscheck["disagreements"]))
+
+    def test_a_no_op_empty_range_is_not_flagged_as_a_disagreement(self):
+        # A sanctioned no-op integrates an empty range by design — its commit is in no receipt's range,
+        # and that is correct, not a disagreement to surface.
+        plan, state = self._state_with({
+            "shared": {"attempt_count": 1, "claim": None, "latest_result": None, "latest_failure": None,
+                       "integration": {"attempt_id": "a" * 32, "commit": HEAD_A,
+                                       "focused_verification": "v", "receipt": self._receipt(HEAD_A, [])}}})
+        crosscheck = bc._work_projection(plan, state)["receipt_crosscheck"]
+        self.assertEqual(crosscheck["disagreements"], [])
 
     def test_unresolved_concerns_are_surfaced_per_node(self):
         plan, state = self._state_with({

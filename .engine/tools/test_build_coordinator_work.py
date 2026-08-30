@@ -796,6 +796,12 @@ class TestGoverningContextPacket(WorkCase):
         self.assertEqual(self._packet_for(self._rich_plan(), route=self.INLINE)
                          ["required_result"]["identity"]["mode"], "accepted-candidate")
 
+    def test_accepted_candidate_duty_names_the_stage_digest_sequence(self):
+        # The inline session sees the sequence it must run at the point of use, not only in a demo.
+        duty = self._packet_for(self._rich_plan(), route=self.INLINE)["required_result"]["identity"]["duty"]
+        self.assertIn("stage-digest", duty)
+        self.assertIn("artifact_digest", duty)
+
     # -- profile defaults and refusals --
 
     def test_normal_plan_missing_a_governing_field_refuses(self):
@@ -928,6 +934,15 @@ class TestReceiptAssembly(unittest.TestCase):
         with self.assertRaisesRegex(bc.CoordinatorError, "contradicts the Engine-derived"):
             work.check_artifact_identity({"artifact_digest": "sha256:" + "9" * 64},
                                          "sha256:" + "a" * 64, "worker-commit")
+
+    def test_contradicting_digest_refusal_names_a_remedy(self):
+        try:
+            work.check_artifact_identity({"artifact_digest": "sha256:" + "9" * 64},
+                                         "sha256:" + "a" * 64, "worker-commit")
+            self.fail("expected a refusal")
+        except bc.CoordinatorError as exc:
+            self.assertIn("Remedy", str(exc))
+            self.assertIn("drop artifact_digest", str(exc))
 
     def test_check_identity_passes_when_absent_or_matching(self):
         work.check_artifact_identity({"artifact_digest": None}, "sha256:" + "a" * 64, "worker-commit")
