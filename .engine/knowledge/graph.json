@@ -16781,7 +16781,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:37840e9e8b6738c83b19d1a46d1f43994aaba37da9cc2c26123b00c4f1316a38",
+        "fingerprint": "sha256:2f06e1b98536705dab642eaa6ef69e25d7593f39c8e53213964521022e19407f",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17258,7 +17258,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:bc261d3ad8af7b3929b62d33355539edbcccb7fbc353ead820eac08b2b22d48f",
+        "fingerprint": "sha256:a15ece96e30f809a08cc2da73da949027bdffd055fa33c25404d343046dc06a5",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
