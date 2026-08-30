@@ -8,8 +8,11 @@ title: Accepted automatic memory hooks
 
 Automatic memory work can fire from any registered Git worktree, while canonical project memory is shared
 across those worktrees. This page describes how the Engine keeps a stale or in-progress checkout from choosing
-the implementation that mutates that shared state, how an accepted implementation is changed, and what an
-operator sees when qualification fails.
+the implementation that AUTHORS that shared state — and, just as importantly, what stays working when it
+cannot: reading, recall, health, diagnostics, capture into the transcript, and entering Build.
+
+The distinction between "never authors canonical memory" and "touches nothing" is the whole design. The second
+reading, shipped once, removed memory from every session on the machine.
 
 ## What you need to know
 
@@ -20,7 +23,9 @@ observation, and backup. Their provider-specific commands enter one shared launc
 that closed roster and starts the accepted dispatcher with isolated Python startup; it never selects the hook
 script from the firing worktree as the implementation to run.
 
-The dispatcher reads one activation record from the repository's Git common directory. That record binds the
+The dispatcher reads one activation record from the repository's Git common directory. When there is none it
+does NOT decline to start: it runs the tool from the live checkout with no execution context, which is exactly
+the signal the tier below reads. That record binds the
 repository, exact commit and tree, Engine release, reviewed source, and monotonically increasing epoch. The
 exact tree is materialized into an owner-local cache and inventoried. Accepted code then reconstructs an
 immutable execution context that binds one project, canonical memory store, recovery generation, provider,
@@ -31,34 +36,115 @@ This preserves shared recall: linked worktrees still read and update the same ca
 worktrees do not receive separate memory stores, and memory is not disabled merely because more than one
 worktree exists.
 
-### Changing the accepted implementation
+### Qualifying happens by itself
 
-Activation is attended. It accepts only an exact commit GitHub proves was merged into the repository's live
-default branch, or an exact commit named by GitHub's published release and exact tag ref, and advances the
-epoch with compare-and-set. A candidate manifest cannot redefine the default branch, and a release object,
-tag, and successful publisher run must converge on the selected commit.
+Qualification is **ambient**. Every session start attempts it, with no command for the operator to run and no
+prompt to answer. Three states, one entry point:
 
-Normal attended workflows bootstrap this state with `uv run --directory .engine --frozen -- python
-tools/accepted_hook_dispatch.py ensure --root ..`. The command preserves any valid existing activation without
-network access, even when the canonical checkout has advanced or an explicit rollback selected an older safe
-commit. Only when activation is absent does `ensure` select the canonical checkout's local
-GitHub-default-branch HEAD and require the independent merge proof. Advancing or rolling back an existing epoch
-always uses the explicit attended activation/upgrade path. Automatic hooks and unattended Routines never call
-`ensure` and cannot advance the epoch. If a fresh clone reports that activation is absent, update its canonical default branch cleanly,
-retire or recreate any legacy worktree named by the topology diagnostic, then run Engine Start or `ensure` in
-an attended session.
+* **absent** — bootstrap to the canonical checkout's current GitHub default-branch tip;
+* **stale** — the default branch has moved ahead of the activated commit, so advance to it;
+* **current** — verify the recorded object and keep it.
 
-Before and during that advance, the Engine inventories every Git-registered worktree twice. Each worktree must
-have the exact tracked, clean launcher generation whose per-file digests are reviewed by the topology
-authority; marker strings or a clean commit alone are not qualification. A pre-fix, altered, dirty, missing, symlinked, unreadable,
-ambiguous, duplicated, or concurrently changing topology refuses activation. The Engine does not rewrite or
-delete those worktrees. Retire the legacy worktree or recreate it from the qualified generation, then retry the
-attended activation. Activation writes only accepted metadata and materialization; it does not rewrite ledger,
-index, cursor, sidecar, pointer, vault, or credential payloads.
+An advance must be FORWARD: the new commit has to descend from the activated one, so a force-push, a rollback,
+or a swapped branch cannot walk qualification backwards. Every advance still needs the same proof a first
+activation does — a pull request the operator merged, whose merge commit IS this commit, on GitHub's own
+default branch — so a direct push can never qualify; it simply stalls advancement until the next merged pull
+request. The epoch moves forward only, by compare-and-set, and every first qualification and every advance is
+disclosed in the session's own status lines, because "the code allowed to write your memory just changed" is
+not something to do quietly.
 
-Rollback follows the same rule: select a previously reviewed safe commit or published release through a new
-compare-and-set activation. Never restore an old activation record by copying it over the current one, because
-that would bypass the worktree census and epoch check.
+The whole attempt shares a two-second wall-clock budget, runs with stdin closed and prompts disabled, and
+gives up rather than delaying a session. **A failed advance never costs a working activation**: no network, no
+GitHub CLI, a rolled-back branch — each leaves the machine qualified where it already was, and says why.
+
+`uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root .. --ambient`
+reports the current state and what, if anything, is holding it back. It is a diagnostic, not a step anyone has
+to remember.
+
+**Rollback** is a new compare-and-set activation onto a previously reviewed safe commit or published release,
+and a pinned published release is never auto-advanced — it is an explicit operator choice. Never restore an old
+activation record by copying it over the current one: that bypasses the epoch check.
+
+### Worktrees this does not cover
+
+An earlier version of this mechanism REFUSED to activate while any registered worktree carried a pre-fix,
+dirty, or unreadable launcher generation. That protected nothing. A pre-fix worktree runs its own pre-fix
+wiring whether or not this machine's activation advances, so refusing only stripped protection from the
+sessions that could have had it — and on a machine with accumulated worktrees, that was every session.
+
+So it is a **disclosure** now. `/engine-status` reports how many registered worktrees are not covered, names
+them, and gives the command that clears one (`git worktree remove <path>`, or `git worktree prune`).
+Activation proceeds regardless. The mechanism that would genuinely cover those worktrees is a store-side
+cutover — locking pre-fix code out of canonical state rather than declining to protect the rest — and that is
+deliberately deferred to its own change.
+
+### What an unqualified session can still do
+
+This is the correction at the heart of the current design. The rule is that candidate code never **authors**
+canonical memory. It is not "candidate code touches nothing" — an earlier implementation read it that way, and
+took memory reads, automatic capture, health reporting, crash diagnostics and the ability to enter Build down
+with the thing it was protecting.
+
+Effects are tiered, as data, over the registry that already describes them
+(`mutation_contract.degraded_disposition`):
+
+| Tier | Targets | What an unqualified session does |
+| --- | --- | --- |
+| Allowed | diagnostics and status records, tracked findings, session markers, ephemeral staging, the keyword and semantic indexes | Proceeds, returning an unqualified receipt. Each is regenerable or costless to lose, and the engine must be able to report that it is degraded. |
+| Refused | the ledger, its metadata and generation stamp, the capture cursor, restore journals, the backup pointer and remote vault, erasure proposals, exports, the project repository | Refuses without mutating, with a reply that says why, that nothing changed, and what makes it stick. |
+
+A destructive effect stays refused even on an allowed target, unless it is clearing a diagnostic. A nested
+writer is tiered on its own entry, so an allowed diagnostic is never a door to the ledger beneath it.
+
+Three operator verbs — pin, set aside, restore — refuse in the unqualified window and say so plainly. Setting
+a note aside names the consequence explicitly: the note stays recallable until qualification converges, and if
+the intent was erasure, that chain has not started.
+
+**Entering Build is not part of any of this.** The session stance marker is per-session temporary state, not
+persistent memory, and it left the mutation registry entirely; its integrity is carried by a hardened write
+(owner-only, refuses a planted symlink, lands atomically). Governing it as a persistent mutation is what
+locked the operator out of their own project.
+
+### Capture loses nothing
+
+Decisions get made in ordinary sessions, not only during Builds, so a design where an unqualified session
+cannot record anything would remove a pillar of the system rather than protect it.
+
+It does not, because **the transcript is the durable record**. An unqualified session writes nothing AND
+leaves its capture cursor exactly where it found it — the cursor advance and the ledger append are one
+transaction under one lock, so a refused append cannot leave a tail marked as captured. The tail stays in the
+harness's own transcript, still marked uncaptured.
+
+At the next qualified session start, `memory/drain.py` collects it: it walks this project's transcripts, finds
+the cursors that are behind, and captures those tails through the ordinary capture path — so chunking,
+scrubbing, id-minting, tagging, sequencing and the cursor advance all happen in reviewed code. Nothing an
+unqualified session produced is trusted as input; the input is the transcript. Drained records carry a
+`session-start-drain` tag so a reader can tell a note recovered afterwards from one filed live.
+
+Two bounds on where it looks: only under capture's own allowed roots, and only transcript directories this
+project's path names — a harness keeps every project's transcripts under one home, and a drain that swept the
+whole home would file another project's conversations into this project's memory.
+
+The residual risk, accepted and disclosed: a transcript cleaned up by the harness before qualification ever
+converged is a loss, and one that leaves nothing behind to detect it by. The defence is the backlog — how many
+sessions are waiting and how old the oldest is — reported long before retention could reach them.
+
+### Rewriting the record needs a person
+
+Compaction is the one effect that rewrites canonical memory, and in the incident that prompted all of this a
+background lifecycle hook classified 99.9% of live records as retired. The code ran, the state was consistent,
+the effect was registered. What was missing was attendance.
+
+So a record-destroying effect whose declared recovery story IS a person — an operator merge, or a snapshot
+taken first — runs only from an attended invocation, **even in a fully qualified session**. PreCompact
+therefore proceeds without mutating and says so in one sentence. Appends are deliberately outside this rule
+(capture must keep working unattended), as are journal-driven restore recovery and index rebuilds, each for a
+reason a test pins.
+
+Recovery readiness is checked before any destructive pass on the real store: where a backup vault is
+configured, a successful push has to happen first, and a failed push stops the compaction rather than
+proceeding without a net. A machine whose operator declined a vault is not blocked over a backup they chose
+not to have.
 
 One setup-era presentation marker is deliberately outside this normal activation path because the project's
 first reviewed activation cannot exist until its first setup pull request lands. Before deleting any first-run
