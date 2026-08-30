@@ -423,13 +423,71 @@ class RankingParityTests(IndexTestCase):
         # The re-read of the surviving records is CHUNKED because an unlimited query keeps every match, and one
         # SQL placeholder per match runs into SQLite's per-statement parameter cap. Over the cap the driver
         # raises an error that `_ranked`'s broken-index guard swallows — so a perfectly healthy index would have
-        # dropped through to the full plain-Python scan, silently and many times slower.
-        cap = sqlite3.connect(":memory:").getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
-        self.file(*({records.RECORD_ID_KEY: f"r{i}", "body": "quokka note"} for i in range(cap + 200)))
-        self.rebuild()
-        got = self._search("quokka")                          # no limit: every match survives to the re-read
-        self.assertEqual(len(got.records), cap + 200)
+        # dropped through to the full plain-Python scan, silently and many times slower (#1156).
+        #
+        # The cap is exercised at its REAL boundary but at a host-independent scale. Sizing the fixture from the
+        # host's compile-time SQLITE_LIMIT_VARIABLE_NUMBER made a correctness test's cost an accident of the
+        # build: ~1.65 s at the bundled 32,766-variable limit, but ~6 minutes (250,200 records) on a host
+        # compiled at 250,000 — paid on every self-test run. Instead we lower the per-connection limit with
+        # Connection.setlimit (available since the 3.11 floor) and file just enough records to cross it.
+        #
+        # `cap` and `matches` both derive from `_HYDRATE_CHUNK`, so the arithmetic self-adjusts if the chunk size
+        # ever changes. The invariant they encode: `cap` must exceed the largest single-statement placeholder
+        # count on the fast path (today `_HYDRATE_CHUNK`, so a CHUNKED re-read stays under it) yet stay below
+        # `matches`, so a PRE-fix one-statement re-read of every match would overrun it. A future batched fast-path
+        # statement wider than `cap` would fail here on healthy code — read that as this margin gone stale, not as
+        # a production regression.
+        #
+        # NOTE: replacing sqlite3.connect is PROCESS-WIDE for the window below — every connection opened while the
+        # patch is installed gets the lowered cap — so the records are filed and the index rebuilt FIRST, while
+        # unpatched, and the window is kept to the probe plus the one search call.
+        #
+        # What this deliberately gives up: the old host-sized fixture doubled as an accidental large-scale stress
+        # test of rebuild and ranked search. The failure guarded here is a per-statement PARAMETER-COUNT boundary,
+        # which a lowered per-connection cap exercises with identical semantics; and the memory server caps
+        # searches at ten results (mcp_server.py:77), so an unbounded ranked search is rare in practice.
+        cap = index._HYDRATE_CHUNK + 50                       # 250 today: above the chunk, below the match count
+        matches = cap + index._HYDRATE_CHUNK                  # 450 today: a one-statement re-read would overrun cap
+        self.file(*({records.RECORD_ID_KEY: f"r{i}", "body": "quokka note"} for i in range(matches)))
+        self.rebuild()                                        # unpatched: rebuild's connections keep the real cap
+
+        opened = []                                           # (database, variable-limit) of each connect in the window
+        real_connect = sqlite3.connect
+
+        def capped_connect(*args, **kwargs):
+            conn = real_connect(*args, **kwargs)
+            conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, cap)
+            # Read the cap back HERE, while the connection is open: `_ranked` closes it before the assertions run.
+            opened.append((args[0] if args else kwargs.get("database"),
+                           conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)))
+            return conn
+
+        sqlite3.connect = capped_connect
+        try:
+            # Real SQLite enforcement, not a mock: one placeholder past the lowered cap genuinely raises — the
+            # exact shape a pre-fix one-statement hydration of every match would take. Also fails loudly if
+            # setlimit ever silently stops taking effect.
+            probe = sqlite3.connect(":memory:")
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    probe.execute("SELECT " + ", ".join("?" * (cap + 1)), tuple(range(cap + 1)))
+            finally:
+                probe.close()
+
+            opened.clear()                                    # scope the binding check below to the search alone
+            got = self._search("quokka")                      # no limit: every match survives to the re-read
+        finally:
+            sqlite3.connect = real_connect
+
+        self.assertEqual(len(got.records), matches)
         self.assertFalse(got.degraded, "a healthy index fell through to the scan — the re-read hit the cap")
+        # The lowered cap reached the connection the SEARCH itself opened on the index — not merely the probe.
+        # Without this the test could pass vacuously if index.py ever resolved sqlite3.connect through a reference
+        # the module-attribute patch could not reach (a from-import, a cached factory, a pooled connection).
+        index_caps = [limit for database, limit in opened if database == self.index]
+        self.assertTrue(index_caps, "the search opened no index connection through the patched connect")
+        self.assertTrue(all(limit == cap for limit in index_caps),
+                        "the search's index connection did not carry the lowered variable cap")
 
     def test_the_scores_match_fts5s_own_bm25(self):
         # Not "close enough" — the scan reproduces fts5's bm25 exactly, epsilon-floored idf included, which is
