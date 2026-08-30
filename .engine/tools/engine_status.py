@@ -89,14 +89,71 @@ def _render_qualification_health(value) -> str:
     return ""
 
 
+_UNCOVERED_HEADING = "## Worktrees this machine's memory protection does not cover"
+
+
+def _activation_state():
+    """Read this machine's activation and worktree coverage. Read-only, and never raises."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "accepted_hook_dispatch.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_engine_status_accepted_hook_dispatch", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        activation = None
+        try:
+            activation = module.load_activation(root)
+        except Exception:  # noqa: BLE001 — an absent or unreadable activation is itself the state to report
+            activation = None
+        return {"activation": activation, "coverage": module.uncovered_worktrees(root)}
+    except Exception:  # noqa: BLE001 — status always answers
+        return None
+
+
+def _render_activation_state(value) -> str:
+    """Disclose qualification and the worktrees it does not reach — the honest replacement for StarshipSuperjam/engine-template#1153's
+    refusal, which blocked activation over the same topology while protecting none of those worktrees."""
+    if not isinstance(value, dict):
+        return ""
+    lines = []
+    activation = value.get("activation")
+    if not isinstance(activation, dict):
+        lines.append(
+            "Memory protection is not active on this machine yet: nothing has qualified to write canonical "
+            "memory, so reads work and writes wait. It converges on its own at a session start that can "
+            "reach GitHub."
+        )
+    coverage = value.get("coverage")
+    if isinstance(coverage, dict) and coverage.get("readable") is False:
+        lines.append(
+            "This machine's worktree list could not be read, so how many worktrees the protection covers "
+            "cannot be verified."
+        )
+    elif isinstance(coverage, dict) and isinstance(coverage.get("uncovered"), int) and coverage["uncovered"]:
+        total, uncovered = coverage.get("total"), coverage["uncovered"]
+        lines.append(
+            f"{uncovered} of {total} registered worktrees run their own older wiring and are not covered by "
+            f"this protection. Removing a worktree you have finished with is what clears it: "
+            f"`git worktree remove <path>`, or `git worktree prune` for ones already deleted."
+        )
+        lines.extend(f"  - {item}" for item in coverage.get("sample", []))
+    return (_UNCOVERED_HEADING + "\n" + "\n".join(lines)) if lines else ""
+
+
 def render(session_id: str | None = None) -> str:
     """The operator-facing status dashboard: gather the signals (boot's sole I/O boundary), then render the
     pure operator-toned body. Always answers — if assembling it raises, degrade to a plain line rather than
     blanking or erroring (the same always-answers posture as `/engine-help` and boot's own pack guard)."""
     try:
         dashboard = boot.render_dashboard(boot.gather_signals(session_id))
-        qualification = _render_qualification_health(_qualification_health())
-        return dashboard + ("\n\n" + qualification if qualification else "")
+        sections = [
+            _render_qualification_health(_qualification_health()),
+            _render_activation_state(_activation_state()),
+        ]
+        return dashboard + "".join("\n\n" + section for section in sections if section)
     except Exception:
         return f"## {boot.PRESENT_MARKER}\n{_DEGRADED}"
 

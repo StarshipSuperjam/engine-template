@@ -34,9 +34,28 @@ class TestRenderReusesBootSeam(unittest.TestCase):
         # render_dashboard over the gathered signals — never a second, drifting status view.
         known = test_boot._signals()
         with mock.patch.object(boot, "gather_signals", return_value=known), \
-                mock.patch.object(es, "_qualification_health", return_value=None):
+                mock.patch.object(es, "_qualification_health", return_value=None), \
+                mock.patch.object(es, "_activation_state", return_value=None):
             out = es.render()
         self.assertEqual(out, boot.render_dashboard(known))
+
+    def test_qualification_and_coverage_are_appended_after_the_shared_dashboard(self):
+        # The two memory-qualification sections are ADDITIONS below the shared dashboard, never a second
+        # rendering of it: the dashboard body must still be byte-identical and come first.
+        known = test_boot._signals()
+        coverage = {"readable": True, "state": "blocked", "total": 3, "uncovered": 2,
+                    "sample": ["main [abc]: missing (.engine/tools/accepted_hook_dispatch.py)"]}
+        with mock.patch.object(boot, "gather_signals", return_value=known), \
+                mock.patch.object(es, "_qualification_health", return_value=None), \
+                mock.patch.object(es, "_activation_state",
+                                  return_value={"activation": None, "coverage": coverage}):
+            out = es.render()
+        body = boot.render_dashboard(known)
+        self.assertTrue(out.startswith(body))
+        tail = out[len(body):]
+        self.assertIn("2 of 3 registered worktrees", tail)
+        self.assertIn("git worktree remove", tail)
+        self.assertIn("Memory protection is not active on this machine yet", tail)
 
     def test_render_passes_the_session_through(self):
         # The session id must reach gather_signals so the dashboard shows the REAL stance, not a default.

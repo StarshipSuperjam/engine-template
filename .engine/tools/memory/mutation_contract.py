@@ -82,8 +82,6 @@ REGISTRY = (
     # Other persistent effects reached by the automatic hook handlers and accepted dispatcher.  These are
     # not ledger payloads, but they are exactly the sidecars, control state, caches, and diagnostics whose
     # omission would let a hook remain write-capable outside the eventual S03 capability boundary.
-    _entry("automatic-stance-reset", "modes.clear_stance", "lifecycle-marker",
-           "destructive-irreversible", _BOTH, 1, "files", "none", ["boot.handler", "modes.set_stance"]),
     _entry("automatic-checkout-catch-up", "checkout_auto_update.automatic_catch_up",
            "project-repository", "reversible-mutation", _AUTO, None, "files", "compare-and-set",
            ["boot.handler"]),
@@ -268,9 +266,6 @@ REGISTRY = (
     _entry("checkout-preference-write", "checkout_auto_update._atomic_write", "project-repository",
            "reversible-mutation", _ATTENDED, 1, "files", "atomic-replace",
            ["checkout_auto_update.set_preference"]),
-    _entry("session-stance-write", "modes.set_stance", "lifecycle-marker", "reversible-mutation",
-           _ATTENDED, 1, "files", "none", ["modes.main"]),
-
     # Backup pointer, lifecycle metadata, and remote vault writers.
     _entry("backup-pointer-write", "memory.backup_vault.write_pointer", "backup-pointer",
            "reversible-mutation", _ATTENDED, 1, "files", "atomic-replace", ["memory.backup_vault.setup"]),
@@ -350,7 +345,7 @@ AUTOMATIC_ENTRYPOINTS = MappingProxyType({
         "close-findings-promote",
     ),
     ".engine/tools/boot.py": (
-        "automatic-boot-operation", "automatic-restore-reconcile", "automatic-stance-reset", "automatic-checkout-catch-up",
+        "automatic-boot-operation", "automatic-restore-reconcile", "automatic-checkout-catch-up",
         "automatic-live-session", "automatic-alarm-presentation", "automatic-first-run-marker-consume",
         "boot-refused-cursor-finding",
     ),
@@ -376,7 +371,7 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
         "accepted-tree-materialize", "accepted-metadata-write", "accepted-lock-create",
     ),
     "boot.handler": (
-        "automatic-stance-reset", "automatic-checkout-catch-up", "automatic-restore-reconcile",
+        "automatic-checkout-catch-up", "automatic-restore-reconcile",
         "automatic-live-session", "automatic-alarm-presentation", "automatic-first-run-marker-consume",
         "boot-refused-cursor-finding",
     ),
@@ -443,6 +438,17 @@ def classify(*, writer: str, target_kind: str, effect_class: str, invocation_mod
         raise MutationContractError(f"writer {writer} is not registered for a schema cutover")
     return MappingProxyType(entry)
 
+
+# Writers the census SEES but the registry deliberately does not govern, named here so the inventory stays
+# closed and the exemption stays visible rather than becoming an unexplained census gap.
+#
+# The session stance marker is a per-session file in the OS temp directory. It is not persistent memory: it
+# holds no record, survives no session, and its absence resolves to the safe floor (Explore) by construction.
+# Governing it as a persistent mutation is what locked the operator out of Build in StarshipSuperjam/engine-template#1153 — the typed
+# `/engine-start` verb writes this marker, so an unqualified session could not enter Build at all, which is a
+# refusal that protects nothing and removes the operator's own control. The marker's integrity is instead
+# carried by its hardened write in ``modes`` (no symlink, 0600, atomic replace).
+SESSION_EPHEMERAL_WRITERS = frozenset({"modes.set_stance", "modes.clear_stance"})
 
 _WRITE_FLAGS = frozenset({"O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND"})
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -544,7 +550,7 @@ def coverage_failures(paths) -> list[str]:
     for item in paths:
         path, module = item if isinstance(item, tuple) else (item, None)
         found.update(discover_direct_writers(path, module=module))
-    return sorted(found - registered)
+    return sorted(found - registered - SESSION_EPHEMERAL_WRITERS)
 
 
 def automatic_coverage_failures(configured_scripts) -> list[str]:

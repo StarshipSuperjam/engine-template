@@ -7,23 +7,18 @@ description: Start building — switch from looking around to making changes, wh
 
 ## Steps
 
-1. Ensure this clone has an exact accepted activation by running:
-   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root ..`
-   This attended step preserves any valid existing activation without network access. Only when activation is
-   absent does it select the canonical checkout's current GitHub default-branch HEAD after GitHub proves that
-   exact commit was merged there; advancing or rolling back an existing activation uses the explicit attended
-   activation/upgrade path. If it refuses,
-   relay the recovery guidance and do not enter a write stance.
-2. Switch this session into building by running:
-   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/modes.py --operation session-stance-write -- set-build`
+1. Switch this session into building by running:
+   `uv run --directory .engine --frozen -- python tools/modes.py set-build`
    (the engine works out this session's identity automatically. If the command reports it could not
    identify the session, say so plainly: the stance stays as it was, and building has not started.)
-3. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
+   This step needs no network and no accepted activation — entering Build is the operator's own control, and
+   it must work whether or not memory-write qualification has converged on this machine.
+2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
-4. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
+3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
    the draft pull request and plan the work, then show the operator the risk assessment and get their
    how-careful depth choice, before changing anything.
-5. Once the Build is authorized, keep moving through its actionable work. A progress report is not a
+4. Once the Build is authorized, keep moving through its actionable work. A progress report is not a
    handoff: continue the next planned step unless the Build is submission-ready or a real authority
    boundary requires the operator's decision. Do not schedule a self-wakeup instead of working.
 
@@ -32,3 +27,7 @@ description: Start building — switch from looking around to making changes, wh
 This is a command you type to begin building. I won't start building on my own — that is your call: type
 `$engine-start` and the work begins. (In Claude Code, approving a plan I've shown you also starts it; in
 Codex, the typed command is the only way in.)
+
+Memory-write qualification is not part of this command. It converges by itself at session start, and when it
+has not, the session simply runs unqualified: memory still reads, and writing waits. If that matters to what
+you are about to do, `$engine-status` says so in plain words.

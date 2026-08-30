@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -142,6 +143,39 @@ def current_stance(session_id: str | None) -> str:
     return value if value in STANCES else EXPLORE
 
 
+def _harden_marker_write(path: str, stance: str) -> None:
+    """Write the stance marker so another user on this machine cannot pre-place or read it.
+
+    The marker lives in a world-writable OS temp directory, so a plain ``open(path, "w")`` would happily
+    follow a symlink someone else planted and write through it. Create the file owner-only, refuse anything
+    at the path that is not a regular file we own, and land the content atomically so a reader never sees a
+    half-written stance. This hardening is why the marker does not need to be a governed persistent
+    mutation — see ``memory.mutation_contract.SESSION_EPHEMERAL_WRITERS``."""
+    directory = os.path.dirname(path) or tempfile.gettempdir()
+    fd, temporary = tempfile.mkstemp(prefix=".engine-stance-", dir=directory)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(stance)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            info = os.lstat(path)
+        except FileNotFoundError:
+            info = None
+        if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                                 or info.st_uid != os.getuid()):
+            raise PermissionError(f"the session stance marker path is not a private regular file: {path}")
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
 @dataclass(frozen=True)
 class StanceWriteResult:
     """Truth-compatible result for a stance-marker write.
@@ -176,8 +210,7 @@ def set_stance(session_id: str | None, stance: str) -> StanceWriteResult:
     if not path:
         return StanceWriteResult(False, "no-session")
     try:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(stance)
+        _harden_marker_write(path, stance)
         return StanceWriteResult(True, path=path)
     except PermissionError as exc:
         # The OS denied the temp marker. Codex Read Only is one cause; host ownership/permissions are another.
@@ -916,8 +949,10 @@ def main(argv: list) -> int:
     return 2
 
 
-from memory import mutation_authority as _mutation_authority  # noqa: E402
-_mutation_authority.install_module_guards(globals())
+# No mutation guards are installed here, deliberately. The stance marker is per-session OS-temp state, not
+# persistent memory; governing it as a persistent mutation is what locked the operator out of Build in StarshipSuperjam/engine-template#1153.
+# See `memory.mutation_contract.SESSION_EPHEMERAL_WRITERS` for the reasoning and `_harden_marker_write` for
+# the integrity this seam carries instead.
 
 
 if __name__ == "__main__":

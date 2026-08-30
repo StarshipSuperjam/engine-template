@@ -92,6 +92,7 @@ import telemetry         # noqa: E402  (read_state_debt / degraded_readout / the
 import github_client     # noqa: E402  (the neutral GitHub reader the generic in-flight/standing/PR reads take)
 import protection_guard  # noqa: E402  (get_json + missing_floor: the protected-branch evaluation)
 import modes             # noqa: E402  (clear_stance + the stance vocabulary: the SessionStart clear + line)
+import accepted_hook_dispatch  # noqa: E402  (ambient activation: converge memory-write qualification at boot)
 import checkout_health   # noqa: E402  (provisioning's operator-checkout strand detector; boot relays its detection)
 import checkout_auto_update  # noqa: E402  (the one boot-only bounded checkout mutation controller)
 import license_health    # noqa: E402  (provisioning's leftover-template-LICENSE detector; boot relays its detection)
@@ -1426,6 +1427,9 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
     boot reaches the substrates, so the status verb re-gathers and renders the same way."""
     state, refused = read_state()
     automatic_checkout = (payload or {}).get("_automatic_checkout") if isinstance(payload, dict) else None
+    # Threaded through the payload exactly like the automatic-checkout result above: ambient activation runs
+    # once, in the write-capable SessionStart handler, and its disclosure rides this one pack.
+    qualification_notices = (payload or {}).get("_qualification_notices") if isinstance(payload, dict) else None
     repo, token = repo_slug(), gh_token()
     # Resolve the authoritative default branch ONCE and thread it into both the gate probe and the operator
     # copy, so the safety-gate line names the branch the gate actually checked (not the display fallback).
@@ -1836,6 +1840,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
         # A one-boot-only outcome from the controller. It is never persisted, so an already-current checkout is
         # silent on later sessions; ordinary status collection remains a read-only snapshot for every other caller.
         "automatic_checkout": automatic_checkout,
+        "qualification_notices": qualification_notices,
         # the off-main Stage-1 signal (StarshipSuperjam/engine-template#342): the top-level checkout is parked on a non-default branch (offline,
         # gentle, collapse-eligible), or None. behind_origin above is its online Stage-2 escalation.
         "off_main": off_main,
@@ -2893,6 +2898,20 @@ def _pushed_alarms(s: dict) -> list:
     return alarms
 
 
+def _qualification_relay(s: dict) -> list[str]:
+    """Relay what ambient activation did this session — a first qualification, an advance, or a degrade.
+
+    Each of these is something the operator would want to know and cannot see for themselves: which code is
+    now allowed to write their memory, or that nothing currently is. Like the automatic-checkout relay this
+    carries no ledger entry — it exists only for the boot that produced it, so it is stated once, here.
+    """
+    notices = s.get("qualification_notices")
+    if not isinstance(notices, list):
+        return []
+    return [f"{RELAY_MARKER} {notice}" for notice in notices
+            if isinstance(notice, str) and notice.strip()][:3]
+
+
 def _automatic_checkout_relay(s: dict) -> list[str]:
     """The one-boot operator relay for a bounded automatic-checkout attempt.
 
@@ -2959,7 +2978,7 @@ def must_push(s: dict) -> list:
     governance-critical alarms and the grounding-failure tell (the must-push set). This is the fresh
     render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
     collapse via _relay_lines instead. A fixed relay over detected signals."""
-    return _automatic_checkout_relay(s) + [a["full"] for a in _pushed_alarms(s)]
+    return _qualification_relay(s) + _automatic_checkout_relay(s) + [a["full"] for a in _pushed_alarms(s)]
 
 
 def _off_main_value(s: dict):
@@ -3158,7 +3177,7 @@ def _relay_lines(s: dict) -> list:
             lines.append(a["worse"])
         else:
             lines.append(a["full"])
-    return _automatic_checkout_relay(s) + lines
+    return _qualification_relay(s) + _automatic_checkout_relay(s) + lines
 
 
 # The set-aside ladder's pin-block name (briefing budget) — named once so the two-pass loud
@@ -3363,6 +3382,24 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 
 # ---- the hook handler + CLI -----------------------------------------------------------------
 
+def ambient_qualification() -> list:
+    """Converge this machine's memory-write qualification at SessionStart, and return what to disclose.
+
+    This is the whole answer to StarshipSuperjam/engine-template#1153's bootstrap deadlock. Qualification used to require a typed operator
+    verb, which the MCP launch was sequenced before — so nothing could ever activate, and the memory server
+    that the verb needed was the thing activation was gating. Here it is ambient: no operator step, bounded
+    by a wall-clock budget, and every failure degrades the session rather than delaying or breaking it.
+
+    It stays honest about what it did: a first activation and an advance both return a notice, because
+    "the code allowed to write your memory just changed" is not something to do silently.
+    """
+    try:
+        _, notices = accepted_hook_dispatch.ensure_activation_ambient(validate.ROOT)
+        return list(notices)
+    except Exception:  # noqa: BLE001 — SessionStart is fail-open; an unqualified session still boots
+        return ["Engine memory is running unqualified: activation could not be attempted this session."]
+
+
 def handler(payload: dict) -> dict:
     """The SessionStart handler. FIRST it clears the modes stance signal for this session (modes' own
     operation, run at boot's SessionStart moment) so every session — including a resume — boots Explore
@@ -3373,6 +3410,7 @@ def handler(payload: dict) -> dict:
     any unreadable signal, and the merge wall backstops any write that slips that window."""
     session_id = payload.get("session_id") if isinstance(payload, dict) else None
     modes.clear_stance(session_id)
+    qualification_notices = ambient_qualification()
     # The sole automatic checkout mutation lives at this boot-only seam: stance has reset, but no orientation
     # signal has been gathered or rendered. Its structured, in-memory result is threaded into this one pack so a
     # successful update is disclosed exactly now and is silent once the next boot sees the folder current.
@@ -3382,6 +3420,7 @@ def handler(payload: dict) -> dict:
         automatic_checkout = {"status": "unavailable", "reason": "controller-failed"}
     payload = dict(payload) if isinstance(payload, dict) else {}
     payload["_automatic_checkout"] = automatic_checkout
+    payload["_qualification_notices"] = qualification_notices
     # Interrupted-restore repair is intentionally exclusive to this write-capable SessionStart seam. The
     # status verb and pack debug path call gather_signals directly and therefore only observe quarantine.
     # The marker itself keeps every memory writer paused until this recovery either restores the durable prior

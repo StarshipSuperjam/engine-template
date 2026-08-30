@@ -4721,7 +4721,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:383c913e6c63d519b862461e5e9216f732910d7648702b2a93d1ea4646a562be",
+        "fingerprint": "sha256:a0595c042f0a3be9bc456130b31ab5ea53528125b30eb3632535e37447ffd9bb",
         "path": ".agents/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -5893,7 +5893,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:c47b2c841234e3c26eb50f4dbe606b24fefaba1fa49c083ee631534b29df0854",
+        "fingerprint": "sha256:499d9a27016e00059e89e404d6f82b736932b52787353229229431b6f3fe9568",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -8400,7 +8400,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:9c1a22126340be27eb765d17e79d9e8f683af0d68714df60dc0271aa5d84e235",
+        "fingerprint": "sha256:c7b68c6cb89b46bb11f13a8b18d97e684c394d7e0cd426ff87ced8c1802882f3",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -8612,7 +8612,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:ac856d336f3f681601d1a71d85f2ce235aef664dcd6acca708c2958361b22998",
+        "fingerprint": "sha256:aa08c056f1493d173083413a3e68a93aeaa564910e7bcdf22caacdae15ad3026",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -8956,6 +8956,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:accepted_hook_dispatch",
           "tool:attention",
           "tool:audit_digest",
           "tool:boot_alarm_ledger",
@@ -8995,7 +8996,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:51f1a26d7e01e703f0047d32560615fa96f8ec10552736f557b553d1c9dde5a8",
+        "fingerprint": "sha256:e7dc9aaa3f8b851fc04929c5169b3971cd28620a6dc241962b9b7b7c58056ebc",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -11545,7 +11546,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:fa8ba17ac39a3bf9bebebaa615be221c8ee022bb3f034c9cef2f7f9efd5966d4",
+        "fingerprint": "sha256:918513d68b1eceefaaec9b1c913ebd6d5cbf57baba142f36c1634dd190b5114d",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -11978,7 +11979,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:4f63cfffa097e8bf68b878d7d4a279394f07bc4a0bd36433f5e472ab59cc1e6a",
+        "fingerprint": "sha256:0a7722b62c12c05fae786d83cd6d7f1b2a2c39d6fe52c41c4634c11c2a183ed9",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -12869,7 +12870,6 @@
           "tool:checkout_health",
           "tool:hooks",
           "tool:issue_gate",
-          "tool:mutation_authority",
           "tool:project_manager",
           "tool:providers"
         ],
@@ -12879,7 +12879,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:ff3f909d3a1eab2cd30d36a72e2080b50ea99aceb1bd482d76ceae3f18926af2",
+        "fingerprint": "sha256:495fd0698b1c3c1a98706961bb4b2e182d8a1ebda716762db872a569dfa0ecc3",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13117,7 +13117,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:f5c81c5283808fb8a405682a4d72fa5fdce09d3dcbe8b17ddd235d81460f6f75",
+        "fingerprint": "sha256:3bbc1bbb9d3ba3ec4fea9feefa3d4ec92172b89762994d92cba8b593553106c2",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -16332,7 +16332,7 @@
       },
       "slug": "test_engine_status",
       "source": {
-        "fingerprint": "sha256:ac03d161ffae2a9748d59350c9eae34d9f8fe5ef72e66276efcbf6d17a1f9ad9",
+        "fingerprint": "sha256:16aa93477e494de426380d12e1186d317e19281483aa4aaf148c6fc73b6bb258",
         "path": ".engine/tools/test_engine_status.py"
       },
       "status": "active",
@@ -16695,7 +16695,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:754d0e29638c828f667d31b431d2027faf40c08653fc4873318429294a71284a",
+        "fingerprint": "sha256:11e88d9a2fd51d525b42a4556311b4040c95c70f15030e5fd9f76e95b8ff3a7c",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17500,7 +17500,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:6196ca4adc4d4c9150f83c7546b0ef03272aed01720da2bbafb858bdafe8dc37",
+        "fingerprint": "sha256:3fad327e460bd340ae003151e56849277860c086b707e483b9a675c7b8ca0952",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",

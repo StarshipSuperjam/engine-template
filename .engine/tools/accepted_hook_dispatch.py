@@ -31,6 +31,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from urllib.parse import quote
 
@@ -508,31 +509,36 @@ def _provider_authority(tree: str):
         raise QualificationError("provider authority could not be loaded") from exc
 
 
-def _verify_activation_barrier(root: str) -> dict:
-    topology = _activation_topology(root)
-    if not topology["qualified"]:
-        states = sorted({record.get("state", "unknown") for record in topology["worktrees"]
-                         if isinstance(record, dict)})
-        offenders = [record for record in topology["worktrees"]
-                     if isinstance(record, dict) and record.get("state") != "qualified"]
-        summary = ", ".join(
+def uncovered_worktrees(root: str) -> dict:
+    """Which registered worktrees this activation does NOT cover — a disclosure, never a refusal.
+
+    StarshipSuperjam/engine-template#1153 made an unqualified worktree topology REFUSE activation. That protected nothing: a pre-fix
+    worktree runs its own pre-fix wiring whether or not this machine's activation advances, so refusing
+    only stripped protection from the sessions that could actually have it. The honest report is a count
+    the operator can see and act on, and the mechanism that genuinely covers those worktrees is the
+    store-side cutover deferred to its own issue.
+
+    Returns ``{"total", "uncovered", "sample", "state"}``, or ``{"readable": False}`` when the topology
+    itself cannot be resolved — an unreadable topology is reported, never treated as clean.
+    """
+    try:
+        topology = _activation_topology(root)
+    except QualificationError as exc:
+        return {"readable": False, "reason": str(exc), "total": None, "uncovered": None, "sample": []}
+    records = [record for record in topology["worktrees"] if isinstance(record, dict)]
+    offenders = [record for record in records if record.get("state") != "qualified"]
+    return {
+        "readable": True,
+        "state": topology["state"],
+        "total": len(records),
+        "uncovered": len(offenders),
+        "sample": [
             f"{record.get('ref', 'unknown')} [{record.get('worktree_id', 'unknown')}]: "
             f"{record.get('state', 'unknown')}"
             + (f" ({record['component']})" if record.get("component") else "")
             for record in offenders[:6]
-        ) or ", ".join(states[:6]) or topology["state"]
-        raise QualificationError(
-            "activation refused: retire or recreate pre-fix, dirty, missing, ambiguous, unreadable, or "
-            f"concurrently changing worktrees before advancing the accepted epoch ({summary})"
-        )
-    return topology
-
-
-def _verify_unchanged_activation_barrier(before: dict, after: dict) -> None:
-    if _json_digest(before) != _json_digest(after):
-        raise QualificationError(
-            "activation refused: registered Git worktree topology changed while activation was in progress"
-        )
+        ],
+    }
 
 
 def _engine_manifest_at(root: str, commit: str) -> dict:
@@ -549,7 +555,7 @@ def _engine_manifest_at(root: str, commit: str) -> dict:
 def _engine_release_at(root: str, commit: str) -> str:
     """The release string the accepted commit declares. The key is `engine_release`, which is what
     `.engine/engine.json` has always carried; reading a key the real manifest never had is what made
-    every activation refuse in #1153."""
+    every activation refuse in StarshipSuperjam/engine-template#1153."""
     value = _engine_manifest_at(root, commit)
     version = value.get("engine_release")
     if not isinstance(version, str) or not version.strip():
@@ -557,13 +563,54 @@ def _engine_release_at(root: str, commit: str) -> str:
     return version
 
 
+AMBIENT_BOOT_BUDGET_SECONDS = 2.0
+_AMBIENT_DEADLINE: float | None = None
+
+
+@contextmanager
+def _ambient_budget(seconds: float = AMBIENT_BOOT_BUDGET_SECONDS):
+    """Bound every GitHub read inside this block to one shared wall-clock budget.
+
+    Ambient activation runs at session start, where a slow or hanging network call is indistinguishable
+    from a broken session. The budget is shared across the whole attempt rather than per-call, so three
+    sequential reads cannot add up to three timeouts, and it is enforced even when a single ``gh`` invocation
+    would otherwise block on a credential prompt.
+    """
+    global _AMBIENT_DEADLINE
+    previous = _AMBIENT_DEADLINE
+    _AMBIENT_DEADLINE = time.monotonic() + seconds
+    try:
+        yield
+    finally:
+        _AMBIENT_DEADLINE = previous
+
+
+def _github_timeout() -> float:
+    """The seconds this call may take: the whole remaining ambient budget, or the attended default."""
+    if _AMBIENT_DEADLINE is None:
+        return 30.0
+    remaining = _AMBIENT_DEADLINE - time.monotonic()
+    if remaining <= 0:
+        raise QualificationError("ambient activation exceeded its session-start budget")
+    return remaining
+
+
 def _github_json(endpoint: str):
     """Read one bounded GitHub acceptance fact through the operator's authenticated gh session."""
+    timeout = _github_timeout()
+    environment = {key: value for key, value in os.environ.items() if key not in _PYTHON_ENV_PREFIXES}
+    # Never let activation stop at an interactive prompt: a hook has no terminal to answer one on, and an
+    # unauthenticated `gh` must fail fast into the degraded path rather than hang holding the session.
+    environment.update({"GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "GIT_TERMINAL_PROMPT": "0"})
     try:
         proc = subprocess.run(
-            ["gh", "api", endpoint], capture_output=True, text=True, timeout=30,
-            env={key: value for key, value in os.environ.items() if key not in _PYTHON_ENV_PREFIXES},
+            ["gh", "api", endpoint], capture_output=True, text=True, timeout=timeout,
+            stdin=subprocess.DEVNULL, env=environment,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise QualificationError(
+            "GitHub acceptance proof did not answer within its time budget; qualification stays as it was"
+        ) from exc
     except (OSError, subprocess.SubprocessError) as exc:
         raise QualificationError(
             "GitHub acceptance proof is unavailable; authenticate the GitHub CLI and retry activation"
@@ -578,7 +625,15 @@ def _github_json(endpoint: str):
         raise QualificationError("GitHub acceptance proof returned unreadable data") from exc
 
 
+_DEFAULT_BRANCH_MEMO: dict[str, str] = {}
+
+
 def _github_default_branch(repository: str) -> str:
+    """GitHub's own current default branch, read once per process — the ambient budget is shared, and one
+    activation attempt asks for this fact from several places."""
+    memoized = _DEFAULT_BRANCH_MEMO.get(repository)
+    if memoized is not None:
+        return memoized
     value = _github_json(f"repos/{repository}")
     branch = value.get("default_branch") if isinstance(value, dict) else None
     valid = (subprocess.run(
@@ -586,6 +641,7 @@ def _github_default_branch(repository: str) -> str:
     ).returncode == 0) if isinstance(branch, str) and branch else False
     if not valid:
         raise QualificationError("GitHub repository metadata has no usable default branch")
+    _DEFAULT_BRANCH_MEMO[repository] = branch
     return branch
 
 
@@ -682,11 +738,8 @@ def activate(args: argparse.Namespace) -> dict:
         repository, commit, args.source, source_ref,
         default_branch=default_branch if args.source == "reviewed-merge" else None,
     )
-    initial_topology = _verify_activation_barrier(root)
     activation_path, _, lock_path = _state_paths(root)
     with _exclusive_lock(lock_path):
-        locked_topology = _verify_activation_barrier(root)
-        _verify_unchanged_activation_barrier(initial_topology, locked_topology)
         if os.path.exists(activation_path):
             current = _validate_activation(_read_json(activation_path, "accepted-hook activation"))
             current_epoch = current["epoch"]
@@ -709,41 +762,115 @@ def activate(args: argparse.Namespace) -> dict:
             "activated_at": moment.utc_now(),
         }
         _materialize(root, record)
-        final_topology = _verify_activation_barrier(root)
-        _verify_unchanged_activation_barrier(locked_topology, final_topology)
         _atomic_json(activation_path, record)
     return record
 
 
-def ensure_activation(root: str) -> dict:
-    """Keep any exact valid activation, or bootstrap the canonical default-branch HEAD when none exists."""
+def _default_branch_tip(root: str, repository: str) -> tuple[str, str]:
+    """The canonical checkout's default-branch commit and the exact ref that names it."""
+    canonical = _main_checkout(root)
+    branch = _github_default_branch(repository)
+    for candidate in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+        commit = _git(canonical, "rev-parse", f"{candidate}^{{commit}}", check=False)
+        if commit:
+            return commit, candidate
+    raise QualificationError(
+        "the canonical checkout has no local record of its GitHub default branch; fetch it and retry"
+    )
+
+
+def ensure_activation(root: str, notices: list | None = None) -> dict:
+    """Keep, bootstrap, or advance this machine's activation — always leaving it usable.
+
+    Three states, one entry point, because a session start cannot ask an operator anything:
+
+    * **absent** — bootstrap to the canonical checkout's default-branch tip.
+    * **stale** — the default branch has moved ahead of the activated commit, so advance to it. The move
+      must be FORWARD: the new commit has to be a descendant of the activated one, which makes a rollback,
+      a force-push, or a branch swap unable to walk qualification backwards.
+    * **current** — verify the recorded object and keep it.
+
+    Every advance still needs the same GitHub acceptance proof a first activation does: a pull request the
+    operator merged, whose merge commit IS this commit, on GitHub's own default branch. A direct push can
+    therefore never qualify — it simply stalls advancement until the next merged pull request.
+    """
     root = _top(root)
     repository = _origin_slug(root)
     activation_path, _, _ = _state_paths(root)
-    if os.path.lexists(activation_path):
-        current = load_activation(root)
-        if current["repository"] != repository:
-            raise QualificationError("the accepted activation belongs to a different repository")
-        _verify_exact_object(root, current)
-        _verify_activation_barrier(root)
-        _materialize(root, current)
-        return current
-    canonical = _main_checkout(root)
-    commit = _git(canonical, "rev-parse", "HEAD^{commit}")
-    branch = _github_default_branch(repository)
-    ref = f"refs/heads/{branch}"
-    if _git(canonical, "rev-parse", f"{ref}^{{commit}}", check=False) != commit:
-        remote_ref = f"refs/remotes/origin/{branch}"
-        if _git(canonical, "rev-parse", f"{remote_ref}^{{commit}}", check=False) != commit:
+    if not os.path.lexists(activation_path):
+        commit, ref = _default_branch_tip(root, repository)
+        return activate(argparse.Namespace(
+            root=root, repository=repository, commit=commit, source="reviewed-merge", source_ref=ref,
+            engine_release=_engine_release_at(root, commit), expected_epoch=0,
+        ))
+    current = load_activation(root)
+    if current["repository"] != repository:
+        raise QualificationError("the accepted activation belongs to a different repository")
+    _verify_exact_object(root, current)
+    _materialize(root, current)
+    if current["source"] != "reviewed-merge":
+        return current  # a pinned published release is an operator's explicit choice; never auto-advance it
+    # A FAILED ADVANCE NEVER COSTS A WORKING ACTIVATION. No network, no GitHub CLI, a branch that was
+    # force-pushed — each leaves the machine qualified at the commit it already had, which is strictly
+    # better than the alternative of tearing down qualification because a newer one could not be proven.
+    try:
+        commit, ref = _default_branch_tip(root, repository)
+        if commit == current["commit"]:
+            return current
+        forward = subprocess.run(
+            ["git", "-C", _main_checkout(root), "merge-base", "--is-ancestor", current["commit"], commit],
+            capture_output=True, timeout=30,
+        )
+        if forward.returncode != 0:
             raise QualificationError(
-                "the canonical checkout is not at its locally recorded GitHub default-branch tip; update it and retry"
+                "the default branch no longer descends from the activated commit"
             )
-        ref = remote_ref
-    namespace = argparse.Namespace(
-        root=root, repository=repository, commit=commit, source="reviewed-merge", source_ref=ref,
-        engine_release=_engine_release_at(root, commit), expected_epoch=0,
-    )
-    return activate(namespace)
+        return activate(argparse.Namespace(
+            root=root, repository=repository, commit=commit, source="reviewed-merge", source_ref=ref,
+            engine_release=_engine_release_at(root, commit), expected_epoch=current["epoch"],
+        ))
+    except QualificationError as exc:
+        message = (f"Engine memory stays qualified at {current['commit'][:12]}: it could not advance to the "
+                   f"current default branch ({exc}).")
+        if notices is None:
+            print(message, file=sys.stderr)
+        else:
+            notices.append(message)
+        return current
+
+
+def ensure_activation_ambient(root: str) -> tuple[dict | None, list[str]]:
+    """Converge activation at session start without ever being able to hold the session up.
+
+    Returns ``(activation_or_None, notices)``. Every failure is a notice, never an exception: an
+    unauthenticated GitHub CLI, no network, a slow API, a rolled-back branch — each one leaves the session
+    running unqualified, which the effect tiering already handles. What the operator is owed is being
+    TOLD, which is what the notices carry into the status block.
+    """
+    notices: list[str] = []
+    try:
+        before = load_activation(_top(root)) if os.path.lexists(_state_paths(_top(root))[0]) else None
+    except QualificationError:
+        before = None
+    try:
+        with _ambient_budget():
+            record = ensure_activation(root, notices)
+    except QualificationError as exc:
+        notices.append(f"Engine memory is running unqualified: {exc}.")
+        return None, notices
+    except Exception as exc:  # noqa: BLE001 — session start is fail-open; an unexpected fault degrades too
+        notices.append(f"Engine memory is running unqualified: activation could not be resolved ({exc}).")
+        return None, notices
+    if before is None:
+        notices.append(
+            f"Engine memory qualified for the first time on this machine at {record['commit'][:12]} "
+            f"(epoch {record['epoch']}).")
+    elif before["commit"] != record["commit"]:
+        notices.append(
+            f"Engine memory qualification advanced from {before['commit'][:12]} to {record['commit'][:12]} "
+            f"(epoch {before['epoch']} to {record['epoch']}) — the code that may write memory is now the "
+            f"tree of that merge.")
+    return record, notices
 
 
 def _relative_script(root: str, script: str) -> str:
@@ -1421,6 +1548,10 @@ def _parser() -> argparse.ArgumentParser:
         help="attend activation of the canonical GitHub default-branch HEAD, or keep the exact current activation",
     )
     ensure.add_argument("--root", required=True)
+    ensure.add_argument(
+        "--ambient", action="store_true",
+        help="session-start form: bounded, never raises, and reports what it did as notices",
+    )
     inspect = sub.add_parser("inspect")
     inspect.add_argument("--root", required=True)
     run = sub.add_parser("run")
@@ -1491,6 +1622,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(_canonical_context(root, activation, accepted_tree), sort_keys=True))
             return 0
         if args.command == "ensure":
+            if args.ambient:
+                record, notices = ensure_activation_ambient(args.root)
+                print(json.dumps({"activation": record, "notices": notices,
+                                  "coverage": uncovered_worktrees(_top(args.root))}, sort_keys=True))
+                return 0
             print(json.dumps(ensure_activation(args.root), sort_keys=True))
             return 0
         if args.command == "run":

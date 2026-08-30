@@ -79,11 +79,13 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    default branch clean and current on the merged commit (fast-forward, or the engine's catch-up on consent). At
    the **next** session start the engine confirms **Setup is now complete** on its own — once. (The operator may
    land it themselves if they prefer.)
-9. **Activate the reviewed Engine code for this clone.** After the setup pull request is merged and the local
-   default branch is clean and current, run `uv run --directory .engine --frozen -- python
-   tools/accepted_hook_dispatch.py ensure --root ..`. This attended step records untracked Git-common activation
-   metadata only after GitHub proves the exact default-branch merge. If it refuses, do not attempt the guarded
-   backup or live-memory controls: show its recovery guidance and leave memory unchanged.
+9. **Nothing to do to activate — but say where it stands if asked.** Qualifying this clone's Engine code to
+   write canonical memory is ambient: every session start attempts it, bounded and without a prompt, and it
+   succeeds once the setup pull request is merged and the local default branch is clean and current on that
+   merge. There is no step for the operator here, and an unqualified clone is not a broken one — memory reads
+   and health work throughout; only writing waits. If the operator asks, `uv run --directory .engine --frozen
+   -- python tools/accepted_hook_dispatch.py ensure --root .. --ambient` reports the current state and what,
+   if anything, is holding it back.
 10. **Offer to back up the project's memory.** The engine can keep a private, off-computer copy of the notes it
    saves about this project — the decisions, lessons, and plans it remembers (never the operator's code or work) —
    so a copy is always safe if this machine is ever lost. Present the choice and get plain-language consent
