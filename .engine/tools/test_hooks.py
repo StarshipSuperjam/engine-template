@@ -1809,6 +1809,36 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(health["skipped_effect_count"], 1)
         self.assertIn("converges", health["guidance"])
 
+    def test_a_reworded_guidance_sentence_neither_wedges_the_record_nor_reaches_the_operator(self):
+        """Guidance is derived, so a record written by an older wording must still read, and the stale
+        sentence must not survive into what the operator is shown.
+
+        This is a real incident, not a hypothetical: an earlier commit on this very branch reworded one
+        `GUIDANCE_BY_REASON` entry, and every record written before it became permanently unreadable --
+        `_read_path` refused, so `record()` could no longer update, so the one channel that reports
+        skipped memory work went silent and stayed silent. Exact-match validation made a cosmetic edit a
+        latent outage on every machine holding a record, and the LEGACY_GUIDANCE escape hatch only works
+        for whoever remembers to use it. Nobody did, in-house, within days."""
+        from memory import qualification_health as qh  # noqa: PLC0415 — tools/ is on sys.path above
+
+        self.repo.run_launcher_script(
+            "claude", ".engine/tools/memory/compact.py", self.repo.poison_env(), "pre-compact")
+        path = self.repo.common_dir() / "engine/accepted-hooks/qualification-health.json"
+        stored = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(stored["skipped_effect_count"], 1)
+        obsolete = "Some earlier release phrased this differently, and said to go and repair a worktree."
+        stored["guidance"] = obsolete
+        path.write_text(json.dumps(stored), encoding="utf-8")
+
+        value = qh.read(str(self.repo.root))
+        self.assertEqual(value["guidance"], qh.GUIDANCE_BY_REASON[value["last_failure"]["reason_code"]])
+        self.assertNotEqual(value["guidance"], obsolete)
+
+        # The write path is the half that actually wedged: prove the next skip still lands.
+        self.repo.run_launcher_script(
+            "claude", ".engine/tools/memory/compact.py", self.repo.poison_env(), "pre-compact")
+        self.assertEqual(self.repo.qualification_health()["skipped_effect_count"], 2)
+
     def test_activation_succeeds_with_a_pre_fix_worktree_present_and_discloses_it(self):
         (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text("#!/bin/sh\nexit 0\n",
                                                                          encoding="utf-8")

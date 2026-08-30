@@ -59,6 +59,9 @@ GUIDANCE_BY_REASON = {
 }
 RECOVERY_GUIDANCE = "The latest automatic memory hook qualified; no repair is currently required."
 GUIDANCE = LEGACY_GUIDANCE  # compatibility name for older callers and records
+# `engine_status` refuses a guidance sentence longer than this, so a record carrying one is malformed
+# rather than merely stale.
+MAX_GUIDANCE_CHARS = 900
 _OPERATIONS = {
     ".engine/tools/boot.py": "automatic-boot-operation",
     ".engine/tools/close.py": "automatic-close-operation",
@@ -191,6 +194,15 @@ def _validate_failure(value) -> None:
         raise QualificationHealthError("qualification health record has an invalid failure summary")
 
 
+def _derived_guidance(value: dict) -> str:
+    """The operator-facing sentence for an already-validated record. The single source for both paths."""
+    if value.get("status") != "degraded":
+        return RECOVERY_GUIDANCE
+    failure = value.get("last_failure")
+    reason = failure.get("reason_code") if isinstance(failure, dict) else None
+    return GUIDANCE_BY_REASON.get(reason, LEGACY_GUIDANCE)
+
+
 def _read_path(path: str) -> dict | None:
     try:
         info = os.lstat(path)
@@ -217,7 +229,8 @@ def _read_path(path: str) -> dict | None:
         item = value.get(key)
         if item is not None and (_parse_moment(item) is None or len(item) > 32):
             raise QualificationHealthError("qualification health record has an invalid timestamp")
-    if value.get("guidance") not in {LEGACY_GUIDANCE, RECOVERY_GUIDANCE, *GUIDANCE_BY_REASON.values()}:
+    guidance = value.get("guidance")
+    if not isinstance(guidance, str) or len(guidance) > MAX_GUIDANCE_CHARS:
         raise QualificationHealthError("qualification health record has an invalid guidance value")
     receipt = value.get("last_receipt")
     _validate_receipt(receipt, "skipped" if value["status"] == "degraded" else "qualified")
@@ -230,6 +243,13 @@ def _read_path(path: str) -> dict | None:
             or (value["status"] == "degraded"
                 and (value.get("last_failure") is None or value.get("last_failure_at") != value["updated_at"]))):
         raise QualificationHealthError("qualification health record has inconsistent bounded state")
+    # The stored sentence is derived, never authoritative: recompute it from the closed sets this
+    # function has already validated (`status`, and `last_failure.reason_code` against _REASON_CODES).
+    # Comparing it against the current wording instead is what wedged a real machine — RL3 reworded one
+    # entry mid-build and every record written before that became permanently unreadable, which silences
+    # the very channel that reports skipped memory work. Deriving also means no text a damaged or hostile
+    # record carries can reach the operator, which exact-match comparison allowed as an equal outcome.
+    value["guidance"] = _derived_guidance(value)
     return value
 
 
@@ -332,8 +352,9 @@ def update(root: str, *, outcome: str, script: str, provider: str, run_id: str |
                 "updated_at": occurred_at,
                 "last_notice_at": previous.get("last_notice_at") if previous else None,
                 "suppressed_notice_count": previous.get("suppressed_notice_count", 0) if previous else 0,
-                "guidance": (GUIDANCE_BY_REASON[reason_code] if outcome == "skipped"
-                             else RECOVERY_GUIDANCE),
+                # Placeholder: `_derived_guidance` sets the real sentence below, once `last_failure`
+                # exists, so the write and read paths cannot drift apart.
+                "guidance": RECOVERY_GUIDANCE,
                 "last_failure": previous.get("last_failure") if previous else None,
                 "last_qualified": previous.get("last_qualified") if previous else None,
                 "last_receipt": receipt,
@@ -359,6 +380,7 @@ def update(root: str, *, outcome: str, script: str, provider: str, run_id: str |
                 record["last_qualified"] = receipt
                 if previous_status == "degraded":
                     record["last_recovery_at"] = occurred_at
+            record["guidance"] = _derived_guidance(record)
             dispatcher._atomic_json(path, record)
     except QualificationHealthError:
         raise
