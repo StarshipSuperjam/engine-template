@@ -417,10 +417,6 @@ class ReleasedImpliesAReason(_Program):
         self.assertTrue(self.plans.create(document))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheChainIsAuthoritative(_Program):
     """Order comes from the predecessor edges, never from the stored `position` numbering.
 
@@ -2478,3 +2474,7 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
         # While the actual shipped message — two routes, each ending at its own open door — passes.
         sound = plan_program.way_through_for("pln_x", "active", True)
         self._assert_no_dead_end(sound, "pln_x", "active")
+
+
+if __name__ == "__main__":
+    unittest.main()
