@@ -16471,7 +16471,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:fa8542cc6d3065f59cbda97ecbba556f54a156845f9ca7bcd2bee63e82a1dfdc",
+        "fingerprint": "sha256:508d337d595e3562a2fa79bcf88e036bae11458c29b231e98f3143fdcd8ec865",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
