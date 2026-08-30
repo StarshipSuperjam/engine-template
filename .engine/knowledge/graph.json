@@ -16292,7 +16292,7 @@
       },
       "slug": "test_drain",
       "source": {
-        "fingerprint": "sha256:9b2f7157ba0b4d12a723d4fca1ad1f1395d9f6da2cb760341b06e702980ffc66",
+        "fingerprint": "sha256:5c094f3b6cf82608d504f069e7f31d7274f7151d038b8086799584b7c8318efb",
         "path": ".engine/tools/memory/test_drain.py"
       },
       "status": "active",
@@ -16383,15 +16383,13 @@
         ],
         "tests": [
           "tool:boot",
-          "tool:capture",
-          "tool:drain",
           "tool:engine_status",
           "tool:test_boot"
         ]
       },
       "slug": "test_engine_status",
       "source": {
-        "fingerprint": "sha256:87e133fa7ec9a0f5c1e89d5bb5a60e54b16a4bd6d2bb16b9fc639ef206f0bafc",
+        "fingerprint": "sha256:b1a1e7df32a4bdebdeeb8a85af867742315f42b1c715ecc3eb92c1e8ebd96c7c",
         "path": ".engine/tools/test_engine_status.py"
       },
       "status": "active",
