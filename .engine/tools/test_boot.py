@@ -4076,7 +4076,21 @@ class TestSessionStartReachesQualification(unittest.TestCase):
             # and suppressed means it truly does not reach the dispatcher
             with mock.patch.object(boot.accepted_hook_dispatch, "ensure_activation_ambient",
                                    side_effect=AssertionError("must not be called")):
-                self.assertEqual(boot.ambient_qualification(), [])
+                notices = boot.ambient_qualification()
+        self.assertEqual(len(notices), 1)
+
+    def test_the_off_switch_announces_itself_rather_than_stalling_qualification_in_silence(self):
+        """The repair review's finding on this seam. It replaced an `"unittest" in sys.modules` sniff, which
+        no real session could ever trip — but an environment variable CAN be inherited from a shell export or
+        a CI wrapper, and that would stop qualification converging forever with nothing anywhere saying why.
+        The old state was unreachable; this one has to be visible."""
+        with mock.patch.dict(os.environ, {boot.AMBIENT_QUALIFICATION_OFF_ENV: "1"}, clear=False):
+            notices = boot.ambient_qualification()
+        self.assertEqual(len(notices), 1)
+        notice = notices[0]
+        self.assertIn(boot.AMBIENT_QUALIFICATION_OFF_ENV, notice)   # names the variable to unset
+        self.assertIn("switched OFF", notice)
+        self.assertIn("will not converge", notice)
 
 
 if __name__ == "__main__":
