@@ -5491,7 +5491,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:cc34da144b3c06feb49113b952268261230cf5b0780200f2882c0f83002cc3c4",
+        "fingerprint": "sha256:333aa913734917450d287ffd1472ef88843c6d7bb35cce3974756823fa6bad19",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -10808,7 +10808,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:a968ef1a6915bfa233ccf5aaa640e71ae58311df8f5849601dcdf3d1f6f8917a",
+        "fingerprint": "sha256:3f4fcdd5893d07db5ffacb043fd56bc6a78426bfb48b3f8fb081980891c8407d",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -15147,7 +15147,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:3096aa81fa246305b82632cf0101d9c05a24d98e354cfe78101a0b8eb7374a04",
+        "fingerprint": "sha256:bae93131ec5b8a33c1c58372038140b27ea27d6a2b8fe0e9df55934f932ec5d3",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
