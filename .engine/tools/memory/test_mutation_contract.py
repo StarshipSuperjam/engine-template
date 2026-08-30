@@ -306,15 +306,18 @@ class TestDegradedTiering(unittest.TestCase):
         through to the full ledger scan.
         """
         for entry_id in ("index-rebuild", "index-extend", "index-schema", "index-stale-heal",
-                         "attended-keyword-search-heal"):
+                         "attended-semantic-sync", "semantic-store-reconcile", "semantic-passages-drop"):
             with self.subTest(entry_id):
                 entry = contract.entry_by_id(entry_id)
                 self.assertEqual(contract.degraded_disposition(entry), "refuse")
-        # …while READING through them is untouched. Both recall boundaries are registered against an index
-        # target only because they MAY heal a stale index on the way past; the healing writer is nested and
-        # re-tiered on its own entry, so it refuses, `_heal_if_stale` swallows that, and the read falls
-        # through to the ledger scan. Refusing these by target instead would take recall down — #1153 again.
-        for entry_id in ("attended-keyword-mcp-search", "attended-semantic-mcp-search"):
+        # …while READING through them is untouched. Each recall boundary is registered against an index target
+        # only because it MAY heal a stale index on the way past; the rebuilding writers above are nested and
+        # re-tiered on their own entries, so they refuse, `_heal_if_stale` swallows that, and the read falls
+        # through to the ledger scan. Refusing these by target instead takes recall down — #1153 again, and
+        # the launch-contract test caught exactly that when this list was missing `memory.index.search`.
+        for entry_id in ("attended-keyword-mcp-search", "attended-keyword-search-heal",
+                         "attended-semantic-mcp-search", "attended-semantic-search-reconcile",
+                         "semantic-store-connect"):
             with self.subTest(entry_id):
                 self.assertEqual(contract.degraded_disposition(contract.entry_by_id(entry_id)), "allow")
 

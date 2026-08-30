@@ -1674,7 +1674,15 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result["activation"]["commit"], self.repo.commit)
         self.assertEqual(result["activation"]["epoch"], 1)
         self.assertEqual(len(result["notices"]), 1)
-        self.assertIn("qualified for the first time", result["notices"][0])
+        notice = result["notices"][0]
+        # Asserted on MEANING, not on a phrase. The wording changed once already, when the deliverable review
+        # found it was telling a non-developer that "the code that may write memory is now the tree of that
+        # merge". What has to hold is that the operator is told writing works now and which merged commit it
+        # is running — with none of the internal vocabulary.
+        self.assertIn("can now write", notice)
+        self.assertIn(self.repo.commit[:12], notice)
+        for jargon in ("tree", "epoch", "activation"):
+            self.assertNotIn(jargon, notice.lower())
 
     def test_ambient_advances_when_the_default_branch_moves_and_discloses_the_advance(self):
         self._ambient()
@@ -1683,8 +1691,11 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result["activation"]["commit"], successor)
         self.assertEqual(result["activation"]["epoch"], 2)
         self.assertEqual(len(result["notices"]), 1)
-        self.assertIn("advanced from", result["notices"][0])
-        self.assertIn(successor[:12], result["notices"][0])
+        notice = result["notices"][0]
+        self.assertIn(successor[:12], notice)
+        self.assertIn(self.repo.commit[:12], notice)      # says what it moved FROM as well as to
+        for jargon in ("tree", "epoch"):
+            self.assertNotIn(jargon, notice.lower())
 
     def test_ambient_is_silent_when_nothing_changed(self):
         self._ambient()
@@ -1709,14 +1720,24 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         result = self._ambient()
         self.assertEqual(result["activation"]["commit"], self.repo.commit)
         self.assertEqual(result["activation"]["epoch"], 1)
-        self.assertTrue(any("stays qualified" in notice for notice in result["notices"]), result["notices"])
+        self.assertTrue(any("kept working" in notice for notice in result["notices"]), result["notices"])
+        # A failed advance is not an alarm: it has to say plainly that nothing is blocked by it.
+        self.assertTrue(any("Nothing is blocked" in notice for notice in result["notices"]),
+                        result["notices"])
 
     def test_an_unprovable_commit_leaves_no_activation_and_reports_why(self):
         result = self._ambient(accepted_proof=False)
         self.assertIsNone(result["activation"])
         self.assertFalse((self.repo.common_dir() / "engine/accepted-hooks/activation.json").exists())
-        self.assertTrue(any("running unqualified" in notice for notice in result["notices"]),
+        # The degraded line leads with what still WORKS and where the conversation goes meanwhile, because
+        # the reassuring half used to be printed to a stream the operator never sees while the raw internal
+        # error was what reached them. The detail is kept, but last and labelled.
+        self.assertTrue(any("not able to write to memory" in notice for notice in result["notices"]),
                         result["notices"])
+        degraded = next(n for n in result["notices"] if "not able to write to memory" in n)
+        self.assertIn("Reading and recall work", degraded)
+        self.assertIn("transcript", degraded)
+        self.assertIn("Detail:", degraded)
 
     def test_an_activation_belonging_to_another_repository_is_refused(self):
         self._ambient()
@@ -1738,8 +1759,8 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         elapsed = time.monotonic() - started
         self.assertIsNone(result["activation"])
         self.assertLess(elapsed, 30, "ambient activation did not abandon a hanging GitHub read")
-        self.assertTrue(any("running unqualified" in notice for notice in result["notices"]),
-                        result["notices"])
+        self.assertTrue(any("not able to write to memory" in notice for notice in result["notices"]),
+                        "a hang must be disclosed, not silently degraded")
 
     def test_an_authentication_prompt_cannot_block_the_session(self):
         """`gh` reading from stdin must see EOF, not a session that waits forever for an answer nobody can

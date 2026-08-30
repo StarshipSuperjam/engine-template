@@ -368,7 +368,16 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     live = _live_text(ledger_file)
     conn = _connect(store_path(store_file))
     try:
-        reconciled = _reconcile(conn, live)
+        try:
+            reconciled = _reconcile(conn, live)
+        except Exception:  # noqa: BLE001 — the read must survive a reconcile it is not allowed to perform
+            # An unqualified session may not write embeddings: the passage store holds record text, so
+            # rewriting it is a way to put invented content in front of recall without touching the ledger.
+            # But refusing the REPAIR must not refuse the READ. Answer from whatever is already embedded and
+            # say nothing was embedded this pass; the next qualified session reconciles. Below, every hit is
+            # still filtered against `live`, the fresh read of the ledger — so a passage for a record that has
+            # since left the ledger cannot come back through a store this pass could not prune.
+            reconciled = {"embedded": 0, "degraded": True}
         # Streamed in blocks, never fetchall(): the row set grows with the store, and materialising it whole
         # would make peak memory linear in store size — the same unbounded read the keyword path already fixed.
         best, scanned = _best_by_record(

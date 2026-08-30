@@ -12057,7 +12057,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:0998919fdb0fc1a1ef54c5b2cc8305b6ab4dc29cdcbead94877af3c6638c8236",
+        "fingerprint": "sha256:0708daf770a8210dcc13906efe763958c5cd02efb1ac09fce7c0a4b880d40c9d",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -13146,7 +13146,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:27b817dab05de7d6148c4b42f50804f10b54d75c16bc3338201329fee49f42f5",
+        "fingerprint": "sha256:757e048c241f3ba839a2144263943c3a993b7de85bb63af83781c3446603e50b",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -14838,7 +14838,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:770921a0eb2bf059b5824930286fbe67226e7cd58488cce7cd27e71f0378eb7b",
+        "fingerprint": "sha256:699082ccbae2cb4bc56ef054d4712eeb90471ccfae167c7d8c2b77aa4f43feeb",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -16752,7 +16752,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:2fc726cebf2141085ff2ae006577e0181d7b48ab42905b9a0c2326c09800ae34",
+        "fingerprint": "sha256:5b016852848ef4a539cb18c3008b18fcf37c4a0bbecc06c7f95a823447f4ff10",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17754,7 +17754,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:407afabac22f1b5a57fcc8cc0665897236d3a7a9c6a4e19b26e1afe1f2d091c6",
+        "fingerprint": "sha256:461afd3213bc601bde4b872e1c3f078c1a2e10180586eeb89478214c3064df3d",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -17781,7 +17781,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:d286ee50900e3bdcd7093eff8160789e8a80fcb97077abc9675f84c212647710",
+        "fingerprint": "sha256:73679e49f360631ec1ecf8c5e9b6573531dce4a9304cd2f0c283d4956e1f1a7a",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",

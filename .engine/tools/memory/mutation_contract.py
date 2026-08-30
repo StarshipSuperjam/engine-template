@@ -525,14 +525,22 @@ DEGRADED_ALLOWED_TARGETS = frozenset({
     "degraded-health", "tracked-finding", "lifecycle-marker", "ephemeral-staging",
 })
 
-# The two RECALL boundaries, allowed by id because their target says more than they do. Both are registered
-# against an index target as reversible mutations — not because the call writes anything, but because it may
-# heal a stale index on the way past. Refusing them by target would take recall itself down, which is exactly
-# StarshipSuperjam/engine-template#1153's failure. Allowing them costs nothing, because the healing writer is
-# a NESTED call re-tiered on its own registry entry: `index-stale-heal` refuses, `_heal_if_stale` swallows the
-# refusal, and the read falls through to the ledger scan. The read happens; the second copy is not rewritten.
+# The RECALL boundaries, allowed by id because their target says more about them than they deserve. Each is
+# registered against an index target as a reversible mutation — not because the call writes anything, but
+# because it MAY heal a stale index on the way past. Refusing them by target takes recall itself down, which
+# is exactly StarshipSuperjam/engine-template#1153's failure; the launch-contract test caught precisely that
+# when this set named only the two MCP tools and left `memory.index.search` underneath them refused.
+#
+# Allowing them costs nothing, because every writer that actually REBUILDS the copy is a nested call re-tiered
+# on its own registry entry — `index-rebuild`, `index-extend`, `index-schema`, `index-stale-heal`,
+# `attended-semantic-sync`, `semantic-store-reconcile` all still refuse, `_heal_if_stale` swallows that, and
+# the read falls through to the ledger scan. The read happens; the second copy is not rewritten, which is the
+# whole point. `semantic-store-connect` is here for the same reason: opening the store is what a read needs,
+# and refusing it would refuse the read while stopping nothing, since the content writers above are refused.
 DEGRADED_ALLOWED_ENTRY_IDS = frozenset({
-    "attended-keyword-mcp-search", "attended-semantic-mcp-search",
+    "attended-keyword-mcp-search", "attended-keyword-search-heal",
+    "attended-semantic-mcp-search", "attended-semantic-search-reconcile",
+    "semantic-store-connect",
 })
 
 # Refusals an operator will actually meet, in their own words. Anything not named here gets the generic line.

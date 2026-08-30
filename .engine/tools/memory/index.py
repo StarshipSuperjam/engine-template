@@ -791,7 +791,15 @@ def _ranked(tokens, src, dst, *, tags, session, limit, force_scan):
     (already relevance-ordered) matches once no unread row could reach the top `limit` — a bound on work, never
     on the answer; see `_fast_candidates`. Returns a QueryResult."""
     if not force_scan:
-        _heal_if_stale(src, dst)
+        # The repair is optional and the READ is not. `_heal_if_stale` documents itself as fail-soft, but the
+        # qualification guard is installed ON that function, so a refusal is raised at its boundary before its
+        # own `try` is ever entered — and it propagated out of recall. Catching it here is what makes the
+        # docstring true again: an unqualified session cannot rebuild the fast index, reads the stale-or-absent
+        # one as not current, and gets the always-correct scan below. Slower recall, never no recall.
+        try:
+            _heal_if_stale(src, dst)
+        except Exception:  # noqa: BLE001 — a repair that cannot run must never take the read down with it
+            pass
     # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one.
     if (not force_scan) and fts5_available() and os.path.exists(dst):
         match = " ".join('"' + token + '"' for token in tokens)
