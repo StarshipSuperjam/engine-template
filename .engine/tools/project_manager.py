@@ -1465,8 +1465,9 @@ def _close_plan(library, slug: str, state: str, reason: str, *,
             raise ProjectManagerError(
                 "a Build bound to this plan while the supersession was being prepared, so retiring "
                 "it now would strand that Build under a retired plan — it would go on publishing "
-                "from it, and its completion could never be recorded. Nothing was written. Finish "
-                "that Build and let it merge, or abandon it, then supersede.")
+                "from it, and its completion could never be recorded. Nothing was written. ABANDON "
+                "that Build and supersede then works — or let it MERGE, after which merged history "
+                "is corrected by appended work (`program add --after`), never replaced.")
         current["closure"] = {"state": state, "at": _now(), "reason": reason}
 
     library.update_record(slug, close)
@@ -1489,6 +1490,38 @@ def cmd_reopen(args) -> int:
     if record["closure"]["state"] == "complete":
         raise ProjectManagerError(
             "this plan is complete, and completed Build history is terminal. Start a new plan for new work.")
+    # The program record gets a say before a plan closure is undone, because two of its own facts
+    # are built on that closure staying put. A SUPERSEDED child gave its place on the chain to its
+    # replacement — reopening it would stand two plans in one position, and (for a legacy unsealed
+    # child) leave one bindable under a record saying it was put away. And a COMPLETE program is the
+    # operator's judgment recorded over every live child being done — reopening a child underneath
+    # it would make that record false without anyone deciding so. Checked here, on reads: the two
+    # stores have no shared lock, so a concurrent `program complete` can still race this by a
+    # heartbeat — the sequential doors are what this closes, and the program's own gates re-derive
+    # from the plan store, so the race window admits no silent state a re-run does not surface.
+    programs = plan_program.ProgramLibrary(library)
+    for program_slug in programs.slugs():
+        try:
+            program_record = programs.read(program_slug)
+        except Exception:  # noqa: BLE001 — an unreadable program cannot veto, and says so elsewhere
+            continue
+        child = next((c for c in program_record["children"]
+                      if c["plan_id"] == record["plan_id"]), None)
+        if child is None:
+            continue
+        if child.get("superseded_by"):
+            raise ProjectManagerError(
+                f"this plan was superseded by {child['superseded_by']} in "
+                f"{program_record['program_id']} — its place on the chain was given away, and "
+                "reopening it would stand two plans in one position. If the supersession was wrong, "
+                "supersede the replacement in turn, or clone this plan and add the copy.")
+        closure_state = (program_record.get("closure") or {}).get("state")
+        if closure_state == "complete":
+            raise ProjectManagerError(
+                f"{program_record['program_id']} is recorded complete, and that judgment was made "
+                "over this child being settled. Reopening the child would make the program's record "
+                f"false without anyone deciding so — `program reopen {program_record['program_id']} "
+                "--reason \"...\"` first, then reopen the plan.")
     if record.get("seal"):
         raise ProjectManagerError(
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
@@ -2077,14 +2110,26 @@ def cmd_program_supersede(args) -> int:
     if not existing:
         _close_plan(library, superseded_slug, "retired", args.reason, refuse_if_active=True)
         print(f"retired {resolved['superseded_id']}: {args.reason}")
+    elif existing["state"] == "retired":
+        # The half-completed state: the plan was retired by an earlier run that did not reach the
+        # record. Two repairs, not one — the record write below, and the PROJECTION, which the
+        # earlier run may also have died before: `_close_plan` writes the closure and then projects,
+        # and a crash between the two leaves the library's rendered index still advertising a plan
+        # the record says is out of play. Re-running the verb must converge the whole state, so the
+        # retry re-projects rather than assuming the closure write got that far.
+        print(f"{resolved['superseded_id']} was already retired; completing the supersession.")
+        plan_projection.project_library(library)
     else:
-        # The half-completed state: the plan was closed by an earlier run that did not reach the
-        # record. Said out loud, because silence here would read as though nothing had happened —
-        # and named by its ACTUAL state, since a concurrent session may have abandoned it rather
-        # than retired it, and reporting the state we expected instead of the one on the record
-        # would be this message asserting something untrue.
-        print(f"{resolved['superseded_id']} was already {existing['state']}; "
-              "completing the supersession.")
+        # Closed, but not the way a supersession closes a plan. An abandoned or completed target is
+        # someone's DIFFERENT decision, not this verb's own crash debris, and converging over it
+        # would fold that decision into a supersession nobody made of it.
+        raise ProjectManagerError(
+            f"{resolved['superseded_id']} is {existing['state']} ({existing['reason']}) — that is "
+            "not the half-finished supersession this verb can converge, which retires its target. "
+            "If this plan should indeed be replaced on the chain, that closure already took it out "
+            "of play; what supersede would add is the program-record marker, and writing one over "
+            f"a closure someone else chose would misdescribe their decision. Reopen it first if "
+            "the closure is wrong, or leave the chain as the record tells it.")
 
     record = programs.mark_superseded(slug, args.plan, args.With)
     print(f"{resolved['replacement_id']} supersedes {resolved['superseded_id']} "
@@ -2161,8 +2206,20 @@ def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
               file=sys.stderr)
         for obligation in entry["obligations"]:
             print(f"  - {obligation['id']}: {obligation['statement']}", file=sys.stderr)
-        print(f"  Revise {entry['plan_id']} to answer for each — satisfied, still carried, or released "
-              "with a reason. Its seal refuses until it does.", file=sys.stderr)
+        # The way through depends on what the successor can still DO. "Revise it" was printed
+        # unconditionally, and for a successor already sealed that is a locked door — a seal is
+        # terminal — so the advice comes from the same owner every refusal uses.
+        try:
+            successor = programs.plans.read_record(programs.plans.resolve(entry["plan_id"]))
+            advice = plan_program.way_through_for(
+                entry["plan_id"], plan_store.derived_status(successor), bool(successor.get("seal")))
+        except Exception:  # noqa: BLE001 — an unreadable successor is reported by other readers
+            advice = ""
+        if advice:
+            print(" " + advice.strip(), file=sys.stderr)
+        else:
+            print(f"  Revise {entry['plan_id']} to answer for each — satisfied, still carried, or "
+                  "released with a reason. Its seal refuses until it does.", file=sys.stderr)
     return decay
 
 
@@ -2196,8 +2253,16 @@ def cmd_program_release(args) -> int:
     slug = programs.resolve(args.program)
     record = programs.release(slug, args.child, args.obligation, args.reason)
     child_id = programs.plans.read_record(programs.plans.resolve(args.child))["plan_id"]
+    # Print the reason the RECORD holds, not the one this invocation offered: a re-run of an
+    # existing release keeps the original reason, and echoing the new text would report an audit
+    # fact the store never wrote.
+    stored = next(entry for entry in record.get("releases", [])
+                  if entry["child_plan_id"] == child_id and entry["obligation_id"] == args.obligation)
     print(f"released {args.obligation}, carried at {child_id}, in {record['program_id']}")
-    print(f"  {args.reason}")
+    print(f"  {stored['reason']}")
+    if stored["reason"] != args.reason:
+        print(f"  (already released at {stored['at']} — the recorded reason above stands; this "
+              "run's differing reason was not written)")
     print("Released at PROGRAM level, which is a different decision from a release written inside a "
           "successor plan: it says no successor was left to answer for this at all.")
     report = programs.obligation_report(programs.read(slug))

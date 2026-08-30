@@ -23,6 +23,7 @@ import unittest
 from unittest import mock
 
 import plan_contract
+import plan_program
 import project_manager
 import plan_projection
 import plan_store
@@ -1240,13 +1241,23 @@ class ProgramVerbs(_Governed):
         self.assertIn("Revise pln_bbbbbbbbbbbb", err)
 
     def _superseded_setup(self):
-        """A -> B, where B is sealed and about to be replaced. Returns the program id."""
+        """A -> B, where B is sealed and about to be replaced. Returns the program id.
+
+        The seal is load-bearing, not scenery: supersede refuses an unsealed target — a draft is
+        revised, not replaced — and this fixture claimed "B is sealed" for two rounds while never
+        sealing it, which is exactly how the draft-supersede hole went unnoticed.
+        """
         program_id = self._program_with_child()
         self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
                        self._obligation("OB-1", "Cut over.", "satisfied"),
                        predecessor="pln_aaaaaaaaaaaa")
         self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
                                           "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        slug_b = self.lib.resolve("pln_bbbbbbbbbbbb")
+        digest = self.lib.read_record(slug_b)["current"]["plan_digest"]
+        self.lib.update_record(slug_b, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-23T03:00:00Z", "delta_judgment": "none"}}))
         return program_id
 
     def test_supersede_retires_the_plan_first_and_then_marks_the_record(self):
@@ -1303,6 +1314,134 @@ class ProgramVerbs(_Governed):
         self.assertEqual(code, 2)
         self.assertIn("OB-1", err)
         self.assertNotIn("retired", self.run_command("show", "pln_bbbbbbbbbbbb")[1])
+
+    def test_supersede_refuses_an_unsealed_target_from_the_command_line(self):
+        """A draft is revised, not replaced — and letting it be superseded was the reachable hole:
+        supersede retires its target, an unsealed retirement reopens, and a reopened draft could
+        seal and bind while the program still recorded it replaced."""
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B, still a draft",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self._plan_doc(program_id, "pln_cccccccccccc", "A replacement",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                        "--with", "pln_cccccccccccc", "--reason", "premature")
+        self.assertEqual(code, 2)
+        self.assertIn("not sealed", err)
+        self.assertNotIn("retired", self.run_command("show", "pln_bbbbbbbbbbbb")[1])
+
+    def test_reopen_refuses_a_superseded_child_even_when_it_is_not_sealed(self):
+        """The belt behind the seal requirement, for records the old code already wrote: a
+        superseded child gave its place away, and reopening it would stand two plans in one
+        position — sealed or not."""
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B, a draft the old code superseded",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self.assertEqual(self.run_command("retire", "pln_bbbbbbbbbbbb",
+                                          "--reason", "replaced, the legacy way")[0], 0)
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.resolve(program_id)
+        record = programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == "pln_bbbbbbbbbbbb":
+                child["superseded_by"] = "pln_cccccccccccc"
+        programs._write(slug, record)
+        code, _, err = self.run_command("reopen", "pln_bbbbbbbbbbbb")
+        self.assertEqual(code, 2)
+        self.assertIn("superseded by pln_cccccccccccc", err)
+        self.assertEqual(self.lib.read_record(
+            self.lib.resolve("pln_bbbbbbbbbbbb"))["closure"]["state"], "retired")
+
+    def test_reopen_refuses_a_child_under_a_complete_program_until_the_program_reopens(self):
+        """Recorded completion must not become false without anyone deciding so: completion
+        ignores a retired child as a decision, and reopening that child would un-decide it
+        underneath the program's closure."""
+        code, out, err = self.run_command("program", "new", "--title", "Completable",
+                                          "--objective", "One landed, one set aside.")
+        self.assertEqual(code, 0, err)
+        program_id = out.split()[2]
+        self._plan_doc(program_id, "pln_aaaaaaaaaaaa", "PR A")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")[0], 0)
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B, set aside",
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self.assertEqual(self.run_command("retire", "pln_bbbbbbbbbbbb",
+                                          "--reason", "set aside")[0], 0)
+        self.assertEqual(self.run_command("complete", "pln_aaaaaaaaaaaa",
+                                          "--reason", "merged")[0], 0)
+        self.assertEqual(self.run_command("program", "complete", program_id,
+                                          "--reason", "objective met")[0], 0)
+        code, _, err = self.run_command("reopen", "pln_bbbbbbbbbbbb")
+        self.assertEqual(code, 2)
+        self.assertIn("recorded complete", err)
+        self.assertIn("program reopen", err)
+        # The named door opens, and then the plan's own reopen goes through.
+        self.assertEqual(self.run_command("program", "reopen", program_id,
+                                          "--reason", "PR B is back on")[0], 0)
+        self.assertEqual(self.run_command("reopen", "pln_bbbbbbbbbbbb")[0], 0)
+
+    def test_supersede_recovery_converges_only_over_a_retirement(self):
+        """An abandoned or completed target is someone's different decision, not this verb's own
+        crash debris — converging over it would fold that decision into a supersession nobody
+        made of it."""
+        program_id = self._superseded_setup()
+        self.assertEqual(self.run_command("abandon", "pln_bbbbbbbbbbbb",
+                                          "--reason", "dropped, separately")[0], 0)
+        self._plan_doc(program_id, "pln_cccccccccccc", "A replacement",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                        "--with", "pln_cccccccccccc", "--reason", "converge?")
+        self.assertEqual(code, 2)
+        self.assertIn("not the half-finished supersession", err)
+        record = plan_program.ProgramLibrary(self.lib).read(
+            plan_program.ProgramLibrary(self.lib).resolve(program_id))
+        self.assertIsNone(next(c for c in record["children"]
+                               if c["plan_id"] == "pln_bbbbbbbbbbbb").get("superseded_by"))
+
+    def test_supersede_recovery_over_a_retirement_completes_and_reprojects(self):
+        """The genuine half-state — retired by an earlier run that died — converges on re-run,
+        including the projection the earlier run may also have died before."""
+        program_id = self._superseded_setup()
+        self.assertEqual(self.run_command("retire", "pln_bbbbbbbbbbbb",
+                                          "--reason", "an earlier run got this far")[0], 0)
+        self._plan_doc(program_id, "pln_cccccccccccc", "A replacement",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, out, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                          "--with", "pln_cccccccccccc", "--reason", "converge")
+        self.assertEqual(code, 0, err)
+        self.assertIn("was already retired; completing the supersession", out)
+        self.assertIn("pln_cccccccccccc supersedes pln_bbbbbbbbbbbb", out)
+
+    def test_a_repeated_release_reports_the_reason_the_record_holds(self):
+        """Idempotence must not narrate a write that never happened: the second run's differing
+        reason is not stored, so it is not what gets printed."""
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Still carried."),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self.assertEqual(self.run_command("abandon", "pln_bbbbbbbbbbbb",
+                                          "--reason", "dropped")[0], 0)
+        first = self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                                 "--obligation", "OB-1", "--reason", "the original reason")
+        self.assertEqual(first[0], 0, first[2])
+        code, out, err = self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                                          "--obligation", "OB-1", "--reason", "a different story")
+        self.assertEqual(code, 0, err)
+        self.assertIn("the original reason", out)
+        self.assertIn("was not written", out)
+        self.assertNotIn("a different story\n", out)
 
     def test_clone_supersedes_sources_obligations_from_the_predecessor(self):
         """Not from the plan being replaced: its own claims describe work that never landed."""

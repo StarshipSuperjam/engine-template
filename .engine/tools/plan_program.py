@@ -530,13 +530,26 @@ class ProgramLibrary:
                 and not child.get("superseded_by")
                 and view.get(child["plan_id"], {}).get("status") not in DEAD_BRANCH_STATES
                 and view.get(child["plan_id"], {}).get("status") not in ("missing", "unreadable")]
-            if live_successors:
+            # A successor that can still be REVISED must answer instead — but a sealed successor
+            # cannot: a seal is terminal, so a debt its predecessor minted after that seal has no
+            # revision left to land in. Treating a sealed successor as "somewhere to be answered"
+            # was the wedge the operator ruled on: the close gate refused over the decayed debt,
+            # this refusal pointed at a successor that could never take it, and the program was
+            # permanently unclosable. So only a successor still open to revision blocks this door.
+            revisable = []
+            for successor_id in live_successors:
+                try:
+                    if not self.plans.read_record(self.plans.resolve(successor_id)).get("seal"):
+                        revisable.append(successor_id)
+                except Exception:  # noqa: BLE001 — an unreadable successor cannot take a revision
+                    continue
+            if revisable:
                 raise ProgramError(
-                    f"{child_id} still has a live successor — "
-                    + ", ".join(live_successors)
+                    f"{child_id} still has a live successor that can be revised — "
+                    + ", ".join(revisable)
                     + f" — so {obligation_id} has somewhere to be answered. Release it there, in that "
                       "plan's own carried_obligations with a reason, where the decision is read "
-                      "beside the work. This verb is for a debt whose successors are all gone.")
+                      "beside the work. This verb is for a debt no successor can answer any more.")
 
             record.setdefault("releases", []).append({
                 "child_plan_id": child_id, "obligation_id": obligation_id,
@@ -561,8 +574,6 @@ class ProgramLibrary:
     # all (a mechanical AST allowlist pins that seam), and holding this lock across a call that takes
     # the plan lock would invert the two locks' order and invite a deadlock with any session going the
     # other way. Nothing may reverse this.
-
-    SUPERSEDE_REFUSED_STATUSES = ("complete", "active")
 
     def supersede_check(self, slug: str, superseded_selector: str,
                         replacement_selector: str) -> dict:
@@ -603,8 +614,23 @@ class ProgramLibrary:
             raise ProgramError(
                 f"{superseded_id} is ACTIVE — a Build is bound to it right now, and retiring the plan "
                 "underneath a running Build strands it: it would go on publishing from a retired plan, "
-                "and its completion could never be recorded afterwards. Finish that Build and let it "
-                "merge, or abandon it, then supersede.")
+                "and its completion could never be recorded afterwards. ABANDON that Build and this "
+                "supersede then works — or let it MERGE, after which the plan is complete and merged "
+                "history is corrected by appended work (`program add --after`), never replaced.")
+        if not superseded_record.get("seal") and not superseded_record.get("closure"):
+            # An unsealed plan is revised, not superseded: nothing downstream trusts it yet, so
+            # there is no terminal digest a replacement needs to preserve the place of. Refusing
+            # here is also what keeps `superseded_by` meaning what it says — supersede retires its
+            # target, and a retired UNSEALED plan could be reopened, sealed and bound while the
+            # program still recorded it replaced: two plans standing in one place, one of them a
+            # loaded gun. (A closed target is let through to converge a half-done supersession;
+            # `reopen` refuses a superseded child, so that door stays shut from the other side.)
+            raise ProgramError(
+                f"{superseded_id} is not sealed — it can still be revised, which is the ordinary "
+                "door: edit the plan itself. If it is genuinely the wrong plan, abandon it with "
+                f"`project_manager.py abandon {superseded_id} --reason \"...\"` and add its "
+                "replacement with `program add` or `program insert`. Supersede exists for a plan a "
+                "seal has made terminal.")
 
         inherited = child.get("predecessor_plan_id")
         if not already:
@@ -743,7 +769,10 @@ class ProgramLibrary:
         Returns one entry per affected successor: its id, its predecessor's, and the obligations it
         does not answer for. `plan_id` narrows the sweep to one successor.
         """
-        record = self.read(slug)
+        return self._decay_entries(self.read(slug), plan_id=plan_id)
+
+    def _decay_entries(self, record: dict, *, plan_id: str | None = None) -> list:
+        """`carry_forward_decay` from an already-read record — the shape `obligation_report` needs."""
         decay = []
         for child in record["children"]:
             predecessor_id = child.get("predecessor_plan_id")
@@ -871,24 +900,11 @@ class ProgramLibrary:
             if record.get("closure"):
                 raise ProgramError(f"this program is already {record['closure']['state']}")
             report = self.obligation_report(record)
-            # A KNOWN GAP, deliberately left, and named here rather than discovered again later.
-            #
-            # This gate reads the outstanding-debt report, which answers what the live branch ENDS
-            # carry. An obligation a predecessor mints AFTER its successor has sealed sits mid-chain
-            # on a child that is not an end, so the report cannot attribute it; the decay sweep sees
-            # it and warns, but decay does not gate. A close can therefore pass over that one shape.
-            #
-            # Gating on decay as well was built and REVERTED, because it wedges: the successor is
-            # sealed and so can never answer, and the program-level release refuses while any live
-            # successor exists — a sealed successor being live. The program would become permanently
-            # unclosable, which is the exact failure the acknowledged-unknown path exists to avoid.
-            # Closing it properly means changing what "a live successor" means in the release
-            # precondition, and that precondition is an operator decision recorded in this plan.
-            #
-            # ENGINE-TODO: a debt minted after its successor sealed is seen by carry_forward_decay
-            # but not by obligation_report, so the close and completion gates pass over it; closing
-            # that needs the release precondition to treat a sealed successor as unable to answer,
-            # which is an operator decision rather than an implementation one.
+            # The report now includes decayed mid-chain debts — an obligation minted after its
+            # successor sealed — so this gate refuses over them too. The wedge that once made
+            # gating on decay unshippable is gone: the operator ruled that a sealed successor is
+            # not somewhere a debt can still be answered, so `program release` opens for exactly
+            # this shape, and the refusal below names a door that opens.
             if report["obligations"]:
                 raise ProgramError(
                     f"this program still owes {len(report['obligations'])} obligation(s), and "
@@ -937,6 +953,9 @@ class ProgramLibrary:
         local field can prove someone was present, and one implying it would be false confidence.
         What makes it trustworthy is simply that no derivation can reach it.
         """
+        if not (reason or "").strip():
+            raise ProgramError("completion costs a reason — it records a judgment, and a blank one "
+                               "records nothing a later reader can weigh.")
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
             record = self.read(slug)
             if record.get("closure"):
@@ -947,8 +966,9 @@ class ProgramLibrary:
                     "this program cannot be recorded complete yet:\n"
                     + "\n".join(f"  - {blocker}" for blocker in blockers)
                     + "\nCompletion says the objective is MET. Recording it over unfinished work "
-                      "would be the same lie in a different place — reach for `program retire` if "
-                      "the program is being set down rather than finished.")
+                      "would be the same lie in a different place. If the program is being set "
+                      "down rather than finished, `program retire` is the verb — it refuses over "
+                      "outstanding debts too, so settle or release those either way.")
             record["closure"] = {"state": "complete", "at": _now(), "reason": reason}
             self._write(slug, record)
             return record
@@ -981,8 +1001,6 @@ class ProgramLibrary:
         if report["obligations"]:
             blockers.append(f"{len(report['obligations'])} obligation(s) are still outstanding: "
                             + ", ".join(o["id"] for o in report["obligations"]))
-        # The same gap the close gate carries, and it is the same shape: a decayed obligation is
-        # invisible here too. See the note in `close`; it is disclosed rather than half-closed.
         if report["unknown"]:
             blockers.append("what this program owes cannot be computed from its record: "
                             + "; ".join(report["unknown"]))
@@ -1154,8 +1172,15 @@ class ProgramLibrary:
             return False
 
         unknown, by_leaf, obligations = [], {}, {}
+        superseded = {child["plan_id"] for child in record["children"] if child.get("superseded_by")}
         for child in view.values():
             if child["status"] in ("missing", "unreadable"):
+                # A superseded child is a decision on the record, not work whose books are open:
+                # its debts moved to the replacement at supersede time, where the join checks ran.
+                # Counting its unreadable plan as unknown made a deliberate supersession block
+                # completion forever — the inconsistency the dead-branch filters exist to avoid.
+                if child["plan_id"] in superseded:
+                    continue
                 unknown.append(f"{child['plan_id']} is {child['status']}")
         for plan_id in ends:
             child = view[plan_id]
@@ -1173,6 +1198,22 @@ class ProgramLibrary:
                     f"{plan_id} carries {len(child['outstanding'])} obligation(s) but is "
                     f"{child['anomaly']}, so they sit on no branch and cannot be attributed: "
                     + ", ".join(o["id"] for o in child["outstanding"]))
+        # THE THIRD PATH, closed on the operator's ruling. A debt a predecessor mints AFTER its
+        # successor has sealed sits mid-chain: the successor answered everything the join-time check
+        # saw, so the branch end never inherits this one, and the report used to miss it — the decay
+        # sweep warned on a terminal while both closure gates read this report and passed. A warning
+        # is not a gate. So decay is folded in here, attributed to the child that CARRIES the debt,
+        # which makes `show` display it, and close and complete refuse over it. The door that then
+        # opens is `program release` — the sealed successor can never take a revision, so it no
+        # longer counts as somewhere the debt could be answered.
+        for entry in self._decay_entries(record):
+            if not live(entry["predecessor_plan_id"]):
+                continue          # a dead carrier's debts died with the decision that closed it
+            for obligation in entry["obligations"]:
+                if obligation["id"] in obligations:
+                    continue      # already owed at a branch end; one debt, reported once
+                by_leaf.setdefault(entry["predecessor_plan_id"], []).append(obligation)
+                obligations[obligation["id"]] = obligation
         if record["children"] and not ends and not unknown and any(
                 live(child["plan_id"]) for child in record["children"]):
             # ONLY when live children exist and yet none of them ends anything: that is a cycle. A
@@ -1196,7 +1237,8 @@ class ProgramLibrary:
     #: sentence. The token itself is deliberately not the word `complete`: an operator scanning a
     #: list reads one word, and that word must not be one they will take for a finished program.
     CHILDREN_COMPLETE_SENTENCE = (
-        "every child on record is complete, which is not the same as this program being complete: "
+        "every live child is complete — superseded, retired and abandoned children are recorded "
+        "decisions, not work left undone — which is not the same as this program being complete: "
         "successors that were never authored are UNKNOWN, not done, and only an explicit "
         "`program complete` records that the objective was met")
 
@@ -1220,11 +1262,18 @@ class ProgramLibrary:
         if not view:
             return "empty"
         statuses = [child["status"] for child in view]
-        if any(status in ("missing", "unreadable") for status in statuses):
+        superseded = {child["plan_id"] for child in record["children"] if child.get("superseded_by")}
+        # A missing SUPERSEDED child is damaged history, not open books: its debts moved to the
+        # replacement when the join checks ran, so nothing about the program's future turns on
+        # reading it. Flagging it forced `needs-attention` — and blocked completion — forever, on
+        # a record whose every live child was fine, which trains an operator to read past the one
+        # word that must always mean "something here needs you". The row still renders as missing
+        # in `show`; it just stops being an alarm.
+        if any(child["status"] in ("missing", "unreadable") for child in view
+               if child["plan_id"] not in superseded):
             return "needs-attention"
         if any(status == "active" for status in statuses):
             return "active"
-        superseded = {child["plan_id"] for child in record["children"] if child.get("superseded_by")}
         live = [child["status"] for child in view
                 if child["plan_id"] not in superseded
                 and child["status"] not in DEAD_BRANCH_STATES]

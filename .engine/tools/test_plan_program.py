@@ -1361,7 +1361,10 @@ class ReplacementInPlace(_Program):
             self.programs.supersede_check(slug, "pln_0000000000b4", "pln_0000000000d4")
         message = str(caught.exception)
         self.assertIn("ACTIVE", message)
-        self.assertIn("Finish that Build", message)
+        self.assertIn("ABANDON that Build", message)
+        # Both routes must end at doors that open: superseding a merged plan is refused flat, so
+        # the merge route names appended work, never "then supersede".
+        self.assertIn("program add --after", message)
 
     def test_the_replacement_inherits_the_place_and_the_debt(self):
         slug = self._program("Inherited debt", "A replacement takes on what its place owed.")
@@ -1867,10 +1870,72 @@ class EndsThatSettleTheirBooks(_Program):
             self.programs.complete(slug, "calling it done")
 
     def test_complete_refuses_over_an_outstanding_debt_and_over_an_unknown(self):
+        """Both halves of the name, because for two rounds this test constructed only the first —
+        a reviewer read the title as evidence the unknown leg was covered, and it was not."""
         slug = self._orphaned_debt()
         with self.assertRaises(plan_program.ProgramError) as caught:
             self.programs.complete(slug, "done")
         self.assertIn("MECH-ONE", str(caught.exception))
+        # And the unknown: a child the library does not hold. Written into the record directly,
+        # the same wreckage `test_a_missing_child_makes_the_debt_unknown_not_zero` builds.
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_00000000009e",
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_00000000000a"})
+        self.programs._write(slug, record)
+        blockers = "\n".join(self.programs.completion_blockers(self.programs.read(slug)))
+        self.assertIn("cannot be computed", blockers)
+        self.assertIn("pln_00000000009e", blockers)
+        with self.assertRaisesRegex(plan_program.ProgramError, "cannot be recorded complete"):
+            self.programs.complete(slug, "done")
+
+    def test_completion_refuses_a_reason_that_is_only_whitespace(self):
+        """The reason is the judgment's whole record; blank-but-technically-present is blank."""
+        slug = self._program("Blank reason", "Completion records a judgment.")
+        self._plan("pln_0000000000b9", "Child A")
+        self.programs.add_child(slug, "pln_0000000000b9")
+        self._complete_plan("pln_0000000000b9")
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.complete(slug, "   ")
+        self.assertIsNone(self.programs.read(slug).get("closure"))
+        self.assertEqual(self.programs.complete(slug, "met")["closure"]["state"], "complete")
+
+    def test_a_missing_superseded_child_is_history_damage_not_open_books(self):
+        """A deliberate supersession must not wedge the program when the replaced plan's file goes.
+
+        The replaced child's debts moved to its replacement when the join checks ran, so a record
+        that has lost the replaced plan can still answer everything the gates ask. Before this, one
+        missing superseded plan forced `needs-attention` forever, made the books uncomputable, and
+        blocked completion — an alarm with no door behind it.
+        """
+        slug = self._program("Replaced and gone", "The replaced plan's file was lost.")
+        self._plan("pln_0000000000ba", "Child A")
+        self.programs.add_child(slug, "pln_0000000000ba")
+        self._plan("pln_0000000000bb", "Replacement for A")
+        self._retire_plan("pln_0000000000ba")
+        self.programs.mark_superseded(slug, "pln_0000000000ba", "pln_0000000000bb")
+        self._complete_plan("pln_0000000000bb")
+        # Lose the replaced plan's records entirely.
+        import shutil
+        shutil.rmtree(self.plans.root / self.plans.resolve("pln_0000000000ba"))
+        record = self.programs.read(slug)
+        self.assertNotEqual(self.programs.derived_status(record), "needs-attention")
+        report = self.programs.obligation_report(record)
+        self.assertEqual(report["unknown"], [])
+        self.assertEqual(self.programs.completion_blockers(record), [])
+        self.assertEqual(self.programs.complete(slug, "objective met")["closure"]["state"],
+                         "complete")
+        # An ordinary (non-superseded) missing child still alarms — the narrowing is exact.
+        slug2 = self._program("Broken for real", "A live child is gone.")
+        self._plan("pln_0000000000bc", "Child B")
+        self.programs.add_child(slug2, "pln_0000000000bc")
+        record2 = self.programs.read(slug2)
+        record2["children"].append({"plan_id": "pln_0000000000bd",
+                                    "added_at": "2026-01-01T00:00:00Z",
+                                    "predecessor_plan_id": "pln_0000000000bc"})
+        self.programs._write(slug2, record2)
+        self.assertEqual(self.programs.derived_status(self.programs.read(slug2)),
+                         "needs-attention")
 
     def test_a_superseded_child_does_not_bar_completion(self):
         slug = self._program("Replaced", "One child was replaced, the rest landed.")
@@ -1885,21 +1950,19 @@ class EndsThatSettleTheirBooks(_Program):
 
     # -- reopen keeps what it undoes ---------------------------------------------------------
 
-    def test_a_debt_minted_after_its_successor_sealed_is_a_KNOWN_GAP(self):
-        """Pins the gap as it actually stands, so nobody rediscovers it as a surprise.
+    def test_a_debt_minted_after_its_successor_sealed_is_owed_and_releasable(self):
+        """The third path is closed: mid-chain decay is a debt the gates see, with a door that opens.
 
-        A reviewer asked to find a third path by which an obligation leaves the books found this
-        one. The outstanding-debt report answers what the live branch ENDS carry, so an obligation
-        minted after its successor sealed sits mid-chain where the report cannot attribute it, and
-        the closure gates read the report. Gating on the decay sweep as well was built and reverted:
-        it wedges, because the sealed successor can never answer and the program-level release
-        refuses while a live successor exists. Closing it needs the release precondition to change,
-        and that precondition is an operator decision recorded in the sealed plan.
-
-        This test asserts the CURRENT behaviour, marked plainly as a gap rather than as a guarantee,
-        and will fail the moment someone closes it — which is the point.
+        A reviewer hunting for a third path by which an obligation leaves the books found this one:
+        the outstanding-debt report answered what the live branch ENDS carry, so an obligation
+        minted after its successor sealed sat mid-chain where the report could not attribute it,
+        and both closure gates read the report. The first fix — gating on the decay sweep — was
+        reverted because it wedged: the sealed successor can never answer, and release refused
+        while any live successor existed. The operator ruled that a sealed successor is not
+        somewhere a debt can be answered, so the report now carries the decayed debt, the gates
+        refuse over it, and `release` opens for exactly this shape. Asserted end to end here.
         """
-        slug = self._program("Known gap", "A debt the report cannot place.")
+        slug = self._program("Closed gap", "A debt the report now places.")
         self._plan("pln_00000000000f", "Child one")
         self.programs.add_child(slug, "pln_00000000000f")
         self._plan("pln_0000000000f2", "Child two", predecessor="pln_00000000000f")
@@ -1920,13 +1983,35 @@ class EndsThatSettleTheirBooks(_Program):
         self.plans.append_revision(slug_one, revised, expected_revision=1)
 
         record = self.programs.read(slug)
-        # The decay sweep SEES it and says so; the report cannot place it.
+        # The decay sweep sees it — and now so does the report, attributed to its carrier.
         self.assertEqual([e["plan_id"] for e in self.programs.carry_forward_decay(slug)],
                          ["pln_0000000000f2"])
-        self.assertEqual(self.programs.obligation_report(record)["obligations"], [])
-        # And so the close passes over it. Asserted as the gap it is, not as correct behaviour.
+        report = self.programs.obligation_report(record)
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-LATE"])
+        self.assertIn("OB-LATE", str(report["by_leaf"].get("pln_00000000000f")))
+        # Both closure gates refuse over it, naming the door that opens.
+        with self.assertRaisesRegex(plan_program.ProgramError, "OB-LATE") as caught:
+            self.programs.close(slug, "retired", "setting it down")
+        self.assertIn("program release", str(caught.exception))
+        self.assertIn("obligation(s) are still outstanding: OB-LATE",
+                      "\n".join(self.programs.completion_blockers(self.programs.read(slug))))
+        # The door opens: the only live successor is sealed, so it cannot take a revision, and the
+        # release that used to refuse over it now records the decision.
+        self.programs.release(slug, "pln_00000000000f", "OB-LATE",
+                              "the successor sealed before this was minted; nothing can answer it")
         self.assertEqual(
             self.programs.close(slug, "retired", "setting it down")["closure"]["state"], "retired")
+
+    def test_release_still_refuses_while_an_unsealed_successor_could_answer(self):
+        """The narrowing is exactly "sealed cannot answer" — a revisable successor still must."""
+        slug = self._program("Ordinary door", "A draft successor answers in its own document.")
+        self._plan("pln_00000000000f", "Child one", _obligation("OB-1", "Carried forward."))
+        self.programs.add_child(slug, "pln_00000000000f")
+        self._plan("pln_0000000000f2", "Child two", _obligation("OB-1", "Still carried."),
+                   predecessor="pln_00000000000f")
+        self.programs.add_child(slug, "pln_0000000000f2", predecessor="pln_00000000000f")
+        with self.assertRaisesRegex(plan_program.ProgramError, "can be revised"):
+            self.programs.release(slug, "pln_00000000000f", "OB-1", "trying the easy door")
 
     def test_close_is_not_a_second_door_into_completion(self):
         """`complete` has one door because it is the only closure with a gate of its own."""

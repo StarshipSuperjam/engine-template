@@ -585,8 +585,10 @@ class TestSealedPlanEntry(CoordinatorCase):
         note = err.getvalue()
         self.assertIn("warning", note)
         self.assertIn("retired", note)
-        self.assertIn("can no longer be recorded", note)
-        self.assertIn("before the Build reaches its merge", note)
+        self.assertIn("will be recorded only in the pull request itself", note)
+        # The warning once ended by instructing "undo the closure now" — an undo it had itself just
+        # called impossible, since `reopen` refuses every sealed plan. It must name no action.
+        self.assertNotIn("Undo the closure", note)
 
     def test_an_open_plan_resuming_says_nothing(self):
         """The warning must be about the closure, not a line printed on every resume."""
@@ -611,13 +613,37 @@ class TestSealedPlanEntry(CoordinatorCase):
         self.assertEqual(binding["repository"], "owner/repo")
         self.assertEqual(binding["sealed_digest"], seal["sealed_digest"])
 
-    def test_a_library_that_cannot_be_written_does_not_strand_the_build(self):
+    def test_a_library_that_cannot_be_written_refuses_the_bind(self):
+        """The write is the interlock now, so failing to land it fails the bind — never a shrug.
+
+        This test used to assert the OPPOSITE: that the failure was disclosed on stderr and the
+        Build proceeded unbound. An unbound Build is invisible to `refuse_if_active` on the
+        supersede side, which re-asserts "no build_binding" under the plan lock — so best-effort
+        here hollowed out that guard entirely.
+        """
         seal = self.seal_it()
-        with mock.patch.object(self.library, "update_record", side_effect=OSError("read-only")), \
-                contextlib.redirect_stderr(io.StringIO()) as err:
-            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7, seal["sealed_digest"],
-                                     seal["build_plan_digest"])
-        self.assertIn("could not record the Build binding", err.getvalue())
+        with mock.patch.object(self.library, "update_record", side_effect=OSError("read-only")):
+            with self.assertRaises(bc.CoordinatorError) as caught:
+                bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                         seal["sealed_digest"], seal["build_plan_digest"])
+        self.assertIn("could not record the Build binding", str(caught.exception))
+        self.assertIn("refuses rather than proceeding", str(caught.exception))
+
+    def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
+        """The bind half of the supersede interlock, driven at exactly the racing write.
+
+        `_sealed_plan` checks closure on an unlocked read; a supersession landing after that check
+        used to leave a Build starting on a plan the record had just put away. The re-assertion
+        lives inside the mutator, under the same lock `refuse_if_active` runs under — this closes
+        the plan after the pre-check would have passed and drives the write directly.
+        """
+        seal = self.seal_it()
+        self._close("retired")     # the closure lands after any earlier check, before the write
+        with self.assertRaises(bc.CoordinatorError) as caught:
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                     seal["sealed_digest"], seal["build_plan_digest"])
+        self.assertIn("closed plan does not start a Build", str(caught.exception))
+        self.assertIsNone(self.library.read_record(self.slug).get("build_binding"))
 
     def test_cold_restore_is_blocked_when_the_sealed_plan_is_gone(self):
         self.seal_it()

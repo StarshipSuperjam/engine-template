@@ -1045,9 +1045,10 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
         print(f"warning: {record['plan_id']} is {closure['state']} ({closure['reason']}). This "
               "Build was bound before that, so it continues and a NEW Build could not start here — "
               "but the closure cannot be undone: this plan is sealed, so `reopen` refuses it, and a "
-              "closed plan will not take a completion. If this Build merges, its completion can no "
-              "longer be recorded against this plan. Undo the closure now if that was a mistake, "
-              "before the Build reaches its merge.",
+              "closed plan will not take a completion. If this Build merges, its completion will be "
+              "recorded only in the pull request itself — this plan's record will not carry it. "
+              "Nothing here needs an action; it is said so the record's silence later is not a "
+              "surprise.",
               file=sys.stderr)
     if closure and entering:
         # A closed plan stayed BINDABLE, and a seal is forever: a plan retired because it was
@@ -1089,15 +1090,27 @@ def _sealed_plan(selector: str, *, entering: bool = True) -> tuple[str, str, dic
 
 def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest: str,
                           build_plan_digest: str, consent: dict | None = None) -> None:
-    """Mark the sealed plan as the one now driving a Build. Best-effort and non-fatal.
+    """Mark the sealed plan as the one now driving a Build. The bind half of an interlock — fatal.
 
-    The binding is a record, not a lock: the plan library is the plan's home and the Build snapshot is
-    the Build's, and a library that cannot be written must not strand a Build that is otherwise sound.
+    This write used to be best-effort, and that hollowed out the guard on the other side:
+    `program supersede` re-asserts "no build_binding" inside the plan record's own lock before it
+    retires a plan, which only means something if every Build actually writes its binding — and
+    writes it BEFORE the Build exists. So three things changed together and stand together:
 
-    The bind ATTESTATION rides along here rather than into build-state, because the plan record is
-    where the other three gates' attestations already live and a consent trail split across two
-    stores is a trail with a seam to lose things in. The refusal that demands it is in `cmd_plan_bind`
-    and is NOT best-effort — this write is what records it, not what enforces it.
+    - The closure precondition is re-asserted HERE, inside the mutator, under the same lock the
+      supersede-side check runs under. `_sealed_plan` checked it earlier, but that read was
+      unlocked, and a supersession landing in the gap left a Build starting on a plan the record
+      had just put away. Whichever of the two writes lands first now wins; the other refuses.
+    - A failure REFUSES the bind instead of disclosing and proceeding: an unbound running Build is
+      exactly the state the interlock exists to prevent, so "the Build proceeds without a binding"
+      was the failure wearing a shrug.
+    - Callers run this before creating or mutating Build state. A crash after this write leaves a
+      plan marked bound with no Build behind it — supersede then refuses (the safe direction), and
+      re-running the bind overwrites the marker and converges.
+
+    The bind ATTESTATION rides along here because the plan record is where the other three gates'
+    attestations already live, and a consent trail split across two stores has a seam to lose
+    things in.
     """
     import moment
     library = _library()
@@ -1108,14 +1121,25 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
                    "at": moment.utc_now(), "pull_request": pr, "repository": repository}
 
         def mark(current):
+            closure = current.get("closure")
+            if closure:
+                raise CoordinatorError(
+                    f"{plan_id} was closed ({closure['state']}: {closure['reason']}) while this "
+                    "bind was being prepared, and a closed plan does not start a Build. Nothing "
+                    "was bound. If the closure is a mistake, address it first; otherwise build "
+                    "the plan that replaced this one.")
             current["build_binding"] = binding
             if consent:
                 current.setdefault("consent", []).append(consent)
 
         library.update_record(slug, mark, expected_revision=record["current"]["revision"])
-    except Exception as exc:  # noqa: BLE001 — disclosed, never fatal
-        print(f"build-coordinator: could not record the Build binding on {plan_id} ({exc}); the Build "
-              "proceeds and the plan's record simply does not name this PR.", file=sys.stderr)
+    except CoordinatorError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — refused, never shrugged past
+        raise CoordinatorError(
+            f"could not record the Build binding on {plan_id} ({exc}), and an unbound Build is the "
+            "state the supersede interlock exists to prevent — so the bind refuses rather than "
+            "proceeding without it. Repair the plan library and run the bind again.") from exc
 
 
 def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
@@ -1224,9 +1248,9 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
     if store is None:
         store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
-    store.create(state)
     _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],
                           consent)
+    store.create(state)
     # Tag the PR the coordinator just adopted, so it carries a durable "coordinator owns this workflow"
     # marker (StarshipSuperjam/engine-template#1014). Best-effort and non-fatal: a labeling failure is
     # disclosed on stderr and the Build proceeds — the stdout below stays a clean machine-readable line.
@@ -1434,9 +1458,9 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
             {"reviewed_plan_digest": previous_digest, "plan_digest": _digest(successor),
              "operator_change": f"adopted sealed successor {successor_id}: {args.operator_decision}"})
 
-    store.mutate(change, from_revision=state["revision"])
     _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
                           sealed_digest, _digest(successor), consent)
+    store.mutate(change, from_revision=state["revision"])
     preserved = sorted(keep)
     print(f"adopted sealed successor {successor_id}; the Build continues on PR "
           f"{state['build']['pr']} with its binding intact")
