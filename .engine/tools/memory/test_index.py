@@ -451,18 +451,30 @@ class RankingParityTests(IndexTestCase):
         self.file(*({records.RECORD_ID_KEY: f"r{i}", "body": "quokka note"} for i in range(matches)))
         self.rebuild()                                        # unpatched: rebuild's connections keep the real cap
 
-        opened = []                                           # (database, variable-limit) of each connect in the window
         real_connect = sqlite3.connect
 
         def capped_connect(*args, **kwargs):
-            conn = real_connect(*args, **kwargs)
+            conn = real_connect(*args, **kwargs)             # a faithful stand-in: forwards every argument
             conn.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, cap)
-            # Read the cap back HERE, while the connection is open: `_ranked` closes it before the assertions run.
-            opened.append((args[0] if args else kwargs.get("database"),
-                           conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)))
             return conn
 
+        # Capture the variable cap on the exact connection that performs the re-read. A non-force_scan search
+        # opens TWO index connections — the `_heal_if_stale` staleness probe and the fast-path hydration
+        # connection — so asserting on merely "some index connection carried the cap" would pass vacuously if
+        # only the probe were capped and the hydration path resolved `sqlite3.connect` through a reference the
+        # module-attribute patch could not reach (the cached-factory reroute #1156 warns about). Reading
+        # getlimit on the connection handed to `_hydrate_winners` pins the guarantee to the connection that
+        # actually hydrates. (Spy precedent: the `_hydrate_winners` spy in the flat-run retention test above.)
+        hydration = {}
+        real_hydrate = index._hydrate_winners
+
+        def hydrate_spy(conn, keys, limit):
+            hydration["cap"] = conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+            hydration["keys"] = len(keys)
+            return real_hydrate(conn, keys, limit)
+
         sqlite3.connect = capped_connect
+        index._hydrate_winners = hydrate_spy
         try:
             # Real SQLite enforcement, not a mock: one placeholder past the lowered cap genuinely raises — the
             # exact shape a pre-fix one-statement hydration of every match would take. Also fails loudly if
@@ -474,20 +486,23 @@ class RankingParityTests(IndexTestCase):
             finally:
                 probe.close()
 
-            opened.clear()                                    # scope the binding check below to the search alone
             got = self._search("quokka")                      # no limit: every match survives to the re-read
         finally:
             sqlite3.connect = real_connect
+            index._hydrate_winners = real_hydrate
 
-        self.assertEqual(len(got.records), matches)
+        self.assertEqual(len(got.records), matches,
+                         "wrong number of records survived to the answer — suspect a hydration off-by-one, a "
+                         "filing bug, or cap/matches arithmetic drift")
         self.assertFalse(got.degraded, "a healthy index fell through to the scan — the re-read hit the cap")
-        # The lowered cap reached the connection the SEARCH itself opened on the index — not merely the probe.
-        # Without this the test could pass vacuously if index.py ever resolved sqlite3.connect through a reference
-        # the module-attribute patch could not reach (a from-import, a cached factory, a pooled connection).
-        index_caps = [limit for database, limit in opened if database == self.index]
-        self.assertTrue(index_caps, "the search opened no index connection through the patched connect")
-        self.assertTrue(all(limit == cap for limit in index_caps),
-                        "the search's index connection did not carry the lowered variable cap")
+        # The lowered cap reached the connection that ACTUALLY hydrated, not merely the staleness probe or the
+        # standalone probe above — so with `matches` above a proven `cap` any single-statement re-read must
+        # overrun it. An empty `hydration` would mean the fast path never hydrated (a silent scan).
+        self.assertIn("cap", hydration, "the fast path never hydrated — the search did not exercise the re-read")
+        self.assertEqual(hydration["cap"], cap,
+                         "the search's hydration connection did not carry the lowered variable cap")
+        self.assertEqual(hydration["keys"], matches,
+                         "the re-read did not hydrate every match — an unlimited query keeps them all")
 
     def test_the_scores_match_fts5s_own_bm25(self):
         # Not "close enough" — the scan reproduces fts5's bm25 exactly, epsilon-floored idf included, which is
