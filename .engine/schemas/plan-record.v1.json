@@ -54,7 +54,7 @@
     "consent": {
       "type": "array",
       "items": {"$ref": "#/$defs/attestation"},
-      "description": "The operator decisions recorded at this plan's consent gates, in the order they were made. Additive by construction: an attestation is never edited or removed, because the trail is what the pull request publishes and a trail that could be rewritten would say nothing. It is a RECORD, not a proof — a session that would fabricate one could, and what the gate changes is that silence becomes a discrete published lie rather than an omission nobody can see. Un-forgeability is issue 914's residual."
+      "description": "The operator decisions recorded at this plan's consent gates, in the order they were made. Additive by construction: an attestation is never edited or removed, because the trail is what the pull request publishes and a trail that could be rewritten would say nothing. It is a RECORD, not a proof — a session that would fabricate one could, and what the gate changes is that silence becomes a discrete published lie rather than an omission nobody can see. Un-forgeability is issue 914's residual. One narrow exception, and only one: a command that itself appended an attestation and then REFUSED to perform the act it attested removes exactly that entry as part of failing — an attested non-event is not a trail entry, and the removal is guarded to touch nothing any other writer recorded."
     },
     "amendments": {
       "type": "array",

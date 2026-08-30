@@ -2022,6 +2022,59 @@ class EndsThatSettleTheirBooks(_Program):
         self.assertEqual(
             self.programs.close(slug, "retired", "setting it down")["closure"]["state"], "retired")
 
+    def test_a_debt_awaiting_an_unsealed_successor_renders_the_revise_door(self):
+        """The render must not tell a draft's operator that "no revision can answer": while any
+        live successor is unsealed, revision IS the door and `release` refuses — a reviewer drove
+        the false sentence and the refusing door together. Same shape as the sealed case, other
+        truthful sentence.
+        """
+        slug = self._program("Awaiting", "The successor is still a draft.")
+        self._plan("pln_00000000000f", "Child one")
+        self.programs.add_child(slug, "pln_00000000000f")
+        self._plan("pln_0000000000f2", "Child two, a draft", predecessor="pln_00000000000f")
+        self.programs.add_child(slug, "pln_0000000000f2", predecessor="pln_00000000000f")
+        slug_one = self.plans.resolve("pln_00000000000f")
+        revised = dict(self.plans.head(slug_one))
+        revised["program"] = {"program_id": self.program_id,
+                              "carried_obligations": [
+                                  _obligation("OB-LATE", "Minted after the successor joined.")]}
+        revised["revision"] = 2
+        revised["revision_note"] = "mint an obligation the draft successor has not yet answered"
+        self.plans.append_revision(slug_one, revised, expected_revision=1)
+
+        record = self.programs.read(slug)
+        report = self.programs.obligation_report(record)
+        self.assertEqual([o["id"] for o in report["obligations"]], ["OB-LATE"])
+        self.assertIn("pln_00000000000f", report["decayed_awaiting"])
+        self.assertNotIn("pln_00000000000f", report["decayed"])
+        rendered = plan_program.render(self.programs, record)
+        self.assertIn("Revise", rendered)
+        self.assertIn("pln_0000000000f2", rendered)
+        self.assertNotIn("no revision can answer", rendered)
+        self.assertNotIn("program release", rendered)
+        # And the doors behave as the sentences say: release refuses, the gates still refuse.
+        with self.assertRaisesRegex(plan_program.ProgramError, "can be revised"):
+            self.programs.release(slug, "pln_00000000000f", "OB-LATE", "trying the wrong door")
+        with self.assertRaisesRegex(plan_program.ProgramError, "OB-LATE"):
+            self.programs.close(slug, "retired", "setting it down")
+
+    def test_a_dangling_marker_on_a_successor_does_not_open_the_release_door(self):
+        """A reviewer's exact reproduction: mark the live draft successor with a supersession
+        pointing at a plan that is not a child, and release used to walk straight past it."""
+        slug = self._program("Dangling successor", "The marker names nobody.")
+        self._plan("pln_00000000000f", "Child one", _obligation("OB-1", "Carried forward."))
+        self.programs.add_child(slug, "pln_00000000000f")
+        self._plan("pln_0000000000f2", "Child two", _obligation("OB-1", "Still carried."),
+                   predecessor="pln_00000000000f")
+        self.programs.add_child(slug, "pln_0000000000f2", predecessor="pln_00000000000f")
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == "pln_0000000000f2":
+                child["superseded_by"] = "pln_ffffffffffff"     # names no child on this record
+        self.programs._write(slug, record)
+        with self.assertRaisesRegex(plan_program.ProgramError, "can be revised"):
+            self.programs.release(slug, "pln_00000000000f", "OB-1", "walking past the marker")
+
     def test_release_fails_closed_when_a_successor_cannot_be_told(self):
         """Missing is not "unable to answer" — it may be a revisable draft behind a broken record,
         and this verb exists to be the hard door."""

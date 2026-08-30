@@ -539,9 +539,10 @@ class ProgramLibrary:
             # the debt in its own document, where the decision is read alongside the work. This verb
             # is for the case where no such successor can exist.
             view = {child["plan_id"]: child for child in self.child_view(record)}
+            marked = superseded_children(record)
             successors = [child["plan_id"] for child in record["children"]
                           if child.get("predecessor_plan_id") == child_id
-                          and not child.get("superseded_by")]
+                          and child["plan_id"] not in marked]
             # Fail CLOSED on a successor whose state cannot be told. "Missing or unreadable" is
             # not "unable to answer" — it may be a perfectly revisable draft behind a broken
             # record — and this verb exists to be the hard door. The closure verbs keep their
@@ -552,7 +553,10 @@ class ProgramLibrary:
                 raise ProgramError(
                     f"{', '.join(untellable)} succeed(s) {child_id}, and whether they could still "
                     f"answer {obligation_id} cannot be told: their records are missing or will not "
-                    "read. Repair those records before releasing over them.")
+                    "read. Repair is the door: a damaged record can be hand-fixed, and a missing "
+                    "plan restored with `project_manager.py import` (from a bundle) or re-minted "
+                    "with `init --document` — after which this release can tell what it is "
+                    "releasing over, and either refuses honestly or proceeds.")
             live_successors = [
                 plan_id for plan_id in successors
                 if view.get(plan_id, {}).get("status") not in DEAD_BRANCH_STATES]
@@ -715,7 +719,8 @@ class ProgramLibrary:
             for other in record["children"]:
                 if other["plan_id"] in (superseded_id, replacement_id):
                     continue
-                if other.get("predecessor_plan_id") != superseded_id or other.get("superseded_by"):
+                if other.get("predecessor_plan_id") != superseded_id \
+                        or other["plan_id"] in superseded_children(record):
                     continue
                 try:
                     downstream_record = self.plans.read_record(self.plans.resolve(other["plan_id"]))
@@ -1251,15 +1256,38 @@ class ProgramLibrary:
         # opens is `program release` — the sealed successor can never take a revision, so it no
         # longer counts as somewhere the debt could be answered.
         decayed: dict = {}
+        decayed_awaiting: dict = {}
         for entry in self._decay_entries(record):
-            if not live(entry["predecessor_plan_id"]):
+            carrier = entry["predecessor_plan_id"]
+            if not live(carrier):
                 continue          # a dead carrier's debts died with the decision that closed it
+            # Which door opens depends on what the carrier's LIVE successors can still DO. If any
+            # is unsealed, a revision can answer and `release` refuses — so the honest advice is
+            # revise, not release. Only when every live successor is sealed is the debt truly
+            # unanswerable and the program-level release the door. The first cut keyed the render
+            # sentence on decay alone and told a draft's operator that "no revision can answer" —
+            # a false sentence pointing at a door (`release`) that refuses exactly that shape.
+            revisable_successors = []
+            for child in record["children"]:
+                if child.get("predecessor_plan_id") != carrier or not live(child["plan_id"]):
+                    continue
+                try:
+                    if not self.plans.read_record(
+                            self.plans.resolve(child["plan_id"])).get("seal"):
+                        revisable_successors.append(child["plan_id"])
+                except Exception:  # noqa: BLE001 — an unreadable successor is the report's unknown
+                    continue
             for obligation in entry["obligations"]:
                 if obligation["id"] in obligations:
                     continue      # already owed at a branch end; one debt, reported once
-                by_leaf.setdefault(entry["predecessor_plan_id"], []).append(obligation)
+                by_leaf.setdefault(carrier, []).append(obligation)
                 obligations[obligation["id"]] = obligation
-                decayed.setdefault(entry["predecessor_plan_id"], set()).add(obligation["id"])
+                if revisable_successors:
+                    bucket = decayed_awaiting.setdefault(
+                        carrier, {"ids": set(), "successors": sorted(revisable_successors)})
+                    bucket["ids"].add(obligation["id"])
+                else:
+                    decayed.setdefault(carrier, set()).add(obligation["id"])
         if record["children"] and not ends and not unknown and any(
                 live(child["plan_id"]) for child in record["children"]):
             # ONLY when live children exist and yet none of them ends anything: that is a cycle. A
@@ -1276,7 +1304,11 @@ class ProgramLibrary:
                 # an end, and the two end-shaped sentences it had were both false for a carrier
                 # whose sealed successor can never answer — a lie printed three lines under the
                 # table that contradicted it, with a door ("the next child answers") that refuses.
-                "decayed": {carrier: sorted(ids) for carrier, ids in decayed.items()}}
+                "decayed": {carrier: sorted(ids) for carrier, ids in decayed.items()},
+                # Same shape, other door: mid-chain debts whose successor can still be REVISED.
+                "decayed_awaiting": {
+                    carrier: {"ids": sorted(entry["ids"]), "successors": entry["successors"]}
+                    for carrier, entry in decayed_awaiting.items()}}
 
     def outstanding_obligations(self, record: dict) -> list:
         """The union of every OPEN leaf's carried obligations. See `obligation_report`, which also
@@ -1477,6 +1509,17 @@ def render(library: ProgramLibrary, record: dict) -> str:
             # status column two sections up — the reasoning lived only in this module's docstring,
             # which is not somewhere they read.
             dead = stopped_after.get(leaf) or []
+            awaiting = report.get("decayed_awaiting", {}).get(leaf)
+            if awaiting and all(o["id"] in awaiting["ids"] for o in obligations):
+                names = ", ".join(f"`{plan_id}`" for plan_id in awaiting["successors"])
+                out.append(
+                    f"- Carried at `{leaf}`, MID-CHAIN: these were minted after {names} joined, "
+                    "so the join-time check never saw them. Revise "
+                    f"{names} to answer for each — satisfied, still carried, or released with a "
+                    "reason; its seal refuses until it does:")
+                for obligation in obligations:
+                    out.append(f"  - **{obligation['id']}** — {obligation['statement']}")
+                continue
             decayed_here = set(report.get("decayed", {}).get(leaf, []))
             if decayed_here and all(o["id"] in decayed_here for o in obligations):
                 out.append(

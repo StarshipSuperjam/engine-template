@@ -1513,7 +1513,18 @@ def cmd_reopen(args) -> int:
     # - The plan mutator still re-asserts its OWN preconditions, so the lock adds ordering without
     #   this door trusting a check across a boundary.
     programs = plan_program.ProgramLibrary(library)
-    membership = programs.program_membership(record["plan_id"])
+    # BOTH of membership's sources are consulted, exactly as the seal path consults them. The first
+    # cut read only the program records, and a reviewer proved the gap: a record that parses but
+    # fails schema still names its children and refused correctly — while a TRUNCATED record, the
+    # strictly more damaged case, names nobody, and the veto silently passed. The plan document's
+    # own back-link is the evidence that survives an unparseable record, so it is what closes that
+    # hole: a claim against a record that will not read refuses the same way `_program_check` does.
+    claimed = None
+    try:
+        claimed = (library.head(slug).get("program") or {}).get("program_id")
+    except Exception:  # noqa: BLE001 — a plan whose head will not read has larger problems;
+        pass           # the membership sweep below still answers from the program records
+    membership = programs.program_membership(record["plan_id"], claimed_program_id=claimed)
     broken = [entry for entry in membership["unreadable"] if entry["names_this_plan"]]
     if broken:
         raise ProjectManagerError(
@@ -1521,6 +1532,11 @@ def cmd_reopen(args) -> int:
             f"({broken[0]['error']}), so whether reopening is allowed cannot be told. Repair that "
             "record first: it may mark this plan superseded, or its program complete, and a silent "
             "pass here would undo a decision nobody reversed.")
+    if membership["claims_unreadable"]:
+        raise ProjectManagerError(
+            f"this plan declares that it belongs to program {claimed}, and that program's record "
+            "cannot be read — it may mark this plan superseded, or its program complete. Repair "
+            "the record first; a silent pass here would undo a decision nobody reversed.")
 
     previous = {}
 
@@ -1535,23 +1551,40 @@ def cmd_reopen(args) -> int:
             raise ProjectManagerError("this plan is sealed, and a seal is terminal")
         current["closure"] = None
 
+    def veto_of(program_record):
+        child = next((c for c in program_record["children"]
+                      if c["plan_id"] == record["plan_id"]), None)
+        if child is not None and child.get("superseded_by"):
+            raise ProjectManagerError(
+                f"this plan was superseded by {child['superseded_by']} in "
+                f"{program_record['program_id']} — its place on the chain was given away, and "
+                "reopening it would stand two plans in one position. If the supersession was "
+                "wrong, supersede the replacement in turn, or clone this plan and add the copy.")
+        if child is not None and (program_record.get("closure") or {}).get("state") == "complete":
+            raise ProjectManagerError(
+                f"{program_record['program_id']} is recorded complete, and that judgment was "
+                "made over this child being settled. Reopening the child would make the "
+                "program's record false without anyone deciding so — `program reopen "
+                f"{program_record['program_id']} --reason \"...\"` first, then reopen the plan.")
+
+    # Two-program membership is off-design — the join doors require a back-link and refuse a plan
+    # already on a chain — but a legacy or hand-edited record can still construct it, and the
+    # first cut vetoed only on the FIRST record found, quietly losing the second's say. Every
+    # OTHER readable record naming this plan vetoes here, unlocked (a belt); the owning record's
+    # veto runs again under its own lock below, which is the half that orders against writers.
+    for program_slug in programs.slugs():
+        if program_slug == membership["slug"]:
+            continue
+        try:
+            other = programs.read(program_slug)
+        except Exception:  # noqa: BLE001 — an unreadable record already refused above if it names us
+            continue
+        veto_of(other)
+
     def veto_and_reopen():
         if membership["slug"]:
             program_record = programs.read(membership["slug"])   # re-read under the program lock
-            child = next((c for c in program_record["children"]
-                          if c["plan_id"] == record["plan_id"]), None)
-            if child is not None and child.get("superseded_by"):
-                raise ProjectManagerError(
-                    f"this plan was superseded by {child['superseded_by']} in "
-                    f"{program_record['program_id']} — its place on the chain was given away, and "
-                    "reopening it would stand two plans in one position. If the supersession was "
-                    "wrong, supersede the replacement in turn, or clone this plan and add the copy.")
-            if child is not None and (program_record.get("closure") or {}).get("state") == "complete":
-                raise ProjectManagerError(
-                    f"{program_record['program_id']} is recorded complete, and that judgment was "
-                    "made over this child being settled. Reopening the child would make the "
-                    "program's record false without anyone deciding so — `program reopen "
-                    f"{program_record['program_id']} --reason \"...\"` first, then reopen the plan.")
+            veto_of(program_record)
         library.update_record(slug, reopen)
 
     if membership["slug"]:

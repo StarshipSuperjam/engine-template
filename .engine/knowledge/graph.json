@@ -7021,7 +7021,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:a692682670715de3b3ff0efb25d47057fded49c1a98f990aa2622553b24fdd4f",
+        "fingerprint": "sha256:37df00d0cab935376253fbc25f594c6dfae243027602f5b498e1da4cc7a481d0",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -8986,7 +8986,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:ec333b60c3df803bc937032c2ba730a6ca222bf98680294ea3b250fc7298165c",
+        "fingerprint": "sha256:0d3f5c265f6e069389c5023f13e4529a2f178493926e679ecaacca33b8a9399e",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -13193,7 +13193,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:1faf7050fe6eaccd445d821ed7e5f3cbcf51f10064a9a66b77ec56d4efad696d",
+        "fingerprint": "sha256:05589ced421dfabc33bd16c427bdb0bb36bb7e00700290750a4a5f6d82081719",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13366,7 +13366,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:67896845cc43e61fb806e261b997afb917ad31b5512788ef4fbfb4cf91e89de6",
+        "fingerprint": "sha256:bfd8f6975207c03bc03fd964b126bd23a904d855e67cc5c172dcae6c6d68fb8f",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15147,7 +15147,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:1d32d579248c3c5d0689f122beb50a18123a62135868c8fd89b02338f307be12",
+        "fingerprint": "sha256:7af2a10197fb5a281f46622abb4d6f3c5d23256f76667b8b940aa624bd6ce58e",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -17725,7 +17725,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:5f0cf0e0ef714f479b206c77e5e38ccdcad912806a84854a1cbc5715c786b9f8",
+        "fingerprint": "sha256:60f59a4bdcb1a293b9fca7c54981c55cbccc59f98d2a19dfd6a710f6e11caa77",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -17903,7 +17903,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:f8adfcde22ceef6a234cf1aa25d42ca17bc5fcae8f4f8c497d627d5d097afaf8",
+        "fingerprint": "sha256:897f8e570dd8cfad6f6fb1ce3040bbd060c64ef86a42de2185fdb7d21a6e771b",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",

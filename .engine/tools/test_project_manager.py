@@ -1436,6 +1436,48 @@ class ProgramVerbs(_Governed):
         path.write_text(json.dumps(record), encoding="utf-8")
         self.assertEqual(self.run_command("reopen", "pln_aaaaaaaaaaaa")[0], 0)
 
+    def test_reopen_fails_closed_when_the_claimed_program_record_will_not_parse(self):
+        """The strictly more damaged case a reviewer proved open: a TRUNCATED record names no
+        children, so the record-side sweep saw nothing — while the plan's own back-link, the
+        evidence that survives an unparseable record, was never consulted. It is now, the same
+        way the seal path consults it."""
+        program_id = self._program_with_child()
+        self.assertEqual(self.run_command("retire", "pln_aaaaaaaaaaaa",
+                                          "--reason", "set aside")[0], 0)
+        programs = plan_program.ProgramLibrary(self.lib)
+        path = programs.program_dir(programs.resolve(program_id)) / "record.json"
+        path.write_text("{ truncated", encoding="utf-8")
+        code, _, err = self.run_command("reopen", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be read", err)
+        self.assertEqual(self.lib.read_record(
+            self.lib.resolve("pln_aaaaaaaaaaaa"))["closure"]["state"], "retired")
+
+    def test_reopen_hears_the_veto_of_every_record_naming_the_plan(self):
+        """Two-program membership is off-design but constructible by a legacy record, and the
+        first-found narrowing silently lost the second record's say — a reviewer reopened a child
+        under a program recorded complete that way."""
+        program_id = self._program_with_child()
+        self.assertEqual(self.run_command("retire", "pln_aaaaaaaaaaaa",
+                                          "--reason", "set aside")[0], 0)
+        # A second, hand-shaped record that also names the plan and is recorded complete.
+        programs = plan_program.ProgramLibrary(self.lib)
+        first_slug = programs.resolve(program_id)
+        import shutil
+        second_slug = "zeta-also-names-it--ffffff"
+        shutil.copytree(programs.program_dir(first_slug), programs.program_dir(second_slug))
+        record_path = programs.program_dir(second_slug) / "record.json"
+        record = json.loads(record_path.read_text())
+        record["program_id"] = "prg_ffffffffffff"
+        record["slug"] = second_slug
+        record["closure"] = {"state": "complete", "at": "2026-08-29T09:00:00Z",
+                             "reason": "recorded done"}
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        code, _, err = self.run_command("reopen", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("prg_ffffffffffff", err)
+        self.assertIn("program reopen", err)
+
     def test_a_schema_invalid_child_record_is_unreadable_not_a_crash(self):
         """One child whose record fails schema validation used to crash every reader stacked on
         `child_view` — report, render, and BOTH closure gates — leaving its program permanently

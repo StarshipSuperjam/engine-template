@@ -662,6 +662,51 @@ class TestSealedPlanEntry(CoordinatorCase):
                                  seal["sealed_digest"], seal["build_plan_digest"], different)
         self.assertEqual(len(self.library.read_record(self.slug).get("consent") or []), 2)
 
+    def test_a_second_bind_onto_a_new_pr_records_the_operators_words_again(self):
+        """`state supersede` makes a second Build of the same plan a first-class act, and the
+        operator repeating "yes" is a NEW consent for a NEW binding. Keyed on the words alone,
+        the dedup swallowed it — two reviewers drove the published trail attesting a bind hours
+        before the bind it authorized. Suppression is for the crash-retry of an IDENTICAL binding
+        and nothing else."""
+        seal = self.seal_it()
+        same_words_am = {"gate": "bind", "decision": "Go.", "at": "2026-08-29T09:00:00Z"}
+        same_words_pm = {"gate": "bind", "decision": "Go.", "at": "2026-08-29T17:30:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], same_words_am)
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 99,
+                                 seal["sealed_digest"], seal["build_plan_digest"], same_words_pm)
+        entries = self.library.read_record(self.slug).get("consent") or []
+        self.assertEqual([entry["at"] for entry in entries],
+                         ["2026-08-29T09:00:00Z", "2026-08-29T17:30:00Z"])
+
+    def test_the_rollback_restores_only_what_this_command_wrote(self):
+        """The rollback is the one write on its path that used to carry no precondition, and a
+        reviewer drove the consequence: a concurrent bind landing in the window was erased —
+        binding AND consent — silently. It now asserts, inside the mutator, that the record's
+        binding is still the one this command wrote, and refuses to touch anything else's."""
+        seal = self.seal_it()
+        mine = {"gate": "bind", "decision": "adopt it", "at": "2026-08-29T12:00:00Z"}
+        written = {"repository": "owner/repo", "pull_request": 7,
+                   "sealed_digest": seal["sealed_digest"],
+                   "build_plan_digest": seal["build_plan_digest"]}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(mine))
+        # The clean case: nothing moved, so the restore lands and removes only this entry.
+        bc._restore_binding(self.slug, None, [], written, dict(mine))
+        record = self.library.read_record(self.slug)
+        self.assertIsNone(record.get("build_binding"))
+        self.assertNotIn("consent", record)
+        # The raced case: another session's bind moved the record; the rollback refuses whole.
+        theirs = {"gate": "bind", "decision": "start the other Build", "at": "2026-08-29T13:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 4242,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(theirs))
+        with self.assertRaisesRegex(bc.CoordinatorError, "another session moved"):
+            bc._restore_binding(self.slug, None, [], written, dict(mine))
+        record = self.library.read_record(self.slug)
+        self.assertEqual(record["build_binding"]["pull_request"], 4242)
+        self.assertEqual([entry["decision"] for entry in record["consent"]],
+                         ["start the other Build"])
+
     def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
         """The bind half of the supersede interlock, driven at exactly the racing write.
 

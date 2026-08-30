@@ -1122,8 +1122,19 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
 
         def mark(current):
             closure = current.get("closure")
+            # The dedup exists for ONE case: a crash-retry of THIS SAME bind, which re-writes the
+            # marker and must not record the operator's words twice. Keyed on the words alone it
+            # swallowed real acts — `state supersede` makes a second bind of the same plan onto a
+            # new PR a first-class operator decision, and an operator who says "yes" both times
+            # deserves both times on the trail. So the entry is suppressed only when the record's
+            # current binding already IS this binding (same repository, PR and both digests —
+            # `at` excluded, since a retry mints a fresh clock) and the same words are present.
+            def same_binding(existing):
+                return existing and all(
+                    existing.get(key) == binding.get(key)
+                    for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest"))
             entries = current.get("consent") or []
-            already_attested = consent and any(
+            already_attested = consent and same_binding(current.get("build_binding")) and any(
                 entry.get("gate") == consent.get("gate")
                 and entry.get("decision") == consent.get("decision") for entry in entries)
             if closure:
@@ -1148,6 +1159,43 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
             f"could not record the Build binding on {plan_id} ({exc}), and an unbound Build is the "
             "state the supersede interlock exists to prevent — so the bind refuses rather than "
             "proceeding without it. Repair the plan library and run the bind again.") from exc
+
+
+def _restore_binding(slug: str, previous_binding: dict | None, previous_consent: list,
+                     written_binding: dict, appended_consent: dict | None) -> None:
+    """Undo exactly the binding write a now-refused command made — and nothing anyone else wrote.
+
+    The first cut restored a pre-image captured before the binding write, through a mutator with no
+    precondition — the one write on this path that did not re-assert its own precondition under the
+    lock, and a reviewer drove the consequence: a concurrent session's bind landed in the window,
+    and the rollback erased its binding AND its consent attestation, silently. So this asserts,
+    INSIDE the mutator, that the record's binding is still the one this command wrote (identity
+    fields, not `at` — the clock is fresh on every write); if anything else moved it, the rollback
+    refuses and the caller discloses instead of overwriting. And it removes only the single consent
+    entry this command appended, by equality, never the whole array — the trail is append-only for
+    every act that HAPPENED; the one sanctioned retraction is a command taking back the attestation
+    it itself just wrote for an act it then refused to perform.
+    """
+    library = _library()
+
+    def unmark(current):
+        existing = current.get("build_binding") or {}
+        if any(existing.get(key) != written_binding.get(key)
+               for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest")):
+            raise CoordinatorError(
+                "another session moved this plan's binding while the rollback was being prepared; "
+                "leaving the record as that session wrote it")
+        current["build_binding"] = previous_binding
+        entries = current.get("consent") or []
+        if appended_consent and appended_consent in entries and \
+                appended_consent not in previous_consent:
+            entries = [entry for entry in entries if entry != appended_consent]
+        if entries:
+            current["consent"] = entries
+        else:
+            current.pop("consent", None)
+
+    library.update_record(slug, unmark)
 
 
 def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
@@ -1486,25 +1534,22 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     previous_record = _library().read_record(successor_slug)
     previous_binding = previous_record.get("build_binding")
     previous_consent = list(previous_record.get("consent") or [])
+    written_binding = {"repository": state["build"]["repository"],
+                       "pull_request": state["build"]["pr"],
+                       "sealed_digest": sealed_digest, "build_plan_digest": _digest(successor)}
     _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
                           sealed_digest, _digest(successor), consent)
     try:
         store.mutate(change, from_revision=state["revision"])
     except BaseException:
         try:
-            def unmark(current):
-                current["build_binding"] = previous_binding
-                # The consent attestation rode in with the binding write; an adoption that then
-                # refused is an act that did not happen, and the trail must not say it did.
-                current["consent"] = previous_consent or None
-                if current["consent"] is None:
-                    current.pop("consent", None)
-            _library().update_record(successor_slug, unmark)
-        except Exception as rollback_exc:  # noqa: BLE001 — disclosed with the exact repair
+            _restore_binding(successor_slug, previous_binding, previous_consent,
+                             written_binding, consent)
+        except BaseException as rollback_exc:  # noqa: BLE001 — disclosed with the exact repair
             print(f"build-coordinator: the adoption failed AND the successor's binding could not be "
-                  f"restored ({rollback_exc}) — {successor_id} is marked bound to a Build that is "
-                  "still on its predecessor. Repair by re-running this adopt, or clear the marker "
-                  "by completing/abandoning through the ordinary verbs.", file=sys.stderr)
+                  f"restored ({rollback_exc}) — {successor_id} may be marked bound to a Build that "
+                  "is still on its predecessor. Repair by re-running this adopt, or clear the "
+                  "marker by completing/abandoning through the ordinary verbs.", file=sys.stderr)
         raise
     preserved = sorted(keep)
     print(f"adopted sealed successor {successor_id}; the Build continues on PR "
