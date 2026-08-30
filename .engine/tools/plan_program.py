@@ -880,15 +880,20 @@ class ProgramLibrary:
             try:
                 record = self.read(slug)
             except Exception as exc:  # noqa: BLE001 — one bad record must not hide the rest
-                names_this_plan = False
+                names_this_plan, parseable = False, True
                 try:
                     raw = core.json_file(self._record_path(slug))
                     names_this_plan = any(
                         isinstance(child, dict) and child.get("plan_id") == plan_id
                         for child in (raw.get("children") or []))
                 except Exception:  # noqa: BLE001 — unparseable: membership genuinely unknowable here
-                    names_this_plan = False
-                unreadable.append({"slug": slug, "error": str(exc), "names_this_plan": names_this_plan})
+                    names_this_plan, parseable = False, False
+                # `parseable` is the difference between "this broken record does NOT name the plan"
+                # (raw JSON read, children checked) and "nobody can tell" (it would not even parse).
+                # A caller deciding whether membership is knowable needs that distinction; without
+                # it, the strictly more damaged record looked SAFER than the mildly damaged one.
+                unreadable.append({"slug": slug, "error": str(exc),
+                                   "names_this_plan": names_this_plan, "parseable": parseable})
                 if names_this_plan and found is None:
                     found = slug      # fail CLOSED: a broken record that names this plan still owns it
                 continue

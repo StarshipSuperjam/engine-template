@@ -760,6 +760,41 @@ class MidBuildRevision(WorkCase):
         self.assertFalse(record.get("consent"),
                          "the trail must not attest an adoption that was refused")
 
+    def test_an_interrupt_during_the_rollback_still_discloses_and_reraises(self):
+        """The claim shipped one round on reading alone: the inner handler's breadth (BaseException)
+        is what lets a mid-rollback interrupt still print the repair instructions and let the
+        original refusal propagate, instead of escaping past both."""
+        successor = self._successor()
+        record = {"intake": {"predecessors": [f"{PLAN_ID} — a plan"]},
+                  "approval": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
+                               "depth": "thorough", "at": "2026-08-25T00:00:00Z"},
+                  "current": {"revision": 1}}
+        library = mock.MagicMock()
+        library.resolve.return_value = "successor-slug"
+        library.read_record.side_effect = lambda slug: record
+        calls = {"n": 0}
+
+        def update(slug, change, expected_revision=None):
+            calls["n"] += 1
+            if calls["n"] == 1:      # the binding write lands
+                change(record)
+                return record
+            raise KeyboardInterrupt   # the operator's second Ctrl-C hits the rollback write
+
+        library.update_record.side_effect = update
+        args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
+                                  operator_decision="Yes, continue on the corrected plan.")
+        err = io.StringIO()
+        with mock.patch.object(bc, "_sealed_plan",
+                               return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
+                mock.patch.object(bc, "_library", return_value=library), \
+                mock.patch.object(self.store, "mutate",
+                                  side_effect=bc.CoordinatorError("revision race")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            with self.assertRaisesRegex(bc.CoordinatorError, "revision race"):
+                bc.cmd_plan_adopt(args, self.store)
+        self.assertIn("could not be restored", err.getvalue())
+
     def test_adoption_carries_the_settled_specification_forward_with_the_approval(self):
         """A project WITH a settled specification is the case nothing covered, and the case that broke.
 

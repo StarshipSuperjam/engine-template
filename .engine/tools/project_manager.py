@@ -1522,9 +1522,22 @@ def cmd_reopen(args) -> int:
     claimed = None
     try:
         claimed = (library.head(slug).get("program") or {}).get("program_id")
-    except Exception:  # noqa: BLE001 — a plan whose head will not read has larger problems;
-        pass           # the membership sweep below still answers from the program records
+    except Exception:  # noqa: BLE001 — an unreadable head leaves only the record sweep below,
+        pass           # and the unparseable-record check right after refuses if that is not enough
     membership = programs.program_membership(record["plan_id"], claimed_program_id=claimed)
+    # Without a back-link there is no second source — and against a program record that will not
+    # even PARSE, the record sweep answers nothing either: raw children were checked for every
+    # record that at least parsed, so `not parseable` is precisely "membership unknowable". With
+    # both sources dark, this door refuses like its neighbours instead of passing in silence —
+    # the sealing gate meets the identical library state and says so out loud.
+    if claimed is None:
+        dark = [entry for entry in membership["unreadable"] if not entry.get("parseable", True)]
+        if dark:
+            raise ProjectManagerError(
+                f"the program record for {dark[0]['slug']} cannot even be parsed, and this plan "
+                "carries no readable program back-link — so whether some program marks it "
+                "superseded, or was completed over it, cannot be told from either source. Repair "
+                "that record first; a silent pass here would undo a decision nobody reversed.")
     broken = [entry for entry in membership["unreadable"] if entry["names_this_plan"]]
     if broken:
         raise ProjectManagerError(

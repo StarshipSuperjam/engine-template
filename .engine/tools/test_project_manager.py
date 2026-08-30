@@ -1453,6 +1453,30 @@ class ProgramVerbs(_Governed):
         self.assertEqual(self.lib.read_record(
             self.lib.resolve("pln_aaaaaaaaaaaa"))["closure"]["state"], "retired")
 
+    def test_reopen_refuses_when_both_membership_sources_are_dark(self):
+        """Two damaged files at once — an unparseable program record AND no readable back-link —
+        used to pass in silence, while the sealing gate meets the identical library state and says
+        so out loud. With both sources dark, membership is genuinely unknowable, so the door
+        refuses like its neighbours."""
+        program_id = self._program_with_child()
+        self.assertEqual(self.run_command("retire", "pln_aaaaaaaaaaaa",
+                                          "--reason", "set aside")[0], 0)
+        programs = plan_program.ProgramLibrary(self.lib)
+        path = programs.program_dir(programs.resolve(program_id)) / "record.json"
+        path.write_text("{ not json at all", encoding="utf-8")
+        # Strip the plan's own back-link, the second source.
+        slug_a = self.lib.resolve("pln_aaaaaaaaaaaa")
+        head = dict(self.lib.head(slug_a))
+        head.pop("program", None)
+        head["revision"] = 2
+        head["revision_note"] = "a legacy child with no back-link"
+        self.lib.append_revision(slug_a, head, expected_revision=1)
+        code, _, err = self.run_command("reopen", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot even be parsed", err)
+        self.assertIn("no readable program back-link", err)
+        self.assertEqual(self.lib.read_record(slug_a)["closure"]["state"], "retired")
+
     def test_reopen_hears_the_veto_of_every_record_naming_the_plan(self):
         """Two-program membership is off-design but constructible by a legacy record, and the
         first-found narrowing silently lost the second record's say — a reviewer reopened a child
