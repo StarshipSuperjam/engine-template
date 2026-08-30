@@ -83,6 +83,9 @@ _PREACTIVATION_ISSUER = object()
 _PREACTIVATION_GRANTS = weakref.WeakKeyDictionary()
 _TRACKED_SOURCE_LOCK = threading.RLock()
 _TRACKED_SOURCE_CACHE = {}
+#: Compiled-source signatures, keyed by the exact bytes they were compiled from. `_tracked_head_source` was
+#: already cached; the COMPILE was not, and it is the expensive half — see `_compiled_signatures`.
+_COMPILED_SIGNATURE_CACHE = {}
 
 
 def _digest(value) -> str:
@@ -209,6 +212,34 @@ def _same_compiled_code(left, right) -> bool:
     return _code_signature(left) == _code_signature(right)
 
 
+def _compiled_signatures(real: str, payload: bytes, source: str):
+    """Every code signature compiled from one exact source snapshot, as a set, computed once per snapshot.
+
+    Purely a cost fix, and it changes no decision: the answer is a function of the source BYTES alone, so
+    keying on their digest returns exactly what recompiling would. Found while validating the repair round —
+    one index test that takes 1.6 seconds without the qualification guard took 288 seconds with it, and the
+    profile put 256 of those in `builtins.compile`. This adapter fires on every guarded mutation, so a test
+    that writes 33,000 records recompiled and re-walked the whole test module 33,000 times.
+
+    The verification itself is unchanged and still per call: the file is re-read, its identity re-checked
+    either side of the read, and the LIVE frame's code compared against these signatures. Returns None if the
+    signatures cannot be hashed, so the caller falls back to the exact comparison rather than guessing.
+    """
+    key = (real, hashlib.sha256(payload).digest())
+    with _TRACKED_SOURCE_LOCK:
+        cached = _COMPILED_SIGNATURE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    compiled = _compiled_code_tree(compile(source, real, "exec", dont_inherit=True))
+    try:
+        signatures = frozenset(_code_signature(candidate) for candidate in compiled)
+    except TypeError:      # a constant that will not hash — fall back to the exact linear comparison
+        return None
+    with _TRACKED_SOURCE_LOCK:
+        _COMPILED_SIGNATURE_CACHE[key] = signatures
+    return signatures
+
+
 def _module_code_objects(module) -> set:
     found = set()
     for value in vars(module).values():
@@ -274,12 +305,20 @@ def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | No
             return False
         # The source decides its own future flags. Inheriting this module's ``annotations`` future would make
         # an otherwise identical Python file compile to different code and silently deny legitimate callers.
-        compiled = _compiled_code_tree(compile(source, real, "exec", dont_inherit=True))
+        signatures = _compiled_signatures(real, payload, source)
+        compiled = (None if signatures is not None
+                    else _compiled_code_tree(compile(source, real, "exec", dont_inherit=True)))
     except (OSError, UnicodeError, SyntaxError):
         return False
     if os.path.realpath(frame.f_code.co_filename) != real:
         return False
-    if not any(_same_compiled_code(frame.f_code, candidate) for candidate in compiled):
+    if signatures is not None:
+        try:
+            if _code_signature(frame.f_code) not in signatures:
+                return False
+        except TypeError:  # an unhashable live signature: refuse rather than admit an uncomparable frame
+            return False
+    elif not any(_same_compiled_code(frame.f_code, candidate) for candidate in compiled):
         return False
     if module_name is not None:
         if module_name != "instantiator" or real != _INSTANTIATOR_SOURCE:

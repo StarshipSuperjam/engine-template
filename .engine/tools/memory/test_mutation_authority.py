@@ -106,8 +106,12 @@ class ConvertedCallGraphTests(unittest.TestCase):
             module = importlib.import_module(module_name)
             for entry in mutation_contract.REGISTRY:
                 writer_module, _, function_name = entry["writer"].rpartition(".")
+                # Both skips are the SAME mechanism, `mutation_authority._SKIP_WRAPPERS`: an entry whose
+                # authority is deliberately carried somewhere other than an auto-installed wrapper on the
+                # named writer. Reading the set rather than restating it means a future skip cannot be added
+                # without this test seeing it.
                 if (writer_module != module_name or entry["effect_class"] == "semantic-read"
-                        or entry["id"] == "capture-lock-create"):
+                        or entry["id"] in mutation_authority._SKIP_WRAPPERS):
                     continue
                 function = getattr(module, function_name, None)
                 if getattr(function, "__engine_registry_id__", None) != entry["id"]:
@@ -116,6 +120,15 @@ class ConvertedCallGraphTests(unittest.TestCase):
                     guarded.append(entry["id"])
         self.assertEqual(missing, [])
         self.assertGreaterEqual(len(guarded), 72)
+        # And each skip is accounted for, so the set cannot quietly become an escape hatch:
+        # `capture-lock-create` is taken through `authorize_nested`, and `automatic-capture` is the fail-soft
+        # outer boundary of a leaf that must never raise, whose mutation is guarded one frame in by
+        # `capture-transaction` on `capture._capture`.
+        self.assertEqual(mutation_authority._SKIP_WRAPPERS,
+                         frozenset({"capture-lock-create", "automatic-capture"}))
+        self.assertEqual(
+            getattr(capture._capture, "__engine_registry_id__", None), "capture-transaction",
+            "the outer capture boundary is unwrapped, so the inner transaction MUST carry the guard")
 
     def test_registry_modes_are_closed_over_registered_call_edges(self):
         by_writer = {entry["writer"]: entry for entry in mutation_contract.REGISTRY}
@@ -242,6 +255,26 @@ class ConvertedCallGraphTests(unittest.TestCase):
             candidate.unlink(missing_ok=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+
+    def test_the_compiled_source_cache_is_keyed_on_the_bytes_and_admits_no_stale_answer(self):
+        """The one risk the compile cache introduces, pinned.
+
+        `_source_bound_frame` compares the live frame against the code compiled from the file on disk. That
+        compile is now memoised, because it fired on every guarded mutation and made one index test 22 times
+        slower than the whole rest of its module. Memoising a security check is only sound if the key is the
+        thing the answer depends on — so this asserts the key IS the source bytes: the same path with
+        different contents must produce different signature sets, and the second must not inherit the first.
+        """
+        real = str(TOOLS / "memory" / "mutation_authority.py")
+        first = b"def alpha():\n    return 1\n"
+        second = b"def alpha():\n    return 2\n"
+        sig_first = mutation_authority._compiled_signatures(real, first, first.decode())
+        sig_second = mutation_authority._compiled_signatures(real, second, second.decode())
+        self.assertIsNotNone(sig_first)
+        self.assertIsNotNone(sig_second)
+        self.assertNotEqual(sig_first, sig_second, "different sources shared one cached answer")
+        # …and asking again for the first bytes returns the first answer, not whatever was cached last.
+        self.assertEqual(mutation_authority._compiled_signatures(real, first, first.decode()), sig_first)
 
     def test_same_named_direct_script_cannot_preflight_instantiator_authority(self):
         with tempfile.TemporaryDirectory() as tmp:

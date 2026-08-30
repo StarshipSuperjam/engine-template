@@ -13126,7 +13126,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:81c8a0ffd8463560be4f3d65a3d952efb63a868383a2279c78d3207deed1e1dd",
+        "fingerprint": "sha256:bf766f360273dfad5de9983a94b81760cdf4f80715b17a2f3e3f8e6e655ca52f",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -17754,7 +17754,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:9f2fd52bf88717ae53073622c348fd5935710a75eb10519834b068c54559ab0f",
+        "fingerprint": "sha256:407afabac22f1b5a57fcc8cc0665897236d3a7a9c6a4e19b26e1afe1f2d091c6",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
