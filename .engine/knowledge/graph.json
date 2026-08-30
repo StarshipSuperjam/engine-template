@@ -12745,7 +12745,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:251197fbdcd583266f2e3db5fa68b789063fdcfc9e474b48239f2430900d27fe",
+        "fingerprint": "sha256:e6aebf07792bab8fbaed15f0a85c36a0c3fce8bf465d65751265914e619b99c6",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -14838,7 +14838,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:b02cce2df41e4f92177fa3973d8a21ba78eb49e5228e2e7775e6ff898418992d",
+        "fingerprint": "sha256:f252dfbc27c3212ecedd21d95f2ec3c362d2462269e3cd948defe79e7768549b",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
