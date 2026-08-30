@@ -1464,6 +1464,9 @@
   ".engine/tools/demo_pr_reconcile.py": [
    "core"
   ],
+  ".engine/tools/demo_program_order_and_honest_ends.py": [
+   "core"
+  ],
   ".engine/tools/demo_release_cut.py": [
    "core"
   ],

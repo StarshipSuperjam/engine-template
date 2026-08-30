@@ -1434,18 +1434,44 @@ def cmd_close(args) -> int:
     if record.get("closure"):
         raise ProjectManagerError(
             f"this plan is already {record['closure']['state']}; reopen it before closing it differently")
+    _close_plan(library, slug, args.state, args.reason)
+    print(f"{record['plan_id']} is now {args.state}: {args.reason}")
+    print("Nothing was deleted — the plan and every revision stay on the shelf.")
+    return 0
+
+
+def _close_plan(library, slug: str, state: str, reason: str, *,
+                refuse_if_active: bool = False) -> None:
+    """Write a plan's closure and re-project the library. THE close path, and the only one.
+
+    Extracted so `program supersede` retires the plan it replaces through exactly this door rather
+    than through a second implementation of it. A supersession that wrote a closure some other way
+    would be a plan marked closed in the record while the projection still advertised it — which is
+    the shape of the loaded gun supersede exists to unload.
+
+    `refuse_if_active` re-asserts supersede's own precondition INSIDE the lock. Supersede reads the
+    target's status before it writes anything, and that read is unlocked: a Build binding to the
+    plan in the window between the read and this write would leave a plan retired underneath a
+    running Build — the one outcome supersede calls unrecoverable, and one `derived_status` then
+    hides, because it reports the closure before it looks at the binding. The store's own discipline
+    is that every gate re-asserts its precondition in the mutator; this is supersede honouring it.
+    """
     def close(current):
         if current.get("closure"):       # re-asserted inside the lock
             raise ProjectManagerError(
                 f"another session closed this plan as {current['closure']['state']} while this one was "
                 "reading it; reopen it before closing it differently")
-        current["closure"] = {"state": args.state, "at": _now(), "reason": args.reason}
+        if refuse_if_active and current.get("build_binding"):
+            raise ProjectManagerError(
+                "a Build bound to this plan while the supersession was being prepared, so retiring "
+                "it now would strand that Build under a retired plan — it would go on publishing "
+                "from it, and its completion could never be recorded. Nothing was written. ABANDON "
+                "that Build and supersede then works — or let it MERGE, after which merged history "
+                "is corrected by appended work (`program add --after`), never replaced.")
+        current["closure"] = {"state": state, "at": _now(), "reason": reason}
 
     library.update_record(slug, close)
     plan_projection.project_library(library)
-    print(f"{record['plan_id']} is now {args.state}: {args.reason}")
-    print("Nothing was deleted — the plan and every revision stay on the shelf.")
-    return 0
 
 
 def cmd_reopen(args) -> int:
@@ -1468,6 +1494,63 @@ def cmd_reopen(args) -> int:
         raise ProjectManagerError(
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
             "a digest a Build already trusted. Clone it into a new plan instead.")
+
+    # The program record gets a say before a plan closure is undone, because two of its own facts
+    # are built on that closure staying put: a SUPERSEDED child gave its place on the chain to its
+    # replacement, and a COMPLETE program is the operator's judgment recorded over every live child
+    # being settled. Three properties of this veto were each a reviewed defect in its first cut:
+    #
+    # - It fails CLOSED. A program record that cannot be read might carry either fact, and skipping
+    #   it silently was the one fail-open on this file's governance surface — the seal path refuses
+    #   on the identical condition, and this door refuses the same way. Membership is established
+    #   the way `program_membership` establishes it: a broken record that still names this plan
+    #   owns a veto it cannot cast, so the reopen waits for the record to be repaired.
+    # - It runs UNDER THE OWNING PROGRAM'S LOCK, held across the plan write. `program complete`,
+    #   `program reopen` and `mark_superseded` all write under that same lock, so the two races a
+    #   reviewer traced — a completion landing between this check and the plan write, and a
+    #   supersession marking the child in that same window — serialize instead of interleaving.
+    #   Lock order is program-then-plan; nothing anywhere takes them in the other order.
+    # - The plan mutator still re-asserts its OWN preconditions, so the lock adds ordering without
+    #   this door trusting a check across a boundary.
+    programs = plan_program.ProgramLibrary(library)
+    # BOTH of membership's sources are consulted, exactly as the seal path consults them. The first
+    # cut read only the program records, and a reviewer proved the gap: a record that parses but
+    # fails schema still names its children and refused correctly — while a TRUNCATED record, the
+    # strictly more damaged case, names nobody, and the veto silently passed. The plan document's
+    # own back-link is the evidence that survives an unparseable record, so it is what closes that
+    # hole: a claim against a record that will not read refuses the same way `_program_check` does.
+    claimed = None
+    try:
+        claimed = (library.head(slug).get("program") or {}).get("program_id")
+    except Exception:  # noqa: BLE001 — an unreadable head leaves only the record sweep below,
+        pass           # and the unparseable-record check right after refuses if that is not enough
+    membership = programs.program_membership(record["plan_id"], claimed_program_id=claimed)
+    # Without a back-link there is no second source — and against a program record that will not
+    # even PARSE, the record sweep answers nothing either: raw children were checked for every
+    # record that at least parsed, so `not parseable` is precisely "membership unknowable". With
+    # both sources dark, this door refuses like its neighbours instead of passing in silence —
+    # the sealing gate meets the identical library state and says so out loud.
+    if claimed is None:
+        dark = [entry for entry in membership["unreadable"] if not entry.get("parseable", True)]
+        if dark:
+            raise ProjectManagerError(
+                f"the program record for {dark[0]['slug']} cannot even be parsed, and this plan "
+                "carries no readable program back-link — so whether some program marks it "
+                "superseded, or was completed over it, cannot be told from either source. Repair "
+                "that record first; a silent pass here would undo a decision nobody reversed.")
+    broken = [entry for entry in membership["unreadable"] if entry["names_this_plan"]]
+    if broken:
+        raise ProjectManagerError(
+            f"the program record for {broken[0]['slug']} names this plan but cannot be read "
+            f"({broken[0]['error']}), so whether reopening is allowed cannot be told. Repair that "
+            "record first: it may mark this plan superseded, or its program complete, and a silent "
+            "pass here would undo a decision nobody reversed.")
+    if membership["claims_unreadable"]:
+        raise ProjectManagerError(
+            f"this plan declares that it belongs to program {claimed}, and that program's record "
+            "cannot be read — it may mark this plan superseded, or its program complete. Repair "
+            "the record first; a silent pass here would undo a decision nobody reversed.")
+
     previous = {}
 
     def reopen(current):
@@ -1481,7 +1564,49 @@ def cmd_reopen(args) -> int:
             raise ProjectManagerError("this plan is sealed, and a seal is terminal")
         current["closure"] = None
 
-    library.update_record(slug, reopen)
+    def veto_of(program_record):
+        child = next((c for c in program_record["children"]
+                      if c["plan_id"] == record["plan_id"]), None)
+        if child is not None and child.get("superseded_by"):
+            raise ProjectManagerError(
+                f"this plan was superseded by {child['superseded_by']} in "
+                f"{program_record['program_id']} — its place on the chain was given away, and "
+                "reopening it would stand two plans in one position. If the supersession was "
+                "wrong, supersede the replacement in turn, or clone this plan and add the copy.")
+        if child is not None and (program_record.get("closure") or {}).get("state") == "complete":
+            raise ProjectManagerError(
+                f"{program_record['program_id']} is recorded complete, and that judgment was "
+                "made over this child being settled. Reopening the child would make the "
+                "program's record false without anyone deciding so — `program reopen "
+                f"{program_record['program_id']} --reason \"...\"` first, then reopen the plan.")
+
+    # Two-program membership is off-design — the join doors require a back-link and refuse a plan
+    # already on a chain — but a legacy or hand-edited record can still construct it, and the
+    # first cut vetoed only on the FIRST record found, quietly losing the second's say. Every
+    # OTHER readable record naming this plan vetoes here, unlocked (a belt); the owning record's
+    # veto runs again under its own lock below, which is the half that orders against writers.
+    for program_slug in programs.slugs():
+        if program_slug == membership["slug"]:
+            continue
+        try:
+            other = programs.read(program_slug)
+        except Exception:  # noqa: BLE001 — an unreadable record already refused above if it names us
+            continue
+        veto_of(other)
+
+    def veto_and_reopen():
+        if membership["slug"]:
+            program_record = programs.read(membership["slug"])   # re-read under the program lock
+            veto_of(program_record)
+        library.update_record(slug, reopen)
+
+    if membership["slug"]:
+        lock_path = programs.program_dir(membership["slug"]) / (
+            plan_program.RECORD_FILENAME + ".lock")
+        with core.exclusive_lock(lock_path):
+            veto_and_reopen()
+    else:
+        veto_and_reopen()
     plan_projection.project_library(library)
     print(f"reopened {record['plan_id']} (was {previous['state']})")
     return 0
@@ -1534,6 +1659,8 @@ def cmd_clone(args) -> int:
     document["created_at"] = document["revised_at"] = _now()
     document["revision_note"] = args.reason
     document.pop("program", None)
+    if getattr(args, "supersedes", None):
+        document["program"] = _supersession_block(library, args.supersedes)
     new_slug = library.create(document, intake={
         "provenance": f"cloned from {source_id} at revision {library.read_record(slug)['current']['revision']}: "
                       f"{args.reason}",
@@ -1541,7 +1668,66 @@ def cmd_clone(args) -> int:
     plan_projection.project_library(library)
     print(f"cloned {source_id} into {document['plan_id']} at {library.plan_dir(new_slug)}")
     print("It carries no approval, no review and no seal — none of that was granted for this document.")
+    if getattr(args, "supersedes", None):
+        program = document["program"]
+        carried = program.get("carried_obligations", [])
+        print(f"\nPre-filled to supersede {args.supersedes}: the back-link to "
+              f"{program['program_id']}"
+              + (f", and {len(carried)} obligation(s) re-declared as carried."
+                 if carried else ", and nothing outstanding to inherit."))
+        for obligation in carried:
+            print(f"  - {obligation['id']}: {obligation['statement']}")
+        print("Those come from the PREDECESSOR of the plan being replaced, which is the only honest "
+              "source: the replaced plan never landed, so its own claims about what it satisfied or "
+              "released describe work that does not exist.")
+        print(f"Complete the supersession with `program supersede <program> {args.supersedes} "
+              f"--with {document['plan_id']} --reason \"...\"`.")
     return 0
+
+
+def _supersession_block(library, superseded_selector: str) -> dict:
+    """The `program` block a `clone --supersedes` starts life with.
+
+    Three things, and the third is the one worth stating. The back-link, so the clone can join its
+    program at all. The replaced plan's predecessor edge, recorded as AUTHORING-TIME PROVENANCE — the
+    program record's edge is the sole order authority, and this copy is a note about where the clone
+    was written to fit, never a second claim about the chain. And the obligations, sourced from that
+    PREDECESSOR's carried set rather than from the plan being replaced.
+
+    That last choice is the whole point. The replaced plan's own block says what IT meant to satisfy
+    or release, and none of that happened — it is being replaced precisely because it never landed.
+    Copying its satisfied claims into the replacement would hand the new plan credit for work nobody
+    did, which is exactly the laundering the carry-forward guarantee exists to prevent.
+    """
+    import plan_program
+    programs = plan_program.ProgramLibrary(library)
+    superseded_id = library.read_record(library.resolve(superseded_selector))["plan_id"]
+    slug = programs.program_for_plan(superseded_id)
+    if not slug:
+        raise ProjectManagerError(
+            f"{superseded_id} is not a child of any program in this library, so there is no place "
+            "for a replacement to inherit. Supersession is a program-order decision; a standalone "
+            "plan is simply cloned.")
+    record = programs.read(slug)
+    child = next(c for c in record["children"] if c["plan_id"] == superseded_id)
+    block = {"program_id": record["program_id"]}
+    inherited = child.get("predecessor_plan_id")
+    if inherited:
+        block["predecessor_plan_id"] = inherited
+        # Program-level releases are subtracted here for the same reason every gate subtracts them:
+        # a debt formally let go on the record must not come back. Pre-filling it as `carried` would
+        # quietly reverse the operator's own decision, in the one place they are least likely to
+        # re-read it — a generated block they are about to build on.
+        released = programs.released_at(record, inherited)
+        carried = {identifier: obligation
+                   for identifier, obligation
+                   in plan_program.carried_forward(library.head(library.resolve(inherited))).items()
+                   if identifier not in released}
+        if carried:
+            block["carried_obligations"] = [
+                {"id": o["id"], "statement": o["statement"], "state": "carried"}
+                for o in sorted(carried.values(), key=lambda o: o["id"])]
+    return block
 
 
 # --- importing an accepted native plan --------------------------------------
@@ -1927,8 +2113,16 @@ def cmd_program_list(args) -> int:
         # it did while the unknown rendering existed only in `show`.
         owed = (f"{len(report['obligations'])} obligation(s) outstanding" if not report["unknown"]
                 else f"obligations unknown ({len(report['unknown'])} reason(s) — run `program show`)")
-        print(f"{record['program_id']}  {programs.derived_status(record):<15} "
+        status = programs.derived_status(record)
+        print(f"{record['program_id']}  {status:<18} "
               f"{len(record['children'])} child(ren), {owed}  {record['title']}")
+        if status == programs.CHILDREN_COMPLETE:
+            # `list` is the view built for scanning many programs at once, which makes it the view
+            # where a token can most easily be mistaken for a verdict. `show` carries the full
+            # sentence; withholding every trace of it here would reintroduce at the list level the
+            # exact misreading this change exists to remove.
+            print("                    ^ every child on record is done; nobody has recorded that "
+                  "the PROGRAM is. Run `program show` for what that does and does not claim.")
     return 0
 
 
@@ -1949,8 +2143,7 @@ def cmd_program_add(args) -> int:
     # and only the second one is what an operator adding to a branch is being told. Printing the union
     # here would attribute another branch's debts to a successor that can never answer for them.
     plan_slug = programs.plans.resolve(args.plan)
-    outstanding = sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
-                         key=lambda o: o["id"])
+    outstanding = _still_carried(programs, args.plan)
     ordinal = next((child["chain_ordinal"] for child in programs.child_view(record)
                     if child["plan_id"] == programs.plans.read_record(plan_slug)["plan_id"]),
                    len(record["children"]))
@@ -1963,6 +2156,107 @@ def cmd_program_add(args) -> int:
               "released with a stated reason. None of them can be dropped by saying nothing.")
     _report_decay(programs, slug)
     return 0
+
+
+def cmd_program_supersede(args) -> int:
+    """Replace a child that turned out wrong, keeping it visible and its place on the chain.
+
+    The ORDER of the two writes is the safety argument, and it is enforced here because this is the
+    only layer that may touch both records: plan_program never writes the plan library, which a
+    mechanical allowlist pins. Refuse, then retire the plan, then mark the program record. A crash
+    between the last two leaves a retired plan and an unmarked record — out of play, and repaired by
+    running the verb again — never a marked record over a plan a Build could still bind.
+    """
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    library = programs.plans
+    resolved = programs.supersede_check(slug, args.plan, args.With)
+
+    superseded_slug = library.resolve(resolved["superseded_id"])
+    existing = library.read_record(superseded_slug).get("closure")
+    if not existing:
+        _close_plan(library, superseded_slug, "retired", args.reason, refuse_if_active=True)
+        print(f"retired {resolved['superseded_id']}: {args.reason}")
+    elif existing["state"] == "retired":
+        # The half-completed state: the plan was retired by an earlier run that did not reach the
+        # record. Two repairs, not one — the record write below, and the PROJECTION, which the
+        # earlier run may also have died before: `_close_plan` writes the closure and then projects,
+        # and a crash between the two leaves the library's rendered index still advertising a plan
+        # the record says is out of play. Re-running the verb must converge the whole state, so the
+        # retry re-projects rather than assuming the closure write got that far.
+        print(f"{resolved['superseded_id']} was already retired; completing the supersession.")
+        plan_projection.project_library(library)
+    else:
+        # Closed, but not the way a supersession closes a plan. An abandoned or completed target is
+        # someone's DIFFERENT decision, not this verb's own crash debris, and converging over it
+        # would fold that decision into a supersession nobody made of it.
+        raise ProjectManagerError(
+            f"{resolved['superseded_id']} is {existing['state']} ({existing['reason']}) — that is "
+            "not the half-finished supersession this verb can converge, which retires its target. "
+            "If this plan should indeed be replaced on the chain, that closure already took it out "
+            "of play; what supersede would add is the program-record marker, and writing one over "
+            "a closure someone else chose would misdescribe their decision. If the closure itself "
+            "is wrong: an unsealed plan takes `reopen`; a sealed plan's closure is permanent — "
+            "clone it into a new plan instead. Otherwise leave the chain as the record tells it.")
+
+    record = programs.mark_superseded(slug, args.plan, args.With)
+    print(f"{resolved['replacement_id']} supersedes {resolved['superseded_id']} "
+          f"in {record['program_id']}")
+    print(f"  it inherits the place after "
+          f"{resolved['inherited'] or '(the start of the chain)'}, and everything that succeeded "
+          f"{resolved['superseded_id']} now succeeds it")
+    print("Nothing was deleted: the replaced child stays in the record, marked with what replaced "
+          "it, and its plan and every revision stay on the shelf.")
+    _report_decay(programs, slug)
+    return 0
+
+
+def cmd_program_insert(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.insert_child(slug, args.plan, before=args.before)
+    plan_slug = programs.plans.resolve(args.plan)
+    plan_id = programs.plans.read_record(plan_slug)["plan_id"]
+    view = programs.child_view(record)
+    ordinal = next((child["chain_ordinal"] for child in view if child["plan_id"] == plan_id), None)
+    displaced_id = programs.plans.read_record(programs.plans.resolve(args.before))["plan_id"]
+    print(f"inserted {plan_id} as child {ordinal} of {record['program_id']}, ahead of {displaced_id}")
+    # Say which edges moved. An insertion changes what TWO plans are answerable to, and the second
+    # one — the displaced child now succeeding the newcomer — is the half an operator does not
+    # picture on their own, because appending has never had a second edge to think about.
+    inserted = next(child for child in record["children"] if child["plan_id"] == plan_id)
+    predecessor = inserted.get("predecessor_plan_id")
+    print(f"  {predecessor} -> {plan_id} -> {displaced_id}" if predecessor
+          else f"  {plan_id} now starts this chain, and {displaced_id} succeeds it")
+    print("Nothing was renumbered: the order every reader derives comes from these edges.")
+    outstanding = _still_carried(programs, args.plan)
+    if outstanding:
+        print(f"\n{displaced_id} now answers for {len(outstanding)} obligation(s) carried by "
+              f"{plan_id}:")
+        for obligation in outstanding:
+            print(f"  - {obligation['id']}: {obligation['statement']}")
+    _report_decay(programs, slug)
+    return 0
+
+
+def _still_carried(programs, plan_selector: str) -> list:
+    """What a plan hands on to the next child on its branch.
+
+    No program-level release can apply here, and the reason is worth stating rather than guarding
+    against: a release is keyed to a child that is ALREADY in the program, and both doors this
+    serves — `add` and `insert` — refuse a plan that is already a child. So the released set for
+    the plan just joined is empty by construction.
+
+    An earlier round subtracted it anyway, in response to a review finding that these reports could
+    name a debt the gates no longer enforce. That is true of a long-standing child and not of a
+    newly joined one, and the subtraction here could never fire — inert code shaped like a guard,
+    which reads as protection nobody has. The one place the subtraction genuinely bites is
+    `_supersession_block`, where the obligations come from a predecessor that has been a child for
+    as long as the release has existed, and it is kept and tested there.
+    """
+    plan_slug = programs.plans.resolve(plan_selector)
+    return sorted(plan_program.carried_forward(programs.plans.head(plan_slug)).values(),
+                  key=lambda o: o["id"])
 
 
 def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
@@ -1980,23 +2274,95 @@ def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
               file=sys.stderr)
         for obligation in entry["obligations"]:
             print(f"  - {obligation['id']}: {obligation['statement']}", file=sys.stderr)
-        print(f"  Revise {entry['plan_id']} to answer for each — satisfied, still carried, or released "
-              "with a reason. Its seal refuses until it does.", file=sys.stderr)
+        # The way through depends on what the successor can still DO. "Revise it" was printed
+        # unconditionally, and for a successor already sealed that is a locked door — a seal is
+        # terminal — so the advice comes from the same owner every refusal uses.
+        try:
+            successor = programs.plans.read_record(programs.plans.resolve(entry["plan_id"]))
+            advice = plan_program.way_through_for(
+                entry["plan_id"], plan_store.derived_status(successor), bool(successor.get("seal")))
+        except Exception:  # noqa: BLE001 — an unreadable successor is reported by other readers
+            advice = ""
+        if advice:
+            print(" " + advice.strip(), file=sys.stderr)
+        else:
+            print(f"  Revise {entry['plan_id']} to answer for each — satisfied, still carried, or "
+                  "released with a reason. Its seal refuses until it does.", file=sys.stderr)
     return decay
 
 
 def cmd_program_close(args) -> int:
     programs = _programs(args)
-    record = programs.close(programs.resolve(args.program), args.state, args.reason)
+    record = programs.close(programs.resolve(args.program), args.state, args.reason,
+                            acknowledged_unknown=getattr(args, "acknowledge_unknown", None))
     print(f"{record['program_id']} is now {args.state}: {args.reason}")
+    if record["closure"].get("acknowledged_unknown"):
+        print("Closed over an unknown, on the record: "
+              f"{record['closure']['acknowledged_unknown']}")
+        print("That is a decision, not a resolution — what this program owed still cannot be "
+              "computed from its record.")
     print("Nothing was deleted — every child plan and every revision stays on the shelf.")
+    return 0
+
+
+def cmd_program_complete(args) -> int:
+    """The only door to a complete program. Nothing derives it, and nothing else writes it."""
+    programs = _programs(args)
+    record = programs.complete(programs.resolve(args.program), args.reason)
+    print(f"{record['program_id']} is recorded complete: {args.reason}")
+    print("Recorded, not derived — this is your judgment that the objective is met, and the record "
+          "now says so with your reason attached.")
+    print("It is reversible: `program reopen` undoes it, with a reason, and keeps what was undone.")
+    return 0
+
+
+def cmd_program_release(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.release(slug, args.child, args.obligation, args.reason)
+    child_id = programs.plans.read_record(programs.plans.resolve(args.child))["plan_id"]
+    # Print the reason the RECORD holds, not the one this invocation offered: a re-run of an
+    # existing release keeps the original reason, and echoing the new text would report an audit
+    # fact the store never wrote.
+    stored = next(entry for entry in record.get("releases", [])
+                  if entry["child_plan_id"] == child_id and entry["obligation_id"] == args.obligation)
+    print(f"released {args.obligation}, carried at {child_id}, in {record['program_id']}")
+    print(f"  {stored['reason']}")
+    if stored["reason"] != args.reason:
+        print(f"  (already released at {stored['at']} — the recorded reason above stands; this "
+              "run's differing reason was not written)")
+    print("Released at PROGRAM level, which is a different decision from a release written inside a "
+          "successor plan: it says no successor was left to answer for this at all.")
+    report = programs.obligation_report(programs.read(slug))
+    if report["obligations"]:
+        print(f"\n{len(report['obligations'])} obligation(s) still outstanding: "
+              + ", ".join(o["id"] for o in report["obligations"]))
+    return 0
+
+
+def cmd_program_revise_objective(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    before = programs.read(slug)["objective"]
+    record = programs.revise_objective(slug, args.objective, args.reason)
+    print(f"revised the objective of {record['program_id']}")
+    print(f"  {args.reason}")
+    print(f"\nPreviously: {before}")
+    print(f"Now:        {record['objective']}")
+    print("\nNothing was overwritten silently — `program show` lists every prior objective with "
+          "when it was replaced and why.")
     return 0
 
 
 def cmd_program_reopen(args) -> int:
     programs = _programs(args)
-    record = programs.reopen(programs.resolve(args.program))
-    print(f"reopened {record['program_id']}")
+    slug = programs.resolve(args.program)
+    was = programs.read(slug).get("closure") or {}
+    record = programs.reopen(slug, args.reason)
+    print(f"reopened {record['program_id']} — it was {was.get('state', 'closed')}")
+    print(f"  {args.reason}")
+    print("What was undone stays on the record: `program show` lists every closure that was "
+          "reversed, with the reason for reversing it.")
     return 0
 
 
@@ -2160,6 +2526,11 @@ def build_parser() -> argparse.ArgumentParser:
     clone.add_argument("plan")
     clone.add_argument("--reason", required=True)
     clone.add_argument("--title")
+    clone.add_argument("--supersedes",
+                       help="the plan this copy is being written to replace. The copy starts out "
+                            "already belonging to the same program, already in the replaced plan's "
+                            "place, and already owing what that place owed — so you edit the work "
+                            "rather than reassemble the bookkeeping")
     clone.set_defaults(func=cmd_clone)
 
     export = sub.add_parser("export", help="write a self-verifying local bundle (uploads nothing)")
@@ -2215,16 +2586,64 @@ def build_parser() -> argparse.ArgumentParser:
     program_add.add_argument("--after", help="the plan this one succeeds; required after the first child")
     program_add.set_defaults(func=cmd_program_add)
 
+    program_insert = program.add_parser(
+        "insert", help="place a plan BEFORE an existing child, re-pointing the edge that reached it")
+    program_insert.add_argument("program")
+    program_insert.add_argument("plan")
+    program_insert.add_argument("--before", required=True,
+                                help="the child this plan is placed ahead of; it will succeed the "
+                                     "inserted plan instead of what it succeeds now")
+    program_insert.set_defaults(func=cmd_program_insert)
+
+    program_supersede = program.add_parser(
+        "supersede", help="replace a child that turned out wrong, keeping it and its place visible")
+    program_supersede.add_argument("program")
+    program_supersede.add_argument("plan", help="the child being replaced")
+    program_supersede.add_argument("--with", dest="With", required=True,
+                                   help="the plan that takes its place on the chain")
+    program_supersede.add_argument("--reason", required=True,
+                                   help="why — recorded as the replaced plan's retirement reason")
+    program_supersede.set_defaults(func=cmd_program_supersede)
+
+    program_release = program.add_parser(
+        "release", help="let go of an obligation whose successors are all gone, with a reason")
+    program_release.add_argument("program")
+    program_release.add_argument("child", help="the child that CARRIES the obligation")
+    program_release.add_argument("--obligation", required=True, dest="obligation")
+    program_release.add_argument("--reason", required=True,
+                                 help="why the debt is void — its whole price")
+    program_release.set_defaults(func=cmd_program_release)
+
     for state, helptext in (("retire", "superseded, kept for the record"),
                             ("abandon", "deliberately dropped")):
         closer = program.add_parser(state, help=f"close a program: {helptext}")
         closer.add_argument("program")
         closer.add_argument("--reason", required=True)
+        closer.add_argument("--acknowledge-unknown", dest="acknowledge_unknown",
+                            help="close even though what this program owes cannot be computed from "
+                                 "its record; the text is why, and it is recorded in the closure")
         closer.set_defaults(func=cmd_program_close,
                             state={"retire": "retired", "abandon": "abandoned"}[state])
 
-    program_reopen = program.add_parser("reopen", help="undo a program retirement or abandonment")
+    program_revise = program.add_parser(
+        "revise-objective", help="replace the objective, keeping the text it replaced")
+    program_revise.add_argument("program")
+    program_revise.add_argument("--objective", required=True)
+    program_revise.add_argument("--reason", required=True,
+                                help="why the old wording stopped being true")
+    program_revise.set_defaults(func=cmd_program_revise_objective)
+
+    program_complete = program.add_parser(
+        "complete", help="record that the objective is met — never derived, only recorded")
+    program_complete.add_argument("program")
+    program_complete.add_argument("--reason", required=True)
+    program_complete.set_defaults(func=cmd_program_complete)
+
+    program_reopen = program.add_parser(
+        "reopen", help="undo a program closure — retired, abandoned or complete — keeping the record")
     program_reopen.add_argument("program")
+    program_reopen.add_argument("--reason", required=True,
+                                help="why the closure is being undone; kept in the closure history")
     program_reopen.set_defaults(func=cmd_program_reopen)
     return parser
 
