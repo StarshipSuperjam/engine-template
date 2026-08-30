@@ -45,10 +45,60 @@
       }
     },
     "progress": {"type": "object"},
-    "work": {"type": "object"},
+    "work": {"type": "object", "additionalProperties": {"$ref": "#/$defs/handoff_node_work"}},
     "validation": {"type": ["object", "null"]},
     "repair": {"type": ["object", "null"]},
     "preflights": {"type": "array"},
     "pr_contract": {"type": ["object", "null"]}
+  },
+  "$defs": {
+    "handoff_node_work": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempt_count", "claim", "latest_result", "integration", "latest_failure"],
+      "properties": {
+        "attempt_count": {"type": "integer", "minimum": 0},
+        "claim": {"type": ["object", "null"]},
+        "latest_result": {"type": ["object", "null"]},
+        "integration": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/handoff_integration"}]},
+        "latest_failure": {"type": ["object", "null"]}
+      }
+    },
+    "handoff_integration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["attempt_id", "commit", "focused_verification"],
+      "properties": {
+        "attempt_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "focused_verification": {"type": "string", "minLength": 1},
+        "receipt": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/handoff_receipt"}]},
+        "restored": {"type": "boolean"}
+      }
+    },
+    "handoff_receipt": {
+      "comment": "The receipt's machine facts publish into the PR body; only degraded_reason is redacted like other worker prose, so it may be the redaction sentinel string rather than the original reason.",
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "claim_base", "integration_commit", "attributable_range",
+                   "patch_digest", "tree_digest", "paths", "identity_mode", "degraded", "degraded_reason"],
+      "properties": {
+        "schema_version": {"const": "build-integration-receipt.v1"},
+        "claim_base": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "integration_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "attributable_range": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{40}$"}},
+        "patch_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "tree_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "paths": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "path", "old_path"],
+          "properties": {
+            "status": {"enum": ["A", "M", "D", "R"]},
+            "path": {"type": "string", "minLength": 1},
+            "old_path": {"type": ["string", "null"], "minLength": 1}
+          }
+        }},
+        "identity_mode": {"enum": ["worker-commit", "accepted-candidate"]},
+        "degraded": {"type": "boolean"},
+        "degraded_reason": {"type": ["string", "null"], "minLength": 1}
+      }
+    }
   }
 }

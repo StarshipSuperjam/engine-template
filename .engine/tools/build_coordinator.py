@@ -724,6 +724,45 @@ def _next_incomplete(plan: dict, state: dict) -> str | None:
     return next((item for item in ordered if item not in completed), None)
 
 
+def _receipt_crosscheck(plan: dict, state: dict) -> dict:
+    """The receipt cross-check that sits BESIDE the authoritative git-derived aggregate (obligation 7).
+
+    The git diff stays the aggregate scope figure the operator reads; this adds per-node attribution as
+    a check on it. An integrated node without a receipt is marked `uncounted` rather than contributing
+    nothing silently, and a node whose own integration commit is attributed to no receipt at all is
+    surfaced as a disagreement.
+    """
+    with_receipt, uncounted, attributed, disagreements = [], [], [], []
+    for item in plan["work_items"]:
+        integ = ((state.get("work") or {}).get(item["id"]) or {}).get("integration")
+        if not integ:
+            continue
+        receipt = integ.get("receipt")
+        if not receipt:
+            uncounted.append(item["id"])
+            continue
+        with_receipt.append(item["id"])
+        attributed.extend(receipt["attributable_range"])
+    covered = set(attributed)
+    for item in plan["work_items"]:
+        integ = ((state.get("work") or {}).get(item["id"]) or {}).get("integration")
+        if not integ or not integ.get("receipt"):
+            continue
+        # A sanctioned no-op integrates an empty range on purpose — its commit belongs to no receipt by
+        # design, so it is not a disagreement. Only a node that DID claim commits is checked.
+        if not integ["receipt"]["attributable_range"]:
+            continue
+        commit = integ["commit"]
+        # A node's own integration commit belongs to some receipt's range — its own, or a sibling's for
+        # a legitimately shared commit. Attributed to none is a real disagreement between the graph and
+        # the receipts, and it is surfaced rather than smoothed over.
+        if commit not in covered:
+            disagreements.append(
+                f"{item['id']}: integration commit {commit[:12]} is attributed to no receipt")
+    return {"nodes_with_receipts": with_receipt, "uncounted_nodes": uncounted,
+            "attributed_commits": sorted(covered), "disagreements": disagreements}
+
+
 def _work_projection(plan: dict, state: dict) -> dict:
     """The DAG status section for a v2 Build: ready/claimable sets, per-node state, capacity, holders."""
     lifecycle = dag.derive_lifecycle(plan, state)
@@ -735,6 +774,7 @@ def _work_projection(plan: dict, state: dict) -> dict:
         integration = nw.get("integration") or {}
         result = nw.get("latest_result") or {}
         failure = nw.get("latest_failure") or {}
+        receipt = integration.get("receipt")
         nodes[node_id] = {
             "state": node["state"], "reasons": node["reasons"],
             "attempt_count": nw.get("attempt_count", 0),
@@ -742,6 +782,13 @@ def _work_projection(plan: dict, state: dict) -> dict:
             "integration_commit": integration.get("commit"),
             "focused_verification": integration.get("focused_verification"),
             "artifact_digest": result.get("artifact_digest"),
+            # A returned result's unresolved concerns are surfaced here for the integrator's judgment
+            # (obligation 2): they never auto-block and never auto-redispatch, but they are not silent.
+            "unresolved_concerns": (result.get("evidence") or {}).get("unresolved_concerns", []),
+            # The receipt's cross-check summary beside the node: attribution count and degraded flag, or
+            # `uncounted` for an integrated node that predates receipts.
+            "receipt": ({"attributed": len(receipt["attributable_range"]), "degraded": receipt["degraded"]}
+                        if receipt else ("uncounted" if nw.get("integration") else None)),
             "failure": {"class": failure.get("class"), "disposition": failure.get("disposition"),
                         "reason": failure.get("reason")} if failure else None,
         }
@@ -765,6 +812,8 @@ def _work_projection(plan: dict, state: dict) -> dict:
         "max_concurrency": parallelism.get("max_concurrency", 1),
         "resource_holders": dag.resource_holders(plan, state),
         "nodes": nodes,
+        # Beside the authoritative git-derived aggregate the operator reads, the receipt cross-check.
+        "receipt_crosscheck": _receipt_crosscheck(plan, state),
     }
 
 
@@ -1695,6 +1744,16 @@ def cmd_status(args, store: Snapshot) -> None:
                 line += f" [route {route.get('provider')}/{route.get('model')}]"
             if node["state"] == "complete" and node.get("integration_commit"):
                 line += f" [integrated {node['integration_commit'][:12]}]"
+                receipt = node.get("receipt")
+                if receipt == "uncounted":
+                    line += " [receipt: uncounted]"
+                elif isinstance(receipt, dict):
+                    line += f" [receipt: {receipt['attributed']} attributed" \
+                            + (", degraded" if receipt["degraded"] else "") + "]"
+            concerns = node.get("unresolved_concerns") or []
+            if concerns:
+                # Surfaced for the integrator's judgment; never an automatic block or redispatch.
+                line += f" [unresolved concerns: {len(concerns)}]"
             failure = node.get("failure")
             if failure and failure.get("reason"):
                 # The reason is untrusted free text (a worker's self-report or a pasted trace):
@@ -1707,6 +1766,14 @@ def cmd_status(args, store: Snapshot) -> None:
             print(line)
         if w["resource_holders"]:
             print("  resources held by: " + ", ".join(sorted(w["resource_holders"])))
+        crosscheck = w.get("receipt_crosscheck")
+        if crosscheck and (crosscheck["uncounted_nodes"] or crosscheck["disagreements"]):
+            # Beside the authoritative git-derived aggregate: what the receipts could not vouch for.
+            if crosscheck["uncounted_nodes"]:
+                print("  receipt cross-check — uncounted (no receipt): "
+                      + ", ".join(crosscheck["uncounted_nodes"]))
+            for disagreement in crosscheck["disagreements"]:
+                print(f"  receipt cross-check — disagreement: {disagreement}")
 
 
 def cmd_depths(args, store: "Snapshot | None") -> None:
@@ -2301,6 +2368,99 @@ def _changed_paths(base: str) -> list[str]:
     paths.update(_must_run(["git", "diff", "--name-only"]).splitlines())
     paths.update(_must_run(["git", "diff", "--cached", "--name-only"]).splitlines())
     return sorted(x for x in paths if x)
+
+
+# The scrubbed git environment for deterministic, config-independent fact-gathering. Global and system
+# config are neutralized, prompts and background locks are off, and output is C-locale — so rename and
+# range derivation do not vary with the operator's ~/.gitconfig or platform. The receipt gatherer runs
+# read-only under it; the test fixture layers commit-time determinism (gpgsign off, hooks cleared,
+# explicit default branch) on top for the repositories it builds.
+_SCRUBBED_GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "LC_ALL": "C",
+}
+
+
+def _git(argv: list[str], repo_root: str) -> str:
+    """Run one git command in an EXPLICIT repository root under the scrubbed environment.
+
+    The repository root is a passed argument, never the process cwd, and the environment is neutralized
+    so fact-gathering is deterministic across machines. Fails closed with a CoordinatorError.
+    """
+    env = {**os.environ, **_SCRUBBED_GIT_ENV}
+    result = subprocess.run(["git", "-C", str(repo_root), *argv],
+                            text=True, capture_output=True, check=False, env=env)
+    if result.returncode:
+        detail = (result.stderr or result.stdout or "no diagnostic").strip()
+        raise CoordinatorError(f"git {' '.join(argv[:3])} failed in {repo_root}: {detail}")
+    return result.stdout
+
+
+def _tree_digest_at(repo_root: str, tree_ish: str) -> str:
+    """A canonical sha256 over the full recursive tree listing at a tree-ish.
+
+    The listing carries mode, object id and path for every file, so identical content yields an
+    identical digest whether it came from a named commit's tree or a staged index — which is what lets
+    the two identity modes be compared.
+    """
+    listing = _git(["ls-tree", "-r", "--full-tree", "-z", tree_ish], repo_root)
+    return core.digest(listing.encode("utf-8"))
+
+
+def _normalized_paths(name_status: str) -> list:
+    """Parse `git diff --name-status -z --find-renames` into normalized {status, path, old_path} rows.
+
+    Renames and deletions are explicit: a rename carries its old_path, a delete carries the removed
+    path. Statuses collapse to A/M/D/R; a copy (C) is recorded as an add of its new path.
+    """
+    fields = [f for f in name_status.split("\0") if f != ""]
+    rows = []
+    i = 0
+    while i < len(fields):
+        letter = fields[i][0]
+        if letter == "R":  # `--find-renames` yields R with old and new; copies are not requested
+            old, new = fields[i + 1], fields[i + 2]
+            i += 3
+            rows.append({"status": "R", "path": new, "old_path": old})
+        else:
+            path = fields[i + 1]
+            i += 2
+            rows.append({"status": letter if letter in ("A", "M", "D") else "M",
+                         "path": path, "old_path": None})
+    return rows
+
+
+def _git_facts(repo_root: str, claim_base: str, integration_commit: str) -> dict:
+    """Gather the git facts a receipt binds: first-parent range, tree/patch digests, normalized paths.
+
+    Deterministic by construction — pinned diff flags, an explicit repository root, and the scrubbed
+    environment. This is the only git the receipt path runs; assembly and validation are pure functions
+    in build_coordinator_work.py.
+    """
+    rng = [c for c in _git(["rev-list", "--first-parent", f"{claim_base}..{integration_commit}"],
+                           repo_root).split() if c]
+    tree_digest = _tree_digest_at(repo_root, f"{integration_commit}^{{tree}}")
+    patch = _git(["diff", "--no-color", "--no-textconv", "--find-renames", "--full-index",
+                  claim_base, integration_commit], repo_root)
+    name_status = _git(["diff", "--name-status", "-z", "--find-renames", claim_base, integration_commit],
+                       repo_root)
+    return {"range": rng, "tree_digest": tree_digest,
+            "patch_digest": core.digest(patch.encode("utf-8")),
+            "paths": _normalized_paths(name_status)}
+
+
+def _staged_tree_digest(repo_root: str) -> str:
+    """The Engine-observed digest of the staged candidate tree — accepted-candidate identity.
+
+    Runs `git write-tree` against the current index, then digests that tree the same way a named
+    commit's tree is digested, so the two identity modes produce comparable digests.
+    """
+    tree = _git(["write-tree"], repo_root).strip()
+    return _tree_digest_at(repo_root, tree)
 
 
 def cmd_checkpoint(args, store: Snapshot) -> None:
@@ -3679,10 +3839,17 @@ def _bounded_work(work_map: dict) -> dict:
         if failure and failure.get("reason"):
             failure["reason"] = redacted
         integration = nw.get("integration")
-        if integration and integration.get("focused_verification"):
-            # Also free text (typed at `work integrate`); like the repair rationale, it reaches the
-            # PR body only through an explicitly authored summary, never verbatim.
-            integration["focused_verification"] = redacted
+        if integration:
+            if integration.get("focused_verification"):
+                # Also free text (typed at `work integrate`); like the repair rationale, it reaches the
+                # PR body only through an explicitly authored summary, never verbatim.
+                integration["focused_verification"] = redacted
+            # The receipt's MACHINE facts publish (base, commit, digests, path lists, mode) — a cold
+            # resume re-derives against them. Only its one free-text field, degraded_reason, is redacted
+            # with the same discipline as every other unreviewed worker prose.
+            receipt = integration.get("receipt")
+            if receipt and receipt.get("degraded_reason"):
+                receipt["degraded_reason"] = redacted
         bounded[node_id] = nw
     return bounded
 
@@ -3817,8 +3984,52 @@ def _restore_work(work_map: dict) -> dict:
                 claim = dict(claim)
                 claim["restored"] = True
                 nw["claim"] = claim
+        # A restored INTEGRATION is marked too, the same way a restored claim is: its receipt is not
+        # trusted as carried but re-derived (or the integration refused) by the restore verb, which has
+        # git. The mark records that the receipt on it arrived across a handoff, not from a live compute.
+        integration = nw.get("integration")
+        if integration:
+            integration = dict(integration)
+            integration["restored"] = True
+            nw["integration"] = integration
         restored[node_id] = nw
     return restored
+
+
+def _rederive_restored_receipts(plan: dict, state: dict) -> None:
+    """Re-derive every restored integration receipt from git, or refuse — never silently trust one.
+
+    A handoff can carry a receipt, but a restored one is only a claim until the Engine reproduces it
+    from the actual commits. Each is recomputed from its own claim_base and integration_commit; a
+    mismatch on any machine fact, or a commit git cannot read, refuses the continuation rather than
+    standing on an unproven receipt. degraded_reason is exempt from the comparison because the handoff
+    redacts it; the re-derived receipt (carrying the real reason) becomes authoritative.
+    """
+    machine = lambda r: {k: v for k, v in r.items() if k != "degraded_reason"}
+    for node_id, nw in (state.get("work") or {}).items():
+        integ = nw.get("integration")
+        if not integ or not integ.get("receipt"):
+            continue
+        stored = integ["receipt"]
+        try:
+            fresh = _compute_receipt(str(ROOT), plan, state, node_id, stored["claim_base"],
+                                     stored["integration_commit"], stored["identity_mode"])
+        except CoordinatorError as exc:
+            raise CoordinatorError(
+                f"a restored integration receipt for {node_id} could not be re-derived, so cold "
+                f"continuation is blocked rather than trusting it: {exc}. Remedy: fetch the commits it "
+                f"names ({stored['claim_base'][:12]}..{stored['integration_commit'][:12]}) into this "
+                "checkout and restore again; if that history is genuinely gone, re-export the handoff "
+                "from the session that holds this Build, or abandon and re-run the node "
+                "(`work abandon` then `work retry`)") from exc
+        if machine(fresh) != machine(stored):
+            raise CoordinatorError(
+                f"a restored integration receipt for {node_id} does not match a fresh derivation from "
+                "the commits it names, so cold continuation is blocked rather than trusting an unproven "
+                "restored receipt. Remedy: re-export the handoff from the session that holds this Build "
+                "(a stale export can carry a receipt the branch has since moved past), or abandon and "
+                "re-run the node (`work abandon` then `work retry`)")
+        integ["receipt"] = fresh
 
 
 def cmd_handoff_restore(args, store: Snapshot) -> None:
@@ -3897,6 +4108,10 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
             "sealed plan rather than continuing against a payload this snapshot was never built from.")
     state = _restore_base_state(value, "build-state.v2")
     state["work"] = _restore_work(value.get("work", {}))
+    # A restored receipt is re-derived from its own commits or the continuation is refused — never
+    # trusted as carried. This runs after the work map is rebuilt so sibling receipts are in place for
+    # the attribution re-derivation, and before the snapshot is written so a bad receipt writes nothing.
+    _rederive_restored_receipts(plan, state)
     store.create(state)
     print(f"restored Build snapshot against sealed plan {plan_id}")
 
@@ -4276,18 +4491,39 @@ def cmd_work_abandon(args, store: Snapshot) -> None:
 
 
 def cmd_work_integrate(args, store: Snapshot) -> None:
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
     if not args.verification_input.strip():
         raise CoordinatorError("integration requires a focused-verification summary")
     if not _commit_on_branch(args.commit):
         raise CoordinatorError(f"integration commit {args.commit} is not on the PR branch")
+    item = work.node_item(plan, args.item)
 
     def change(state):
+        _assert_plan(state, plan)
         nw = _node_work(state, args.item)
         result = nw.get("latest_result")
         if not result or result.get("outcome") != "returned" or result.get("attempt_id") != args.attempt:
             raise CoordinatorError(f"work item {args.item} has no returned result for attempt {args.attempt} to integrate")
+        # Obligation 5, all under this single lock and one HEAD observation. A refusal is recorded
+        # DURABLY as an integration-class node failure with NO lifecycle advance, then reported: the
+        # mutation commits the failure rather than rolling it back, which is what makes the refusal
+        # recoverable without revising the sealed plan. A clean integration clears any prior refusal.
+        try:
+            receipt = _integration_receipt(plan, state, item, nw, args.commit)
+        except _IntegrationRefused as refusal:
+            nw["latest_failure"] = work.failure_record(args.attempt, "integration", str(refusal),
+                                                       dag.DISP_OPEN)
+            return ("refused", str(refusal), [])
+        # The worker's unresolved concerns are surfaced HERE, at the integrate action, for the
+        # integrator's judgment (obligation 2). They never auto-block and never auto-redispatch — the
+        # integrator saw them and chose to integrate — but they are said out loud rather than left only
+        # in a status projection the integrator was not required to consult.
+        concerns = list((result.get("evidence") or {}).get("unresolved_concerns") or [])
         nw["integration"] = {"attempt_id": args.attempt, "commit": args.commit,
-                             "focused_verification": args.verification_input.strip()}
+                             "focused_verification": args.verification_input.strip(),
+                             "receipt": receipt, "restored": False}
+        nw["latest_failure"] = None
         nw["claim"] = None  # integration releases the reserved resources
         # `work integrate` is the SOLE writer of a v2 completion, so it owns this entry outright: a
         # pre-existing one is corrected to the integration commit rather than skipped. Skipping was
@@ -4298,18 +4534,208 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
                          if entry["id"] == args.item), None)
         if existing is None:
             state["progress"]["completed"].append({"id": args.item, "commit": args.commit})
-            return None
+            return ("integrated", None, concerns)
         corrected = existing["commit"]
         existing["commit"] = args.commit
-        return corrected
+        return ("integrated", corrected, concerns)
 
-    corrected = _work_mutate(store, change)
-    print(f"integrated {args.item} at {args.commit}; focused verification recorded")
-    if corrected and corrected != args.commit:
+    outcome, detail, concerns = _work_mutate(store, change)
+    if outcome == "refused":
+        raise CoordinatorError(
+            f"integration of {args.item} refused and recorded as an integration failure (no lifecycle "
+            f"advance): {detail}")
+    print(f"integrated {args.item} at {args.commit}; focused verification and receipt recorded")
+    if concerns:
+        # Not a block — a disclosure for the judgment the integrator just made and the operator reads later.
+        print(f"note: {args.item} returned {len(concerns)} unresolved concern(s) against the governing "
+              "context, integrated on the integrator's judgment:")
+        for concern in concerns:
+            print(f"  - {' '.join(str(concern).split())[:200]}")
+    if detail and detail != args.commit:
         # An operator running this to escape the unearned-completion refusal should see that the
         # correction happened, not just that an integration did.
-        print(f"corrected the recorded completion for {args.item}: was {corrected[:12]}, "
+        print(f"corrected the recorded completion for {args.item}: was {detail[:12]}, "
               f"now the integration commit {args.commit[:12]}")
+
+
+def _sibling_attributions(plan: dict, state: dict, node_id: str) -> list:
+    """What each INTEGRATED sibling already owns, for the receipt's attribution subtraction.
+
+    A sibling carrying a receipt contributes its attributable_range; a receiptless integrated sibling
+    contributes its completion commit under the defined degraded fallback. Only integrated siblings
+    count — an unintegrated node owns nothing yet.
+    """
+    attributions = []
+    for other in plan["work_items"]:
+        oid = other["id"]
+        if oid == node_id:
+            continue
+        integ = ((state.get("work") or {}).get(oid) or {}).get("integration")
+        if not integ:
+            continue
+        receipt = integ.get("receipt")
+        if receipt:
+            attributions.append({"node": oid, "receipt_range": list(receipt["attributable_range"])})
+        else:
+            attributions.append({"node": oid, "fallback_commit": integ["commit"]})
+    return attributions
+
+
+def _compute_receipt(repo_root: str, plan: dict, state: dict, node_id: str, claim_base: str,
+                     integration_commit: str, identity_mode: str) -> dict:
+    """Compute a node's integration receipt: gather git facts once, apply the pure attribution rule.
+
+    Structured so its caller runs it inside the integrate mutation — one state-lock acquisition, one
+    observed HEAD — which is where W3 wires it, together with the enforcement it supports. It is kept
+    out of the verb until then, so W1 and W2 integrate under the pre-receipt path and leave receiptless
+    records the degraded fallback then covers.
+    """
+    facts = _git_facts(repo_root, claim_base, integration_commit)
+    attributions = _sibling_attributions(plan, state, node_id)
+    return work.assemble_receipt(facts, claim_base, integration_commit, identity_mode, attributions)
+
+
+def cmd_work_stage_digest(args, store: Snapshot) -> None:
+    """Print the Engine-observed digest of the staged candidate tree — accepted-candidate identity.
+
+    An integrator-inline node has no dispatched worker to name a commit, so the Engine observes the
+    identity itself: stage the candidate (`git add`), then this computes the tree digest the receipt
+    will bind. The integrator carries it into the result's artifact_digest; integration re-derives and
+    cross-checks it, so a value that does not match the integrated tree is refused there.
+    """
+    plan = _plan(args.plan)
+    _require_dag_plan(plan)
+    state = store.read()
+    _assert_plan(state, plan)
+    work.node_item(plan, args.item)  # the node must be in the approved plan
+    print(json.dumps({"item": args.item, "tree_digest": _staged_tree_digest(str(ROOT))}))
+
+
+# A node legitimately integrates nothing (its work folded into a sibling, say) only when the SEALED plan
+# permits it — carried in the existing output_contract.artifact_kinds, so no plan-schema field and no
+# way for the integrating session to grant itself the permission after the seal.
+_NOOP_ARTIFACT_KIND = "no-op"
+
+
+class _IntegrationRefused(CoordinatorError):
+    """A typed integration refusal (obligation 5). Recorded durably as an integration-class node
+    failure with a named remedy; a CoordinatorError so the CLI reports it, distinct so the verb records
+    the failure before it propagates."""
+
+
+def _permits_empty_integration(item: dict) -> bool:
+    return _NOOP_ARTIFACT_KIND in (item.get("output_contract") or {}).get("artifact_kinds", [])
+
+
+def _sibling_owned_paths(plan: dict, state: dict, node_id: str) -> set:
+    """Paths owned by integrated siblings' receipts — admissible in a legitimately shared commit."""
+    owned = set()
+    for other in plan["work_items"]:
+        if other["id"] == node_id:
+            continue
+        integ = ((state.get("work") or {}).get(other["id"]) or {}).get("integration") or {}
+        receipt = integ.get("receipt")
+        if not receipt:
+            continue
+        for entry in receipt["paths"]:
+            owned.add(entry["path"])
+            if entry.get("old_path"):
+                owned.add(entry["old_path"])
+    return owned
+
+
+def _path_residue(item: dict, state: dict, plan: dict, receipt: dict) -> list:
+    """Paths the integration touched that fall OUTSIDE the admissible set (obligation 5e).
+
+    Admissible = the node's declared paths, plus any regenerated derived-artifact output (a node that
+    runs sync-artifacts legitimately rewrites these), plus paths owned by an integrated sibling's
+    receipt (a legitimately shared commit). Anything else is residue and refuses.
+    """
+    import derived_state
+    declared = item.get("paths", [])
+    sibling_paths = _sibling_owned_paths(plan, state, item["id"])
+    residue = set()
+    for entry in receipt["paths"]:
+        for path in (entry["path"], entry.get("old_path")):
+            if not path:
+                continue
+            if dag.path_within_declared(path, declared):
+                continue
+            if derived_state.owner_of(path) is not None:
+                continue
+            if path in sibling_paths:
+                continue
+            residue.add(path)
+    return sorted(residue)
+
+
+def _integration_receipt(plan: dict, state: dict, item: dict, nw: dict, commit: str) -> dict:
+    """Enforce obligation 5 and return the receipt, or raise a typed `_IntegrationRefused`.
+
+    Runs the git reads once against a single observation of HEAD, folding head-reachability into it.
+    Each refusal names its remedy. The pure attribution and assembly live in build_coordinator_work; the
+    only exemption to any refusal is an operator revising the sealed plan — the integrating session
+    cannot grant itself one, because the plan is read digest-checked and the no-op permission and
+    declared paths live only in it.
+    """
+    claim = nw.get("claim")
+    if not claim:
+        raise _IntegrationRefused(
+            "the node has no active claim, so there is no claim base to bind a receipt to; re-claim the "
+            "node and re-integrate")
+    claim_base = claim["base_sha"]
+    result = nw["latest_result"]
+    mode = work.identity_mode_for_route(claim.get("requested_route") or {})
+    root = str(ROOT)
+    head = _head()  # one observation; reachability is checked against exactly this
+    if not _is_ancestor(claim_base, commit):
+        raise _IntegrationRefused(
+            f"integration commit {commit[:12]} does not descend from the claim base {claim_base[:12]}; "
+            "integrate a commit built on the claimed base, or re-claim the node from the current base")
+    if not _is_ancestor(commit, head):
+        raise _IntegrationRefused(
+            f"integration commit {commit[:12]} is not reachable from HEAD {head[:12]} as observed; "
+            "commit it onto the PR branch and re-integrate")
+    facts = _git_facts(root, claim_base, commit)
+    engine_tree = facts["tree_digest"]
+    if mode == "worker-commit":
+        worker_commit = result.get("artifact_ref")
+        try:
+            worker_tree = _tree_digest_at(root, f"{worker_commit}^{{tree}}")
+        except CoordinatorError as exc:
+            raise _IntegrationRefused(
+                f"worker-commit identity: the worker's commit {str(worker_commit)[:12]} is not in this "
+                f"repository's object store, so its tree cannot be verified ({exc}); fetch or apply that "
+                "commit onto this checkout (a dispatched worker's commit lives in its own worktree until "
+                "the orchestrator brings it over) before integrating") from exc
+        if worker_tree != engine_tree:
+            raise _IntegrationRefused(
+                f"worker-commit identity: the integrated tree does not match the worker's returned commit "
+                f"{str(worker_commit)[:12]}; integrate the worker's own commit, or re-run the node")
+    else:
+        staged = result.get("artifact_digest")
+        if staged != engine_tree:
+            raise _IntegrationRefused(
+                "accepted-candidate identity: the integrated tree does not match the Engine-observed "
+                "staged digest; re-stage and re-run `work stage-digest` against the integrated tree")
+    try:
+        work.check_artifact_identity(result, engine_tree, mode)
+    except CoordinatorError as exc:
+        raise _IntegrationRefused(str(exc)) from exc
+    attributions = _sibling_attributions(plan, state, item["id"])
+    receipt = work.assemble_receipt(facts, claim_base, commit, mode, attributions)
+    if not receipt["attributable_range"] and not _permits_empty_integration(item):
+        raise _IntegrationRefused(
+            f"integration commit {commit[:12]} adds no attributable commit and the node carries no "
+            "no-op permission; fold the work into a real commit, or have the operator revise the sealed "
+            "plan to permit an empty integration")
+    residue = _path_residue(item, state, plan, receipt)
+    if residue:
+        raise _IntegrationRefused(
+            "integration touched paths outside the node's admissible set: " + ", ".join(residue)
+            + "; keep the change within the node's declared paths (plus regenerated derived artifacts "
+            "and shared-sibling paths), or have the operator revise the sealed plan")
+    return receipt
 
 
 _CLAIM_FILL_GUIDANCE = (
@@ -5171,7 +5597,8 @@ def parser() -> argparse.ArgumentParser:
     wreject = work_p.add_parser("reject"); wreject.add_argument("--item", required=True); wreject.add_argument("--attempt", required=True); wreject.add_argument("--class", dest="rejection_class", choices=["dispatch", "worker", "contract", "verification", "integration"], required=True); wreject.add_argument("--reason", required=True); wreject.set_defaults(func=cmd_work_reject)
     wretry = work_p.add_parser("retry"); wretry.add_argument("--item", required=True); wretry.add_argument("--strategy", choices=["redispatch", "integrator-inline"], required=True); wretry.add_argument("--reason", required=True); wretry.set_defaults(func=cmd_work_retry)
     wabandon = work_p.add_parser("abandon"); wabandon.add_argument("--item", required=True); wabandon.add_argument("--attempt", required=True); wabandon.add_argument("--reason", required=True); wabandon.set_defaults(func=cmd_work_abandon)
-    wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.set_defaults(func=cmd_work_integrate)
+    wintegrate = work_p.add_parser("integrate"); wintegrate.add_argument("--item", required=True); wintegrate.add_argument("--attempt", required=True); wintegrate.add_argument("--commit", required=True); wintegrate.add_argument("--verification-input", required=True); wintegrate.add_argument("--plan", required=True, help="the approved plan; integration enforces the receipt against its declared paths, no-op permission, and sibling attribution"); wintegrate.set_defaults(func=cmd_work_integrate)
+    wstage = work_p.add_parser("stage-digest"); wstage.add_argument("--item", required=True); wstage.add_argument("--plan", required=True); wstage.set_defaults(func=cmd_work_stage_digest)
     return p
 
 

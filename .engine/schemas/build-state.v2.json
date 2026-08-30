@@ -182,7 +182,34 @@
       "properties": {
         "attempt_id": {"$ref": "#/$defs/attempt_id"},
         "commit": {"$ref": "#/$defs/commit"},
-        "focused_verification": {"type": "string", "minLength": 1}
+        "focused_verification": {"type": "string", "minLength": 1},
+        "receipt": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/receipt"}]},
+        "restored": {"type": "boolean"}
+      }
+    },
+    "receipt": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "claim_base", "integration_commit", "attributable_range",
+                   "patch_digest", "tree_digest", "paths", "identity_mode", "degraded", "degraded_reason"],
+      "properties": {
+        "schema_version": {"const": "build-integration-receipt.v1"},
+        "claim_base": {"$ref": "#/$defs/commit"},
+        "integration_commit": {"$ref": "#/$defs/commit"},
+        "attributable_range": {"type": "array", "items": {"$ref": "#/$defs/commit"}},
+        "patch_digest": {"$ref": "#/$defs/digest"},
+        "tree_digest": {"$ref": "#/$defs/digest"},
+        "paths": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["status", "path", "old_path"],
+          "properties": {
+            "status": {"enum": ["A", "M", "D", "R"]},
+            "path": {"type": "string", "minLength": 1},
+            "old_path": {"type": ["string", "null"], "minLength": 1}
+          }
+        }},
+        "identity_mode": {"enum": ["worker-commit", "accepted-candidate"]},
+        "degraded": {"type": "boolean"},
+        "degraded_reason": {"type": ["string", "null"], "minLength": 1}
       }
     },
     "node_failure": {
