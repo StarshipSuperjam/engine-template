@@ -76,7 +76,8 @@ So it is a **disclosure** now. `/engine-status` reports how many registered work
 them, and gives the command that clears one (`git worktree remove <path>`, or `git worktree prune`).
 Activation proceeds regardless. The mechanism that would genuinely cover those worktrees is a store-side
 cutover — locking pre-fix code out of canonical state rather than declining to protect the rest — and that is
-deliberately deferred to its own change.
+deliberately deferred to its own change, tracked as
+[StarshipSuperjam/engine-template#1164](https://github.com/StarshipSuperjam/engine-template/issues/1164).
 
 ### What an unqualified session can still do
 
