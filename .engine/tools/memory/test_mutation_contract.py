@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Coverage and refusal tests for the persistent mutation registry (issue #1151 S02)."""
+"""Coverage and refusal tests for the persistent mutation registry (issue StarshipSuperjam/engine-template#1151 S02)."""
 from __future__ import annotations
 
 import ast
@@ -235,12 +235,151 @@ class TestFailClosedClassification(unittest.TestCase):
             measured = 1 if maximum is None else min(maximum, 1)
             for mode in entry["allowed_invocation_modes"]:
                 with self.subTest(entry=entry["id"], mode=mode):
-                    resolved = contract.classify(
+                    request = dict(
                         writer=entry["writer"], target_kind=entry["target_kind"],
                         effect_class=entry["effect_class"], invocation_mode=mode,
                         measured_cardinality=measured, schema_cutover=entry["schema_cutover"],
                     )
+                    if mode == "automatic" and contract._needs_attendance(entry):
+                        # Registered for automatic invocation, but destroying the record needs a person:
+                        # the witness here is the refusal, and it must name why.
+                        with self.assertRaises(contract.MutationContractError) as caught:
+                            contract.classify(**request)
+                        self.assertIn("attending", str(caught.exception))
+                        continue
+                    resolved = contract.classify(**request)
                     self.assertEqual(resolved["capability_identity"], entry["capability_identity"])
+
+
+
+class TestDegradedTiering(unittest.TestCase):
+    """What an UNQUALIFIED session may still do. StarshipSuperjam/engine-template#1151's rule is that
+    candidate code never AUTHORS canonical memory; StarshipSuperjam/engine-template#1153 read it as
+    "touches nothing" and took reads, diagnostics and Build entry down with it."""
+
+    def test_every_registered_effect_lands_in_exactly_one_tier(self):
+        tiers = contract.degraded_tiering()
+        ids = [entry["id"] for entry in contract.REGISTRY]
+        self.assertEqual(sorted(tiers["allow"] + tiers["refuse"]), sorted(ids))
+        self.assertEqual(set(tiers["allow"]) & set(tiers["refuse"]), set())
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_nothing_that_writes_the_record_is_allowed_unqualified(self):
+        record_targets = {"ledger", "ledger-metadata", "capture-cursor", "restore-journal",
+                          "backup-pointer", "remote-vault", "remote-git-ref", "erasure-proposal",
+                          "export-artifact", "project-repository"}
+        leaked = [entry["id"] for entry in contract.REGISTRY
+                  if contract.degraded_disposition(entry) == "allow"
+                  and entry["target_kind"] in record_targets
+                  and entry["effect_class"] != "semantic-read"]
+        self.assertEqual(leaked, [], "an unqualified session could write canonical state")
+
+    def test_no_destructive_effect_is_allowed_outside_diagnostics_and_markers(self):
+        leaked = [entry["id"] for entry in contract.REGISTRY
+                  if contract.degraded_disposition(entry) == "allow"
+                  and entry["effect_class"] == "destructive-irreversible"
+                  and entry["target_kind"] not in {"degraded-health", "lifecycle-marker"}]
+        self.assertEqual(leaked, [])
+
+    def test_the_effects_availability_depends_on_are_allowed(self):
+        # Each of these going dark is a failure mode StarshipSuperjam/engine-template#1153 actually produced: no recall, no health record,
+        # no crash diagnostics, no findings, and no way into Build.
+        for entry_id in ("read-memory-health", "read-recall-window", "read-pins", "read-withheld",
+                         "attended-memory-mcp", "attended-keyword-mcp-search", "attended-semantic-mcp-search",
+                         "index-rebuild", "index-stale-heal", "hook-crash-debug", "hook-fail-open-promote",
+                         "close-findings-record", "telemetry-finding-emit", "alarm-ledger-write",
+                         "automatic-boot-operation"):
+            with self.subTest(entry_id):
+                self.assertEqual(contract.degraded_disposition(contract.entry_by_id(entry_id)), "allow")
+
+    def test_the_stance_marker_is_not_in_the_registry_at_all(self):
+        writers = {entry["writer"] for entry in contract.REGISTRY}
+        self.assertNotIn("modes.set_stance", writers)
+        self.assertNotIn("modes.clear_stance", writers)
+        self.assertEqual(contract.SESSION_EPHEMERAL_WRITERS,
+                         {"modes.set_stance", "modes.clear_stance", "modes._harden_marker_write"})
+
+    def test_refusals_name_the_effect_and_what_makes_it_stick(self):
+        for entry_id in ("attended-pin-add", "attended-withhold", "attended-restore-withheld"):
+            with self.subTest(entry_id):
+                reply = contract.degraded_refusal(contract.entry_by_id(entry_id))
+                self.assertNotIn("execution context", reply)      # no internal vocabulary
+                self.assertIn("qualif", reply)                    # says why
+                self.assertIn("session start", reply)             # says what makes it stick
+        self.assertIn("erase", contract.degraded_refusal(contract.entry_by_id("attended-withhold")))
+
+
+class TestAttendedOnlyRecordRewrites(unittest.TestCase):
+    """Rewriting the record is attended-only EVEN WHEN QUALIFIED. PR StarshipSuperjam/engine-template#1148's near-loss cleared every other
+    safeguard; what was missing was a person."""
+
+    def test_an_automatic_compaction_is_refused_even_with_everything_else_in_order(self):
+        entry = contract.entry_by_id("automatic-compaction")
+        with self.assertRaises(contract.MutationContractError) as caught:
+            contract.classify(writer=entry["writer"], target_kind=entry["target_kind"],
+                              effect_class=entry["effect_class"], invocation_mode="automatic",
+                              measured_cardinality=1, schema_cutover=entry["schema_cutover"])
+        self.assertIn("attending", str(caught.exception))
+
+    def test_the_same_compaction_is_permitted_when_attended(self):
+        entry = contract.entry_by_id("automatic-compaction")
+        self.assertTrue(contract.classify(
+            writer=entry["writer"], target_kind=entry["target_kind"], effect_class=entry["effect_class"],
+            invocation_mode="attended", measured_cardinality=1, schema_cutover=entry["schema_cutover"]))
+
+    def test_appending_stays_automatic_because_capture_must_keep_working(self):
+        for entry_id in ("ledger-append", "automatic-capture", "capture-transaction"):
+            entry = contract.entry_by_id(entry_id)
+            with self.subTest(entry_id):
+                self.assertFalse(contract._needs_attendance(entry))
+
+    def test_attendance_is_required_for_record_destruction_backed_by_a_person(self):
+        needing = sorted(e["id"] for e in contract.REGISTRY if contract._needs_attendance(e))
+        # Exactly the two record-destroying effects whose declared recovery is a person. `attended-rescrub`
+        # was already attended-only; `automatic-compaction` is the one this rule actually changes, and it is
+        # the shape of PR StarshipSuperjam/engine-template#1148's near-loss.
+        self.assertEqual(needing, ["attended-rescrub", "automatic-compaction"])
+
+    def test_recovery_and_index_rebuilds_stay_automatic(self):
+        # Refusing these would break real things: SessionStart cannot finish an interrupted restore, and
+        # recall has no index. Each is named so a later widening of the rule has to argue with this test.
+        for entry_id in ("automatic-restore-reconcile", "restore-prior-set", "ledger-replace",
+                         "compaction-temp-write", "compaction-temp-reap", "index-rebuild",
+                         "automatic-erasure-observer"):
+            entry = contract.entry_by_id(entry_id)
+            with self.subTest(entry_id):
+                self.assertFalse(contract._needs_attendance(entry))
+
+
+
+class TestPreCompactBoundedWarning(unittest.TestCase):
+    """PreCompact cannot inject context and fires constantly, so its disclosure is one line to the hook log —
+    emitted only when compaction actually had work it declined to do."""
+
+    def _warn(self, report):
+        from memory import compact
+        return compact.unenacted_warning(report)
+
+    def test_a_refusal_produces_one_bounded_sentence(self):
+        warning = self._warn({"status": "skipped", "folded": 0, "pruned": 0,
+                              "reason": "writer memory.compact.compact rewrites canonical memory and runs "
+                                        "only when someone is attending"})
+        self.assertIsNotNone(warning)
+        self.assertLess(len(warning), 300)
+        self.assertEqual(warning.count("."), 2)
+        self.assertIn("Nothing was changed", warning)
+        self.assertNotIn("registry", warning)
+        self.assertNotIn("execution context", warning)
+
+    def test_an_ordinary_skip_says_nothing(self):
+        self.assertIsNone(self._warn({"status": "skipped", "reason": "below the compaction threshold"}))
+        self.assertIsNone(self._warn({"status": "ok", "folded": 3, "pruned": 1}))
+        self.assertIsNone(self._warn(None))
+
+    def test_a_missing_qualification_also_warns(self):
+        self.assertIsNotNone(self._warn(
+            {"status": "skipped", "reason": "compaction faulted, skipped: memory.compact.compact needs this "
+                                            "session to be qualified to write memory"}))
 
 
 if __name__ == "__main__":

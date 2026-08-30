@@ -8,7 +8,13 @@ Nested helpers reuse the held store lock but consume independent subgrants, so c
 compaction, and restore operations remain one coherent critical section without laundering one broad token
 through several distinct effects.
 
-Production calls without an accepted execution context fail closed. Existing hermetic unit tests retain a
+Production calls without an accepted execution context are TIERED, not uniformly refused. The tier is data in
+``mutation_contract`` (``degraded_disposition``): an effect whose loss costs no memory — diagnostics, markers,
+caches, and the regenerable search indexes — proceeds and returns an unqualified receipt; anything that writes
+the record itself or the machinery that can destroy it refuses with a sentence the operator can act on.
+Refusing everything is what took memory, capture and Build entry down in
+StarshipSuperjam/engine-template#1153; refusing the right things is what
+StarshipSuperjam/engine-template#1151 actually asked for. Existing hermetic unit tests retain a
 strictly source-bound adapter: an active frame must come from a checked-in ``test_*.py`` under this exact
 Engine tools tree. Merely importing a common library never changes mutation authority. Dedicated authority
 tests exercise the real context/capability path in a subprocess with no checked-in test frame.
@@ -356,6 +362,42 @@ def _preactivation_receipt(entry: dict, measured: int, grant: dict) -> dict:
     return receipt
 
 
+def _default_mode(entry: dict) -> str:
+    """The invocation mode to assume when no context named one.
+
+    An effect that may only be enacted with someone attending resolves to `attended`: a unit test or a
+    directly-invoked maintenance call IS the attended path, and calling it `automatic` would make the
+    attendance rule refuse the very callers it was never aimed at (a background hook is what it aims at,
+    and a background hook reaches this code through an installed context that says so).
+    """
+    if mutation_contract._needs_attendance(entry) or "automatic" not in entry["allowed_invocation_modes"]:
+        return "attended"
+    return "automatic"
+
+
+def _degraded_receipt(entry: dict, mode: str, measured: int) -> dict:
+    """The receipt for an effect an UNQUALIFIED session is allowed to perform.
+
+    It is deliberately not a capability receipt: no context was resolved, so there is nothing to bind to and
+    nothing to consume. It says plainly what it is, so a caller or a later reader can tell a degraded effect
+    from a qualified one rather than having to infer it.
+    """
+    try:
+        mutation_contract.classify(
+            writer=entry["writer"], target_kind=entry["target_kind"], effect_class=entry["effect_class"],
+            invocation_mode=mode, measured_cardinality=measured, schema_cutover=entry["schema_cutover"],
+        )
+    except Exception as exc:
+        raise MutationAuthorityError(str(exc)) from exc
+    receipt = {
+        "unqualified": True, "registry_id": entry["id"], "writer": entry["writer"],
+        "target_kind": entry["target_kind"], "effect_class": entry["effect_class"],
+        "mode": mode, "measured_cardinality": measured,
+    }
+    receipt["receipt_digest"] = _digest(receipt)
+    return receipt
+
+
 def _test_receipt(entry: dict, mode: str, measured: int) -> dict:
     try:
         mutation_contract.classify(
@@ -456,6 +498,13 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         if state.get("test_only"):
             yield _test_receipt(entry, state["mode"], measured)
             return
+        if state.get("degraded"):
+            # A nested writer inside a degraded outer effect is tiered on its OWN entry, never waved through
+            # by its caller: an allowed diagnostic must not become a door to the ledger beneath it.
+            if mutation_contract.degraded_disposition(entry) == "refuse":
+                raise MutationAuthorityError(mutation_contract.degraded_refusal(entry))
+            yield _degraded_receipt(entry, state["mode"], measured)
+            return
         context = state["context"]
         _validate_explicit_targets(context, entry, args, kwargs, function)
         yield _consume(context, entry, measured, supplied_capability)
@@ -487,13 +536,20 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
     try:
         context = execution_context.current_context()
     except execution_context.ContextError as exc:
-        if not _test_adapter_allowed():
-            raise MutationAuthorityError(
-                f"persistent writer {entry['writer']} has no accepted execution context") from exc
-        mode = "automatic" if "automatic" in entry["allowed_invocation_modes"] else "attended"
-        _THREAD.state = {"test_only": True, "mode": mode}
+        if _test_adapter_allowed():
+            mode = _default_mode(entry)
+            _THREAD.state = {"test_only": True, "mode": mode}
+            try:
+                yield _test_receipt(entry, mode, measured)
+            finally:
+                _THREAD.state = None
+            return
+        if mutation_contract.degraded_disposition(entry) == "refuse":
+            raise MutationAuthorityError(mutation_contract.degraded_refusal(entry)) from exc
+        mode = _default_mode(entry)
+        _THREAD.state = {"test_only": False, "degraded": True, "mode": mode}
         try:
-            yield _test_receipt(entry, mode, measured)
+            yield _degraded_receipt(entry, mode, measured)
         finally:
             _THREAD.state = None
         return
@@ -539,11 +595,15 @@ def authorize_nested(entry_id: str, *, measured_cardinality: int = 1):
         if scoped_test_mode is not None:
             return _test_receipt(entry, scoped_test_mode, measured_cardinality)
         if _test_adapter_allowed():
-            mode = "automatic" if "automatic" in entry["allowed_invocation_modes"] else "attended"
+            mode = _default_mode(entry)
             return _test_receipt(entry, mode, measured_cardinality)
         raise MutationAuthorityError(f"{entry['writer']} requires an active locked mutation scope")
     if state.get("test_only"):
         return _test_receipt(entry, state["mode"], measured_cardinality)
+    if state.get("degraded"):
+        if mutation_contract.degraded_disposition(entry) == "refuse":
+            raise MutationAuthorityError(mutation_contract.degraded_refusal(entry))
+        return _degraded_receipt(entry, state["mode"], measured_cardinality)
     return _consume(state["context"], entry, measured_cardinality)
 
 

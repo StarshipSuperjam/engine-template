@@ -235,6 +235,35 @@ def _write_compacted_temp(data_dir: str, raw_records,
     return tmp
 
 
+def _recovery_not_ready() -> "dict | None":
+    """Refuse a destructive pass on the real store when the operator's own recovery copy is behind.
+
+    Recovery readiness is StarshipSuperjam/engine-template#1151's fourth fail-closed trigger, and it is the
+    one that would have mattered in PR StarshipSuperjam/engine-template#1148: the bytes were about to be rewritten, and whether there was a
+    copy to go back to was nobody's precondition. So when a backup vault IS configured, a successful push has
+    to happen first, and a failed push stops the compaction rather than proceeding without a net.
+
+    A machine with no vault configured is not blocked — the operator declined that copy, and refusing their
+    housekeeping over a backup they chose not to have would be availability theatre. It applies only to the
+    real store: a caller that passes an explicit `path` is operating on a fixture or a copy.
+    """
+    try:
+        from memory import backup_vault
+        pointer = backup_vault.read_pointer()
+        if not isinstance(pointer, dict) or pointer.get("configured") is False:
+            return None
+        result = backup_vault.push_now()
+    except Exception as exc:  # noqa: BLE001 — an unreadable recovery story is a refusal, never a crash
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": f"recovery readiness could not be established, so nothing was rewritten: {exc}"}
+    if isinstance(result, dict) and result.get("ok"):
+        return None
+    detail = (result or {}).get("error") if isinstance(result, dict) else "unknown"
+    return {"status": "skipped", "folded": 0, "pruned": 0,
+            "reason": f"the memory backup could not be brought up to date first ({detail}), so nothing "
+                      f"was rewritten"}
+
+
 def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after: "str | None" = None) -> dict:
     """Run one compaction pass over the ledger (the default store, or `path`). Returns a small report dict:
     `{status, folded, pruned, generation}` (or `{status: "busy", ...}` on lock contention — the pass retries
@@ -248,6 +277,10 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
     leaves exactly one intact ledger — old for `"write"` (the tidy never took), new for `"swap"` — and a temp /
     stale index that the next pass reaps / the generation gate routes to the scan until rebuilt."""
     target = path if path is not None else ledger.ledger_path()
+    if path is None:
+        blocked = _recovery_not_ready()
+        if blocked:
+            return blocked
     data_dir = os.path.dirname(target) or "."
     index_dst = os.path.join(data_dir, _index_filename())
     from memory import capture  # lazy: keep capture off the module-load path (cycle discipline)
@@ -937,10 +970,35 @@ def _pre_compact_handler(payload) -> dict:
 
     Fires regardless of accumulated waste when an erasure is pending, so an approved deletion never waits on
     unrelated housekeeping. `maybe_compact` is fail-open and never raises; this handler ALWAYS proceeds —
-    PreCompact must never block the squash."""
-    maybe_compact()               # a pending merged erasure, or the waste gate; report dropped (a leaf renders
-                                  # no prose); fail-open
+    PreCompact must never block the squash.
+
+    Compaction now runs only when someone is attending, qualified or not: it is the one effect that rewrites
+    the record, and in PR StarshipSuperjam/engine-template#1148 an unattended run classified 99.9% of live records as retired. So when this
+    automatic caller cannot enact, it does the honest thing — leaves the ledger exactly as it found it and
+    says so once, briefly, rather than either mutating anyway or going silent about work that is waiting."""
+    report = maybe_compact()      # fail-open; the report is what tells us whether anything was enacted
+    warning = unenacted_warning(report)
+    if warning:
+        print(warning, file=sys.stderr)
     return hooks.proceed()
+
+
+_UNENACTED_MARKS = ("attending", "qualified to write memory", "no accepted execution context")
+
+
+def unenacted_warning(report) -> "str | None":
+    """One bounded line when compaction had work to do and deliberately did not do it.
+
+    PreCompact fires often, and it cannot inject context, so this goes to the hook log as a single sentence.
+    Bounded on purpose: a paragraph on every squash is noise that teaches the reader to skip it.
+    """
+    if not isinstance(report, dict):
+        return None
+    detail = f"{report.get('reason', '')} {report.get('error', '')}"
+    if not any(mark in detail for mark in _UNENACTED_MARKS):
+        return None
+    return ("Engine memory housekeeping did not run: compaction rewrites the record, so it runs only in an "
+            "attended, qualified session. Nothing was changed, and any approved erasure is still pending.")
 
 
 def main(argv: list) -> int:

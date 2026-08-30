@@ -436,7 +436,124 @@ def classify(*, writer: str, target_kind: str, effect_class: str, invocation_mod
         )
     if schema_cutover and not entry["schema_cutover"]:
         raise MutationContractError(f"writer {writer} is not registered for a schema cutover")
+    if invocation_mode == "automatic" and _needs_attendance(entry):
+        # ATTENDED-ONLY EVEN WHEN QUALIFIED. In PR StarshipSuperjam/engine-template#1148 a background lifecycle hook classified 99.9% of live
+        # records as retired, and every ordinary safeguard was satisfied — the code ran, the state was
+        # consistent, the effect was registered. What was missing was a person. A rewrite of the record itself
+        # is not something a hook gets to do while nobody is looking, so the automatic caller must degrade to
+        # a warning and let an attended run enact it.
+        raise MutationContractError(
+            f"writer {writer} rewrites canonical memory and runs only when someone is attending; "
+            f"this automatic invocation must proceed without mutating"
+        )
     return MappingProxyType(entry)
+
+
+_RECORD_TARGETS = frozenset({"ledger", "ledger-metadata"})
+# An effect that declares one of these as its recovery story is saying, in the registry, that what stands
+# behind it is a person: a merge the operator performed, or a snapshot someone took first.
+_ATTENDED_RECOVERIES = frozenset({"operator-merged-consent", "backup-snapshot"})
+
+
+def _needs_attendance(entry) -> bool:
+    """Whether this effect may be enacted only by an attended invocation, qualified or not.
+
+    Narrow on purpose. It is the intersection of three things already declared in the registry: the target is
+    the record itself, the effect is destructive-irreversible, and the recovery story is a human — an operator
+    merge or a snapshot taken first. That is compaction, which is the exact shape of PR StarshipSuperjam/engine-template#1148's near-loss.
+
+    Deliberately NOT included, because each has its own answer and refusing them would break something real:
+    appends (capture must keep working unattended), journal-driven recovery such as reconciling an interrupted
+    restore (a repair back to a known-good state, and stalling it strands the writer-pause marker), and
+    derived-index rebuilds (regenerated from the ledger, and refusing them means no recall).
+    """
+    return (entry["target_kind"] in _RECORD_TARGETS
+            and entry["effect_class"] == "destructive-irreversible"
+            and entry["recovery_requirement"] in _ATTENDED_RECOVERIES)
+
+
+# ---- what an UNQUALIFIED session may still do ------------------------------------------------------
+#
+# StarshipSuperjam/engine-template#1151's rule is that candidate code never authors canonical memory. It is
+# not "candidate code touches nothing", and StarshipSuperjam/engine-template#1153 shipped the second reading: every registered writer failed
+# closed without an accepted execution context, which took reads, health, diagnostics and Build entry down
+# with the thing it meant to protect. The tier below is the first reading, enumerated over what each effect
+# can actually cost.
+#
+# A target is DEGRADED-ALLOWED when losing or corrupting it costs no memory:
+#   * degraded-health / tracked-finding — status records and diagnostics. Refusing these makes the engine
+#     unable to report that it is degraded, which is the worst possible moment to go quiet.
+#   * lifecycle-marker / ephemeral-staging — markers, locks and caches. Session-scoped or rebuildable.
+#   * derived-index / semantic-index — regenerated from the ledger by construction. The ledger is the record;
+#     these are a search accelerator over it, and refusing them means no recall at all rather than slower recall.
+#
+# Everything else is the record itself or the machinery that can destroy it — the ledger, its metadata and
+# generation stamp, the capture cursor, restore journals, the backup pointer and remote vault, erasure
+# proposals, exports, the project repository — and stays refused until qualification. Capture loses nothing by
+# that refusal: the transcripts are the durable input, and the drain authors from them in qualified code.
+DEGRADED_ALLOWED_TARGETS = frozenset({
+    "degraded-health", "tracked-finding", "lifecycle-marker", "ephemeral-staging",
+    "derived-index", "semantic-index",
+})
+
+# Refusals an operator will actually meet, in their own words. Anything not named here gets the generic line.
+DEGRADED_REFUSAL_GUIDANCE = MappingProxyType({
+    "attended-pin-add": (
+        "I can't pin that yet: this session isn't qualified to write memory, and a pin is standing "
+        "instruction from you — I won't stash it now and replay it later as if you had said it then. "
+        "Qualification converges by itself at a session start that can reach GitHub; ask me again then and "
+        "it will stick."
+    ),
+    "attended-withhold": (
+        "I can't set that aside yet: this session isn't qualified to write memory. Nothing was changed, so "
+        "the note is still recallable until this goes through — and if you asked in order to have it erased, "
+        "that chain starts here, so it waits too. Qualification converges by itself at the next session start "
+        "that can reach GitHub."
+    ),
+    "attended-restore-withheld": (
+        "I can't restore that yet: this session isn't qualified to write memory. The note is still set aside "
+        "and nothing was lost; ask again once qualification has converged, which happens by itself at a "
+        "session start that can reach GitHub."
+    ),
+})
+
+
+# A destructive effect stays refused even on an otherwise degraded-allowed target — with one narrow exception:
+# clearing a diagnostic or a one-shot marker, where the "destruction" is deleting a status file. Dropping
+# semantic passages is regenerable in principle but is still a bulk delete, and unqualified code has no
+# business performing one.
+_DESTRUCTIVE_DEGRADED_TARGETS = frozenset({"degraded-health", "lifecycle-marker"})
+
+
+def degraded_disposition(entry) -> str:
+    """`allow` or `refuse` for one registry entry running with NO accepted execution context."""
+    if entry["effect_class"] == "semantic-read":
+        return "allow"
+    if entry["target_kind"] not in DEGRADED_ALLOWED_TARGETS:
+        return "refuse"
+    if entry["effect_class"] == "destructive-irreversible":
+        return "allow" if entry["target_kind"] in _DESTRUCTIVE_DEGRADED_TARGETS else "refuse"
+    return "allow"
+
+
+def degraded_refusal(entry) -> str:
+    """The honest, actionable sentence a refused unqualified writer answers with."""
+    named = DEGRADED_REFUSAL_GUIDANCE.get(entry["id"])
+    if named:
+        return named
+    return (
+        f"{entry['writer']} needs this session to be qualified to write memory, and it isn't yet. Nothing was "
+        f"changed. Qualification converges by itself at a session start that can reach GitHub; reading and "
+        f"recall work in the meantime."
+    )
+
+
+def degraded_tiering() -> dict:
+    """Every registry id in exactly one tier — the shape a completeness test asserts over."""
+    tiers = {"allow": [], "refuse": []}
+    for entry in REGISTRY:
+        tiers[degraded_disposition(entry)].append(entry["id"])
+    return {key: sorted(value) for key, value in tiers.items()}
 
 
 # Writers the census SEES but the registry deliberately does not govern, named here so the inventory stays
@@ -448,7 +565,9 @@ def classify(*, writer: str, target_kind: str, effect_class: str, invocation_mod
 # `/engine-start` verb writes this marker, so an unqualified session could not enter Build at all, which is a
 # refusal that protects nothing and removes the operator's own control. The marker's integrity is instead
 # carried by its hardened write in ``modes`` (no symlink, 0600, atomic replace).
-SESSION_EPHEMERAL_WRITERS = frozenset({"modes.set_stance", "modes.clear_stance"})
+SESSION_EPHEMERAL_WRITERS = frozenset({
+    "modes.set_stance", "modes.clear_stance", "modes._harden_marker_write",
+})
 
 _WRITE_FLAGS = frozenset({"O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND"})
 _WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})

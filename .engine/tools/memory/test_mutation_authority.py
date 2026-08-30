@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authority, under-lock drift, and converted-call-graph tests for issue #1151 S04."""
+"""Authority, under-lock drift, and converted-call-graph tests for issue StarshipSuperjam/engine-template#1151 S04."""
 from __future__ import annotations
 
 import importlib
@@ -134,11 +134,18 @@ class ConvertedCallGraphTests(unittest.TestCase):
             measured = entry["declared_cardinality"]["maximum"] or 1
             for mode in entry["allowed_invocation_modes"]:
                 with self.subTest(entry=entry["id"], mode=mode, witness="positive"):
-                    classified = mutation_contract.classify(
+                    request = dict(
                         writer=entry["writer"], target_kind=entry["target_kind"],
                         effect_class=entry["effect_class"], invocation_mode=mode,
                         measured_cardinality=measured, schema_cutover=entry["schema_cutover"],
                     )
+                    if mode == "automatic" and mutation_contract._needs_attendance(entry):
+                        # Destroying the record needs a person even when everything else is in order, so
+                        # here the witness IS the refusal (see TestAttendedOnlyRecordRewrites).
+                        with self.assertRaises(mutation_contract.MutationContractError):
+                            mutation_contract.classify(**request)
+                        continue
+                    classified = mutation_contract.classify(**request)
                     self.assertEqual(classified["id"], entry["id"])
             refused_mode = "attended" if "attended" not in entry["allowed_invocation_modes"] else (
                 "automatic" if "automatic" not in entry["allowed_invocation_modes"] else "unknown")

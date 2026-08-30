@@ -22,7 +22,8 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import capture, forget, index, ledger, mutation_authority, records  # noqa: E402
+from memory import (capture, forget, index, ledger, mutation_authority,  # noqa: E402
+                    mutation_contract, records)
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
 
@@ -384,6 +385,66 @@ class DemoTests(unittest.TestCase):
         # regression flips a `!!!` and returns non-zero. (It manages its own ENGINE_MEMORY_DIR.)
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(srv._demo(), 0)
+
+
+
+class UnqualifiedTierTests(unittest.TestCase):
+    """Every tool this server publishes lands in exactly one tier, and the refusing ones say something an
+    operator can act on. StarshipSuperjam/engine-template#1153 refused all of them; the failure that mattered
+    was not the refusal but that nothing could still be READ."""
+
+    #: Each published tool mapped to the registry entry its call actually authorizes. A tool absent from this
+    #: map fails the completeness test below — the point is that a new tool cannot be added without deciding,
+    #: in the open, what an unqualified session may do with it.
+    TOOL_ENTRIES = {
+        "health": "read-memory-health",
+        "search": "attended-keyword-mcp-search",
+        "recall-window": "read-recall-window",
+        "recall-by-meaning": "attended-semantic-mcp-search",
+        "list-pins": "read-pins",
+        "list-withheld": "read-withheld",
+        "pin": "attended-pin-add",
+        "withhold": "attended-withhold",
+        "restore": "attended-restore-withheld",
+    }
+    READS = ("health", "search", "recall-window", "recall-by-meaning", "list-pins", "list-withheld")
+    WRITES = ("pin", "withhold", "restore")
+
+    def _published(self):
+        tools = getattr(srv.server, "_tool_manager", None)
+        names = list(tools._tools) if tools is not None else []
+        return sorted(names)
+
+    def test_every_published_tool_is_classified_and_none_is_unassigned(self):
+        published = set(self._published())
+        self.assertTrue(published, "the server published no tools to classify")
+        self.assertEqual(published - set(self.TOOL_ENTRIES), set(),
+                         "a published tool has no declared tier")
+        self.assertEqual(set(self.TOOL_ENTRIES) - published, set(),
+                         "the tier map names a tool the server no longer publishes")
+        self.assertEqual(sorted(self.READS + self.WRITES), sorted(self.TOOL_ENTRIES))
+
+    def test_every_read_tool_answers_without_qualification(self):
+        for tool in self.READS:
+            entry = mutation_contract.entry_by_id(self.TOOL_ENTRIES[tool])
+            with self.subTest(tool):
+                self.assertEqual(mutation_contract.degraded_disposition(entry), "allow")
+
+    def test_the_three_attended_verbs_refuse_and_say_what_makes_it_stick(self):
+        for tool in self.WRITES:
+            entry = mutation_contract.entry_by_id(self.TOOL_ENTRIES[tool])
+            with self.subTest(tool):
+                self.assertEqual(mutation_contract.degraded_disposition(entry), "refuse")
+                reply = mutation_contract.degraded_refusal(entry)
+                self.assertIn("session start", reply)
+                self.assertNotIn("execution context", reply)
+                self.assertNotIn("registry", reply)
+                self.assertLess(len(reply), 500)
+
+    def test_the_withhold_refusal_names_the_erase_chain_consequence(self):
+        reply = mutation_contract.degraded_refusal(mutation_contract.entry_by_id("attended-withhold"))
+        self.assertIn("recallable", reply)
+        self.assertIn("eras", reply)
 
 
 if __name__ == "__main__":

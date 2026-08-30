@@ -1063,7 +1063,7 @@ def _accepted_call(*args, cwd=None, env=None, check=True):
 
 
 class _AcceptedDispatchRepo:
-    """A real clone + linked worktree fixture for the issue #1151 split-brain topology."""
+    """A real clone + linked worktree fixture for the issue StarshipSuperjam/engine-template#1151 split-brain topology."""
 
     def __init__(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -1204,7 +1204,7 @@ class _AcceptedDispatchRepo:
         return _accepted_call(*argv, check=False, env=env)
 
     def coverage(self) -> dict:
-        """The worktree-coverage disclosure that replaced #1153's activation barrier."""
+        """The worktree-coverage disclosure that replaced StarshipSuperjam/engine-template#1153's activation barrier."""
         import importlib.util
         spec = importlib.util.spec_from_file_location(
             f"_fixture_dispatch_{id(self)}", str(self.root / ".engine/tools/accepted_hook_dispatch.py"))
@@ -1306,7 +1306,7 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertEqual(stale.returncode, 1)
         self.assertNotEqual(stale.returncode, 2)
         self.assertIn("compare-and-set", stale.stderr)
-        # A pre-fix linked worktree used to REFUSE this activation. It no longer does (#1158): that worktree
+        # A pre-fix linked worktree used to REFUSE this activation. It no longer does (StarshipSuperjam/engine-template#1158): that worktree
         # runs its own old wiring whether or not this machine's activation advances, so refusing only stripped
         # protection from the sessions that could have had it. It is now counted and named instead.
         (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text("#!/bin/sh\nexit 0\n",
@@ -1605,8 +1605,8 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
 
 
 class TestAmbientActivationLifecycle(unittest.TestCase):
-    """The lifecycle #1153 could not reach: activation that bootstraps and advances on its own, bounded,
-    non-interactive, forward-only, and degrading to a notice rather than an exception (issue #1158)."""
+    """The lifecycle StarshipSuperjam/engine-template#1153 could not reach: activation that bootstraps and advances on its own, bounded,
+    non-interactive, forward-only, and degrading to a notice rather than an exception (issue StarshipSuperjam/engine-template#1158)."""
 
     def setUp(self):
         self.repo = _AcceptedDispatchRepo()
@@ -1626,7 +1626,7 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         return self.repo.git("rev-parse", "HEAD")
 
     def test_fixture_manifests_match_the_shape_of_the_committed_manifest(self):
-        """The guard for the defect class that broke #1153: the dispatcher read `engine_version` while the
+        """The guard for the defect class that broke StarshipSuperjam/engine-template#1153: the dispatcher read `engine_version` while the
         real `.engine/engine.json` has always carried `engine_release`, and the fixture invented the same
         wrong key — so the suite agreed with the bug. Any fixture manifest key the real manifest does not
         have fails here, whatever the code happens to read."""
@@ -1732,6 +1732,24 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
             (self.repo.common_dir() / "engine/accepted-hooks/activation.json").read_text(encoding="utf-8"))
         self.assertEqual((record["commit"], record["epoch"]), (successor, 2))
 
+    def test_an_unqualified_precompact_rewrites_nothing_and_says_so_once(self):
+        """The negative witness for the availability-first shape: with NO activation at all — the state every
+        clone is in before it converges — the PreCompact hook must leave canonical memory byte-identical and
+        report the skip in one line, not mutate and not go quiet."""
+        before = self.repo.canonical_inventory()
+        result = self.repo.run_launcher_script(
+            "claude", ".engine/tools/memory/compact.py", self.repo.poison_env(), "pre-compact")
+        # The dispatcher reports the skip with exit 1; the hook runner above it fail-opens, which is what
+        # keeps PreCompact from ever blocking the squash. What matters here is that NOTHING was written.
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("did not block the host action", result.stderr)
+        self.assertEqual(self.repo.canonical_inventory(), before)
+        self.assertFalse(self.repo.marker.exists())
+        health = self.repo.qualification_health()
+        self.assertEqual(health["status"], "degraded")
+        self.assertEqual(health["skipped_effect_count"], 1)
+        self.assertIn("converges", health["guidance"])
+
     def test_activation_succeeds_with_a_pre_fix_worktree_present_and_discloses_it(self):
         (self.repo.worktree / ".engine/tools/hook-runner.sh").write_text("#!/bin/sh\nexit 0\n",
                                                                          encoding="utf-8")
@@ -1742,7 +1760,7 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
 
 
 # The unittest runner MUST stay the last statement in this file. It used to sit two-thirds of the way
-# up, so every class defined below it — including the whole accepted-hook activation suite #1153 added —
+# up, so every class defined below it — including the whole accepted-hook activation suite StarshipSuperjam/engine-template#1153 added —
 # was collected by nothing and ran never. That is how an activation path that could not bootstrap on any
 # real checkout shipped with a green suite. `test_launch_contract.py` now fails any test module that
 # defines a TestCase after its runner.

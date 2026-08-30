@@ -42,10 +42,11 @@ LEGACY_GUIDANCE = (
 )
 GUIDANCE_BY_REASON = {
     "accepted-dispatch-refused": (
-        "Automatic memory work was skipped because the accepted commit, materialization, or canonical-state "
-        "binding was refused. Run `uv run --directory .engine --frozen -- python "
-        "tools/accepted_hook_dispatch.py inspect --root ..` for the exact failing boundary, then repair that "
-        "activation or worktree and retry the hook."
+        "Automatic memory work was skipped because this session is not qualified to write canonical memory. "
+        "Nothing was changed, and reading and recall are unaffected. Qualification converges on its own at a "
+        "session start that can reach GitHub, so this usually clears itself; if it does not, run `uv run "
+        "--directory .engine --frozen -- python tools/accepted_hook_dispatch.py ensure --root .. --ambient` "
+        "to see exactly what is holding it back."
     ),
     "accepted-dispatcher-absent": (
         "Automatic memory work was skipped because this worktree has no accepted-code dispatcher. Restore the "
