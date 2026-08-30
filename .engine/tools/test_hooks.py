@@ -1848,10 +1848,13 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result["coverage"]["total"], 2)
 
 
-# The unittest runner MUST stay the last statement in this file. It used to sit two-thirds of the way
-# up, so every class defined below it — including the whole accepted-hook activation suite StarshipSuperjam/engine-template#1153 added —
-# was collected by nothing and ran never. That is how an activation path that could not bootstrap on any
-# real checkout shipped with a green suite. `test_launch_contract.py` now fails any test module that
-# defines a TestCase after its runner.
+# The unittest runner MUST stay the last statement in this file. Under the engine's canonical
+# `unittest discover` run a mid-file runner is harmless — discovery imports the module and collects every
+# TestCase regardless of position — but a developer running this file DIRECTLY (`python tools/test_hooks.py`)
+# executes `unittest.main()` at that line, before the classes beneath it are defined, and gets a green that
+# silently skipped them. Runner-last keeps the direct run honest. `test_launch_contract.py` fails any test
+# module that defines a TestCase after its runner. (An earlier comment here claimed #1153's activation suite
+# "ran never" because it sat below the runner; that was wrong — it was collected and ran under discovery, and
+# #1153 shipped broken because its tests never exercised the fresh-clone path.)
 if __name__ == "__main__":
     unittest.main()

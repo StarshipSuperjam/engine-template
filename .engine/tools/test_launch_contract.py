@@ -303,15 +303,26 @@ class HostContractDriftTests(unittest.TestCase):
 
 
 class TestModuleIntegrityTests(unittest.TestCase):
-    """A test that never runs is worse than a missing one: it is counted as coverage.
+    """A test suite must not report green while quietly skipping cases when run the ordinary developer way.
 
-    PR #1153 added its entire accepted-hook activation suite BELOW `unittest.main()` in test_hooks.py, so
-    none of it was ever collected — which is how an activation path that could not bootstrap on any real
-    checkout shipped with a green suite. This is the guard for that whole class.
+    This guards the runner-last convention. A `unittest.main()` sitting mid-file is invisible under the
+    engine's canonical `unittest discover` run — discovery imports the module (so the `__main__` guard is
+    false) and `loadTestsFromModule` collects every TestCase regardless of position; `test_the_..._is_
+    collected` below proves exactly that against the real activation suite. The failure mode it prevents is
+    narrower and real: a developer running a file DIRECTLY (`python tools/test_x.py`) executes
+    `unittest.main()` at the mid-file line, before the classes beneath it are even defined, and gets a
+    confident green that silently omitted them. Runner-last makes the direct run and the discovered run
+    cover the same cases.
+
+    Not the #1153 story. PR #1153's accepted-hook activation suite did sit below its runner, but it was
+    collected and DID run under discovery (verified by reconstructing that tree) — #1153 shipped broken
+    because those tests never exercised the fresh-clone path, an inadequacy, not a dark suite. An earlier
+    draft of this guard misattributed #1153 to non-collection; that claim was wrong and has been removed.
     """
 
-    #: Modules with a known dead tail that predates this work and is out of this Build's declared scope. Each
-    #: is filed as its own issue; the list must only ever shrink.
+    #: Modules with a known dead tail that predates this work and is out of this Build's declared scope.
+    #: Their below-runner classes still run under discovery; this is a direct-run-hygiene allowance, not a
+    #: coverage gap. The list must only ever shrink.
     KNOWN_DEAD_TAILS = {"test_module_manager.py", "test_modules.py"}
 
     def _dead_classes(self, path: Path):
@@ -333,7 +344,8 @@ class TestModuleIntegrityTests(unittest.TestCase):
             if dead and path.name not in self.KNOWN_DEAD_TAILS:
                 offenders[str(path.relative_to(ROOT))] = dead
         self.assertEqual(offenders, {},
-                         "these TestCase classes are defined below their runner and never execute")
+                         "these TestCase classes sit below their runner and are silently skipped when the "
+                         "file is run directly (python tools/<file>.py); move the runner to end-of-file")
 
     def test_the_known_dead_tails_are_still_the_only_exceptions(self):
         """If one is fixed, this fails and the allowance must be removed with it — so the list cannot rot."""
@@ -347,6 +359,37 @@ class TestModuleIntegrityTests(unittest.TestCase):
         self.assertIn("class TestAcceptedAutomaticHookDispatch", source)
         self.assertIn("class TestAmbientActivationLifecycle", source)
         self.assertEqual(self._dead_classes(ROOT / ".engine/tools/test_hooks.py"), [])
+
+    def test_discovery_collects_a_testcase_defined_below_the_runner(self):
+        """The load-bearing fact behind this whole guard: `unittest discover` — the engine's canonical run —
+        collects a TestCase even when it sits BELOW `unittest.main()`, so runner position never darkens a
+        test in CI. It is only a direct `python file.py` run that skips it. If this ever fails, the guard's
+        premise (that runner-last is a direct-run-hygiene matter, not a CI-coverage one) is wrong and the
+        rationale must be revisited."""
+        probe = (
+            "import unittest\n"
+            "class Above(unittest.TestCase):\n"
+            "    def test_above(self): pass\n"
+            'if __name__ == "__main__":\n'
+            "    unittest.main()\n"
+            "class Below(unittest.TestCase):\n"
+            "    def test_below(self): pass\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "test_probe.py").write_text(probe, encoding="utf-8")
+            suite = unittest.TestLoader().discover(start_dir=tmp, pattern="test_probe.py")
+
+            def leaves(s):
+                for item in s:
+                    if isinstance(item, unittest.TestSuite):
+                        yield from leaves(item)
+                    else:
+                        yield item.id()
+
+            collected = set(leaves(suite))
+        self.assertIn("test_probe.Below.test_below", collected,
+                      "discovery no longer collects below-runner classes — this guard's rationale is stale")
+        self.assertIn("test_probe.Above.test_above", collected)
 
 
 class RedWitnessMethodTests(unittest.TestCase):
