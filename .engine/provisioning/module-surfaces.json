@@ -1686,6 +1686,9 @@
   ".engine/tools/memory/compact.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/drain.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/erase.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1789,6 +1792,9 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_compact_trigger.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/test_drain.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_erase.py": [
@@ -2317,6 +2323,9 @@
    "core"
   ],
   ".engine/tools/test_knowledge_vocabulary.py": [
+   "core"
+  ],
+  ".engine/tools/test_launch_contract.py": [
    "core"
   ],
   ".engine/tools/test_lens_consumption.py": [
