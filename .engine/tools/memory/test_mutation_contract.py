@@ -412,7 +412,10 @@ class TestPreCompactBoundedWarning(unittest.TestCase):
                                         "memory, and it isn't yet"})
         self.assertIsNotNone(warning)
         self.assertLess(len(warning), 300)
-        self.assertEqual(warning.count("."), 2)
+        # Bounded, not fixed at two. The sentence now carries cause, state and remedy, because reporting a
+        # failing backup push with the qualification remedy sent the operator to wait for the wrong thing.
+        # Length is the constraint that matters here — a paragraph on every squash teaches a reader to skip.
+        self.assertLessEqual(warning.count("."), 3)
         self.assertIn("Nothing was changed", warning)
         self.assertNotIn("registry", warning)
         self.assertNotIn("execution context", warning)

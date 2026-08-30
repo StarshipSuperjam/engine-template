@@ -109,7 +109,7 @@ def _activation_state():
         except Exception:  # noqa: BLE001 — an absent or unreadable activation is itself the state to report
             activation = None
         return {"activation": activation, "coverage": module.uncovered_worktrees(root),
-                "backlog": _capture_backlog()}
+                "backlog": _capture_backlog(), "pending_erasures": _pending_erasures()}
     except Exception:  # noqa: BLE001 — status always answers
         return None
 
@@ -130,6 +130,27 @@ def _capture_backlog():
         return None
 
 
+def _pending_erasures():
+    """How many deletions the operator approved that have not been carried out yet. Never raises.
+
+    This is the channel half of a finding that was fixed twice and reported twice. Compaction is the only
+    thing that physically removes a record, and when it declines with an approved erasure waiting it says so
+    — to `sys.stderr`, from inside a hook that exits 0. Nothing shows the operator that stream, so "we told
+    them" was not true. The message was corrected; the channel was not, and a correct message nobody reads is
+    the same defect it was before.
+
+    So the state is reported HERE, where the operator asks. A pending count is derived, not remembered: a
+    marker exists only because they merged an erasure pull request, and it stays pending only while the
+    record it names is still in the ledger — so this reads zero the moment the deletion actually happens,
+    with nothing to reset.
+    """
+    try:
+        from memory import compact
+        return compact._gate_counts()[1]
+    except Exception:  # noqa: BLE001 — status always answers
+        return None
+
+
 def _render_activation_state(value) -> str:
     """Disclose qualification and the worktrees it does not reach — the honest replacement for StarshipSuperjam/engine-template#1153's
     refusal, which blocked activation over the same topology while protecting none of those worktrees."""
@@ -142,6 +163,14 @@ def _render_activation_state(value) -> str:
             "Memory protection is not active on this machine yet: nothing has qualified to write canonical "
             "memory, so reads work and writes wait. It converges on its own at a session start that can "
             "reach GitHub."
+        )
+    pending = value.get("pending_erasures")
+    if isinstance(pending, int) and pending > 0:
+        lines.append(
+            f"{pending} deletion(s) you approved have not been carried out yet. They are still in memory and "
+            f"still findable until they are. This normally happens on its own within a session or two; if it "
+            f"persists, ask me to look at your memory's health — the usual causes are a backup that cannot be "
+            f"brought up to date, or a damaged memory file, and neither clears itself."
         )
     backlog = value.get("backlog")
     if isinstance(backlog, dict) and backlog.get("sessions_waiting"):

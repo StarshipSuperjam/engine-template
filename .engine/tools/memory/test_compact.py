@@ -67,6 +67,16 @@ class _Base(unittest.TestCase):
     def _by_id(self, rid):
         return [r for r in ledger.iter_records() if isinstance(r, dict) and r.get(records.RECORD_ID_KEY) == rid]
 
+    def _dirty_ledger(self):
+        """Enough foldable markers that `maybe_compact`'s waste gate actually fires, not just enough records."""
+        record = self._episodic("fold me")
+        for _ in range(compact._COMPACT_WASTE_THRESHOLD + 4):
+            ledger.append(legacy.reinforcement(record[records.RECORD_ID_KEY]))
+
+    def _bytes(self):
+        with open(ledger.ledger_path(), "rb") as handle:
+            return handle.read()
+
 
 class CrashSafeSwapTests(_Base):
     def test_a_crash_before_the_swap_leaves_the_old_ledger_intact(self):
@@ -440,13 +450,53 @@ class LedgerIntegrityCompactionTests(_Base):
         self.assertIn("torn but complete", texts)   # the once-torn fragment, now recovered
         self.assertIn("kept content", texts)         # the real content, never at risk
 
-    def test_a_malformed_line_is_reported_by_compaction_not_silently_erased(self):
+    def test_a_malformed_line_stops_the_rewrite_instead_of_being_deleted_by_it(self):
+        """The repair review reproduced this as an outright content loss, and it broke the argument I had
+        just used to reject a blocking finding.
+
+        `ledger.read` counts an unparseable line and discards its BYTES, and the rewrite emits only what
+        parsed — so the line was gone at the swap, with `erased: 0` in the report. The old test asserted the
+        malformed COUNT and passed while the text was destroyed; the word "silently" in its name was doing
+        all the work. The trigger is ordinary: `ledger.append` writes a newline before appending to a file
+        that lacks one, turning a crash-torn tail — preserved verbatim by `torn_raw` — into a mid-file
+        malformed line that nothing preserved.
+
+        A writer must not read through a lossy reader. `rescrub` and `restore_vault` are the other two
+        whole-ledger rewriters and both already refuse on exactly this; compaction was the one that did not,
+        and the only one that runs unattended.
+        """
         self._episodic("real content")
         with open(ledger.ledger_path(), "a", encoding="utf-8") as fh:
             fh.write("this is not json at all\n")
         report = compact.compact()
-        self.assertEqual(report["status"], "ok")
-        self.assertEqual(report["malformed"], 1)     # skipped-and-REPORTED, never a silent erased:0
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("could not be read", report["reason"])
+        with open(ledger.ledger_path(), encoding="utf-8") as fh:
+            self.assertIn("this is not json at all", fh.read())    # the bytes are still there
+        self.assertIsNotNone(compact.unenacted_warning(report))    # …and the operator is told
+
+    def test_a_damaged_byte_inside_a_record_stops_the_rewrite_too(self):
+        """The quieter half: the read decodes with errors="replace", so a damaged byte inside an otherwise
+        valid record still parses, and the rewrite would bake U+FFFD in over the original bytes. That one
+        does not even raise the malformed count, so it was invisible in the report as well as on disk."""
+        self._episodic("a note about the deployment key")
+        with open(ledger.ledger_path(), "rb") as fh:
+            blob = fh.read()
+        damaged = blob.replace(b"deployment", b"deploym\xffnt", 1)
+        self.assertNotEqual(damaged, blob)
+        with open(ledger.ledger_path(), "wb") as fh:
+            fh.write(damaged)
+        report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("cannot be read exactly as written", report["reason"])
+        with open(ledger.ledger_path(), "rb") as fh:
+            self.assertEqual(fh.read(), damaged)        # byte-for-byte untouched
+
+    def test_a_healthy_ledger_is_not_held_up_by_that_gate(self):
+        """The gate has to be narrow, or it becomes the refusal-without-a-backup I already rejected: routine
+        housekeeping must keep working on every undamaged machine."""
+        self._dirty_ledger()
+        self.assertEqual(compact.compact()["status"], "ok")
 
     def test_a_clean_compaction_reports_no_corruption(self):
         self._episodic("clean note")
@@ -509,16 +559,6 @@ class RecoveryReadinessTests(_Base):
     exercises the refusal at all. An untested precondition on a destructive rewrite is the defect class the
     trigger exists to prevent.
     """
-
-    def _dirty_ledger(self):
-        """Enough foldable markers that `maybe_compact`'s waste gate actually fires, not just enough records."""
-        record = self._episodic("fold me")
-        for _ in range(compact._COMPACT_WASTE_THRESHOLD + 4):
-            ledger.append(legacy.reinforcement(record[records.RECORD_ID_KEY]))
-
-    def _bytes(self):
-        with open(ledger.ledger_path(), "rb") as handle:
-            return handle.read()
 
     def test_a_failed_push_refuses_the_pass_and_leaves_the_ledger_byte_identical(self):
         from memory import backup_vault

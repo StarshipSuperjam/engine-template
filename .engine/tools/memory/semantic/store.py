@@ -366,7 +366,13 @@ def _unavailable(exc) -> dict:
     that is never going to fix it. The exception CLASS name is carried, never its message, which can embed
     paths or record text.
     """
-    refused = type(exc).__name__ in ("MutationAuthorityError", "MutationContractError")
+    # Keyed on the refusal's own words, NOT on the exception class. `MutationAuthorityError` is the authority
+    # layer's generic type: it also carries "advisory locking is unavailable", "the lock is not a regular
+    # file", cardinality overruns and source-binding failures. Classifying those as "not qualified yet" would
+    # tell the operator to wait for a session start that is never going to fix it — the exact outcome this
+    # function exists to prevent, and the review caught it doing so. `degraded_refusal` is the one place that
+    # phrase is minted, so matching it identifies a qualification refusal and nothing else.
+    refused = "qualified to write memory" in str(exc)
     return {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
             "unavailable": "not-qualified" if refused else "store-fault",
             "fault_class": None if refused else type(exc).__name__}

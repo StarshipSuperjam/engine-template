@@ -562,8 +562,8 @@ DEGRADED_REFUSAL_GUIDANCE = MappingProxyType({
         "there and still findable, nothing changed, and "
         "nothing was registered — if you asked in order to erase it, not even the first step has happened. "
         "Qualification converges by itself at the next session start that can reach GitHub; ask me again "
-        "then and this will stick. Erasing is a separate step you run yourself in a terminal — no session "
-        "of mine can reach that confirmation."
+        "then and this will stick. Erasing for good is separate and yours end to end: you run it in a "
+        "terminal, and it takes effect when you merge the pull request it opens."
     ),
     "attended-restore-withheld": (
         "I can't restore that yet: this session isn't qualified to write memory. The note is still set aside "

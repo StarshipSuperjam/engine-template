@@ -256,11 +256,21 @@ if _semantic_installed():
                     "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
                     "index. This says NOTHING about what is in memory: keyword search works normally and "
                     "covers everything. It sorts itself out at a session start that can reach GitHub.")}
+            # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
+            # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
+            # delete it loses a possibly-fine cache and gets the identical error back. The internal class
+            # name is not relayed either — a raw Python identifier in operator text is the jargon leak the
+            # status renderer has a dedicated guard against.
+            if found.get("fault_class") == "TableUnavailable":
+                remedy = ("The word table this needs is missing or damaged, which is part of the engine's "
+                          "own install rather than anything you wrote — reinstalling the memory add-on is "
+                          "what fixes it.")
+            else:
+                remedy = ("Deleting `vectors.sqlite3` in the memory folder makes it rebuild from scratch; "
+                          "nothing you said is stored there, so there is nothing to lose by doing it.")
             return {"results": [], "unavailable": (
-                "Searching by meaning is not working right now — the store behind it could not be read or "
-                "rebuilt ({}). This says NOTHING about what is in memory: keyword search works normally and "
-                "covers everything. Deleting the memory folder's `vectors.sqlite3` makes it rebuild from "
-                "scratch.".format(found.get("fault_class") or "unknown fault"))}
+                "Searching by meaning is not working right now. This says NOTHING about what is in memory: "
+                "keyword search works normally and covers everything. " + remedy)}
         results = []
         for record, passage in zip(found["records"], found["passages"]):
             # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track

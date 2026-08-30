@@ -906,7 +906,7 @@ def _degraded_notice(detail: str) -> str:
     return ("Engine memory is not able to write to memory this session. Reading and recall work normally, "
             "and anything said in the meantime is kept in the conversation transcript and written to memory "
             "by the next session that can. It sorts itself out at a session start that can reach GitHub. "
-            f"Detail: {detail}.")
+            f"Technical detail, for a bug report rather than for you to act on: {detail}.")
 
 
 def _relative_script(root: str, script: str) -> str:

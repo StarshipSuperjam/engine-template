@@ -296,6 +296,55 @@ def _recovery_not_ready(deadline_seconds: "float | None") -> "dict | None":
                       f"was rewritten"}
 
 
+def _unreadable_bytes(target: str) -> "dict | None":
+    """Refuse to rewrite a ledger this process cannot read losslessly.
+
+    A WRITER MUST NOT READ THROUGH A LOSSY READER. That is not a new rule — `rescrub._rescrub` and
+    `restore_vault` are the other two whole-ledger rewriters and both already refuse on exactly this, in those
+    words. Compaction was the third, and the only one that runs unattended, and it rewrote anyway.
+
+    Two losses, both reproduced by the repair review, both silent:
+
+    * `ledger.read` counts a line it cannot parse and DISCARDS its bytes, so the rewrite emits only what
+      parsed and the unparseable line is gone at the swap. The trigger is ordinary rather than adversarial:
+      `ledger.append` writes a newline before appending to a file that lacks one, which turns a crash-torn
+      tail — carefully preserved verbatim by `torn_raw` — into a mid-file malformed line that nothing
+      preserves. The protection lasted until the next memory write.
+    * The read decodes with `errors="replace"`, so a damaged byte inside an otherwise valid record still
+      parses, and the rewrite bakes U+FFFD in over the original bytes. That one does not even raise the
+      malformed count, so it was invisible in the report as well as on disk.
+
+    This is what makes the "an unmarked pass cannot destroy recall content" argument true rather than
+    aspirational: with damage present the pass declines, and says so. A healthy ledger is unaffected, so
+    routine housekeeping keeps working on every machine — which is why this is the proportionate gate and
+    refusing over an absent backup was not.
+    """
+    try:
+        with open(target, "rb") as handle:
+            blob = handle.read()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": f"your saved memory could not be read, so nothing was rewritten ({exc})"}
+    body = blob[:blob.rfind(b"\n") + 1] if b"\n" in blob else b""
+    try:
+        body.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": "part of your saved memory is damaged and cannot be read exactly as written. "
+                          "Rewriting the file would replace those characters for good, so nothing was "
+                          "changed. Ask me to look at your memory's health."}
+    malformed = ledger.read(path=target).malformed
+    if malformed:
+        return {"status": "skipped", "folded": 0, "pruned": 0,
+                "reason": f"{malformed} line{'' if malformed == 1 else 's'} of your saved memory could not "
+                          f"be read, and rewriting the file would delete "
+                          f"{'it' if malformed == 1 else 'them'} for good. Nothing was changed. This usually "
+                          f"means a damaged file — ask me to look at your memory's health."}
+    return None
+
+
 def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after: "str | None" = None,
             recovery_deadline_seconds: "float | None" = None) -> dict:
     """Run one compaction pass over the ledger (the default store, or `path`). Returns a small report dict:
@@ -310,6 +359,11 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
     leaves exactly one intact ledger — old for `"write"` (the tidy never took), new for `"swap"` — and a temp /
     stale index that the next pass reaps / the generation gate routes to the scan until rebuilt."""
     target = path if path is not None else ledger.ledger_path()
+    # Applies to a fixture copy as well as the real store: the rule is about the FILE being rewritten, not
+    # about which file it is.
+    damaged = _unreadable_bytes(target)
+    if damaged:
+        return damaged
     if path is None:
         blocked = _recovery_not_ready(recovery_deadline_seconds)
         if blocked:
@@ -1011,10 +1065,13 @@ def _pre_compact_handler(payload) -> dict:
     only production trigger for physical erasure, so requiring a person present meant an erasure the operator
     had already consented to by merging was never carried out.
 
-    What bounds this pass, stated without overclaiming: an unmarked compaction cannot destroy recall content
-    (physical removal is limited to ids a merge-gated marker names, and `NeverDropsRecallContentTests` pins
-    that), and where the operator keeps a recovery copy, `_recovery_not_ready` refuses until that copy is
-    current. Neither is attendance, and neither is claimed to be."""
+    What bounds this pass, stated without overclaiming, and corrected once already because the first version
+    of this claim was false: physical removal is limited to ids a merge-gated marker names
+    (`NeverDropsRecallContentTests` pins it), AND the pass refuses outright on a ledger it cannot read
+    losslessly (`_unreadable_bytes`) — without which "cannot destroy recall content" was simply untrue, since
+    the rewrite dropped any line the reader could not parse. Where the operator keeps a recovery copy,
+    `_recovery_not_ready` refuses until that copy is current. None of these is attendance, and none is
+    claimed to be."""
     # fail-open; the report is what tells us whether anything was enacted
     report = maybe_compact(recovery_deadline_seconds=HOOK_RECOVERY_DEADLINE_SECONDS)
     warning = unenacted_warning(report)
@@ -1023,33 +1080,70 @@ def _pre_compact_handler(payload) -> dict:
     return hooks.proceed()
 
 
-# Compaction no longer refuses for want of attendance — see `_ATTENDED_RECOVERIES` — so what is left to
-# report is the qualification refusal and the raw context failure behind it.
-# Every reason a pass with work to do can decline it. The repair review caught this list naming only the
-# qualification refusals while the SAME round moved compaction's protection onto recovery readiness — so a
-# merged erasure blocked by a failed or slow backup push was neither enacted nor mentioned, which is the
-# defect this build exists to remove, reached through the door the build itself opened.
-_UNENACTED_MARKS = (
-    "qualified to write memory", "no accepted execution context",
-    "backup could not be brought up to date", "recovery readiness could not be established",
-    "no backup copy to go back to",
+# Every reason a pass can decline WHILE IT HAD WORK TO DO, each paired with what to actually say about it.
+#
+# This started as a list of match strings feeding one fixed sentence, and that shape produced the same defect
+# twice. First the list named only the qualification refusals while the protection had moved to recovery
+# readiness, so a merged erasure blocked by a failed backup push was neither enacted nor mentioned. Then the
+# list was widened and the SENTENCE was not, so the same erasure was reported as waiting on qualification —
+# wrong cause, wrong remedy, and a promise that it would be carried out at the next qualified session start
+# when a failing push recurs every pass. A reason and its remedy are one thing; splitting them let them drift.
+#
+# So each entry carries its own sentence, and the pairing is what a test enumerates.
+_UNENACTED_REASONS = (
+    ("qualified to write memory",
+     "this session is not qualified to write memory yet. Nothing was changed, and any approved erasure is "
+     "still pending. Qualification converges by itself at a session start that can reach GitHub, and the "
+     "erasure is carried out then."),
+    ("no accepted execution context",
+     "this session is not qualified to write memory yet. Nothing was changed, and any approved erasure is "
+     "still pending. Qualification converges by itself at a session start that can reach GitHub, and the "
+     "erasure is carried out then."),
+    ("backup could not be brought up to date",
+     "the backup copy of your memory could not be brought up to date first, so nothing was rewritten. Any "
+     "approved erasure is still pending, and it will KEEP waiting until the backup can be pushed — this is "
+     "usually a network problem, and it does not clear itself."),
+    ("recovery readiness could not be established",
+     "whether there is a backup copy to go back to could not be established, so nothing was rewritten. Any "
+     "approved erasure is still pending. This does not clear itself: check the memory backup setup."),
+    ("could not be read",
+     "part of your saved memory could not be read, and rewriting the file would have destroyed it, so "
+     "nothing was changed. Any approved erasure is still pending. This does not clear itself — ask me to "
+     "look at your memory's health."),
+    ("cannot be read exactly as written",
+     "part of your saved memory is damaged, and rewriting the file would have replaced those characters for "
+     "good, so nothing was changed. Any approved erasure is still pending. This does not clear itself — ask "
+     "me to look at your memory's health."),
+    ("held the single-writer lock",
+     "another memory write was in progress, so nothing was rewritten. Any approved erasure is still pending "
+     "and is retried on the next pass; this ordinarily clears itself."),
+    ("migration is in progress",
+     "a memory migration was in progress, so nothing was rewritten. Any approved erasure is still pending "
+     "and is retried once the migration finishes; this ordinarily clears itself."),
+    ("compaction faulted",
+     "memory housekeeping hit an unexpected fault and stopped without changing anything. Any approved "
+     "erasure is still pending. If this repeats, ask me to look at your memory's health."),
 )
+
+#: Kept as a name because tests and readers reach for it; derived so it cannot drift from the sentences.
+_UNENACTED_MARKS = tuple(mark for mark, _ in _UNENACTED_REASONS)
 
 
 def unenacted_warning(report) -> "str | None":
     """One bounded line when compaction had work to do and deliberately did not do it.
 
     PreCompact fires often, and it cannot inject context, so this goes to the hook log as a single sentence.
-    Bounded on purpose: a paragraph on every squash is noise that teaches the reader to skip it.
+    Bounded on purpose: a paragraph on every squash is noise that teaches the reader to skip it. The sentence
+    is chosen by the reason, so it names the actual cause and — the part that matters most — whether this is
+    something that clears itself or something the operator has to act on.
     """
     if not isinstance(report, dict):
         return None
     detail = f"{report.get('reason', '')} {report.get('error', '')}"
-    if not any(mark in detail for mark in _UNENACTED_MARKS):
-        return None
-    return ("Engine memory housekeeping did not run: this session is not qualified to write memory yet. "
-            "Nothing was changed, and any approved erasure is still pending until a session start that can "
-            "reach GitHub, which is when it is carried out.")
+    for mark, sentence in _UNENACTED_REASONS:
+        if mark in detail:
+            return f"Engine memory housekeeping did not run: {sentence}"
+    return None
 
 
 def main(argv: list) -> int:

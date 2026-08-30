@@ -8612,7 +8612,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:7e9ae503addf6d4630aa71ccc4f76557ad825edb2986a65f4f97d93a5656ff27",
+        "fingerprint": "sha256:7bec470f9f61f9f1b1fa6f8822a28f8681b72562651a6e7ed852c8f3d3d0d1ae",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -9800,7 +9800,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:c1059354a12a95c5fbd87f890a6b4218d1b806a5305bcae8605d8cd6aabf72d8",
+        "fingerprint": "sha256:d218b8af5842edc99b0d67b4e4f715d2bc5e27aa270ab2af6c5123b17e1f9171",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -11566,6 +11566,7 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:compact",
           "tool:drain",
           "tool:modes"
         ],
@@ -11575,7 +11576,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:c665611e2e0673b51b4b870fc1774a9e12f14282ff4ef93d82664ceb2d2b09e2",
+        "fingerprint": "sha256:a94504a2bfc9011f54fa86e35a23bad4f134bae39b8d412fdba5fc9c49adedb3",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -12008,7 +12009,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:8c3b0e39942a460fbb1f65b87ce0cd6300a75a2569cc551e09005e6abc978bac",
+        "fingerprint": "sha256:9ea64d1b936abd71985c5e1cedbcf6a37cb4f8bc728f0e10e5d072cd974670e7",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -12745,7 +12746,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:e6aebf07792bab8fbaed15f0a85c36a0c3fce8bf465d65751265914e619b99c6",
+        "fingerprint": "sha256:59521c5ca249c84d6ed9d5ebc4a4f2a3d9a3a997a7c5c8b920426acc948d2f85",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13146,7 +13147,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:95d9877ceda73739d0cee83198f73ad8ace7ede6fc323ba0e22718012b4430ed",
+        "fingerprint": "sha256:8ed45e5e0cb7ab775687cc88e7c858392bcbf24df028bd257578bed18dc1e6bc",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -14838,7 +14839,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:f252dfbc27c3212ecedd21d95f2ec3c362d2462269e3cd948defe79e7768549b",
+        "fingerprint": "sha256:b65974b7c684ad4dccf0552d8f76cbbe25b1e6fde54cbb0d649f8323f25fd506",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -15987,7 +15988,7 @@
       },
       "slug": "test_compact",
       "source": {
-        "fingerprint": "sha256:d854e246915dd90f1d2659cfefbb51975c7a4014689e40505aa9403e48b2bd5c",
+        "fingerprint": "sha256:82db696ca6b51511b144a0d8f02139b2fa28b626a789ba49c40000203d2b8b04",
         "path": ".engine/tools/memory/test_compact.py"
       },
       "status": "active",
@@ -16754,7 +16755,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:ba3cb06ac3086b54eb3a6e28d24802630cea5e97c6306fb0a1b9ec13aabff0be",
+        "fingerprint": "sha256:27fa224b87a2c500eb51289efb711f5be74f5b1395f394011270d0c27ea69ebc",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17783,7 +17784,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:ede33cf4b247a2b666f696f9a31d08bf342dd12b49e578722ae767c4b22c919f",
+        "fingerprint": "sha256:c6a86c0e31b5db33f36f986fe1d5f79ddea32144535e7945b13e283bf217e305",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",

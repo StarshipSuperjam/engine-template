@@ -272,6 +272,33 @@ class DrainBehaviour(_DrainBase):
         self.assertEqual(sum("current turn" in text for text in texts), 1)
 
 
+class BacklogExcludesTheLiveSession(_DrainBase):
+    """Behaviourally, not by reading the source.
+
+    The first test for this checked that `backlog`'s SOURCE contained the right substrings, which would pass
+    even if the exclusion were reordered into a no-op — a reviewer built the real fixture and said so. This
+    runs it: the live session's transcript is only captured at each turn's Stop, so mid-turn its cursor is
+    behind by construction, and counting it reported the operator's own open conversation as waiting on
+    essentially every status check.
+    """
+
+    def test_the_live_session_is_not_counted_as_waiting(self):
+        self.write_session("sess-live-now", [("user", "still talking"), ("assistant", "still answering")])
+        self.write_session("sess-older", [("user", "an older uncaptured turn")])
+        self.assertEqual(drain.backlog()["sessions_waiting"], 2)
+        with mock.patch.dict(os.environ, {capture.SESSION_ENV: "sess-live-now"}, clear=False):
+            self.assertEqual(drain.backlog()["sessions_waiting"], 1)
+
+    def test_the_count_is_bounded_and_says_when_it_truncated(self):
+        for n in range(4):
+            self.write_session(f"sess-b{n}", [("user", f"waiting {n}")])
+        self.assertFalse(drain.backlog()["partial"])
+        with mock.patch.object(drain, "MAX_BACKLOG_SECONDS", 0.0):
+            truncated = drain.backlog()
+        self.assertTrue(truncated["partial"])
+        self.assertEqual(truncated["sessions_waiting"], 0)   # a floor, never a claim of completeness
+
+
 class DrainIsBounded(_DrainBase):
     """A session start may not be held open indefinitely.
 

@@ -231,18 +231,32 @@ class TestBacklogAndCoverageRendering(unittest.TestCase):
         self.assertIn("reads work and writes wait", out)
 
 
-class TestBacklogIsNotTheOperatorsOwnConversation(unittest.TestCase):
-    """The live session is excluded from the count. Its transcript is captured at each turn's Stop, so
-    mid-turn — which is when a status check runs — its cursor is behind by construction, and counting it
-    reported the operator's own open conversation as waiting on essentially every check."""
+class TestPendingErasureReachesTheOperator(unittest.TestCase):
+    """The channel half of a finding that was reported twice.
 
-    def test_the_live_session_is_excluded_the_way_the_drain_excludes_it(self):
-        import inspect
-        from memory import drain, capture
-        source = inspect.getsource(drain.backlog)
-        self.assertIn("capture.SESSION_ENV", source)
-        self.assertIn("continue", source)
-        self.assertTrue(hasattr(capture, "SESSION_ENV"))
+    Compaction says an approved deletion is still waiting — to `sys.stderr`, from a hook that exits 0, which
+    is not a stream anyone is shown. Correcting the sentence did not correct that, so the state is reported
+    here as well, where the operator asks."""
+
+    def _render(self, pending):
+        return es._render_activation_state(
+            {"activation": {"commit": "a" * 40},
+             "coverage": {"readable": True, "uncovered": 0, "total": 1, "sample": []},
+             "pending_erasures": pending})
+
+    def test_nothing_pending_says_nothing(self):
+        self.assertEqual(self._render(0), "")
+
+    def test_a_pending_deletion_is_named_with_what_it_means_and_when_to_worry(self):
+        out = self._render(2)
+        self.assertIn("2 deletion(s) you approved have not been carried out", out)
+        self.assertIn("still findable", out)        # the consequence, said plainly
+        self.assertIn("neither clears itself", out)  # …and when it stops being normal
+        for jargon in ("compaction", "marker", "ledger", "erasure"):
+            self.assertNotIn(jargon, out.lower())
+
+    def test_an_unreadable_count_is_simply_not_reported(self):
+        self.assertEqual(self._render(None), "")
 
 
 if __name__ == "__main__":

@@ -1737,7 +1737,13 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         degraded = next(n for n in result["notices"] if "not able to write to memory" in n)
         self.assertIn("Reading and recall work", degraded)
         self.assertIn("transcript", degraded)
-        self.assertIn("Detail:", degraded)
+        # The detail is kept, but framed as a diagnostic. The strings it can carry say things like
+        # "topology authority is unsafe", which a non-engineer reads as a security alarm — so the label has
+        # to say, in the sentence itself, that this is for a bug report and not something to act on.
+        self.assertIn("for a bug report rather than for you to act on", degraded)
+        self.assertLess(degraded.index("Reading and recall work"),
+                        degraded.index("for a bug report"),
+                        "the reassurance must come before the internal detail, not after it")
 
     def test_an_activation_belonging_to_another_repository_is_refused(self):
         self._ambient()

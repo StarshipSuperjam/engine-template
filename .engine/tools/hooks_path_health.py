@@ -104,7 +104,7 @@ _ACCEPTED_BUNDLE = (
 _ACCEPTED_BUNDLE_SHA256 = {
     ".engine/tools/hook-runner.sh": "d6be55bf4dbd9ed375a171d26d0a2ca355b619f78df712080242e50931211f9e",
     ".engine/tools/codex-hook-runner.sh": "3f9ae7fe4a6d191754a2ebf05f0f48afc4ccfaa4f5005fb96b7e366742d6afd9",
-    ".engine/tools/accepted_hook_dispatch.py": "7e9ae503addf6d4630aa71ccc4f76557ad825edb2986a65f4f97d93a5656ff27",
+    ".engine/tools/accepted_hook_dispatch.py": "7bec470f9f61f9f1b1fa6f8822a28f8681b72562651a6e7ed852c8f3d3d0d1ae",
     ".claude/settings.json": "b71eb04ae3d5fe0517b51b536c8b6e77ff9cdb61dfd9b26f1673ea1cd9b0490c",
     ".codex/hooks.json": "debdc4669b3eb40e79eaeb390a526171884a5faf994a4b390540d7c1c27a2f4d",
 }
