@@ -3618,6 +3618,42 @@ class TestReconcileDeliverySuperset(unittest.TestCase):
         self.assertEqual(missing, [], f"reconcile deliver set dropped owned engine files: {missing}")
 
 
+class TestAutomaticHookReconcileGate(unittest.TestCase):
+    @staticmethod
+    def _write(root, rel, value):
+        path = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(value, handle)
+
+    def test_both_provider_renders_pass_and_either_direct_mutator_is_hard(self):
+        import hooks
+        safe = {
+            "claude": hooks.hook_command(".engine/tools/memory/compact.py pre-compact"),
+            "codex": hooks.hook_command(
+                ".engine/tools/memory/compact.py pre-compact", provider="codex"),
+        }
+        with tempfile.TemporaryDirectory() as root:
+            for provider, rel in (("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json")):
+                self._write(root, rel, {"hooks": {"PreCompact": [{"hooks": [
+                    {"type": "command", "command": safe[provider]},
+                ]}]}})
+            with module_manager._redirect_root(root):
+                self.assertEqual(module_manager._automatic_hook_wiring_findings(), [])
+                for provider, rel in (("claude", ".claude/settings.json"),
+                                      ("codex", ".codex/hooks.json")):
+                    with self.subTest(provider=provider):
+                        self._write(root, rel, {"hooks": {"PreCompact": [{"hooks": [
+                            {"type": "command",
+                             "command": "python .engine/tools/memory/compact.py pre-compact"},
+                        ]}]}})
+                        findings = module_manager._automatic_hook_wiring_findings()
+                        self.assertTrue(any(item.get("severity") == "hard" for item in findings))
+                        self._write(root, rel, {"hooks": {"PreCompact": [{"hooks": [
+                            {"type": "command", "command": safe[provider]},
+                        ]}]}})
+
+
 class TestUpgradePreviewImpact(unittest.TestCase):
     """The read-only `plan_upgrade` impact preview (slice 2 of #594) — computed offline via an injected
     release tree, so no test touches the network."""

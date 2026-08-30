@@ -68,6 +68,7 @@ RECORD_VERSION = 1                       # stamped as `v` on each record: the sh
 RECORD_KIND = records.AMBIENT_CAPTURE_KIND   # the ambient-capture kind, now homed in `records` (the cycle-free
                                              # leaf `forget` also reads); aliased here so the string never drifts
 CURSOR_FILENAME = "capture-state.json"   # {session_id: captured-message-count}; gitignored sibling
+CAPTURE_TRANSACTION_FILENAME = ".capture-transaction.json"  # durable roll-forward journal
 LOCK_FILENAME = ".capture.lock"          # the capture transaction lock; gitignored sibling
 
 CHUNK_MAX_CHARS = 4_000                  # per-record body cap (paragraph-preferred, LOSSLESS split)
@@ -356,6 +357,10 @@ def _validate_transcript_path(path_str: str, cwd=None):
 
 # --- The cursor (per-session captured-message count) ------------------------------------------
 
+def _capture_fault(_boundary: str) -> None:
+    """No-op seam used by the deterministic crash-boundary matrix in the checked-in tests."""
+
+
 def _read_cursor(data_dir: str, session_id: str) -> int:
     """The count of messages already captured for this session; 0 if missing/corrupt (benign
     re-capture). Read inside the capture lock, so no torn-read race."""
@@ -387,7 +392,109 @@ def _write_cursor(data_dir: str, session_id: str, count: int) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh, separators=(",", ":"))
+        fh.flush()
+        os.fsync(fh.fileno())
+        _capture_fault("cursor-file-fsync")
     os.replace(tmp, path)
+    _capture_fault("cursor-replace")
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+        _capture_fault("cursor-directory-fsync")
+    finally:
+        os.close(directory)
+
+
+def _capture_transaction_path(data_dir: str) -> str:
+    return os.path.join(data_dir, CAPTURE_TRANSACTION_FILENAME)
+
+
+def _write_capture_transaction(data_dir: str, document: dict) -> None:
+    """Durably publish the exact roll-forward work before any ledger record lands."""
+    path = _capture_transaction_path(data_dir)
+    tmp = path + f".{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(document, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        _capture_fault("journal-file-fsync")
+    os.replace(tmp, path)
+    _capture_fault("journal-replace")
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+        _capture_fault("journal-directory-fsync")
+    finally:
+        os.close(directory)
+
+
+def _read_capture_transaction(data_dir: str):
+    path = _capture_transaction_path(data_dir)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("capture transaction journal is unreadable") from exc
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "session_id", "cursor_after", "records"}
+            or value.get("schema_version") != "capture-transaction.v1"
+            or not isinstance(value.get("session_id"), str) or not value["session_id"]
+            or not isinstance(value.get("cursor_after"), int) or isinstance(value["cursor_after"], bool)
+            or value["cursor_after"] < 0 or not isinstance(value.get("records"), list)
+            or any(not isinstance(record, dict) or not isinstance(record.get(records.RECORD_ID_KEY), str)
+                   for record in value["records"])):
+        raise RuntimeError("capture transaction journal has an invalid shape")
+    return value
+
+
+def _clear_capture_transaction(data_dir: str) -> None:
+    try:
+        os.unlink(_capture_transaction_path(data_dir))
+    except FileNotFoundError:
+        return
+    _capture_fault("journal-unlink")
+    directory = os.open(data_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+        _capture_fault("journal-clear-directory-fsync")
+    finally:
+        os.close(directory)
+
+
+def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -> int:
+    """Idempotently roll a prepared capture forward, then remove its journal last."""
+    transaction = _read_capture_transaction(data_dir)
+    if transaction is None:
+        return 0
+    ledger_file = ledger.ledger_path(cwd)
+    existing_ids = {
+        record.get(records.RECORD_ID_KEY)
+        for record in ledger.read(path=ledger_file).records if isinstance(record, dict)
+    }
+    appended = []
+    for record in transaction["records"]:
+        if record[records.RECORD_ID_KEY] in existing_ids:
+            continue
+        ledger.append(record, path=ledger_file)
+        _capture_fault("ledger-append")
+        appended.append(record)
+        existing_ids.add(record[records.RECORD_ID_KEY])
+    _write_cursor(data_dir, transaction["session_id"], transaction["cursor_after"])
+    from memory import index  # lazy: index -> forget -> capture
+    index_file = index.index_path(cwd)
+    if recovering:
+        # A prior process may have died at any point around incremental indexing. A full atomic rebuild is the
+        # only idempotent repair that cannot duplicate rows or leave a current-looking hole.
+        index.rebuild(ledger_file=ledger_file, index_file=index_file)
+    elif transaction["records"]:
+        index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file)
+    _capture_fault("index-apply")
+    _write_capture_status("captured", transaction["session_id"], required=True)
+    _capture_fault("required-status")
+    _clear_capture_transaction(data_dir)
+    return len(appended)
 
 
 def _restore_quarantine_present(transaction_path: str) -> bool:
@@ -405,6 +512,7 @@ def _acquire_lock(lock_path: str, *, allow_restore_quarantine: bool = False, dea
     """Acquire the capture transaction lock, NON-blocking with a bounded ~1s retry. Returns the held
     fd, or None on contention (=> a clean no-op; the delta is caught at the next Stop). Bounding the
     wait is what guarantees capture can never stall turn-end behind a stuck holder."""
+    _mutation_authority.authorize_nested("capture-lock-create", measured_cardinality=1)
     transaction_path = os.path.join(os.path.dirname(lock_path), ledger.RESTORE_TRANSACTION_FILENAME)
     if not allow_restore_quarantine and _restore_quarantine_present(transaction_path):
         return None
@@ -656,48 +764,74 @@ CAPTURE_FAILURES_PATH = os.path.join(_ENGINE_DIR, "telemetry", ".cache", "memory
 MAX_FAILURE_HISTORY = 20
 
 
+def _health_path(key: str, fallback: str) -> str:
+    if "ENGINE_PERSISTENT_EXECUTION_CONTEXT" not in os.environ:
+        return fallback
+    from memory import execution_context as _execution_context
+    return _execution_context.current_context()["target"]["lifecycle"][key]
+
+
 def _append_failure_history(record: dict) -> None:
     """Append one failing outcome to the rolling history and trim to the newest MAX_FAILURE_HISTORY,
     atomically (temp file + os.replace, pid-suffixed so concurrent writers never share a temp; a
     crash between write and replace can orphan one stale `.tmp` per pid — bounded litter in a
     gitignored cache, cleaned the next time that pid number recurs, never read by anything).
     Best-effort by the marker's own contract: any OSError is swallowed and the capture is undisturbed."""
+    failures_path = _health_path("capture_failures", CAPTURE_FAILURES_PATH)
     try:
-        os.makedirs(os.path.dirname(CAPTURE_FAILURES_PATH), exist_ok=True)
+        os.makedirs(os.path.dirname(failures_path), exist_ok=True)
         lines = []
         try:
-            with open(CAPTURE_FAILURES_PATH, encoding="utf-8") as fh:
+            with open(failures_path, encoding="utf-8") as fh:
                 lines = [ln for ln in fh.read().splitlines() if ln.strip()]
         except OSError:
             lines = []
         lines.append(json.dumps(record))
-        tmp = f"{CAPTURE_FAILURES_PATH}.{os.getpid()}.tmp"
+        tmp = f"{failures_path}.{os.getpid()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines[-MAX_FAILURE_HISTORY:]) + "\n")
-        os.replace(tmp, CAPTURE_FAILURES_PATH)
+        os.replace(tmp, failures_path)
     except OSError:
         pass
 
 
-def _write_capture_status(state: str, session_id=None, *, detail=None) -> None:
+def _write_capture_status(state: str, session_id=None, *, detail=None, required: bool = False) -> None:
+    status_path = _health_path("capture_status", CAPTURE_STATUS_PATH)
+    tmp = status_path + f".{os.getpid()}.tmp"
     try:
-        os.makedirs(os.path.dirname(CAPTURE_STATUS_PATH), exist_ok=True)
+        os.makedirs(os.path.dirname(status_path), exist_ok=True)
         record = {"state": state, "session_id": session_id, "ts": int(time.time())}
         if detail is not None:
             record["detail"] = detail   # a CONTENT-FREE structural fingerprint on a failure (no text)
-        with open(CAPTURE_STATUS_PATH, "w", encoding="utf-8") as fh:
+        with open(tmp, "w", encoding="utf-8") as fh:
             fh.write(json.dumps(record))
+            if required:
+                fh.flush()
+                os.fsync(fh.fileno())
+        os.replace(tmp, status_path)
+        if required:
+            directory = os.open(os.path.dirname(status_path), os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         if state != "captured":
             _append_failure_history(record)   # a failure survives the next success (StarshipSuperjam/engine-template#774)
     except OSError:
-        pass
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        if required:
+            raise
 
 
 def read_capture_status():
     """The last capture attempt's outcome record, or None (no marker yet / unreadable). Consumers
     (boot's dashboard line, telemetry's drain) treat None as nothing-to-say, never as failure."""
+    status_path = _health_path("capture_status", CAPTURE_STATUS_PATH)
     try:
-        with open(CAPTURE_STATUS_PATH, encoding="utf-8") as fh:
+        with open(status_path, encoding="utf-8") as fh:
             record = json.load(fh)
         return record if isinstance(record, dict) and record.get("state") in CAPTURE_STATUS_STATES \
             else None
@@ -759,6 +893,10 @@ def _capture(payload, *, cwd) -> int:
     if lock_fd is None:
         return 0  # contended ~1s; the delta is caught at the next Stop
     try:
+        # A previous process may have stopped after any one of journal -> ledger -> cursor -> index -> status.
+        # Roll that exact prepared work forward before looking at a newer transcript delta.
+        if _read_capture_transaction(data_dir) is not None:
+            _recover_capture_transaction(data_dir, cwd, recovering=True)
         # PROVIDER-ROUTED parsing: a Codex session's transcript goes ONLY through the
         # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
         # fall-through to the tolerant Claude parser below, which could capture fragments.
@@ -775,9 +913,7 @@ def _capture(payload, *, cwd) -> int:
         if not delta:
             _write_capture_status("captured", session_id)
             return 0
-        ledger_file = ledger.ledger_path(cwd)
-        appended = 0
-        fresh: list = []          # what landed this turn, for the incremental index extend below
+        fresh: list = []          # prepared first; the journal lands before any one of these records
         for offset, rec in enumerate(delta):
             text = _message_text(rec)
             if not text or not text.strip():
@@ -796,21 +932,15 @@ def _capture(payload, *, cwd) -> int:
             injected = records.is_injected_pseudo_turn_text(text)
             for chunk in chunk_text(text):
                 record = _make_record(session_id, cursor + offset, speaker, chunk, injected=injected)
-                ledger.append(record, path=ledger_file)
                 fresh.append(record)
-                appended += 1
-        _write_cursor(data_dir, session_id, len(messages))
-        _write_capture_status("captured", session_id)
-        # The conversation is recall content, and nothing else refreshes the fast index between full rebuilds
-        # (`ledger.append` does not move the generation stamp — only compaction does). Without this a turn would
-        # be in the ledger, absent from the index, and the index would still look CURRENT — so the fast path
-        # would answer without it and call itself healthy while the plain scan found it. Still inside the
-        # capture lock, so a compaction swap cannot race it. Best-effort by contract: `extend` swallows its own
-        # failures and returns 0, and the next full rebuild reconstructs from the ledger regardless.
-        if fresh:
-            from memory import index  # lazy: index -> forget -> capture, so a module-level import would cycle
-            index.extend(fresh, ledger_file=ledger_file, index_file=index.index_path(cwd))
-        return appended
+        transaction = {
+            "schema_version": "capture-transaction.v1",
+            "session_id": session_id,
+            "cursor_after": len(messages),
+            "records": fresh,
+        }
+        _write_capture_transaction(data_dir, transaction)
+        return _recover_capture_transaction(data_dir, cwd, recovering=False)
     finally:
         _release_lock(lock_fd)
 
@@ -986,6 +1116,13 @@ def main(argv: list) -> int:
         return _demo()
     print("usage: capture.py demo")
     return 0
+
+
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
 
 
 if __name__ == "__main__":

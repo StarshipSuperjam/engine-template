@@ -7,6 +7,7 @@ the ones a plausible-but-wrong implementation would quietly fail.
 
 from __future__ import annotations
 
+import base64
 import os
 import sys
 import tempfile
@@ -73,6 +74,7 @@ class PinTests(_Base):
         pins.remove(rid)
         self.assertEqual(index.search("preference").records, [])
         self.assertEqual(pins.list_pins(), [])
+        self.assertEqual(forget.withheld_report()["notes"][0]["id"], rid)
         # Still in the ledger, byte for byte — removal is a withhold, so restore is the operator's undo.
         self.assertIn(rid, {r.get(records.RECORD_ID_KEY) for r in ledger.iter_records()})
         forget.restore(record_id=rid)
@@ -109,6 +111,12 @@ class PinTests(_Base):
             pins.add("y" * (pins.MAX_PIN_CHARS + 1))
         self.assertIn("Nothing was saved", str(caught.exception))
 
+    def test_shell_shaped_text_round_trips_only_through_urlsafe_base64(self):
+        text = 'Keep $(touch /tmp/nope), `also-nope`, $TOKEN, and "quotes" literal.'
+        encoded = base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii")
+        self.assertEqual(pins.main(["add-base64", encoded]), 0)
+        self.assertEqual(pins.list_pins()[0]["text"], text)
+        self.assertEqual(pins.main(["add-base64", encoded.rstrip("=")]), 1)
 
 if __name__ == "__main__":
     unittest.main()

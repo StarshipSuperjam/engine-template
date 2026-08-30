@@ -1102,6 +1102,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design"
@@ -1132,6 +1133,7 @@
           "module:validators-core"
         ],
         "targets": [
+          "doc:accepted-hook-qualification",
           "doc:ci-assurance",
           "doc:getting-started",
           "doc:product-design"
@@ -3279,7 +3281,7 @@
       },
       "slug": "engine-configure-memory-backup",
       "source": {
-        "fingerprint": "sha256:f99155ad2db7c77ff70b9c65b440f0c0f03b96e09032e368d07a78d65457fd15",
+        "fingerprint": "sha256:e7fc73efb0a743e13a1b3df243c04406b6d600c5d7a148d0e89a6a1bf10abf4f",
         "path": ".agents/skills/engine-configure-memory-backup/SKILL.md"
       },
       "status": "active",
@@ -3479,7 +3481,7 @@
       },
       "slug": "engine-drop-operator-pin",
       "source": {
-        "fingerprint": "sha256:ad1eee8ab575172055612dba044f7f275684530f4a80011940a91a0e0e0fda52",
+        "fingerprint": "sha256:b4280781097143edb027078a7ed5dfb37e2bddb118130ddb77ac05a0fa3bb886",
         "path": ".agents/skills/engine-drop-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4119,7 +4121,7 @@
       },
       "slug": "engine-restore-operator-pin",
       "source": {
-        "fingerprint": "sha256:9e4b4a4302fc31b7a4389719d320e7e8536b06ae1bc3996029ae4cb2dfd9ad38",
+        "fingerprint": "sha256:e9e9b7bda55b04e8621870262230f5dd0f52aa6ab9f5ba2e846f5374551b4778",
         "path": ".agents/skills/engine-restore-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4199,7 +4201,7 @@
       },
       "slug": "engine-save-operator-pin",
       "source": {
-        "fingerprint": "sha256:dee642b615b4c9a3fda5a0ccb25072908b1772d4b1f1df7c3c1d04fff90d9fb3",
+        "fingerprint": "sha256:a43d7653399c9034b235f2d6b0896d701fd753c895ce916aa20bd61207d6087d",
         "path": ".agents/skills/engine-save-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -4239,7 +4241,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:12a8eaf16350124724b7db843078ddb33b8149b7a568a2345aac3526e467016f",
+        "fingerprint": "sha256:a8158573854363d8250bfbdc17c589ba449e9a34561987c967f898cf61691200",
         "path": ".agents/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -4719,7 +4721,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:08b373e02d41374f0f41fc6cf4b54f0b703f5d544030e41e7738fb74e39dff51",
+        "fingerprint": "sha256:383c913e6c63d519b862461e5e9216f732910d7648702b2a93d1ea4646a562be",
         "path": ".agents/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -5046,6 +5048,26 @@
       "type": "conduct"
     },
     {
+      "id": "doc:accepted-hook-qualification",
+      "name": ".engine/docs/accepted-hook-qualification.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:doc.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "accepted-hook-qualification",
+      "source": {
+        "fingerprint": "sha256:161cc183e16f0089c7c021649af65109b125e14e3e5a5de1a9ce9ab19d64551d",
+        "path": ".engine/docs/accepted-hook-qualification.md"
+      },
+      "status": "active",
+      "type": "doc"
+    },
+    {
       "id": "doc:ci-assurance",
       "name": ".engine/docs/ci-assurance.md",
       "owner": "core",
@@ -5059,7 +5081,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:e2e99918132c4c4ffd3c82be2396a7699b8fa5c369cd9254a77b44374f805ab3",
+        "fingerprint": "sha256:2360c2248ffd6e5a4613cdc42be5e9460ab7be26a4efe661c740837db4be4cb2",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5156,7 +5178,7 @@
           "schema:interface.v1"
         ],
         "implemented_by": [
-          "tool:mcp_server"
+          "tool:accepted_hook_dispatch"
         ],
         "provided_by": [
           "module:core"
@@ -5164,7 +5186,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:c747e0f8686a40b1de3502adfe00dc9b5a670151f76ea50cc07f7e38a44674d0",
+        "fingerprint": "sha256:9e5e805806ee304a5e31dd1dc3676039e62dcc2d8499708cc5df0546d8fd7100",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -5187,7 +5209,7 @@
           "schema:interface.v1"
         ],
         "implemented_by": [
-          "tool:mcp_server"
+          "tool:accepted_hook_dispatch"
         ],
         "provided_by": [
           "module:core"
@@ -5240,7 +5262,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:43355d5adc990b0c5583085987a3805ec7274b827176ae1ccfd2178a54a4b255",
+        "fingerprint": "sha256:2f88818642ac939294de03146a46929dfdee32732f786d4e1071811f3e6a5f45",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5357,7 +5379,7 @@
       },
       "slug": "memory-substrate-sqlite-fts5",
       "source": {
-        "fingerprint": "sha256:f2a731c76a9f415f048827e7a3f21dc7214e6a14f66597cf6524ae806d358f69",
+        "fingerprint": "sha256:db303d4820d306b97b1f844282e58a188bda052eb67c96458f6e419cec04fdb9",
         "path": ".engine/modules/memory-substrate-sqlite-fts5/manifest.json"
       },
       "status": "required",
@@ -5571,7 +5593,7 @@
       },
       "slug": "checkout-auto-update",
       "source": {
-        "fingerprint": "sha256:f2a2f1a163f3547fbdf4d7193fba102f99efa6f6e997c55c2e9a4101fe5d3d4b",
+        "fingerprint": "sha256:d9e028260ff16994efa171f21f44a3ccec1c30d57cc048bfae27a191ddbdab9a",
         "path": ".engine/operations/checkout-auto-update.md"
       },
       "status": "active",
@@ -5871,7 +5893,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:84b9a2dc16717bd10eedc3d1a91c5ebd77215f79b98c5784d8529aca2bdca16c",
+        "fingerprint": "sha256:c47b2c841234e3c26eb50f4dbe606b24fefaba1fa49c083ee631534b29df0854",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -6111,7 +6133,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:3e7892d66d8c2e9ca9ddf3357f297dfe1e19bb54d0ff4734c000db346dcb2f87",
+        "fingerprint": "sha256:480f6680d285d6363c4c8541ab417157b3cfe7d0ba9e64c6038f36c565618631",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -6450,6 +6472,23 @@
       "type": "policy"
     },
     {
+      "id": "schema:accepted-hook-activation.v1",
+      "name": ".engine/schemas/accepted-hook-activation.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "accepted-hook-activation.v1",
+      "source": {
+        "fingerprint": "sha256:0e4ec8bd0d663087b1ff58e0166334776d29041ffa49f92e2ca59b9e6420dca6",
+        "path": ".engine/schemas/accepted-hook-activation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:agent.v1",
       "name": ".engine/schemas/agent.v1.json",
       "owner": "core",
@@ -6654,6 +6693,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:candidate-disposable-receipt.v1",
+      "name": ".engine/schemas/candidate-disposable-receipt.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "candidate-disposable-receipt.v1",
+      "source": {
+        "fingerprint": "sha256:2d7dc343973ccc4e3cdcd70904aafc704e2a98e5565a5a4418fad0ce4e03f4c9",
+        "path": ".engine/schemas/candidate-disposable-receipt.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:check.v1",
       "name": ".engine/schemas/check.v1.json",
       "owner": "core",
@@ -6698,7 +6754,7 @@
       },
       "slug": "codex-hooks.v1",
       "source": {
-        "fingerprint": "sha256:83fa2c7fb968767a1abdb097bfc8afd80bd816e23d396fb499eff345a5068a47",
+        "fingerprint": "sha256:9413363974d6977e932d3a9a8cf856a6f3f8c1b1ed01b4e1876c07f024db064f",
         "path": ".engine/schemas/codex-hooks.v1.json"
       },
       "status": "active",
@@ -7006,6 +7062,57 @@
       "source": {
         "fingerprint": "sha256:7a2a7130a5e7ad3ffc9796f2ddca6cba7eb2bc501db2f81d4f712b2703671278",
         "path": ".engine/schemas/operation.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:persistent-execution-context.v1",
+      "name": ".engine/schemas/persistent-execution-context.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "persistent-execution-context.v1",
+      "source": {
+        "fingerprint": "sha256:ecee2ec5881cc77df0b1d51669dfc98d01950e05d255894eb4bef2b951e1a9c8",
+        "path": ".engine/schemas/persistent-execution-context.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:persistent-mutation-registry.v1",
+      "name": ".engine/schemas/persistent-mutation-registry.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "persistent-mutation-registry.v1",
+      "source": {
+        "fingerprint": "sha256:f167cbff41f25fbed930d8cc448d296e40b399c82434e294ab723d8a99827fd5",
+        "path": ".engine/schemas/persistent-mutation-registry.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:persistent-store-identity.v1",
+      "name": ".engine/schemas/persistent-store-identity.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "persistent-store-identity.v1",
+      "source": {
+        "fingerprint": "sha256:8dac3c3cd524bb362a901f172dee8d99242de2672ecf2641e756691791efbbee",
+        "path": ".engine/schemas/persistent-store-identity.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -7409,7 +7516,7 @@
       },
       "slug": "engine-configure-memory-backup",
       "source": {
-        "fingerprint": "sha256:918435bef618b6817f10828ea6d88e4bc0211cf34b438b68bb8693eaddfe86a5",
+        "fingerprint": "sha256:177e026f42839bf1eb222276c9433fd0a38c1aefdc71494da0b5351e45a10731",
         "path": ".claude/skills/engine-configure-memory-backup/SKILL.md"
       },
       "status": "active",
@@ -7532,7 +7639,7 @@
       },
       "slug": "engine-drop-operator-pin",
       "source": {
-        "fingerprint": "sha256:002fb7f0fa6dffce3ce9e3c835d5bc3a522c0973cfa445b99e241d4517873d35",
+        "fingerprint": "sha256:054e81a1a66b7f6e6a8824a6255171838331c01f82f03eaf3c072c477425ddc1",
         "path": ".claude/skills/engine-drop-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -7921,12 +8028,12 @@
           "module:core"
         ],
         "routes_to": [
-          "tool:pins"
+          "tool:mcp_server"
         ]
       },
       "slug": "engine-restore-operator-pin",
       "source": {
-        "fingerprint": "sha256:edd24f026fe53d1180e01c2fa6aae80a988f30f4b31ddf4fbdba9f089b499fe0",
+        "fingerprint": "sha256:703515bf2e706a825b0ab7d7d77100ebac4c08d6e3ffa3952b650cb6000de6f2",
         "path": ".claude/skills/engine-restore-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -7973,7 +8080,7 @@
       },
       "slug": "engine-save-operator-pin",
       "source": {
-        "fingerprint": "sha256:2484c2079cbcbd7c319863723fa6b3342e72b4835ece35fb71a136e106005a8f",
+        "fingerprint": "sha256:fb683a7589e1bf9a075f3a4259e43509445b999a532212ec459077dda04915f1",
         "path": ".claude/skills/engine-save-operator-pin/SKILL.md"
       },
       "status": "active",
@@ -7995,7 +8102,7 @@
       },
       "slug": "engine-setup",
       "source": {
-        "fingerprint": "sha256:ac49cbdc801ffbbd43314ef70f88efa4d2d5758c2a297b26883d51a1b9470714",
+        "fingerprint": "sha256:d4ec34f0e8cce459688f35e98d404fbf1c66b8d34f838b25d862406ea53051ff",
         "path": ".claude/skills/engine-setup/SKILL.md"
       },
       "status": "active",
@@ -8293,7 +8400,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:430061c37dfec091d73a600d4971c4b33e76b07d886d99d3c704f4c74e8ecf0f",
+        "fingerprint": "sha256:9c1a22126340be27eb765d17e79d9e8f683af0d68714df60dc0271aa5d84e235",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -8485,6 +8592,31 @@
         "path": ".engine/tools/memory/semantic/NOTICE.txt"
       },
       "status": "active",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "mcp-server",
+      "guarded": false,
+      "id": "tool:accepted_hook_dispatch",
+      "name": ".engine/tools/accepted_hook_dispatch.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:moment",
+          "tool:release_source",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "accepted_hook_dispatch",
+      "source": {
+        "fingerprint": "sha256:ac856d336f3f681601d1a71d85f2ce235aef664dcd6acca708c2958361b22998",
+        "path": ".engine/tools/accepted_hook_dispatch.py"
+      },
+      "status": "active",
+      "summary": "Resolve and run automatic memory hooks from one attended, exact accepted Engine tree.",
       "type": "tool"
     },
     {
@@ -8769,9 +8901,11 @@
       "predicates": {
         "imports": [
           "tool:boot",
+          "tool:execution_context",
           "tool:hooks",
           "tool:ledger",
           "tool:moment",
+          "tool:mutation_authority",
           "tool:records",
           "tool:snapshot_format",
           "tool:validate"
@@ -8782,7 +8916,7 @@
       },
       "slug": "backup_vault",
       "source": {
-        "fingerprint": "sha256:198d91756647e9ba3e3f78f19d18a1fc070835be1cc250e559ea07007667df80",
+        "fingerprint": "sha256:6ea29584d01d35cb7708fcb2098fc3e6eecfbbe04e981fd06580f08ae8eccfbe",
         "path": ".engine/tools/memory/backup_vault.py"
       },
       "status": "active",
@@ -8841,6 +8975,7 @@
           "tool:modes",
           "tool:module_manager",
           "tool:moment",
+          "tool:mutation_authority",
           "tool:operator_overrides",
           "tool:pins",
           "tool:pr_reconcile",
@@ -8860,7 +8995,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:81e6fce665559b741f1b9620bbd7cd662c91e2f4136b9973cd5f14104cb03b93",
+        "fingerprint": "sha256:51f1a26d7e01e703f0047d32560615fa96f8ec10552736f557b553d1c9dde5a8",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -8876,7 +9011,8 @@
       "predicates": {
         "imports": [
           "tool:greenfield_intake",
-          "tool:license_health"
+          "tool:license_health",
+          "tool:mutation_guards"
         ],
         "provided_by": [
           "module:core"
@@ -8884,7 +9020,7 @@
       },
       "slug": "boot_alarm_ledger",
       "source": {
-        "fingerprint": "sha256:6793371885c4e05a5b5aeb4c6dd48d844d4e30e1b8f6e1f7abcb19d4d751da0f",
+        "fingerprint": "sha256:07d0f5c9e5405ccbd01ae7614358dea41e3b5c691d840f4eff18beaa44de93a3",
         "path": ".engine/tools/boot_alarm_ledger.py"
       },
       "status": "active",
@@ -9252,14 +9388,39 @@
     {
       "entrypoint": "cli",
       "guarded": false,
+      "id": "tool:candidate_invocation",
+      "name": ".engine/tools/memory/candidate_invocation.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "candidate_invocation",
+      "source": {
+        "fingerprint": "sha256:1702d308b90296db7736f1437bc2b8b253781f9a1e72524d6d9d67da6a7df9d6",
+        "path": ".engine/tools/memory/candidate_invocation.py"
+      },
+      "status": "active",
+      "summary": "Accepted helper that gives explicitly selected candidate code only one disposable target.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
       "id": "tool:capture",
       "name": ".engine/tools/memory/capture.py",
       "owner": "memory-substrate-sqlite-fts5",
       "predicates": {
         "imports": [
           "tool:close",
+          "tool:execution_context",
           "tool:index",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:providers",
           "tool:records",
           "tool:scrub"
@@ -9270,7 +9431,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:da1ca581f6efa4f3680cc1c13ae00b457d6f9d834a90e6423bafebb4cb7f61ef",
+        "fingerprint": "sha256:b2e5dd73ee3d466de12e9a0ee3ec977c2237868d6ce30fcf5bfcf83467b9c763",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -9333,6 +9494,7 @@
       "predicates": {
         "imports": [
           "tool:checkout_health",
+          "tool:mutation_authority",
           "tool:repo_identity",
           "tool:tune"
         ],
@@ -9342,7 +9504,7 @@
       },
       "slug": "checkout_auto_update",
       "source": {
-        "fingerprint": "sha256:b13d0ece0950696040cbcd1ea27887c7c1001f94750bd4510ae4c509b8d90929",
+        "fingerprint": "sha256:0cd20f2ca7253f9784447008c4485bc5c6d6d786e19c95e9fdec9b572389993d",
         "path": ".engine/tools/checkout_auto_update.py"
       },
       "status": "active",
@@ -9482,6 +9644,7 @@
           "tool:ledger",
           "tool:memory.__init__",
           "tool:moment",
+          "tool:mutation_authority",
           "tool:telemetry",
           "tool:validate"
         ],
@@ -9491,7 +9654,7 @@
       },
       "slug": "close",
       "source": {
-        "fingerprint": "sha256:8663342bd56a9d408ae43f54a249c8544b0710589acb3cf208ce40bca96283e5",
+        "fingerprint": "sha256:731991b6e6427bf95e20467ac957b2dca23d94af018534ce5c27f8919933cdd5",
         "path": ".engine/tools/close.py"
       },
       "status": "active",
@@ -9625,6 +9788,7 @@
           "tool:index",
           "tool:ledger",
           "tool:legacy_shapes",
+          "tool:mutation_authority",
           "tool:records"
         ],
         "provided_by": [
@@ -9633,7 +9797,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:b9d83104a6dd20d1fcba7edcca36a06530ca104eb032967dc8022e9968162803",
+        "fingerprint": "sha256:ba83845d704213db1ec43cd10da0705655639ba8490eea22d8418966fb5e96c1",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -11381,7 +11545,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:e944d36124992372da932b81b48b138808471a745a8c67f28cbbc687e06f1ac7",
+        "fingerprint": "sha256:fa8ba17ac39a3bf9bebebaa615be221c8ee022bb3f034c9cef2f7f9efd5966d4",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -11469,6 +11633,7 @@
           "tool:erasure_observer",
           "tool:forget",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:records",
           "tool:repo_identity",
           "tool:telemetry",
@@ -11480,7 +11645,7 @@
       },
       "slug": "erase",
       "source": {
-        "fingerprint": "sha256:c406511620f76c95a6183ac5fab77835af0d3c874eaa231058af1da46dd4a9d5",
+        "fingerprint": "sha256:2ea42f3e86b76cb0cb30ee805cac10d5de0ca334bb940f46c2ba435dec757d23",
         "path": ".engine/tools/memory/erase.py"
       },
       "status": "active",
@@ -11501,6 +11666,7 @@
           "tool:index",
           "tool:ledger",
           "tool:legacy_shapes",
+          "tool:mutation_authority",
           "tool:records",
           "tool:telemetry"
         ],
@@ -11510,11 +11676,31 @@
       },
       "slug": "erasure_observer",
       "source": {
-        "fingerprint": "sha256:7cdb6c0c38061a7524bcb08dce834823c28d24021ee5910e9c7a6f48d652ec0d",
+        "fingerprint": "sha256:999f2f08295a9e0b057dedf2a7d5570561adb707543574b7d71445456e1e47b5",
         "path": ".engine/tools/memory/erasure_observer.py"
       },
       "status": "active",
       "summary": "erasure_observer.py — the cross-session Layer-2 erasure OBSERVER (memory substrate).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:execution_context",
+      "name": ".engine/tools/memory/execution_context.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "execution_context",
+      "source": {
+        "fingerprint": "sha256:2a4d25ec0823ad131ae29d39a1eb74838bfd7517755a08305a2a80acc3bbd612",
+        "path": ".engine/tools/memory/execution_context.py"
+      },
+      "status": "active",
+      "summary": "Immutable persistent-state context and single-use operation capability.",
       "type": "tool"
     },
     {
@@ -11550,6 +11736,7 @@
       "predicates": {
         "imports": [
           "tool:index",
+          "tool:mutation_authority",
           "tool:recall"
         ],
         "provided_by": [
@@ -11558,7 +11745,7 @@
       },
       "slug": "export",
       "source": {
-        "fingerprint": "sha256:c9e2374cdb7672a2ceb73731fb1ed3ab789585cb60150c1c7e059345ab8983a8",
+        "fingerprint": "sha256:467191821b9fc8e0e7ba02fd3207c4db21bd2249a7b4d843fec7d494a01e9d65",
         "path": ".engine/tools/memory/export.py"
       },
       "status": "active",
@@ -11596,6 +11783,7 @@
           "tool:boot",
           "tool:github_client",
           "tool:module_coherence",
+          "tool:mutation_authority",
           "tool:repo_identity"
         ],
         "provided_by": [
@@ -11604,7 +11792,7 @@
       },
       "slug": "first_run_health",
       "source": {
-        "fingerprint": "sha256:eb73c44180eb5c8e2925c5e7111c6a6e823b5fec1b377bfa373fa6b869b0d733",
+        "fingerprint": "sha256:5ce34919c37503c566525f4d4c8b2dad154dfe1cb0a4b9a36a5a84f314cf6421",
         "path": ".engine/tools/first_run_health.py"
       },
       "status": "active",
@@ -11646,6 +11834,7 @@
           "tool:index",
           "tool:ledger",
           "tool:legacy_shapes",
+          "tool:mutation_authority",
           "tool:records"
         ],
         "provided_by": [
@@ -11654,7 +11843,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:48b92a81fe6e4e937a8a2504b9af51b3cadd02709a776088c012f16ed765e5e1",
+        "fingerprint": "sha256:217500cf4347ae28045447828e24c3d7000a3ffa6182859a2b8f3a3804bb7d7b",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -11740,7 +11929,7 @@
       },
       "slug": "hook-runner",
       "source": {
-        "fingerprint": "sha256:6ae0488a2a46ffe856516595611a0b789b70937b6b8b73543ac67d9217858de5",
+        "fingerprint": "sha256:d6be55bf4dbd9ed375a171d26d0a2ca355b619f78df712080242e50931211f9e",
         "path": ".engine/tools/hook-runner.sh"
       },
       "status": "active",
@@ -11755,6 +11944,7 @@
       "predicates": {
         "imports": [
           "tool:moment",
+          "tool:mutation_guards",
           "tool:providers",
           "tool:telemetry",
           "tool:validate"
@@ -11765,7 +11955,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:ba4b6988622950b21a00b143f0600cfbd1673933414f1b3355aebf2f1cf595c5",
+        "fingerprint": "sha256:7a0877ea2d1ae7b314432650d78648478cc5ce76ccf78cff603f40752d15a71c",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -11788,7 +11978,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:c69de219207a225751da64cec454cc6d913b08df50555508a23b1ad570f096c0",
+        "fingerprint": "sha256:4f63cfffa097e8bf68b878d7d4a279394f07bc4a0bd36433f5e472ab59cc1e6a",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -11828,6 +12018,7 @@
         "imports": [
           "tool:forget",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:records"
         ],
         "provided_by": [
@@ -11836,7 +12027,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:e9cd445fd8d2782e74518e78df660df9798ca27210bdd658e8cc16ebb0a25959",
+        "fingerprint": "sha256:0998919fdb0fc1a1ef54c5b2cc8305b6ab4dc29cdcbead94877af3c6638c8236",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -11860,6 +12051,7 @@
           "tool:module_catalog",
           "tool:module_coherence",
           "tool:module_manager",
+          "tool:mutation_guards",
           "tool:repo_behavior",
           "tool:repo_identity",
           "tool:security_floor",
@@ -11873,7 +12065,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:b34cc7f32637b877e76eb645509922d902f328b7dc24afac2bc6d5e2c9eaebd5",
+        "fingerprint": "sha256:311c0e20a4d70a8608afcacb99e55d66ca377b46ab065dc287cbe5141c6cd899",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12271,13 +12463,17 @@
       "name": ".engine/tools/memory/ledger.py",
       "owner": "memory-substrate-sqlite-fts5",
       "predicates": {
+        "imports": [
+          "tool:execution_context",
+          "tool:mutation_authority"
+        ],
         "provided_by": [
           "module:memory-substrate-sqlite-fts5"
         ]
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:872560cd0d708d127deff0a68fdc06ae640214e04d12e714899b39eeecb02adb",
+        "fingerprint": "sha256:2149c52b30d40e27a05f5c62d9b626a5f61a8adf3768239a3bda2c12a9e94598",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -12496,7 +12692,7 @@
       "type": "tool"
     },
     {
-      "entrypoint": "mcp-server",
+      "entrypoint": "cli",
       "guarded": false,
       "id": "tool:mcp_server",
       "name": ".engine/tools/memory/mcp_server.py",
@@ -12507,6 +12703,7 @@
           "tool:forget",
           "tool:index",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:pins",
           "tool:recall",
           "tool:records",
@@ -12518,7 +12715,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:749b2033cdd4a7a2a3134bff25d899064bc90e13e67c483f5346889f52ff2fae",
+        "fingerprint": "sha256:8789fa34bef294fe5d648faa98861a673da5282719eaa555344c7c25934c4145",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -12587,7 +12784,7 @@
       },
       "slug": "memory.__init__",
       "source": {
-        "fingerprint": "sha256:29c4f54ebe7df4a78c7e7e909889f5c7fe64e37779cf592ff073efb01f2405aa",
+        "fingerprint": "sha256:2aae798ce314938d74ad73ad6265aba460eef6d520f9ca3290c8b77f021a1e4f",
         "path": ".engine/tools/memory/__init__.py"
       },
       "status": "active",
@@ -12672,6 +12869,7 @@
           "tool:checkout_health",
           "tool:hooks",
           "tool:issue_gate",
+          "tool:mutation_authority",
           "tool:project_manager",
           "tool:providers"
         ],
@@ -12681,7 +12879,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:7b41ce8d2a4140626f6a8fb1bde08c2ab6c91cbb014d0aa5176e7735b0468597",
+        "fingerprint": "sha256:ff3f909d3a1eab2cd30d36a72e2080b50ea99aceb1bd482d76ceae3f18926af2",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -12781,6 +12979,7 @@
           "tool:derived_state",
           "tool:engine_write",
           "tool:github_client",
+          "tool:hooks",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_catalog",
@@ -12805,7 +13004,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:506ec476ad14a2ecbd5f814d7391b4292c3f30485ce562df352cdcff2b83610f",
+        "fingerprint": "sha256:9466ea0ad8623af9c946133b95f7fef3c80402fb3174b649254f97bb3b95b638",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -12879,6 +13078,73 @@
       },
       "status": "active",
       "summary": "moment.py — the engine's one home for a moment in time.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:mutation_authority",
+      "name": ".engine/tools/memory/mutation_authority.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:execution_context",
+          "tool:mutation_contract"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "mutation_authority",
+      "source": {
+        "fingerprint": "sha256:2062ded8884af44bbf2ac310299f0f961ab905eb2f6d8e08abdb67a19dc15be0",
+        "path": ".engine/tools/memory/mutation_authority.py"
+      },
+      "status": "active",
+      "summary": "Locked, context-bound authority for every persistent memory writer.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:mutation_contract",
+      "name": ".engine/tools/memory/mutation_contract.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "mutation_contract",
+      "source": {
+        "fingerprint": "sha256:f5c81c5283808fb8a405682a4d72fa5fdce09d3dcbe8b17ddd235d81460f6f75",
+        "path": ".engine/tools/memory/mutation_contract.py"
+      },
+      "status": "active",
+      "summary": "Canonical persistent-mutation inventory and fail-closed request classifier.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:mutation_guards",
+      "name": ".engine/tools/mutation_guards.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:mutation_authority"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "mutation_guards",
+      "source": {
+        "fingerprint": "sha256:47f053a57d83a72bc3639e44a144bd315a72d4d0d7225695be8383debf218825",
+        "path": ".engine/tools/mutation_guards.py"
+      },
+      "status": "active",
+      "summary": "Cycle-free root-tool adapter for the memory mutation authority.",
       "type": "tool"
     },
     {
@@ -13087,6 +13353,7 @@
           "tool:capture",
           "tool:forget",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:records",
           "tool:scrub"
         ],
@@ -13096,7 +13363,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:d40a0867dfe20c5b9a6904406e68b9e55c68bb821b6a40296619de835b9c3c2d",
+        "fingerprint": "sha256:21f260f2ef38b0da5eb06ddb3143e0736f7c0b6bf081646b7270088b3a7735df",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -13467,23 +13734,50 @@
       "type": "tool"
     },
     {
-      "entrypoint": "library",
+      "entrypoint": "cli",
       "guarded": true,
       "id": "tool:providers",
       "name": ".engine/tools/providers.py",
       "owner": "core",
       "predicates": {
+        "imports": [
+          "tool:mutation_guards"
+        ],
         "provided_by": [
           "module:core"
         ]
       },
       "slug": "providers",
       "source": {
-        "fingerprint": "sha256:0d28630f5453a0cbad3731e9707c57c6c058fcca1008aa0d5ab91bd8dbf340d4",
+        "fingerprint": "sha256:5cff2fbd75acc30119b5496ee9dfa115e6cc39694601d8edb9d7f4c9cf8c1a0e",
         "path": ".engine/tools/providers.py"
       },
       "status": "active",
       "summary": "Provider normalization — the ONE seam where AI-runtime differences are absorbed.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:qualification_health",
+      "name": ".engine/tools/memory/qualification_health.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:moment",
+          "tool:providers"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "qualification_health",
+      "source": {
+        "fingerprint": "sha256:8b24245dede5635848f5ec405c8874702cd8e568d8f983827b84d09d31b8d221",
+        "path": ".engine/tools/memory/qualification_health.py"
+      },
+      "status": "active",
+      "summary": "Bounded non-sensitive health for accepted-hook qualification and recovery.",
       "type": "tool"
     },
     {
@@ -13697,7 +13991,7 @@
       },
       "slug": "release_source",
       "source": {
-        "fingerprint": "sha256:3414267a95f3a990ab8033690d9bb821882ac09c3cb449b8831289b2b39619b6",
+        "fingerprint": "sha256:fed5ca2fed304f222c7f73dab20041a5b6b6b836e52d5af47ca7e4269b015c45",
         "path": ".engine/tools/release_source.py"
       },
       "status": "active",
@@ -13832,6 +14126,7 @@
           "tool:capture",
           "tool:index",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:scrub",
           "tool:store"
         ],
@@ -13841,7 +14136,7 @@
       },
       "slug": "rescrub",
       "source": {
-        "fingerprint": "sha256:9db51a0452b02f85ba790a6f5babbcf0fea11679c88b82d1d45503c6c1671fbf",
+        "fingerprint": "sha256:fc01fce4ad5d3b0e19091e7a95de528084a1599fc5adc70633833520388c4a18",
         "path": ".engine/tools/memory/rescrub.py"
       },
       "status": "active",
@@ -13865,6 +14160,7 @@
           "tool:ledger",
           "tool:ledger_migrations",
           "tool:module_manager",
+          "tool:mutation_authority",
           "tool:records",
           "tool:snapshot_format",
           "tool:telemetry",
@@ -13876,7 +14172,7 @@
       },
       "slug": "restore_vault",
       "source": {
-        "fingerprint": "sha256:500b3d635b0f337920fbe06d958d92492c8ec317c4e43065a8fb2f3cd7aeae81",
+        "fingerprint": "sha256:a01fd52d976344eb2c19373d318721f0925b06923466355febfdfcb9974eae78",
         "path": ".engine/tools/memory/restore_vault.py"
       },
       "status": "active",
@@ -14503,6 +14799,7 @@
           "tool:forget",
           "tool:index",
           "tool:ledger",
+          "tool:mutation_authority",
           "tool:recall",
           "tool:records"
         ],
@@ -14512,7 +14809,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:3e9e4152f8094666963da06feb32e8387c02c475c351a6b1433437a12f2a76ee",
+        "fingerprint": "sha256:770921a0eb2bf059b5824930286fbe67226e7cd58488cce7cd27e71f0378eb7b",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -14586,6 +14883,7 @@
           "tool:github_client",
           "tool:issue_author",
           "tool:moment",
+          "tool:mutation_authority",
           "tool:repo_identity",
           "tool:standing_situation",
           "tool:validate"
@@ -14596,7 +14894,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:bf437fdedabe8c968df0385666e0cc904def647ccb4876d71ec7048b99d76338",
+        "fingerprint": "sha256:b153ba4a667e86222bf83772e37eba2616fd22f18ba23bdbc2ffcbce5c9298af",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -15367,6 +15665,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_candidate_invocation",
+      "name": ".engine/tools/memory/test_candidate_invocation.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:accepted_hook_dispatch",
+          "tool:execution_context"
+        ]
+      },
+      "slug": "test_candidate_invocation",
+      "source": {
+        "fingerprint": "sha256:f6ff8415c340412a98db31365fc6a2ea4abcbb9b07ef41ed5921b53683c4ab5d",
+        "path": ".engine/tools/memory/test_candidate_invocation.py"
+      },
+      "status": "active",
+      "summary": "Disposable attended-candidate lane tests for issue #1151 S05.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_capture",
       "name": ".engine/tools/memory/test_capture.py",
       "owner": "memory-substrate-sqlite-fts5",
@@ -15384,7 +15706,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:05ced7067ce326d41aef3fc1003c0d8f67922856f233f37141b93737193b1745",
+        "fingerprint": "sha256:52f777dba1bace72383bd6e827ec7f48183b6795d560c3e8c41a99f17f5addaa",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -16010,7 +16332,7 @@
       },
       "slug": "test_engine_status",
       "source": {
-        "fingerprint": "sha256:bbebd96e3779110074c05c1440022a788396f64098382dc758103ccb7e46eff5",
+        "fingerprint": "sha256:ac03d161ffae2a9748d59350c9eae34d9f8fe5ef72e66276efcbf6d17a1f9ad9",
         "path": ".engine/tools/test_engine_status.py"
       },
       "status": "active",
@@ -16275,7 +16597,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:6c20a85580ac71e72901e58afde6bfd98e4a81cc43150a6ef9f7f2c78de73b36",
+        "fingerprint": "sha256:0dc0c6cfb76e783cabdfb42fa193d7986d7e2b16de4a474947f9619741c7d8e5",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -16364,6 +16686,7 @@
           "module:core"
         ],
         "tests": [
+          "tool:accepted_hook_dispatch",
           "tool:hooks",
           "tool:modes",
           "tool:telemetry",
@@ -16372,7 +16695,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:996af748cfdafcf0330317de2f699eff217da2f807d244572735cccd5086b22c",
+        "fingerprint": "sha256:754d0e29638c828f667d31b431d2027faf40c08653fc4873318429294a71284a",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -16395,7 +16718,7 @@
       },
       "slug": "test_hooks_path_health",
       "source": {
-        "fingerprint": "sha256:c7c6dd6126587947da3d4f8126351c74cb0df43a75bdb20629c74568984a1062",
+        "fingerprint": "sha256:2e4dffe741796038ce2f5599b06a826da258227ece28f296b9d7992e5b923e3c",
         "path": ".engine/tools/test_hooks_path_health.py"
       },
       "status": "active",
@@ -16475,7 +16798,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:1c84f72d8977586b41bcc7e2426fe994a60fdee25f5e6466d37a2b60068fd493",
+        "fingerprint": "sha256:b5fde2e286c3f3b92cc446bbb835b10998cc916fa154bf4d245c80dcef920c54",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -17070,6 +17393,7 @@
           "tool:ledger",
           "tool:mcp_server",
           "tool:mcp_test_support",
+          "tool:mutation_authority",
           "tool:pins",
           "tool:records",
           "tool:validate"
@@ -17077,7 +17401,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:9768ec291a5466bfb4f7ec20de327dfe37deacd3b50141574ccda6d3e535c8ae",
+        "fingerprint": "sha256:38b48512b0a484b6010926f1e51d370ca63fd55be665044341d5b157d7595368",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -17224,6 +17548,7 @@
           "tool:demo_599_upgrade_reconcile",
           "tool:demo_757_upgrade_reconciles_default_groups",
           "tool:demo_759_upgrade_installs_new_modules",
+          "tool:hooks",
           "tool:ledger",
           "tool:memory.__init__",
           "tool:module_coherence",
@@ -17242,7 +17567,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:b41bc9f99ce735a654fdf88231bbc6743ca8238aebfd5c91eb1734a2450d2bbf",
+        "fingerprint": "sha256:d57e65e95ea7eb0484210003ee978cd30f3ada8e48488333ded13ae81aeba55f",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -17297,7 +17622,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:5af4cfb2deb3f7a6c65be03a2471e73fd0656b55c6b9b0c16664c423c397f6d4",
+        "fingerprint": "sha256:82814f9d0abd37a58436c2edd4f893a3e35da0015e9ad51983ebd75019bd74a3",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -17326,6 +17651,62 @@
       },
       "status": "active",
       "summary": "Self-tests for moment.py — the engine's one time seam.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_mutation_authority",
+      "name": ".engine/tools/memory/test_mutation_authority.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:capture",
+          "tool:execution_context",
+          "tool:first_run_health",
+          "tool:ledger",
+          "tool:mutation_authority",
+          "tool:mutation_contract",
+          "tool:pins",
+          "tool:records"
+        ]
+      },
+      "slug": "test_mutation_authority",
+      "source": {
+        "fingerprint": "sha256:60fa03a98be9402ce2988e173e499c3c18a3740a4e3cd79779f76e30c29bde83",
+        "path": ".engine/tools/memory/test_mutation_authority.py"
+      },
+      "status": "active",
+      "summary": "Authority, under-lock drift, and converted-call-graph tests for issue #1151 S04.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_mutation_contract",
+      "name": ".engine/tools/memory/test_mutation_contract.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:accepted_hook_dispatch",
+          "tool:index",
+          "tool:ledger",
+          "tool:mutation_contract"
+        ]
+      },
+      "slug": "test_mutation_contract",
+      "source": {
+        "fingerprint": "sha256:65b9dc3de1f51f14457d4a0e6ca9bb29af6536704aa3db35e70a2b3fabb17f1b",
+        "path": ".engine/tools/memory/test_mutation_contract.py"
+      },
+      "status": "active",
+      "summary": "Coverage and refusal tests for the persistent mutation registry (issue #1151 S02).",
       "type": "tool"
     },
     {
@@ -17593,7 +17974,7 @@
       },
       "slug": "test_pins",
       "source": {
-        "fingerprint": "sha256:285827e2a49a6ba740de5ad44109e2cd4ec9e6f9d56f9c57bdd13471bd800043",
+        "fingerprint": "sha256:d51a551117009f4993f9c26e5a266fd9df8ab183d04a64e60214bb2c7a5a6ef0",
         "path": ".engine/tools/memory/test_pins.py"
       },
       "status": "active",

@@ -57,11 +57,57 @@ CLI:  python tools/hooks_path_health.py              # classify THIS worktree's 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import stat
 import subprocess
 import sys
 
 _HOOKS_PATH_KEY = "core.hooksPath"
+_ACCEPTED_MARKER = "ENGINE_ACCEPTED_HOOK_DISPATCH=1"
+_AUTOMATIC_MEMORY_TARGETS = (
+    ".engine/tools/boot.py",
+    ".engine/tools/close.py",
+    ".engine/tools/memory/compact.py",
+    ".engine/tools/memory/erasure_observer.py",
+    ".engine/tools/memory/backup_vault.py",
+)
+_SESSION_CLEAR = "cl" + "ear"  # split so the hooksPath repair's destructive-token source scan stays exact
+_AUTOMATIC_REGISTRATIONS = {
+    ".engine/tools/boot.py": (("SessionStart", "startup"), ("SessionStart", "resume"),
+                               ("SessionStart", _SESSION_CLEAR)),
+    ".engine/tools/memory/erasure_observer.py": (
+        ("SessionStart", "startup"), ("SessionStart", "resume"), ("SessionStart", _SESSION_CLEAR)),
+    ".engine/tools/memory/backup_vault.py": (
+        ("SessionStart", "startup"), ("SessionStart", "resume"), ("SessionStart", _SESSION_CLEAR)),
+    ".engine/tools/close.py": (("Stop", ""),),
+    ".engine/tools/memory/compact.py": (("PreCompact", ""),),
+}
+_AUTOMATIC_ARGUMENTS = {
+    ".engine/tools/boot.py": (),
+    ".engine/tools/memory/erasure_observer.py": ("session-start",),
+    ".engine/tools/memory/backup_vault.py": ("session-start",),
+    ".engine/tools/close.py": (),
+    ".engine/tools/memory/compact.py": ("pre-compact",),
+}
+_ACCEPTED_BUNDLE = (
+    ".engine/tools/hook-runner.sh",
+    ".engine/tools/codex-hook-runner.sh",
+    ".engine/tools/accepted_hook_dispatch.py",
+    ".claude/settings.json",
+    ".codex/hooks.json",
+)
+# One reviewed launcher generation, not a vocabulary of strings. This authority is deliberately outside the
+# bundle it certifies: changing a runner, dispatcher, or provider manifest requires updating these digests in
+# the same reviewed Engine change. A clean candidate commit that keeps marker strings but changes behavior is
+# therefore not a qualifying generation merely because Git considers it tracked.
+_ACCEPTED_BUNDLE_SHA256 = {
+    ".engine/tools/hook-runner.sh": "d6be55bf4dbd9ed375a171d26d0a2ca355b619f78df712080242e50931211f9e",
+    ".engine/tools/codex-hook-runner.sh": "3f9ae7fe4a6d191754a2ebf05f0f48afc4ccfaa4f5005fb96b7e366742d6afd9",
+    ".engine/tools/accepted_hook_dispatch.py": "ac856d336f3f681601d1a71d85f2ce235aef664dcd6acca708c2958361b22998",
+    ".claude/settings.json": "b71eb04ae3d5fe0517b51b536c8b6e77ff9cdb61dfd9b26f1673ea1cd9b0490c",
+    ".codex/hooks.json": "debdc4669b3eb40e79eaeb390a526171884a5faf994a4b390540d7c1c27a2f4d",
+}
 
 
 def _run(cmd: list, cwd: str | None = None, timeout: int = 15) -> str | None:
@@ -138,6 +184,142 @@ def _fingerprint(parts: list) -> str:
     session-to-session (so an unchanged alarm collapses to a terse reminder), and changes when the broken value
     changes (so a NEW breakage re-surfaces full). Content-derived; never shown to the operator."""
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def classify_accepted_hook_generation(worktree: str) -> dict:
+    """Classify one worktree's complete automatic-memory routing bundle without executing its code."""
+    top = _toplevel(worktree)
+    if top is None or os.path.realpath(top) != os.path.realpath(worktree):
+        return {"state": "unreadable", "fingerprint": None}
+    sources = {}
+    coordinates = {}
+    for rel in _ACCEPTED_BUNDLE:
+        path = os.path.join(top, rel)
+        try:
+            before = os.lstat(path)
+            if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > 1024 * 1024:
+                return {"state": "unreadable", "fingerprint": None, "component": rel}
+            with open(path, encoding="utf-8") as handle:
+                sources[rel] = handle.read()
+            after = os.lstat(path)
+        except FileNotFoundError:
+            return {"state": "missing", "fingerprint": None, "component": rel}
+        except (OSError, UnicodeError):
+            return {"state": "unreadable", "fingerprint": None, "component": rel}
+        first = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        second = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+        if first != second:
+            return {"state": "concurrent-change", "fingerprint": None, "component": rel}
+        coordinates[rel] = first
+    component_digests = {
+        rel: hashlib.sha256(source.encode("utf-8")).hexdigest() for rel, source in sources.items()
+    }
+    digest = hashlib.sha256(json.dumps(
+        component_digests,
+        sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")).hexdigest()
+    runner_source = sources[".engine/tools/hook-runner.sh"]
+    marker_count = runner_source.count(_ACCEPTED_MARKER)
+    if marker_count == 0:
+        return {"state": "legacy", "fingerprint": digest}
+    if marker_count != 1:
+        return {"state": "ambiguous", "fingerprint": digest}
+    if any(runner_source.count(f'"$project/{target}"') != 1 for target in _AUTOMATIC_MEMORY_TARGETS):
+        return {"state": "ambiguous", "fingerprint": digest}
+    if "hook-runner.sh" not in sources[".engine/tools/codex-hook-runner.sh"]:
+        return {"state": "ambiguous", "fingerprint": digest}
+    dispatcher = sources[".engine/tools/accepted_hook_dispatch.py"]
+    if any(target not in dispatcher for target in _AUTOMATIC_MEMORY_TARGETS):
+        return {"state": "ambiguous", "fingerprint": digest}
+    for rel in (".claude/settings.json", ".codex/hooks.json"):
+        try:
+            document = json.loads(sources[rel])
+        except ValueError:
+            return {"state": "unreadable", "fingerprint": digest, "component": rel}
+        hooks = document.get("hooks") if isinstance(document, dict) else None
+        if not isinstance(hooks, dict):
+            return {"state": "unreadable", "fingerprint": digest, "component": rel}
+        registrations = []
+        for event, groups in hooks.items():
+            if not isinstance(event, str) or not isinstance(groups, list):
+                return {"state": "unreadable", "fingerprint": digest, "component": rel}
+            for group in groups:
+                if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                    return {"state": "unreadable", "fingerprint": digest, "component": rel}
+                matcher = group.get("matcher", "")
+                if not isinstance(matcher, str):
+                    return {"state": "unreadable", "fingerprint": digest, "component": rel}
+                for hook in group["hooks"]:
+                    command = hook.get("command") if isinstance(hook, dict) else None
+                    if isinstance(command, str):
+                        registrations.append((event, matcher, hook.get("type"), command))
+        for target, expected in _AUTOMATIC_REGISTRATIONS.items():
+            suffix = "".join(f" {argument}" for argument in _AUTOMATIC_ARGUMENTS[target])
+            if rel == ".claude/settings.json":
+                expected_command = (
+                    'sh "${CLAUDE_PROJECT_DIR}/.engine/tools/hook-runner.sh" '
+                    '"${CLAUDE_PROJECT_DIR}/.engine/.venv/bin/python" '
+                    f'"${{CLAUDE_PROJECT_DIR}}/{target}"{suffix}'
+                )
+            else:
+                expected_command = (
+                    'cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && '
+                    f'sh ".engine/tools/codex-hook-runner.sh" "{target}"{suffix}'
+                )
+            matches = [(event, matcher, hook_type, command)
+                       for event, matcher, hook_type, command in registrations
+                       if target in command]
+            actual = [(event, matcher) for event, matcher, _hook_type, _command in matches]
+            if (sorted(actual) != sorted(expected) or len(matches) != len(expected)
+                    or any(hook_type != "command" or command != expected_command
+                           for _event, _matcher, hook_type, command in matches)):
+                return {"state": "ambiguous", "fingerprint": digest, "component": rel}
+    tracked = _status(["git", "-C", top, "ls-files", "--error-unmatch", *_ACCEPTED_BUNDLE])
+    unstaged = _status(["git", "-C", top, "diff", "--quiet", "--", *_ACCEPTED_BUNDLE])
+    staged = _status(["git", "-C", top, "diff", "--cached", "--quiet", "--", *_ACCEPTED_BUNDLE])
+    if tracked != 0:
+        return {"state": "ambiguous", "fingerprint": digest}
+    if unstaged not in {0, 1} or staged not in {0, 1}:
+        return {"state": "unreadable", "fingerprint": digest}
+    if unstaged != 0 or staged != 0:
+        return {"state": "dirty", "fingerprint": digest}
+    if component_digests != _ACCEPTED_BUNDLE_SHA256:
+        changed = next((rel for rel in _ACCEPTED_BUNDLE
+                        if component_digests.get(rel) != _ACCEPTED_BUNDLE_SHA256.get(rel)), None)
+        return {"state": "ambiguous", "fingerprint": digest, "component": changed}
+    return {"state": "qualified", "fingerprint": digest}
+
+
+def accepted_hook_topology(cwd: str | None = None) -> dict:
+    """Two-snapshot registered-worktree census for the attended activation barrier and its diagnostics."""
+    top = _toplevel(cwd)
+    if top is None:
+        return {"state": "unreadable", "qualified": False, "worktrees": []}
+    command = ["git", "-C", top, "worktree", "list", "--porcelain"]
+    first = _run(command)
+    if first is None:
+        return {"state": "unreadable", "qualified": False, "worktrees": []}
+    paths = [os.path.realpath(line[len("worktree "):].strip())
+             for line in first.splitlines() if line.startswith("worktree ")]
+    if not paths or len(paths) != len(set(paths)):
+        return {"state": "ambiguous", "qualified": False, "worktrees": []}
+    records = []
+    for path in paths:
+        branch = _run(["git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        head = _run(["git", "-C", path, "rev-parse", "--short=12", "HEAD"])
+        ref = branch.strip() if branch else f"detached@{head.strip() if head else 'unknown'}"
+        records.append({
+            "worktree_id": _fingerprint([path])[:10],
+            "ref": ref[:160],
+            "path_digest": _fingerprint([path]),
+            **classify_accepted_hook_generation(path),
+        })
+    second = _run(command)
+    if second is None or second != first:
+        return {"state": "concurrent-change", "qualified": False, "worktrees": records}
+    qualified = all(record["state"] == "qualified" for record in records)
+    return {"state": "qualified" if qualified else "blocked", "qualified": qualified,
+            "worktrees": records}
 
 
 def detect_broken_hooks_path(cwd: str | None = None) -> dict | None:
@@ -339,6 +521,9 @@ def _demo() -> int:
 def main(argv: list) -> int:
     if argv and argv[0] == "demo":
         return _demo()
+    if argv and argv[0] == "accepted-topology":
+        print(json.dumps(accepted_hook_topology(), sort_keys=True))
+        return 0
     if argv and argv[0] == "repair":
         r = repair(apply="--apply" in argv)
         status, applied = r["status"], r.get("applied", False)

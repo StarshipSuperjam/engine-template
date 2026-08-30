@@ -8,8 +8,12 @@ Throwaway `git init` repos in a TemporaryDirectory, git identity injected per-re
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
+import json
 import os
+import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -279,6 +283,159 @@ class TestRepair(unittest.TestCase):
             self.assertEqual(res["status"], "needs-manual")
             self.assertIsNotNone(hp.detect_broken_hooks_path(cwd=wt))  # still disabled
 
+
+class TestAcceptedHookTopology(unittest.TestCase):
+    RUNNER = pathlib.Path(hp.__file__).with_name("hook-runner.sh")
+    TOOLS = pathlib.Path(hp.__file__).parent
+    ROOT = TOOLS.parents[1]
+
+    def _commit_runner(self, root: str, source: str | None = None) -> None:
+        for rel in hp._ACCEPTED_BUNDLE:
+            target = pathlib.Path(root) / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.ROOT / rel, target)
+        if source is not None:
+            (pathlib.Path(root) / ".engine/tools/hook-runner.sh").write_text(source, encoding="utf-8")
+        _git(root, "add", *hp._ACCEPTED_BUNDLE)
+        _git(root, "commit", "-qm", "runner generation")
+
+    def _qualified_pair(self, tmp: str) -> tuple[str, str]:
+        main = _repo(tmp, "main")
+        self._commit_runner(main)
+        return main, _worktree(main, "linked")
+
+    def test_clean_qualified_registered_worktrees_pass_without_exposing_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main, linked = self._qualified_pair(tmp)
+            topology = hp.accepted_hook_topology(main)
+            self.assertTrue(topology["qualified"])
+            self.assertEqual(topology["state"], "qualified")
+            self.assertEqual(len(topology["worktrees"]), 2)
+            self.assertTrue(all(item["state"] == "qualified" for item in topology["worktrees"]))
+            rendered = repr(topology)
+            self.assertNotIn(main, rendered)
+            self.assertNotIn(linked, rendered)
+            self.assertTrue(all(item["ref"] for item in topology["worktrees"]))
+
+    def test_checked_in_generation_digests_match_the_exact_bundle(self):
+        actual = {
+            rel: hashlib.sha256((self.ROOT / rel).read_bytes()).hexdigest()
+            for rel in hp._ACCEPTED_BUNDLE
+        }
+        self.assertEqual(actual, hp._ACCEPTED_BUNDLE_SHA256)
+
+    def test_clean_committed_runner_that_exits_before_dispatch_is_not_a_qualified_generation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")
+            source = self.RUNNER.read_text(encoding="utf-8")
+            inert = "#!/bin/sh\nexit 0\n" + source
+            self._commit_runner(main, inert)
+            _worktree(main, "linked")
+            topology = hp.accepted_hook_topology(main)
+            self.assertFalse(topology["qualified"])
+            self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
+
+    def test_dirty_or_direct_routing_in_any_bundle_component_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main, linked = self._qualified_pair(tmp)
+            settings = pathlib.Path(linked) / ".codex/hooks.json"
+            document = json.loads(settings.read_text(encoding="utf-8"))
+            stop = document["hooks"]["Stop"][0]["hooks"][0]
+            stop["command"] = ".engine/.venv/bin/python .engine/tools/close.py"
+            settings.write_text(json.dumps(document), encoding="utf-8")
+            topology = hp.accepted_hook_topology(main)
+            self.assertFalse(topology["qualified"])
+            self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
+
+    def test_missing_one_required_event_matcher_registration_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main, linked = self._qualified_pair(tmp)
+            settings = pathlib.Path(linked) / ".codex/hooks.json"
+            document = json.loads(settings.read_text(encoding="utf-8"))
+            resume = next(group for group in document["hooks"]["SessionStart"]
+                          if group.get("matcher") == "resume")
+            resume["hooks"] = [hook for hook in resume["hooks"]
+                               if ".engine/tools/memory/backup_vault.py" not in hook.get("command", "")]
+            settings.write_text(json.dumps(document), encoding="utf-8")
+            topology = hp.accepted_hook_topology(main)
+            self.assertFalse(topology["qualified"])
+            self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
+
+    def test_inert_hook_type_or_wrong_target_arguments_block(self):
+        mutations = (
+            lambda hook: hook.__setitem__("type", "prompt"),
+            lambda hook: hook.__setitem__("command", hook["command"] + " wrong-argument"),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate), tempfile.TemporaryDirectory() as tmp:
+                main, linked = self._qualified_pair(tmp)
+                settings = pathlib.Path(linked) / ".codex/hooks.json"
+                document = json.loads(settings.read_text(encoding="utf-8"))
+                hook = document["hooks"]["Stop"][0]["hooks"][0]
+                mutate(hook)
+                settings.write_text(json.dumps(document), encoding="utf-8")
+                topology = hp.accepted_hook_topology(main)
+                self.assertFalse(topology["qualified"])
+                self.assertIn("ambiguous", {item["state"] for item in topology["worktrees"]})
+
+    def test_dirty_missing_ambiguous_and_unreadable_runner_each_block(self):
+        mutations = {
+            "dirty": lambda path: path.write_text(path.read_text(encoding="utf-8") + "\n# dirty\n",
+                                                   encoding="utf-8"),
+            "missing": lambda path: path.unlink(),
+            "ambiguous": lambda path: path.write_text(
+                path.read_text(encoding="utf-8") + "\n# ENGINE_ACCEPTED_HOOK_DISPATCH=1\n",
+                encoding="utf-8"),
+            "unreadable": lambda path: (path.unlink(), path.symlink_to(os.devnull)),
+        }
+        for expected, mutate in mutations.items():
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                main, linked = self._qualified_pair(tmp)
+                runner = pathlib.Path(linked) / ".engine/tools/hook-runner.sh"
+                mutate(runner)
+                topology = hp.accepted_hook_topology(main)
+                self.assertFalse(topology["qualified"])
+                self.assertIn(expected, {item["state"] for item in topology["worktrees"]})
+
+    def test_untouched_prefix_generation_blocks_until_retired_then_recreated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = _repo(tmp, "main")
+            self._commit_runner(main, "#!/bin/sh\nexit 0\n")
+            legacy = _worktree(main, "untouched-legacy")
+            self._commit_runner(main)
+            blocked = hp.accepted_hook_topology(main)
+            self.assertFalse(blocked["qualified"])
+            self.assertIn("legacy", {item["state"] for item in blocked["worktrees"]})
+
+            removed = _git(main, "worktree", "remove", legacy)
+            self.assertEqual(removed.returncode, 0, removed.stderr)
+            recreated = _worktree(main, "recreated")
+            qualified = hp.accepted_hook_topology(main)
+            self.assertTrue(qualified["qualified"])
+            self.assertNotIn(legacy, repr(qualified))
+            self.assertNotIn(recreated, repr(qualified))
+
+    def test_duplicate_or_concurrently_changed_worktree_census_blocks(self):
+        first = "worktree /fixture/main\n\n"
+        with mock.patch.object(hp, "_toplevel", return_value="/fixture/main"), \
+                mock.patch.object(hp, "classify_accepted_hook_generation",
+                                  return_value={"state": "qualified", "fingerprint": "a" * 64}), \
+                mock.patch.object(hp, "_run", side_effect=[
+                    first, "main\n", "a" * 12 + "\n", first + "worktree /fixture/new\n\n",
+                ]):
+            changed = hp.accepted_hook_topology("/fixture/main")
+        self.assertEqual(changed["state"], "concurrent-change")
+        self.assertFalse(changed["qualified"])
+
+        duplicate = "worktree /fixture/main\n\nworktree /fixture/main\n\n"
+        with mock.patch.object(hp, "_toplevel", return_value="/fixture/main"), \
+                mock.patch.object(hp, "_run", return_value=duplicate):
+            ambiguous = hp.accepted_hook_topology("/fixture/main")
+        self.assertEqual(ambiguous["state"], "ambiguous")
+        self.assertFalse(ambiguous["qualified"])
+
+
+class TestRepairResidualScopes(unittest.TestCase):
     def test_local_then_global_reports_needs_manual(self):
         # A broken absolute LOCAL value masking a broken GLOBAL value: unsetting local is correct, but the now
         # effective global value is still broken -> needs-manual, not "fixed".

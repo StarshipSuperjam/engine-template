@@ -67,6 +67,70 @@ if [ ! -x "$interp" ] && [ "$venv" != "$interp" ] && [ -x "$alt" ]; then
     interp="$alt"
 fi
 if [ -x "$interp" ]; then
+    # ENGINE_ACCEPTED_HOOK_DISPATCH=1 — rollout/activation scans this exact marker in every registered
+    # worktree. Only memory-bearing automatic targets enter the accepted-code boundary; all other hooks
+    # retain their byte-for-byte argv path. Derive the project from the already-qualified venv path rather
+    # than cwd, then start even the small candidate bootstrap with isolated Python startup. The bootstrap
+    # admits only these exact targets and starts a second isolated interpreter from the activated exact tree.
+    project="${venv%/.engine/.venv}"
+    script="$1"
+    qualified_script=""
+    case "$script" in
+        "$project/.engine/tools/boot.py"|\
+        "$project/.engine/tools/close.py"|\
+        "$project/.engine/tools/memory/compact.py"|\
+        "$project/.engine/tools/memory/erasure_observer.py"|\
+        "$project/.engine/tools/memory/backup_vault.py")
+            dispatcher="$project/.engine/tools/accepted_hook_dispatch.py"
+            if [ ! -f "$dispatcher" ]; then
+                printf '%s\n' "Engine memory mutation skipped: the accepted-code dispatcher is absent. This did not block the host action." >&2
+                health="$project/.engine/tools/memory/qualification_health.py"
+                if [ -f "$health" ]; then
+                    "$interp" -I -S "$health" skipped --root "$project" --script "$script" \
+                        --reason-code accepted-dispatcher-absent || true
+                fi
+                exit 1
+            fi
+            # The dispatcher receives the absolute candidate path, while the bounded health vocabulary is
+            # deliberately repository-relative and closed over the automatic roster. Keep both forms explicit.
+            qualified_script="${script#"$project/"}"
+            shift
+            set -- -I -S "$dispatcher" run --root "$project" --script "$script" -- "$@"
+            ;;
+    esac
+    if [ -n "$qualified_script" ]; then
+        # The accepted dispatcher preserves legitimate target exit codes, so the launcher classifies only its
+        # fixed qualification-refusal prefix. Capture stderr in one owner-only transient file, replay it
+        # byte-for-byte, then remove it. This lets a target's ordinary exit 1/2 pass through unchanged while a
+        # provenance refusal updates the bounded health record outside canonical memory. Health is best-effort:
+        # it can never alter the hook's original exit status or stdout contract.
+        cache_dir="$project/.engine/telemetry/.cache"
+        umask 077
+        if mkdir -p "$cache_dir" 2>/dev/null; then
+            err_file="$(mktemp "$cache_dir/.accepted-dispatch-stderr.XXXXXX" 2>/dev/null)"
+        else
+            err_file=""
+        fi
+        if [ -z "$err_file" ]; then
+            exec "$interp" "$@"
+        fi
+        trap 'rm -f "$err_file"' 0 HUP INT TERM
+        "$interp" "$@" 2>"$err_file"
+        hook_status=$?
+        cat "$err_file" >&2
+        health="$project/.engine/tools/memory/qualification_health.py"
+        if [ -f "$health" ]; then
+            if grep -q '^Engine memory mutation skipped:' "$err_file"; then
+                "$interp" -I -S "$health" skipped --root "$project" --script "$qualified_script" \
+                    --reason-code accepted-dispatch-refused || true
+            elif [ "$hook_status" -eq 0 ]; then
+                "$interp" -I -S "$health" qualified --root "$project" --script "$qualified_script" || true
+            fi
+        fi
+        rm -f "$err_file"
+        trap - 0 HUP INT TERM
+        exit "$hook_status"
+    fi
     exec "$interp" "$@"
 fi
 # Neither the POSIX nor the Windows venv interpreter appeared within the wait bound (issue StarshipSuperjam/engine-template#83's

@@ -27,8 +27,11 @@ of every routine fire; the build's actual work follows the distributed-implement
    here. If the non-interactive posture is unavailable to the run, report
    it plainly in the run output and stop (again a visible-in-app refusal, no Issue). If an action *mid-build*
    would need an approval this run cannot give, that is a blocker — go to step 7.
-3. **Enter the Routine write-stance.** Run
-   `uv run --directory .engine --frozen -- python tools/modes.py set-routine --session "${CLAUDE_CODE_SESSION_ID}"`.
+3. **Enter the Routine write-stance.** First run `uv run --directory .engine --frozen -- python
+   tools/accepted_hook_dispatch.py inspect --root ..`. An unattended Routine may consume an accepted activation
+   but never advance one. If it is absent, stale, or inconsistent, report that an attended Engine Start must run
+   `accepted_hook_dispatch.py ensure` first, and stop without writing. Otherwise run
+   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/modes.py --operation session-stance-write -- set-routine --session "${CLAUDE_CODE_SESSION_ID}"`.
    `set-routine` grants the
    unattended write-stance ONLY when it can prove this run is in a dedicated worktree, never the operator's
    checkout — the never-strand-main floor, enforced here at entry rather than by prose. If it declines (not an
