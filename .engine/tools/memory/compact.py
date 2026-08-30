@@ -1002,7 +1002,9 @@ def _pre_compact_handler(payload) -> dict:
     return hooks.proceed()
 
 
-_UNENACTED_MARKS = ("attending", "qualified to write memory", "no accepted execution context")
+# Compaction no longer refuses for want of attendance — see `_ATTENDED_RECOVERIES` — so what is left to
+# report is the qualification refusal and the raw context failure behind it.
+_UNENACTED_MARKS = ("qualified to write memory", "no accepted execution context")
 
 
 def unenacted_warning(report) -> "str | None":
@@ -1017,8 +1019,8 @@ def unenacted_warning(report) -> "str | None":
     if not any(mark in detail for mark in _UNENACTED_MARKS):
         return None
     return ("Engine memory housekeeping did not run: this session is not qualified to write memory yet. "
-            "Nothing was changed, and any approved erasure is still pending. Qualification converges by "
-            "itself at a session start that can reach GitHub, and the erasure is carried out then.")
+            "Nothing was changed, and any approved erasure is still pending until a session start that can "
+            "reach GitHub, which is when it is carried out.")
 
 
 def main(argv: list) -> int:

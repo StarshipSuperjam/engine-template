@@ -310,7 +310,10 @@ class TestDegradedTiering(unittest.TestCase):
             with self.subTest(entry_id):
                 entry = contract.entry_by_id(entry_id)
                 self.assertEqual(contract.degraded_disposition(entry), "refuse")
-        # …while READING through them is untouched: recall is a semantic-read and stays allowed.
+        # …while READING through them is untouched. Both recall boundaries are registered against an index
+        # target only because they MAY heal a stale index on the way past; the healing writer is nested and
+        # re-tiered on its own entry, so it refuses, `_heal_if_stale` swallows that, and the read falls
+        # through to the ledger scan. Refusing these by target instead would take recall down — #1153 again.
         for entry_id in ("attended-keyword-mcp-search", "attended-semantic-mcp-search"):
             with self.subTest(entry_id):
                 self.assertEqual(contract.degraded_disposition(contract.entry_by_id(entry_id)), "allow")
@@ -343,9 +346,11 @@ class TestAttendedOnlyRecordRewrites(unittest.TestCase):
                                  measured_cardinality=1, schema_cutover=entry["schema_cutover"])
 
     def test_an_automatic_wholesale_rescrub_is_refused_even_with_everything_else_in_order(self):
-        with self.assertRaises(contract.MutationContractError) as caught:
+        with self.assertRaises(contract.MutationContractError):
             self._classify("attended-rescrub", "automatic")
-        self.assertIn("attending", str(caught.exception))
+        # …and the ATTENDANCE rule is what refuses it independently of its declared invocation modes, which
+        # is the property this class is about rather than the mode declaration.
+        self.assertTrue(contract._needs_attendance(contract.entry_by_id("attended-rescrub")))
 
     def test_the_same_rescrub_is_permitted_when_attended_and_returns_its_entry(self):
         entry = self._classify("attended-rescrub", "attended")
@@ -400,8 +405,8 @@ class TestPreCompactBoundedWarning(unittest.TestCase):
 
     def test_a_refusal_produces_one_bounded_sentence(self):
         warning = self._warn({"status": "skipped", "folded": 0, "pruned": 0,
-                              "reason": "writer memory.compact.compact rewrites canonical memory and runs "
-                                        "only when someone is attending"})
+                              "reason": "memory.compact.compact needs this session to be qualified to write "
+                                        "memory, and it isn't yet"})
         self.assertIsNotNone(warning)
         self.assertLess(len(warning), 300)
         self.assertEqual(warning.count("."), 2)

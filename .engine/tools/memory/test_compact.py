@@ -511,8 +511,10 @@ class RecoveryReadinessTests(_Base):
     """
 
     def _dirty_ledger(self):
-        for n in range(14):
-            self._episodic(f"fold me {n}", age_days=400)
+        """Enough foldable markers that `maybe_compact`'s waste gate actually fires, not just enough records."""
+        record = self._episodic("fold me")
+        for _ in range(compact._COMPACT_WASTE_THRESHOLD + 4):
+            ledger.append(legacy.reinforcement(record[records.RECORD_ID_KEY]))
 
     def _bytes(self):
         with open(ledger.ledger_path(), "rb") as handle:

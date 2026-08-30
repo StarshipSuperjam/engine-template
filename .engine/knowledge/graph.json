@@ -9800,7 +9800,7 @@
       },
       "slug": "compact",
       "source": {
-        "fingerprint": "sha256:c4492c3ec77c8285465793abbd2e3ec29b160e2fa36bda6330c63173e1a1f04b",
+        "fingerprint": "sha256:8d58239e4ae4cab57af0d682a6b17aeddbfc3333fdbc3ec0fbe2563e5ca04704",
         "path": ".engine/tools/memory/compact.py"
       },
       "status": "active",
@@ -13146,7 +13146,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:d8012e251291c1868f2ebdadac341010cb610ef8eb4bcd92b2067b2d1270037e",
+        "fingerprint": "sha256:27b817dab05de7d6148c4b42f50804f10b54d75c16bc3338201329fee49f42f5",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -17781,7 +17781,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:c82a91b3268b19ef4eefc79abf57e154494b948a5bf44aa0dcd6c77fc4442945",
+        "fingerprint": "sha256:d286ee50900e3bdcd7093eff8160789e8a80fcb97077abc9675f84c212647710",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",
