@@ -312,7 +312,7 @@ class Rendering(_Program):
         self.assertIn("pln_aaaaaaaaaaaa", rendered)
         self.assertIn("OB-1", rendered)
         self.assertIn("OB-2", rendered)
-        self.assertIn("None of them can be dropped by saying nothing", rendered)
+        self.assertIn("None can be dropped by saying nothing", rendered)
 
     def test_a_program_with_nothing_outstanding_says_so(self):
         slug = self._program("Small program", "One PR after all.")
@@ -1294,6 +1294,10 @@ class ReplacementInPlace(_Program):
         return slug
 
     def _retire(self, plan_id, reason="replaced"):
+        """The supersede target's half-state — sealed first, because supersede now refuses an
+        unsealed target, and for two rounds these fixtures modelled supersessions of plans that
+        could never legitimately have been superseded."""
+        self._seal(plan_id)
         self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
             "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": reason}}))
 
@@ -1657,6 +1661,13 @@ class EndsThatSettleTheirBooks(_Program):
     them are labelled as new capability rather than dressed up as repairs.
     """
 
+    def _seal_plan(self, plan_id):
+        plan_slug = self.plans.resolve(plan_id)
+        digest = self.plans.read_record(plan_slug)["current"]["plan_digest"]
+        self.plans.update_record(plan_slug, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z", "delta_judgment": "none"}}))
+
     def _retire_plan(self, plan_id):
         self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
             "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "stopped"}}))
@@ -1912,6 +1923,7 @@ class EndsThatSettleTheirBooks(_Program):
         self._plan("pln_0000000000ba", "Child A")
         self.programs.add_child(slug, "pln_0000000000ba")
         self._plan("pln_0000000000bb", "Replacement for A")
+        self._seal_plan("pln_0000000000ba")
         self._retire_plan("pln_0000000000ba")
         self.programs.mark_superseded(slug, "pln_0000000000ba", "pln_0000000000bb")
         self._complete_plan("pln_0000000000bb")
@@ -1942,6 +1954,7 @@ class EndsThatSettleTheirBooks(_Program):
         self._plan("pln_0000000000ba", "Child A")
         self.programs.add_child(slug, "pln_0000000000ba")
         self._plan("pln_0000000000bb", "Replacement for A")
+        self._seal_plan("pln_0000000000ba")
         self._retire_plan("pln_0000000000ba")
         self.programs.mark_superseded(slug, "pln_0000000000ba", "pln_0000000000bb")
         self._complete_plan("pln_0000000000bb")
@@ -1989,6 +2002,13 @@ class EndsThatSettleTheirBooks(_Program):
         report = self.programs.obligation_report(record)
         self.assertEqual([o["id"] for o in report["obligations"]], ["OB-LATE"])
         self.assertIn("OB-LATE", str(report["by_leaf"].get("pln_00000000000f")))
+        # The render tells the truth about WHERE it sits — mid-chain, not a branch end — and
+        # names the one door that opens; the end-shaped sentence would be a lie printed three
+        # lines under the table contradicting it.
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("MID-CHAIN", rendered)
+        self.assertIn("program release", rendered)
+        self.assertNotIn("where that branch currently ends", rendered)
         # Both closure gates refuse over it, naming the door that opens.
         with self.assertRaisesRegex(plan_program.ProgramError, "OB-LATE") as caught:
             self.programs.close(slug, "retired", "setting it down")
@@ -2001,6 +2021,20 @@ class EndsThatSettleTheirBooks(_Program):
                               "the successor sealed before this was minted; nothing can answer it")
         self.assertEqual(
             self.programs.close(slug, "retired", "setting it down")["closure"]["state"], "retired")
+
+    def test_release_fails_closed_when_a_successor_cannot_be_told(self):
+        """Missing is not "unable to answer" — it may be a revisable draft behind a broken record,
+        and this verb exists to be the hard door."""
+        slug = self._program("Untellable", "A successor the library does not hold.")
+        self._plan("pln_00000000000f", "Child one", _obligation("OB-1", "Carried forward."))
+        self.programs.add_child(slug, "pln_00000000000f")
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_00000000009f",
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_00000000000f"})
+        self.programs._write(slug, record)
+        with self.assertRaisesRegex(plan_program.ProgramError, "cannot be told"):
+            self.programs.release(slug, "pln_00000000000f", "OB-1", "trying over a broken record")
 
     def test_release_still_refuses_while_an_unsealed_successor_could_answer(self):
         """The narrowing is exactly "sealed cannot answer" — a revisable successor still must."""
@@ -2291,6 +2325,14 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
         if status == "active":
             self.assertIn("Build", message,
                           "an active plan's refusal must say the Build has to stop first")
+            # The word ABANDON being present is not the same as the routes being sound: a message
+            # can state the precondition and STILL route the merge outcome at supersede, which
+            # refuses a complete target flat. A reviewer passed the old detector exactly that
+            # message. The merge route must never continue into supersede.
+            self.assertNotRegex(
+                message, r"(?is)MERGE\b(?:(?!program add --after).)*\bsupersede",
+                "the merge route ends at appended work; routing it onward into supersede sends "
+                f"the operator at a door that refuses a complete plan:\n{message}")
         if status == "complete":
             self.assertIn("program add --after", message,
                           "merged history is corrected by appended work, and nothing else opens; "
@@ -2314,6 +2356,16 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
                     self.programs.insert_child(slug, newcomer, before=displaced)
                 except plan_program.ProgramError as refusal:
                     self._assert_no_dead_end(str(refusal), displaced, status)
+                else:
+                    # A row that raises nothing must assert the ALTERNATIVE guarantee, or it is a
+                    # vacuous pass — which two rows of this matrix silently were for a round: a
+                    # dead displaced child skips edge two by design, and the debt is then owed at
+                    # the inserted plan itself, the new live end of that branch.
+                    self.assertIn(status, ("retired", "abandoned"),
+                                  f"insert quietly accepted a displaced child in status {status}")
+                    report = self.programs.obligation_report(self.programs.read(slug))
+                    self.assertIn("OB-NEW", [o["id"] for o in report["obligations"]],
+                                  "the newcomer's debt must survive at the live end")
 
     def test_supersedes_edge_two_refusal_never_names_a_door_that_would_refuse(self):
         for index, status in enumerate(self.STATUSES):
@@ -2332,7 +2384,15 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
                 self._put_in_status(downstream, status)
                 self._plan(replacement, "Replacement",
                            _obligation("OB-NEW", "Whoever follows must answer for this."))
-                self.plans.update_record(self.plans.resolve(target), lambda r: r.update({"closure": {
+                # The target is sealed then retired — the only shape a real supersession leaves,
+                # now that an unsealed target is refused before edge two is ever examined.
+                target_slug = self.plans.resolve(target)
+                digest = self.plans.read_record(target_slug)["current"]["plan_digest"]
+                self.plans.update_record(target_slug, lambda r: r.update({"seal": {
+                    "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+                    "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z",
+                    "delta_judgment": "none"}}))
+                self.plans.update_record(target_slug, lambda r: r.update({"closure": {
                     "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "replaced"}}))
                 try:
                     self.programs.mark_superseded(slug, target, replacement)
@@ -2355,3 +2415,13 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
             self._assert_no_dead_end(also_wrong, "pln_x", "active")
         # And supersede named for a COMPLETE plan is a dead end no precondition can open.
         self.assertIsNone(self.PRECONDITION["complete"])
+        # A reviewer defeated the round-three guard with this: the magic word present, the defect
+        # verbatim. The detector now reads the ROUTE — merge must never continue into supersede —
+        # so the spelling alone no longer buys a pass.
+        still_wrong = ("A Build is bound to pln_x right now. ABANDON that Build, or let it MERGE, "
+                       "and then supersede pln_x with a plan that answers.")
+        with self.assertRaises(AssertionError):
+            self._assert_no_dead_end(still_wrong, "pln_x", "active")
+        # While the actual shipped message — two routes, each ending at its own open door — passes.
+        sound = plan_program.way_through_for("pln_x", "active", True)
+        self._assert_no_dead_end(sound, "pln_x", "active")

@@ -303,8 +303,9 @@ def scene_four_replacement():
     check("the replaced plan stays visible in the record — history is never deleted",
           "The wrong shape" in rendered and f"superseded by `{clone_id}`" in rendered)
     code, _, err = run("reopen", "pln_0000000000e2")
-    check("and it cannot be brought back into play: reopening a superseded plan is refused",
-          code != 0 and "superseded" in err, err.strip().splitlines()[0])
+    check("and it cannot be brought back into play: reopening it is refused",
+          code != 0 and ("seal is terminal" in err or "superseded" in err),
+          err.strip().splitlines()[0])
 
 
 def scene_five_objective():

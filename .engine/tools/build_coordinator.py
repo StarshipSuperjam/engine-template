@@ -1122,14 +1122,22 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
 
         def mark(current):
             closure = current.get("closure")
+            entries = current.get("consent") or []
+            already_attested = consent and any(
+                entry.get("gate") == consent.get("gate")
+                and entry.get("decision") == consent.get("decision") for entry in entries)
             if closure:
                 raise CoordinatorError(
                     f"{plan_id} was closed ({closure['state']}: {closure['reason']}) while this "
                     "bind was being prepared, and a closed plan does not start a Build. Nothing "
-                    "was bound. If the closure is a mistake, address it first; otherwise build "
-                    "the plan that replaced this one.")
+                    "was bound. If the closure is a mistake and the plan is unsealed, `reopen` "
+                    "undoes it; a sealed plan's closure is permanent — clone it into a new plan, "
+                    "or build its replacement if one exists.")
             current["build_binding"] = binding
-            if consent:
+            # Idempotent per (gate, decision): a crash-retry of the same bind re-writes the marker
+            # but must not record the operator saying the same thing twice — the consent trail is
+            # published verbatim into the pull request body, where a duplicate reads as two acts.
+            if consent and not already_attested:
                 current.setdefault("consent", []).append(consent)
 
         library.update_record(slug, mark, expected_revision=record["current"]["revision"])
@@ -1248,6 +1256,17 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
     # Build whose approval, receipts, findings and progress were reconstructed by hand.
     if store is None:
         store = build_state_store.store_for_plan(plan_id, _state_schema_for, library=_library())
+    # The refusal `store.create` would raise is asserted HERE, before the binding write. Two cold
+    # reviewers independently proved the alternative: with the write first, a plain operator retry —
+    # bind again over an existing Build — rewrote `build_binding` to a PR that carries no Build and
+    # appended a consent attestation for a bind that was then refused. A refused command must leave
+    # nothing behind. (A crash BETWEEN the binding write and `create` still converges: the snapshot
+    # does not exist yet, so this check passes on the re-run and the same binding is rewritten.)
+    if store.path.exists():
+        raise CoordinatorError(
+            f"a durable Build snapshot already exists at {store.path} — this plan's Build is "
+            "already bound. Resume it (`status`, or `handoff export`) rather than re-binding; "
+            "nothing was written.")
     _record_build_binding(plan_id, args.repository, args.pr, sealed_digest, state["plan"]["digest"],
                           consent)
     store.create(state)
@@ -1458,9 +1477,35 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
             {"reviewed_plan_digest": previous_digest, "plan_digest": _digest(successor),
              "operator_change": f"adopted sealed successor {successor_id}: {args.operator_decision}"})
 
+    # The successor's binding lands first so the Build never runs on an unbound plan — but adoption
+    # involves TWO records, and a `mutate` that then refuses (a revision race, a validation failure)
+    # must not leave the successor marked bound to a Build that never switched onto it. So the prior
+    # binding state is captured, and a failed mutate restores it before the refusal propagates. If
+    # the restore itself fails, that is said out loud with the exact repair, never swallowed.
+    successor_slug = _library().resolve(successor_id)
+    previous_record = _library().read_record(successor_slug)
+    previous_binding = previous_record.get("build_binding")
+    previous_consent = list(previous_record.get("consent") or [])
     _record_build_binding(successor_id, state["build"]["repository"], state["build"]["pr"],
                           sealed_digest, _digest(successor), consent)
-    store.mutate(change, from_revision=state["revision"])
+    try:
+        store.mutate(change, from_revision=state["revision"])
+    except BaseException:
+        try:
+            def unmark(current):
+                current["build_binding"] = previous_binding
+                # The consent attestation rode in with the binding write; an adoption that then
+                # refused is an act that did not happen, and the trail must not say it did.
+                current["consent"] = previous_consent or None
+                if current["consent"] is None:
+                    current.pop("consent", None)
+            _library().update_record(successor_slug, unmark)
+        except Exception as rollback_exc:  # noqa: BLE001 — disclosed with the exact repair
+            print(f"build-coordinator: the adoption failed AND the successor's binding could not be "
+                  f"restored ({rollback_exc}) — {successor_id} is marked bound to a Build that is "
+                  "still on its predecessor. Repair by re-running this adopt, or clear the marker "
+                  "by completing/abandoning through the ordinary verbs.", file=sys.stderr)
+        raise
     preserved = sorted(keep)
     print(f"adopted sealed successor {successor_id}; the Build continues on PR "
           f"{state['build']['pr']} with its binding intact")

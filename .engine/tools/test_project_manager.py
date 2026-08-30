@@ -1191,7 +1191,7 @@ class ProgramVerbs(_Governed):
     def test_the_verb_reports_what_the_next_child_now_owes(self):
         program_id = self._program_with_child()
         out = self.run_command("program", "show", program_id)[1]
-        self.assertIn("None of them can be dropped by saying nothing", out)
+        self.assertIn("None can be dropped by saying nothing", out)
 
     def _plan_doc(self, program_id, plan_id, title, *obligations, predecessor=None):
         document = _document(plan_id=plan_id, title=title)
@@ -1387,6 +1387,74 @@ class ProgramVerbs(_Governed):
         self.assertEqual(self.run_command("program", "reopen", program_id,
                                           "--reason", "PR B is back on")[0], 0)
         self.assertEqual(self.run_command("reopen", "pln_bbbbbbbbbbbb")[0], 0)
+
+    def test_supersede_refuses_an_ordinarily_retired_unsealed_draft(self):
+        """The two-step dodge a reviewer proved: retire a draft for unrelated reasons, then
+        supersede it — the closure used to exempt the target from the seal requirement, so a plan
+        that was never terminal got marked replaced, with `reopen` refusing it forever after."""
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B, a draft",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self.assertEqual(self.run_command("retire", "pln_bbbbbbbbbbbb",
+                                          "--reason", "just tidying up")[0], 0)
+        self._plan_doc(program_id, "pln_cccccccccccc", "A replacement",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                        "--with", "pln_cccccccccccc", "--reason", "sneaking past?")
+        self.assertEqual(code, 2)
+        self.assertIn("not sealed", err)
+        record = plan_program.ProgramLibrary(self.lib).read(
+            plan_program.ProgramLibrary(self.lib).resolve(program_id))
+        self.assertIsNone(next(c for c in record["children"]
+                               if c["plan_id"] == "pln_bbbbbbbbbbbb").get("superseded_by"))
+        # And the draft is still reopenable — its closure was ordinary bookkeeping all along.
+        self.assertEqual(self.run_command("reopen", "pln_bbbbbbbbbbbb")[0], 0)
+
+    def test_reopen_fails_closed_when_a_program_record_naming_the_plan_will_not_read(self):
+        """A record that cannot be read might mark this child superseded or its program complete;
+        skipping it silently was the one fail-open on this file's governance surface."""
+        program_id = self._program_with_child()
+        self.assertEqual(self.run_command("retire", "pln_aaaaaaaaaaaa",
+                                          "--reason", "set aside")[0], 0)
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.resolve(program_id)
+        path = programs.program_dir(slug) / "record.json"
+        record = json.loads(path.read_text())
+        record["a_field_this_schema_does_not_know"] = True
+        path.write_text(json.dumps(record), encoding="utf-8")
+        code, _, err = self.run_command("reopen", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be read", err)
+        self.assertEqual(self.lib.read_record(
+            self.lib.resolve("pln_aaaaaaaaaaaa"))["closure"]["state"], "retired")
+        # Repair the record and the same reopen goes through.
+        record.pop("a_field_this_schema_does_not_know")
+        path.write_text(json.dumps(record), encoding="utf-8")
+        self.assertEqual(self.run_command("reopen", "pln_aaaaaaaaaaaa")[0], 0)
+
+    def test_a_schema_invalid_child_record_is_unreadable_not_a_crash(self):
+        """One child whose record fails schema validation used to crash every reader stacked on
+        `child_view` — report, render, and BOTH closure gates — leaving its program permanently
+        unclosable through every verb. It is an `unreadable` row with the acknowledged exit."""
+        program_id = self._program_with_child()
+        slug_a = self.lib.resolve("pln_aaaaaaaaaaaa")
+        record_path = self.lib.plan_dir(slug_a) / "record.json"
+        record = json.loads(record_path.read_text())
+        record.pop("schema_version")
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        code, out, _ = self.run_command("program", "show", program_id)
+        self.assertEqual(code, 0)
+        self.assertIn("unreadable", out)
+        code, _, err = self.run_command("program", "abandon", program_id, "--reason", "wrecked")
+        self.assertEqual(code, 2)
+        self.assertIn("cannot be computed", err)
+        code, out, _ = self.run_command("program", "abandon", program_id, "--reason", "wrecked",
+                                        "--acknowledge-unknown", "the child record is corrupt")
+        self.assertEqual(code, 0, out)
 
     def test_supersede_recovery_converges_only_over_a_retirement(self):
         """An abandoned or completed target is someone's different decision, not this verb's own

@@ -1490,42 +1490,38 @@ def cmd_reopen(args) -> int:
     if record["closure"]["state"] == "complete":
         raise ProjectManagerError(
             "this plan is complete, and completed Build history is terminal. Start a new plan for new work.")
-    # The program record gets a say before a plan closure is undone, because two of its own facts
-    # are built on that closure staying put. A SUPERSEDED child gave its place on the chain to its
-    # replacement — reopening it would stand two plans in one position, and (for a legacy unsealed
-    # child) leave one bindable under a record saying it was put away. And a COMPLETE program is the
-    # operator's judgment recorded over every live child being done — reopening a child underneath
-    # it would make that record false without anyone deciding so. Checked here, on reads: the two
-    # stores have no shared lock, so a concurrent `program complete` can still race this by a
-    # heartbeat — the sequential doors are what this closes, and the program's own gates re-derive
-    # from the plan store, so the race window admits no silent state a re-run does not surface.
-    programs = plan_program.ProgramLibrary(library)
-    for program_slug in programs.slugs():
-        try:
-            program_record = programs.read(program_slug)
-        except Exception:  # noqa: BLE001 — an unreadable program cannot veto, and says so elsewhere
-            continue
-        child = next((c for c in program_record["children"]
-                      if c["plan_id"] == record["plan_id"]), None)
-        if child is None:
-            continue
-        if child.get("superseded_by"):
-            raise ProjectManagerError(
-                f"this plan was superseded by {child['superseded_by']} in "
-                f"{program_record['program_id']} — its place on the chain was given away, and "
-                "reopening it would stand two plans in one position. If the supersession was wrong, "
-                "supersede the replacement in turn, or clone this plan and add the copy.")
-        closure_state = (program_record.get("closure") or {}).get("state")
-        if closure_state == "complete":
-            raise ProjectManagerError(
-                f"{program_record['program_id']} is recorded complete, and that judgment was made "
-                "over this child being settled. Reopening the child would make the program's record "
-                f"false without anyone deciding so — `program reopen {program_record['program_id']} "
-                "--reason \"...\"` first, then reopen the plan.")
     if record.get("seal"):
         raise ProjectManagerError(
             "this plan is sealed, and a seal is terminal — reopening it would let an edited plan keep "
             "a digest a Build already trusted. Clone it into a new plan instead.")
+
+    # The program record gets a say before a plan closure is undone, because two of its own facts
+    # are built on that closure staying put: a SUPERSEDED child gave its place on the chain to its
+    # replacement, and a COMPLETE program is the operator's judgment recorded over every live child
+    # being settled. Three properties of this veto were each a reviewed defect in its first cut:
+    #
+    # - It fails CLOSED. A program record that cannot be read might carry either fact, and skipping
+    #   it silently was the one fail-open on this file's governance surface — the seal path refuses
+    #   on the identical condition, and this door refuses the same way. Membership is established
+    #   the way `program_membership` establishes it: a broken record that still names this plan
+    #   owns a veto it cannot cast, so the reopen waits for the record to be repaired.
+    # - It runs UNDER THE OWNING PROGRAM'S LOCK, held across the plan write. `program complete`,
+    #   `program reopen` and `mark_superseded` all write under that same lock, so the two races a
+    #   reviewer traced — a completion landing between this check and the plan write, and a
+    #   supersession marking the child in that same window — serialize instead of interleaving.
+    #   Lock order is program-then-plan; nothing anywhere takes them in the other order.
+    # - The plan mutator still re-asserts its OWN preconditions, so the lock adds ordering without
+    #   this door trusting a check across a boundary.
+    programs = plan_program.ProgramLibrary(library)
+    membership = programs.program_membership(record["plan_id"])
+    broken = [entry for entry in membership["unreadable"] if entry["names_this_plan"]]
+    if broken:
+        raise ProjectManagerError(
+            f"the program record for {broken[0]['slug']} names this plan but cannot be read "
+            f"({broken[0]['error']}), so whether reopening is allowed cannot be told. Repair that "
+            "record first: it may mark this plan superseded, or its program complete, and a silent "
+            "pass here would undo a decision nobody reversed.")
+
     previous = {}
 
     def reopen(current):
@@ -1539,7 +1535,32 @@ def cmd_reopen(args) -> int:
             raise ProjectManagerError("this plan is sealed, and a seal is terminal")
         current["closure"] = None
 
-    library.update_record(slug, reopen)
+    def veto_and_reopen():
+        if membership["slug"]:
+            program_record = programs.read(membership["slug"])   # re-read under the program lock
+            child = next((c for c in program_record["children"]
+                          if c["plan_id"] == record["plan_id"]), None)
+            if child is not None and child.get("superseded_by"):
+                raise ProjectManagerError(
+                    f"this plan was superseded by {child['superseded_by']} in "
+                    f"{program_record['program_id']} — its place on the chain was given away, and "
+                    "reopening it would stand two plans in one position. If the supersession was "
+                    "wrong, supersede the replacement in turn, or clone this plan and add the copy.")
+            if child is not None and (program_record.get("closure") or {}).get("state") == "complete":
+                raise ProjectManagerError(
+                    f"{program_record['program_id']} is recorded complete, and that judgment was "
+                    "made over this child being settled. Reopening the child would make the "
+                    "program's record false without anyone deciding so — `program reopen "
+                    f"{program_record['program_id']} --reason \"...\"` first, then reopen the plan.")
+        library.update_record(slug, reopen)
+
+    if membership["slug"]:
+        lock_path = programs.program_dir(membership["slug"]) / (
+            plan_program.RECORD_FILENAME + ".lock")
+        with core.exclusive_lock(lock_path):
+            veto_and_reopen()
+    else:
+        veto_and_reopen()
     plan_projection.project_library(library)
     print(f"reopened {record['plan_id']} (was {previous['state']})")
     return 0
@@ -2128,8 +2149,9 @@ def cmd_program_supersede(args) -> int:
             "not the half-finished supersession this verb can converge, which retires its target. "
             "If this plan should indeed be replaced on the chain, that closure already took it out "
             "of play; what supersede would add is the program-record marker, and writing one over "
-            f"a closure someone else chose would misdescribe their decision. Reopen it first if "
-            "the closure is wrong, or leave the chain as the record tells it.")
+            "a closure someone else chose would misdescribe their decision. If the closure itself "
+            "is wrong: an unsealed plan takes `reopen`; a sealed plan's closure is permanent — "
+            "clone it into a new plan instead. Otherwise leave the chain as the record tells it.")
 
     record = programs.mark_superseded(slug, args.plan, args.With)
     print(f"{resolved['replacement_id']} supersedes {resolved['superseded_id']} "

@@ -208,6 +208,23 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.assertEqual(self.state()["build"], {"repository": "owner/repo", "pr": 7, "base_at_bind": BASE,
                                                  "mode": "same-session", "worktree": str(bc.ROOT)})
 
+    def test_a_second_bind_over_an_existing_snapshot_refuses_before_it_writes(self):
+        """Two cold reviewers independently proved the regression this pins: with the binding write
+        ahead of `store.create`, a plain operator retry — bind again over an existing Build —
+        rewrote `build_binding` to a PR carrying no Build and appended a consent attestation for a
+        bind that was then refused. The snapshot-exists refusal must land before ANY write."""
+        pr = {"number": 9, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        # A snapshot already on disk, the way a killed-and-retried Build leaves one.
+        self.store.path.parent.mkdir(parents=True, exist_ok=True)
+        self.store.path.write_text("{}", encoding="utf-8")
+        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_record_build_binding") as binding, \
+                contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(bc.CoordinatorError, "already exists"):
+                bc.cmd_plan_bind(self.bind_args(pr=9), self.store)
+        binding.assert_not_called()
+
     def test_bind_names_the_sealed_plan_it_entered_on(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
         with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), mock.patch.object(bc, "_head", return_value=HEAD_A), mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), mock.patch.object(bc, "_record_build_binding") as binding, contextlib.redirect_stdout(io.StringIO()):
@@ -628,6 +645,22 @@ class TestSealedPlanEntry(CoordinatorCase):
                                          seal["sealed_digest"], seal["build_plan_digest"])
         self.assertIn("could not record the Build binding", str(caught.exception))
         self.assertIn("refuses rather than proceeding", str(caught.exception))
+
+    def test_a_crash_retry_of_the_same_bind_does_not_double_record_consent(self):
+        """The trail is published verbatim into the PR body; a retry re-writes the marker but must
+        not record the operator saying the same thing twice. A different decision still appends."""
+        seal = self.seal_it()
+        consent = {"gate": "bind", "decision": "Yes, begin.", "at": "2026-08-29T10:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
+        record = self.library.read_record(self.slug)
+        self.assertEqual(len(record.get("consent") or []), 1)
+        different = {"gate": "bind", "decision": "Yes, begin again.", "at": "2026-08-29T11:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], different)
+        self.assertEqual(len(self.library.read_record(self.slug).get("consent") or []), 2)
 
     def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
         """The bind half of the supersede interlock, driven at exactly the racing write.
