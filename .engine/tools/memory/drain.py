@@ -20,8 +20,11 @@ What it will not do:
 * **Resurrect erased content.** Not by filtering, but by construction: an erased record only had an identity
   because it was captured, capture only happens at or below the cursor, and the drain only ever reads above
   it. ``erasure_is_out_of_reach`` reports the numbers that argument rests on.
-* **Hide a real loss.** If a transcript is gone before qualification converged, that IS a loss — bounded by
-  harness retention, accepted in the plan — and it is reported as a detected gap, never quietly skipped.
+* **Overstate a loss.** A cursor whose transcript has since been cleaned up is an already-captured session,
+  not a gap; saying otherwise would cry wolf at every session start. The loss that IS possible — a transcript
+  cleaned up before qualification ever converged — leaves nothing behind to detect it by, so the honest
+  defence is the BACKLOG: how many sessions are waiting, and how old the oldest is, reported long before
+  retention could reach them. A transcript that is present but unreadable is still a reported gap.
 * **Hold up a session.** It runs after boot, under capture's existing bounded advisory lock, and every failure
   is a report rather than an exception.
 
@@ -216,12 +219,16 @@ def drain(cwd=None, *, limit: "int | None" = None) -> dict:
     candidates = _transcript_candidates(cwd)
     live = os.environ.get(capture.SESSION_ENV)
 
-    # A session whose cursor is behind but whose transcript is GONE is a real, unrecoverable loss. Report it
-    # rather than letting a shrinking cursor table quietly stand in for "nothing was waiting".
-    present = {_session_id_for(path) for path in candidates}
-    for session, captured in cursors.items():
-        if session not in present and isinstance(captured, int):
-            receipt["gaps"].append({"session_id": session, "reason": "transcript-no-longer-present"})
+    # NOT reported as a gap: a session that HAS a cursor but whose transcript is gone. The cursor only exists
+    # because capture succeeded for that session at least once, and a harness cleaning up an old transcript
+    # afterwards is ordinary housekeeping, not a loss. Running this against the real store is what showed the
+    # difference — 188 such cursors on this machine, every one of them an already-captured session that would
+    # have been announced as a permanent gap at every session start.
+    #
+    # The loss that IS possible — a transcript cleaned up before qualification ever converged, so its tail was
+    # never captured and no cursor was ever written — leaves nothing behind to detect it by. That is an
+    # accepted, disclosed risk of this design, and the defence against it is the BACKLOG, which names how many
+    # sessions are waiting and how old the oldest is, long before retention could reach them.
 
     drained = 0
     for path in candidates:

@@ -11481,7 +11481,7 @@
       },
       "slug": "drain",
       "source": {
-        "fingerprint": "sha256:dc757b795ac93b213614042dde1f558cd6937f0c6facd9b23146e6709a5bb3c9",
+        "fingerprint": "sha256:c23c2b9de8c320c8fb75024ffed46c70a68388a545f70894cf7b50d4806f1b8f",
         "path": ".engine/tools/memory/drain.py"
       },
       "status": "active",
@@ -16288,7 +16288,7 @@
       },
       "slug": "test_drain",
       "source": {
-        "fingerprint": "sha256:105034e018548266d746e38dc745a3b8446d6007b4769a4f6ac4efd83e9810eb",
+        "fingerprint": "sha256:a336a8ea589a5fe747d25b70103d6a8620f2d6b43a528d34bcfe3261fe39e3a4",
         "path": ".engine/tools/memory/test_drain.py"
       },
       "status": "active",
@@ -17210,6 +17210,26 @@
       },
       "status": "active",
       "summary": "Self-tests for the knowledge-graph entity-type vocabulary guard (engine/check/knowledge-vocabulary,",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_launch_contract",
+      "name": ".engine/tools/test_launch_contract.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "test_launch_contract",
+      "source": {
+        "fingerprint": "sha256:bc261d3ad8af7b3929b62d33355539edbcccb7fbc353ead820eac08b2b22d48f",
+        "path": ".engine/tools/test_launch_contract.py"
+      },
+      "status": "active",
+      "summary": "The launch contract: the exact commands a host runs must start the memory server on a fresh clone.",
       "type": "tool"
     },
     {

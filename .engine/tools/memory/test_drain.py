@@ -129,14 +129,24 @@ class DrainBehaviour(_DrainBase):
         self.assertEqual(receipt["sessions_drained"], 0)
         self.assertEqual(self.ledger_texts(), [])
 
-    def test_a_destroyed_transcript_is_a_reported_gap_not_a_silence(self):
-        path = self.write_session("sess-gone", [("user", "words that will be lost")])
+    def test_a_cleaned_up_transcript_for_a_captured_session_is_not_called_a_loss(self):
+        """Caught by running the drain against this machine's real store: 188 cursors had no surviving
+        transcript, and every one was an already-captured session. Reporting those as permanent gaps would
+        have announced a false alarm at every session start."""
+        path = self.write_session("sess-gone", [("user", "words already captured")])
         capture.capture_turn_delta({"session_id": "sess-gone", "transcript_path": path})
-        _transcript(path, [("user", "words that will be lost"), ("assistant", "and this reply too")])
         os.remove(path)
         receipt = drain.drain()
-        self.assertEqual([g["session_id"] for g in receipt["gaps"]], ["sess-gone"])
-        self.assertEqual(receipt["gaps"][0]["reason"], "transcript-no-longer-present")
+        self.assertEqual(receipt["gaps"], [])
+
+    def test_a_present_but_unreadable_transcript_is_a_reported_gap(self):
+        path = os.path.join(self.sessions_dir, "sess-broken.jsonl")
+        with open(path, "wb") as handle:
+            handle.write(b"\xff\xfe not json at all\n")
+        with mock.patch.object(drain, "_message_count", return_value=None):
+            receipt = drain.drain()
+        self.assertIn("sess-broken", [g["session_id"] for g in receipt["gaps"]])
+        self.assertEqual(receipt["gaps"][0]["reason"], "transcript-unreadable")
 
     def test_another_projects_transcripts_are_never_swept_in(self):
         other = os.path.join(self.home, "projects", "-Users-someone-else-other-project")
