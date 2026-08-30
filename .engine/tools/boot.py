@@ -3393,6 +3393,13 @@ def ambient_qualification() -> list:
     It stays honest about what it did: a first activation and an advance both return a notice, because
     "the code allowed to write your memory just changed" is not something to do silently.
     """
+    if "unittest" in sys.modules:
+        # The same backstop `_promote_fail_open` uses, and for the same reason: this reaches live GitHub and
+        # writes activation state into the repository's Git common directory. A test run exercising the
+        # SessionStart handler must never do either — it would qualify the developer's own machine as a side
+        # effect of running the suite, and it did, until this line. The lifecycle itself is tested against a
+        # real git+gh fixture in test_hooks.TestAmbientActivationLifecycle.
+        return []
     try:
         _, notices = accepted_hook_dispatch.ensure_activation_ambient(validate.ROOT)
         return list(notices)
