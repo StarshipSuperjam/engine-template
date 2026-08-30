@@ -16,7 +16,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import capture, drain, ledger  # noqa: E402
+from memory import capture, drain, ledger, mutation_authority  # noqa: E402
 
 
 def _transcript(path: str, turns) -> None:
@@ -34,7 +34,7 @@ class _DrainBase(unittest.TestCase):
         self.project = os.path.join(self.root, "project")
         self.home = os.path.join(self.root, "home")
         # The harness names a project's transcript directory after its path with separators flattened.
-        self.sessions_dir = os.path.join(self.home, "projects", self.project.replace(os.sep, "-"))
+        self.sessions_dir = os.path.join(self.home, "projects", drain._slug(self.project))
         os.makedirs(self.sessions_dir)
         os.makedirs(os.path.join(self.project, ".engine", "memory"))
         self._patches = [
@@ -72,15 +72,36 @@ class _DrainBase(unittest.TestCase):
 class UnqualifiedSessionWritesNothing(_DrainBase):
     def test_a_refused_capture_leaves_both_the_ledger_and_the_cursor_untouched(self):
         """The load-bearing half. If the cursor moved without the append, the tail would look captured and
-        the drain would never come back for it — silent, permanent loss."""
+        the drain would never come back for it — silent, permanent loss.
+
+        This drives the REAL refusal, not a stand-in for one. It used to mock `ledger.append` into raising an
+        arbitrary error, which only re-proved capture's generic fail-soft behaviour; the deliverable review
+        was right that the test's name promised more than it did. Turning the source-bound test adapter off
+        is what makes a checked-in test module unqualified like any other caller, so the guard refuses for
+        the actual reason the shipped code refuses.
+        """
         path = self.write_session("sess-unqualified", [("user", "a decision worth keeping")])
-        with mock.patch.object(capture.ledger, "append",
-                               side_effect=RuntimeError("needs this session to be qualified")):
+        with mock.patch.object(mutation_authority, "_test_adapter_allowed", return_value=False):
             appended = capture.capture_turn_delta(
                 {"session_id": "sess-unqualified", "transcript_path": path})
         self.assertEqual(appended, 0)
         self.assertEqual(self.ledger_texts(), [])
         self.assertEqual(self.cursor("sess-unqualified"), 0)
+
+    def test_the_refusal_is_a_no_op_return_not_an_exception_out_of_the_leaf(self):
+        """`capture_turn_delta` documents itself as never raising into its caller, and both live callers rely
+        on that. Guarding the leaf's OUTER boundary broke it: a qualification refusal came out as an
+        exception, and the only thing keeping that from surfacing was defensive `try` blocks in the two
+        callers — external, incidental, and not the contract the docstring states. The guard belongs one
+        frame in, on `_capture`, where the refusal lands inside the leaf's own fail-soft body."""
+        path = self.write_session("sess-noraise", [("user", "must not raise")])
+        with mock.patch.object(mutation_authority, "_test_adapter_allowed", return_value=False):
+            try:
+                appended = capture.capture_turn_delta(
+                    {"session_id": "sess-noraise", "transcript_path": path})
+            except Exception as exc:  # noqa: BLE001 — the assertion IS that this does not happen
+                self.fail(f"capture_turn_delta raised {type(exc).__name__}: {exc}")
+        self.assertEqual(appended, 0)
 
     def test_the_tail_survives_in_the_transcript_and_the_drain_finds_it(self):
         path = self.write_session("sess-later", [("user", "the marmalade migration decision")])
@@ -167,9 +188,41 @@ class DrainBehaviour(_DrainBase):
 
     def test_a_worktree_of_this_project_is_included(self):
         worktree = os.path.join(self.project, ".claude", "worktrees", "feature")
-        slug = worktree.replace(os.sep, "-")
         self.assertTrue(drain._belongs_to_this_project(
-            os.path.join(self.home, "projects", slug), self.project))
+            os.path.join(self.home, "projects", drain._slug(worktree)), self.project))
+
+    def test_a_sibling_checkout_whose_name_merely_extends_this_one_is_excluded(self):
+        """The defect the deliverable review caught, pinned in both directions.
+
+        The slug turns a real hyphen into a separator, so the old flatten-and-prefix test could not tell
+        `<project>-lane-c` (a SIBLING) from `<project>/lane/c` (a subdirectory) and admitted both. Run
+        against this machine it matched a separate checkout with a live 4.8 MB transcript, which the first
+        qualified session start would have filed into this project's ledger under this project's ids.
+        """
+        for suffix in ("-lane-c", "-fork", "-2", "-clientwork"):
+            with self.subTest(suffix=suffix):
+                self.assertFalse(drain._belongs_to_this_project(
+                    os.path.join(self.home, "projects", drain._slug(self.project) + suffix), self.project))
+
+    def test_a_sibling_checkouts_transcripts_are_never_swept_in(self):
+        """The same thing end to end: not just the predicate, but the drain that uses it."""
+        sibling = os.path.join(self.home, "projects", drain._slug(self.project) + "-lane-c")
+        os.makedirs(sibling)
+        _transcript(os.path.join(sibling, "sess-sibling.jsonl"),
+                    [("user", "the sibling checkout's private note")])
+        self.write_session("sess-ours", [("user", "our own note")])
+        drain.drain()
+        texts = self.ledger_texts()
+        self.assertTrue(any("our own note" in text for text in texts))
+        self.assertFalse(any("sibling checkout" in text for text in texts))
+
+    def test_a_project_path_containing_a_dot_still_matches_its_own_transcripts(self):
+        """The harness turns a dot into a hyphen too. Without that substitution such a project matched
+        nothing — never drained its own tails, and reported an empty backlog while doing it, which is the
+        one combination that hides the loss the backlog exists to reveal."""
+        dotted = os.path.join(self.root, "proj.v2")
+        self.assertTrue(drain._belongs_to_this_project(
+            os.path.join(self.home, "projects", drain._slug(dotted)), dotted))
 
     def test_the_backlog_reports_count_and_age(self):
         self.write_session("sess-a", [("user", "one")])
@@ -217,6 +270,29 @@ class DrainBehaviour(_DrainBase):
         texts = self.ledger_texts()
         self.assertEqual(sum("older unsaved turn" in text for text in texts), 1)
         self.assertEqual(sum("current turn" in text for text in texts), 1)
+
+
+class DrainIsBounded(_DrainBase):
+    """A session start may not be held open indefinitely.
+
+    Everything else on this boot path is wall-clock bounded — ambient qualification carries an explicit
+    two-second budget — and the drain was bounded only by COUNT. Measured against this machine's real
+    history, scrubbing and chunking 49 transcripts took over a second before any fsync'd write; at the
+    500-transcript cap with large files that is minutes of a session refusing to begin, with no abort path.
+    """
+
+    def test_it_stops_at_the_deadline_and_leaves_the_rest_for_next_time(self):
+        for n in range(4):
+            self.write_session(f"sess-{n}", [("user", f"note number {n}")])
+        with mock.patch.object(drain, "MAX_DRAIN_SECONDS", 0.0):
+            receipt = drain.drain()
+        self.assertTrue(receipt["stopped_early"])
+        self.assertEqual(receipt["sessions_drained"], 0)
+        self.assertEqual(self.ledger_texts(), [])
+        # …and nothing is lost: the next pass, unbounded, still finds every one of them.
+        again = drain.drain()
+        self.assertEqual(again["sessions_drained"], 4)
+        self.assertFalse(again["stopped_early"])
 
 
 class QualificationGate(_DrainBase):

@@ -235,7 +235,14 @@ def _write_compacted_temp(data_dir: str, raw_records,
     return tmp
 
 
-def _recovery_not_ready() -> "dict | None":
+#: What the PreCompact hook may spend proving the recovery copy is current. `push_now`'s own foreground
+#: default is 180 seconds, which is right for an attended run and wrong for a hook whose contract is that it
+#: never blocks the operator's context squash. Exceeding it is a clean refusal, not a crash: the pass is
+#: skipped and the ledger is left exactly as it was.
+HOOK_RECOVERY_DEADLINE_SECONDS = 10.0
+
+
+def _recovery_not_ready(deadline_seconds: "float | None") -> "dict | None":
     """Refuse a destructive pass on the real store when the operator's own recovery copy is behind.
 
     Recovery readiness is StarshipSuperjam/engine-template#1151's fourth fail-closed trigger, and it is the
@@ -244,15 +251,23 @@ def _recovery_not_ready() -> "dict | None":
     to happen first, and a failed push stops the compaction rather than proceeding without a net.
 
     A machine with no vault configured is not blocked — the operator declined that copy, and refusing their
-    housekeeping over a backup they chose not to have would be availability theatre. It applies only to the
-    real store: a caller that passes an explicit `path` is operating on a fixture or a copy.
+    housekeeping over a backup they chose not to have would be availability theatre. A pointer that is absent
+    or not a mapping is that same "no vault configured" answer, read from a store that has never had one; an
+    EXCEPTION reading it is the different case, where the recovery story cannot be established, and that
+    refuses. It applies only to the real store: a caller that passes an explicit `path` is operating on a
+    fixture or a copy.
+
+    The push runs under `deadline_seconds`, and the caller supplies it because the tolerable wait depends on
+    who is waiting: `push_now`'s own 180-second foreground default is right for an attended run and wrong
+    inside the PreCompact hook, whose contract is that it never blocks the squash.
     """
     try:
         from memory import backup_vault
         pointer = backup_vault.read_pointer()
         if not isinstance(pointer, dict) or pointer.get("configured") is False:
             return None
-        result = backup_vault.push_now()
+        result = (backup_vault.push_now() if deadline_seconds is None
+                  else backup_vault.push_now(deadline_seconds=deadline_seconds))
     except Exception as exc:  # noqa: BLE001 — an unreadable recovery story is a refusal, never a crash
         return {"status": "skipped", "folded": 0, "pruned": 0,
                 "reason": f"recovery readiness could not be established, so nothing was rewritten: {exc}"}
@@ -264,7 +279,8 @@ def _recovery_not_ready() -> "dict | None":
                       f"was rewritten"}
 
 
-def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after: "str | None" = None) -> dict:
+def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after: "str | None" = None,
+            recovery_deadline_seconds: "float | None" = None) -> dict:
     """Run one compaction pass over the ledger (the default store, or `path`). Returns a small report dict:
     `{status, folded, pruned, generation}` (or `{status: "busy", ...}` on lock contention — the pass retries
     later, never writes lock-free). Held under the single-writer `.capture.lock` across the whole
@@ -278,7 +294,7 @@ def compact(path: "str | None" = None, *, now: "int | None" = None, _crash_after
     stale index that the next pass reaps / the generation gate routes to the scan until rebuilt."""
     target = path if path is not None else ledger.ledger_path()
     if path is None:
-        blocked = _recovery_not_ready()
+        blocked = _recovery_not_ready(recovery_deadline_seconds)
         if blocked:
             return blocked
     data_dir = os.path.dirname(target) or "."
@@ -419,7 +435,7 @@ def should_compact(path: "str | None" = None) -> bool:
     return reclaimable_waste(path) >= _COMPACT_WASTE_THRESHOLD
 
 
-def maybe_compact(path: "str | None" = None) -> dict:
+def maybe_compact(path: "str | None" = None, *, recovery_deadline_seconds: "float | None" = None) -> dict:
     """The auto-trigger memory's `PreCompact` hook rides: compact ONLY when enough waste has piled up, else a
     clean no-op. FAIL-OPEN by construction — it NEVER raises (any fault degrades to a skipped report so the host
     action, the context squash, always proceeds).
@@ -449,13 +465,13 @@ def maybe_compact(path: "str | None" = None) -> dict:
             # Say WHY it fired. Physical erasure is the one act here that cannot be undone, and without this
             # the report is indistinguishable from routine housekeeping — a caller (or a later reader of a
             # log) could not tell a tidy from a deletion having just been carried out.
-            report = compact(path)
+            report = compact(path, recovery_deadline_seconds=recovery_deadline_seconds)
             if isinstance(report, dict):
                 report["fired_for"] = "a merged erasure was waiting"
             return report
         if waste < _COMPACT_WASTE_THRESHOLD:
             return {"status": "skipped", "reason": "below the compaction threshold", "waste": waste}
-        report = compact(path)
+        report = compact(path, recovery_deadline_seconds=recovery_deadline_seconds)
         if isinstance(report, dict):
             report["fired_for"] = "reclaimable bookkeeping had built up"
         return report
@@ -970,13 +986,16 @@ def _pre_compact_handler(payload) -> dict:
 
     Fires regardless of accumulated waste when an erasure is pending, so an approved deletion never waits on
     unrelated housekeeping. `maybe_compact` is fail-open and never raises; this handler ALWAYS proceeds —
-    PreCompact must never block the squash.
+    PreCompact must never block the squash, and "never blocks" means the wall clock too, which is why the
+    recovery-readiness push below it is given a hook-sized deadline rather than the foreground one.
 
-    Compaction now runs only when someone is attending, qualified or not: it is the one effect that rewrites
-    the record, and in PR StarshipSuperjam/engine-template#1148 an unattended run classified 99.9% of live records as retired. So when this
-    automatic caller cannot enact, it does the honest thing — leaves the ledger exactly as it found it and
-    says so once, briefly, rather than either mutating anyway or going silent about work that is waiting."""
-    report = maybe_compact()      # fail-open; the report is what tells us whether anything was enacted
+    This automatic caller CAN enact. An earlier revision of this build required attendance here, on the
+    reasoning that compaction rewrites the record; the deliverable review showed what that cost — this is the
+    only production trigger for physical erasure, so requiring a person present meant an erasure the operator
+    had already consented to by merging was never carried out. What guards the rewrite instead is
+    `_recovery_not_ready`: no destructive pass on the real store unless the recovery copy is current."""
+    # fail-open; the report is what tells us whether anything was enacted
+    report = maybe_compact(recovery_deadline_seconds=HOOK_RECOVERY_DEADLINE_SECONDS)
     warning = unenacted_warning(report)
     if warning:
         print(warning, file=sys.stderr)
@@ -997,8 +1016,9 @@ def unenacted_warning(report) -> "str | None":
     detail = f"{report.get('reason', '')} {report.get('error', '')}"
     if not any(mark in detail for mark in _UNENACTED_MARKS):
         return None
-    return ("Engine memory housekeeping did not run: compaction rewrites the record, so it runs only in an "
-            "attended, qualified session. Nothing was changed, and any approved erasure is still pending.")
+    return ("Engine memory housekeeping did not run: this session is not qualified to write memory yet. "
+            "Nothing was changed, and any approved erasure is still pending. Qualification converges by "
+            "itself at a session start that can reach GitHub, and the erasure is carried out then.")
 
 
 def main(argv: list) -> int:

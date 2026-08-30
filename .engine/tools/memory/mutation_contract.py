@@ -450,22 +450,33 @@ def classify(*, writer: str, target_kind: str, effect_class: str, invocation_mod
 
 
 _RECORD_TARGETS = frozenset({"ledger", "ledger-metadata"})
-# An effect that declares one of these as its recovery story is saying, in the registry, that what stands
-# behind it is a person: a merge the operator performed, or a snapshot someone took first.
-_ATTENDED_RECOVERIES = frozenset({"operator-merged-consent", "backup-snapshot"})
+# An effect that declares this as its recovery story is saying, in the registry, that what stands behind it is
+# a snapshot someone took first — so someone has to be there to take it.
+#
+# `operator-merged-consent` deliberately is NOT here, and the deliverable review is why. Requiring attendance
+# for it looked symmetrical and was a regression: compaction is the ONLY thing that physically enacts an
+# erasure the operator approved, its only automatic trigger is the PreCompact hook, and refusing that trigger
+# meant a merged erasure was never carried out — not deleted, and (since nothing filters erased records out of
+# recall) not even hidden. Consent honoured but not executed is its own defect, and it is worse than the one
+# the rule was closing. The operator's role in `operator-merged-consent` is to CONSENT, and they already did
+# that at the merge; standing over the enactment adds nothing. What actually protects that rewrite is
+# `compact._recovery_not_ready`, which refuses the destructive pass unless the recovery copy is current.
+_ATTENDED_RECOVERIES = frozenset({"backup-snapshot"})
 
 
 def _needs_attendance(entry) -> bool:
     """Whether this effect may be enacted only by an attended invocation, qualified or not.
 
     Narrow on purpose. It is the intersection of three things already declared in the registry: the target is
-    the record itself, the effect is destructive-irreversible, and the recovery story is a human — an operator
-    merge or a snapshot taken first. That is compaction, which is the exact shape of PR StarshipSuperjam/engine-template#1148's near-loss.
+    the record itself, the effect is destructive-irreversible, and the recovery story is a snapshot someone
+    took first. That is the wholesale rescrub — the exact shape of PR StarshipSuperjam/engine-template#1148's
+    near-loss, where a background lifecycle pass rewrote live records and every other safeguard was satisfied.
 
     Deliberately NOT included, because each has its own answer and refusing them would break something real:
     appends (capture must keep working unattended), journal-driven recovery such as reconciling an interrupted
-    restore (a repair back to a known-good state, and stalling it strands the writer-pause marker), and
-    derived-index rebuilds (regenerated from the ledger, and refusing them means no recall).
+    restore (a repair back to a known-good state, and stalling it strands the writer-pause marker),
+    derived-index rebuilds (regenerated from the ledger, and refusing them means no recall), and compaction
+    (see `_ATTENDED_RECOVERIES` — attendance there stopped a merged erasure from ever being enacted).
     """
     return (entry["target_kind"] in _RECORD_TARGETS
             and entry["effect_class"] == "destructive-irreversible"
@@ -484,16 +495,34 @@ def _needs_attendance(entry) -> bool:
 #   * degraded-health / tracked-finding — status records and diagnostics. Refusing these makes the engine
 #     unable to report that it is degraded, which is the worst possible moment to go quiet.
 #   * lifecycle-marker / ephemeral-staging — markers, locks and caches. Session-scoped or rebuildable.
-#   * derived-index / semantic-index — regenerated from the ledger by construction. The ledger is the record;
-#     these are a search accelerator over it, and refusing them means no recall at all rather than slower recall.
+#
+# derived-index and semantic-index were in this set and are NOT any more. The reasoning that put them here —
+# "regenerated from the ledger by construction, so they are only a search accelerator" — is contradicted by
+# the index itself: it stores each record's whole JSON body (`entries.record_json`) and `index.query` hydrates
+# results straight out of that column whenever the stamped generation matches. So the index is not a pointer
+# INTO the record, it is a second copy OF it, and letting unqualified code rewrite it would let candidate code
+# put text it invented in front of every future session's recall without ever touching the ledger. That is the
+# rule of StarshipSuperjam/engine-template#1151 defeated by the accelerator rather than by the record.
+#
+# Refusing it costs slower recall and nothing else, which is the trade the availability-first design was
+# always willing to make: `_heal_if_stale` swallows a refused rebuild, `_index_is_current` then reads false,
+# and both `query` and `_ranked` fall through to the full ledger scan, which computes the same bm25 over the
+# same matched set. Reads keep working; a later qualified session rebuilds the fast path.
 #
 # Everything else is the record itself or the machinery that can destroy it — the ledger, its metadata and
-# generation stamp, the capture cursor, restore journals, the backup pointer and remote vault, erasure
-# proposals, exports, the project repository — and stays refused until qualification. Capture loses nothing by
-# that refusal: the transcripts are the durable input, and the drain authors from them in qualified code.
+# generation stamp, the capture cursor, the backup pointer and remote vault, erasure proposals, exports, the
+# project repository — and stays refused until qualification. Capture loses nothing by that refusal: the
+# transcripts are the durable input, and the drain authors from them in qualified code.
+#
+# restore-journal stays refused, and the deliverable review asked the right question about it: reconciling an
+# interrupted restore is what lifts a marker that PAUSES every memory writer, so refusing the repair looks
+# like stranding the machine in a state only qualification can leave. It is not, and the reason is that the
+# pause has nothing left to block — on an unqualified machine every one of those writers is ALREADY refused by
+# this tier. The pause costs nothing until qualification arrives, and qualification lifts it. Allowing the
+# repair would not help either: its real work is `restore-prior-set` rewriting the ledger, which is precisely
+# what candidate code must never do.
 DEGRADED_ALLOWED_TARGETS = frozenset({
     "degraded-health", "tracked-finding", "lifecycle-marker", "ephemeral-staging",
-    "derived-index", "semantic-index",
 })
 
 # Refusals an operator will actually meet, in their own words. Anything not named here gets the generic line.
@@ -506,9 +535,10 @@ DEGRADED_REFUSAL_GUIDANCE = MappingProxyType({
     ),
     "attended-withhold": (
         "I can't set that aside yet: this session isn't qualified to write memory. Nothing was changed, so "
-        "the note is still recallable until this goes through — and if you asked in order to have it erased, "
-        "that chain starts here, so it waits too. Qualification converges by itself at the next session start "
-        "that can reach GitHub."
+        "the note is still recallable for now. If you asked in order to have it erased: that request has NOT "
+        "been registered — setting it aside is the first step, and nothing at all has happened yet. "
+        "Qualification converges by itself at the next session start that can reach GitHub; ask me again "
+        "then and both steps go through."
     ),
     "attended-restore-withheld": (
         "I can't restore that yet: this session isn't qualified to write memory. The note is still set aside "

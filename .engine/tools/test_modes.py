@@ -201,6 +201,31 @@ class TestStanceMarkerHardening(unittest.TestCase):
             self.assertEqual(handle.read(), "untouched")   # the write never went through the link
         self.assertEqual(modes.current_stance("sess-1"), modes.EXPLORE)
 
+    def test_a_planted_regular_file_is_not_read_as_a_stance(self):
+        """The read side of the same property, which the write side alone never covered.
+
+        Refusing to write THROUGH a planted path does nothing about READING one, and the read is what
+        actually decides the stance — so a file another user left at the marker path resolved a session to
+        BUILD that the operator never typed. Narrow in practice (the path carries an unguessable session id,
+        and macOS gives each user their own temp directory), but the marker left the governed mutation
+        registry on the strength of this hardening, so it has to hold for the operation that reads it.
+        """
+        with open(modes._signal_path("sess-planted"), "w", encoding="utf-8") as handle:
+            handle.write(modes.BUILD)
+        os.chmod(modes._signal_path("sess-planted"), 0o644)
+        # Same-owner, so this one IS honoured — the check is ownership and file type, not a blanket refusal.
+        self.assertEqual(modes.current_stance("sess-planted"), modes.BUILD)
+        # …but a symlink at the path is never followed on the read either.
+        target = os.path.join(self._tmp.name, "planted-stance")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write(modes.BUILD)
+        os.symlink(target, modes._signal_path("sess-linked"))
+        self.assertEqual(modes.current_stance("sess-linked"), modes.EXPLORE)
+
+    def test_a_marker_that_is_not_a_regular_file_reads_as_the_floor(self):
+        os.mkdir(modes._signal_path("sess-dir"))
+        self.assertEqual(modes.current_stance("sess-dir"), modes.EXPLORE)
+
     def test_no_temporary_file_is_left_behind_on_success_or_failure(self):
         modes.set_stance("sess-1", modes.BUILD)
         with mock.patch.object(modes.tempfile, "gettempdir", return_value=self._tmp.name):

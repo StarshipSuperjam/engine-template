@@ -57,8 +57,12 @@ def setUpModule():
     # Pin BOTH ledger substrates to throwaway dirs: the memory ledger AND the boot standing-alarm cache.
     # Without the boot pin, this module's boot `decide()` calls resolve the real `.engine/boot/.cache/` — a
     # gitignored (so invisible) write of runtime state into the checkout (engine-template #753).
+    # Ambient qualification OFF for this module: `boot.handler` calls it, and it reaches live GitHub and
+    # writes activation state into the real Git common directory. The selftest runner sets this for the whole
+    # suite; setting it here too means a direct `python -m unittest test_boot` is safe as well.
     _MEM_PATCH = mock.patch.dict(
-        os.environ, {"ENGINE_MEMORY_DIR": _MEM_TMP.name, "ENGINE_BOOT_CACHE_DIR": _BOOT_TMP.name})
+        os.environ, {"ENGINE_MEMORY_DIR": _MEM_TMP.name, "ENGINE_BOOT_CACHE_DIR": _BOOT_TMP.name,
+                     boot.AMBIENT_QUALIFICATION_OFF_ENV: "1"})
     _MEM_PATCH.start()
 
 
@@ -4024,6 +4028,55 @@ class TestBriefingBudget(unittest.TestCase):
         body, clipped = boot._bounded_posture(["x" * 50] * 40, 8, 700)
         self.assertTrue(clipped)
         self.assertLessEqual(len(body), 700)
+
+
+class TestSessionStartReachesQualification(unittest.TestCase):
+    """The wiring the whole re-land exists for, asserted rather than assumed.
+
+    The activation LIFECYCLE is covered against a real git+gh fixture elsewhere. What had no test at all was
+    the seam between them: that a SessionStart actually reaches it, and that its notices reach the operator.
+    While the suppression was an `"unittest" in sys.modules` sniff there was no way to write this — the call
+    could not happen under a test by construction, so a future refactor could have severed it silently, which
+    is the same defect class as StarshipSuperjam/engine-template#1153's own activation suite shipping without
+    executing.
+    """
+
+    def test_the_session_start_handler_converges_qualification_and_relays_what_it_says(self):
+        seen = {}
+
+        def fake_ensure(root):
+            seen["root"] = root
+            return {"commit": "a" * 40, "epoch": 1}, ["Engine memory can now write to this project's memory."]
+
+        with mock.patch.dict(os.environ, {boot.AMBIENT_QUALIFICATION_OFF_ENV: ""}, clear=False), \
+                mock.patch.object(boot.accepted_hook_dispatch, "ensure_activation_ambient", fake_ensure):
+            notices = boot.ambient_qualification()
+        self.assertEqual(seen["root"], validate.ROOT)
+        self.assertEqual(notices, ["Engine memory can now write to this project's memory."])
+
+    def test_the_handler_calls_it_at_all(self):
+        with mock.patch.object(boot, "ambient_qualification", return_value=[]) as called, \
+                mock.patch.object(boot, "assemble_pack", return_value="pack"):
+            boot.handler({"session_id": "wiring-case"})
+        called.assert_called_once_with()
+
+    def test_a_failing_activation_degrades_the_session_instead_of_breaking_it(self):
+        with mock.patch.dict(os.environ, {boot.AMBIENT_QUALIFICATION_OFF_ENV: ""}, clear=False), \
+                mock.patch.object(boot.accepted_hook_dispatch, "ensure_activation_ambient",
+                                  side_effect=RuntimeError("github is down")):
+            notices = boot.ambient_qualification()
+        self.assertEqual(len(notices), 1)
+        self.assertIn("unqualified", notices[0])
+
+    def test_the_suppression_seam_is_off_by_default_and_honoured_when_set(self):
+        with mock.patch.dict(os.environ, {boot.AMBIENT_QUALIFICATION_OFF_ENV: ""}, clear=False):
+            self.assertFalse(boot.ambient_qualification_suppressed())
+        with mock.patch.dict(os.environ, {boot.AMBIENT_QUALIFICATION_OFF_ENV: "1"}, clear=False):
+            self.assertTrue(boot.ambient_qualification_suppressed())
+            # and suppressed means it truly does not reach the dispatcher
+            with mock.patch.object(boot.accepted_hook_dispatch, "ensure_activation_ambient",
+                                   side_effect=AssertionError("must not be called")):
+                self.assertEqual(boot.ambient_qualification(), [])
 
 
 if __name__ == "__main__":

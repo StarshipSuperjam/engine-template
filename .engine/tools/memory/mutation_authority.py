@@ -67,7 +67,14 @@ _PATH_ARGUMENTS = frozenset({
     "path", "for_path", "ledger_file", "index_file", "store_file", "root", "memory_dir",
     "data_dir", "target", "destination",
 })
-_SKIP_WRAPPERS = frozenset({"capture-lock-create"})
+# Registry entries whose authority is carried somewhere OTHER than an auto-installed wrapper on the named
+# writer. `capture-lock-create` is taken through `authorize_nested`. `automatic-capture` is the outer, fail-soft
+# boundary of a leaf that documents itself as never raising into its caller: wrapping it there turned a
+# qualification refusal into an exception out of `capture_turn_delta`, which is the one thing that function
+# promises cannot happen. The mutation itself is still fully guarded one frame in, by `capture-transaction` on
+# `capture._capture`, so the refusal lands INSIDE the leaf's own fail-soft body — no append, no cursor move,
+# and a recorded capture-status marker instead of a crash.
+_SKIP_WRAPPERS = frozenset({"capture-lock-create", "automatic-capture"})
 _TOOLS_ROOT = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ENGINE_ROOT = os.path.realpath(os.path.dirname(os.path.dirname(_TOOLS_ROOT)))
 _INSTANTIATOR_SOURCE = os.path.join(_TOOLS_ROOT, "instantiator.py")

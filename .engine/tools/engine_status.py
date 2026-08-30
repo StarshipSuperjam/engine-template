@@ -89,7 +89,7 @@ def _render_qualification_health(value) -> str:
     return ""
 
 
-_UNCOVERED_HEADING = "## Worktrees this machine's memory protection does not cover"
+_UNCOVERED_HEADING = "## Engine memory: what is protected and what is waiting"
 
 
 def _activation_state():
@@ -108,8 +108,25 @@ def _activation_state():
             activation = module.load_activation(root)
         except Exception:  # noqa: BLE001 — an absent or unreadable activation is itself the state to report
             activation = None
-        return {"activation": activation, "coverage": module.uncovered_worktrees(root)}
+        return {"activation": activation, "coverage": module.uncovered_worktrees(root),
+                "backlog": _capture_backlog()}
     except Exception:  # noqa: BLE001 — status always answers
+        return None
+
+
+def _capture_backlog():
+    """How much conversation is waiting to be written to memory. Read-only, and never raises.
+
+    This is the number the availability-first design leans on. An unqualified session deliberately writes
+    nothing and leaves its cursor where it found it, so nothing is lost — but "nothing is lost" is only true
+    while a qualified session eventually arrives to catch it up, and until this was on the status block the
+    operator had no way to see how much was waiting or how long it had been. The only signal was a one-off
+    boot line AFTER a catch-up had already happened, which is the one moment the backlog is not the question.
+    """
+    try:
+        from memory import drain
+        return drain.backlog()
+    except Exception:  # noqa: BLE001 — a backlog we cannot count is simply not reported
         return None
 
 
@@ -126,6 +143,16 @@ def _render_activation_state(value) -> str:
             "memory, so reads work and writes wait. It converges on its own at a session start that can "
             "reach GitHub."
         )
+    backlog = value.get("backlog")
+    if isinstance(backlog, dict) and backlog.get("sessions_waiting"):
+        waiting = backlog["sessions_waiting"]
+        age = backlog.get("oldest_waiting_age_days")
+        age_clause = f", the oldest for {age} days" if isinstance(age, (int, float)) else ""
+        lines.append(
+            f"{waiting} earlier conversation(s) are waiting to be written to memory{age_clause}. Nothing is "
+            f"lost — the conversation transcripts still hold them, and the next session that can write memory "
+            f"catches them up automatically."
+        )
     coverage = value.get("coverage")
     if isinstance(coverage, dict) and coverage.get("readable") is False:
         lines.append(
@@ -135,8 +162,9 @@ def _render_activation_state(value) -> str:
     elif isinstance(coverage, dict) and isinstance(coverage.get("uncovered"), int) and coverage["uncovered"]:
         total, uncovered = coverage.get("total"), coverage["uncovered"]
         lines.append(
-            f"{uncovered} of {total} registered worktrees run their own older wiring and are not covered by "
-            f"this protection. Removing a worktree you have finished with is what clears it: "
+            f"{uncovered} of {total} registered worktrees run their own older copy of this wiring, so a "
+            f"session started inside one of them can write memory without these checks. That is worth "
+            f"clearing rather than living with. Removing a worktree you have finished with is what clears it: "
             f"`git worktree remove <path>`, or `git worktree prune` for ones already deleted."
         )
         lines.extend(f"  - {item}" for item in coverage.get("sample", []))

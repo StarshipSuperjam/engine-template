@@ -520,11 +520,22 @@ def uncovered_worktrees(root: str) -> dict:
 
     Returns ``{"total", "uncovered", "sample", "state"}``, or ``{"readable": False}`` when the topology
     itself cannot be resolved — an unreadable topology is reported, never treated as clean.
+
+    "Cannot be resolved" means more than "raised", and the deliverable review is why. The census answers
+    ``unreadable`` (no toplevel, or ``git worktree list`` failed), ``ambiguous`` (no paths, or duplicates) and
+    ``concurrent-change`` (the list moved while being read) by RETURNING those verdicts with an empty worktree
+    list — which counted as zero offenders and rendered nothing at all. Since the refusal is gone and this
+    disclosure is the whole of what replaced it, going quiet in exactly the states where the machine cannot
+    tell whether it is covered is the one failure it must not have. Only ``qualified`` and ``blocked`` are
+    census answers; everything else is unreadable.
     """
     try:
         topology = _activation_topology(root)
     except QualificationError as exc:
         return {"readable": False, "reason": str(exc), "total": None, "uncovered": None, "sample": []}
+    if topology.get("state") not in ("qualified", "blocked"):
+        return {"readable": False, "reason": f"the worktree census answered {topology.get('state')}",
+                "state": topology.get("state"), "total": None, "uncovered": None, "sample": []}
     records = [record for record in topology["worktrees"] if isinstance(record, dict)]
     offenders = [record for record in records if record.get("state") != "qualified"]
     return {
@@ -767,10 +778,20 @@ def activate(args: argparse.Namespace) -> dict:
 
 
 def _default_branch_tip(root: str, repository: str) -> tuple[str, str]:
-    """The canonical checkout's default-branch commit and the exact ref that names it."""
+    """The canonical checkout's default-branch commit and the exact ref that names it.
+
+    The REMOTE-tracking ref is preferred, and the order matters. GitHub is where the acceptance proof lives,
+    so the ref that mirrors GitHub is the more faithful answer to "what is the default branch". The practical
+    difference the deliverable review found: if the operator force-pushes the default branch to undo a merge,
+    their local branch may still contain that merge, and resolving from it would re-qualify a commit they
+    have visibly rejected. `origin/<branch>` reflects the rollback as soon as they fetch. This does not make
+    the check authoritative — a clone that has not fetched still sees the old tip, which is why an
+    authoritative reachability read against GitHub is tracked separately — but it closes the common case at
+    no cost, and it cannot stall an ordinary merge: pulling a merge updates the remote-tracking ref too.
+    """
     canonical = _main_checkout(root)
     branch = _github_default_branch(repository)
-    for candidate in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+    for candidate in (f"refs/remotes/origin/{branch}", f"refs/heads/{branch}"):
         commit = _git(canonical, "rev-parse", f"{candidate}^{{commit}}", check=False)
         if commit:
             return commit, candidate
@@ -830,8 +851,9 @@ def ensure_activation(root: str, notices: list | None = None) -> dict:
             engine_release=_engine_release_at(root, commit), expected_epoch=current["epoch"],
         ))
     except QualificationError as exc:
-        message = (f"Engine memory stays qualified at {current['commit'][:12]}: it could not advance to the "
-                   f"current default branch ({exc}).")
+        message = (f"Engine memory kept working with the code from commit {current['commit'][:12]}; it could "
+                   f"not move up to your project's latest merged code this session. Nothing is blocked by "
+                   f"that. Detail: {exc}.")
         if notices is None:
             print(message, file=sys.stderr)
         else:
@@ -856,21 +878,35 @@ def ensure_activation_ambient(root: str) -> tuple[dict | None, list[str]]:
         with _ambient_budget():
             record = ensure_activation(root, notices)
     except QualificationError as exc:
-        notices.append(f"Engine memory is running unqualified: {exc}.")
+        notices.append(_degraded_notice(str(exc)))
         return None, notices
     except Exception as exc:  # noqa: BLE001 — session start is fail-open; an unexpected fault degrades too
-        notices.append(f"Engine memory is running unqualified: activation could not be resolved ({exc}).")
+        notices.append(_degraded_notice(f"activation could not be resolved ({exc})"))
         return None, notices
     if before is None:
         notices.append(
-            f"Engine memory qualified for the first time on this machine at {record['commit'][:12]} "
-            f"(epoch {record['epoch']}).")
+            f"Engine memory can now write to this project's memory on this machine. It is running the code "
+            f"from your merged commit {record['commit'][:12]}.")
     elif before["commit"] != record["commit"]:
         notices.append(
-            f"Engine memory qualification advanced from {before['commit'][:12]} to {record['commit'][:12]} "
-            f"(epoch {before['epoch']} to {record['epoch']}) — the code that may write memory is now the "
-            f"tree of that merge.")
+            f"Engine memory moved to the code from your merged commit {record['commit'][:12]} (it was "
+            f"{before['commit'][:12]}). That is the code now allowed to write to memory.")
     return record, notices
+
+
+def _degraded_notice(detail: str) -> str:
+    """The line an operator reads when qualification did not converge this session.
+
+    Two things the deliverable review found missing. First, what still WORKS: the earlier line interpolated a
+    raw internal error and stopped there, so a reader had no way to tell an inconvenience from a breakage,
+    while the sentence that would have reassured them was printed to a stream they never see. Second, plain
+    words: the internal detail is kept, because it is the only thing that distinguishes "not signed in to
+    GitHub" from "offline", but it comes last and is labelled as detail rather than led with.
+    """
+    return ("Engine memory is not able to write to memory this session. Reading and recall work normally, "
+            "and anything said in the meantime is kept in the conversation transcript and written to memory "
+            "by the next session that can. It sorts itself out at a session start that can reach GitHub. "
+            f"Detail: {detail}.")
 
 
 def _relative_script(root: str, script: str) -> str:

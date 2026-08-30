@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -495,6 +496,111 @@ class MigrationWindowRefusalTests(_Base):
         self._write_marker({"pid": os.getpid(), "started_at": time.time()})   # a genuinely in-progress migration
         compact.maybe_compact()
         self.assertTrue(os.path.exists(self._marker_path()))            # never reaped while live
+
+
+class RecoveryReadinessTests(_Base):
+    """The fourth fail-closed trigger, whose refusal path shipped untested.
+
+    Issue StarshipSuperjam/engine-template#1151 names four: code qualification, state identity, target
+    fingerprint, and recovery readiness. The first three each had a per-trigger test; this one — written for
+    the exact PR StarshipSuperjam/engine-template#1148 shape, where the bytes were about to be rewritten and
+    whether there was a copy to go back to was nobody's precondition — had none. Every existing call reached
+    `compact()` with no vault configured, which takes the trivial "not configured, proceed" branch and never
+    exercises the refusal at all. An untested precondition on a destructive rewrite is the defect class the
+    trigger exists to prevent.
+    """
+
+    def _dirty_ledger(self):
+        for n in range(14):
+            self._episodic(f"fold me {n}", age_days=400)
+
+    def _bytes(self):
+        with open(ledger.ledger_path(), "rb") as handle:
+            return handle.read()
+
+    def test_a_failed_push_refuses_the_pass_and_leaves_the_ledger_byte_identical(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        before = self._bytes()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now",
+                                  return_value={"ok": False, "error": "no network"}):
+            report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("backup could not be brought up to date", report["reason"])
+        self.assertEqual(report["folded"], 0)
+        self.assertEqual(self._bytes(), before)
+
+    def test_an_unreadable_recovery_story_refuses_rather_than_crashing(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        before = self._bytes()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now", side_effect=RuntimeError("vault unreachable")):
+            report = compact.compact()
+        self.assertEqual(report["status"], "skipped")
+        self.assertIn("recovery readiness could not be established", report["reason"])
+        self.assertEqual(self._bytes(), before)
+
+    def test_a_successful_push_lets_the_pass_proceed(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now", return_value={"ok": True}):
+            report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+
+    def test_a_machine_with_no_vault_is_not_blocked(self):
+        from memory import backup_vault
+        self._dirty_ledger()
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": False}), \
+                mock.patch.object(backup_vault, "push_now",
+                                  side_effect=AssertionError("must not push when unconfigured")):
+            report = compact.compact()
+        self.assertEqual(report["status"], "ok")
+
+    def test_the_pre_compact_hook_gives_the_push_a_hook_sized_deadline_not_the_foreground_one(self):
+        """`push_now`'s own default is 180 seconds. PreCompact's contract is that it never blocks the squash,
+        and a slow-but-not-dead network is exactly the case a hard failure would not cover."""
+        from memory import backup_vault
+        self._dirty_ledger()
+        seen = {}
+
+        def record_deadline(**kwargs):
+            seen.update(kwargs)
+            return {"ok": True}
+
+        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": True}), \
+                mock.patch.object(backup_vault, "push_now", record_deadline):
+            compact._pre_compact_handler({})
+        self.assertEqual(seen.get("deadline_seconds"), compact.HOOK_RECOVERY_DEADLINE_SECONDS)
+        self.assertLess(compact.HOOK_RECOVERY_DEADLINE_SECONDS,
+                        backup_vault._FOREGROUND_DEADLINE_SECONDS)
+
+
+class ErasureIsActuallyEnactedTests(_Base):
+    """A merged erasure has to be CARRIED OUT, not just consented to.
+
+    An earlier revision of this build required attendance for compaction. Compaction is the only production
+    executor of physical erasure and its only automatic trigger is this hook, so that rule meant an erasure
+    the operator had approved by merging was never enacted — and since nothing filters erased records out of
+    recall, it was not even hidden. Consent honoured but not executed is its own defect.
+    """
+
+    def test_the_automatic_pre_compact_hook_physically_removes_a_merged_erasure(self):
+        target = self._episodic("the sensitive thing")
+        compact.enact_erasure(target[records.RECORD_ID_KEY], "d" * 40)
+        compact._pre_compact_handler({})
+        remaining = [json.dumps(r) for r in ledger.iter_records() if isinstance(r, dict)]
+        self.assertFalse(any("the sensitive thing" in blob for blob in remaining))
+
+    def test_the_hook_still_proceeds_and_says_so_when_it_could_not_enact(self):
+        report = {"status": "skipped", "reason": "needs this session to be qualified to write memory"}
+        with mock.patch.object(compact, "maybe_compact", return_value=report):
+            decision = compact._pre_compact_handler({})
+        self.assertTrue(decision)
+        warning = compact.unenacted_warning(report)
+        self.assertIn("approved erasure is still pending", warning)
 
 
 if __name__ == "__main__":

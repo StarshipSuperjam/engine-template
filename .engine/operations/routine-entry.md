@@ -31,7 +31,9 @@ of every routine fire; the build's actual work follows the distributed-implement
    tools/accepted_hook_dispatch.py inspect --root ..`. An unattended Routine may consume an accepted activation
    but never advance one. If it is absent, stale, or inconsistent, report that an attended Engine Start must run
    `accepted_hook_dispatch.py ensure` first, and stop without writing. Otherwise run
-   `uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended --root .. --script .engine/tools/modes.py --operation session-stance-write -- set-routine --session "${CLAUDE_CODE_SESSION_ID}"`.
+   `uv run --directory .engine --frozen -- python tools/modes.py set-routine --session "${CLAUDE_CODE_SESSION_ID}"`.
+   (The stance marker is a session-scoped temp file, written owner-only and read back with the same ownership
+   check, so it is deliberately not a governed persistent mutation and needs no dispatcher operation.)
    `set-routine` grants the
    unattended write-stance ONLY when it can prove this run is in a dedicated worktree, never the operator's
    checkout — the never-strand-main floor, enforced here at entry rather than by prose. If it declines (not an

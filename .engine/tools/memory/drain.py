@@ -25,16 +25,19 @@ What it will not do:
   cleaned up before qualification ever converged — leaves nothing behind to detect it by, so the honest
   defence is the BACKLOG: how many sessions are waiting, and how old the oldest is, reported long before
   retention could reach them. A transcript that is present but unreadable is still a reported gap.
-* **Hold up a session.** It runs after boot, under capture's existing bounded advisory lock, and every failure
-  is a report rather than an exception.
+* **Hold up a session.** Bounded three ways, and the wall clock is the one that matters: ``MAX_DRAIN_SECONDS``
+  stops the pass cleanly and leaves the remainder for the next start (the cursor makes that free), on top of
+  the count bound and capture's own bounded advisory lock. Every failure is a report rather than an exception.
 
 Leaf discipline: returns a receipt and renders no operator prose. The status block reads the receipt.
 """
 
 from __future__ import annotations
 
+import functools
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -53,6 +56,63 @@ ORIGIN_DRAIN = "session-start-drain"
 MAX_TRANSCRIPTS = 500
 MAX_DEPTH = 4
 
+#: A session start may spend this long catching up and no longer. The cursor makes a partial drain safe — what
+#: is not reached this time is still waiting, unchanged, for the next start — so stopping early costs nothing
+#: but a delay, while running unbounded costs the operator a session that will not begin. The ambient
+#: qualification on the same boot path is bounded for the same reason.
+MAX_DRAIN_SECONDS = 5.0
+
+#: Where this engine puts a Build's isolated copy, relative to the project root. Slugs under it are this
+#: project's own even when the worktree itself has since been removed.
+WORKTREE_SUBPATH = os.path.join(".claude", "worktrees")
+
+
+def _slug(path: str) -> str:
+    """The harness's own name for a path's transcript directory: separators and dots both become hyphens."""
+    return path.replace(os.sep, "-").replace(".", "-")
+
+
+@functools.lru_cache(maxsize=8)
+def _live_worktree_slugs(project_root: str) -> frozenset:
+    """Slugs for every worktree git currently registers against this project. Empty when git cannot answer.
+
+    Cached because the ownership question is asked once per candidate directory and the answer cannot change
+    usefully within one session start; a process that outlives that can call ``_live_worktree_slugs.cache_clear``.
+    """
+    try:
+        out = subprocess.run(["git", "-C", project_root, "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True, timeout=5, check=False,
+                             stdin=subprocess.DEVNULL)
+    except Exception:  # noqa: BLE001 — an unavailable git narrows the set, never widens it
+        return frozenset()
+    if out.returncode != 0:
+        return frozenset()
+    return frozenset(
+        _slug(os.path.realpath(line[len("worktree "):].strip()))
+        for line in out.stdout.splitlines() if line.startswith("worktree ")
+    )
+
+
+def _owned_slugs(project_root: "str | None") -> set:
+    """Every transcript-directory name that is THIS project's, as an exact set.
+
+    The earlier rule compared flattened paths with a prefix test, and that was wrong in a way that mattered:
+    the slug turns a real hyphen into a separator, so a SIBLING checkout whose name merely extends this one's
+    — `engine-template-lane-c` next to `engine-template` — flattened to something that looked like a
+    subdirectory and passed. Run against this machine it matched a separate checkout with a 4.8 MB transcript,
+    which the first qualified session start would have filed into this project's ledger. The inversion cannot
+    be repaired; the prefix test is asking a question the slug has already destroyed the answer to.
+
+    So this does not invert. It builds the set of names this project can legitimately produce and matches
+    exactly: the project root itself, every worktree git currently registers, and anything under this engine's
+    own worktree location — that last arm is what still covers a Build worktree removed after its pull request
+    merged, whose tail would otherwise never be caught up.
+    """
+    if not project_root:
+        return set()
+    root = os.path.realpath(project_root).rstrip(os.sep)
+    return {_slug(root)} | _live_worktree_slugs(root)
+
 
 def _belongs_to_this_project(directory: str, project_root: "str | None") -> bool:
     """Whether a harness transcript directory holds THIS project's sessions.
@@ -69,12 +129,12 @@ def _belongs_to_this_project(directory: str, project_root: "str | None") -> bool
     name = os.path.basename(directory.rstrip(os.sep))
     if not name.startswith("-"):
         return False
-    spelled = name.replace("-", os.sep)
     root = os.path.realpath(project_root).rstrip(os.sep)
-    # The slug is lossy — a real hyphen in a path becomes a separator too — so compare on the flattened form
-    # of the project root rather than trying to invert it.
-    flattened_root = root.replace("-", os.sep)
-    return spelled == flattened_root or spelled.startswith(flattened_root + os.sep)
+    if name in _owned_slugs(root):
+        return True
+    # A worktree under this engine's own location, including one already removed. The prefix is exact through
+    # the worktree directory, so a sibling checkout cannot reach it.
+    return name.startswith(_slug(os.path.join(root, WORKTREE_SUBPATH)) + "-")
 
 
 def _transcript_candidates(cwd=None) -> list:
@@ -95,6 +155,11 @@ def _transcript_candidates(cwd=None) -> list:
             if directory.count(os.sep) - root_depth >= MAX_DEPTH:
                 subdirs[:] = []
                 continue
+            if os.path.basename(directory).startswith("-"):
+                # A harness project directory is a leaf holding transcripts. Not descending into every OTHER
+                # project's subtree is what keeps this walk's cost tied to how many projects exist rather than
+                # to how much history all of them hold.
+                subdirs[:] = []
             if not _belongs_to_this_project(directory, project_root):
                 continue
             for name in files:
@@ -213,7 +278,9 @@ def drain(cwd=None, *, limit: "int | None" = None) -> dict:
         "gaps": [],
         "refused": [],
         "erasure_separation": None,
+        "stopped_early": False,
     }
+    deadline = time.monotonic() + MAX_DRAIN_SECONDS
     data_dir = ledger.ledger_dir(cwd)
     cursors = _cursor_state(data_dir)
     candidates = _transcript_candidates(cwd)
@@ -234,6 +301,11 @@ def drain(cwd=None, *, limit: "int | None" = None) -> dict:
     for path in candidates:
         if limit is not None and drained >= limit:
             break
+        if time.monotonic() >= deadline:
+            # Stop cleanly rather than finish at any cost. Each session is its own transaction, so what has
+            # been caught up stays caught up and what has not is still marked uncaptured for the next start.
+            receipt["stopped_early"] = True
+            break
         session = _session_id_for(path)
         if session == live:
             continue                        # the live session captures its own turns at Stop
@@ -248,7 +320,7 @@ def drain(cwd=None, *, limit: "int | None" = None) -> dict:
         try:
             appended = capture.capture_turn_delta(
                 {"session_id": session, "transcript_path": path, ORIGIN_KEY: ORIGIN_DRAIN}, cwd=cwd)
-        except Exception:  # noqa: BLE001 — one session that cannot be caught up never stops the others
+        except Exception:  # noqa: BLE001 — a backstop, not the classifier: capture is contractually no-raise
             receipt["refused"].append(session)
             continue
         # The CURSOR decides whether this session was caught up, not the returned count. A tail can be

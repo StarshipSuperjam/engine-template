@@ -286,9 +286,32 @@ class TestDegradedTiering(unittest.TestCase):
         # no crash diagnostics, no findings, and no way into Build.
         for entry_id in ("read-memory-health", "read-recall-window", "read-pins", "read-withheld",
                          "attended-memory-mcp", "attended-keyword-mcp-search", "attended-semantic-mcp-search",
-                         "index-rebuild", "index-stale-heal", "hook-crash-debug", "hook-fail-open-promote",
+                         "hook-crash-debug", "hook-fail-open-promote",
                          "close-findings-record", "telemetry-finding-emit", "alarm-ledger-write",
                          "automatic-boot-operation"):
+            with self.subTest(entry_id):
+                self.assertEqual(contract.degraded_disposition(contract.entry_by_id(entry_id)), "allow")
+
+    def test_index_writers_are_refused_because_the_index_holds_a_second_copy_of_the_record(self):
+        """The tier's one correction after the deliverable review.
+
+        These were allowed on the reasoning that the index is "regenerated from the ledger by construction",
+        so corrupting it costs nothing. The index contradicts that: it stores each record's whole JSON body
+        and `index.query` hydrates results straight out of that column. Letting unqualified code rewrite it
+        would let candidate code put invented text in front of every future session's recall without ever
+        touching the ledger — the rule defeated through the accelerator rather than the record.
+
+        Refusing costs slower recall and nothing else, which is what keeps this compatible with
+        availability-first: a refused rebuild is swallowed, the index reads stale, and both query paths fall
+        through to the full ledger scan.
+        """
+        for entry_id in ("index-rebuild", "index-extend", "index-schema", "index-stale-heal",
+                         "attended-keyword-search-heal"):
+            with self.subTest(entry_id):
+                entry = contract.entry_by_id(entry_id)
+                self.assertEqual(contract.degraded_disposition(entry), "refuse")
+        # …while READING through them is untouched: recall is a semantic-read and stays allowed.
+        for entry_id in ("attended-keyword-mcp-search", "attended-semantic-mcp-search"):
             with self.subTest(entry_id):
                 self.assertEqual(contract.degraded_disposition(contract.entry_by_id(entry_id)), "allow")
 
@@ -313,19 +336,33 @@ class TestAttendedOnlyRecordRewrites(unittest.TestCase):
     """Rewriting the record is attended-only EVEN WHEN QUALIFIED. PR StarshipSuperjam/engine-template#1148's near-loss cleared every other
     safeguard; what was missing was a person."""
 
-    def test_an_automatic_compaction_is_refused_even_with_everything_else_in_order(self):
-        entry = contract.entry_by_id("automatic-compaction")
+    def _classify(self, entry_id, mode):
+        entry = contract.entry_by_id(entry_id)
+        return contract.classify(writer=entry["writer"], target_kind=entry["target_kind"],
+                                 effect_class=entry["effect_class"], invocation_mode=mode,
+                                 measured_cardinality=1, schema_cutover=entry["schema_cutover"])
+
+    def test_an_automatic_wholesale_rescrub_is_refused_even_with_everything_else_in_order(self):
         with self.assertRaises(contract.MutationContractError) as caught:
-            contract.classify(writer=entry["writer"], target_kind=entry["target_kind"],
-                              effect_class=entry["effect_class"], invocation_mode="automatic",
-                              measured_cardinality=1, schema_cutover=entry["schema_cutover"])
+            self._classify("attended-rescrub", "automatic")
         self.assertIn("attending", str(caught.exception))
 
-    def test_the_same_compaction_is_permitted_when_attended(self):
-        entry = contract.entry_by_id("automatic-compaction")
-        self.assertTrue(contract.classify(
-            writer=entry["writer"], target_kind=entry["target_kind"], effect_class=entry["effect_class"],
-            invocation_mode="attended", measured_cardinality=1, schema_cutover=entry["schema_cutover"]))
+    def test_the_same_rescrub_is_permitted_when_attended_and_returns_its_entry(self):
+        entry = self._classify("attended-rescrub", "attended")
+        self.assertEqual(entry["id"], "attended-rescrub")
+
+    def test_compaction_is_NOT_attendance_gated_so_a_merged_erasure_is_actually_enacted(self):
+        """The deliverable review's finding, pinned so the symmetry argument cannot quietly return.
+
+        Requiring attendance here looked like the same rule as the rescrub and was a regression: compaction
+        is the only production executor of physical erasure, its only automatic trigger is the PreCompact
+        hook, and gating that meant an erasure the operator had consented to by merging was never carried
+        out — not deleted, and not hidden either. The operator's role in `operator-merged-consent` is to
+        consent, and the merge already was that.
+        """
+        entry = self._classify("automatic-compaction", "automatic")
+        self.assertEqual(entry["id"], "automatic-compaction")
+        self.assertEqual(entry["recovery_requirement"], "operator-merged-consent")
 
     def test_appending_stays_automatic_because_capture_must_keep_working(self):
         for entry_id in ("ledger-append", "automatic-capture", "capture-transaction"):
@@ -335,17 +372,18 @@ class TestAttendedOnlyRecordRewrites(unittest.TestCase):
 
     def test_attendance_is_required_for_record_destruction_backed_by_a_person(self):
         needing = sorted(e["id"] for e in contract.REGISTRY if contract._needs_attendance(e))
-        # Exactly the two record-destroying effects whose declared recovery is a person. `attended-rescrub`
-        # was already attended-only; `automatic-compaction` is the one this rule actually changes, and it is
-        # the shape of PR StarshipSuperjam/engine-template#1148's near-loss.
-        self.assertEqual(needing, ["attended-rescrub", "automatic-compaction"])
+        # Exactly the record-destroying effect whose declared recovery is a snapshot someone takes first —
+        # the shape of PR StarshipSuperjam/engine-template#1148's near-loss, where a background pass rewrote
+        # live records with every other safeguard satisfied. Compaction is deliberately NOT here; see
+        # `test_compaction_is_NOT_attendance_gated_so_a_merged_erasure_is_actually_enacted`.
+        self.assertEqual(needing, ["attended-rescrub"])
 
     def test_recovery_and_index_rebuilds_stay_automatic(self):
         # Refusing these would break real things: SessionStart cannot finish an interrupted restore, and
         # recall has no index. Each is named so a later widening of the rule has to argue with this test.
         for entry_id in ("automatic-restore-reconcile", "restore-prior-set", "ledger-replace",
                          "compaction-temp-write", "compaction-temp-reap", "index-rebuild",
-                         "automatic-erasure-observer"):
+                         "automatic-compaction", "automatic-erasure-observer"):
             entry = contract.entry_by_id(entry_id)
             with self.subTest(entry_id):
                 self.assertFalse(contract._needs_attendance(entry))

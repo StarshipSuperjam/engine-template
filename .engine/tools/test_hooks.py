@@ -1160,9 +1160,14 @@ class _AcceptedDispatchRepo:
             print(json.dumps({"operation": context["operation"],
                               "memory_dir": os.environ.get("ENGINE_MEMORY_DIR")}, sort_keys=True))
             """))
-        # Shape-matched to the committed `.engine/engine.json` — see the fixture-shape guard test. The
+        # Shape-matched to the committed `.engine/engine.json` — see the fixture-shape guard test, which now
+        # checks BOTH directions, so this carries every key the real manifest carries and no others. The
         # dispatcher reads GitHub for the default branch, so a `default_branch` key here would be a fiction.
-        self._put(".engine/engine.json", json.dumps({"engine_release": "9.9.9"}) + "\n")
+        # Values are fixture values; only the SHAPE is copied.
+        _real_manifest = json.loads(
+            (_ACCEPTED_TOOLS.parents[1] / ".engine/engine.json").read_text(encoding="utf-8"))
+        self._put(".engine/engine.json",
+                  json.dumps({**_real_manifest, "engine_release": "9.9.9"}) + "\n")
         self._put(".engine/memory-backup/pointer.json", json.dumps({
             "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
             "namespace": "project-id"}) + "\n")
@@ -1425,6 +1430,27 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         # The disclosure names the state and the branch, and still exposes no filesystem path.
         self.assertNotIn(str(self.repo.worktree), repr(degraded))
 
+    def test_a_census_that_cannot_answer_reports_unreadable_instead_of_reporting_clean(self):
+        """The disclosure is the WHOLE of what replaced the refusal, so the one thing it must never do is go
+        quiet in the states where the machine cannot tell whether it is covered.
+
+        Three census verdicts — `unreadable` (git could not list), `ambiguous` (no paths, or duplicates) and
+        `concurrent-change` (the list moved mid-read) — return with an EMPTY worktree list rather than
+        raising. That counted as zero offenders and rendered nothing at all: silence that reads exactly like
+        "everything is covered".
+        """
+        import accepted_hook_dispatch
+        import engine_status
+        for state in ("unreadable", "ambiguous", "concurrent-change"):
+            with self.subTest(state=state):
+                with mock.patch.object(accepted_hook_dispatch, "_activation_topology",
+                                       return_value={"state": state, "qualified": False, "worktrees": []}):
+                    coverage = accepted_hook_dispatch.uncovered_worktrees(str(self.repo.root))
+                self.assertFalse(coverage["readable"], coverage)
+                rendered = engine_status._render_activation_state(
+                    {"activation": {"commit": "a" * 40}, "coverage": coverage})
+                self.assertIn("could not be read", rendered)
+
     def test_retiring_a_legacy_worktree_clears_the_disclosure_without_rewriting_payload(self):
         """Cleanup is what closes the coverage gap — and the gap never blocked activation to begin with."""
         runner = self.repo.worktree / ".engine/tools/hook-runner.sh"
@@ -1628,12 +1654,18 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
     def test_fixture_manifests_match_the_shape_of_the_committed_manifest(self):
         """The guard for the defect class that broke StarshipSuperjam/engine-template#1153: the dispatcher read `engine_version` while the
         real `.engine/engine.json` has always carried `engine_release`, and the fixture invented the same
-        wrong key — so the suite agreed with the bug. Any fixture manifest key the real manifest does not
-        have fails here, whatever the code happens to read."""
+        wrong key — so the suite agreed with the bug.
+
+        Both directions, because the guard was one-directional and the mirror-image failure is the same
+        defect class: a fixture that INVENTS a key lets the suite agree with code reading a name that does not
+        exist, and a fixture MISSING a key the real manifest carries lets the suite agree with code that never
+        has to handle it. Neither is a byte-shape copy."""
         real = json.loads((_ACCEPTED_TOOLS.parents[1] / ".engine/engine.json").read_text(encoding="utf-8"))
         fixture = json.loads((self.repo.root / ".engine/engine.json").read_text(encoding="utf-8"))
         self.assertEqual(set(fixture) - set(real), set(),
                          "fixture manifest invents keys the committed manifest does not have")
+        self.assertEqual(set(real) - set(fixture), set(),
+                         "fixture manifest is missing keys the committed manifest carries")
         self.assertIn("engine_release", fixture)
         self.assertIn("engine_release", real)
 

@@ -131,11 +131,24 @@ def _signal_path(session_id: str | None) -> str | None:
 def current_stance(session_id: str | None) -> str:
     """The session's stance. Absent / unreadable / unrecognized signal → EXPLORE — the safe floor in
     every ambiguous case (so a missing session id, a deleted marker, or a garbled file all resolve to
-    the gated default, never to a write stance)."""
+    the gated default, never to a write stance).
+
+    The ownership check is the same one ``_harden_marker_write`` makes, and it belongs on BOTH sides. The
+    write side alone refuses to write THROUGH a planted symlink; it does nothing about reading a marker
+    someone else placed, and a read is what actually decides the stance. Without this, a file another user
+    left at the marker path resolves a session to a write stance the operator never typed. Narrow in practice
+    — the path carries an unguessable session id, and on macOS the temp directory is already per-user — but
+    the marker left the governed mutation registry on the strength of this hardening, so the hardening has to
+    be true of the operation that reads it.
+    """
     path = _signal_path(session_id)
     if not path:
         return EXPLORE
     try:
+        info = os.lstat(path)
+        if (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()):
+            return EXPLORE
         with open(path, encoding="utf-8") as fh:
             value = fh.read().strip().lower()
     except Exception:  # noqa: BLE001 — absent / unreadable marker → the floor, never a crash

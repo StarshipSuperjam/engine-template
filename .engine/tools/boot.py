@@ -3382,6 +3382,26 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 
 # ---- the hook handler + CLI -----------------------------------------------------------------
 
+#: Set to "1" to stop `ambient_qualification` reaching GitHub and writing activation state.
+AMBIENT_QUALIFICATION_OFF_ENV = "ENGINE_AMBIENT_QUALIFICATION_OFF"
+
+
+def ambient_qualification_suppressed() -> bool:
+    """Whether ambient qualification is switched off for this process.
+
+    An explicit seam rather than the ``"unittest" in sys.modules`` sniff it replaces. The need is real: this
+    reaches live GitHub and writes activation state into the repository's Git common directory, and a suite
+    exercising the SessionStart handler must do neither — it would qualify the developer's own machine as a
+    side effect of running the tests, and it did until this was gated. But sniffing an imported module is a
+    global-state switch nothing can assert on, so the wiring from SessionStart to activation — the whole point
+    of the re-land — had no test, and a future transitive ``unittest`` import would have silently disabled it.
+    An env variable the harness sets can be turned OFF in a test, which is what makes `handler`'s call to this
+    provable. The lifecycle itself is tested against a real git+gh fixture in
+    ``test_hooks.TestAmbientActivationLifecycle``.
+    """
+    return os.environ.get(AMBIENT_QUALIFICATION_OFF_ENV) == "1"
+
+
 def ambient_qualification() -> list:
     """Converge this machine's memory-write qualification at SessionStart, and return what to disclose.
 
@@ -3393,12 +3413,7 @@ def ambient_qualification() -> list:
     It stays honest about what it did: a first activation and an advance both return a notice, because
     "the code allowed to write your memory just changed" is not something to do silently.
     """
-    if "unittest" in sys.modules:
-        # The same backstop `_promote_fail_open` uses, and for the same reason: this reaches live GitHub and
-        # writes activation state into the repository's Git common directory. A test run exercising the
-        # SessionStart handler must never do either — it would qualify the developer's own machine as a side
-        # effect of running the suite, and it did, until this line. The lifecycle itself is tested against a
-        # real git+gh fixture in test_hooks.TestAmbientActivationLifecycle.
+    if ambient_qualification_suppressed():
         return []
     try:
         _, notices = accepted_hook_dispatch.ensure_activation_ambient(validate.ROOT)
@@ -3442,9 +3457,13 @@ def handler(payload: dict) -> dict:
             f"Engine memory caught up on {drain_receipt['sessions_drained']} earlier session(s) that could "
             f"not be saved at the time ({drain_receipt['records_appended']} notes).")
     if isinstance(drain_receipt, dict) and drain_receipt.get("gaps"):
+        # Say what actually happened. This line used to announce the transcripts as GONE, which was written
+        # for a gap reason the drain no longer reports: the only gap it records now is a transcript that is
+        # present but could not be read. Calling a permissions fault or a half-written file a permanent loss
+        # is a false alarm that repeats at every session start.
         qualification_notices.append(
-            f"{len(drain_receipt['gaps'])} earlier session(s) can no longer be caught up: their transcripts "
-            f"are gone. Those conversations are not in memory.")
+            f"{len(drain_receipt['gaps'])} earlier session(s) could not be caught up: their transcript files "
+            f"are present but unreadable, so those conversations are not in memory yet.")
     # Interrupted-restore repair is intentionally exclusive to this write-capable SessionStart seam. The
     # status verb and pack debug path call gather_signals directly and therefore only observe quarantine.
     # The marker itself keeps every memory writer paused until this recovery either restores the durable prior
