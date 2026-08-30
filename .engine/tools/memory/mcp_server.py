@@ -246,6 +246,21 @@ if _semantic_installed():
             # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
             return {"results": [], "unavailable": reason}
         found = _store.search(query, limit=limit)
+        if found.get("unavailable"):
+            # NOT the same as "searched and found nothing", and the difference is the whole point: saying
+            # "your memory is empty" here would be a false statement about the operator's own project, which
+            # is what the repair review caught this tool doing on an unqualified machine. The two reasons are
+            # kept apart too — one resolves itself and the other needs someone to look at it.
+            if found["unavailable"] == "not-qualified":
+                return {"results": [], "unavailable": (
+                    "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
+                    "index. This says NOTHING about what is in memory: keyword search works normally and "
+                    "covers everything. It sorts itself out at a session start that can reach GitHub.")}
+            return {"results": [], "unavailable": (
+                "Searching by meaning is not working right now — the store behind it could not be read or "
+                "rebuilt ({}). This says NOTHING about what is in memory: keyword search works normally and "
+                "covers everything. Deleting the memory folder's `vectors.sqlite3` makes it rebuild from "
+                "scratch.".format(found.get("fault_class") or "unknown fault"))}
         results = []
         for record, passage in zip(found["records"], found["passages"]):
             # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track

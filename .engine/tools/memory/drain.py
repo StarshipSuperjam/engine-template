@@ -25,9 +25,12 @@ What it will not do:
   cleaned up before qualification ever converged — leaves nothing behind to detect it by, so the honest
   defence is the BACKLOG: how many sessions are waiting, and how old the oldest is, reported long before
   retention could reach them. A transcript that is present but unreadable is still a reported gap.
-* **Hold up a session.** Bounded three ways, and the wall clock is the one that matters: ``MAX_DRAIN_SECONDS``
-  stops the pass cleanly and leaves the remainder for the next start (the cursor makes that free), on top of
-  the count bound and capture's own bounded advisory lock. Every failure is a report rather than an exception.
+* **Hold up a session.** ``MAX_DRAIN_SECONDS`` stops the pass between transcripts and leaves the remainder
+  for the next start (the cursor makes that free), on top of the count bound and capture's own bounded
+  advisory lock. Stated precisely, because the docstring overstated it once: the deadline is checked BETWEEN
+  transcripts, so the real bound is that budget plus the candidate walk plus one transcript's capture — which
+  holds because ``capture.MAX_TRANSCRIPT_BYTES`` caps a single transcript (measured at well under a second at
+  that ceiling). Every failure is a report rather than an exception.
 
 Leaf discipline: returns a receipt and renders no operator prose. The status block reads the receipt.
 """
@@ -107,6 +110,12 @@ def _owned_slugs(project_root: "str | None") -> set:
     exactly: the project root itself, every worktree git currently registers, and anything under this engine's
     own worktree location — that last arm is what still covers a Build worktree removed after its pull request
     merged, whose tail would otherwise never be caught up.
+
+    The residual, stated rather than left to be discovered: a worktree created OUTSIDE this engine's own
+    location and since removed matches none of the three arms, so its uncaptured tail is neither drained nor
+    counted in the backlog. It goes quiet in the one place the design says the backlog makes loss visible.
+    Narrow, because the engine puts its own worktrees where the third arm looks — but real, and the honest
+    fix is the store-side cutover rather than widening a rule whose whole value is that it cannot overreach.
     """
     if not project_root:
         return set()
@@ -156,9 +165,11 @@ def _transcript_candidates(cwd=None) -> list:
                 subdirs[:] = []
                 continue
             if os.path.basename(directory).startswith("-"):
-                # A harness project directory is a leaf holding transcripts. Not descending into every OTHER
-                # project's subtree is what keeps this walk's cost tied to how many projects exist rather than
-                # to how much history all of them hold.
+                # A harness project directory holds this project's transcripts at its top level. It is not a
+                # leaf — subagent transcripts nest below it — but nothing under it is a candidate anyway,
+                # since every deeper directory fails the `startswith("-")` name test and MAX_DEPTH. Pruning
+                # here keeps the walk's cost tied to how many projects exist rather than to how much history
+                # all of them hold.
                 subdirs[:] = []
             if not _belongs_to_this_project(directory, project_root):
                 continue
@@ -235,18 +246,42 @@ def erasure_is_out_of_reach(cwd=None) -> dict:
     }
 
 
+#: What `backlog()` may spend counting. It runs on every `/engine-status`, and the status block is meant to
+#: answer at a glance; the same walk cost `drain()` a wall-clock bound and this one needs its own.
+MAX_BACKLOG_SECONDS = 1.5
+
+
 def backlog(cwd=None) -> dict:
     """What is waiting, without capturing anything — the number the status block shows.
 
-    Read-only and cheap enough for a session start: it counts messages per transcript and compares against the
-    cursor. It reports the OLDEST waiting transcript too, because "3 sessions waiting" and "3 sessions waiting,
-    the oldest for eleven days" are very different sentences.
+    Read-only. It counts messages per transcript and compares against the cursor, reporting the OLDEST
+    waiting transcript too, because "3 sessions waiting" and "3 sessions waiting, the oldest for eleven days"
+    are very different sentences.
+
+    Two things the repair review corrected, both of which made the number wrong rather than merely slow.
+
+    The LIVE session is excluded, exactly as `drain()` excludes it. Its transcript is only captured at each
+    turn's Stop, so mid-turn — which is when someone actually runs a status check — its cursor is behind by
+    construction. Counting it reported the operator's own open conversation as "waiting to be written", on
+    essentially every status check, which teaches a reader to ignore the line on the rare occasion it means
+    something.
+
+    And it is wall-clock bounded. Measured against a real machine it took over a second across 48
+    transcripts, with nothing stopping it growing; `partial` says the count is a floor rather than a total,
+    so a truncated walk under-reports instead of quietly claiming completeness.
     """
     data_dir = ledger.ledger_dir(cwd)
     cursors = _cursor_state(data_dir)
-    waiting, oldest = 0, None
+    live = os.environ.get(capture.SESSION_ENV)
+    deadline = time.monotonic() + MAX_BACKLOG_SECONDS
+    waiting, oldest, partial = 0, None, False
     for path in _transcript_candidates(cwd):
+        if time.monotonic() >= deadline:
+            partial = True
+            break
         session = _session_id_for(path)
+        if session == live:
+            continue                        # the live session captures its own turns at Stop
         total = _message_count(path)
         if total is None:
             continue
@@ -259,6 +294,7 @@ def backlog(cwd=None) -> dict:
     return {
         "sessions_waiting": waiting,
         "oldest_waiting_age_days": None if oldest is None else round((time.time() - oldest) / 86400, 1),
+        "partial": partial,
     }
 
 

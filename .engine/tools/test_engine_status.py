@@ -22,6 +22,29 @@ import boot  # noqa: E402
 import test_boot  # noqa: E402  (reuse `_signals(**over)`, the COMPLETE signals dict render_dashboard needs)
 
 
+_BACKLOG_PATCH = None
+
+
+def setUpModule():
+    """Keep this module off the developer's real machine.
+
+    `_activation_state` calls `_capture_backlog`, which walks the harness home counting transcripts — so
+    every test that rendered the dashboard was reading this machine's actual conversation history, at about a
+    second each. The tests that care about the backlog build their own fixture states and call the renderer
+    directly; nothing here needs the real one.
+    """
+    global _BACKLOG_PATCH
+    _BACKLOG_PATCH = mock.patch.object(
+        es, "_capture_backlog",
+        return_value={"sessions_waiting": 0, "oldest_waiting_age_days": None, "partial": False})
+    _BACKLOG_PATCH.start()
+
+
+def tearDownModule():
+    if _BACKLOG_PATCH is not None:
+        _BACKLOG_PATCH.stop()
+
+
 # A raw code identifier or exception fragment surfacing in operator text means an internal name or a traceback
 # leaked there — a correctness bug, not a word choice. This guards SYMBOLS, not vocabulary, so it is not a
 # banned-word list: each name below is a real internal of this tool's render path.
@@ -154,6 +177,72 @@ class TestNoRawCodeIdentifierLeak(unittest.TestCase):
         for sym in _RAW_CODE_IDENTIFIERS:
             self.assertNotIn(sym, mine,
                              f"raw code identifier / exception fragment {sym!r} must not reach the operator")
+
+
+class TestBacklogAndCoverageRendering(unittest.TestCase):
+    """The one new operator-facing surface in this build, and it had no test at all.
+
+    The plan's obligation is explicit — the status block carries the uncaptured backlog, count and oldest age
+    — and the whole "nothing is lost while unqualified" argument rests on the operator being able to see it.
+    A number computed and never rendered is the same as no number.
+    """
+
+    def _render(self, **over):
+        state = {"activation": {"commit": "a" * 40}, "coverage": {"readable": True, "uncovered": 0,
+                                                                  "total": 2, "sample": []}}
+        state.update(over)
+        return es._render_activation_state(state)
+
+    def test_nothing_waiting_says_nothing(self):
+        self.assertEqual(self._render(backlog={"sessions_waiting": 0, "oldest_waiting_age_days": None}), "")
+
+    def test_a_backlog_is_reported_with_its_count_and_age_in_plain_words(self):
+        out = self._render(backlog={"sessions_waiting": 3, "oldest_waiting_age_days": 11.3})
+        self.assertIn("3 earlier conversation(s) are waiting", out)
+        self.assertIn("11 days ago", out)          # whole days: "11.3 days" is not how a person says it
+        self.assertIn("Nothing is lost", out)      # the reassurance is the point of showing the number
+        for jargon in ("cursor", "drain", "transcript path", "ledger"):
+            self.assertNotIn(jargon, out.lower())
+
+    def test_a_backlog_from_today_does_not_say_zero_days(self):
+        out = self._render(backlog={"sessions_waiting": 1, "oldest_waiting_age_days": 0.0})
+        self.assertIn("from today", out)
+        self.assertNotIn("0 day", out)
+
+    def test_a_truncated_count_says_it_is_a_floor_rather_than_claiming_completeness(self):
+        out = self._render(backlog={"sessions_waiting": 40, "oldest_waiting_age_days": 2.0,
+                                    "partial": True})
+        self.assertIn("at least 40", out)
+
+    def test_an_unreadable_census_is_said_out_loud(self):
+        out = self._render(coverage={"readable": False, "reason": "the worktree census answered ambiguous",
+                                     "total": None, "uncovered": None, "sample": []})
+        self.assertIn("could not be read", out)
+
+    def test_uncovered_worktrees_say_what_the_gap_MEANS_not_just_that_it_exists(self):
+        out = self._render(coverage={"readable": True, "uncovered": 2, "total": 5,
+                                     "sample": ["feature-x [abc]: candidate"]})
+        self.assertIn("without these checks", out)     # the consequence, like the sibling alarm
+        self.assertIn("git worktree remove", out)      # …and the safe thing to do about it
+
+    def test_an_unqualified_machine_says_reads_work_and_writes_wait(self):
+        out = es._render_activation_state({"activation": None, "coverage": {"readable": True, "uncovered": 0,
+                                                                            "total": 1, "sample": []}})
+        self.assertIn("reads work and writes wait", out)
+
+
+class TestBacklogIsNotTheOperatorsOwnConversation(unittest.TestCase):
+    """The live session is excluded from the count. Its transcript is captured at each turn's Stop, so
+    mid-turn — which is when a status check runs — its cursor is behind by construction, and counting it
+    reported the operator's own open conversation as waiting on essentially every check."""
+
+    def test_the_live_session_is_excluded_the_way_the_drain_excludes_it(self):
+        import inspect
+        from memory import drain, capture
+        source = inspect.getsource(drain.backlog)
+        self.assertIn("capture.SESSION_ENV", source)
+        self.assertIn("continue", source)
+        self.assertTrue(hasattr(capture, "SESSION_ENV"))
 
 
 if __name__ == "__main__":

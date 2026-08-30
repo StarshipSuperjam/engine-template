@@ -147,11 +147,18 @@ def _render_activation_state(value) -> str:
     if isinstance(backlog, dict) and backlog.get("sessions_waiting"):
         waiting = backlog["sessions_waiting"]
         age = backlog.get("oldest_waiting_age_days")
-        age_clause = f", the oldest for {age} days" if isinstance(age, (int, float)) else ""
+        if not isinstance(age, (int, float)):
+            age_clause = ""
+        elif age < 1:
+            age_clause = ", the oldest from today"
+        else:
+            days = int(age)
+            age_clause = f", the oldest from {days} day{'s' if days != 1 else ''} ago"
+        at_least = "at least " if backlog.get("partial") else ""
         lines.append(
-            f"{waiting} earlier conversation(s) are waiting to be written to memory{age_clause}. Nothing is "
-            f"lost — the conversation transcripts still hold them, and the next session that can write memory "
-            f"catches them up automatically."
+            f"{at_least}{waiting} earlier conversation(s) are waiting to be written to memory{age_clause}. "
+            f"Nothing is lost — the conversation transcripts still hold them, and the next session that can "
+            f"write memory catches them up automatically."
         )
     coverage = value.get("coverage")
     if isinstance(coverage, dict) and coverage.get("readable") is False:

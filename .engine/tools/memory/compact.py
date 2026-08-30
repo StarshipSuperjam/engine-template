@@ -250,12 +250,29 @@ def _recovery_not_ready(deadline_seconds: "float | None") -> "dict | None":
     copy to go back to was nobody's precondition. So when a backup vault IS configured, a successful push has
     to happen first, and a failed push stops the compaction rather than proceeding without a net.
 
-    A machine with no vault configured is not blocked — the operator declined that copy, and refusing their
-    housekeeping over a backup they chose not to have would be availability theatre. A pointer that is absent
-    or not a mapping is that same "no vault configured" answer, read from a store that has never had one; an
-    EXCEPTION reading it is the different case, where the recovery story cannot be established, and that
-    refuses. It applies only to the real store: a caller that passes an explicit `path` is operating on a
-    fixture or a copy.
+    A machine with NO vault configured is not blocked. The repair review pushed hard on this, and it is
+    worth recording where the argument landed rather than just the outcome. Its case: taking attendance off
+    compaction moved the protective weight onto this check, and this check does nothing on a machine with no
+    vault — which is the default, since a vault is an explicit setup step — so an unattended hook can rewrite
+    the ledger with neither consent behind it nor a copy to go back to.
+
+    Two things make that the wrong place to add a refusal. An unmarked compaction cannot DESTROY recall
+    content: physical removal is limited to the ids a valid merge-gated erasure marker names, and with no
+    marker the removal set is empty — the fold rewrites records and prunes bookkeeping, which
+    `NeverDropsRecallContentTests` pins record by record. And PR StarshipSuperjam/engine-template#1148 was a
+    retirement CLASSIFIER, not this fold; the lifecycle that produced it no longer exists. So a recovery copy
+    here protects against a bug in a mechanical, content-preserving pass, not against a policy violation —
+    and refusing an operator's housekeeping over a backup they declined would stop tidying altogether on the
+    default machine, which is availability theatre with nothing bought.
+
+    What that argument DOES correctly reject is the claim, made elsewhere in this build, that recovery
+    readiness is "what guards the rewrite" now that attendance is gone. It is not, and nothing should say so.
+    It guards the one case it can: where the operator HAS a recovery copy, a destructive pass does not run
+    until that copy is current.
+
+    A pointer that is absent or not a mapping is the "no vault configured" answer; an EXCEPTION reading it is
+    the different case, where the recovery story cannot be established, and that always refuses. It applies
+    only to the real store: a caller that passes an explicit `path` is operating on a fixture or a copy.
 
     The push runs under `deadline_seconds`, and the caller supplies it because the tolerable wait depends on
     who is waiting: `push_now`'s own 180-second foreground default is right for an attended run and wrong
@@ -992,8 +1009,12 @@ def _pre_compact_handler(payload) -> dict:
     This automatic caller CAN enact. An earlier revision of this build required attendance here, on the
     reasoning that compaction rewrites the record; the deliverable review showed what that cost — this is the
     only production trigger for physical erasure, so requiring a person present meant an erasure the operator
-    had already consented to by merging was never carried out. What guards the rewrite instead is
-    `_recovery_not_ready`: no destructive pass on the real store unless the recovery copy is current."""
+    had already consented to by merging was never carried out.
+
+    What bounds this pass, stated without overclaiming: an unmarked compaction cannot destroy recall content
+    (physical removal is limited to ids a merge-gated marker names, and `NeverDropsRecallContentTests` pins
+    that), and where the operator keeps a recovery copy, `_recovery_not_ready` refuses until that copy is
+    current. Neither is attendance, and neither is claimed to be."""
     # fail-open; the report is what tells us whether anything was enacted
     report = maybe_compact(recovery_deadline_seconds=HOOK_RECOVERY_DEADLINE_SECONDS)
     warning = unenacted_warning(report)
@@ -1004,7 +1025,15 @@ def _pre_compact_handler(payload) -> dict:
 
 # Compaction no longer refuses for want of attendance — see `_ATTENDED_RECOVERIES` — so what is left to
 # report is the qualification refusal and the raw context failure behind it.
-_UNENACTED_MARKS = ("qualified to write memory", "no accepted execution context")
+# Every reason a pass with work to do can decline it. The repair review caught this list naming only the
+# qualification refusals while the SAME round moved compaction's protection onto recovery readiness — so a
+# merged erasure blocked by a failed or slow backup push was neither enacted nor mentioned, which is the
+# defect this build exists to remove, reached through the door the build itself opened.
+_UNENACTED_MARKS = (
+    "qualified to write memory", "no accepted execution context",
+    "backup could not be brought up to date", "recovery readiness could not be established",
+    "no backup copy to go back to",
+)
 
 
 def unenacted_warning(report) -> "str | None":

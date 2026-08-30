@@ -306,7 +306,8 @@ class TestDegradedTiering(unittest.TestCase):
         through to the full ledger scan.
         """
         for entry_id in ("index-rebuild", "index-extend", "index-schema", "index-stale-heal",
-                         "attended-semantic-sync", "semantic-store-reconcile", "semantic-passages-drop"):
+                         "attended-semantic-sync", "semantic-store-reconcile", "semantic-passages-drop",
+                         "semantic-store-connect"):
             with self.subTest(entry_id):
                 entry = contract.entry_by_id(entry_id)
                 self.assertEqual(contract.degraded_disposition(entry), "refuse")
@@ -316,8 +317,7 @@ class TestDegradedTiering(unittest.TestCase):
         # through to the ledger scan. Refusing these by target instead takes recall down — #1153 again, and
         # the launch-contract test caught exactly that when this list was missing `memory.index.search`.
         for entry_id in ("attended-keyword-mcp-search", "attended-keyword-search-heal",
-                         "attended-semantic-mcp-search", "attended-semantic-search-reconcile",
-                         "semantic-store-connect"):
+                         "attended-semantic-mcp-search", "attended-semantic-search-reconcile"):
             with self.subTest(entry_id):
                 self.assertEqual(contract.degraded_disposition(contract.entry_by_id(entry_id)), "allow")
 

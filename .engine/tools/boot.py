@@ -3414,7 +3414,15 @@ def ambient_qualification() -> list:
     "the code allowed to write your memory just changed" is not something to do silently.
     """
     if ambient_qualification_suppressed():
-        return []
+        # Disclosed, never silent. The seam exists for the test suite, but it is an ordinary environment
+        # variable, so a shell export or a CI wrapper can inherit into a real session and stop qualification
+        # converging FOREVER. Under the `unittest` sniff this replaced, that state was unreachable; now it is
+        # reachable, so it has to announce itself rather than leave an operator staring at a machine that
+        # never qualifies with nothing anywhere saying why.
+        return [f"Engine memory qualification is switched OFF for this session by "
+                f"{AMBIENT_QUALIFICATION_OFF_ENV}={os.environ.get(AMBIENT_QUALIFICATION_OFF_ENV)!r} in the "
+                f"environment. It will not converge while that is set. If you did not set it deliberately, "
+                f"unset it and start a new session."]
     try:
         _, notices = accepted_hook_dispatch.ensure_activation_ambient(validate.ROOT)
         return list(notices)

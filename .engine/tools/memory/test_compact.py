@@ -553,13 +553,36 @@ class RecoveryReadinessTests(_Base):
         self.assertEqual(report["status"], "ok")
 
     def test_a_machine_with_no_vault_is_not_blocked(self):
+        """Both real pointer shapes, because a machine that never configured a vault returns None, not a
+        mapping — the repair review caught the old test asserting only the shape reality does not produce.
+
+        The review also argued this branch should REFUSE without a recovery copy. It should not, and the
+        reasoning is recorded at `_recovery_not_ready`: an unmarked pass cannot destroy recall content, so
+        what a backup would protect here is a bug in a content-preserving fold, and refusing would stop
+        housekeeping altogether on the default machine.
+        """
         from memory import backup_vault
-        self._dirty_ledger()
-        with mock.patch.object(backup_vault, "read_pointer", return_value={"configured": False}), \
-                mock.patch.object(backup_vault, "push_now",
-                                  side_effect=AssertionError("must not push when unconfigured")):
-            report = compact.compact()
+        for pointer in (None, {"configured": False}):
+            with self.subTest(pointer=pointer):
+                self._dirty_ledger()
+                with mock.patch.object(backup_vault, "read_pointer", return_value=pointer), \
+                        mock.patch.object(backup_vault, "push_now",
+                                          side_effect=AssertionError("must not push when unconfigured")):
+                    report = compact.compact()
+                self.assertEqual(report["status"], "ok")
+
+    def test_an_unmarked_pass_cannot_destroy_recall_content_which_is_what_bounds_it(self):
+        """Named here because this is the protection the build actually leans on now that compaction runs
+        unattended, and the repair review was right that nothing should claim recovery readiness is."""
+        kept = self._episodic("a decision nobody asked to erase")
+        for _ in range(compact._COMPACT_WASTE_THRESHOLD + 4):
+            ledger.append(legacy.reinforcement(kept[records.RECORD_ID_KEY]))
+        report = compact.compact()
         self.assertEqual(report["status"], "ok")
+        self.assertGreater(report["pruned"], 0)          # bookkeeping WAS folded away
+        survivors = [r for r in ledger.iter_records()
+                     if isinstance(r, dict) and r.get(records.RECORD_ID_KEY) == kept[records.RECORD_ID_KEY]]
+        self.assertEqual(len(survivors), 1)              # …and the content record is still there, once
 
     def test_the_pre_compact_hook_gives_the_push_a_hook_sized_deadline_not_the_foreground_one(self):
         """`push_now`'s own default is 180 seconds. PreCompact's contract is that it never blocks the squash,

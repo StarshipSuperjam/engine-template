@@ -264,17 +264,19 @@ class ConvertedCallGraphTests(unittest.TestCase):
         slower than the whole rest of its module. Memoising a security check is only sound if the key is the
         thing the answer depends on — so this asserts the key IS the source bytes: the same path with
         different contents must produce different signature sets, and the second must not inherit the first.
+        The function takes only the bytes and decodes them itself, so the key and the compiled input cannot
+        drift apart the way they could when the caller supplied both.
         """
         real = str(TOOLS / "memory" / "mutation_authority.py")
         first = b"def alpha():\n    return 1\n"
         second = b"def alpha():\n    return 2\n"
-        sig_first = mutation_authority._compiled_signatures(real, first, first.decode())
-        sig_second = mutation_authority._compiled_signatures(real, second, second.decode())
+        sig_first = mutation_authority._compiled_signatures(real, first)
+        sig_second = mutation_authority._compiled_signatures(real, second)
         self.assertIsNotNone(sig_first)
         self.assertIsNotNone(sig_second)
         self.assertNotEqual(sig_first, sig_second, "different sources shared one cached answer")
         # …and asking again for the first bytes returns the first answer, not whatever was cached last.
-        self.assertEqual(mutation_authority._compiled_signatures(real, first, first.decode()), sig_first)
+        self.assertEqual(mutation_authority._compiled_signatures(real, first), sig_first)
 
     def test_same_named_direct_script_cannot_preflight_instantiator_authority(self):
         with tempfile.TemporaryDirectory() as tmp:

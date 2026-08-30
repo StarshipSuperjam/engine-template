@@ -212,7 +212,7 @@ def _same_compiled_code(left, right) -> bool:
     return _code_signature(left) == _code_signature(right)
 
 
-def _compiled_signatures(real: str, payload: bytes, source: str):
+def _compiled_signatures(real: str, payload: bytes):
     """Every code signature compiled from one exact source snapshot, as a set, computed once per snapshot.
 
     Purely a cost fix, and it changes no decision: the answer is a function of the source BYTES alone, so
@@ -230,7 +230,12 @@ def _compiled_signatures(real: str, payload: bytes, source: str):
         cached = _COMPILED_SIGNATURE_CACHE.get(key)
     if cached is not None:
         return cached
-    compiled = _compiled_code_tree(compile(source, real, "exec", dont_inherit=True))
+    # Decoded HERE rather than taken as a second argument. Keying on `payload` while compiling a separately
+    # supplied `source` would make soundness depend on a caller keeping two things in step, with nothing
+    # checking it; deriving one from the other makes the key and the compiled input the same bytes by
+    # construction.
+    compiled = _compiled_code_tree(
+        compile(payload.decode("utf-8"), real, "exec", dont_inherit=True))
     try:
         signatures = frozenset(_code_signature(candidate) for candidate in compiled)
     except TypeError:      # a constant that will not hash — fall back to the exact linear comparison
@@ -305,7 +310,7 @@ def _source_bound_frame(frame, *, test_only: bool = False, module_name: str | No
             return False
         # The source decides its own future flags. Inheriting this module's ``annotations`` future would make
         # an otherwise identical Python file compile to different code and silently deny legitimate callers.
-        signatures = _compiled_signatures(real, payload, source)
+        signatures = _compiled_signatures(real, payload)
         compiled = (None if signatures is not None
                     else _compiled_code_tree(compile(source, real, "exec", dont_inherit=True)))
     except (OSError, UnicodeError, SyntaxError):

@@ -22,8 +22,8 @@ Everything below is built out of five ideas. They are named here once so the res
   project's memory, and is running that copy. Unqualified means it has not, so it reads but does not write.
 * **The activation record** — the small file where that answer is kept. It names the merged commit whose code
   was chosen.
-* **Tree** — Git's word for the exact set of files at one commit. "The tree of that merge" means "the files
-  as they stood at that merged commit", not a directory listing.
+* **Tree** — Git's word for the exact set of files at one commit, not a directory listing. It is what the
+  activation record pins: the files exactly as they stood at that merged commit.
 * **Epoch** — a counter that only ever goes up, one per change to the activation record. Two sessions racing
   to update it cannot both win, because each writes only if the epoch it read is still current.
 * **The drain** — the catch-up pass. An unqualified session writes nothing, so its conversation stays in the
@@ -107,8 +107,16 @@ Effects are tiered, as data, over the registry that already describes them
 
 | Tier | Targets | What an unqualified session does |
 | --- | --- | --- |
-| Allowed | diagnostics and status records, tracked findings, session markers, ephemeral staging, the keyword and semantic indexes | Proceeds, returning an unqualified receipt. Each is regenerable or costless to lose, and the engine must be able to report that it is degraded. |
-| Refused | the ledger, its metadata and generation stamp, the capture cursor, restore journals, the backup pointer and remote vault, erasure proposals, exports, the project repository | Refuses without mutating, with a reply that says why, that nothing changed, and what makes it stick. |
+| Allowed | diagnostics and status records, tracked findings, session markers, ephemeral staging | Proceeds, returning an unqualified receipt. Each is regenerable or costless to lose, and the engine must be able to report that it is degraded. |
+| Allowed by name | the four recall entry points | They are registered as index writers only because a search MAY repair a stale index on its way past. The read proceeds; the repair underneath it is refused on its own entry, and the caller falls back rather than failing. |
+| Refused | the ledger, its metadata and generation stamp, the capture cursor, the keyword and semantic index writers, restore journals, the backup pointer and remote vault, erasure proposals, exports, the project repository | Refuses without mutating, with a reply that says why, that nothing changed, and what makes it stick. |
+
+The indexes are on the refused side, and the reason is worth stating because the first version of this table
+had them allowed. They are not merely an accelerator over the ledger: the keyword index stores each record's
+whole text and recall reads results straight back out of it, so letting unqualified code rebuild one is a way
+to put invented content in front of every future session without ever touching the ledger. Refusing costs
+slower keyword recall — the full scan is always correct — and costs meaning-based recall entirely until the
+session qualifies, which it says plainly rather than reporting an empty answer.
 
 A destructive effect stays refused even on an allowed target, unless it is clearing a diagnostic. A nested
 writer is tiered on its own entry, so an allowed diagnostic is never a door to the ledger beneath it.
@@ -146,7 +154,7 @@ The residual risk, accepted and disclosed: a transcript cleaned up by the harnes
 converged is a loss, and one that leaves nothing behind to detect it by. The defence is the backlog — how many
 sessions are waiting and how old the oldest is — reported long before retention could reach them.
 
-### Rewriting the record needs a person
+### Who has to be present to rewrite the record
 
 Compaction is the one effect that rewrites canonical memory, and in the incident that prompted all of this a
 background lifecycle hook classified 99.9% of live records as retired. The code ran, the state was consistent,

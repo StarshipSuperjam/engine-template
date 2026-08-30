@@ -535,12 +535,18 @@ DEGRADED_ALLOWED_TARGETS = frozenset({
 # on its own registry entry — `index-rebuild`, `index-extend`, `index-schema`, `index-stale-heal`,
 # `attended-semantic-sync`, `semantic-store-reconcile` all still refuse, `_heal_if_stale` swallows that, and
 # the read falls through to the ledger scan. The read happens; the second copy is not rewritten, which is the
-# whole point. `semantic-store-connect` is here for the same reason: opening the store is what a read needs,
-# and refusing it would refuse the read while stopping nothing, since the content writers above are refused.
+# whole point.
+#
+# `semantic-store-connect` was in this set and is NOT any more. It was added on the reasoning that "opening
+# the store is what a read needs, and refusing it stops nothing" — and that was factually wrong about what
+# `_connect` does: on a schema or word-table fingerprint change it runs `DROP TABLE IF EXISTS passages`. So
+# unqualified code could DESTROY the passage store and then be refused the only writer that can refill it,
+# with an engine upgrade as a plausible non-adversarial trigger, since the first session after one is
+# unqualified by construction. The read it was protecting is handled properly instead: `store.search` reports
+# itself UNAVAILABLE when it cannot open or reconcile, and the recall tool says so in those words.
 DEGRADED_ALLOWED_ENTRY_IDS = frozenset({
     "attended-keyword-mcp-search", "attended-keyword-search-heal",
     "attended-semantic-mcp-search", "attended-semantic-search-reconcile",
-    "semantic-store-connect",
 })
 
 # Refusals an operator will actually meet, in their own words. Anything not named here gets the generic line.
@@ -552,11 +558,12 @@ DEGRADED_REFUSAL_GUIDANCE = MappingProxyType({
         "it will stick."
     ),
     "attended-withhold": (
-        "I can't set that aside yet: this session isn't qualified to write memory. Nothing was changed, so "
-        "the note is still recallable for now. If you asked in order to have it erased: that request has NOT "
-        "been registered — setting it aside is the first step, and nothing at all has happened yet. "
+        "I can't set that aside yet: this session isn't qualified to write memory. The note is still "
+        "there and still findable, nothing changed, and "
+        "nothing was registered — if you asked in order to erase it, not even the first step has happened. "
         "Qualification converges by itself at the next session start that can reach GitHub; ask me again "
-        "then and both steps go through."
+        "then and this will stick. Erasing is a separate step you run yourself in a terminal — no session "
+        "of mine can reach that confirmation."
     ),
     "attended-restore-withheld": (
         "I can't restore that yet: this session isn't qualified to write memory. The note is still set aside "

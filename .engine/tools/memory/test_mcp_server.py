@@ -442,9 +442,14 @@ class UnqualifiedTierTests(unittest.TestCase):
                 self.assertLess(len(reply), 500)
 
     def test_the_withhold_refusal_names_the_erase_chain_consequence(self):
+        """It must say the note is still findable, that the erase request did NOT register, and — the part
+        the repair review caught it getting wrong — that erasing is the operator's own terminal step, not
+        something a later session can complete for them by being asked again."""
         reply = mutation_contract.degraded_refusal(mutation_contract.entry_by_id("attended-withhold"))
-        self.assertIn("recallable", reply)
+        self.assertIn("still there", reply)
         self.assertIn("eras", reply)
+        self.assertIn("nothing was registered", reply)
+        self.assertIn("terminal", reply)
 
 
 if __name__ == "__main__":

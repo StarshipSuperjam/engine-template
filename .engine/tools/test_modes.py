@@ -201,7 +201,7 @@ class TestStanceMarkerHardening(unittest.TestCase):
             self.assertEqual(handle.read(), "untouched")   # the write never went through the link
         self.assertEqual(modes.current_stance("sess-1"), modes.EXPLORE)
 
-    def test_a_planted_regular_file_is_not_read_as_a_stance(self):
+    def test_the_read_honours_a_marker_this_user_owns_and_refuses_a_symlink(self):
         """The read side of the same property, which the write side alone never covered.
 
         Refusing to write THROUGH a planted path does nothing about READING one, and the read is what
