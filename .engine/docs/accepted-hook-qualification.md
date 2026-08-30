@@ -14,6 +14,22 @@ cannot: reading, recall, health, diagnostics, capture into the transcript, and e
 The distinction between "never authors canonical memory" and "touches nothing" is the whole design. The second
 reading, shipped once, removed memory from every session on the machine.
 
+### The five words this page keeps using
+
+Everything below is built out of five ideas. They are named here once so the rest reads as English.
+
+* **Qualified** — this machine has worked out which copy of the engine's code is allowed to write to your
+  project's memory, and is running that copy. Unqualified means it has not, so it reads but does not write.
+* **The activation record** — the small file where that answer is kept. It names the merged commit whose code
+  was chosen.
+* **Tree** — Git's word for the exact set of files at one commit. "The tree of that merge" means "the files
+  as they stood at that merged commit", not a directory listing.
+* **Epoch** — a counter that only ever goes up, one per change to the activation record. Two sessions racing
+  to update it cannot both win, because each writes only if the epoch it read is still current.
+* **The drain** — the catch-up pass. An unqualified session writes nothing, so its conversation stays in the
+  transcript file the harness keeps; the next qualified session start reads those tails and writes them to
+  memory properly.
+
 ## What you need to know
 
 ### Automatic execution
@@ -136,9 +152,16 @@ Compaction is the one effect that rewrites canonical memory, and in the incident
 background lifecycle hook classified 99.9% of live records as retired. The code ran, the state was consistent,
 the effect was registered. What was missing was attendance.
 
-So a record-destroying effect whose declared recovery story IS a person — an operator merge, or a snapshot
-taken first — runs only from an attended invocation, **even in a fully qualified session**. PreCompact
-therefore proceeds without mutating and says so in one sentence. Appends are deliberately outside this rule
+So a record-destroying effect whose declared recovery story is **a snapshot someone takes first** runs only
+from an attended invocation, **even in a fully qualified session**. That is the wholesale rescrub, which is
+the shape of the incident above.
+
+Compaction is deliberately outside that rule, and the reasoning is worth stating because the symmetry is
+tempting. Compaction's recovery story is an operator merge — and it is also the only thing that physically
+carries out an erasure you approved. Requiring you to be present at the moment of enactment meant the
+deletion never happened at all: not removed, and not hidden either, because nothing filters an erased record
+out of recall. Your role in an operator-merged consent is to consent, and merging the pull request already
+was that. What protects the rewrite instead is recovery readiness, below. Appends are outside the rule too
 (capture must keep working unattended), as are journal-driven restore recovery and index rebuilds, each for a
 reason a test pins.
 

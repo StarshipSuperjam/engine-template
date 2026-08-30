@@ -5061,7 +5061,7 @@
       },
       "slug": "accepted-hook-qualification",
       "source": {
-        "fingerprint": "sha256:d20efd5883056325251b59f5ab98e6992f47cbc923539283463f28c9aee956c2",
+        "fingerprint": "sha256:4c8c870c9d2ba150bc4ca79fd1128534e57c0a64099a936c903c4a19525e9679",
         "path": ".engine/docs/accepted-hook-qualification.md"
       },
       "status": "active",
