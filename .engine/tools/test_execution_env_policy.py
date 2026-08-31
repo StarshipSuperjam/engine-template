@@ -68,6 +68,26 @@ class TestLaunchAndReap(unittest.TestCase):
             if proc.poll() is None:
                 proc.kill()
 
+    def test_terminate_tree_tolerates_eperm_from_reused_pgid(self):
+        # When a group is already gone and its pgid has been reused by a process this session does not own,
+        # killpg raises PermissionError. terminate_tree must swallow that (it must never signal a stranger's
+        # process) and still return a witness rather than crashing the teardown.
+        proc = ep.launch(["/bin/sh", "-c", "sleep 30"], env=ep.allowlist_environment(["PATH"]))
+        real_killpg = os.killpg
+
+        def fake_killpg(pgid, sig):
+            raise PermissionError("Operation not permitted")
+
+        os.killpg = fake_killpg
+        try:
+            witness = ep.terminate_tree(proc, grace_seconds=0.2)
+            self.assertEqual(witness["pid"], proc.pid)  # returned a witness instead of raising EPERM
+        finally:
+            os.killpg = real_killpg
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+
 
 if __name__ == "__main__":
     unittest.main()

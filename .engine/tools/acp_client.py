@@ -178,6 +178,16 @@ class AcpClient(BuildExecutionRunner):
         self._process_lost = False
         self._reader_thread: Optional[threading.Thread] = None
         self._stop_reader = threading.Event()
+        # A prompt turn's honest completion signal, captured from the session/prompt reply. Cancellation
+        # acknowledgement is the in-flight turn ENDING as 'cancelled' — never a reply to the cancel send,
+        # which ACP defines as a fire-and-forget notification with no reply of its own.
+        self._prompt_in_flight = False
+        self._last_stop_reason: Optional[str] = None
+        # What the agent reported about itself during negotiation, captured so a caller (the qualification
+        # harness) can record configuration_as_reported without reaching into the JSON-RPC plumbing. Recorded
+        # AS REPORTED — never independently verified here.
+        self.initialize_result: Optional[dict] = None
+        self.session_modes: Optional[dict] = None
 
     # -- BuildExecutionRunner ------------------------------------------------------------------------------
 
@@ -187,11 +197,15 @@ class AcpClient(BuildExecutionRunner):
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._reader_thread.start()
 
-        self._request("initialize", {"clientInfo": self._client_info, "protocolVersion": 1})
-        result = self._request("session/new", {"cwd": self._cwd or "."})
+        self.initialize_result = self._request(
+            "initialize", {"clientInfo": self._client_info, "protocolVersion": 1})
+        # ACP v1 session/new requires `mcpServers`; an empty list exposes NO MCP servers to the agent, which
+        # is also the containment-consistent default (the qualified executor is handed no extra tools).
+        result = self._request("session/new", {"cwd": self._cwd or ".", "mcpServers": []})
         session_id = None
         if isinstance(result, dict):
             session_id = result.get("sessionId") or result.get("session_id")
+            self.session_modes = result.get("modes")
         if not session_id:
             session_id = f"session-{self._next_id}"
         self._session_id = session_id
@@ -200,12 +214,26 @@ class AcpClient(BuildExecutionRunner):
     def prompt(self, text: str) -> None:
         if self._session_id is None:
             raise RuntimeError("start_session() must be called before prompt()")
-        self._request("session/prompt", {"sessionId": self._session_id, "prompt": text})
+        # ACP v1 `prompt` is an ARRAY of content blocks, not a bare string. A single text block is the
+        # minimal well-formed turn.
+        content = [{"type": "text", "text": text}]
+        with self._lock:
+            self._prompt_in_flight = True
+            self._last_stop_reason = None
+        try:
+            result = self._request("session/prompt", {"sessionId": self._session_id, "prompt": content})
+            stop = result.get("stopReason") if isinstance(result, dict) else None
+            with self._lock:
+                self._last_stop_reason = stop
+        finally:
+            with self._lock:
+                self._prompt_in_flight = False
 
     def set_mode(self, mode: str) -> Any:
         if self._session_id is None:
             raise RuntimeError("start_session() must be called before set_mode()")
-        return self._request("session/set_mode", {"sessionId": self._session_id, "mode": mode})
+        # ACP v1 names the session mode parameter `modeId`, not `mode`.
+        return self._request("session/set_mode", {"sessionId": self._session_id, "modeId": mode})
 
     def updates(self) -> list:
         with self._lock:
@@ -215,14 +243,25 @@ class AcpClient(BuildExecutionRunner):
         if self._session_id is None:
             raise RuntimeError("start_session() must be called before cancel()")
         self._cancel_ack = False
+        # ACP v1 cancellation is a fire-and-forget NOTIFICATION (no id, no reply). The agent acknowledges
+        # by ENDING the in-flight turn with a 'cancelled' stop reason — never by replying to this send. So
+        # the send itself is not acknowledgement, and we report ack only on observing that stop reason.
         try:
-            self._request("session/cancel", {"sessionId": self._session_id})
-            # An explicit response to session/cancel counts as acknowledgement.
-            self._cancel_ack = True
+            self._send("session/cancel", {"sessionId": self._session_id}, None)
         except AcpProcessLost:
-            self._cancel_ack = False
-        except AcpTimeout:
-            self._cancel_ack = False
+            return False
+        # Wait, bounded, only while a turn is actually in flight; with nothing in flight there is nothing to
+        # acknowledge, so we do not block for the timeout.
+        deadline = time.monotonic() + self.timeout_seconds
+        while time.monotonic() < deadline:
+            with self._lock:
+                stopped = self._last_stop_reason == "cancelled"
+                in_flight = self._prompt_in_flight
+            if stopped or not in_flight or self.process_lost():
+                break
+            time.sleep(0.02)
+        with self._lock:
+            self._cancel_ack = self._last_stop_reason == "cancelled"
         return self._cancel_ack
 
     @property

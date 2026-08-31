@@ -27,10 +27,21 @@ import os
 import sys
 import tempfile
 import textwrap
+import threading
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import acp_client  # noqa: E402
+
+
+def _run_and_collect(client, text, errors):
+    """Run one prompt turn on a background thread, recording any exception rather than letting it die
+    silently — the cancellation test asserts the turn completed without error."""
+    try:
+        client.prompt(text)
+    except Exception as exc:  # pragma: no cover - surfaced via the errors list the caller asserts on
+        errors.append(exc)
 
 FAKE_AGENT_SCRIPT = textwrap.dedent(
     r"""
@@ -66,35 +77,71 @@ FAKE_AGENT_SCRIPT = textwrap.dedent(
         if method == "initialize":
             send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True}})
         elif method == "session/new":
-            send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "sess-1"}})
-        elif method == "session/set_mode":
-            send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True}})
-        elif method == "session/cancel":
-            if SCENARIO == "cancel_noack":
-                pass  # deliberately drop: the agent never acknowledges cancellation
+            params = msg.get("params") or {}
+            # Mirror the real bridge: session/new REQUIRES mcpServers. Reject when the client omits it, so
+            # the test proves the client now sends it.
+            if "mcpServers" not in params:
+                send({"jsonrpc": "2.0", "id": mid,
+                      "error": {"code": -32602, "message": "mcpServers required"}})
             else:
-                send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True}})
+                send({"jsonrpc": "2.0", "id": mid, "result": {"sessionId": "sess-1"}})
+        elif method == "session/set_mode":
+            params = msg.get("params") or {}
+            # Mirror the real bridge: the mode parameter is `modeId`. Reject `mode` so the test proves the
+            # client sends the correct key.
+            if not isinstance(params.get("modeId"), str):
+                send({"jsonrpc": "2.0", "id": mid,
+                      "error": {"code": -32602, "message": "modeId required"}})
+            else:
+                send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True, "modeId": params["modeId"]}})
+        elif method == "session/cancel":
+            # ACP cancellation is a notification (no id). With no in-flight turn it is simply dropped; the
+            # cancellable turn below does its own recv() and handles it there.
+            pass
         elif method == "session/prompt":
             params = msg.get("params") or {}
-            text = params.get("prompt", "")
+            prompt = params.get("prompt")
+            # Mirror the real bridge: prompt MUST be an array of content blocks, never a bare string.
+            if not isinstance(prompt, list):
+                send({"jsonrpc": "2.0", "id": mid,
+                      "error": {"code": -32602, "message": "prompt must be an array"}})
+                continue
+            text = prompt[0].get("text", "") if prompt and isinstance(prompt[0], dict) else ""
             if text == "die":
                 sys.exit(0)
+            elif text == "slow":
+                # A cancellable turn: stream an update, then wait for the cancel notification and END the
+                # turn as 'cancelled'. If stdin closes first, end as end_turn.
+                send({"jsonrpc": "2.0", "method": "session/update",
+                      "params": {"seq": 1, "prompt_is_list": True}})
+                stop = "end_turn"
+                while True:
+                    m2 = recv()
+                    if m2 is None:
+                        break
+                    if m2.get("method") == "session/cancel":
+                        stop = "cancelled"
+                        break
+                send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": stop}})
             elif text == "permission":
                 send({"jsonrpc": "2.0", "id": 9001, "method": "session/request_permission",
                       "params": {"tool": "shell", "action": "run"}})
                 resp = recv()
                 send({"jsonrpc": "2.0", "method": "session/update",
                       "params": {"note": "permission-response-seen", "response": resp}})
-                send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True}})
+                send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
             elif text == "malformed":
                 sys.stdout.write("{this is not valid json\n")
                 sys.stdout.flush()
                 send({"jsonrpc": "2.0", "method": "session/update", "params": {"seq": 1}})
-                send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True}})
+                send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
             else:
-                send({"jsonrpc": "2.0", "method": "session/update", "params": {"seq": 1}})
+                # Echo that the prompt arrived as a well-formed content-block array, so the test can assert
+                # the client sent the corrected shape.
+                send({"jsonrpc": "2.0", "method": "session/update",
+                      "params": {"seq": 1, "prompt_is_list": True}})
                 send({"jsonrpc": "2.0", "method": "session/update", "params": {"seq": 2}})
-                send({"jsonrpc": "2.0", "id": mid, "result": {"ok": True}})
+                send({"jsonrpc": "2.0", "id": mid, "result": {"stopReason": "end_turn"}})
         # unrecognized methods are silently ignored by the fake agent
     """
 )
@@ -142,6 +189,9 @@ class LifecycleTests(AcpClientTestBase):
         update_kinds = [u["kind"] for u in updates]
         self.assertEqual(update_kinds, ["session/update", "session/update"])
         self.assertEqual([u["payload"]["seq"] for u in updates], [1, 2])
+        # The agent only reaches this reply when session/new carried mcpServers and session/prompt carried a
+        # content-block ARRAY; the echoed flag proves the client sent the corrected ACP shapes.
+        self.assertTrue(updates[0]["payload"]["prompt_is_list"])
 
         witness = client.close()
         self.assertTrue(witness["leader_exited"])
@@ -174,11 +224,12 @@ class ClientCallbackTests(AcpClientTestBase):
         echoed = next(u for u in client.updates() if u["kind"] == "session/update")
         self.assertEqual(echoed["payload"]["response"]["result"]["outcome"], "deny")
 
-    def test_set_mode_succeeds(self):
+    def test_set_mode_sends_modeId_and_succeeds(self):
         client = self.make_client(scenario="normal")
         client.start_session()
-        result = client.set_mode("code")
-        self.assertEqual(result, {"ok": True})
+        result = client.set_mode("acceptEdits")
+        # The agent only returns modeId when the client sent the correctly-named `modeId` parameter.
+        self.assertEqual(result["modeId"], "acceptEdits")
 
 
 class FaultInjectionTests(AcpClientTestBase):
@@ -203,13 +254,41 @@ class FaultInjectionTests(AcpClientTestBase):
         witness = client.close()
         self.assertTrue(witness["leader_exited"])
 
-    def test_cancel_without_agent_ack_is_reported_honestly(self):
-        client = self.make_client(scenario="cancel_noack", timeout_seconds=1.0)
+    def test_cancel_with_no_in_flight_turn_is_not_acknowledged(self):
+        # Cancellation acknowledgement is an in-flight turn ending as 'cancelled'. With nothing in flight
+        # there is nothing to acknowledge, and cancel() returns False without blocking for the timeout.
+        client = self.make_client(scenario="normal", timeout_seconds=5.0)
         client.start_session()
 
+        started = time.monotonic()
         ack = client.cancel()
+        elapsed = time.monotonic() - started
         self.assertFalse(ack)
         self.assertFalse(client.cancel_acknowledged)
+        self.assertLess(elapsed, 2.0, "cancel() must not block for the full timeout with no turn in flight")
+
+    def test_cancel_of_in_flight_turn_is_acknowledged(self):
+        # Drive a real concurrent cancellation: a 'slow' turn runs on one thread and blocks for its reply
+        # while the main thread sends the cancel notification; the agent then ends the turn as 'cancelled'
+        # and the client reports the acknowledgement honestly from that stop reason.
+        client = self.make_client(scenario="normal", timeout_seconds=5.0)
+        client.start_session()
+
+        errors = []
+        prompt_thread = threading.Thread(target=lambda: _run_and_collect(client, "slow", errors))
+        prompt_thread.start()
+        try:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline and not any(
+                    u["kind"] == "session/update" for u in client.updates()):
+                time.sleep(0.02)
+            ack = client.cancel()
+        finally:
+            prompt_thread.join(timeout=5.0)
+
+        self.assertEqual(errors, [])
+        self.assertTrue(ack)
+        self.assertTrue(client.cancel_acknowledged)
 
 
 class VocabularyWitnessTests(unittest.TestCase):

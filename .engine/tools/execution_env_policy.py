@@ -78,6 +78,11 @@ def terminate_tree(proc, *, grace_seconds: float = 2.0, poll_seconds: float = 0.
                 return
             except ProcessLookupError:
                 return
+            except PermissionError:
+                # The group is already gone and its pgid has been reused by a process this session does not
+                # own; signalling it would target someone else's process, so we must NOT. Treat as
+                # already-reaped rather than crashing the teardown.
+                return
         try:
             proc.send_signal(sig)
         except ProcessLookupError:
