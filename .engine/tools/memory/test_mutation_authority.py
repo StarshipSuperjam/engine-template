@@ -343,25 +343,29 @@ class ConvertedCallGraphTests(unittest.TestCase):
 
 class TerminalAttendedAuthorityTests(unittest.TestCase):
     """The authority a terminal verb (the ClawMem exporter, the erasure verb) runs its own writes on when it has
-    no execution context: a person at a real terminal, certified before the scope opens, fail-closed on both
-    halves. These exercise the REAL path (not the test-only adapter), which is where the original gap hid."""
+    no execution context: a real terminal, checked before the scope opens, fail-closed on both halves. The tty
+    check is a speed-bump, not a proof of human presence (a pty passes it) — these tests pin the frame/entry
+    gating, not attendance. They exercise the REAL path (not the test-only adapter), where the original gap hid."""
 
     def tearDown(self):
         mutation_authority._THREAD.state = None
 
-    def test_refuses_without_a_real_terminal(self):
+    def test_refuses_without_a_real_terminal_on_either_stream(self):
         from unittest import mock
-        with mock.patch("sys.stdin.isatty", return_value=False), \
-                mock.patch("sys.stdout.isatty", return_value=True):
-            with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "real terminal"):
-                with mutation_authority.terminal_attended(["attended-clawmem-export"]):
-                    pass
-        self.assertIsNone(getattr(mutation_authority._THREAD, "state", None))
+        for stdin_tty, stdout_tty in ((False, True), (True, False), (False, False)):
+            with self.subTest(stdin=stdin_tty, stdout=stdout_tty):
+                with mock.patch("sys.stdin.isatty", return_value=stdin_tty), \
+                        mock.patch("sys.stdout.isatty", return_value=stdout_tty):
+                    with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "real terminal"):
+                        with mutation_authority.terminal_attended(["attended-clawmem-export"]):
+                            pass
+                self.assertIsNone(getattr(mutation_authority._THREAD, "state", None))
 
     def test_refuses_a_caller_that_is_not_a_sanctioned_verb(self):
-        # A real terminal is not enough: the opener must be one of the engine's OWN terminal verb entrypoints.
-        # This test frame is not one, so even with a genuine tty on both streams the scope refuses and sets no
-        # state — an AI session that reached a tty still could not open it from arbitrary code.
+        # A tty is not enough: the opener must be one of the engine's OWN terminal verb entrypoints. This test
+        # frame is not one, so even with a tty on both streams the scope refuses and sets no state. NOTE this does
+        # NOT stop an AI from running the GENUINE verb under a pty (that passes both checks) — the frame gate only
+        # blocks arbitrary/non-verb callers; attendance is not enforced (see terminal_attended's honesty note).
         from unittest import mock
         with mock.patch("sys.stdin.isatty", return_value=True), \
                 mock.patch("sys.stdout.isatty", return_value=True):
@@ -407,6 +411,30 @@ class TerminalAttendedAuthorityTests(unittest.TestCase):
             self.assertTrue(allowed)
             for entry_id in allowed:
                 self.assertIn(entry_id, known)
+
+    def test_each_verb_authorizes_exactly_its_own_guarded_registry_writers(self):
+        # The lockstep the verb modules' comments claim: a verb's terminal-attended allowlist must equal EXACTLY
+        # the guarded registry writers of that verb's module, and its own declared write-entries constant must
+        # equal that allowlist. This is the coverage test that catches drift both ways — a new guarded writer the
+        # scope would refuse, or an allowlist id dropped so a real write silently loses authorization (the exact
+        # "green but wrong" regression class for erase.py that the behavioural main() tests also guard).
+        from memory import clawmem_export, erase
+        module_writers = {}
+        for entry in mutation_contract.REGISTRY:
+            module = entry["writer"].rsplit(".", 1)[0]
+            if entry["effect_class"] != "semantic-read" and entry["id"] not in mutation_authority._SKIP_WRAPPERS:
+                module_writers.setdefault(module, set()).add(entry["id"])
+        cases = {
+            "memory.clawmem_export": clawmem_export._EXPORT_WRITE_ENTRIES,
+            "memory.erase": erase._ERASE_WRITE_ENTRIES,
+        }
+        by_source = {src: allowed for src, (_fn, allowed) in mutation_authority._TERMINAL_ATTENDED_VERBS.items()}
+        for module, declared in cases.items():
+            allowlist = next(a for s, a in by_source.items() if s.endswith(module.split(".")[-1] + ".py"))
+            self.assertEqual(set(declared), set(allowlist),
+                             f"{module}'s declared write-entries constant must equal its allowlist")
+            self.assertEqual(set(allowlist), module_writers.get(module, set()),
+                             f"{module}'s allowlist must equal exactly its guarded registry writers")
 
 
 class LockedAuthorityTests(unittest.TestCase):

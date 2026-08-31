@@ -14,21 +14,30 @@ file is written. A later withhold, a merged erasure, or a new masking rule does 
 disk, nor any ClawMem store built from it. The manifest says so, and the migration-trial doc (X2) makes the
 operator delete every residue copy when the trial is done.
 
-THE TERMINAL GATE IS THE CONSENT CONTROL, and it is a built control rather than a line of prose. The export is
-the operator's private conversation in cleartext leaving the ledger's governance, and this repository's actor
-model is that an AI session runs commands — so a blanket `uv run` grant would make "operator-attended"
-unenforceable by convention. Following `erase.py`, the verb REFUSES without a real terminal on both stdin and
-stdout, and that check comes FIRST, before the store is read at all (an automated caller must not learn which
-sessions or records exist one refusal at a time). It also refuses while any operator-ordered erasure is still
-pending, and refuses an in-repo destination (`export.assert_safe_destination`).
+THE TERMINAL GATE IS THE CONSENT SPEED-BUMP — NOT A PROOF OF ATTENDANCE. The export is the operator's private
+conversation in cleartext leaving the ledger's governance, and this repository's actor model is that an AI
+session runs commands under a blanket `uv run` grant. Following `erase.py`, the verb REFUSES without a real
+terminal on both stdin and stdout, and that check comes FIRST, before the store is read at all (an automated
+caller must not learn which sessions or records exist one refusal at a time). BE HONEST ABOUT ITS STRENGTH,
+exactly as `erase.py` is: `isatty()` is a best-effort human-presence signal, not a wall — an AI session that
+allocates a pseudo-terminal (`pty.spawn`) makes it return True and runs this genuine verb, so the gate is a
+speed-bump against ACCIDENTAL unattended runs, not a barrier a determined or injected caller cannot pass. What
+keeps that bounded is that the export grants NO new read capability: it is a scrubbed, withhold-honouring
+projection of the ledger, which already sits in cleartext on disk readable by the same session — strictly LESS
+than `cat ledger.ndjson`. Do not let `terminal_attended` be read as "a human is definitely present." The verb
+also refuses while any operator-ordered erasure is still pending, and refuses an in-repo destination
+(`export.assert_safe_destination`).
 
 FIDELITY. The export mirrors what RECALL surfaces, not the raw bytes: harness-injected pseudo-turns are dropped
 (judged MESSAGE-wise, so a legacy continuation summary's tail chunks travel with its head), fused harness spans
 are substituted out (`records.mark_harness_spans`, exactly as the window reader shows them), the operator's
 withholds are honoured (a withheld record, a withheld session, and a removed pin — which IS a withheld record —
-are all absent), and the rejoined message is scrubbed FAIL-CLOSED. There is no per-session cap: `export.py`'s
-5000-record bound is deliberately inverted here — a whole session exports whole — and the terminal gate is the
-compensating control for reading the store wholesale.
+are all absent), and the rejoined message is scrubbed. BE HONEST about what the scrub is: `scrub.scrub_text` is
+precision-biased and FAIL-SOFT — it never raises, and by deliberate policy leaves names, emails, and phone
+numbers intact — so it is not a guarantee of complete masking, and the manifest labels every file private
+material regardless. The `_ScrubFault` teardown below is defensive against a scrubber that RAISES (a fault the
+current scrubber cannot produce); a scrubber that silently under-masks is not caught here. There is no
+per-session cap: `export.py`'s 5000-record bound is deliberately inverted here — a whole session exports whole.
 
 stdlib + the memory package only; no outbound calls.
 """
@@ -140,12 +149,16 @@ def _digest_file(path: str) -> str:
 
 
 def _scrub_fail_closed(text: str) -> str:
-    """Scrub one REJOINED message, failing CLOSED.
+    """Scrub one REJOINED message, aborting the export if the scrubber RAISES.
 
     The message is scrubbed AFTER its chunks are rejoined, so a secret straddling a chunk boundary — invisible to
     a per-chunk scrub — is caught. `scrub.scrub_text` swallows its own faults and returns the input unchanged
-    (fail-soft, right for capture); that is wrong for an export, where returning unmasked text on a fault is a
-    silent leak. So the call is wrapped and a scrubber that RAISES aborts the export via `_ScrubFault`."""
+    (fail-soft, right for capture); this wrapper turns a scrubber that RAISES into `_ScrubFault`, which aborts and
+    tears down the partial export rather than write a half-masked file. HONEST BOUND: because the real scrubber
+    never raises, that teardown guards a fault mode it cannot actually produce — a scrubber that silently
+    UNDER-masks (returns an unmasked secret without raising) is NOT caught here, and by policy names, emails, and
+    phone numbers are left intact regardless. The manifest labels every file private material for that reason;
+    this is not a guarantee of complete masking."""
     try:
         return scrub.scrub_text(text)
     except Exception as exc:  # noqa: BLE001 — a faulting scrubber must stop the export, never emit unmasked text
@@ -204,7 +217,7 @@ def _classify(src: str):
         "withheld_sessions": set(),
         "withheld_session_messages": 0,
         "withheld_records": set(),
-        "injected_filtered_messages": 0,
+        "injected_filtered_records": 0,
         "legacy_skipped": 0,
         "bookkeeping_dropped": {},
     }
@@ -226,11 +239,11 @@ def _classify(src: str):
             # legacy head chunk; the message-key set catches the tail chunks of an untagged legacy summary that
             # travel with a head neither arm recognises on its own.
             if not recall.is_genuine_turn(record):
-                omission["injected_filtered_messages"] += 1
+                omission["injected_filtered_records"] += 1
                 continue
             if (isinstance(sid, str) and isinstance(seq, int) and not isinstance(seq, bool)
                     and (sid, seq) in injected_keys):
-                omission["injected_filtered_messages"] += 1
+                omission["injected_filtered_records"] += 1
                 continue
             if isinstance(sid, str) and sid in withheld_sessions:
                 omission["withheld_sessions"].add(sid)
@@ -437,7 +450,7 @@ def _render(dest, by_session, curated, live_pins, census, omission, *, src, now)
             "withheld_sessions": sorted(omission["withheld_sessions"]),
             "withheld_session_messages_skipped": omission["withheld_session_messages"],
             "withheld_records": sorted(omission["withheld_records"]),
-            "injected_filtered_messages": omission["injected_filtered_messages"],
+            "injected_filtered_records": omission["injected_filtered_records"],
             "scaffolding_marked_turns": scaffolding_marked,
             "scrub_altered_messages": scrub_altered,
             "legacy_skipped": omission["legacy_skipped"],
@@ -489,7 +502,7 @@ def main(argv: list) -> int:
     omission = manifest["omission_account"]
     print(f"  omitted: {len(omission['withheld_sessions'])} withheld session(s), "
           f"{len(omission['withheld_records'])} withheld record(s), "
-          f"{omission['injected_filtered_messages']} injected message(s), "
+          f"{omission['injected_filtered_records']} injected record(s), "
           f"{omission['legacy_skipped']} legacy record(s). See meta/manifest.json for the full account.")
     return 0
 

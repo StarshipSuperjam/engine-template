@@ -272,7 +272,7 @@ class InjectedAndScaffoldingTests(_Base):
                    tags=[records.INJECTED_TAG])
         dest, manifest = self._export()
         self.assertNotIn("task-notification", self._all_conversation_text(dest))
-        self.assertGreaterEqual(manifest["omission_account"]["injected_filtered_messages"], 1)
+        self.assertGreaterEqual(manifest["omission_account"]["injected_filtered_records"], 1)
 
     def test_an_untagged_legacy_injected_message_split_across_chunks_is_dropped_whole(self):
         # The head chunk is recognised by its start-anchored text; the TAIL chunk (same seq) matches neither the
@@ -287,7 +287,7 @@ class InjectedAndScaffoldingTests(_Base):
         blob = self._all_conversation_text(dest)
         self.assertNotIn("THINGONE", blob)
         self.assertNotIn("continued from a previous conversation", blob)
-        self.assertGreaterEqual(manifest["omission_account"]["injected_filtered_messages"], 2)
+        self.assertGreaterEqual(manifest["omission_account"]["injected_filtered_records"], 2)
 
     def test_a_fused_harness_span_is_substituted_out(self):
         s = _sid()

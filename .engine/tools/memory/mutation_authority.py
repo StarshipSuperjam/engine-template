@@ -81,13 +81,20 @@ _INSTANTIATOR_SOURCE = os.path.join(_TOOLS_ROOT, "instantiator.py")
 
 # The TERMINAL-ATTENDED verbs. These are the operator-present CLI verbs that move private cleartext OUT of the
 # governed store, or propose its permanent erasure — the ClawMem exporter and the erasure verb. They cannot carry
-# an ordinary execution context: that context is minted only for AI-SESSION operations, and these verbs
-# deliberately EXCLUDE an AI session by refusing without a real terminal (an AI session's shell has no controlling
-# tty, and this repository's blanket `uv run` grant would otherwise make "operator-attended" unenforceable). So a
-# real terminal IS their authority. `terminal_attended()` certifies BOTH halves before it opens — a genuine tty on
-# stdin AND stdout, and a caller that is one of these exact verb entrypoints running its own genuine loaded code —
-# then authorizes that verb's OWN registered writes (nested or sibling), and only those, for the block. Keyed by
-# the verb's source file; each value is (entrypoint function name, the registry ids it may authorize).
+# an ordinary execution context: that context is minted only for AI-SESSION operations. `terminal_attended()`
+# gives them their own authority instead, gated on a real terminal AND a caller that is one of these exact verb
+# entrypoints running its own genuine loaded code, then authorizes that verb's OWN registered writes (nested or
+# sibling), and only those, for the block.
+#
+# HONESTY ABOUT THE tty GATE — it is a SPEED-BUMP, not a proof of human presence, exactly as `erase.py`'s own
+# docstring says. `isatty()` distinguishes an ordinary automated run from a terminal, but an AI session that
+# allocates a pseudo-terminal (`pty.spawn`) makes it return True and can then run these GENUINE verbs — the tty +
+# genuine-frame checks do not stop that. What keeps it acceptable is NOT the gate's strength but the bounded
+# stakes: the export is a scrubbed, withhold-honouring projection of a ledger already in cleartext on disk (no new
+# read capability), and erasure's real barrier is the operator merging its pull request on GitHub. So do NOT treat
+# "terminal-attended" as an invariant that a human is present; it means "not a plain unattended run, over data the
+# session can already read." Keyed by the verb's source file; each value is (entrypoint function name, the
+# registry ids it may authorize).
 _TERMINAL_ATTENDED_VERBS = {
     os.path.realpath(os.path.join(_TOOLS_ROOT, "memory", "clawmem_export.py")): (
         "main", frozenset({"attended-clawmem-export", "attended-clawmem-export-teardown"})),
@@ -526,15 +533,19 @@ def _terminal_attended_receipt(entry: dict, measured: int) -> dict:
 
 @contextmanager
 def terminal_attended(entry_ids):
-    """Authority a terminal verb runs its own registered writes on: the operator's real terminal, no context.
+    """Authority a terminal verb runs its own registered writes on: a real terminal, no execution context.
 
     These verbs (the ClawMem exporter, the erasure verb) move private cleartext out of the governed store or
     propose its permanent erasure. They carry no execution context — a context is minted only for AI-session
-    operations, which they deliberately refuse — so a person at a real terminal is the authority. This certifies
-    both halves BEFORE it opens: stdin AND stdout are a genuine terminal (so no AI-session path reaches it), and
-    the caller is one of the exact verb entrypoints allowed to authorize every id in `entry_ids`. Inside the
-    block, every registered write named in `entry_ids` — nested or sibling — is authorized; ANY other writer is
-    refused, so an allowed verb cannot become a door to the store beneath it. Fail-closed on either half."""
+    operations — so the terminal gate is their authority instead. This checks BOTH halves BEFORE it opens: stdin
+    AND stdout are a terminal, and the caller is one of the exact verb entrypoints allowed to authorize every id in
+    `entry_ids`. Inside the block, every registered write named in `entry_ids` — nested or sibling — is authorized;
+    ANY other writer is refused, so an allowed verb cannot become a door to the store beneath it.
+
+    The tty half is a SPEED-BUMP, not a proof a human is present: an AI that allocates a pseudo-terminal passes it
+    and can run these genuine verbs (see `_TERMINAL_ATTENDED_VERBS`). It is acceptable only because the stakes are
+    bounded — the export is a scrubbed projection of a ledger already readable on disk, and erasure's real gate is
+    the merged pull request. Do not build on `terminal_attended` as if it guaranteed attendance."""
     ids = frozenset(entry_ids)
     for entry_id in ids:
         _entry(entry_id)  # every id must name a real registry entry, or this is a programming error, not authority
@@ -542,8 +553,8 @@ def terminal_attended(entry_ids):
         raise MutationAuthorityError("a terminal-attended operation cannot open inside another mutation scope")
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise MutationAuthorityError(
-            "this runs only from a real terminal, with a person present: stdin and stdout are not a terminal here, "
-            "so it was refused before anything was written.")
+            "this runs only from a real terminal: stdin and stdout are not a terminal here, so it was refused "
+            "before anything was written.")
     if not _terminal_attended_verb_frame(ids):
         raise MutationAuthorityError(
             "terminal-attended authority is available only to the engine's own terminal verbs, for their own "

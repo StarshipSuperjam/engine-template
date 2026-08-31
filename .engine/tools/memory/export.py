@@ -114,8 +114,8 @@ def assert_safe_destination(dest: str) -> None:
     if not consulted:
         raise ExportRefused(
             "git could not be consulted, so there is no way to tell whether that path sits inside a project "
-            "that would commit it. Nothing was written. Choose a destination well outside any project — your "
-            "home directory, or a temporary folder."
+            "that would commit it. Nothing was written. Choose a local folder outside any project — one you have "
+            "confirmed is not cloud-synced (iCloud/OneDrive/Dropbox) or swept by a backup tool."
         )
     if root is None:
         return
@@ -123,8 +123,8 @@ def assert_safe_destination(dest: str) -> None:
         return
     raise ExportRefused(
         f"that path is inside a git project ({root}) and is not ignored by it, so the export could end up "
-        "committed. Nothing was written. Choose somewhere outside the project — your home directory or a "
-        "temporary folder — or a path the project already ignores."
+        "committed. Nothing was written. Choose a local folder outside the project — one you have confirmed is "
+        "not cloud-synced (iCloud/OneDrive/Dropbox) or backed up — or a path the project already ignores."
     )
 
 
