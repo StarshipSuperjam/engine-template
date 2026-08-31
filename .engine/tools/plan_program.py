@@ -1767,6 +1767,8 @@ def render(library: ProgramLibrary, record: dict) -> str:
                        + " — so this record holds several disconnected chains rather than one.")
         out.append("")
 
+    out += _render_lanes(record, view)
+
     out += ["## Obligations still carried", ""]
     if report["unknown"]:
         out.append("_Cannot be computed from this record._ Nothing here should be read as a debt of "
@@ -1879,6 +1881,70 @@ def render(library: ProgramLibrary, record: dict) -> str:
             out.append(f"- Replaced {entry['replaced_at']}: {entry['reason']}")
             out.append(f"  - Previously: {entry['objective']}")
     return "\n".join(out).rstrip() + "\n"
+
+
+def _render_lanes(record: dict, view: list) -> list:
+    """The DECIDED lane split, rendered truthfully — never the per-lane activity view (issue #1173).
+
+    Truth-telling is the whole job: a member that has since been superseded or died is MARKED in
+    place, not hidden; a child added after the split is listed as unlaned rather than silently
+    absorbed; and a predecessor edge that crosses lanes is disclosed as a merge-order risk. The split
+    validates only when it is set — display tells the truth forever after, however the chain moved.
+    """
+    lines: list = []
+    split = record.get("lanes")
+    status_of = {child["plan_id"]: child["status"] for child in view}
+    superseded_of = {child["plan_id"]: child.get("superseded_by")
+                     for child in view if child.get("superseded_by")}
+    ordinal_of = {child["plan_id"]: child.get("chain_ordinal", 1 << 30) for child in view}
+    predecessor_of = {child["plan_id"]: child.get("predecessor_plan_id")
+                      for child in record["children"]}
+    if split:
+        lines += ["## Lanes", "", f"_Decided {split['decided_at']}: {split['reason']}_", ""]
+        lane_of = {member: lane["name"] for lane in split["lanes"] for member in lane["children"]}
+        laned: set = set()
+        for lane in split["lanes"]:
+            members = sorted(lane["children"], key=lambda m: (ordinal_of.get(m, 1 << 30), m))
+            rendered = []
+            for member in members:
+                laned.add(member)
+                status = status_of.get(member, "not in this program")
+                if member in superseded_of:
+                    mark = f" — superseded by `{superseded_of[member]}`"
+                elif status in DEAD_BRANCH_STATES:
+                    mark = f" — {status}, marked not hidden"
+                else:
+                    mark = ""
+                rendered.append(f"`{member}` ({status}){mark}")
+            lines.append(f"- **{lane['name']}**: " + ", ".join(rendered))
+        unlaned = [child["plan_id"] for child in view if child["plan_id"] not in laned]
+        if unlaned:
+            lines += ["", "Stored children not in any lane: "
+                      + ", ".join(f"`{plan_id}`" for plan_id in unlaned)]
+        edges = []
+        for child in view:
+            plan_id = child["plan_id"]
+            predecessor = predecessor_of.get(plan_id)
+            if plan_id in lane_of and predecessor in lane_of \
+                    and lane_of[plan_id] != lane_of[predecessor]:
+                edges.append((plan_id, lane_of[plan_id], predecessor, lane_of[predecessor]))
+        if edges:
+            lines += ["", "Cross-lane predecessor edges — a merge-order risk to watch:"]
+            for plan_id, child_lane, predecessor, predecessor_lane in edges:
+                lines.append(f"- `{plan_id}` (lane {child_lane}) succeeds `{predecessor}` "
+                             f"(lane {predecessor_lane}).")
+        lines.append("")
+    if record.get("lanes_history"):
+        lines += ["## Lane splits that stopped standing", ""]
+        for entry in record["lanes_history"]:
+            past = entry["split"]
+            shape = "; ".join(f"{lane['name']}=[" + ", ".join(f"`{c}`" for c in lane["children"]) + "]"
+                              for lane in past["lanes"])
+            lines.append(f"- **{entry['ended_by']}** {entry['ended_at']}: {entry['reason']}")
+            lines.append(f"  - Was: {shape} (decided {past['decided_at']}: {past['reason']})")
+        lines += ["", "_Nothing was erased. A split that was replaced and one that was cleared read "
+                  "differently, so a later reader can tell them apart and see when none stood._", ""]
+    return lines
 
 
 def _released(library: ProgramLibrary, record: dict) -> list:

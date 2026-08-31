@@ -2815,6 +2815,25 @@ class LaneCommands(ProgramVerbs):
         fresh = self.run_command("program", "lanes", "propose", program_id, "--fresh")[1]
         self.assertIn("set aside", fresh)
 
+    def test_program_show_renders_the_lanes_section_and_history(self):
+        program_id = self._disjoint_program()
+        # No section before a split is recorded.
+        self.assertNotIn("## Lanes", self.run_command("program", "show", program_id)[1])
+        self.assertEqual(self.run_command(
+            "program", "lanes", "set", program_id,
+            "--lane", "fast=pln_aaaaaaaaaaaa", "--lane", "slow=pln_bbbbbbbbbbbb",
+            "--reason", "by territory")[0], 0)
+        shown = self.run_command("program", "show", program_id)[1]
+        self.assertIn("## Lanes", shown)
+        self.assertIn("by territory", shown)
+        self.assertIn("**fast**", shown)
+        # After a clear, no current section but a discriminated history entry.
+        self.assertEqual(self.run_command("program", "lanes", "clear", program_id,
+                                          "--reason", "pause")[0], 0)
+        cleared = self.run_command("program", "show", program_id)[1]
+        self.assertIn("## Lane splits that stopped standing", cleared)
+        self.assertIn("**cleared**", cleared)
+
 
 if __name__ == "__main__":
     unittest.main()

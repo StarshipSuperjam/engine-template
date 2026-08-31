@@ -2930,6 +2930,142 @@ class LaneProposal(_Program):
         self.assertEqual(run("1"), run("2"))
 
 
+class LaneRender(_Program):
+    """`program show` (via plan_program.render) tells the truth about the DECIDED split, forever after
+    the chain moves — a Lanes section only when a split stands, dead members marked in place, newcomers
+    listed as unlaned, cross-lane edges disclosed, and the ended splits kept in a discriminated log."""
+
+    def _shelf(self, *ids):
+        slug = self._program("Render", "Ride in parallel.")
+        prev = None
+        for plan_id, paths in ids:
+            document = _document(plan_id=plan_id, title=plan_id[-3:])
+            document["build_plan"]["work_items"] = [{
+                "id": "w", "description": "d", "paths": paths, "depends_on": [],
+                "exclusive_resources": [], "executor_class": "builder", "verification": ["v"],
+                "output_contract": {"deliverable": "x", "artifact_kinds": ["code"],
+                                    "required_evidence": ["t"]}}]
+            program = {"program_id": self.program_id}
+            if prev:
+                program["predecessor_plan_id"] = prev
+            document["program"] = program
+            self.plans.create(document)
+            self.programs.add_child(slug, plan_id, predecessor=prev)
+            prev = plan_id
+        return slug
+
+    def test_no_lanes_section_without_a_recorded_split(self):
+        slug = self._shelf(("pln_a00000000001", ["x.py"]))
+        self.assertNotIn("## Lanes", plan_program.render(self.programs, self.programs.read(slug)))
+
+    def test_a_recorded_split_renders_with_its_reason(self):
+        slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001"]},
+                                       {"name": "slow", "children": ["pln_b00000000002"]}],
+                                "split by territory")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("## Lanes", rendered)
+        self.assertIn("split by territory", rendered)
+        self.assertIn("**fast**", rendered)
+        # A cross-lane predecessor edge is disclosed.
+        self.assertIn("succeeds", rendered)
+
+    def test_a_superseded_laned_member_is_marked_not_hidden(self):
+        slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001"]}],
+                                "one lane for now")
+        self.plans.update_record(self.plans.resolve("pln_a00000000001"), lambda cur: cur.__setitem__(
+            "closure", {"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "superseded"}))
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == "pln_a00000000001":
+                child["superseded_by"] = "pln_b00000000002"
+        self.programs._write(slug, record)
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("pln_a00000000001", rendered)          # marked in place, never dropped
+        self.assertIn("superseded by `pln_b00000000002`", rendered)
+
+    def test_a_post_split_child_lists_as_unlaned(self):
+        slug = self._shelf(("pln_a00000000001", ["x.py"]))
+        self.programs.set_lanes(slug, [{"name": "only", "children": ["pln_a00000000001"]}],
+                                "the initial split")
+        # A child added after the split is not in any lane.
+        document = _document(plan_id="pln_b00000000002", title="B")
+        document["program"] = {"program_id": self.program_id,
+                               "predecessor_plan_id": "pln_a00000000001"}
+        self.plans.create(document)
+        self.programs.add_child(slug, "pln_b00000000002", predecessor="pln_a00000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("not in any lane", rendered)
+        self.assertIn("pln_b00000000002", rendered.split("not in any lane")[1])
+
+    def test_the_lane_history_renders_discriminated(self):
+        slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "one", "children": ["pln_a00000000001"]}], "first")
+        self.programs.set_lanes(slug, [{"name": "one", "children": ["pln_a00000000001",
+                                                                     "pln_b00000000002"]}], "widen")
+        self.programs.clear_lanes(slug, "pause")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("## Lane splits that stopped standing", rendered)
+        self.assertIn("**replaced**", rendered)
+        self.assertIn("**cleared**", rendered)
+        self.assertNotIn("## Lanes\n", rendered)   # nothing stands now, so no current-split section
+
+
+class TheLaneRecordHasOneReader(unittest.TestCase):
+    """The mechanical answer to advisory-drift: nothing outside the lanes surface reads the lane record.
+
+    An AST allowlist in PR 1's seam-pin style — a scan over every module under .engine/tools/ for any
+    read of the record keys `lanes`/`lanes_history`, permitted only in the enumerated surface. A future
+    coordinator, skill or tool that reads the lane record to select or start work trips this even though
+    it adds no refusal and touches no lanes code, so authority drift has to edit the allowlist in the open.
+    """
+
+    KEYS = {"lanes", "lanes_history"}
+    ALLOWLIST = {"plan_program.py", "project_manager.py", "test_plan_program.py",
+                 "test_project_manager.py", "demo_program_lanes.py"}
+
+    def _record_key_reads(self, source: str) -> set:
+        """Every read of a lane record key this source makes: `x["lanes"]` or `x.get("lanes")`."""
+        import ast
+        found = set()
+        for node in ast.walk(ast.parse(source)):
+            key = None
+            if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) \
+                    and isinstance(node.slice.value, str):
+                key = node.slice.value
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr == "get" and node.args \
+                    and isinstance(node.args[0], ast.Constant) \
+                    and isinstance(node.args[0].value, str):
+                key = node.args[0].value
+            if key in self.KEYS:
+                found.add(key)
+        return found
+
+    def test_only_the_allowlisted_surface_reads_the_lane_record(self):
+        tools = Path(plan_program.__file__).resolve().parent
+        offenders = {}
+        for path in sorted(tools.glob("*.py")):
+            if path.name in self.ALLOWLIST:
+                continue
+            reads = self._record_key_reads(path.read_text(encoding="utf-8"))
+            if reads:
+                offenders[path.name] = sorted(reads)
+        self.assertEqual(offenders, {},
+                         "the lane record is advisory and has exactly one reader surface; these "
+                         f"modules read its keys and are not on the allowlist: {offenders}")
+
+    def test_the_tripwire_catches_a_seeded_out_of_allowlist_reader(self):
+        # THE function the guard rests on, proven to go red — a synthetic drifting reader outside the
+        # allowlist must turn the real assertion red, not merely be visible to a detector beside it.
+        seeded = "def drift(record):\n    return record['lanes'], record.get('lanes_history')\n"
+        self.assertEqual(self._record_key_reads(seeded), {"lanes", "lanes_history"})
+        offenders = {"a_drifting_module.py": sorted(self._record_key_reads(seeded))}
+        with self.assertRaises(AssertionError):
+            self.assertEqual(offenders, {})
+
+
 class LaneSchema(_Program):
     """The schema pins the lane block's shape; the code pins what the schema cannot express."""
 
