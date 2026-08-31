@@ -5835,7 +5835,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:d64d52b6ff324f9dd7a67f3fd4fa76cb1cb26abc3da0279588de5b6e3c1faaab",
+        "fingerprint": "sha256:54b7f198ac8b780ce8a6e43aa53d87b44201767be3d869562ff6bb0f96eaa381",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -13138,7 +13138,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:8a8fec866aee7f0d00667ef22825a702c27db3667ad72f3d08f2b9eb25d80337",
+        "fingerprint": "sha256:4d84e48c9dae65718cb366e95ce1a5e67890ce1215b1871de5893acfafa9a23d",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -17839,7 +17839,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:d57e65e95ea7eb0484210003ee978cd30f3ada8e48488333ded13ae81aeba55f",
+        "fingerprint": "sha256:272f6d04b81e575281f596dbea2d2a99ddd062369d614d46f2ab01c742766828",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -20151,7 +20151,7 @@
       },
       "slug": "test_transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:a76a09d370531bd165e53b53ee4810c945277a22f1db26d124511e7f29b7c7fc",
+        "fingerprint": "sha256:49536dad75bccfb5edfdaebb190e03238f6783a1395ef9dcd7283679fc2eb7fd",
         "path": ".engine/tools/test_transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20180,7 +20180,7 @@
       },
       "slug": "test_transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:ac1e15421b258fdaafa1f04826e20ce2fcb4bfa998d065ecfaa9654854035cc8",
+        "fingerprint": "sha256:65ce4e89323e1300a908d301fabcde4086cda1204ca45b6f34c8f96203b18969",
         "path": ".engine/tools/test_transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -20232,7 +20232,7 @@
       },
       "slug": "test_transaction_handoff",
       "source": {
-        "fingerprint": "sha256:a8a29d89f0c79bd92113c3ec824400da291c8e2533ae1d9d1b572260715f966c",
+        "fingerprint": "sha256:6cc9a4b6be577f92a879edfd94d6b1655c66453659220d1f6fa7b65c521747f2",
         "path": ".engine/tools/test_transaction_handoff.py"
       },
       "status": "active",
@@ -20503,7 +20503,7 @@
       },
       "slug": "transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:1e524c52df348f0d9edcf1c49ac65ef4ae2dd15f5d9e42ce6691b01315621322",
+        "fingerprint": "sha256:63365b4298dfeb0c66b68acca9ac88574f8c1dbd5b53f6c4fe8c1c81db943a75",
         "path": ".engine/tools/transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20528,7 +20528,7 @@
       },
       "slug": "transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:f8c9feb27b83e6e1b2dd6a3139638b3f59b71ede56c5e4323b0456d581d718e8",
+        "fingerprint": "sha256:de23e0e87841716ec3f4817d234e2a12758a0760f2d582abc214a5dbf6834643",
         "path": ".engine/tools/transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -20572,7 +20572,7 @@
       },
       "slug": "transaction_handoff",
       "source": {
-        "fingerprint": "sha256:24322fe1c82355add5c7200fe61995012a85a8f289a64669a275ddcad6497f0d",
+        "fingerprint": "sha256:51ecab3f1d470ae024165c28fadaa422b8319a25748e0f75ae1c261e4d60be52",
         "path": ".engine/tools/transaction_handoff.py"
       },
       "status": "active",

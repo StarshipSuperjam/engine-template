@@ -119,6 +119,7 @@ class RemoveEngine(transaction.Adapter):
         # removal runs through `module_manager.remove_engine`, wired at the operator-typed door; `transaction
         # .py run engine-remove` refuses outright. Both operator-facing entries carry the same check.)
         currency = handoff.refuse_if_stale_base()
+        currency_note = handoff.currency_summary_line(currency)
         # PRELOAD, then delete. Everything the later phases need must be resident now: the envelope schema
         # (already read at import), this module, and the handoff renderers. Nothing below may read a file
         # under .engine/ — it will not be there.
@@ -130,7 +131,15 @@ class RemoveEngine(transaction.Adapter):
                 "The receipt machinery is not loaded, so this removal could not report what it did after "
                 "deleting the engine. Nothing was changed.",
                 ["Report this: it is a defect in how the removal transaction loads its own schema."])
-        result = module_manager.remove_engine(choice=plan["inputs"]["protection"])
+        # Forward BOTH the consent handle and the currency note. The handle is re-derived at the
+        # remove_engine() function seam and must match, so the adapter mints it from THIS plan — the same
+        # self-mintable handle the docstring discloses, which is why the operator-typed `--confirm` remains
+        # the real consent evidence. Without forwarding it, this belt-and-braces path would refuse
+        # unconditionally (an absent handle is a refusal) rather than actually removing.
+        result = module_manager.remove_engine(
+            choice=plan["inputs"]["protection"],
+            consent_handle=envelope.consent_handle(plan),
+            base_currency_note=currency_note)
         if result.get("refused"):
             raise transaction.TransactionRefused(
                 "remove-engine-refused", result.get("reason", "The engine could not be removed."),

@@ -160,7 +160,9 @@ class UpgradeEngine(transaction.Adapter):
         # this transaction exists to prevent, on the route the runbook points at. The plan was handed to
         # this method and ignored.
         release = (plan.get("inputs") or {}).get("release")
-        result = module_manager.upgrade(release or self._ref(args))
+        result = module_manager.upgrade(
+            release or self._ref(args),
+            base_currency_note=handoff.currency_summary_line(currency))
         if result.get("refused"):
             raise transaction.TransactionRefused(
                 "upgrade-refused", result.get("reason", "The update could not be applied."),

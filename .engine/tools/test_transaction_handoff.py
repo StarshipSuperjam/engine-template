@@ -370,6 +370,11 @@ class BaseCurrencyRepo(unittest.TestCase):
         # origin/HEAD still names main, but the ref itself was never fetched here.
         git(self.root, "update-ref", "-d", "refs/remotes/origin/main")
 
+    def make_detached_head(self):
+        # No named branch: `git rev-parse --abbrev-ref HEAD` answers the literal "HEAD" here.
+        head = git(self.root, "rev-parse", "HEAD").stdout.strip()
+        git(self.root, "checkout", "-q", "--detach", head)
+
 
 _REFUSING_STATES = (("wrong_base", "wrong-base"), ("behind", "behind-origin"), ("diverged", "diverged"))
 
@@ -399,6 +404,16 @@ class TestBaseCurrencyHelper(BaseCurrencyRepo):
         self.assertEqual(verdict["status"], "unverified")
         self.assertFalse(verdict["refuses"])
         self.assertIn("origin/main", verdict["currency"]["note"])
+
+    def test_a_detached_head_reads_as_detached_not_a_branch_named_head(self):
+        # DH-2 / TI-2: `git rev-parse --abbrev-ref HEAD` returns the literal "HEAD" on a detached HEAD, so the
+        # wrong-base explanation must render the friendlier "a detached or unnamed HEAD", never "'HEAD'".
+        self.make_detached_head()
+        verdict = th.judge_base_currency(root=self.root)
+        self.assertEqual(verdict["code"], "wrong-base")
+        self.assertTrue(verdict["refuses"])
+        self.assertIn("a detached or unnamed HEAD", verdict["explanation"])
+        self.assertNotIn("'HEAD'", verdict["explanation"])
 
     def test_each_refusal_names_a_remedy_and_never_touches_the_remote(self):
         for maker, code in _REFUSING_STATES:
@@ -499,6 +514,23 @@ class TestCurrencyRefusesAtEveryDoor(BaseCurrencyRepo):
                     domain.assert_not_called()
                     self.assertNotIn("re-point", out.lower())
                     self.assertNotIn("remove the remote", out.lower())
+
+    def test_the_remove_door_under_json_emits_a_json_refusal_not_loose_prose(self):
+        # SC-3: under --json a base-currency refusal must be a JSON object, never prose printed loose into the
+        # JSON stream (which would corrupt a machine reader parsing stdout).
+        import json as _json
+        import module_manager
+        self.make_wrong_base()
+        with mock.patch.object(module_manager, "remove_engine") as domain, \
+             mock.patch.object(validate, "ROOT", self.root):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = module_manager.main(
+                    ["remove-engine", "--confirm", "--keep-protection", "--json"])
+        self.assertEqual(code, 2)
+        domain.assert_not_called()
+        payload = _json.loads(buffer.getvalue())   # the whole stream must parse as ONE JSON document
+        self.assertTrue(payload["refused"])
 
 
 class TestTheModuleFlowTakesNoNewRefusal(BaseCurrencyRepo):

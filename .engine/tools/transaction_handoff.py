@@ -178,7 +178,10 @@ def judge_base_currency(root=None) -> dict:
                            "(refs/remotes/origin/HEAD is not set here), and the check never guesses one")
     branch = _current_branch(root)
     if branch != default:
-        where = "{0!r}".format(branch) if branch else "a detached or unnamed HEAD"
+        # `git rev-parse --abbrev-ref HEAD` answers the literal "HEAD" on a detached HEAD (and "" only when
+        # the call itself fails), so both spellings of "no branch here" map to the friendlier phrasing rather
+        # than reading as a branch literally named HEAD.
+        where = "a detached or unnamed HEAD" if branch in ("", "HEAD") else "{0!r}".format(branch)
         return _refusal_verdict(
             "wrong-base",
             "This is running on {0}, not the repository's default branch {1!r}, so the change it would "
@@ -212,7 +215,7 @@ def judge_base_currency(root=None) -> dict:
     age = _fetch_age(root)
     return _note_verdict("current", {
         "verified": True,
-        "note": "Base is current with origin/{0} ({1}); judged against {2}.".format(
+        "note": "Base is current with origin/{0} ({1}); judged against commit {2}.".format(
             default, age, origin_commit[:12]),
         "judged_against": {"default_branch": default, "origin_commit": origin_commit, "fetch_age": age},
     })

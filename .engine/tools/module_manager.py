@@ -2238,13 +2238,21 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
          if caps_lost else
          "the update changes and removes engine-owned files; every removal and anything it could not apply is "
          "disclosed in Scope."))
+    validation_bullets = [
+        "- A structural consistency check on the rebuilt engine passed before this update was opened — the "
+        "checks that catch a missing, orphaned, or mismatched engine file.",
+        "- That is a structural check, not the engine's full check suite: the full suite runs here on this "
+        "pull request, and your merge is the real gate."]
+    currency_note = result.get("base_currency_note")
+    if currency_note:
+        # The base-currency verdict the update judged before opening — the attestation when it could confirm
+        # the base, or the plain disclosure when it could not. It belongs on this durable surface, not only in
+        # the transient CLI note, so the operator reading the merge sees what base this update was built on.
+        validation_bullets.append("- Base currency: " + currency_note)
     out += release_cut.pr_section(
         "Validation",
         "What the engine checked before opening this.",
-        ["- A structural consistency check on the rebuilt engine passed before this update was opened — the "
-         "checks that catch a missing, orphaned, or mismatched engine file.",
-         "- That is a structural check, not the engine's full check suite: the full suite runs here on this "
-         "pull request, and your merge is the real gate."],
+        validation_bullets,
         "a structural consistency check passed; the full suite runs on this pull request and the merge is "
         "still yours.")
     out += release_cut.pr_section(
@@ -3261,7 +3269,7 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
                   candidates, handle, selected, seam, practice, opener, groups_before=None, gate=None,
                   dropped_ids=(), pre_overlay_known=(), catalog_trusted=True,
                   control_plane_repair=None, require_control_plane=False,
-                  tracked_plans=None, transaction=None) -> dict:
+                  tracked_plans=None, transaction=None, base_currency_note=None) -> dict:
     """The version-sensitive tail of an upgrade — the work that MUST run as the freshly-overlaid engine code
     (the StarshipSuperjam/engine-template#594 fix): apply the new version's wiring with the FRESH appliers, re-render the release-evolvable
     seams (ownership wall, CLAUDE/AGENTS floor, foundation ignores), RECONCILE the file surface to
@@ -3282,7 +3290,7 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
             "findings": [], "pr": None, "notes": [], "applied": False, "reason": None,
             "groups_before": groups_before, "groups_after": None, "groups_changed": False,
             "modules_installed": [], "modules_offered": [], "control_plane": None,
-            "transaction": transaction}
+            "transaction": transaction, "base_currency_note": base_currency_note}
     # CROSS-VERSION TRANSACTION ADOPTION. A deployment whose parent upgrade process predates the generic
     # tracked-content protocol has already copied the candidate overlay before this freshly-overlaid child can
     # run. It therefore cannot have supplied sealed plans or a transaction. Close that one release-boundary
@@ -3674,7 +3682,8 @@ def _run_upgrade_tail(state: dict) -> None:
         pre_overlay_known=set(state.get("pre_overlay_known") or []),
         catalog_trusted=state.get("catalog_trusted", True),
         require_control_plane=not practice,
-        tracked_plans=state.get("tracked_plans") or {}, transaction=state.get("transaction"))
+        tracked_plans=state.get("tracked_plans") or {}, transaction=state.get("transaction"),
+        base_currency_note=state.get("base_currency_note"))
     _upgrade_state_dump(tail, state["result_path"])
 
 
@@ -4111,7 +4120,7 @@ _UPGRADE_USAGE = ("usage: module_manager.py upgrade [ref] [--confirm] [--consent
 
 
 def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None, backup=None,
-            control_plane_repair=None) -> dict:
+            control_plane_repair=None, base_currency_note: str | None = None) -> dict:
     """Upgrade the whole engine vX -> vY. Steps: fetch the tagged
     release, overlay engine code and re-render the CODEOWNERS ownership wall for the new release's engine
     files (operator config + gitignored data preserved), re-sync the tool-runtime, run migrations in
@@ -4372,7 +4381,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 pre_overlay_known=pre_overlay_known, catalog_trusted=catalog_trusted,
                 control_plane_repair=control_plane_repair,
                 require_control_plane=control_plane_repair is not None,
-                tracked_plans=tracked_preflight["plans"], transaction=transaction)
+                tracked_plans=tracked_preflight["plans"], transaction=transaction,
+                base_currency_note=base_currency_note)
         else:
             tail = _spawn_upgrade_tail({
                 "release_tree": release_tree, "target_ref": target_ref, "from_versions": from_versions,
@@ -4380,7 +4390,8 @@ def upgrade(ref: str | None = None, release_tree: str | None = None, opener=None
                 "old_owned": old_owned, "groups_before": pre_overlay_groups, "handle": engine.get("handle"),
                 "practice": practice, "dropped_ids": dropped_ids, "marker": _UPGRADE_TAIL_MARKER,
                 "pre_overlay_known": sorted(pre_overlay_known), "catalog_trusted": catalog_trusted,
-                "tracked_plans": tracked_preflight["plans"], "transaction": transaction})
+                "tracked_plans": tracked_preflight["plans"], "transaction": transaction,
+                "base_currency_note": base_currency_note})
         _merge_tail(result, tail)
         return result
     finally:
@@ -4408,6 +4419,9 @@ def _remove_engine_pr_body(result: dict) -> str:
         lines.append("- Takes the engine's checks — and any force-push/deletion/pull-request protection the "
                      "engine had added — back out of your own branch-protection rule, leaving the rest of "
                      "that rule exactly as it was. (The rule is yours, so it is not removed.)")
+    note = result.get("base_currency_note")
+    if note:
+        lines += ["", "Base currency: " + note]
     lines += ["", "Reviewed and reversible: reverting this pull request restores the engine's files. The "
               "main-branch safety rule is turned back on by running the engine setup again.", "",
               "Merging this is your review and consent."]
@@ -4415,7 +4429,8 @@ def _remove_engine_pr_body(result: dict) -> str:
 
 
 def remove_engine(opener=None, transport=None, choice: str | None = None, announce=None,
-                  repo=None, token=None, consent_handle: str | None = None) -> dict:
+                  repo=None, token=None, consent_handle: str | None = None,
+                  base_currency_note: str | None = None) -> dict:
     """Remove the WHOLE engine cleanly — the
     'separate step' that per-module remove() points a required module toward, leaving an operable,
     engine-free product. The order is what safety demands:
@@ -4444,15 +4459,19 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     result = {"de_bootstrap": None, "reversed": [], "left_in_place": [], "deleted": [],
               "pr": None, "reversal_note": None, "refused": False, "reason": None, "notes": []}
 
-    # CONSENT AT THE FUNCTION SEAM, before anything is touched. A real (non-injected) removal is the engine's
-    # most destructive act, so it applies your consent to the EXACT plan you were shown: the handle from
+    # CONSENT AT THE FUNCTION SEAM, before anything is touched. A real removal is the engine's most
+    # destructive act, so it applies your consent to the EXACT plan you were shown: the handle from
     # `transaction.py plan engine-remove <choice>` is re-derived here and must still match. Enforced at this
-    # seam — not only the CLI door — so a non-CLI caller reaching a real removal cannot skip it. The INJECTED
-    # path (a fixture opener/transport) is the module's own test/demo seam, never a real removal, and is
-    # exempt by that same design; the CLI-path test drives the real confirm path THROUGH this gate. Residual,
-    # stated plainly: the handle binds plan-identity and repository-state freshness, not authorship — it is
-    # replayable and self-mintable, so the operator-typed `--confirm` remains the consent evidence.
-    if not injected:
+    # seam — not only the CLI door — so a non-CLI caller reaching a real removal cannot skip it. The only
+    # exemption is the module's own test/demo seam, and it is recognized by TWO facts together: a fixture
+    # boundary was injected (opener/transport) AND a redirected root is active (`_redirect_root`, which every
+    # fixture and the demo enter). Injection ALONE is not enough — a real-root caller that passes a fake
+    # opener still crosses this gate, so the fixture flag can never launder a real deletion past consent. The
+    # CLI-path test drives the real confirm path THROUGH this gate. Residual, stated plainly: the handle binds
+    # plan-identity and repository-state freshness, not authorship — it is replayable and self-mintable, so
+    # the operator-typed `--confirm` remains the consent evidence.
+    exempt = injected and _IN_REDIRECTED_ROOT
+    if not exempt:
         stale = _refuse_stale_remove_consent(choice, consent_handle)
         if stale:
             return {**result, "refused": True, "reason": stale}
@@ -4586,6 +4605,7 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     #     -A` stages the deletions + the wire reversals). INJECTED in tests + the demo; the real path runs
     #     only on a deployed repo, never the construction repo. The opener should run on an otherwise-clean
     #     tree so the removal PR carries only the removal.
+    result["base_currency_note"] = base_currency_note
     body = _remove_engine_pr_body(result)
     open_fn = opener or (None if injected else _open_upgrade_pr)
     if open_fn is None:
@@ -4808,6 +4828,13 @@ def _status() -> int:
 
 # ---- demo (mutation-free, real logic, fixture boundary) ---------------------------------------
 
+# True only while a `_redirect_root` context is active — i.e. every ROOT-derived path points at a
+# throwaway fixture tree. `remove_engine`'s consent exemption reads this so that "a fixture opener was
+# injected" alone can never stand in for "this is a test/demo": the exemption requires the injected
+# boundary AND a redirected root, and a real-root caller that injects a fake opener still crosses consent.
+_IN_REDIRECTED_ROOT = False
+
+
 @contextlib.contextmanager
 def _redirect_root(root: str):
     """Point every ROOT-derived path at a throwaway fixture tree, restore on exit. The wiring-library
@@ -4820,6 +4847,9 @@ def _redirect_root(root: str):
              wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
              wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH)
     saved_memory_dir = os.environ.get("ENGINE_MEMORY_DIR")
+    global _IN_REDIRECTED_ROOT
+    saved_redirected = _IN_REDIRECTED_ROOT
+    _IN_REDIRECTED_ROOT = True
     validate.ROOT = root
     validate.ENGINE_DIR = os.path.join(root, ".engine")
     wiring.SETTINGS_PATH = os.path.join(root, ".claude", "settings.json")
@@ -4832,6 +4862,7 @@ def _redirect_root(root: str):
     try:
         yield
     finally:
+        _IN_REDIRECTED_ROOT = saved_redirected
         (validate.ROOT, validate.ENGINE_DIR, wiring.SETTINGS_PATH, wiring.MCP_PATH,
          wiring.GITIGNORE_PATH, wiring.CATALOG_PATH,
          wiring.CODEX_HOOKS_PATH, wiring.CODEX_CONFIG_PATH) = saved
@@ -5807,22 +5838,28 @@ def _refuse_stale_remove_consent(choice, handle):
             "plan, and apply with its handle.".format(flag)))
 
 
-def _door_base_currency() -> tuple:
+def _door_base_currency(json_mode: bool = False) -> tuple:
     """The base-currency gate for an operator-typed transaction door (upgrade / remove-engine --confirm).
 
     The same judgment the transaction adapters run — the shared helper in `transaction_handoff` — so the
     door and the adapter cannot drift into two notions of a stale base. Returns (refused, note_line):
-      * refused=True  — a wrong / behind-origin / diverged base; the reason and a remedy are printed and the
+      * refused=True  — a wrong / behind-origin / diverged base; the reason and a remedy are emitted and the
         caller returns non-zero WITHOUT mutating anything. No remedy ever names removing or re-pointing the
         remote; the base is what is wrong, not origin.
       * refused=False — a non-refusing verdict; note_line is the plain-language currency line to surface to
         the operator (the attestation when judged, the disclosure when currency could not be established).
-    Local git only; nothing here touches the network.
+    `json_mode` follows the door's `--json`: a refusal is emitted as a JSON object rather than plain prose,
+    and the non-refusing note is left for the caller to fold into its own JSON result (never printed loose,
+    which would corrupt the JSON stream). Local git only; nothing here touches the network.
     """
     import transaction_handoff
     verdict = transaction_handoff.judge_base_currency()
     if verdict["refuses"]:
-        print("\n".join([verdict["explanation"], ""] + list(verdict["next_actions"])))
+        if json_mode:
+            print(json.dumps({"refused": True, "reason": verdict["explanation"],
+                              "next_actions": list(verdict["next_actions"])}, indent=2))
+        else:
+            print("\n".join([verdict["explanation"], ""] + list(verdict["next_actions"])))
         return True, ""
     return False, transaction_handoff.currency_summary_line(verdict.get("currency"))
 
@@ -6326,13 +6363,16 @@ def main(argv: list) -> int:
             # base (covering the fresh-consent AND the finish-a-staged-update paths alike, since both reach
             # the one apply below), and otherwise surface the currency line to the operator. Same judgment
             # the transaction adapter runs, so the two doors cannot disagree about a stale base.
-            base_refused, base_note = _door_base_currency()
+            json_mode = "--json" in argv
+            base_refused, base_note = _door_base_currency(json_mode)
             if base_refused:
                 return 2
-            if base_note:
+            if base_note and not json_mode:
                 print(base_note)
-            # The staged path applies the RECORDED release, never a re-resolved "latest".
-            result = upgrade(resume_ref or ref)
+            # The staged path applies the RECORDED release, never a re-resolved "latest". The currency note
+            # rides into the update so its own pull-request body carries it — the durable merge surface, not
+            # only this transient line.
+            result = upgrade(resume_ref or ref, base_currency_note=base_note)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))
             else:
@@ -6382,8 +6422,10 @@ def main(argv: list) -> int:
                       "for your review. Nothing has changed.\n\nTo proceed, re-run with --confirm, ONE "
                       "of:\n  --keep-protection    keep your main-branch safety rule (engine's checks "
                       "removed)\n  --remove-protection  remove your main-branch safety rule entirely\n"
-                      "and the --consent-handle from the plan you read:\n"
-                      "  transaction.py plan engine-remove --keep-protection|--remove-protection")
+                      "and the --consent-handle from the plan you read (run ONE, matching your choice "
+                      "above):\n"
+                      "  transaction.py plan engine-remove --keep-protection\n"
+                      "  transaction.py plan engine-remove --remove-protection")
                 return 1
             keep_f, drop_f = "--keep-protection" in argv, "--remove-protection" in argv
             if keep_f == drop_f:   # neither, or BOTH (ambiguous) — never silently pick the destructive one
@@ -6395,16 +6437,17 @@ def main(argv: list) -> int:
             # base here — the deletion opens a pull request, and a stale base makes that a deletion against
             # the wrong line. Refusing costs nothing; nothing has been touched. On a non-refusing verdict the
             # currency line is surfaced to the operator alongside the removal's own output.
-            base_refused, base_note = _door_base_currency()
+            json_mode = "--json" in argv
+            base_refused, base_note = _door_base_currency(json_mode)
             if base_refused:
                 return 2
-            if base_note:
+            if base_note and not json_mode:
                 print(base_note)
             # CONSENT: the handle the operator carried back from `transaction.py plan engine-remove`. It is
             # verified at the remove_engine() function seam below (not here), so a non-CLI caller cannot skip
             # it; the door only carries it through and renders whatever the seam decides.
             handle = _consent_handle_arg(argv)
-            result = remove_engine(choice=choice, consent_handle=handle)
+            result = remove_engine(choice=choice, consent_handle=handle, base_currency_note=base_note)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))
             else:

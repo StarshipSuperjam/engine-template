@@ -259,13 +259,14 @@ class TestApplyUsesTheReleaseThePlanNamed(unittest.TestCase):
         with _pass_currency(), \
              mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
             adapters.UpgradeEngine().apply(Args(), plan)
-        applied.assert_called_once_with("v9.9.9")
+        # The release positional is the substitution-prevention property; the currency note now rides too.
+        applied.assert_called_once_with("v9.9.9", base_currency_note=mock.ANY)
 
     def test_a_plan_naming_no_release_still_falls_back_to_the_operand(self):
         with _pass_currency(), \
              mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
             adapters.UpgradeEngine().apply(Args("v1"), {"inputs": {}})
-        applied.assert_called_once_with("v1")
+        applied.assert_called_once_with("v1", base_currency_note=mock.ANY)
 
 
 class TestTheTypedCommandAppliesTheReleaseItsHandleApproved(unittest.TestCase):
@@ -287,7 +288,7 @@ class TestTheTypedCommandAppliesTheReleaseItsHandleApproved(unittest.TestCase):
              _pass_door_currency(), \
              mock.patch.object(module_manager, "upgrade") as applied:
             module_manager.main(["upgrade", "--confirm", "--consent-handle", "sha256:" + "0" * 64])
-        applied.assert_called_once_with("v7.7.7")
+        applied.assert_called_once_with("v7.7.7", base_currency_note=mock.ANY)
 
     def test_a_stale_handle_still_refuses_before_anything_is_applied(self):
         with mock.patch.object(module_manager, "_refuse_stale_consent", return_value="no match"), \
@@ -475,7 +476,7 @@ class TestAnAbsentHandleIsARefusalNotAPass(unittest.TestCase):
         would have been applied under the earlier release's consent -- the exact drift the handle exists
         to catch, switched off where drift is most likely."""
         code, applied = self._main("upgrade", "--confirm", staged=True, detail={"target_ref": "v9"})
-        applied.assert_called_once_with("v9")
+        applied.assert_called_once_with("v9", base_currency_note=mock.ANY)
         self.assertNotEqual(code, 2)
 
     def test_a_staged_copy_that_recorded_no_target_refuses_rather_than_resolving_afresh(self):

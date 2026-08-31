@@ -212,6 +212,40 @@ class TestConsentIsBoundAtTheFunctionSeam(unittest.TestCase):
             with self.subTest(choice=choice):
                 self.assertIsNone(module_manager._refuse_stale_remove_consent(choice, self._minted_handle(flag)))
 
+    def test_the_adapter_forwards_the_plan_handle_and_currency_to_the_seam(self):
+        # TI-1: the belt-and-braces adapter path must forward BOTH the plan-derived consent handle and the
+        # currency note into remove_engine(). Without the handle, the seam's absent-handle rule would refuse
+        # unconditionally rather than remove — a dead belt-and-braces path. The seam is mocked so nothing is
+        # actually deleted; the assertion is only that the adapter carries the right arguments across.
+        adapter = adapter_module.RemoveEngine()
+        facts = adapter.inspect(Args("--keep-protection"))
+        plan = dict(adapter.plan(Args("--keep-protection"), facts))
+        plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
+        expected = te.consent_handle(plan)
+        note = "Base is current with origin/main (fetched just now); judged against commit abcdef012345."
+        with mock.patch.object(adapter_module.handoff, "refuse_if_stale_base", return_value={"note": note}), \
+             mock.patch.object(module_manager, "remove_engine",
+                               return_value={"pr": {"html_url": "u"}, "deleted": ["x"]}) as removed:
+            adapter.apply(Args("--keep-protection"), plan)
+        removed.assert_called_once_with(choice="keep", consent_handle=expected, base_currency_note=note)
+
+    def test_injection_alone_does_not_exempt_a_real_root_from_consent(self):
+        # secgov-1 / DH-1: the fixture exemption keys on BOTH facts together — a fixture boundary was injected
+        # AND a redirected root is active (`_redirect_root`). Injection ALONE must never stand in for "this is
+        # a test/demo": a caller that passes a fake opener/transport on the REAL tree (no `_redirect_root`
+        # context here) still has to cross the consent gate, so the fixture flag can never launder a real
+        # deletion past consent. Safe to assert on this live checkout precisely because the refusal lands
+        # BEFORE de-bootstrap and deletion — the result reports neither.
+        self.assertFalse(module_manager._IN_REDIRECTED_ROOT)   # no redirected root is active in this test
+        result = module_manager.remove_engine(
+            opener=lambda **kw: {"number": 0, "html_url": "(fixture)"},
+            transport=lambda *a, **k: (200, None, {}),
+            choice="keep", announce=lambda m: None)            # injected, but real root and no handle
+        self.assertTrue(result["refused"])
+        self.assertIn("consent handle", result["reason"])
+        self.assertIsNone(result["de_bootstrap"])
+        self.assertEqual(result["deleted"], [])
+
     # The injected fixture/demo seam's exemption from the consent gate is proven — safely, on a redirected
     # fixture root rather than the real tree — by the whole-engine removal fixture tests in
     # test_module_manager (which call remove_engine injected, with no handle, and still delete cleanly) and by
@@ -247,6 +281,21 @@ class TestTheRealConfirmPathCrossesConsent(unittest.TestCase):
                                         "--consent-handle=sha256:" + "0" * 64])
         self.assertEqual(code, 1)
         self.assertIn("does not match", captured.getvalue())
+
+
+class TestRemovalPrBodyCarriesBaseCurrency(unittest.TestCase):
+    """U1 / SC-1: the currency verdict must reach the DURABLE surface the operator merges — the removal
+    pull-request body — not only the machine envelope and the transient CLI note."""
+
+    def test_the_note_rides_the_pr_body_when_present(self):
+        note = "Base is current with origin/main (fetched 1 hour ago); judged against commit 0123456789ab."
+        body = module_manager._remove_engine_pr_body(
+            {"de_bootstrap": {"status": "kept"}, "base_currency_note": note})
+        self.assertIn(note, body)
+
+    def test_no_currency_line_when_there_is_no_note(self):
+        body = module_manager._remove_engine_pr_body({"de_bootstrap": {"status": "kept"}})
+        self.assertNotIn("Base currency:", body)
 
 
 if __name__ == "__main__":

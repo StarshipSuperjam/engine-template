@@ -2484,6 +2484,18 @@ class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
         passed, findings = module_manager.validate.kind_presence(self._rule(), {"pr_body": body})
         self.assertTrue(passed, f"minimal update PR body failed the completeness gate: {findings}")
 
+    def test_base_currency_note_surfaces_on_the_durable_pr_body(self):
+        # The blocking review finding: the currency verdict reached the machine envelope and the transient CLI
+        # note, but NOT the pull request the operator actually merges. It must ride the durable Validation
+        # surface — the attestation when judged, and the disclosure when currency could not be established.
+        note = "Base is current with origin/main (fetched 2 hours ago); judged against commit a1b2c3d4e5f6."
+        body = module_manager.render_upgrade_pr_body(
+            {"base": "0.1.0"}, {"base": "0.2.0"}, {"base_currency_note": note})
+        self.assertIn(note, body)
+        # And it is genuinely conditional: a result with no currency note renders no dangling currency line.
+        quiet = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
+        self.assertNotIn("Base currency:", quiet)
+
     def test_decline_guidance_names_the_remaining_local_branch_state(self):
         body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {}).lower()
         self.assertIn("closing it prevents the merge", body)
