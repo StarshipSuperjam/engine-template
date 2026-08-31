@@ -1853,7 +1853,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:a6b9839d9f6b3b1f3a3be2b84e96a92f8e178bc7396d3719d46b45e49ff75224",
+        "fingerprint": "sha256:e057813111a626c0b9809789ddf096cc42713145402b63065b625a6fd526c24c",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5081,7 +5081,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:390a9978724686d2d86a7ecd6248291a414198a52a3d81dad6ee0d4554a2526b",
+        "fingerprint": "sha256:97829976f3d50b700ba1e70a700c1b3cd998c58f04040f812a01bb0834f84067",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -9630,6 +9630,36 @@
       },
       "status": "active",
       "summary": "ci_gatekeeper — decide whether an engine-ci run owes the full inventory or may reuse an earlier proof.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:clawmem_export",
+      "name": ".engine/tools/memory/clawmem_export.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:compact",
+          "tool:export",
+          "tool:forget",
+          "tool:ledger",
+          "tool:pins",
+          "tool:recall",
+          "tool:records",
+          "tool:scrub"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "clawmem_export",
+      "source": {
+        "fingerprint": "sha256:7c12aa275a2dbb122c9f662a5249f580e0f17b8701d8475c970b0743d92d6576",
+        "path": ".engine/tools/memory/clawmem_export.py"
+      },
+      "status": "active",
+      "summary": "clawmem_export.py — a terminal-gated, point-in-time export of the memory ledger in ClawMem-ingestible form.",
       "type": "tool"
     },
     {
@@ -15887,6 +15917,36 @@
       },
       "status": "active",
       "summary": "Self-tests for the engine-ci gatekeeper: the mode decision, receipt provenance, and fail-closed degradation.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_clawmem_export",
+      "name": ".engine/tools/memory/test_clawmem_export.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:clawmem_export",
+          "tool:compact",
+          "tool:export",
+          "tool:forget",
+          "tool:ledger",
+          "tool:recall",
+          "tool:records",
+          "tool:scrub"
+        ]
+      },
+      "slug": "test_clawmem_export",
+      "source": {
+        "fingerprint": "sha256:7828042a539bc8d7fef8e80269b7def4896b3f4051dc3611fd30bba7e01a2e4a",
+        "path": ".engine/tools/memory/test_clawmem_export.py"
+      },
+      "status": "active",
+      "summary": "Unit tests for clawmem_export.py — the terminal-gated, point-in-time ClawMem export.",
       "type": "tool"
     },
     {
