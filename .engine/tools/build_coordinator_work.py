@@ -30,12 +30,34 @@ def new_attempt_id() -> str:
     return secrets.token_hex(16)
 
 
+def blocked_route(executor_class: str, provider: str, *, gap: str) -> dict:
+    """An explicit BLOCKED route value — what ``resolve_route`` returns instead of silently degrading a
+    declared-but-incomplete dispatched binding to integrator-inline (the exact anti-pattern issue #1138
+    names). It carries no model/effort and is never itself claimable: the claim path turns it into a
+    persisted fail-closed dispatch attempt whose message names both the gap and the sanctioned
+    ``work retry --strategy integrator-inline`` escape. ``gap`` is a machine-recognizable category
+    (``declared-incomplete-binding`` here; the external-transport gaps live in the claim path).
+    """
+    return {"executor_class": executor_class, "provider": provider,
+            "model": None, "effort": None, "inline": False, "blocked": True, "gap": gap}
+
+
 def resolve_route(bindings: dict, executor_class: str, provider: str) -> dict:
     """Resolve a node's route from the implementation-class bindings, single-sourced.
 
     ``integrator`` is never dispatched — it is the current senior session, so it resolves to an inline
-    route that inherits the session's model. A missing or unqualified binding for a dispatched class
-    falls back to integrator-inline; the coordinator NEVER compensates by selecting a stronger worker.
+    route that inherits the session's model.
+
+    Fail-closed, keyed on whether ``implementation_classes`` is DECLARED at all:
+      - UNDECLARED (no ``implementation_classes`` key) is the documented no-worker-packs deployment —
+        nothing was ever configured, so there is nothing to fail closed on and the class resolves inline
+        exactly as before.
+      - DECLARED but this class/provider entry is missing or incomplete is a real gap: the route BLOCKS
+        rather than silently degrading to integrator-inline. The deliberate escape stays reachable as
+        ``work retry --strategy integrator-inline``.
+
+    The coordinator NEVER compensates by selecting a stronger worker, and never raises for the blocked
+    case — it returns an explicit blocked route the claim path persists and reports.
     """
     if provider not in ("claude", "codex"):
         raise CoordinatorError(f"unknown provider {provider!r}; expected claude or codex")
@@ -43,12 +65,15 @@ def resolve_route(bindings: dict, executor_class: str, provider: str) -> dict:
               "model": "inherit", "effort": "inherit", "inline": True}
     if executor_class == "integrator":
         return {**inline, "executor_class": "integrator"}
-    classes = (bindings or {}).get("implementation_classes", {})
-    binding = (classes.get(executor_class) or {}).get(provider)
-    if not binding or not binding.get("model") or not binding.get("effort"):
+    bindings = bindings or {}
+    if "implementation_classes" not in bindings:
         return inline
-    return {"executor_class": executor_class, "provider": provider,
-            "model": binding["model"], "effort": binding["effort"], "inline": False}
+    classes = bindings.get("implementation_classes") or {}
+    binding = (classes.get(executor_class) or {}).get(provider)
+    if binding and binding.get("model") and binding.get("effort"):
+        return {"executor_class": executor_class, "provider": provider,
+                "model": binding["model"], "effort": binding["effort"], "inline": False}
+    return blocked_route(executor_class, provider, gap="declared-incomplete-binding")
 
 
 def node_item(plan: dict, node_id: str) -> dict:
@@ -356,9 +381,24 @@ def bind_result(nw: dict, item: dict, attempt_id: str, base_sha: str, payload: d
             "evidence": evidence}
 
 
-def failure_record(attempt_id: str, failure_class: str, reason: str, disposition: str = dag.DISP_OPEN) -> dict:
+FAIL_CLOSED_GAPS = ("declared-incomplete-binding", "external-transport-refused", "no-eligible-for-production")
+
+
+def failure_record(attempt_id: str, failure_class: str, reason: str, disposition: str = dag.DISP_OPEN,
+                   *, fail_closed: bool = False, gap: str | None = None) -> dict:
+    """One node-failure record. A fail-closed dispatch BLOCK sets ``fail_closed`` and a ``gap`` category:
+    the coordinator refused to dispatch rather than silently degrading to inline, and ``reason`` names both
+    the gap and the ``work retry --strategy integrator-inline`` escape. It is still a ``dispatch``-class
+    failure with an OPEN disposition, so the existing retry/escape machinery reopens it unchanged."""
     if failure_class not in dag.FAILURE_CLASSES:
         raise CoordinatorError(f"unknown failure class {failure_class!r}")
     if disposition not in dag.DISPOSITIONS:
         raise CoordinatorError(f"unknown failure disposition {disposition!r}")
-    return {"attempt_id": attempt_id, "class": failure_class, "reason": reason, "disposition": disposition}
+    record = {"attempt_id": attempt_id, "class": failure_class, "reason": reason, "disposition": disposition}
+    if fail_closed:
+        record["fail_closed"] = True
+        if gap is not None:
+            if gap not in FAIL_CLOSED_GAPS:
+                raise CoordinatorError(f"unknown fail-closed gap {gap!r}")
+            record["gap"] = gap
+    return record
