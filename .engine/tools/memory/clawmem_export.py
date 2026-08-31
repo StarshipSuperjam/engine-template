@@ -464,5 +464,15 @@ def main(argv: list) -> int:
     return 0
 
 
+# Install the mutation-authority guards on this module's registered writers (`_render`, `export_all`), the
+# same way export.py does. Export-artifact writes are allowed unqualified (degraded -> allow), so the wrapping
+# is transparent at runtime; it exists so the write surfaces carry their registry ids for the coverage check.
+try:
+    from . import mutation_authority as _mutation_authority
+except ImportError:  # direct CLI
+    from memory import mutation_authority as _mutation_authority
+_mutation_authority.install_module_guards(globals())
+
+
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
