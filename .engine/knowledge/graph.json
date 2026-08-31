@@ -6912,7 +6912,7 @@
       },
       "slug": "engine-program.v1",
       "source": {
-        "fingerprint": "sha256:6fc0d16830f1eba071088c1a21af106791d3234f12aebac30b91dc30b373009f",
+        "fingerprint": "sha256:b0b9796339e1aa0edeba496173888c0addf9836a9985c87fda3b02bd07ec43ab",
         "path": ".engine/schemas/engine-program.v1.json"
       },
       "status": "active",
@@ -11063,6 +11063,31 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_program_lanes",
+      "name": ".engine/tools/demo_program_lanes.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:plan_program",
+          "tool:plan_store",
+          "tool:project_manager"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_program_lanes",
+      "source": {
+        "fingerprint": "sha256:5658fe190800640dc55733c04c5e6f92cd24ec9621e1a53cce11310038967eae",
+        "path": ".engine/tools/demo_program_lanes.py"
+      },
+      "status": "active",
+      "summary": "Operator-runnable falsification of the Program Manager lanes surface, end to end.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_program_order_and_honest_ends",
       "name": ".engine/tools/demo_program_order_and_honest_ends.py",
       "owner": "core",
@@ -12175,7 +12200,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:522c2febfabc7a0d8674aa106611b0eb8344804d25d80ba90fcb7f2846345884",
+        "fingerprint": "sha256:00c528d51a7c230a43e7e6fe6521c907275bc0e6094ba5a2baca06c1d9d26705",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -13535,6 +13560,7 @@
       "predicates": {
         "imports": [
           "tool:build_coordinator_core",
+          "tool:build_coordinator_dag",
           "tool:moment",
           "tool:plan_store"
         ],
@@ -13544,7 +13570,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:bcd5afd9b92479a10123f7563a2cdb68493d4da47e622c6d250f4a9fb9d5abd3",
+        "fingerprint": "sha256:962bfd4f75bd2fd43948e11db9ea2bc171198376d255a7ca903add85c5797c96",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13717,7 +13743,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:e7fa6c0c2ce47bf20bd45d2c684624a5e3d1586c38833bfbe95e6b7fc85a203e",
+        "fingerprint": "sha256:09f42e6bb88c00d11cacffffdd394adb7bd16d061dc5cfa4843f5f52116720a9",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -18273,7 +18299,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:093fb87236642ea3a18e0713a2dfac272af2542e5b8824d7ecce01622467ab3d",
+        "fingerprint": "sha256:bfeafad7fb183e6d27af84beec8a9d522f714209f65f175dd88fa6cfa51f1e33",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -18451,7 +18477,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:db349d1e5b153c8ae7395f6d4a4d5b86aafc719ce0360903d440e5a3dcbc9652",
+        "fingerprint": "sha256:087cca97d4d52ac567c806deef10f12f699d13faef24230fe4a824883f46684a",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",

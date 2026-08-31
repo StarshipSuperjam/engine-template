@@ -31,6 +31,7 @@ import re
 import secrets
 
 import build_coordinator_core as core
+import build_coordinator_dag as dag
 import moment
 import plan_store
 
@@ -1105,6 +1106,316 @@ class ProgramLibrary:
             self._write(slug, record)
             return record
 
+    def set_lanes(self, slug: str, lanes: list, reason: str) -> dict:
+        """Record the concurrency split the operator DECIDED, keeping any split it replaces.
+
+        Advisory only: a lane split is a record of which children may ride at once, never a schedule
+        anything executes. Its ONLY refusal surface is input validity, and that surface is enumerated
+        exhaustively below — liveness, ordering, and disagreement with what `propose` recommended are
+        never refused, so a split that lanes a superseded child, or contradicts the recommendation,
+        records cleanly. The read → mutate → write is one hold on the record lock, mirroring
+        revise_objective, so a concurrent record write cannot be lost; and an identical re-set is a
+        no-op that mints no history, exactly as revise_objective refuses an identical objective.
+
+        `lanes` is the decided split as a list of {"name", "children"} — children are plan_ids in the
+        order the operator wants them read. The reason is stored ON the split; when a later set or
+        clear ends this split, that reason travels with it into lanes_history.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "recording a lane split costs a reason. The split is the operator's decision about "
+                "concurrency, and a decision with nothing to show for why it was made is the silent "
+                "record this object exists to prevent.")
+        # Structural validity of the proposed split — pure checks on the input, before the lock.
+        # Enumerated, each with its own message, because input validation is the whole refusal
+        # surface here and a caught-together error would blur which rule an operator tripped.
+        if not lanes:
+            raise ProgramError(
+                "a lane split needs at least one lane; an empty split records no decision and is "
+                "refused. To withdraw a split, use `program lanes clear`.")
+        proposed: list = []
+        seen_names: set = set()
+        seen_children: dict = {}   # plan_id -> the lane name that first claimed it, in input order
+        for lane in lanes:
+            name = lane.get("name") or ""
+            children = list(lane.get("children") or [])
+            if not name.strip():
+                raise ProgramError("a lane name cannot be empty; every lane is named.")
+            if name in seen_names:
+                raise ProgramError(f"lane name {name!r} is used twice; lane names must be unique.")
+            seen_names.add(name)
+            if not children:
+                raise ProgramError(
+                    f"lane {name!r} has no members; a lane with no children records nothing and is "
+                    "refused.")
+            for child in children:
+                if child in seen_children:
+                    if seen_children[child] == name:
+                        raise ProgramError(f"child {child} appears twice in lane {name!r}.")
+                    raise ProgramError(
+                        f"child {child} is placed in two lanes ({seen_children[child]!r} and "
+                        f"{name!r}); a child rides at most one lane.")
+                seen_children[child] = name
+            proposed.append({"name": name, "children": children})
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            member_ids = {child["plan_id"] for child in record["children"]}
+            for child in seen_children:   # insertion order == input order, so the message is stable
+                if child not in member_ids:
+                    raise ProgramError(
+                        f"child {child} is not stored in this program, so it cannot be laned. Add it "
+                        "to the program first, or correct the plan id.")
+                try:
+                    self.plans.resolve(child)
+                except plan_store.PlanStoreError:
+                    raise ProgramError(
+                        f"child {child} is stored in this program but missing from this library, so "
+                        "its territory cannot be read; laning it would record a decision over a plan "
+                        "this workstation cannot see.") from None
+            standing = record.get("lanes")
+            if standing and standing["lanes"] == proposed:
+                raise ProgramError(
+                    "that is the split this program already carries; nothing was written, and no "
+                    "history entry was minted for a no-op.")
+            now = _now()
+            if standing:
+                record.setdefault("lanes_history", []).append(
+                    {"split": standing, "ended_at": now, "ended_by": "replaced", "reason": reason})
+            record["lanes"] = {"decided_at": now, "reason": reason, "lanes": proposed}
+            self._write(slug, record)
+            return record
+
+    def clear_lanes(self, slug: str, reason: str) -> dict:
+        """Withdraw the standing lane split, keeping it in a discriminated history.
+
+        The withdrawal is recorded as `ended_by: cleared`, distinct from the `replaced` a set writes,
+        so a later reader of set → set → clear → set can tell a withdrawal from a replacement and
+        reconstruct when no split stood at all. Same lock discipline as set_lanes.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "withdrawing a lane split costs a reason. Clearing a decided split without saying "
+                "why is a record that changes with nothing to show for it.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            standing = record.get("lanes")
+            if not standing:
+                raise ProgramError("this program has no decided lane split to clear.")
+            record.setdefault("lanes_history", []).append(
+                {"split": standing, "ended_at": _now(), "ended_by": "cleared", "reason": reason})
+            record.pop("lanes", None)
+            self._write(slug, record)
+            return record
+
+    # -- the recommendation: a pure, deterministic read (propose_lanes) --
+
+    # Evidence classes for a stored child that reads but cannot be placed, each keyed to the payload
+    # shape that made it unplaceable — never a bare "unknown", so a confident-looking proposal can
+    # never hide thin evidence behind a placed child.
+    UNPLACEABLE_V1 = "v1-payload-cannot-express-exclusive-resources"
+    UNPLACEABLE_IMPORTED = "imported-payload-carries-no-work-items"
+    UNPLACEABLE_UNREADABLE = "record-or-document-does-not-read"
+
+    DECLARED_PATHS_CAVEAT = (
+        "This reasons from the declared work-item paths only. Generated or incidental writes are "
+        "invisible to it — this repository regenerates derived artifacts on most builds — so lanes "
+        "shown as disjoint can still collide on regenerated files at rebase.")
+
+    def _classify_child(self, record: dict, plan_id: str):
+        """One stored child's bucket. ('placed', info) | ('unplaceable', class) | ('excluded', reason).
+
+        Exclusion (a decided end, or not here) is read BEFORE payload shape: a complete or retired
+        child has nothing left to ride whatever its payload looks like. Everything an unknown could
+        be is named — never rendered as placed or safe.
+        """
+        entry = next((c for c in record["children"] if c["plan_id"] == plan_id), None)
+        if entry is not None and entry.get("superseded_by"):
+            return ("excluded", "superseded-marked")
+        try:
+            child_slug = self.plans.resolve(plan_id)
+        except plan_store.PlanStoreError:
+            return ("excluded", "stored in the program but missing from this library")
+        try:
+            plan_record = self.plans.read_record(child_slug)
+        except Exception:   # noqa: BLE001 — a schema-invalid record reads as unplaceable, never crashes
+            return ("unplaceable", self.UNPLACEABLE_UNREADABLE)
+        status = plan_store.derived_status(plan_record)
+        if status in ("complete", "retired", "abandoned"):
+            return ("excluded", status)
+        try:
+            document = self.plans.head(child_slug)
+        except Exception:   # noqa: BLE001 — an unreadable head is a bucket, not a crash
+            return ("unplaceable", self.UNPLACEABLE_UNREADABLE)
+        build_plan = document.get("build_plan") or {}
+        version = build_plan.get("schema_version")
+        items = build_plan.get("work_items") or []
+        if version == "build-plan.v1":
+            return ("unplaceable", self.UNPLACEABLE_V1)
+        if not items:
+            return ("unplaceable", self.UNPLACEABLE_IMPORTED)
+        if version != "build-plan.v2":
+            return ("unplaceable", self.UNPLACEABLE_UNREADABLE)
+        paths = sorted({p for item in items for p in item.get("paths", [])})
+        resources = sorted({r for item in items for r in item.get("exclusive_resources", [])})
+        return ("placed", {"plan_id": plan_id, "paths": paths, "resources": resources,
+                           "seal_state": "sealed" if plan_record.get("seal") else "draft"})
+
+    def _ordered_child_ids(self, record: dict) -> list:
+        """Every stored child exactly once: chain order first, then any off-chain child sorted by id.
+
+        Sorted, never set order — the whole proposal must be byte-identical across runs and processes.
+        """
+        order = list(chain_analysis(record)["order"])
+        seen = set(order)
+        return order + sorted(c["plan_id"] for c in record["children"] if c["plan_id"] not in seen)
+
+    def propose_lanes(self, slug: str, *, max_lanes: int = 4, fresh: bool = False) -> dict:
+        """Recommend a lane split. A PURE READ: it never writes the record.
+
+        Territory collision is judged ONLY by build_coordinator_dag.paths_conflict — the engine's own
+        glob-aware, fails-closed rule, imported and used as-is; there is no second conflict rule
+        anywhere in this surface. Children that SHARE territory are grouped into one lane (they would
+        collide if developed at once); children with DISJOINT territory may ride separate lanes, up to
+        the ceiling. That direction is the whole point — it mirrors the operator's own practice of
+        splitting concurrent lanes by code territory — so a contended shelf, where everything collides,
+        honestly recommends a single lane rather than a manufactured split. Shared exclusive_resources
+        tokens are DISCLOSED as cautions, never verdicts: the token is within-plan scheduling machinery
+        whose cross-plan meaning is unproven, and letting it separate lanes would collapse every engine
+        program to one lane for the wrong reason.
+
+        Grouping is greedy first-fit in decided chain order. A candidate joins the one lane it collides
+        with; failing that it opens a new lane while under the ceiling (territory separation is the goal,
+        chain cohesion only the tie-break for where a disjoint child lands once the ceiling is reached);
+        a candidate that collides with more than one lane at once cannot be placed without merging
+        already-separated lanes, so it is disclosed in the unplaced list naming what it contends with.
+        The invariant this keeps for the COMPUTED lanes: any two children the algorithm places in
+        different lanes have provably disjoint territory (a disjoint child merged for lack of room under
+        the ceiling is recorded as cap_forced, never as a collision). In amend mode the recorded seed
+        lanes are the operator's own decision, preserved verbatim (obligation 6) — set_lanes never
+        checks their territory, so this invariant governs only what propose adds, not what the operator
+        recorded, and territory overlaps WITHIN a recorded split are not re-checked here.
+        """
+        if max_lanes < 1:
+            raise ProgramError(
+                "a lane ceiling below 1 leaves nowhere to place a child; --max-lanes is at least 1.")
+        record = self.read(slug)
+        predecessor_of = {c["plan_id"]: c.get("predecessor_plan_id") for c in record["children"]}
+        placed, unplaceable, excluded = [], [], []
+        for plan_id in self._ordered_child_ids(record):
+            kind, info = self._classify_child(record, plan_id)
+            if kind == "placed":
+                placed.append(info)
+            elif kind == "unplaceable":
+                unplaceable.append({"plan_id": plan_id, "class": info})
+            else:
+                excluded.append({"plan_id": plan_id, "reason": info})
+
+        recorded = record.get("lanes")
+        amend = bool(recorded) and not fresh
+        lanes: list = []             # {name, members[], territory:set, seed:bool}
+        lane_of: dict = {}           # plan_id -> lane index
+        recorded_members: set = set()
+        placed_by_id = {p["plan_id"]: p for p in placed}
+        if amend:
+            for lane in recorded["lanes"]:
+                territory: set = set()
+                for member in lane["children"]:
+                    recorded_members.add(member)
+                    info = placed_by_id.get(member)
+                    if info:
+                        territory.update(info["paths"])
+                lanes.append({"name": lane["name"], "members": list(lane["children"]),
+                              "territory": territory, "seed": True, "collides": False})
+            for index, lane in enumerate(lanes):
+                for member in lane["members"]:
+                    lane_of[member] = index
+
+        def nearest_predecessor_lane(plan_id):
+            predecessor = predecessor_of.get(plan_id)
+            while predecessor is not None:
+                if predecessor in lane_of:
+                    return lane_of[predecessor]
+                predecessor = predecessor_of.get(predecessor)
+            return None
+
+        unplaced: list = []
+        cap_forced: list = []   # disjoint children merged only because the ceiling was reached
+        for candidate in placed:
+            if candidate["plan_id"] in recorded_members:
+                continue   # a recorded lane's membership is a fixed seed; amend never touches it
+            conflicting = [i for i, lane in enumerate(lanes)
+                           if dag.paths_conflict(candidate["paths"], sorted(lane["territory"]))]
+            if not conflicting:
+                if len(lanes) < max_lanes:
+                    lanes.append({"name": f"lane-{len(lanes) + 1}",
+                                  "members": [candidate["plan_id"]],
+                                  "territory": set(candidate["paths"]), "seed": False,
+                                  "collides": False})
+                    lane_of[candidate["plan_id"]] = len(lanes) - 1
+                else:
+                    # No lane collides with this child, but the ceiling is reached, so it is merged
+                    # into a lane it is provably disjoint from. That is a CAPACITY artifact, not a
+                    # territory collision — recorded as such so the output never calls it one.
+                    index = nearest_predecessor_lane(candidate["plan_id"])
+                    index = 0 if index is None else index
+                    lanes[index]["members"].append(candidate["plan_id"])
+                    lanes[index]["territory"].update(candidate["paths"])
+                    lane_of[candidate["plan_id"]] = index
+                    cap_forced.append({"plan_id": candidate["plan_id"],
+                                       "lane": lanes[index]["name"]})
+            elif len(conflicting) == 1:
+                index = conflicting[0]
+                lanes[index]["members"].append(candidate["plan_id"])
+                lanes[index]["territory"].update(candidate["paths"])
+                lane_of[candidate["plan_id"]] = index
+                lanes[index]["collides"] = True   # a genuine shared-territory grouping
+            else:
+                unplaced.append({"plan_id": candidate["plan_id"],
+                                 "contends_with": [lanes[i]["name"] for i in conflicting]})
+
+        cross_lane_edges = []
+        for plan_id in self._ordered_child_ids(record):
+            if plan_id not in lane_of:
+                continue
+            predecessor = predecessor_of.get(plan_id)
+            if predecessor in lane_of and lane_of[predecessor] != lane_of[plan_id]:
+                cross_lane_edges.append({
+                    "child": plan_id, "child_lane": lanes[lane_of[plan_id]]["name"],
+                    "predecessor": predecessor,
+                    "predecessor_lane": lanes[lane_of[predecessor]]["name"]})
+
+        token_children: dict = {}
+        for info in placed:
+            for token in info["resources"]:
+                token_children.setdefault(token, []).append(info["plan_id"])
+        resource_cautions = [{"token": token, "children": sorted(ids)}
+                             for token, ids in sorted(token_children.items()) if len(ids) >= 2]
+
+        # The honest degenerate signal: a lane is "contended" only when a child JOINED it because it
+        # shared territory — never because the ceiling forced a provably-disjoint child in. A merge
+        # for lack of lanes is a capacity artifact (cap_forced above), reported separately so the
+        # output never calls disjoint children a collision.
+        contended = any(lane["collides"] for lane in lanes)
+        return {
+            "mode": "amend" if amend else "fresh",
+            "max_lanes": max_lanes,
+            "recorded_split_present": bool(recorded),
+            "lanes": [{"name": lane["name"], "members": lane["members"],
+                       "territory": sorted(lane["territory"]), "seed": lane["seed"],
+                       "collides": lane["collides"]}
+                      for lane in lanes],
+            "unplaced": unplaced,
+            "cap_forced": cap_forced,
+            "placed": [p["plan_id"] for p in placed],
+            "unplaceable": unplaceable,
+            "excluded": excluded,
+            "cross_lane_edges": cross_lane_edges,
+            "resource_cautions": resource_cautions,
+            "seal_states": {p["plan_id"]: p["seal_state"] for p in placed},
+            "contended": contended,
+            "declared_paths_caveat": self.DECLARED_PATHS_CAVEAT,
+        }
+
     # -- derivation --
     def child_view(self, record: dict) -> list:
         """Each child with its plan's derived status, in CHAIN order, every stored child exactly once.
@@ -1472,6 +1783,8 @@ def render(library: ProgramLibrary, record: dict) -> str:
                        + " — so this record holds several disconnected chains rather than one.")
         out.append("")
 
+    out += _render_lanes(record, view)
+
     out += ["## Obligations still carried", ""]
     if report["unknown"]:
         out.append("_Cannot be computed from this record._ Nothing here should be read as a debt of "
@@ -1584,6 +1897,71 @@ def render(library: ProgramLibrary, record: dict) -> str:
             out.append(f"- Replaced {entry['replaced_at']}: {entry['reason']}")
             out.append(f"  - Previously: {entry['objective']}")
     return "\n".join(out).rstrip() + "\n"
+
+
+def _render_lanes(record: dict, view: list) -> list:
+    """The DECIDED lane split, rendered truthfully — never the per-lane activity view (issue
+    StarshipSuperjam/engine-template#1173).
+
+    Truth-telling is the whole job: a member that has since been superseded or died is MARKED in
+    place, not hidden; a child added after the split is listed as unlaned rather than silently
+    absorbed; and a predecessor edge that crosses lanes is disclosed as a merge-order risk. The split
+    validates only when it is set — display tells the truth forever after, however the chain moved.
+    """
+    lines: list = []
+    split = record.get("lanes")
+    status_of = {child["plan_id"]: child["status"] for child in view}
+    superseded_of = {child["plan_id"]: child.get("superseded_by")
+                     for child in view if child.get("superseded_by")}
+    ordinal_of = {child["plan_id"]: child.get("chain_ordinal", 1 << 30) for child in view}
+    predecessor_of = {child["plan_id"]: child.get("predecessor_plan_id")
+                      for child in record["children"]}
+    if split:
+        lines += ["## Lanes", "", f"_Decided {split['decided_at']}: {split['reason']}_", ""]
+        lane_of = {member: lane["name"] for lane in split["lanes"] for member in lane["children"]}
+        laned: set = set()
+        for lane in split["lanes"]:
+            members = sorted(lane["children"], key=lambda m: (ordinal_of.get(m, 1 << 30), m))
+            rendered = []
+            for member in members:
+                laned.add(member)
+                status = status_of.get(member, "not in this program")
+                if member in superseded_of:
+                    mark = f" — superseded by `{superseded_of[member]}`"
+                elif status in DEAD_BRANCH_STATES:
+                    mark = f" — {status}, marked not hidden"
+                else:
+                    mark = ""
+                rendered.append(f"`{member}` ({status}){mark}")
+            lines.append(f"- **{lane['name']}**: " + ", ".join(rendered))
+        unlaned = [child["plan_id"] for child in view if child["plan_id"] not in laned]
+        if unlaned:
+            lines += ["", "Stored children not in any lane: "
+                      + ", ".join(f"`{plan_id}`" for plan_id in unlaned)]
+        edges = []
+        for child in view:
+            plan_id = child["plan_id"]
+            predecessor = predecessor_of.get(plan_id)
+            if plan_id in lane_of and predecessor in lane_of \
+                    and lane_of[plan_id] != lane_of[predecessor]:
+                edges.append((plan_id, lane_of[plan_id], predecessor, lane_of[predecessor]))
+        if edges:
+            lines += ["", "Cross-lane predecessor edges — a merge-order risk to watch:"]
+            for plan_id, child_lane, predecessor, predecessor_lane in edges:
+                lines.append(f"- `{plan_id}` (lane {child_lane}) succeeds `{predecessor}` "
+                             f"(lane {predecessor_lane}).")
+        lines.append("")
+    if record.get("lanes_history"):
+        lines += ["## Lane splits that stopped standing", ""]
+        for entry in record["lanes_history"]:
+            past = entry["split"]
+            shape = "; ".join(f"{lane['name']}=[" + ", ".join(f"`{c}`" for c in lane["children"]) + "]"
+                              for lane in past["lanes"])
+            lines.append(f"- **{entry['ended_by']}** {entry['ended_at']}: {entry['reason']}")
+            lines.append(f"  - Was: {shape} (decided {past['decided_at']}: {past['reason']})")
+        lines += ["", "_Nothing was erased. A split that was replaced and one that was cleared read "
+                  "differently, so a later reader can tell them apart and see when none stood._", ""]
+    return lines
 
 
 def _released(library: ProgramLibrary, record: dict) -> list:

@@ -20,6 +20,7 @@
     ".engine/tools/demo_dag_admission.py",
     ".engine/tools/demo_plan_to_ready_pr.py",
     ".engine/tools/demo_program_order_and_honest_ends.py",
+    ".engine/tools/demo_program_lanes.py",
     ".engine/tools/demo_state_cursor_honesty.py",
     ".engine/tools/demo_map_reachability.py",
     ".engine/tools/demo_audit_soft_findings.py",

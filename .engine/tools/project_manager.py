@@ -2366,6 +2366,160 @@ def cmd_program_reopen(args) -> int:
     return 0
 
 
+def _looks_like_plan_id(token: str) -> bool:
+    return (token.startswith("pln_") and len(token) == 16
+            and all(c in "0123456789abcdef" for c in token[4:]))
+
+
+def _resolve_child_token(programs, token: str) -> str:
+    """Turn a `--lane` member token into the plan_id the record stores.
+
+    A plan_id passes through UNTOUCHED, and that matters: a child stored in the program but missing
+    from this library is a real plan_id that will not resolve, and its honest refusal must come from
+    `set_lanes` naming exactly that case — not a bare resolver error here. A non-id token (a slug or
+    name) is resolved for the operator's convenience; if it will not resolve, it is passed through so
+    `set_lanes` owns the message rather than this helper.
+    """
+    if _looks_like_plan_id(token):
+        return token
+    try:
+        return programs.plans.read_record(programs.plans.resolve(token))["plan_id"]
+    except plan_store.PlanStoreError:
+        return token
+
+
+def cmd_program_lanes_set(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    lanes = []
+    for spec in args.lane:
+        if "=" not in spec:
+            raise ProjectManagerError(
+                f"--lane expects NAME=plan,plan,...; {spec!r} has no '=' to split the name from its "
+                "members.")
+        name, _, members = spec.partition("=")
+        children = [_resolve_child_token(programs, token.strip())
+                    for token in members.split(",") if token.strip()]
+        lanes.append({"name": name.strip(), "children": children})
+    record = programs.set_lanes(slug, lanes, args.reason)
+    split = record["lanes"]
+    print(f"recorded a {len(split['lanes'])}-lane split on {record['program_id']}")
+    print(f"  {args.reason}")
+    for lane in split["lanes"]:
+        print(f"  {lane['name']}: {', '.join(lane['children'])}")
+    if record.get("lanes_history"):
+        print("\nThe split it replaced is kept in the lane history — `program show` lists every split "
+              "that stopped standing, and whether it was replaced or cleared.")
+    print("\nAdvisory only: this records which children may ride at once. It dispatches nothing, "
+          "selects nothing, and gates no Build.")
+    return 0
+
+
+def cmd_program_lanes_clear(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.clear_lanes(slug, args.reason)
+    print(f"cleared the lane split on {record['program_id']}")
+    print(f"  {args.reason}")
+    print("What was cleared is kept in the lane history — `program show` lists it, marked cleared.")
+    return 0
+
+
+_UNPLACEABLE_PROSE = {
+    plan_program.ProgramLibrary.UNPLACEABLE_V1:
+        "its plan carries a build-plan.v1 payload, which cannot express the exclusive_resources this "
+        "reasons over — re-author it as build-plan.v2 to place it",
+    plan_program.ProgramLibrary.UNPLACEABLE_IMPORTED:
+        "its plan is an imported native plan with no authored work items, so it declares no territory "
+        "to reason over yet",
+    plan_program.ProgramLibrary.UNPLACEABLE_UNREADABLE:
+        "its record or head document does not read, so its territory cannot be determined",
+}
+
+
+def cmd_program_lanes_propose(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    proposal = programs.propose_lanes(slug, max_lanes=args.max_lanes, fresh=args.fresh)
+    program_id = programs.read(slug)["program_id"]
+    seal = proposal["seal_states"]
+    lines = []
+    if proposal["recorded_split_present"] and proposal["mode"] == "amend":
+        lines.append(f"Proposing lanes for {program_id} — amending around the recorded split: its "
+                     "lanes are fixed seeds and only unlaned children are placed. Nothing is written.")
+    elif proposal["recorded_split_present"]:
+        lines.append(f"Proposing lanes for {program_id} — --fresh: the recorded split is set aside "
+                     "for this proposal only. Nothing is written.")
+    else:
+        lines.append(f"Proposing lanes for {program_id} — at most {proposal['max_lanes']} lane(s). "
+                     "Nothing is written.")
+    lines.append("")
+    if proposal["lanes"]:
+        lines.append("## Lanes")
+        for lane in proposal["lanes"]:
+            seed = " (recorded seed — membership preserved verbatim)" if lane["seed"] else ""
+            members = ", ".join(f"{m} [{seal.get(m, 'recorded')}]" for m in lane["members"])
+            lines.append(f"- **{lane['name']}**{seed}: {members}")
+            lines.append(f"    territory: {', '.join(lane['territory']) or '(none read)'}")
+    else:
+        lines.append("_No child could be placed into a lane._")
+    for lane in proposal["lanes"]:
+        if lane.get("collides"):
+            lines.append("")
+            lines.append(f"**Concurrency is not recommended for the children in lane {lane['name']}.** "
+                         "They collide on shared territory (" + ", ".join(lane["territory"]) + "), so "
+                         "they are grouped to run in sequence rather than split into a manufactured "
+                         "concurrency.")
+    if proposal.get("cap_forced"):
+        lines.append("")
+        lines.append(f"_Note: the lane ceiling of {proposal['max_lanes']} was reached, so the following "
+                     "otherwise-disjoint children were merged into an existing lane for lack of room — "
+                     "NOT because of a territory collision. Raise --max-lanes to give them their own lane:_")
+        for item in proposal["cap_forced"]:
+            lines.append(f"- {item['plan_id']} → merged into lane {item['lane']}")
+    if proposal["unplaced"]:
+        lines.append("")
+        lines.append("## Unplaced — contends with more than one open lane")
+        for item in proposal["unplaced"]:
+            lines.append(f"- {item['plan_id']} — contends with {', '.join(item['contends_with'])}; "
+                         "placing it in either would leave a cross-lane collision.")
+    if proposal["unplaceable"]:
+        lines.append("")
+        lines.append("## Unplaceable — why it could not be placed")
+        for item in proposal["unplaceable"]:
+            lines.append(f"- {item['plan_id']} — {_UNPLACEABLE_PROSE.get(item['class'], item['class'])}")
+    if proposal["excluded"]:
+        lines.append("")
+        lines.append("## Excluded — with reason")
+        for item in proposal["excluded"]:
+            lines.append(f"- {item['plan_id']} — {item['reason']}")
+    if proposal["cross_lane_edges"]:
+        lines.append("")
+        lines.append("## Cross-lane predecessor edges — merge-order risks")
+        for edge in proposal["cross_lane_edges"]:
+            lines.append(f"- {edge['child']} (lane {edge['child_lane']}) succeeds {edge['predecessor']} "
+                         f"(lane {edge['predecessor_lane']}) — on different lanes, so the order they "
+                         "merge in is a risk to watch.")
+    if proposal["resource_cautions"]:
+        lines.append("")
+        lines.append("## Shared exclusive_resources — a caution, never a verdict")
+        for caution in proposal["resource_cautions"]:
+            lines.append(f"- `{caution['token']}` is declared by {', '.join(caution['children'])}: a "
+                         "within-plan scheduling token whose cross-plan meaning is unproven. It does "
+                         "not separate lanes on its own.")
+    lines.append("")
+    lines.append("_" + proposal["declared_paths_caveat"] + "_")
+    if proposal["lanes"]:
+        lane_args = " ".join(f"--lane {lane['name']}={','.join(lane['members'])}"
+                             for lane in proposal["lanes"])
+        lines.append("")
+        lines.append("To record this recommendation (edit the reason to your own):")
+        lines.append(f"  python tools/project_manager.py program lanes set {program_id} "
+                     f"--reason \"<why>\" {lane_args}")
+    print("\n".join(lines))
+    return 0
+
+
 def _consent_argument(command, gate: str) -> None:
     """The one flag that carries an operator decision, worded the same at every gate it guards."""
     command.add_argument(
@@ -2645,6 +2799,37 @@ def build_parser() -> argparse.ArgumentParser:
     program_reopen.add_argument("--reason", required=True,
                                 help="why the closure is being undone; kept in the closure history")
     program_reopen.set_defaults(func=cmd_program_reopen)
+
+    program_lanes = program.add_parser(
+        "lanes", help="record or withdraw the operator's DECIDED concurrency split (advisory only)"
+    ).add_subparsers(dest="lanes_command", required=True)
+
+    lanes_set = program_lanes.add_parser(
+        "set", help="record the decided split — which children may ride which lane at once")
+    lanes_set.add_argument("program")
+    lanes_set.add_argument("--lane", action="append", required=True, metavar="NAME=plan,plan,...",
+                           help="one lane: its name, then the plan ids riding it, comma-separated; "
+                                "repeat --lane for each lane")
+    lanes_set.add_argument("--reason", required=True,
+                           help="why this split — stored on the split and kept when it later ends")
+    lanes_set.set_defaults(func=cmd_program_lanes_set)
+
+    lanes_clear = program_lanes.add_parser(
+        "clear", help="withdraw the standing split, keeping it in the lane history")
+    lanes_clear.add_argument("program")
+    lanes_clear.add_argument("--reason", required=True,
+                             help="why the split is being withdrawn; kept in the lane history")
+    lanes_clear.set_defaults(func=cmd_program_lanes_clear)
+
+    lanes_propose = program_lanes.add_parser(
+        "propose", help="recommend a lane split on the engine's own conflict rule (a pure read)")
+    lanes_propose.add_argument("program")
+    lanes_propose.add_argument("--max-lanes", type=int, default=4, dest="max_lanes",
+                               help="the lane ceiling (default 4, from the operator's own practice)")
+    lanes_propose.add_argument("--fresh", action="store_true",
+                               help="recompute from scratch, setting aside any recorded split for "
+                                    "this proposal only")
+    lanes_propose.set_defaults(func=cmd_program_lanes_propose)
     return parser
 
 

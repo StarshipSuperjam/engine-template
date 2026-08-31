@@ -39,6 +39,15 @@
       "type": "array",
       "items": {"$ref": "#/$defs/revised_objective"},
       "description": "Every prior objective text, with when it was replaced and why. An objective written before the work began goes stale as evidence arrives; nothing is overwritten silently."
+    },
+    "lanes": {
+      "$ref": "#/$defs/lane_split",
+      "description": "The concurrency split the operator has DECIDED for this program's children — which plans may ride which lane at once — with the reason for the decision stored on the split itself. Advisory only: nothing here dispatches, selects, or gates a Build, and nothing outside the lanes surface reads it (a repo-wide reader check enforces that). Absent when no split stands. A recorded split is superseded by the next `program lanes set` or withdrawn by `program lanes clear`, each of which keeps what it ended in lanes_history. Membership is the operator's decision and may ignore what `program lanes propose` recommended — a split is never refused on ordering or liveness grounds, only on input validity."
+    },
+    "lanes_history": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/ended_split"},
+      "description": "Every lane split that stopped standing, discriminated by HOW it ended — replaced by a successor, or cleared outright — following closure_history's replaced-vs-erased precedent rather than objective_history's replacement-only shape, so a reader of set → set → clear → set can reconstruct when no split stood. Nothing is overwritten silently: the split's own reason travels into its history entry when it ends."
     }
   },
   "$defs": {
@@ -117,6 +126,49 @@
       "properties": {
         "objective": {"type": "string", "minLength": 1},
         "replaced_at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "children"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "children": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+          "description": "The plan_ids riding this lane, in the operator's decided order. A child appears in at most one lane and at most once — enforced in code, because JSON Schema cannot express uniqueness across sibling arrays. Membership is what the operator decided; a child listed here need not be live, and a dead or superseded member is marked rather than removed when the split renders."
+        }
+      }
+    },
+    "lane_split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decided_at", "reason", "lanes"],
+      "properties": {
+        "decided_at": {"$ref": "#/$defs/timestamp"},
+        "reason": {"type": "string", "minLength": 1},
+        "lanes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/lane"},
+          "description": "The decided lanes. Lane NAMES must be UNIQUE and no child may appear in two lanes or twice in one — both enforced in code (set_lanes refuses each with its own message), because JSON Schema cannot express uniqueness over a child key. The code is the authority; this notice records the rule so a reader of the schema alone is not misled into thinking duplicates would validate."
+        }
+      }
+    },
+    "ended_split": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["split", "ended_at", "ended_by", "reason"],
+      "properties": {
+        "split": {"$ref": "#/$defs/lane_split"},
+        "ended_at": {"$ref": "#/$defs/timestamp"},
+        "ended_by": {
+          "enum": ["replaced", "cleared"],
+          "description": "replaced: a new split took its place. cleared: it was withdrawn, with no split standing afterward. The discrimination follows closure_history's replaced-vs-erased precedent, so a later reader of set → set → clear → set can tell replacement from withdrawal and reconstruct when no split stood."
+        },
         "reason": {"type": "string", "minLength": 1}
       }
     }
