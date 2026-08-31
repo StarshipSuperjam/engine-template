@@ -28,6 +28,7 @@
     "engine/check/engine-manifest": "code",
     "engine/check/engine-todo-form": "code",
     "engine/check/execution-state": "code",
+    "engine/check/executor-record": "code",
     "engine/check/first-run-assets": "code",
     "engine/check/first-run-reference-closure": "code",
     "engine/check/hard-check-bite": "code",

@@ -220,7 +220,7 @@
         "class": {"enum": ["dispatch", "worker", "contract", "verification", "integration"]},
         "reason": {"type": "string", "minLength": 1},
         "disposition": {"enum": ["open", "retry", "abandoned", "integrator-inline"]},
-        "fail_closed": {"type": "boolean", "description": "True when this dispatch-class failure is a fail-closed BLOCK: the coordinator refused to dispatch — a declared-but-incomplete binding, a refused external transport, or no eligible executor — rather than silently degrading to integrator-inline (the anti-pattern issue #1138 names). Its `reason` names both the gap and the sanctioned `work retry --strategy integrator-inline` escape. Absent or false is an ordinary dispatch/worker/contract/verification/integration failure; the retry and escape machinery are identical either way."},
+        "fail_closed": {"type": "boolean", "description": "True when this dispatch-class failure is a fail-closed BLOCK: the coordinator refused to dispatch — a declared-but-incomplete binding, a refused external transport, or no eligible executor — rather than silently degrading to integrator-inline (the anti-pattern issue StarshipSuperjam/engine-template#1138 names). Its `reason` names both the gap and the sanctioned `work retry --strategy integrator-inline` escape. Absent or false is an ordinary dispatch/worker/contract/verification/integration failure; the retry and escape machinery are identical either way."},
         "gap": {"description": "For a fail-closed block, the machine-recognizable gap it represents — kept in step with the coordinator's fail-closed vocabulary.", "enum": ["declared-incomplete-binding", "external-transport-refused", "no-eligible-for-production"]}
       }
     },

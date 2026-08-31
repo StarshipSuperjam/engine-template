@@ -32,8 +32,8 @@ def new_attempt_id() -> str:
 
 def blocked_route(executor_class: str, provider: str, *, gap: str) -> dict:
     """An explicit BLOCKED route value — what ``resolve_route`` returns instead of silently degrading a
-    declared-but-incomplete dispatched binding to integrator-inline (the exact anti-pattern issue #1138
-    names). It carries no model/effort and is never itself claimable: the claim path turns it into a
+    declared-but-incomplete dispatched binding to integrator-inline (the exact anti-pattern issue
+    StarshipSuperjam/engine-template#1138 names). It carries no model/effort and is never itself claimable: the claim path turns it into a
     persisted fail-closed dispatch attempt whose message names both the gap and the sanctioned
     ``work retry --strategy integrator-inline`` escape. ``gap`` is a machine-recognizable category
     (``declared-incomplete-binding`` here; the external-transport gaps live in the claim path).
