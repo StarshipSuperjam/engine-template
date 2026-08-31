@@ -612,6 +612,9 @@
   ".engine/check/execution-state.json": [
    "validators-core"
   ],
+  ".engine/check/executor-record.json": [
+   "validators-core"
+  ],
   ".engine/check/first-run-assets.json": [
    "validators-core"
   ],
@@ -789,6 +792,21 @@
   ".engine/erasures/proposal.json": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/executors/claude-agent-acp.json": [
+   "core"
+  ],
+  ".engine/executors/codex-acp.json": [
+   "core"
+  ],
+  ".engine/executors/witness-declared-incomplete.json": [
+   "core"
+  ],
+  ".engine/executors/witness-external-refused.json": [
+   "core"
+  ],
+  ".engine/executors/witness-no-eligible.json": [
+   "core"
+  ],
   ".engine/interfaces/knowledge-retrieval.json": [
    "core"
   ],
@@ -841,6 +859,9 @@
    "product-design"
   ],
   ".engine/operations/boot-session-start.md": [
+   "core"
+  ],
+  ".engine/operations/build-execution.md": [
    "core"
   ],
   ".engine/operations/build-orchestration.md": [
@@ -1086,6 +1107,12 @@
   ".engine/schemas/execution-state.v1.json": [
    "core"
   ],
+  ".engine/schemas/executor-attempt-receipt.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/executor-qualification.v1.json": [
+   "core"
+  ],
   ".engine/schemas/finding-record.v1.json": [
    "core"
   ],
@@ -1225,6 +1252,9 @@
    "core"
   ],
   ".engine/tools/ack_status.py": [
+   "core"
+  ],
+  ".engine/tools/acp_client.py": [
    "core"
   ],
   ".engine/tools/agent_bindings.py": [
@@ -1575,7 +1605,22 @@
   ".engine/tools/engine_write.py": [
    "core"
   ],
+  ".engine/tools/execution_env_policy.py": [
+   "core"
+  ],
   ".engine/tools/execution_environment.py": [
+   "core"
+  ],
+  ".engine/tools/executor_acquisition.py": [
+   "core"
+  ],
+  ".engine/tools/executor_eligibility.py": [
+   "core"
+  ],
+  ".engine/tools/executor_qualification.py": [
+   "core"
+  ],
+  ".engine/tools/executor_records.py": [
    "core"
   ],
   ".engine/tools/external_contribution/__init__.py": [
@@ -2157,6 +2202,9 @@
   ".engine/tools/test_ack_status.py": [
    "core"
   ],
+  ".engine/tools/test_acp_client.py": [
+   "core"
+  ],
   ".engine/tools/test_actionlint.py": [
    "core"
   ],
@@ -2295,7 +2343,22 @@
   ".engine/tools/test_engine_write.py": [
    "core"
   ],
+  ".engine/tools/test_execution_env_policy.py": [
+   "core"
+  ],
   ".engine/tools/test_execution_environment.py": [
+   "core"
+  ],
+  ".engine/tools/test_executor_acquisition.py": [
+   "core"
+  ],
+  ".engine/tools/test_executor_eligibility.py": [
+   "core"
+  ],
+  ".engine/tools/test_executor_qualification.py": [
+   "core"
+  ],
+  ".engine/tools/test_executor_records.py": [
    "core"
   ],
   ".engine/tools/test_first_run_health.py": [

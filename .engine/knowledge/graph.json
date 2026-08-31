@@ -824,7 +824,6 @@
           "codex-skill:engine-install-engine",
           "codex-skill:engine-manage-addons",
           "codex-skill:engine-manage-plans",
-          "codex-skill:engine-manage-programs",
           "codex-skill:engine-manage-setup",
           "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
@@ -899,7 +898,6 @@
           "codex-skill:engine-install-engine",
           "codex-skill:engine-manage-addons",
           "codex-skill:engine-manage-plans",
-          "codex-skill:engine-manage-programs",
           "codex-skill:engine-manage-setup",
           "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
@@ -1224,6 +1222,38 @@
       "source": {
         "fingerprint": "sha256:73a11fe7918ddd56ac3801aaabfe0cee6c50b6ff441c443216c3db48cda922ff",
         "path": ".engine/check/execution-state.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:executor-record",
+      "kind": "schema",
+      "name": ".engine/check/executor-record.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "executors:claude-agent-acp",
+          "executors:codex-acp",
+          "executors:witness-declared-incomplete",
+          "executors:witness-external-refused",
+          "executors:witness-no-eligible"
+        ]
+      },
+      "slug": "executor-record",
+      "source": {
+        "fingerprint": "sha256:eaa902cdf916ae8a5dcfc6a97d36115fa6989f35dd9f086c9eb0ffad5a34b016",
+        "path": ".engine/check/executor-record.json"
       },
       "status": "active",
       "suites": [
@@ -1755,6 +1785,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:build-execution",
           "operation:build-orchestration",
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
@@ -1785,7 +1816,6 @@
           "operation:owned-product-build",
           "operation:plan-orchestration",
           "operation:product-intake",
-          "operation:program-orchestration",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
@@ -1819,6 +1849,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:build-execution",
           "operation:build-orchestration",
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
@@ -1849,7 +1880,6 @@
           "operation:owned-product-build",
           "operation:plan-orchestration",
           "operation:product-intake",
-          "operation:program-orchestration",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
@@ -2657,7 +2687,6 @@
           "skill:engine-install-engine",
           "skill:engine-manage-addons",
           "skill:engine-manage-plans",
-          "skill:engine-manage-programs",
           "skill:engine-manage-setup",
           "skill:engine-onboard-project",
           "skill:engine-parts",
@@ -2732,7 +2761,6 @@
           "skill:engine-install-engine",
           "skill:engine-manage-addons",
           "skill:engine-manage-plans",
-          "skill:engine-manage-programs",
           "skill:engine-manage-setup",
           "skill:engine-onboard-project",
           "skill:engine-parts",
@@ -3769,7 +3797,7 @@
       },
       "slug": "engine-manage-plans",
       "source": {
-        "fingerprint": "sha256:97b6c36f619f64bf86347f3603cb69b60215303b4887e8db2b41d91650fc33ff",
+        "fingerprint": "sha256:286a73888eb82266ba8c6c8b149cc02309253b4d5da44d0e3590286397bb05e4",
         "path": ".agents/skills/engine-manage-plans/SKILL.md"
       },
       "status": "active",
@@ -3791,46 +3819,6 @@
       "source": {
         "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
         "path": ".agents/skills/engine-manage-plans/agents/openai.yaml"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-manage-programs",
-      "name": ".agents/skills/engine-manage-programs/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-manage-programs",
-      "source": {
-        "fingerprint": "sha256:3e7587cfc38b12c1a8270244571f6d67e2698b06156147888cfe2085f0f45925",
-        "path": ".agents/skills/engine-manage-programs/SKILL.md"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-manage-programs.policy",
-      "name": ".agents/skills/engine-manage-programs/agents/openai.yaml",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-manage-programs.policy",
-      "source": {
-        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
-        "path": ".agents/skills/engine-manage-programs/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -5129,7 +5117,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:c5edb0331340e06d5fe190d309f1ba033b21bc5d9fbd99fd9a9c0d261b0b2914",
+        "fingerprint": "sha256:6067b9329e69b10928c948477da7e70a4e8c5f07a8b69c321eccf52e7abf806f",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5176,6 +5164,106 @@
       "type": "doc"
     },
     {
+      "id": "executors:claude-agent-acp",
+      "name": ".engine/executors/claude-agent-acp.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "claude-agent-acp",
+      "source": {
+        "fingerprint": "sha256:c41f8f0bae9bb74d87b668deb93537f6957036298cbf1c5b3090876cbee7cf64",
+        "path": ".engine/executors/claude-agent-acp.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
+      "id": "executors:codex-acp",
+      "name": ".engine/executors/codex-acp.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "codex-acp",
+      "source": {
+        "fingerprint": "sha256:1490f482ee92c8b9b2b86794b2609c4e4f4bea7865ac998622c8ea23726746d7",
+        "path": ".engine/executors/codex-acp.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
+      "id": "executors:witness-declared-incomplete",
+      "name": ".engine/executors/witness-declared-incomplete.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "witness-declared-incomplete",
+      "source": {
+        "fingerprint": "sha256:7ef1df8d24330e668c9a2289e90f77899e25b3d401f4f03ba196663ef45faeac",
+        "path": ".engine/executors/witness-declared-incomplete.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
+      "id": "executors:witness-external-refused",
+      "name": ".engine/executors/witness-external-refused.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "witness-external-refused",
+      "source": {
+        "fingerprint": "sha256:ee0acc956ff9901f461fe59e438c0b04a2f7b8407b8e5b38921403189c5c24c4",
+        "path": ".engine/executors/witness-external-refused.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
+      "id": "executors:witness-no-eligible",
+      "name": ".engine/executors/witness-no-eligible.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "witness-no-eligible",
+      "source": {
+        "fingerprint": "sha256:4f95983a749fe22cefde3b7c7ec518b64a126a7c5f31d1d9d045d852aae451a3",
+        "path": ".engine/executors/witness-no-eligible.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
       "fallback": "engine-knowledge-graph",
       "id": "interface:knowledge-retrieval",
       "name": ".engine/interfaces/knowledge-retrieval.json",
@@ -5200,7 +5288,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:ae1599a16f5abfb004b5e69d3680b5ad8dc6535d7e9f60f5d31de10888f72742",
+        "fingerprint": "sha256:9f1a46dc4106f21034df9400f4fabce42a4ac12c15a500a4994a5727d8708bc2",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -5310,7 +5398,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:9d02fccf6b1a7eeb3c0048b7510b8c8ad5b559fd5f5d41bc727e9cdd450f4357",
+        "fingerprint": "sha256:bcd0f894f47831d5c739d612bf63e7906f44dd0f0689268c0a9b92a90d06ad93",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5520,7 +5608,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:e79e7ca9174f2acccd0d56fb763498b682b6c9fbff0b2e8e5b1f4b57923b2a55",
+        "fingerprint": "sha256:02d1fcd804cc361947831732bbd945f0ad90140f4be461e3ca900ee12f28135e",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -5541,8 +5629,28 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:be495f6283d366a2ef187017ce99ad3320e32c54cd7d5e74092e941f2000f433",
+        "fingerprint": "sha256:e556cca73fbf9515c3fd2f999799e684e8a793a4142d69544acb61592edb0b34",
         "path": ".engine/operations/boot-session-start.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-execution",
+      "name": ".engine/operations/build-execution.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-execution",
+      "source": {
+        "fingerprint": "sha256:3fccf5190e8b773d404c441b23a73810bd693bd1ea14adc3d530c56418398d16",
+        "path": ".engine/operations/build-execution.md"
       },
       "status": "active",
       "type": "operation"
@@ -5621,7 +5729,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:90964994a22cd46a9795c765197679d6f797a12b16900dfda8e45fb1708f6160",
+        "fingerprint": "sha256:31393fba2a159ebb977dfdca596c71e2bd10319bef87bc754f2ed2a8af3d2771",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -5841,7 +5949,7 @@
       },
       "slug": "engine-remove",
       "source": {
-        "fingerprint": "sha256:a2415b6241004d044c9c30f69b3d8608ecc739bf842ef223bed1bfbcdf1929ac",
+        "fingerprint": "sha256:e03d3b77135a9ee73ce96a3046f2916267ae39b6bb86eb9c474d86eea37ea1fe",
         "path": ".engine/operations/engine-remove.md"
       },
       "status": "active",
@@ -5881,7 +5989,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:54b7f198ac8b780ce8a6e43aa53d87b44201767be3d869562ff6bb0f96eaa381",
+        "fingerprint": "sha256:d64d52b6ff324f9dd7a67f3fd4fa76cb1cb26abc3da0279588de5b6e3c1faaab",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -6001,7 +6109,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:9fb3ec6ccbe16427e623561fa6bcec7e6ef28c1f940132cce5b5acf8cf2b1edf",
+        "fingerprint": "sha256:baa667161ddcfd648cd70d0a41a32338a6abc4889942f3cbd73d0bd21ad29ec1",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -6121,7 +6229,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:d154061885d5c17e761d8242b0559d5b16aedecae6d464a2b1102f43ce61c114",
+        "fingerprint": "sha256:b8067c9724b861b192721e7ade87321ab35765a878da96954645119505b20d6d",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -6143,26 +6251,6 @@
       "source": {
         "fingerprint": "sha256:ac73e7bb7a04a4a60ebc55a42271e5a71c2f4b517172e908bc60207333eda976",
         "path": ".engine/operations/product-intake.md"
-      },
-      "status": "active",
-      "type": "operation"
-    },
-    {
-      "id": "operation:program-orchestration",
-      "name": ".engine/operations/program-orchestration.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:operation.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "program-orchestration",
-      "source": {
-        "fingerprint": "sha256:764f3a3390a0e1e1b470d7cfb801674f01fc5bbaaf10d3d8047b7b60e6736373",
-        "path": ".engine/operations/program-orchestration.md"
       },
       "status": "active",
       "type": "operation"
@@ -6281,7 +6369,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:776e4c66a429434b9ed14e1e21404e36efae9933bbadabe4ae2449faf9fed705",
+        "fingerprint": "sha256:95cb75e231651793994367bf3b7c5237658da7c9078e6fcbf07b29dc51e69fef",
         "path": ".engine/policies/attention.md"
       },
       "status": "active",
@@ -6302,7 +6390,7 @@
       },
       "slug": "briefing-budget",
       "source": {
-        "fingerprint": "sha256:723a8f54165750b8e898afc15d0b24e7ca9a97ef7c030c60ab7c32d91bfc4abe",
+        "fingerprint": "sha256:027a6c18e8fc5df122410b8a48e9ecbc5fda37eb588ceedee9b91160539fe379",
         "path": ".engine/policies/briefing-budget.md"
       },
       "status": "active",
@@ -6774,7 +6862,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:ed5f77f69575c4d4eb3ed625aea5e143971a4c232d02406e8f1c10e4161e9c72",
+        "fingerprint": "sha256:1dea1581011866156a75351f34ec7660b569e15f550e54e676c8e79464a73fe4",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7019,6 +7107,40 @@
       "type": "schema"
     },
     {
+      "id": "schema:executor-attempt-receipt.v1",
+      "name": ".engine/schemas/executor-attempt-receipt.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor-attempt-receipt.v1",
+      "source": {
+        "fingerprint": "sha256:897fb9303fec407d1761f9bb5fc8b40327c33ad6711b1fca46cd60f4d85af05b",
+        "path": ".engine/schemas/executor-attempt-receipt.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:executor-qualification.v1",
+      "name": ".engine/schemas/executor-qualification.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor-qualification.v1",
+      "source": {
+        "fingerprint": "sha256:b43608ae783720f776d27bf4fcd7293f313767e3b76503b7e3ed4396086af891",
+        "path": ".engine/schemas/executor-qualification.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:finding-record.v1",
       "name": ".engine/schemas/finding-record.v1.json",
       "owner": "core",
@@ -7097,7 +7219,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:0a6046704c5384e13f425347cf52748929a512b768516d5366ba3c82905c6e8e",
+        "fingerprint": "sha256:900eeb585113b9852c32d7662ad345cb3bab9269902a460c21df47e9eecb7950",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -7393,40 +7515,6 @@
       "type": "schema"
     },
     {
-      "id": "schema:session-binding.v1",
-      "name": ".engine/schemas/session-binding.v1.json",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "session-binding.v1",
-      "source": {
-        "fingerprint": "sha256:f513001d2e4c1ad603a450af58d9bb6f381d76fab6dd623ddef97e8b642959a3",
-        "path": ".engine/schemas/session-binding.v1.json"
-      },
-      "status": "active",
-      "type": "schema"
-    },
-    {
-      "id": "schema:session-relay.v1",
-      "name": ".engine/schemas/session-relay.v1.json",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "session-relay.v1",
-      "source": {
-        "fingerprint": "sha256:ca2d09b7e110e82463772fb6c9b2a58451d5e7c7fb887266cfe262de7710dc5e",
-        "path": ".engine/schemas/session-relay.v1.json"
-      },
-      "status": "active",
-      "type": "schema"
-    },
-    {
       "id": "schema:skill.v1",
       "name": ".engine/schemas/skill.v1.json",
       "owner": "core",
@@ -7488,7 +7576,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:dd40297e04f15f9e625198400cf9fb02e5da425dcdc52a335aa3b504b6a7cdd5",
+        "fingerprint": "sha256:93e2127b9ef7d9206ab25b52a69f8e66a44713c65df955c6b54dd7cd81468a24",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -7539,7 +7627,7 @@
       },
       "slug": "transaction-envelope.v1",
       "source": {
-        "fingerprint": "sha256:3ec96df49ddda46957e52ddf4049df57439920c7405f99518fe46c951e5d071c",
+        "fingerprint": "sha256:c88489f03df48656a5ce27888da9c0a0954cbbe083e6649e364f8135a33f7724",
         "path": ".engine/schemas/transaction-envelope.v1.json"
       },
       "status": "active",
@@ -7934,36 +8022,11 @@
       },
       "slug": "engine-manage-plans",
       "source": {
-        "fingerprint": "sha256:c4ca60cbed74bd1c9f4b034650335fa00e9004777999c3e023f4e8c7928b33e9",
+        "fingerprint": "sha256:444270c50192098a4b07b3ec9548eb0d15f8847dfa3e510d69da1ae5145b00bd",
         "path": ".claude/skills/engine-manage-plans/SKILL.md"
       },
       "status": "active",
       "title": "engine-manage-plans",
-      "type": "skill"
-    },
-    {
-      "id": "skill:engine-manage-programs",
-      "invocation": "model-only",
-      "name": ".claude/skills/engine-manage-programs/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ],
-        "routes_to": [
-          "operation:program-orchestration"
-        ]
-      },
-      "slug": "engine-manage-programs",
-      "source": {
-        "fingerprint": "sha256:7bd44bb1252231bd3baa0e26399bdd4f53ed38f92a188aed77380195762a0963",
-        "path": ".claude/skills/engine-manage-programs/SKILL.md"
-      },
-      "status": "active",
-      "title": "engine-manage-programs",
       "type": "skill"
     },
     {
@@ -8759,7 +8822,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:f2e616b53898023430dbc6a578c1c5f6a56ffcfb68d6fd36d7e70a6e2a1bb9c4",
+        "fingerprint": "sha256:7bec470f9f61f9f1b1fa6f8822a28f8681b72562651a6e7ed852c8f3d3d0d1ae",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -8789,6 +8852,29 @@
       },
       "status": "active",
       "summary": "engine-ack-status — bind the operator's guardrail acknowledgment to the exact pull-request head.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:acp_client",
+      "name": ".engine/tools/acp_client.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:execution_env_policy"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "acp_client",
+      "source": {
+        "fingerprint": "sha256:6aef9de49496c4175c1b9f9e3f420f4d6f44eb855f271c84ce3fd6e48df477c3",
+        "path": ".engine/tools/acp_client.py"
+      },
+      "status": "active",
+      "summary": "A provider-neutral build-execution runner seam, and its first implementation: an ACP v1 client.",
       "type": "tool"
     },
     {
@@ -9108,8 +9194,6 @@
           "tool:audit_digest",
           "tool:boot_alarm_ledger",
           "tool:boot_slice",
-          "tool:build_coordinator_core",
-          "tool:build_state_store",
           "tool:checkout_auto_update",
           "tool:checkout_health",
           "tool:drain",
@@ -9135,7 +9219,6 @@
           "tool:recall",
           "tool:repo_identity",
           "tool:restore_vault",
-          "tool:session_relay",
           "tool:standing_situation",
           "tool:telemetry",
           "tool:validate",
@@ -9147,7 +9230,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:0baa7607ef4bfed1e4db73255eeab0b0db7ddff414d65b64fa435c1bdb61b6b0",
+        "fingerprint": "sha256:f987e4a9f989eb4795e7dbfb025a5e76f32a48b235b0b70722c06d1a1c31364a",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9256,6 +9339,8 @@
           "tool:build_state_store",
           "tool:ci_gatekeeper",
           "tool:derived_state",
+          "tool:executor_eligibility",
+          "tool:executor_records",
           "tool:hooks",
           "tool:moment",
           "tool:plan_contract",
@@ -9274,7 +9359,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:7a04119f8f3156e1f059c6a08db067e92f36f4f826e36b2d85cd177c68042b7e",
+        "fingerprint": "sha256:bb23482c61a863878c418cbc73f5910240e0ce3493d52296d39a5e3d814b91a5",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9318,7 +9403,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:f5510c7278f914981899485ad583b27d4950a153469e44a79ca6cae52c385998",
+        "fingerprint": "sha256:cb899bcecf0ff945f9b9b4807d00abff9248499a60613dd2b80e81df1833812d",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9461,7 +9546,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:431dcddc697b54e42b815a01f366022462bdffa6571efa1f327071ea238fe738",
+        "fingerprint": "sha256:91e0ece181688538196c934142fdb7198eb006541f4081d0d0926cfe85e2d41d",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -11809,7 +11894,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:2b4d6314c96fe22034539dca286ba0016aa3dd82d5aef17adbaf853226b28734",
+        "fingerprint": "sha256:a94504a2bfc9011f54fa86e35a23bad4f134bae39b8d412fdba5fc9c49adedb3",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -11968,6 +12053,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:execution_env_policy",
+      "name": ".engine/tools/execution_env_policy.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "execution_env_policy",
+      "source": {
+        "fingerprint": "sha256:54ae41ce34ce23722daca23f39f857a682ecba4e92c26cf57badd47010434da1",
+        "path": ".engine/tools/execution_env_policy.py"
+      },
+      "status": "active",
+      "summary": "Execution-environment policy — a reusable, allowlist-first way to run and reap a supervised child process.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:execution_environment",
@@ -11989,6 +12094,91 @@
       },
       "status": "active",
       "summary": "Execution-environment awareness — observe the runtime doing the work, compare it against the operator's",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:executor_acquisition",
+      "name": ".engine/tools/executor_acquisition.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor_acquisition",
+      "source": {
+        "fingerprint": "sha256:9a9857765ba7a34dfaa61c28d8fd70f9958a110e7eb55015b64c58eb0da7ab6f",
+        "path": ".engine/tools/executor_acquisition.py"
+      },
+      "status": "active",
+      "summary": "Executor bridge acquisition — pin enforcement, out-of-band digest verification, and identity",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:executor_eligibility",
+      "name": ".engine/tools/executor_eligibility.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor_eligibility",
+      "source": {
+        "fingerprint": "sha256:dd2016c0bec4b6bed083e3a4d89a82d26b84776ed0caf0bae5a9128b71689d68",
+        "path": ".engine/tools/executor_eligibility.py"
+      },
+      "status": "active",
+      "summary": "Executor eligibility — best-qualified selection strictly over explicit qualification records.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:executor_qualification",
+      "name": ".engine/tools/executor_qualification.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:acp_client",
+          "tool:build_coordinator_work",
+          "tool:execution_env_policy"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor_qualification",
+      "source": {
+        "fingerprint": "sha256:10b0d604cd024a917d73b86d02257ebab428588ebf448bc0995f8a7e40ccca5c",
+        "path": ".engine/tools/executor_qualification.py"
+      },
+      "status": "active",
+      "summary": "The executor-qualification harness — drives a provider-neutral BuildExecutionRunner through a fixed set of",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:executor_records",
+      "name": ".engine/tools/executor_records.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor_records",
+      "source": {
+        "fingerprint": "sha256:e1cd17422b682ebc055333dcb61e07d1c3f77761ed4dc7883af725d8a1ebd071",
+        "path": ".engine/tools/executor_records.py"
+      },
+      "status": "active",
+      "summary": "Executor-qualification records — load, validate, and refuse malformed records loudly.",
       "type": "tool"
     },
     {
@@ -12242,7 +12432,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:8d42b4574934a82a79fa04e54089079b7711725197211cb20d91cfabf640c175",
+        "fingerprint": "sha256:9ea64d1b936abd71985c5e1cedbcf6a37cb4f8bc728f0e10e5d072cd974670e7",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
@@ -13142,7 +13332,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:f651e548525eff8e6891a208a357b88a040115f606b90c65f7fc620982881ed7",
+        "fingerprint": "sha256:7027f38686c003f65c735ad01218332ae316aff359d91b4ea6d70aa9c7a3ed80",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -13255,6 +13445,7 @@
           "tool:restore_vault",
           "tool:telemetry",
           "tool:transaction",
+          "tool:transaction_adapters_upgrade",
           "tool:transaction_envelope",
           "tool:transaction_handoff",
           "tool:validate",
@@ -13266,7 +13457,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:f9fbff826f330b4d9c23d03152dbe23ad7b0dd51e5b625f874cd2b2124820ca2",
+        "fingerprint": "sha256:9466ea0ad8623af9c946133b95f7fef3c80402fb3174b649254f97bb3b95b638",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13698,7 +13889,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:4fa40d33a0e2d82a5ecd74431558b17bfa0e56da1c70107fdf312c20575a7922",
+        "fingerprint": "sha256:529bf80ba7bc39c39e954b601fb89417b2b9e4916195dcede89d289d20809a38",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13895,7 +14086,7 @@
       },
       "slug": "program_projection",
       "source": {
-        "fingerprint": "sha256:8d3e90e0130527d05923b00a87fe40794a3520bd4567419706a2c3dc57fec5b4",
+        "fingerprint": "sha256:cfe089283c88526fb6ed0068782d4e7f6e9e23c1c43e7bc0a514d0cecd18af6a",
         "path": ".engine/tools/program_projection.py"
       },
       "status": "active",
@@ -14869,26 +15060,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:session_relay",
-      "name": ".engine/tools/session_relay.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "session_relay",
-      "source": {
-        "fingerprint": "sha256:29065905c9dbc26d6b7c1a912c77c4eb20e96faad7ae285804c64fcf70757e5a",
-        "path": ".engine/tools/session_relay.py"
-      },
-      "status": "active",
-      "summary": "session_relay: validate and deterministically render the session-relay.v1 envelope.",
-      "type": "tool"
-    },
-    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:setup_route_drift_check",
@@ -15289,6 +15460,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_acp_client",
+      "name": ".engine/tools/test_acp_client.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:acp_client"
+        ]
+      },
+      "slug": "test_acp_client",
+      "source": {
+        "fingerprint": "sha256:3ee88c65f42b3d66e5b43446d3fc037a9d0f764f09460e1ee3244fc8ad9d9e15",
+        "path": ".engine/tools/test_acp_client.py"
+      },
+      "status": "active",
+      "summary": "Hermetic self-tests for ``acp_client``: the ``BuildExecutionRunner`` seam and its ACP v1 implementation,",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_actionlint",
       "name": ".engine/tools/test_actionlint.py",
       "owner": "core",
@@ -15626,7 +15820,6 @@
           "tool:audit_digest",
           "tool:boot",
           "tool:boot_alarm_ledger",
-          "tool:engine_status",
           "tool:hooks",
           "tool:knowledge_index",
           "tool:modes",
@@ -15638,7 +15831,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:91f5594200c41009dd2f0d4708f2fc4cae6217837b1d2b4b3886de03ac350cf4",
+        "fingerprint": "sha256:417e977ac20db7f8c1359f6cd3b80c9c09526b01ebd72e20fe2487da936a8815",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -15758,7 +15951,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:5f2ef29e0230c9f728c2c854bcca579d9fa9327686dafd67f5082663f05b2924",
+        "fingerprint": "sha256:a36307681422a42f28f1d52f66988a7a2cb3abf7645be631555049c24aefc27b",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -15940,7 +16133,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:52b6f89c43a348bc4c8eff623d924f9ba17fc801d65dde9ea45dedb24ab78686",
+        "fingerprint": "sha256:f9b8d10f3648e5d0dfd0a518bad3b6ed3714a43a071805507e72f854e434e2dd",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -16704,7 +16897,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:5c5c01a2090ab60718c4d71b3b7e10a011ccd98a171e5331ac893b9f20707894",
+        "fingerprint": "sha256:5435fe9d44b88c1b827aa6bd3e217735ec07730d1ff4f657bbfab72a55b83c31",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -16871,6 +17064,29 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_execution_env_policy",
+      "name": ".engine/tools/test_execution_env_policy.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:execution_env_policy"
+        ]
+      },
+      "slug": "test_execution_env_policy",
+      "source": {
+        "fingerprint": "sha256:e880c04a348a5c9dc7eb8cf1b05802b76287f328a5cae346efd02f4c9e2aff1b",
+        "path": ".engine/tools/test_execution_env_policy.py"
+      },
+      "status": "active",
+      "summary": "Tests for execution_env_policy — allowlist environment construction (only named keys, no ambient leak),",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_execution_environment",
       "name": ".engine/tools/test_execution_environment.py",
       "owner": "core",
@@ -16891,6 +17107,102 @@
       },
       "status": "active",
       "summary": "Self-tests for execution-environment awareness: the execution-state.v1 schema, the committed genesis",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_executor_acquisition",
+      "name": ".engine/tools/test_executor_acquisition.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:executor_acquisition"
+        ]
+      },
+      "slug": "test_executor_acquisition",
+      "source": {
+        "fingerprint": "sha256:d1a21849913cf4e41e3e2cc63ebd8fbf7c6b958b23d31d7b51c0104b365a8ea3",
+        "path": ".engine/tools/test_executor_acquisition.py"
+      },
+      "status": "active",
+      "summary": "Tests for executor_acquisition -- pin enforcement, out-of-band digest verification, identity",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_executor_eligibility",
+      "name": ".engine/tools/test_executor_eligibility.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:executor_eligibility"
+        ]
+      },
+      "slug": "test_executor_eligibility",
+      "source": {
+        "fingerprint": "sha256:dd1e63efcbda29bdaa140dc9f228cd44941b26b7e9a0a507702f299ecbd3b9ab",
+        "path": ".engine/tools/test_executor_eligibility.py"
+      },
+      "status": "active",
+      "summary": "Tests for executor_eligibility — best-qualified selection strictly over explicit qualification records,",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_executor_qualification",
+      "name": ".engine/tools/test_executor_qualification.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:acp_client",
+          "tool:build_coordinator_work",
+          "tool:execution_env_policy",
+          "tool:executor_qualification"
+        ]
+      },
+      "slug": "test_executor_qualification",
+      "source": {
+        "fingerprint": "sha256:180ae9a1635e5d639f5ddb87de981a2b1d032aee3b735acff079e0dbeaedec1d",
+        "path": ".engine/tools/test_executor_qualification.py"
+      },
+      "status": "active",
+      "summary": "Hermetic tests for executor_qualification.py — the qualification harness that drives a",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_executor_records",
+      "name": ".engine/tools/test_executor_records.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:executor_records",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_executor_records",
+      "source": {
+        "fingerprint": "sha256:8290b5a87dee767fed00cd427a2117af79ff4a84375c92ba0bc9ef9e90aabf8a",
+        "path": ".engine/tools/test_executor_records.py"
+      },
+      "status": "active",
+      "summary": "Tests for executor_records — schema validation, loud refusal of malformed records, and the",
       "type": "tool"
     },
     {
@@ -17095,7 +17407,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:8f11e1ee230d4d6be708e2378ac824ccd3c49e53cd3b32805c6bf0119b770c40",
+        "fingerprint": "sha256:2f06e1b98536705dab642eaa6ef69e25d7593f39c8e53213964521022e19407f",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17552,7 +17864,7 @@
       },
       "slug": "test_knowledge_vocabulary",
       "source": {
-        "fingerprint": "sha256:c4b943f1249313bbd01cf95dc1fe842265427452d085ff944f9a0796e24103c5",
+        "fingerprint": "sha256:d7dc9962638de139fc8dd4d7753507bc5af788f4b6911f728101a4b6fd18df63",
         "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
@@ -17572,7 +17884,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:b9ea3bd598bb40368dffc5bbc412cbbf047049859e4fde732224d11e7b3f145f",
+        "fingerprint": "sha256:a15ece96e30f809a08cc2da73da949027bdffd055fa33c25404d343046dc06a5",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -17916,13 +18228,12 @@
           "tool:project_manager",
           "tool:providers",
           "tool:quiet_call",
-          "tool:session_relay",
           "tool:validate"
         ]
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:385b4af33737d3bdc12aa61a6829cc8c194c1f2a3ae02669b8e663e0df1282c9",
+        "fingerprint": "sha256:1e1233c460a684c7fe6b49f6a7a5e4ba88ec7864999db7f72f4d05acad0fd3ce",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -17970,7 +18281,6 @@
           "tool:demo_599_upgrade_reconcile",
           "tool:demo_757_upgrade_reconciles_default_groups",
           "tool:demo_759_upgrade_installs_new_modules",
-          "tool:engine_fixture",
           "tool:hooks",
           "tool:ledger",
           "tool:memory.__init__",
@@ -17990,7 +18300,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:6fb939b633a32d4cf7b216a04fc0e6b811cde2dab0796b3472db03263cefa91d",
+        "fingerprint": "sha256:d57e65e95ea7eb0484210003ee978cd30f3ada8e48488333ded13ae81aeba55f",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -18045,7 +18355,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:82814f9d0abd37a58436c2edd4f893a3e35da0015e9ad51983ebd75019bd74a3",
+        "fingerprint": "sha256:5e4e90ee7857c7c567cf09babe5d1e9d625b442fb889b9fafc9f050247db53c9",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18509,7 +18819,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:a75e465192bf50061a95fe6b3735e59aa337e555fb4e0498c8d9865da4a9bbff",
+        "fingerprint": "sha256:4c190f936bb5238bb89a2821103b0b2f8772c87d0d1fa3971b2049d687c5156f",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -18706,13 +19016,12 @@
           "tool:plan_program",
           "tool:plan_store",
           "tool:program_projection",
-          "tool:test_plan_program",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_program_projection",
       "source": {
-        "fingerprint": "sha256:18d8d47d126e7de574f7ec0359e2f74dad854505bee030eacfec4424d77c1978",
+        "fingerprint": "sha256:12001c19acd7ca0dffbe46d8c4de57be7378f9259ca8ec4190c77038ee07bad5",
         "path": ".engine/tools/test_program_projection.py"
       },
       "status": "active",
@@ -19895,29 +20204,6 @@
     {
       "entrypoint": "test",
       "guarded": false,
-      "id": "tool:test_session_relay",
-      "name": ".engine/tools/test_session_relay.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:session_relay"
-        ]
-      },
-      "slug": "test_session_relay",
-      "source": {
-        "fingerprint": "sha256:b03b0d0c1e07b2bde10b5c3769c9ee34d877bfe5c8e373e7e1a0d4089b05871b",
-        "path": ".engine/tools/test_session_relay.py"
-      },
-      "status": "active",
-      "summary": "Focused tests for session_relay: schema validation, deterministic rendering, the 2,000-char",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
       "id": "tool:test_setup_route_gen",
       "name": ".engine/tools/test_setup_route_gen.py",
       "owner": "core",
@@ -20273,7 +20559,7 @@
       },
       "slug": "test_transaction",
       "source": {
-        "fingerprint": "sha256:ced19d892af9709864d76ae240bc4eb31ef1bb6690a2878b325009c2a01e772e",
+        "fingerprint": "sha256:4167379c4769e39a977d9696d1bc5a93fbb38a3765ccc3e858b8c9cb778de68d",
         "path": ".engine/tools/test_transaction.py"
       },
       "status": "active",
@@ -20326,7 +20612,7 @@
       },
       "slug": "test_transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:7965f52f2db108e8bc7700cb3e3623c3afb951de4b2727117629bd3f6fca60c6",
+        "fingerprint": "sha256:00f38070b9355966df706bed6a650a585b5eccab6d9e9915e4b7b018fde30b92",
         "path": ".engine/tools/test_transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20349,13 +20635,12 @@
           "tool:transaction_adapters_module",
           "tool:transaction_adapters_remove",
           "tool:transaction_adapters_upgrade",
-          "tool:transaction_envelope",
-          "tool:transaction_handoff"
+          "tool:transaction_envelope"
         ]
       },
       "slug": "test_transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:65ce4e89323e1300a908d301fabcde4086cda1204ca45b6f34c8f96203b18969",
+        "fingerprint": "sha256:b504971b5e999e0a10f8151612df867e5bfa63592ea683f55807ce0c14520680",
         "path": ".engine/tools/test_transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -20398,16 +20683,13 @@
         "tests": [
           "tool:module_manager",
           "tool:transaction",
-          "tool:transaction_adapters_remove",
-          "tool:transaction_adapters_upgrade",
           "tool:transaction_handoff",
-          "tool:tune",
-          "tool:validate"
+          "tool:tune"
         ]
       },
       "slug": "test_transaction_handoff",
       "source": {
-        "fingerprint": "sha256:3b034b9751eda6807382f42429512c93841cbb6ff61302d443731f0bfdc4f783",
+        "fingerprint": "sha256:96ac8d06b93b4835deef9920a8c502821f2fc99756e90e6eac86e208586855f7",
         "path": ".engine/tools/test_transaction_handoff.py"
       },
       "status": "active",
@@ -20624,7 +20906,7 @@
       },
       "slug": "transaction",
       "source": {
-        "fingerprint": "sha256:a75b131c7f000fd2a95baaa2f8e001b6d087121c2c76de5b862ec4cb0d9f6c3b",
+        "fingerprint": "sha256:3327a58a7682f88a2406f0a6345c849ff04e628c63c40c2787ff8c1bd45b950d",
         "path": ".engine/tools/transaction.py"
       },
       "status": "active",
@@ -20678,7 +20960,7 @@
       },
       "slug": "transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:63365b4298dfeb0c66b68acca9ac88574f8c1dbd5b53f6c4fe8c1c81db943a75",
+        "fingerprint": "sha256:1125a6a7306b92f2c78dc3ff5a4576fc1b35ed0e8c5d4b248925667fdd5792f9",
         "path": ".engine/tools/transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20703,7 +20985,7 @@
       },
       "slug": "transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:de23e0e87841716ec3f4817d234e2a12758a0760f2d582abc214a5dbf6834643",
+        "fingerprint": "sha256:26578d8f821879e0eaf41fb32334057b3e49e37352a00b9db1342d861f9e5a74",
         "path": ".engine/tools/transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -20747,7 +21029,7 @@
       },
       "slug": "transaction_handoff",
       "source": {
-        "fingerprint": "sha256:51ecab3f1d470ae024165c28fadaa422b8319a25748e0f75ae1c261e4d60be52",
+        "fingerprint": "sha256:1c69a7d5fc836e866b0578c56d5315942c112def16ecae2b39d927aea13d240e",
         "path": ".engine/tools/transaction_handoff.py"
       },
       "status": "active",
@@ -20937,7 +21219,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:37639e3c05c6eb7b56f73bd18cc534aeeb24af3d4d28eb588c7837f09f0cd21c",
+        "fingerprint": "sha256:50412ef16a39437bf2a88937e5e9a2ad6ac42f958320f155c75063d7f9df11bd",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
