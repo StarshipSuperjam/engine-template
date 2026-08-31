@@ -1774,6 +1774,7 @@
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
+          "operation:memory-migration-trial",
           "operation:memory-recall",
           "operation:module-add",
           "operation:module-remove",
@@ -1836,6 +1837,7 @@
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
+          "operation:memory-migration-trial",
           "operation:memory-recall",
           "operation:module-add",
           "operation:module-remove",
@@ -5262,7 +5264,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2f88818642ac939294de03146a46929dfdee32732f786d4e1071811f3e6a5f45",
+        "fingerprint": "sha256:ecc6a1acdfc11221d505e510297f5235e3d1043cb8057b61fd7585c86ec798f3",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5915,6 +5917,26 @@
       "source": {
         "fingerprint": "sha256:14a5ab88100584a64d682e054f4f248b2c1876c704ad280f26c792cda214a45a",
         "path": ".engine/operations/knowledge-impact-check.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:memory-migration-trial",
+      "name": ".engine/operations/memory-migration-trial.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "memory-migration-trial",
+      "source": {
+        "fingerprint": "sha256:bceb514f9d2cb94d67135deab032d0a6f8b5dc0a9259729f23e2d37bd849eb75",
+        "path": ".engine/operations/memory-migration-trial.md"
       },
       "status": "active",
       "type": "operation"
@@ -9644,6 +9666,7 @@
           "tool:export",
           "tool:forget",
           "tool:ledger",
+          "tool:moment",
           "tool:pins",
           "tool:recall",
           "tool:records",
@@ -9655,7 +9678,7 @@
       },
       "slug": "clawmem_export",
       "source": {
-        "fingerprint": "sha256:7c12aa275a2dbb122c9f662a5249f580e0f17b8701d8475c970b0743d92d6576",
+        "fingerprint": "sha256:316a29442b0519cecaee6ff87f130d65b1510bba0758e475c63a0cc463e97dbc",
         "path": ".engine/tools/memory/clawmem_export.py"
       },
       "status": "active",
@@ -13202,7 +13225,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:8ed45e5e0cb7ab775687cc88e7c858392bcbf24df028bd257578bed18dc1e6bc",
+        "fingerprint": "sha256:37295ab2667454ecc2a610d864b6e8cdea1a8d17834b7f2f0d430c071b7e96b9",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",

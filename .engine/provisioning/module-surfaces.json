@@ -897,6 +897,9 @@
   ".engine/operations/knowledge-impact-check.md": [
    "core"
   ],
+  ".engine/operations/memory-migration-trial.md": [
+   "core"
+  ],
   ".engine/operations/memory-recall.md": [
    "core"
   ],
