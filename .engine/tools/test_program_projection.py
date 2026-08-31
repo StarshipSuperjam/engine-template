@@ -222,13 +222,34 @@ class GoalHeadlineCutsOnACompleteThought(unittest.TestCase):
                          "headline ended inside an unclosed parenthetical")
         self.assertIn("runs through", headline, "the main clause after the aside was lost")
 
-    def test_last_clause_boundary_rejects_a_marker_inside_a_paren(self):
-        # Directly: a window whose only late marker is a comma inside '(...)' has no clause boundary.
-        window = "Do the thing (alpha, beta, gamma, delta, epsilon, zeta, eta, theta) and more"
-        idx = program_projection._last_clause_boundary(window)
-        if idx is not None:
-            depth = window.count("(", 0, idx) - window.count(")", 0, idx)
-            self.assertEqual(depth, 0, "returned a boundary sitting inside an open parenthetical")
+    def test_a_parenthetical_that_never_closes_before_the_cap_is_dropped_whole(self):
+        # The fallback path: the aside opens before the floor and runs past the 180-char cap, so no
+        # clause marker inside it qualifies AND the plain word break would land mid-aside. The balance
+        # guard must drop from the '(' onward rather than leave a dangling open paren with no verb.
+        obj = ("Every lifecycle transaction (upgrade, rollback, module add or remove, whole engine "
+               "removal, control plane bootstrap or finalize, arrival, seal transitions, revision "
+               "replay, snapshot capture, and rollback verification) runs through one typed protocol.")
+        headline = program_projection.goal_headline(obj)
+        self.assertEqual(headline.count("("), headline.count(")"), "left a dangling open parenthesis")
+        self.assertNotIn("(", headline, "the unclosed aside was not dropped whole")
+        self.assertTrue(headline.startswith("Every lifecycle transaction"))
+        self.assertTrue(headline.endswith("…"))
+
+    def test_balanced_prefix_drops_from_the_outermost_unmatched_open(self):
+        self.assertEqual(program_projection._balanced_prefix("keep this (drop, this, list"), "keep this ")
+        self.assertEqual(program_projection._balanced_prefix("nested (a (b, c"), "nested ")
+        self.assertEqual(program_projection._balanced_prefix("already (balanced) fine"),
+                         "already (balanced) fine")            # nothing to drop
+
+    def test_last_clause_boundary_returns_none_when_every_late_marker_is_inside_a_paren(self):
+        # A true pin on the guard: the ONLY markers past the 0.55 floor are commas inside an unclosed
+        # '(...)', so a guarded boundary search finds nothing (None). Unguarded, rfind would return an
+        # in-paren comma — so this fails the moment the paren check is removed.
+        window = "Begin the whole sentence right here now (alpha, beta, gamma, delta, epsilon, zeta, eta"
+        self.assertIsNone(program_projection._last_clause_boundary(window))
+        # Control: the very same commas, once the paren is gone, ARE real top-level boundaries — proving
+        # the None above is the guard at work, not markers that merely fell short of the floor.
+        self.assertIsNotNone(program_projection._last_clause_boundary(window.replace("(", "")))
 
 
 class TheClosedTailIsBounded(_Shelf):

@@ -86,6 +86,31 @@ def _last_clause_boundary(window: str) -> int | None:
     return best
 
 
+def _balanced_prefix(text: str) -> str:
+    """`text` truncated so it never ends inside an unclosed parenthetical.
+
+    Whichever cut chose it, a headline must not end with a dangling '(' and half an aside — the reader
+    sees an open bracket and no main clause. If the text carries an unmatched '(', drop from the
+    OUTERMOST such open onward, so the whole incomplete aside goes rather than a fragment of it. A
+    prefix already balanced (or whose only unmatched open is at the very start, where dropping would
+    leave nothing) is returned unchanged. This is the single invariant every cut path funnels through,
+    so a new truncation strategy cannot reintroduce the dangling-paren defect."""
+    depth = 0
+    open_at = None
+    for i, ch in enumerate(text):
+        if ch == "(":
+            if depth == 0:
+                open_at = i
+            depth += 1
+        elif ch == ")" and depth > 0:
+            depth -= 1
+            if depth == 0:
+                open_at = None
+    if depth > 0 and open_at:            # unmatched '(', and not at index 0 (which would empty the line)
+        return text[:open_at]
+    return text
+
+
 def goal_headline(objective: str, *, cap: int = _HEADLINE_CAP) -> str:
     """The objective's opening sentence, hard-capped at `cap` and cut on a complete thought.
 
@@ -110,6 +135,10 @@ def goal_headline(objective: str, *, cap: int = _HEADLINE_CAP) -> str:
         cut = window[:clause]
     else:
         cut = window[:window.rfind(" ")] if " " in window else window
+    # Every cut path funnels through the balance guard: a parenthetical that opens before the cut and
+    # never closes within the cap (so no clause marker inside it qualified, and the plain word break
+    # landed mid-aside) is dropped whole rather than left as a dangling '('.
+    cut = _balanced_prefix(cut)
     return cut.rstrip().rstrip(".,;:—–") + "…"
 
 
