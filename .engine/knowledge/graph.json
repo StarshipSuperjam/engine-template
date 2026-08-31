@@ -6161,7 +6161,7 @@
       },
       "slug": "program-orchestration",
       "source": {
-        "fingerprint": "sha256:cc24dce0a4579e90a012744a5c119b2e20ae88600e968556cf427143d23284d3",
+        "fingerprint": "sha256:ff0d4889f338c6a4111835d2f634b35143517b905ed67c54e84639dd56258e31",
         "path": ".engine/operations/program-orchestration.md"
       },
       "status": "active",
