@@ -87,14 +87,21 @@ def _last_clause_boundary(window: str) -> int | None:
 
 
 def _balanced_prefix(text: str) -> str:
-    """`text` truncated so it never ends inside an unclosed parenthetical.
+    """`text` reduced so it never ends inside an unclosed parenthetical, and never carries one at all.
 
-    Whichever cut chose it, a headline must not end with a dangling '(' and half an aside — the reader
-    sees an open bracket and no main clause. If the text carries an unmatched '(', drop from the
-    OUTERMOST such open onward, so the whole incomplete aside goes rather than a fragment of it. A
-    prefix already balanced (or whose only unmatched open is at the very start, where dropping would
-    leave nothing) is returned unchanged. This is the single invariant every cut path funnels through,
-    so a new truncation strategy cannot reintroduce the dangling-paren defect."""
+    Truncation only ever loses closing parens (it cuts the end), so the sole defect is an unmatched
+    OPEN '(': the reader sees a bracket and half an aside with no main clause. Whichever cut chose the
+    text funnels through here, so this is the one place the "no dangling '('" invariant lives.
+
+    - Already balanced → returned unchanged.
+    - An unmatched '(' PAST the start → drop from the outermost such open onward, so the whole
+      incomplete aside goes, not a fragment of it.
+    - An unmatched '(' AT the very start (the objective opens with an aside that never closes in the
+      cut) → there is no balanced prefix to keep, so drop the dangling '(' itself and re-balance what
+      follows: the headline then shows the aside's own words rather than an empty line or a lone
+      bracket. Recursion handles a run of such leading opens; it is bounded by their count.
+
+    The result is guaranteed to hold no unmatched '(' for any input."""
     depth = 0
     open_at = None
     for i, ch in enumerate(text):
@@ -106,9 +113,11 @@ def _balanced_prefix(text: str) -> str:
             depth -= 1
             if depth == 0:
                 open_at = None
-    if depth > 0 and open_at:            # unmatched '(', and not at index 0 (which would empty the line)
-        return text[:open_at]
-    return text
+    if depth == 0:                       # balanced (open_at is None here)
+        return text
+    if open_at == 0:                     # the aside is the whole prefix — strip its '(' and re-balance
+        return _balanced_prefix(text[1:].lstrip())
+    return text[:open_at]                # drop the incomplete aside that opens past the start
 
 
 def goal_headline(objective: str, *, cap: int = _HEADLINE_CAP) -> str:

@@ -241,6 +241,36 @@ class GoalHeadlineCutsOnACompleteThought(unittest.TestCase):
         self.assertEqual(program_projection._balanced_prefix("already (balanced) fine"),
                          "already (balanced) fine")            # nothing to drop
 
+    def test_balanced_prefix_handles_an_unclosed_open_at_the_very_start(self):
+        # The index-0 case: the aside IS the whole text (open at position 0, never closed). Truthiness
+        # on the open index once let this slip through as a no-op, leaving a lone dangling '('. Now the
+        # leading '(' is stripped and what follows is re-balanced, so no unmatched '(' survives.
+        self.assertEqual(program_projection._balanced_prefix("(only an open aside here"),
+                         "only an open aside here")
+        self.assertEqual(program_projection._balanced_prefix("((doubly opened aside"), "doubly opened aside")
+
+    def test_no_truncated_headline_ever_ends_inside_an_open_parenthetical(self):
+        # The invariant, swept across paren positions that a single-case test keeps missing: index 0,
+        # mid-sentence, nested, never-closing, and several asides. Every objective here exceeds the cap
+        # so it is truncated; the output must always carry balanced parentheses.
+        filler = "and the sentence continues on well past the one hundred and eighty character cap "
+        shapes = [
+            "(" + "an aside opening at the very start that never closes " + filler * 3,
+            "Lead in text (a short aside) " + filler * 3,
+            "Lead (outer (inner nested aside that never closes " + filler * 3,
+            "Every transaction (upgrade, rollback, add, remove, bootstrap, finalize, arrival, replay "
+            + filler * 3,
+            "First (a) then (b) then (c) then a long unclosed (d aside " + filler * 3,
+            "Plain prose with no parentheses at all just running long " + filler * 3,
+        ]
+        for obj in shapes:
+            headline = program_projection.goal_headline(obj)
+            with self.subTest(obj=obj[:40]):
+                self.assertGreater(len(obj), program_projection._HEADLINE_CAP)   # it really is truncated
+                self.assertEqual(headline.count("("), headline.count(")"),
+                                 f"unbalanced parentheses in {headline!r}")
+                self.assertTrue(headline.endswith("…"))
+
     def test_last_clause_boundary_returns_none_when_every_late_marker_is_inside_a_paren(self):
         # A true pin on the guard: the ONLY markers past the 0.55 floor are commas inside an unclosed
         # '(...)', so a guarded boundary search finds nothing (None). Unguarded, rfind would return an
