@@ -1,0 +1,64 @@
+{
+  "schema_version": "executor-qualification.v1",
+  "record_kind": "qualification",
+  "executor_id": "claude-agent-acp",
+  "recorded_at": "2026-08-31T16:14:36Z",
+  "transport": "acp/v1",
+  "acp_version": "1",
+  "engine_revision": "ec4c3ccc5d53f335730b88e7882c222ef46bcaa1",
+  "scope": "non-production",
+  "bridge_identity": {
+    "name": "@agentclientprotocol/claude-agent-acp",
+    "version": "0.70.0",
+    "digest": "sha256:8530c8b7f66c15e2fbaac5e44bea943795b6f4acf0658716fff90184575659fa"
+  },
+  "vendored_agent_identity": {
+    "name": "@anthropic-ai/claude-agent-sdk",
+    "version": "0.3.232",
+    "digest": "sha256:63eb134be7c95ebcc209d9c7b72e6472dc16421e8196c00cbb7ffd29ecbafdf4"
+  },
+  "gates": {
+    "protocol_conformance": {
+      "status": "not-run",
+      "reason_category": "none",
+      "summary": "Initialize-only: ACP v1 initialize succeeded (protocolVersion 1, full agent capabilities). Full lifecycle conformance pending the W7 run."
+    },
+    "governance_containment": {
+      "status": "not-run",
+      "reason_category": "none",
+      "summary": "No run yet; pending W7 under observed-only containment."
+    },
+    "coding_capability": {
+      "status": "not-run",
+      "reason_category": "none",
+      "summary": "No coding attempt yet; pending W7."
+    }
+  },
+  "operator_go_ahead": {
+    "recorded_at": "2026-08-31T16:14:36Z",
+    "substance": "Operator replied 'Continue' to the W5 go/no-go ask, authorizing the attended acquisition and initialize-only authentication pre-flight at the exact pins presented (claude-agent-acp@0.70.0, codex-acp@1.7.0, registry integrity recorded out-of-band). No API-token spend; subscription OAuth only."
+  },
+  "environment_witness": {
+    "child_env_equals_allowlist": true,
+    "allowlist_keys": [
+      "HOME",
+      "PATH"
+    ],
+    "authentication_keep_list": [
+      "HOME"
+    ],
+    "credential_non_provision": "The Engine supplied the child only HOME and PATH; no ANTHROPIC_API_KEY, OPENAI_API_KEY, or token was provided. NON-PROVISION, never unreachability \u2014 a subscription session or publish credential on disk under HOME remains reachable.",
+    "process_tree_reaped": true
+  },
+  "containment_posture": "Observed self-containment only; no OS isolation. Attended, allowlist env (HOME/PATH), initialize-only (no prompt/coding), verified process-tree reaping. Publish authority under HOME reachable on disk.",
+  "decision_boundary": "A bridge-backed same-engine (Claude) initialize result establishes nothing about a non-incumbent executor; the native arm is a recorded gap. Observes auth reachability at initialize, not that a coding turn will succeed.",
+  "staleness_rule": "Re-qualify when the bridge (0.70.0), vendored claude-agent-sdk (0.3.232), or ACP v1 is superseded.",
+  "notes": "Initialize-only auth pre-flight: initialize returned authMethods: [] (no auth challenge), consistent with an already-authenticated Claude subscription session via HOME config; no API key in the child env. Exited clean, tree reaped.",
+  "evidence_refs": [
+    {
+      "kind": "preflight-capture",
+      "name": "claude-agent-acp-initialize-redacted",
+      "digest": "sha256:9bde5f02bd025420112032c227073c8f15c0d44f1dcc71f523b97334e49c7791"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "schema_version": "executor-qualification.v1",
+  "record_kind": "qualification",
+  "executor_id": "codex-acp",
+  "recorded_at": "2026-08-31T16:14:36Z",
+  "transport": "acp/v1",
+  "acp_version": "1",
+  "engine_revision": "ec4c3ccc5d53f335730b88e7882c222ef46bcaa1",
+  "scope": "non-production",
+  "bridge_identity": {
+    "name": "@agentclientprotocol/codex-acp",
+    "version": "1.7.0",
+    "digest": "sha256:284b229c9c1b2923f74f0cf9c2417310b9de664a452d885457457a3822d7f916"
+  },
+  "vendored_agent_identity": {
+    "name": "@openai/codex",
+    "version": "0.148.0",
+    "digest": "sha256:8f79e10f797b2595aa54dde4168bdbd2068c9ce0debb50bf4c8131d22de71dd8"
+  },
+  "gates": {
+    "protocol_conformance": {
+      "status": "not-run",
+      "reason_category": "none",
+      "summary": "Initialize-only: ACP v1 initialize succeeded (protocolVersion 1). Full lifecycle conformance pending a run gated on authentication."
+    },
+    "governance_containment": {
+      "status": "not-run",
+      "reason_category": "authentication",
+      "summary": "Not run: gated on an unresolved subscription authentication step."
+    },
+    "coding_capability": {
+      "status": "not-run",
+      "reason_category": "authentication",
+      "summary": "Not run: candidate not authenticated in this environment; a coding turn cannot proceed until a subscription auth flow is completed."
+    }
+  },
+  "operator_go_ahead": {
+    "recorded_at": "2026-08-31T16:14:36Z",
+    "substance": "Operator replied 'Continue' to the W5 go/no-go ask, authorizing the attended acquisition and initialize-only authentication pre-flight at the exact pins presented (claude-agent-acp@0.70.0, codex-acp@1.7.0, registry integrity recorded out-of-band). No API-token spend; subscription OAuth only."
+  },
+  "environment_witness": {
+    "child_env_equals_allowlist": true,
+    "allowlist_keys": [
+      "HOME",
+      "PATH"
+    ],
+    "authentication_keep_list": [
+      "HOME"
+    ],
+    "credential_non_provision": "The Engine supplied the child only HOME and PATH; no ANTHROPIC_API_KEY, OPENAI_API_KEY, or token was provided. NON-PROVISION, never unreachability \u2014 a subscription session or publish credential on disk under HOME remains reachable.",
+    "process_tree_reaped": true
+  },
+  "containment_posture": "Observed self-containment only; no OS isolation. Attended, allowlist env (HOME/PATH), initialize-only, verified tree reaping.",
+  "decision_boundary": "A bridge-backed same-engine (Codex) result establishes nothing about a non-incumbent executor; the native arm is a recorded gap. Observed that the candidate is not authenticated headlessly in this environment.",
+  "staleness_rule": "Re-qualify when the bridge (1.7.0), vendored @openai/codex (0.148.0), or ACP v1 is superseded.",
+  "notes": "Initialize-only auth pre-flight: initialize returned authMethods incl. 'api-key' and 'chat-gpt' (ChatGPT/Codex subscription), so the vendored @openai/codex is NOT authenticated in this HOME and presents auth options. Reaching the subscription needs the chat-gpt login flow (interactive), not an API key. Awaiting operator decision: attempt that flow or record blocked-auth.",
+  "evidence_refs": [
+    {
+      "kind": "preflight-capture",
+      "name": "codex-acp-initialize-redacted",
+      "digest": "sha256:90af74c7b77422e62dc0056f5fbea9ab07be6ed88f8677f603af61d74ce023f0"
+    }
+  ]
+}
