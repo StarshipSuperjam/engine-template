@@ -4,6 +4,7 @@
   "status": "required",
   "provides": {
     "check": [
+      ".engine/check/executor-record.json",
       ".engine/check/guardrail-weakening.json",
       ".engine/check/protection.json"
     ],
@@ -108,6 +109,10 @@
     ],
     "knowledge": [
       ".engine/knowledge/*.json"
+    ],
+    "executors": [
+      ".engine/executors/*.json",
+      ".engine/executors/.gitkeep"
     ],
     "policy": [
       ".engine/policies/attention.md",

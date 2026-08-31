@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "executor-qualification.v1 — one Engine record of an external build-executor's qualification, or a fail-closed dispatch witness",
+  "description": "A committed record under the .engine/executors/ surface. Two record kinds share this schema and its one hard validation rule so the surface stays under a single governed check. A `qualification` record is the Engine's own, versioned account of one EXTERNAL executor artifact (a coding agent reached over a transport such as ACP v1): three DISTINCT qualification gates (protocol conformance, governance containment, coding capability), each carrying a status and a reason category that separates an environmental or authentication BLOCK from a protocol or capability FINDING; the separate immutable identities and digests of the bridge and the vendored agent it wraps; the transport and ACP version qualified against; the Engine revision qualified against; a non-production scope marker this Build never lifts; the record's own decision boundary; and a staleness rule. A `fail-closed-witness` record is the committed evidence that the coordinator refused to dispatch — a blocked attempt, a refused external transport, or a no-eligible-for-production eligibility answer — captured from real coordinator state. THIS IS NOT THE RUNTIME-ENVIRONMENT STORE. .engine/state/execution.json (execution-state.v1) records whether the Engine's OWN runtime environment (the claude/codex senior-session floors) is qualified against the current release, is a frozen operator-judgment snapshot, and is written only by execution_environment.record_qualification. These records instead qualify a THIRD-PARTY executor artifact by observed behavior; they are derived-observational evidence, carry a non-production scope, and are written by the qualification harness. The two stores share no subject and must never be conflated. This schema does NOT claim that any gate proves genuine tool execution (that ground is open, issue StarshipSuperjam/engine-template#1021); a gate records what was OBSERVED, not what was proven.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_kind", "executor_id", "recorded_at"],
+  "properties": {
+    "schema_version": {"const": "executor-qualification.v1"},
+    "record_kind": {
+      "enum": ["qualification", "fail-closed-witness"],
+      "description": "`qualification` — the Engine's account of one external executor's three qualification gates. `fail-closed-witness` — committed evidence of a coordinator refusal to dispatch (a blocked attempt, a refused external transport, or a no-eligible answer). The `allOf` below requires the fields each kind owes."
+    },
+    "executor_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$",
+      "description": "Stable slug identifying this record, equal to the file stem so the knowledge-graph entity id (executors:<stem>) is stable. For a witness, the slug names the scenario (e.g. 'witness-declared-incomplete')."
+    },
+    "recorded_at": {"$ref": "#/$defs/timestamp"},
+    "transport": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The executor-facing transport this record qualifies against, e.g. 'acp/v1'. Present on a qualification record."
+    },
+    "acp_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The ACP protocol version the runner spoke, recorded so a record frozen against a version the protocol later supersedes is legible as such (see `staleness_rule`)."
+    },
+    "engine_revision": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The Engine commit (or an honest 'unknown'-prefixed marker when the revision could not be read) this executor was qualified against."
+    },
+    "scope": {
+      "const": "non-production",
+      "description": "The scope marker. This Build only ever mints non-production records and never lifts the marker; the hard check over this surface refuses any other value. Lifting it to a production posture is a separate later plan's decision, gated on the pre-stated thresholds and real isolation."
+    },
+    "bridge_identity": {"$ref": "#/$defs/component_identity"},
+    "vendored_agent_identity": {"$ref": "#/$defs/component_identity"},
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_conformance", "governance_containment", "coding_capability"],
+      "description": "The three DISTINCT qualification gates. They are separate evidence sets on purpose: protocol conformance never establishes governance containment, and neither establishes coding capability.",
+      "properties": {
+        "protocol_conformance": {"$ref": "#/$defs/gate"},
+        "governance_containment": {"$ref": "#/$defs/gate"},
+        "coding_capability": {"$ref": "#/$defs/gate"}
+      }
+    },
+    "capability_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_ran"],
+      "description": "The binary capability observation and its conditional incumbent-baseline comparison. The comparison is meaningful ONLY when the capability gate actually ran; `incumbent_baseline` stays null otherwise, and `limits` states what a bridge-backed same-engine result does not establish.",
+      "properties": {
+        "gate_ran": {"type": "boolean", "description": "Did the coding-capability gate actually run (a real completion attempt on the replayed node), or was it blocked/not-run upstream?"},
+        "produced_passing_diff": {"type": ["boolean", "null"], "description": "The binary observation: did the candidate produce a diff that passed the replayed node's OWN verification? Null when the gate did not run."},
+        "replayed_node_payload_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$", "description": "The digest of the sealed historical node's payload replayed for the capability gate, so the observation is checkable off this workstation. Null when the gate did not run."},
+        "incumbent_baseline": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "The conditional comparison against the bespoke path's recorded first-pass acceptance history. Present only when gate_ran is true.",
+          "properties": {
+            "method": {"type": "string", "minLength": 1},
+            "observation": {"type": "string", "minLength": 1}
+          },
+          "required": ["method", "observation"]
+        },
+        "limits": {"type": "string", "minLength": 1, "description": "What this observation does NOT establish — e.g. a bridge-backed same-engine result says nothing about a non-incumbent executor; the native-executor arm is a recorded gap."}
+      }
+    },
+    "decision_boundary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What this record establishes and — explicitly — what it does not. A qualification record states that a bridge-backed same-engine result establishes nothing about a non-incumbent executor and names the native-executor arm as a recorded gap."
+    },
+    "staleness_rule": {
+      "type": "string",
+      "minLength": 1,
+      "description": "When this record should be treated as stale — e.g. a superseding bridge version or ACP version means the record no longer describes the current artifact and must be re-qualified before reuse."
+    },
+    "usage_bound": {
+      "type": "string",
+      "description": "The stated bound on the third-party spend this record's run consumed (a qualification record whose gates actually ran)."
+    },
+    "operator_go_ahead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recorded_at", "substance"],
+      "description": "The mandatory operator go-ahead recorded before any third-party execution for this candidate. `substance` is a plain-language description of the decision, never the operator's verbatim words.",
+      "properties": {
+        "recorded_at": {"$ref": "#/$defs/timestamp"},
+        "substance": {"type": "string", "minLength": 1}
+      }
+    },
+    "containment_posture": {
+      "type": "string",
+      "description": "The honest containment statement: observed self-containment, NEVER Engine enforcement. States that no OS-level isolation was built and names the compensating controls (detection instruments, bounded inert probes, attended run, allowlist environment witness, process-tree reaping)."
+    },
+    "environment_witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The allowlist-environment witness for a run. Claims NON-PROVISION of credentials by the Engine — never unreachability, since publish authority remains reachable on disk regardless of the environment.",
+      "properties": {
+        "child_env_equals_allowlist": {"type": "boolean"},
+        "allowlist_keys": {"type": "array", "items": {"type": "string"}},
+        "authentication_keep_list": {"type": "array", "items": {"type": "string"}},
+        "credential_non_provision": {"type": "string", "minLength": 1},
+        "process_tree_reaped": {"type": "boolean"}
+      }
+    },
+    "witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario", "observed"],
+      "description": "Present on a fail-closed-witness record: the coordinator refusal observed in real state.",
+      "properties": {
+        "scenario": {
+          "enum": ["declared-incomplete-blocked", "external-transport-refused", "no-eligible-for-production"],
+          "description": "Which fail-closed path this witnesses."
+        },
+        "observed": {"type": "string", "minLength": 1, "description": "What real coordinator state showed — the blocked attempt vocabulary, the refusal, or the no-eligible answer — including that the sanctioned escape was named where applicable."}
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "description": "Digest-checkable references to persisted run evidence — transcripts, process-tree captures, snapshots — recorded as identities and digests, NEVER raw content (secrets are scrubbed; raw content lives only in the torn-down workspace).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "name", "digest"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "name": {"type": "string", "minLength": 1},
+          "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "title": "A qualification record owes its gates, identities, scope, and boundary",
+      "if": {"properties": {"record_kind": {"const": "qualification"}}, "required": ["record_kind"]},
+      "then": {
+        "required": ["transport", "engine_revision", "scope", "bridge_identity", "vendored_agent_identity", "gates", "decision_boundary", "staleness_rule"]
+      }
+    },
+    {
+      "title": "A fail-closed witness owes its scenario and observed state",
+      "if": {"properties": {"record_kind": {"const": "fail-closed-witness"}}, "required": ["record_kind"]},
+      "then": {"required": ["witness"]}
+    }
+  ],
+  "$defs": {
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "component_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "digest"],
+      "description": "One immutable component identity. A bridge and the vendored agent it wraps are SEPARATE identities with separate digests, so a bridge-backed run never attributes behavior to the wrong component.",
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "source": {"type": "string", "description": "Where the artifact was resolved from (e.g. the npm package coordinate). Discovery metadata only — never itself a qualification."}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "reason_category"],
+      "description": "One qualification gate. `status` is the outcome; `reason_category` separates an environmental or authentication BLOCK (the executor never got a fair run) from a protocol or capability FINDING (it ran and fell short), so a blocked gate is never misread as a capability verdict.",
+      "properties": {
+        "status": {"enum": ["passed", "failed", "partial", "not-run"]},
+        "reason_category": {
+          "enum": ["none", "environmental", "authentication", "protocol", "capability", "governance"],
+          "description": "'none' only with a passed gate. 'environmental'/'authentication' mark a BLOCK. 'protocol'/'capability'/'governance' mark a FINDING from a gate that actually ran."
+        },
+        "summary": {"type": "string", "description": "Plain-language account of what was observed at this gate. For governance_containment this states observed self-containment, never enforcement."},
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "name", "digest"],
+            "properties": {
+              "kind": {"type": "string", "minLength": 1},
+              "name": {"type": "string", "minLength": 1},
+              "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
