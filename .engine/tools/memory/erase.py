@@ -52,6 +52,13 @@ if _PARENT not in sys.path:
 
 from memory import erasure_observer as observer  # noqa: E402 — reuse its path/label/predicates
 from memory import forget, ledger, records       # noqa: E402
+from memory import mutation_authority as _mutation_authority  # noqa: E402
+
+# This verb's registered write surfaces (see memory/mutation_contract.py): `request` (the outer proposal request),
+# `write_proposal` (the content-free proposal file), and `_open_erasure_pr` (the consent pull request). `main`
+# opens a terminal-attended scope over exactly these, so a person at a real terminal authorizes them and nothing
+# else — the verb carries no AI-session execution context by design.
+_ERASE_WRITE_ENTRIES = ("attended-erasure-request", "erasure-proposal-write", "erasure-pr-open")
 
 # How many of the named records the preview prints in full, and how much of each. A whole conversation can be
 # hundreds of turns; the operator needs enough to recognise what they named, not a wall that buries the prompt.
@@ -451,19 +458,24 @@ def main(argv: list) -> int:
               "Proposes permanently erasing what you name, by opening a pull request you then merge.\n"
               "The target must already be withheld from recall. Must be run from a real terminal.")
         return 0 if argv else 2
+    # A person at a real terminal is this verb's authority to write (it carries no AI-session execution context,
+    # by design). The terminal-attended scope certifies that and authorizes exactly this verb's write surfaces
+    # (the proposal request, the proposal file, and the consent pull request); every other caller stays fail-closed.
     try:
-        report = request(argv[0])
+        with _mutation_authority.terminal_attended(_ERASE_WRITE_ENTRIES):
+            report = request(argv[0])
     except EraseRefused as exc:
+        print(f"Not proposed: {exc}")
+        return 1
+    except _mutation_authority.MutationAuthorityError as exc:
+        # A qualification refusal degrades to a plain-language line rather than a raw traceback — nothing was
+        # proposed, no proposal file was written, and no pull request was opened.
         print(f"Not proposed: {exc}")
         return 1
     print(report["message"])
     return 0 if report["status"] in ("proposed", "written", "declined") else 1
 
 
-try:
-    from . import mutation_authority as _mutation_authority
-except ImportError:  # direct CLI
-    from memory import mutation_authority as _mutation_authority
 _mutation_authority.install_module_guards(globals())
 
 

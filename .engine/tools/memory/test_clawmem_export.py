@@ -363,14 +363,34 @@ class GateAndDestinationTests(_Base):
         self.assertEqual(rc, 1)
         self.assertFalse(os.path.exists(dest))
 
-    def test_main_writes_when_attended(self):
+    def test_main_writes_through_the_real_terminal_attended_authority(self):
+        # Drive the ACTUAL production authority: a genuine tty on both streams, so main opens the
+        # terminal_attended scope and the guarded writes go through it — NOT the test-only adapter. This is the
+        # path a real operator terminal takes; the earlier version mocked only _on_a_terminal and never exercised
+        # the mutation-authority qualification the writes actually run under.
         s = _sid()
         self._turn(s, 0, "user", "hi there")
         dest = os.path.join(self.out.name, "attended")
-        with mock.patch.object(clawmem_export, "_on_a_terminal", return_value=True):
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+                mock.patch("sys.stdout.isatty", return_value=True):
             rc = clawmem_export.main([dest])
         self.assertEqual(rc, 0)
         self.assertTrue(os.path.exists(os.path.join(dest, "meta", "manifest.json")))
+
+    def test_main_refuses_at_the_authority_layer_without_a_real_terminal(self):
+        # Even if the friendly early gate were bypassed, the mutation-authority terminal-attended scope is the
+        # real barrier: with stdin/stdout NOT a tty, export_all is refused before it writes, and the refusal
+        # degrades to a plain line (no traceback). This is the case the 26 original tests never exercised.
+        s = _sid()
+        self._turn(s, 0, "user", "hi")
+        dest = os.path.join(self.out.name, "no-real-tty")
+        with mock.patch.object(clawmem_export, "_on_a_terminal", return_value=True), \
+                mock.patch("sys.stdin.isatty", return_value=False), \
+                mock.patch("sys.stdout.isatty", return_value=False):
+            rc = clawmem_export.main([dest])
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(dest))
+
 
     def test_on_a_terminal_reads_both_streams(self):
         with mock.patch("sys.stdin.isatty", return_value=True), \

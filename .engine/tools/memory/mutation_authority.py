@@ -78,6 +78,22 @@ _SKIP_WRAPPERS = frozenset({"capture-lock-create", "automatic-capture"})
 _TOOLS_ROOT = os.path.realpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ENGINE_ROOT = os.path.realpath(os.path.dirname(os.path.dirname(_TOOLS_ROOT)))
 _INSTANTIATOR_SOURCE = os.path.join(_TOOLS_ROOT, "instantiator.py")
+
+# The TERMINAL-ATTENDED verbs. These are the operator-present CLI verbs that move private cleartext OUT of the
+# governed store, or propose its permanent erasure — the ClawMem exporter and the erasure verb. They cannot carry
+# an ordinary execution context: that context is minted only for AI-SESSION operations, and these verbs
+# deliberately EXCLUDE an AI session by refusing without a real terminal (an AI session's shell has no controlling
+# tty, and this repository's blanket `uv run` grant would otherwise make "operator-attended" unenforceable). So a
+# real terminal IS their authority. `terminal_attended()` certifies BOTH halves before it opens — a genuine tty on
+# stdin AND stdout, and a caller that is one of these exact verb entrypoints running its own genuine loaded code —
+# then authorizes that verb's OWN registered writes (nested or sibling), and only those, for the block. Keyed by
+# the verb's source file; each value is (entrypoint function name, the registry ids it may authorize).
+_TERMINAL_ATTENDED_VERBS = {
+    os.path.realpath(os.path.join(_TOOLS_ROOT, "memory", "clawmem_export.py")): (
+        "main", frozenset({"attended-clawmem-export", "attended-clawmem-export-teardown"})),
+    os.path.realpath(os.path.join(_TOOLS_ROOT, "memory", "erase.py")): (
+        "main", frozenset({"attended-erasure-request", "erasure-proposal-write", "erasure-pr-open"})),
+}
 _PREACTIVATION_LOCK = threading.RLock()
 _PREACTIVATION_ISSUER = object()
 _PREACTIVATION_GRANTS = weakref.WeakKeyDictionary()
@@ -465,6 +481,80 @@ def _test_receipt(entry: dict, mode: str, measured: int) -> dict:
     return receipt
 
 
+def _terminal_attended_verb_frame(entry_ids: frozenset) -> bool:
+    """True iff one of the sanctioned terminal verb entrypoints — running its own GENUINE loaded code, not a
+    monkeypatched stand-in — is on the stack and is allowed to authorize every id in `entry_ids`."""
+    frame = inspect.currentframe()
+    try:
+        frame = frame.f_back if frame is not None else None
+        while frame is not None:
+            sanctioned = _TERMINAL_ATTENDED_VERBS.get(os.path.realpath(frame.f_code.co_filename))
+            if sanctioned is not None:
+                function_name, allowed = sanctioned
+                # `_source_bound_frame` proves the frame's code is the module's own currently-loaded source (not a
+                # patched replacement); the function-name membership proves it is THIS verb's entrypoint, not some
+                # other function in the same file; and the id subset proves the verb is not reaching past what it
+                # is allowed to authorize.
+                if entry_ids <= allowed and _source_bound_frame(frame):
+                    module = sys.modules.get(frame.f_globals.get("__name__"))
+                    target = getattr(module, function_name, None) if module is not None else None
+                    if any(frame.f_code is candidate for candidate in _code_tree(target)):
+                        return True
+            frame = frame.f_back
+    finally:
+        del frame
+    return False
+
+
+def _terminal_attended_receipt(entry: dict, measured: int) -> dict:
+    try:
+        mutation_contract.classify(
+            writer=entry["writer"], target_kind=entry["target_kind"], effect_class=entry["effect_class"],
+            invocation_mode="attended", measured_cardinality=measured,
+            schema_cutover=entry["schema_cutover"],
+        )
+    except Exception as exc:
+        raise MutationAuthorityError(str(exc)) from exc
+    receipt = {
+        "exception": "operator-attended-terminal",
+        "registry_id": entry["id"], "writer": entry["writer"], "mode": "attended",
+        "measured_cardinality": measured,
+    }
+    receipt["receipt_digest"] = _digest(receipt)
+    return receipt
+
+
+@contextmanager
+def terminal_attended(entry_ids):
+    """Authority a terminal verb runs its own registered writes on: the operator's real terminal, no context.
+
+    These verbs (the ClawMem exporter, the erasure verb) move private cleartext out of the governed store or
+    propose its permanent erasure. They carry no execution context — a context is minted only for AI-session
+    operations, which they deliberately refuse — so a person at a real terminal is the authority. This certifies
+    both halves BEFORE it opens: stdin AND stdout are a genuine terminal (so no AI-session path reaches it), and
+    the caller is one of the exact verb entrypoints allowed to authorize every id in `entry_ids`. Inside the
+    block, every registered write named in `entry_ids` — nested or sibling — is authorized; ANY other writer is
+    refused, so an allowed verb cannot become a door to the store beneath it. Fail-closed on either half."""
+    ids = frozenset(entry_ids)
+    for entry_id in ids:
+        _entry(entry_id)  # every id must name a real registry entry, or this is a programming error, not authority
+    if getattr(_THREAD, "state", None) is not None:
+        raise MutationAuthorityError("a terminal-attended operation cannot open inside another mutation scope")
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise MutationAuthorityError(
+            "this runs only from a real terminal, with a person present: stdin and stdout are not a terminal here, "
+            "so it was refused before anything was written.")
+    if not _terminal_attended_verb_frame(ids):
+        raise MutationAuthorityError(
+            "terminal-attended authority is available only to the engine's own terminal verbs, for their own "
+            "registered writes")
+    _THREAD.state = {"test_only": False, "terminal_attended": True, "allowed_entries": ids}
+    try:
+        yield
+    finally:
+        _THREAD.state = None
+
+
 def _consume(context, entry: dict, measured: int, supplied=None):
     try:
         capability = supplied or execution_context.mint_capability(
@@ -549,6 +639,14 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
         if state.get("test_only"):
             yield _test_receipt(entry, state["mode"], measured)
             return
+        if state.get("terminal_attended"):
+            # A person at a real terminal opened this scope for one verb's own writes. Authorize exactly those,
+            # nested or sibling; refuse anything else so the verb cannot become a door to the store beneath it.
+            if entry_id in state["allowed_entries"]:
+                yield _terminal_attended_receipt(entry, measured)
+                return
+            raise MutationAuthorityError(
+                f"{entry['writer']} is not one of the writes this terminal-attended operation is authorized for")
         if state.get("degraded"):
             # A nested writer inside a degraded outer effect is tiered on its OWN entry, never waved through
             # by its caller: an allowed diagnostic must not become a door to the ledger beneath it.
@@ -651,6 +749,11 @@ def authorize_nested(entry_id: str, *, measured_cardinality: int = 1):
         raise MutationAuthorityError(f"{entry['writer']} requires an active locked mutation scope")
     if state.get("test_only"):
         return _test_receipt(entry, state["mode"], measured_cardinality)
+    if state.get("terminal_attended"):
+        if entry_id in state["allowed_entries"]:
+            return _terminal_attended_receipt(entry, measured_cardinality)
+        raise MutationAuthorityError(
+            f"{entry['writer']} is not one of the writes this terminal-attended operation is authorized for")
     if state.get("degraded"):
         if mutation_contract.degraded_disposition(entry) == "refuse":
             raise MutationAuthorityError(mutation_contract.degraded_refusal(entry))

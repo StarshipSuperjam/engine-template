@@ -60,6 +60,12 @@ CLAWMEM_LINE_SCHEMA = {                          # one JSON object per line, in 
 
 MANIFEST_SCHEMA = "clawmem-export-manifest.v1"
 
+# This verb's two registered write surfaces (see memory/mutation_contract.py): `export_all` (the teardown on a
+# scrub fault) and `_render` (every file written). `main` opens a terminal-attended scope over exactly these, so
+# a person at a real terminal authorizes them and nothing else. Kept in lockstep with `mutation_authority`'s
+# `_TERMINAL_ATTENDED_VERBS` and the registry entries; a coverage test pins that they agree.
+_EXPORT_WRITE_ENTRIES = ("attended-clawmem-export-teardown", "attended-clawmem-export")
+
 # A conversation session id is the harness's hyphenated UUID (8-4-4-4-12) — the shape EVERY real capture record
 # carries. A bare hex id (16-64 chars) is also accepted, for the ids `records.new_record_id()` mints and for any
 # legacy record. The id is validated to one of those shapes BEFORE it is ever used as a filename, so a malformed
@@ -461,8 +467,12 @@ def main(argv: list) -> int:
         print(f"Not exported: {_NO_TERMINAL}")
         return 1
 
+    # A person at a real terminal is this verb's authority to write (it carries no AI-session execution context,
+    # by design). The terminal-attended scope certifies that and authorizes exactly this verb's two write
+    # surfaces (export_all's teardown and _render's files) for the duration; every other caller stays fail-closed.
     try:
-        manifest = export_all(args.dest)
+        with _mutation_authority.terminal_attended(_EXPORT_WRITE_ENTRIES):
+            manifest = export_all(args.dest)
     except (ExportRefused, export.ExportRefused) as exc:
         print(f"Not exported: {exc}")
         return 1
