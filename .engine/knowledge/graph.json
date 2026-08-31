@@ -13768,7 +13768,7 @@
       },
       "slug": "program_projection",
       "source": {
-        "fingerprint": "sha256:87cec08d4f65b6e90e3c9310c98cbd01b585cf57ab3927bcd348c0872bd583ab",
+        "fingerprint": "sha256:06dff9f2a1277c93fbbaf9a4f2ef8d414d030591f999e082df71a6855ce32414",
         "path": ".engine/tools/program_projection.py"
       },
       "status": "active",
@@ -18561,7 +18561,7 @@
       },
       "slug": "test_program_projection",
       "source": {
-        "fingerprint": "sha256:c0c33de85ffee02ce7d0d7506b560407cbb3d7b3f1a184ab66a823c04bfe6629",
+        "fingerprint": "sha256:e6ee095418016ba3735a5306fae1a757da626b63f7719fa51500b1c1b094d6d7",
         "path": ".engine/tools/test_program_projection.py"
       },
       "status": "active",
