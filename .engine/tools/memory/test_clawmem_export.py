@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,8 +24,12 @@ from memory import clawmem_export, export, forget, ledger, recall, records, scru
 
 
 def _sid() -> str:
-    """A fresh, valid (hex) conversation session id."""
-    return records.new_record_id()
+    """A fresh, valid conversation session id in the REAL harness shape: a hyphenated UUID (8-4-4-4-12).
+
+    Every capture record in the live ledger carries this shape (verified: 380/380 sessions), NOT the
+    unhyphenated `records.new_record_id()` hex — so the fixtures must use it, or the suite would pass while
+    the exporter silently dropped the entire real store (the exact 'green but wrong' gap this guards)."""
+    return str(uuid.uuid4())
 
 
 class _Base(unittest.TestCase):
@@ -123,7 +127,10 @@ class CompletenessTests(_Base):
                 continue
             if forget.is_withheld(record, withheld_ids, withheld_sessions):
                 continue
-            if not (isinstance(sid, str) and re.match(r"\A[0-9a-f]{16,64}\Z", sid)):
+            # Share the exporter's OWN eligibility predicate (the definition of a usable session id), rather than
+            # re-hardcoding a pattern that could silently drift from it — while the fixtures use the real
+            # hyphenated-UUID shape, so a predicate that rejected real ids would make expected>0 but exported=0.
+            if not (isinstance(sid, str) and clawmem_export._SESSION_ID_RE.match(sid)):
                 continue
             if record.get("speaker") not in ("user", "assistant"):
                 continue
@@ -207,12 +214,15 @@ class WithholdTests(_Base):
         live = self._pin("keep this pinned")
         removed = self._pin("REMOVEDPIN should not resurface")
         self._withhold_record(removed[records.RECORD_ID_KEY])   # pins.remove withholds — a removed pin IS withheld
-        dest, _ = self._export()
+        dest, manifest = self._export()
         with open(os.path.join(dest, "meta", "pins.jsonl"), encoding="utf-8") as fh:
             pins_out = [json.loads(line) for line in fh if line.strip()]
         ids = {p["id"] for p in pins_out}
         self.assertIn(live[records.RECORD_ID_KEY], ids)
         self.assertNotIn(removed[records.RECORD_ID_KEY], ids)
+        # A withheld pin is ITEMIZED in the omission account, like every other withheld kind — the manifest's
+        # promise to name everything left out must hold for pins too, not just drop them silently.
+        self.assertIn(removed[records.RECORD_ID_KEY], manifest["omission_account"]["withheld_records"])
         # and its text is nowhere in the export at all
         for root, _dirs, files in os.walk(dest):
             for name in files:
@@ -225,6 +235,33 @@ class WithholdTests(_Base):
         self._pin("PINTEXT remember", source_session=s)
         dest, _ = self._export()
         self.assertNotIn("PINTEXT", self._all_conversation_text(dest))
+
+    def test_a_withheld_curated_note_is_absent_and_accounted(self):
+        s = _sid()
+        self._turn(s, 0, "user", "conversation")
+        keep = self._episodic(s, "keep this summary")
+        gone = self._episodic(s, "WITHHELDNOTE secret summary")
+        self._withhold_record(gone[records.RECORD_ID_KEY])
+        dest, manifest = self._export()
+        with open(os.path.join(dest, "curated", "notes.md"), encoding="utf-8") as fh:
+            notes = fh.read()
+        self.assertIn("keep this summary", notes)
+        self.assertNotIn("WITHHELDNOTE", notes)
+        self.assertIn(gone[records.RECORD_ID_KEY], manifest["omission_account"]["withheld_records"])
+        self.assertEqual(manifest["curated"]["count"], 1)
+
+    def test_a_fused_harness_span_in_a_curated_note_is_substituted_out(self):
+        # The curated path must mark harness spans just like the conversations path and the recall search index,
+        # so a consolidation that echoed a captured turn's raw text cannot leak a block recall would never show.
+        s = _sid()
+        self._episodic(s, "summary begins <system-reminder>SECRETNOTE internal</system-reminder> summary ends")
+        dest, _ = self._export()
+        with open(os.path.join(dest, "curated", "notes.md"), encoding="utf-8") as fh:
+            notes = fh.read()
+        self.assertNotIn("SECRETNOTE", notes)
+        self.assertIn(records.HARNESS_SPAN_MARKER, notes)
+        self.assertIn("summary begins", notes)
+        self.assertIn("summary ends", notes)
 
 
 class InjectedAndScaffoldingTests(_Base):
@@ -342,6 +379,10 @@ class GateAndDestinationTests(_Base):
         with mock.patch("sys.stdin.isatty", return_value=False), \
                 mock.patch("sys.stdout.isatty", return_value=True):
             self.assertFalse(clawmem_export._on_a_terminal())
+        # The other half of the AND: a real stdin but a redirected stdout must also refuse.
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+                mock.patch("sys.stdout.isatty", return_value=False):
+            self.assertFalse(clawmem_export._on_a_terminal())
 
 
 class ErasureTests(_Base):
@@ -365,6 +406,26 @@ class LegacyHygieneTests(_Base):
         self.assertGreaterEqual(manifest["omission_account"]["legacy_skipped"], 1)
         # nothing escaped the conversations/ directory as a stray path
         self.assertEqual(set(os.listdir(os.path.join(dest, "conversations"))), {f"{good}.jsonl"})
+
+    def test_session_id_predicate_accepts_the_real_shape_and_rejects_unsafe_ones(self):
+        # The linchpin: the harness's hyphenated UUID — the shape EVERY real capture record carries — must be
+        # accepted, or the exporter drops the entire live store. Bare hex stays accepted for new_record_id/legacy.
+        accept = ["3b5d60c6-f19d-42d9-a889-c62b04ee92d6", str(uuid.uuid4()), records.new_record_id(),
+                  "0123456789abcdef0123456789abcdef"]
+        reject = ["not/a/hex/../id", "tag:cluster-42", "", "3b5d60c6f19d42d9a889c62b04ee92d6-extra",
+                  "G3b5d60c6-f19d-42d9-a889-c62b04ee92d6", "../../etc/passwd"]
+        for sid in accept:
+            self.assertTrue(clawmem_export._SESSION_ID_RE.match(sid), f"should accept {sid!r}")
+        for sid in reject:
+            self.assertFalse(clawmem_export._SESSION_ID_RE.match(sid), f"should reject {sid!r}")
+
+    def test_a_bare_hex_session_id_still_exports(self):
+        # The legacy/new_record_id shape is still a first-class accepted id, exported to its own file.
+        hexsid = "0123456789abcdef0123456789abcdef"
+        self._turn(hexsid, 0, "user", "bare hex kept")
+        dest, _ = self._export()
+        self.assertEqual([l["message"]["content"] for l in self._conversation_lines(dest, hexsid)],
+                         ["bare hex kept"])
 
     def test_missing_speaker_and_missing_ts_records_are_skipped(self):
         good = _sid()

@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import moment  # noqa: E402 — the one sanctioned time-idiom seam (RFC3339 formatting)
 from memory import compact, export, forget, ledger, pins, recall, records, scrub  # noqa: E402
+from memory import mutation_authority as _mutation_authority  # noqa: E402
 
 # The ClawMem claude-code line-format contract, verified hands-on in the Phase-0 sandbox against ClawMem's
 # `src/normalize.ts` at this commit. The trial (X2) records the ACTUAL commit + resolved lockfile it runs
@@ -59,10 +60,15 @@ CLAWMEM_LINE_SCHEMA = {                          # one JSON object per line, in 
 
 MANIFEST_SCHEMA = "clawmem-export-manifest.v1"
 
-# A conversation session id is a uuid4 hex. It is validated to this shape BEFORE it is ever used as a filename,
-# so a malformed or hostile identifier can neither escape the conversations/ directory nor collide with a
-# roll-up cluster sentinel (`tag:...`, which is not a conversation and carries no transcript).
-_SESSION_ID_RE = re.compile(r"\A[0-9a-f]{16,64}\Z")
+# A conversation session id is the harness's hyphenated UUID (8-4-4-4-12) — the shape EVERY real capture record
+# carries. A bare hex id (16-64 chars) is also accepted, for the ids `records.new_record_id()` mints and for any
+# legacy record. The id is validated to one of those shapes BEFORE it is ever used as a filename, so a malformed
+# or hostile identifier can neither escape the conversations/ directory nor collide with a roll-up cluster
+# sentinel (`tag:...`, which is not a conversation and carries no transcript). Both shapes are filename-safe —
+# hyphens included, and neither can contain a path separator or `..`.
+_SESSION_ID_RE = re.compile(
+    r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z"   # harness session id (hyphenated UUID)
+    r"|\A[0-9a-f]{16,64}\Z")                                              # bare hex (new_record_id / legacy)
 
 _CURATED_KINDS = (records.EPISODIC_KIND, records.GIST_KIND)
 # Every kind that is machinery rather than content: recall never returns one, and the export drops and counts
@@ -227,8 +233,9 @@ def _classify(src: str):
             if forget.is_withheld(record, withheld_ids, withheld_sessions):
                 _note_withheld_record(record)
                 continue
-            # Legacy hygiene: a record with no hex session id (unusable, and unsafe as a filename), no
-            # user/assistant speaker, or no integer ts cannot be rendered as a ClawMem line — skipped and counted.
+            # Legacy hygiene: a record with no usable session id (not a hyphenated UUID or bare hex, and so
+            # unsafe as a filename), no user/assistant speaker, or no integer ts cannot be rendered as a ClawMem
+            # line — skipped and counted.
             if not (isinstance(sid, str) and _SESSION_ID_RE.match(sid)):
                 omission["legacy_skipped"] += 1
                 continue
@@ -246,7 +253,11 @@ def _classify(src: str):
             curated.append(record)
         elif kind == records.PIN_KIND:
             # Pins are emitted ONLY through `pins.list_pins()` (below), which reads live pins — so a removed
-            # (withheld) pin is absent exactly as it is from recall. Counted in the census, never emitted here.
+            # (withheld) pin is absent exactly as it is from recall. A withheld pin is ALSO itemized in the
+            # omission account (like every other withheld kind), so the manifest's promise to name everything
+            # left out holds for pins too; a live pin is counted in the census and emitted below, never here.
+            if forget.is_withheld(record, withheld_ids, withheld_sessions):
+                _note_withheld_record(record)
             continue
         elif kind in _BOOKKEEPING_KINDS:
             omission["bookkeeping_dropped"][kind] = omission["bookkeeping_dropped"].get(kind, 0) + 1
@@ -347,7 +358,11 @@ def _render(dest, by_session, curated, live_pins, census, omission, *, src, now)
                 f"{len(curated_sorted)} note(s). These are the disposable curated layer over the conversation, "
                 "not imported into ClawMem; the conversations/ transcripts are the canonical record.", ""]
     for note in curated_sorted:
-        pre = note.get("text") if isinstance(note.get("text"), str) else ""
+        raw = note.get("text") if isinstance(note.get("text"), str) else ""
+        # Mark fused harness spans BEFORE scrubbing, exactly as the conversations path and the recall search
+        # index (`index._record_text`) do — so a consolidation pass that echoed a captured turn's raw text into
+        # an episodic/gist note cannot leak a harness block here that recall itself would never surface.
+        pre = records.mark_harness_spans(raw)
         scrubbed = _scrub_fail_closed(pre)
         if scrubbed != pre:
             scrub_altered += 1
@@ -436,8 +451,8 @@ def main(argv: list) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=("Export the memory ledger as a point-in-time, ClawMem-ingestible portability artifact.\n\n"
                      + _POINT_IN_TIME + "\n\n" + _EXPECTED_RUNTIME))
-    parser.add_argument("dest", help="a fresh directory to write into, OUTSIDE any git project (or a path the "
-                                     "project already ignores)")
+    parser.add_argument("dest", help="a fresh, EMPTY directory to write into, OUTSIDE any git project (or a "
+                                     "path the project already ignores)")
     args = parser.parse_args(argv)
 
     # THE TERMINAL GATE COMES FIRST, before the store is touched at all: an automated caller must not be able to
@@ -449,6 +464,11 @@ def main(argv: list) -> int:
     try:
         manifest = export_all(args.dest)
     except (ExportRefused, export.ExportRefused) as exc:
+        print(f"Not exported: {exc}")
+        return 1
+    except _mutation_authority.MutationAuthorityError as exc:
+        # A qualification refusal degrades to the same plain-language "Not exported" line as every other
+        # refusal, rather than a raw traceback — the store was not touched and nothing was written.
         print(f"Not exported: {exc}")
         return 1
 
@@ -464,13 +484,12 @@ def main(argv: list) -> int:
     return 0
 
 
-# Install the mutation-authority guards on this module's registered writers (`_render`, `export_all`), the
-# same way export.py does. Export-artifact writes are allowed unqualified (degraded -> allow), so the wrapping
-# is transparent at runtime; it exists so the write surfaces carry their registry ids for the coverage check.
-try:
-    from . import mutation_authority as _mutation_authority
-except ImportError:  # direct CLI
-    from memory import mutation_authority as _mutation_authority
+# Install the mutation-authority guards on this module's registered writers (`_render`, `export_all`), the same
+# way export.py does. NOTE: export-artifact writes are NOT degraded-allowed — `mutation_contract.degraded_
+# disposition` returns "refuse" for them (export-artifact is not a degraded-allowed target, and the effect is
+# destructive-irreversible). So under an unqualified/degraded context the guard FAILS CLOSED: the direct-import
+# path (an automated caller reaching export_all()) is refused, which is the compensating control that backs the
+# terminal gate. The wrapping also makes the write surfaces carry their registry ids for the coverage census.
 _mutation_authority.install_module_guards(globals())
 
 

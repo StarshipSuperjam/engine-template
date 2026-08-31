@@ -11,7 +11,8 @@ the Engine's own installed semantic recall, judged against a pass bar fixed in a
 bound to the export manifest digest, the query-set digest, and the exact ClawMem commit and lockfile. Enter it
 once the `clawmem_export.py` exporter (X1) exists and you are ready to spend an attended hour producing that
 verdict. It is not a background job: it exports your private history in cleartext and runs local models, so you
-run it yourself, at a terminal, start to finish.
+run it yourself, at a terminal — the single exception is the incumbent-recall comparison in step 7, which is an
+MCP tool call made in a live session, called out there.
 
 ## Steps
 
@@ -27,8 +28,10 @@ run it yourself, at a terminal, start to finish.
 2. **Choose a safe destination directory.** The exporter refuses a path inside a git working tree that git does
    not already ignore, but it CANNOT see three dangers you must rule out yourself: a cloud-synced folder
    (Dropbox, iCloud, Drive), a network mount, or anything a backup tool sweeps. Pick a local, non-synced,
-   non-backed-up directory — your home directory or a scratch folder — and make sure it is empty (the exporter
-   refuses a non-empty destination so a stale export cannot survive beside the new one).
+   non-backed-up scratch folder you have CONFIRMED is outside every sync root — on default macOS and Windows
+   setups the home directory, Desktop, and Documents are often themselves iCloud- or OneDrive-synced, so check
+   System Settings → iCloud (or your sync client's excluded-folders list) first rather than assuming. Make sure
+   it is empty (the exporter refuses a non-empty destination so a stale export cannot survive beside the new one).
 
 3. **Run the exporter at a terminal.** From your own shell:
 
@@ -44,7 +47,8 @@ run it yourself, at a terminal, start to finish.
    <destination>/meta/manifest.json`); the verdict binds it.
 
 4. **Install ClawMem in a sandbox, and record exactly what you ran.** Clone ClawMem OUTSIDE this repository
-   (nothing is vendored or depended on by the Engine). Check out a specific commit and run
+   (nothing is vendored or depended on by the Engine). Check out a specific commit — the exporter's line-format
+   contract was verified against `ba09cb8` (v0.37.0), so start there unless you have a reason to move — and run
    `bun update node-llama-cpp` before the first embed — the pinned lockfile ships a llama.cpp too old for
    current Apple Silicon and fails Metal compilation (upstream `yoloshii/ClawMem#26`). Record the resolved
    ClawMem commit SHA and the resolved `node-llama-cpp` version from the lockfile; the verdict binds both.
@@ -64,10 +68,12 @@ run it yourself, at a terminal, start to finish.
 
 7. **Run the same battery against BOTH systems.** Against ClawMem, use its eval harness
    (`clawmem eval run --gold <query-set.jsonl>`), falling back to running each query manually and recording the
-   top 3 hits if the harness proves unusable. Against the Engine's installed semantic recall, run each identical
-   query through `recall-by-meaning` (the semantic add-on the program would replace) and record its top 3.
-   Record, per query and per system, whether the known target appears in the top 3 (hit@3) and, on a miss, what
-   came back instead.
+   top 3 hits if the harness proves unusable. Against the Engine's installed semantic recall, the query goes
+   through `recall-by-meaning` (the semantic add-on the program would replace) — this is an **MCP tool, not a
+   shell command**, so you cannot type it at a terminal. Do it in a live Claude Code session: ask me, in chat, to
+   call `recall-by-meaning` for each query and report its top 3, then copy those into your record. (This is the
+   one step of the trial that is not terminal-only.) Record, per query and per system, whether the known target
+   appears in the top 3 (hit@3) and, on a miss, what came back instead.
 
 8. **Apply the pass bar fixed in advance.** ClawMem PASSES only if its hybrid retrieval **meets or beats the
    incumbent semantic recall on hit@3** across the battery. A tie passes; a loss fails. Examine every ClawMem
@@ -94,9 +100,14 @@ run it yourself, at a terminal, start to finish.
    ```
 
 10. **Delete every residue as part of finishing.** The trial is not done until the cleartext is gone. Delete the
-    export directory AND the ClawMem store — its SQLite database, the FTS and vector indexes, and (optionally,
-    they are large) the downloaded models. The verdict text you committed in step 9 carries no conversation
-    content and stays; the raw export and the built store must not linger on disk.
+    export directory AND the ClawMem store — but the store is more than the clone directory: ClawMem keeps its
+    SQLite database and its FTS/vector indexes in a data directory, and caches the downloaded models separately,
+    and either can sit OUTSIDE the clone (a global data dir and model cache are common), so an `rm -rf` of the
+    clone alone can leave cleartext-derived indexes behind. Before deleting, find the ACTUAL paths from ClawMem's
+    own configuration or its startup output (it reports where it reads and writes), then remove the database and
+    indexes. Removing the models is optional — they are large and carry no conversation content. The verdict text
+    you committed in step 9 carries no conversation content and stays; the raw export and the built store must not
+    linger on disk.
 
 ## Done when
 
