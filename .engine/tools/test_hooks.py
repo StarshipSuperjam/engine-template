@@ -1524,6 +1524,56 @@ class TestAcceptedAutomaticHookDispatch(unittest.TestCase):
         self.assertIn("canonical backup pointer differs", refused.stderr)
         self.assertFalse(self.repo.marker.exists())
 
+    def _home_shape(self, *, committed_pointer):
+        """Re-commit the fixture as the engine's OWN home repo (origin == the accepted manifest's
+        `home_repository`) with the given committed pointer, and activate that commit. The subprocess
+        dispatcher judges home from the fixture's real origin and the ACCEPTED tree's manifest, so this —
+        not an in-process monkeypatch it would never see — is what genuinely reaches the carve-out."""
+        manifest = json.loads((self.repo.root / ".engine/engine.json").read_text(encoding="utf-8"))
+        manifest["home_repository"] = "owner/project"
+        (self.repo.root / ".engine/engine.json").write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text(
+            json.dumps(committed_pointer) + "\n", encoding="utf-8")
+        self.repo.git("add", ".")
+        self.repo.git("commit", "-m", "home-shaped")
+        commit = self.repo.git("rev-parse", "HEAD")
+        result = self.repo.activate(commit=commit)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_home_repo_mandated_pointer_split_qualifies_and_binds_the_live_pointer(self):
+        # The home repo's mandated state — committed placeholder (the public-safety check forbids
+        # committing the configured pointer there, #224) with the live configured pointer on disk —
+        # qualifies instead of refusing, and the context binds the LIVE pointer's identity.
+        self._home_shape(committed_pointer={"schema_version": 1, "configured": False})
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text(json.dumps({
+            "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
+            "namespace": "live-project-id"}) + "\n", encoding="utf-8")
+        result = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads(result.stdout)
+        self.assertEqual(receipt["value"], "accepted")
+        self.assertEqual(receipt["context"]["canonical"]["backup_pointer_identity"]["namespace"],
+                         "live-project-id")
+        # A live pointer that does NOT parse as configured is not the mandated split — garbage on disk
+        # still refuses even in the home repo, exactly as before the carve-out.
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text("{}\n", encoding="utf-8")
+        refused = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("canonical backup pointer differs", refused.stderr)
+
+    def test_home_repo_with_committed_configured_pointer_keeps_the_parity_refusal(self):
+        # Home shape alone never excuses parity: with a CONFIGURED pointer committed, a differing live
+        # pointer is genuine drift from operator-accepted state — the tamper the binding exists to catch.
+        self._home_shape(committed_pointer={
+            "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
+            "namespace": "project-id"})
+        (self.repo.root / ".engine/memory-backup/pointer.json").write_text(json.dumps({
+            "schema_version": 1, "owner": "vault-owner", "repo": "vault", "branch": "main",
+            "namespace": "somewhere-else"}) + "\n", encoding="utf-8")
+        refused = self.repo.run_direct(self.repo.poison_env())
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("canonical backup pointer differs", refused.stderr)
+
     def test_real_claude_and_codex_launchers_preserve_provider_and_closed_origins(self):
         self.assertEqual(self.repo.activate().returncode, 0)
         self.repo.dirty()
