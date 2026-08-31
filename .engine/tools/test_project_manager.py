@@ -2797,7 +2797,9 @@ class LaneCommands(ProgramVerbs):
             plan_program.ProgramLibrary(self.lib).resolve(program_id))
         out = self.run_command("program", "lanes", "propose", program_id)[1]
         set_line = next(line for line in out.splitlines() if "program lanes set" in line)
-        parts = shlex.split(set_line)          # ['program','lanes','set',prg,'--reason','<why>','--lane',...]
+        parts = shlex.split(set_line)          # python tools/project_manager.py program lanes set ...
+        self.assertIn("python", parts)         # the emitted line is runnable, not a bare `program ...`
+        parts = parts[parts.index("program"):]  # slice from the subcommand for this in-process runner
         code, _, err = self.run_command(*parts)
         self.assertEqual(code, 0, err)
         recorded = self._record(program_id)["lanes"]["lanes"]
@@ -2814,6 +2816,22 @@ class LaneCommands(ProgramVerbs):
         self.assertIn("amending around the recorded split", amend)
         fresh = self.run_command("program", "lanes", "propose", program_id, "--fresh")[1]
         self.assertIn("set aside", fresh)
+
+    def test_a_cap_forced_merge_is_not_called_a_collision_at_the_cli(self):
+        program_id = self._disjoint_program()   # two disjoint children over x.py and y.py
+        out = self.run_command("program", "lanes", "propose", program_id, "--max-lanes", "1")[1]
+        # The false-collision headline must NOT appear for a capacity merge (the word "collide" itself
+        # legitimately appears in the standing declared-paths caveat, so assert the headline, not the word).
+        self.assertNotIn("Concurrency is not recommended", out)
+        self.assertIn("lane ceiling", out)
+        self.assertIn("because of a territory collision", out)
+        self.assertIn("Raise --max-lanes", out)
+
+    def test_the_emitted_set_line_is_runnable_as_printed(self):
+        program_id = self._disjoint_program()
+        out = self.run_command("program", "lanes", "propose", program_id)[1]
+        set_line = next(line for line in out.splitlines() if "program lanes set" in line)
+        self.assertIn("python tools/project_manager.py program lanes set", set_line)
 
     def test_program_show_renders_the_lanes_section_and_history(self):
         program_id = self._disjoint_program()

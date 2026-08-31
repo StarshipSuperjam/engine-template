@@ -2425,6 +2425,18 @@ def cmd_program_lanes_clear(args) -> int:
     return 0
 
 
+_UNPLACEABLE_PROSE = {
+    plan_program.ProgramLibrary.UNPLACEABLE_V1:
+        "its plan carries a build-plan.v1 payload, which cannot express the exclusive_resources this "
+        "reasons over — re-author it as build-plan.v2 to place it",
+    plan_program.ProgramLibrary.UNPLACEABLE_IMPORTED:
+        "its plan is an imported native plan with no authored work items, so it declares no territory "
+        "to reason over yet",
+    plan_program.ProgramLibrary.UNPLACEABLE_UNREADABLE:
+        "its record or head document does not read, so its territory cannot be determined",
+}
+
+
 def cmd_program_lanes_propose(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
@@ -2451,12 +2463,20 @@ def cmd_program_lanes_propose(args) -> int:
             lines.append(f"    territory: {', '.join(lane['territory']) or '(none read)'}")
     else:
         lines.append("_No child could be placed into a lane._")
-    if proposal["contended"]:
+    for lane in proposal["lanes"]:
+        if lane.get("collides"):
+            lines.append("")
+            lines.append(f"**Concurrency is not recommended for the children in lane {lane['name']}.** "
+                         "They collide on shared territory (" + ", ".join(lane["territory"]) + "), so "
+                         "they are grouped to run in sequence rather than split into a manufactured "
+                         "concurrency.")
+    if proposal.get("cap_forced"):
         lines.append("")
-        lines.append("**Concurrency is not recommended here.** The placed children collide on shared "
-                     "territory, so they are grouped into a single lane to run in sequence rather than "
-                     "split into a manufactured concurrency. The contended territory is: "
-                     + ", ".join(proposal["lanes"][0]["territory"]) + ".")
+        lines.append(f"_Note: the lane ceiling of {proposal['max_lanes']} was reached, so the following "
+                     "otherwise-disjoint children were merged into an existing lane for lack of room — "
+                     "NOT because of a territory collision. Raise --max-lanes to give them their own lane:_")
+        for item in proposal["cap_forced"]:
+            lines.append(f"- {item['plan_id']} → merged into lane {item['lane']}")
     if proposal["unplaced"]:
         lines.append("")
         lines.append("## Unplaced — contends with more than one open lane")
@@ -2465,9 +2485,9 @@ def cmd_program_lanes_propose(args) -> int:
                          "placing it in either would leave a cross-lane collision.")
     if proposal["unplaceable"]:
         lines.append("")
-        lines.append("## Unplaceable — evidence class named")
+        lines.append("## Unplaceable — why it could not be placed")
         for item in proposal["unplaceable"]:
-            lines.append(f"- {item['plan_id']} — {item['class']}")
+            lines.append(f"- {item['plan_id']} — {_UNPLACEABLE_PROSE.get(item['class'], item['class'])}")
     if proposal["excluded"]:
         lines.append("")
         lines.append("## Excluded — with reason")
@@ -2494,7 +2514,8 @@ def cmd_program_lanes_propose(args) -> int:
                              for lane in proposal["lanes"])
         lines.append("")
         lines.append("To record this recommendation (edit the reason to your own):")
-        lines.append(f"  program lanes set {program_id} --reason \"<why>\" {lane_args}")
+        lines.append(f"  python tools/project_manager.py program lanes set {program_id} "
+                     f"--reason \"<why>\" {lane_args}")
     print("\n".join(lines))
     return 0
 

@@ -2712,7 +2712,13 @@ class LaneProposal(_Program):
         lanes = {lane["name"]: lane["members"] for lane in proposal["lanes"]}
         self.assertEqual(lanes["lane-1"], ["pln_a00000000001", "pln_c00000000003"])
         self.assertEqual(lanes["lane-2"], ["pln_b00000000002"])
-        self.assertFalse(proposal["contended"])
+        # A and C genuinely share x.py, so lane-1 is a real collision grouping (contended); lane-2 is
+        # a clean parallel lane; and no capacity merge happened (the ceiling was not reached).
+        self.assertTrue(proposal["contended"])
+        by_name = {lane["name"]: lane for lane in proposal["lanes"]}
+        self.assertTrue(by_name["lane-1"]["collides"])
+        self.assertFalse(by_name["lane-2"]["collides"])
+        self.assertEqual(proposal["cap_forced"], [])
         # B succeeds A across lanes, and C succeeds B across lanes — both are merge-order risks.
         edges = {(e["child"], e["predecessor"]) for e in proposal["cross_lane_edges"]}
         self.assertIn(("pln_b00000000002", "pln_a00000000001"), edges)
@@ -2897,6 +2903,25 @@ class LaneProposal(_Program):
         self.assertEqual(sorted(placed_members),
                          ["pln_a00000000001", "pln_b00000000002", "pln_c00000000003"])
         self.assertIn("declared work-item paths only", proposal["declared_paths_caveat"])
+
+    def test_a_cap_forced_merge_is_not_reported_as_a_collision(self):
+        # Two provably-disjoint children under a ceiling of 1 are merged for lack of room — a capacity
+        # artifact, never a territory collision. The proposal must not call it contended.
+        slug = self._program("Cap", "Disjoint children exceeding the ceiling.")
+        self._chain(slug, ("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        proposal = self.programs.propose_lanes(slug, max_lanes=1)
+        self.assertEqual(len(proposal["lanes"]), 1)
+        self.assertFalse(proposal["contended"])
+        self.assertFalse(proposal["lanes"][0]["collides"])
+        self.assertEqual([c["plan_id"] for c in proposal["cap_forced"]], ["pln_b00000000002"])
+
+    def test_a_genuine_shared_territory_grouping_is_flagged_contended(self):
+        slug = self._program("Real", "Two children over the same file.")
+        self._chain(slug, ("pln_a00000000001", ["z.py"]), ("pln_b00000000002", ["z.py"]))
+        proposal = self.programs.propose_lanes(slug)
+        self.assertTrue(proposal["contended"])
+        self.assertTrue(proposal["lanes"][0]["collides"])
+        self.assertEqual(proposal["cap_forced"], [])
 
     def test_propose_does_not_reimplement_the_conflict_rule(self):
         # Obligation 1's grep-proof: the conflict rule is IMPORTED from build_coordinator_dag and used

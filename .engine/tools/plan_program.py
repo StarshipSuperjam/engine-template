@@ -1288,7 +1288,12 @@ class ProgramLibrary:
         chain cohesion only the tie-break for where a disjoint child lands once the ceiling is reached);
         a candidate that collides with more than one lane at once cannot be placed without merging
         already-separated lanes, so it is disclosed in the unplaced list naming what it contends with.
-        The invariant this keeps: any two children in different lanes have provably disjoint territory.
+        The invariant this keeps for the COMPUTED lanes: any two children the algorithm places in
+        different lanes have provably disjoint territory (a disjoint child merged for lack of room under
+        the ceiling is recorded as cap_forced, never as a collision). In amend mode the recorded seed
+        lanes are the operator's own decision, preserved verbatim (obligation 6) — set_lanes never
+        checks their territory, so this invariant governs only what propose adds, not what the operator
+        recorded, and territory overlaps WITHIN a recorded split are not re-checked here.
         """
         if max_lanes < 1:
             raise ProgramError(
@@ -1320,7 +1325,7 @@ class ProgramLibrary:
                     if info:
                         territory.update(info["paths"])
                 lanes.append({"name": lane["name"], "members": list(lane["children"]),
-                              "territory": territory, "seed": True})
+                              "territory": territory, "seed": True, "collides": False})
             for index, lane in enumerate(lanes):
                 for member in lane["members"]:
                     lane_of[member] = index
@@ -1334,6 +1339,7 @@ class ProgramLibrary:
             return None
 
         unplaced: list = []
+        cap_forced: list = []   # disjoint children merged only because the ceiling was reached
         for candidate in placed:
             if candidate["plan_id"] in recorded_members:
                 continue   # a recorded lane's membership is a fixed seed; amend never touches it
@@ -1343,19 +1349,26 @@ class ProgramLibrary:
                 if len(lanes) < max_lanes:
                     lanes.append({"name": f"lane-{len(lanes) + 1}",
                                   "members": [candidate["plan_id"]],
-                                  "territory": set(candidate["paths"]), "seed": False})
+                                  "territory": set(candidate["paths"]), "seed": False,
+                                  "collides": False})
                     lane_of[candidate["plan_id"]] = len(lanes) - 1
                 else:
+                    # No lane collides with this child, but the ceiling is reached, so it is merged
+                    # into a lane it is provably disjoint from. That is a CAPACITY artifact, not a
+                    # territory collision — recorded as such so the output never calls it one.
                     index = nearest_predecessor_lane(candidate["plan_id"])
                     index = 0 if index is None else index
                     lanes[index]["members"].append(candidate["plan_id"])
                     lanes[index]["territory"].update(candidate["paths"])
                     lane_of[candidate["plan_id"]] = index
+                    cap_forced.append({"plan_id": candidate["plan_id"],
+                                       "lane": lanes[index]["name"]})
             elif len(conflicting) == 1:
                 index = conflicting[0]
                 lanes[index]["members"].append(candidate["plan_id"])
                 lanes[index]["territory"].update(candidate["paths"])
                 lane_of[candidate["plan_id"]] = index
+                lanes[index]["collides"] = True   # a genuine shared-territory grouping
             else:
                 unplaced.append({"plan_id": candidate["plan_id"],
                                  "contends_with": [lanes[i]["name"] for i in conflicting]})
@@ -1378,18 +1391,21 @@ class ProgramLibrary:
         resource_cautions = [{"token": token, "children": sorted(ids)}
                              for token, ids in sorted(token_children.items()) if len(ids) >= 2]
 
-        # The honest degenerate signal: one lane holding more than one child means territory forced
-        # them together — concurrency is not recommended, and the output says so and names what
-        # contends. It is a first-class outcome, not a failure to split.
-        contended = len(lanes) == 1 and len(lanes[0]["members"]) > 1
+        # The honest degenerate signal: a lane is "contended" only when a child JOINED it because it
+        # shared territory — never because the ceiling forced a provably-disjoint child in. A merge
+        # for lack of lanes is a capacity artifact (cap_forced above), reported separately so the
+        # output never calls disjoint children a collision.
+        contended = any(lane["collides"] for lane in lanes)
         return {
             "mode": "amend" if amend else "fresh",
             "max_lanes": max_lanes,
             "recorded_split_present": bool(recorded),
             "lanes": [{"name": lane["name"], "members": lane["members"],
-                       "territory": sorted(lane["territory"]), "seed": lane["seed"]}
+                       "territory": sorted(lane["territory"]), "seed": lane["seed"],
+                       "collides": lane["collides"]}
                       for lane in lanes],
             "unplaced": unplaced,
+            "cap_forced": cap_forced,
             "placed": [p["plan_id"] for p in placed],
             "unplaceable": unplaceable,
             "excluded": excluded,
@@ -1884,7 +1900,8 @@ def render(library: ProgramLibrary, record: dict) -> str:
 
 
 def _render_lanes(record: dict, view: list) -> list:
-    """The DECIDED lane split, rendered truthfully — never the per-lane activity view (issue #1173).
+    """The DECIDED lane split, rendered truthfully — never the per-lane activity view (issue
+    StarshipSuperjam/engine-template#1173).
 
     Truth-telling is the whole job: a member that has since been superseded or died is MARKED in
     place, not hidden; a child added after the split is listed as unlaned rather than silently
