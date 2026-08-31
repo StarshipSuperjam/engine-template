@@ -65,9 +65,24 @@ def _last_clause_boundary(window: str) -> int | None:
     floor = int(len(window) * _CLAUSE_FLOOR_RATIO)
     best = None
     for marker in _CLAUSE_MARKERS + _CLAUSE_PHRASES:
-        idx = window.rfind(marker)
-        if idx >= floor and (best is None or idx > best):
-            best = idx
+        start = 0
+        while True:
+            idx = window.find(marker, start)
+            if idx < 0:
+                break
+            start = idx + 1
+            if idx < floor:
+                continue
+            # Never cut inside an unclosed parenthetical. A comma or dash between '(' and its ')'
+            # is a list-item separator, not a clause boundary — cutting there leaves a dangling '('
+            # and an aside with no main clause, which reads worse than a plain word break. Only a
+            # marker whose parentheses are balanced up to it is a real clause-level boundary. (Seen
+            # live: a goal opening 'Every lifecycle transaction (upgrade, rollback, module …' cut on
+            # the first inner comma, hiding the whole verb.)
+            if window.count("(", 0, idx) > window.count(")", 0, idx):
+                continue
+            if best is None or idx > best:
+                best = idx
     return best
 
 

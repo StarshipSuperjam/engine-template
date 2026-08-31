@@ -278,6 +278,21 @@ class TheOldProgramDoorRefuses(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("program_manager.py program", err)
 
+    def test_a_help_flag_before_the_program_word_still_shows_the_tools_own_help(self):
+        # argparse fires -h/--help immediately, before any subcommand, so `-h program` asks for the
+        # TOOL's help, not the dead door. The short-circuit honours that precedence — swallowing a
+        # general help request would be its own false step — while `program -h` (the door's own help,
+        # tested above) still refuses.
+        for flag in ("-h", "--help"):
+            with self.subTest(flag=flag):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    with self.assertRaises(SystemExit) as caught:
+                        project_manager.main([flag, "program"])
+                self.assertEqual(caught.exception.code, 0)                    # argparse's real success
+                self.assertNotIn("program_manager.py program", out.getvalue())  # not the door refusal
+                self.assertIn("usage", out.getvalue().lower())
+
 
 class ProgramVerbs(_ProgramSurface):
     def _obligation(self, identifier, statement, state="carried"):
@@ -1183,7 +1198,9 @@ class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
                           "carried_obligations": [{"id": "OB-9", "statement": "a debt", "state": "carried"}]}
         self.lib.create(doc)
         self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
-        self.assertIn("still carried", self._md(program_id).lower())   # outstanding before the release
+        before = self._md(program_id)                                  # OB-9 is outstanding before the release
+        self.assertNotIn("released along the way", before)             # ...and not yet in the released tail
+        self.assertIn("OB-9", before.split("still carried", 1)[1].split("released along", 1)[0])
         self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
                          "--obligation", "OB-9", "--reason", "its successor was abandoned")
         md = self._md(program_id)                               # the release is reflected...

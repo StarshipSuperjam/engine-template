@@ -2322,6 +2322,12 @@ def _reaches_dead_program_door(argv: list) -> bool:
     lands in the REMAINDER quirk and argparses to its own error, not our pointer. So the first
     positional (past the one value-taking global, `--library`) is read here, and if it is `program`
     the refusal is raised before the parser runs — for a verb, a flag, `-h`, or nothing at all.
+
+    A top-level -h/--help reached BEFORE any subcommand is the operator asking for the tool's own
+    help, and argparse fires it immediately regardless of what follows; so a help flag ahead of the
+    program word must still show top-level help, while a help flag after that word (the door's own
+    help) still refuses. We honour that same precedence: a help flag seen before the first positional
+    hands back to argparse.
     """
     tokens = iter(argv or [])
     for token in tokens:
@@ -2330,6 +2336,8 @@ def _reaches_dead_program_door(argv: list) -> bool:
             continue
         if token.startswith("--library="):
             continue
+        if token in ("-h", "--help"):
+            return False                 # top-level help precedes any subcommand, as argparse does
         if token.startswith("-"):
             continue                     # any other flag; none take a value at the top level
         return token == "program"        # the first positional is the subcommand

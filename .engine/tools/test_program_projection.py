@@ -187,6 +187,50 @@ class ThePortfolioRendersTheOpenShelf(_Shelf):
         self.assertEqual(before, after, "rendering the portfolio must not touch a record")
 
 
+class GoalHeadlineCutsOnACompleteThought(unittest.TestCase):
+    """goal_headline directly, at the boundaries the live shelf actually defeats. The portfolio tests
+    exercise it through the render; these pin the cut rule itself — most importantly that a clause cut
+    never lands inside an open parenthetical, the regression a real open program surfaced (a goal
+    'Every lifecycle transaction (upgrade, rollback, …' cut on the first inner comma and hid the verb)."""
+
+    def test_a_sentence_within_the_cap_is_returned_whole(self):
+        obj = "Keep the whole portfolio legible from one command."
+        self.assertEqual(program_projection.goal_headline(obj), obj)
+
+    def test_a_clause_boundary_is_preferred_over_a_bare_word_break(self):
+        # A comma past the 0.55 floor is the cut point; everything after the clause is dropped.
+        obj = "A" * 100 + ", and then " + "B" * 100 + "."
+        self.assertEqual(program_projection.goal_headline(obj), "A" * 100 + "…")
+
+    def test_it_falls_back_to_a_word_boundary_when_no_clause_boundary_is_late_enough(self):
+        obj = "alpha " * 60 + "omega."                 # no clause marker anywhere
+        headline = program_projection.goal_headline(obj)
+        self.assertTrue(headline.endswith("…"))
+        self.assertLessEqual(len(headline), program_projection._HEADLINE_CAP)
+        self.assertFalse(headline[:-1].endswith(" "), "cut left a dangling space")
+        self.assertTrue(headline.startswith("alpha alpha"))
+
+    def test_it_never_cuts_inside_an_open_parenthetical(self):
+        # The live shape: a parenthetical list whose inner commas sit past the floor. The old rule cut
+        # on the first inner comma, leaving a dangling '(' and no main clause; the cut must clear the
+        # closing ')' (or fall back past it), never end mid-aside.
+        obj = ("Every lifecycle transaction (upgrade, rollback, module add/remove, whole-engine removal, "
+               "control-plane bootstrap/finalize, and their arrival) runs through one stateless typed "
+               "protocol with a single durable ledger that never loses a step.")
+        headline = program_projection.goal_headline(obj)
+        self.assertEqual(headline.count("("), headline.count(")"),
+                         "headline ended inside an unclosed parenthetical")
+        self.assertIn("runs through", headline, "the main clause after the aside was lost")
+
+    def test_last_clause_boundary_rejects_a_marker_inside_a_paren(self):
+        # Directly: a window whose only late marker is a comma inside '(...)' has no clause boundary.
+        window = "Do the thing (alpha, beta, gamma, delta, epsilon, zeta, eta, theta) and more"
+        idx = program_projection._last_clause_boundary(window)
+        if idx is not None:
+            depth = window.count("(", 0, idx) - window.count(")", 0, idx)
+            self.assertEqual(depth, 0, "returned a boundary sitting inside an open parenthetical")
+
+
 class TheClosedTailIsBounded(_Shelf):
     def test_the_tail_caps_at_five_orders_by_recency_and_counts_the_remainder(self):
         with self._seeding():
