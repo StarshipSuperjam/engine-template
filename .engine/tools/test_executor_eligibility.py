@@ -1,3 +1,5 @@
+"""Tests for executor_eligibility — best-qualified selection strictly over explicit qualification records,
+no-eligible fail-closed on an empty or all-unqualified set, and non-production exclusion from production."""
 from __future__ import annotations
 
 import os

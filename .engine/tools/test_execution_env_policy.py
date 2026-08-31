@@ -1,3 +1,5 @@
+"""Tests for execution_env_policy — allowlist environment construction (only named keys, no ambient leak),
+process-group launch, and verified tree-kill (leader and child-tree reaping)."""
 from __future__ import annotations
 
 import os

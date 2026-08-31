@@ -1,3 +1,5 @@
+"""Tests for executor_records — schema validation, loud refusal of malformed records, and the
+engine/check/executor-record bite witness (the real check rule fires on a tampered record)."""
 from __future__ import annotations
 
 import json
