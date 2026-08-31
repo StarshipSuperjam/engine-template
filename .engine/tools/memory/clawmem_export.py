@@ -34,7 +34,6 @@ stdlib + the memory package only; no outbound calls.
 """
 
 import argparse
-import datetime
 import hashlib
 import json
 import os
@@ -44,6 +43,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import moment  # noqa: E402 — the one sanctioned time-idiom seam (RFC3339 formatting)
 from memory import compact, export, forget, ledger, pins, recall, records, scrub  # noqa: E402
 
 # The ClawMem claude-code line-format contract, verified hands-on in the Phase-0 sandbox against ClawMem's
@@ -113,8 +113,9 @@ def _on_a_terminal() -> bool:
 
 
 def _rfc3339(ts: int) -> str:
-    """A whole-second UTC RFC3339 stamp (`...Z`). Capture stamps whole seconds, so no sub-second part appears."""
-    return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """A whole-second UTC RFC3339 stamp (`...Z`), via the one sanctioned time seam. Capture stamps whole
+    seconds, so `moment.to_z` renders no sub-second part."""
+    return moment.to_z(ts)
 
 
 def _digest_bytes(data: bytes) -> str:
@@ -287,6 +288,7 @@ def export_all(dest: str, *, path: "str | None" = None, now: "int | None" = None
         return _render(dest, by_session, curated, live_pins, census, omission, src=src, now=now)
     except _ScrubFault as exc:
         # Fail CLOSED: tear down whatever was written so no half-masked artifact survives, then refuse loudly.
+        # This teardown is a registered export-artifact mutation surface (see memory/mutation_contract.py).
         if created_dest:
             shutil.rmtree(dest, ignore_errors=True)
         else:
@@ -387,7 +389,7 @@ def _render(dest, by_session, curated, live_pins, census, omission, *, src, now)
 
     manifest = {
         "schema": MANIFEST_SCHEMA,
-        "generated_at": _rfc3339(now if now is not None else int(_wallclock())),
+        "generated_at": _rfc3339(now) if now is not None else moment.utc_now(),
         "point_in_time_caveats": _POINT_IN_TIME,
         "clawmem": {
             "commit": CLAWMEM_COMMIT,
@@ -426,13 +428,6 @@ def _render(dest, by_session, curated, live_pins, census, omission, *, src, now)
     with open(manifest_full, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
     return manifest
-
-
-def _wallclock() -> float:
-    """Wall-clock seconds. Isolated so the manifest timestamp has one obvious seam; tests pass an explicit
-    `now` and never reach this."""
-    import time
-    return time.time()
 
 
 def main(argv: list) -> int:
