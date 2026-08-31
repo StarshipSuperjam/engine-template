@@ -219,3 +219,41 @@ class OpenerTests(_Base):
         local |= {n.name for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler) and n.name}
         unbound = sorted(loaded - module_level - local)
         self.assertEqual(unbound, [], f"erase.py uses names it never binds: {unbound}")
+
+
+class MainTerminalAttendedTests(_Base):
+    """erase.main() must go through the REAL terminal-attended authority, exactly as the exporter's main() tests
+    require. erase is the one irreversible-action verb and its wiring is identical to the exporter's, but every
+    other test calls request() directly — under the test-only adapter — so none exercises main()'s scope. Without
+    these, a future drift that dropped an id from `_ERASE_WRITE_ENTRIES`, reordered the `with`, or stopped main
+    from opening the scope would ship green (the exact 'green but wrong' class this whole change is fixing)."""
+
+    def test_main_writes_the_proposal_through_the_real_terminal_attended_authority(self):
+        import validate
+        rid = self._turn()
+        forget.withhold(record_id=rid)
+        root = self._tmp.name
+        # A genuine tty on both streams + typed confirmation drives main() through terminal_attended (NOT the test
+        # adapter); _reader->None takes the offline "written" path so no GitHub call is made; validate.ROOT->tmp
+        # keeps the committed-path write inside the throwaway dir.
+        with self._on_a_terminal(typed="erase"), \
+                mock.patch.object(erase, "_reader", return_value=None), \
+                mock.patch.object(validate, "ROOT", root):
+            rc = erase.main([rid])
+        self.assertEqual(rc, 0)
+        self.assertTrue(os.path.exists(os.path.join(root, erase.observer._PROPOSAL_PATH)),
+                        "write_proposal did not run under the terminal-attended scope")
+
+    def test_main_refuses_at_the_authority_layer_without_a_real_terminal(self):
+        import validate
+        rid = self._turn()
+        forget.withhold(record_id=rid)
+        root = self._tmp.name
+        # No tty on either stream: terminal_attended (the authority layer, not just request()'s own friendly check)
+        # refuses in main before request() runs, so nothing is proposed or written.
+        with mock.patch("sys.stdin.isatty", return_value=False), \
+                mock.patch("sys.stdout.isatty", return_value=False), \
+                mock.patch.object(validate, "ROOT", root):
+            rc = erase.main([rid])
+        self.assertEqual(rc, 1)
+        self.assertFalse(os.path.exists(os.path.join(root, erase.observer._PROPOSAL_PATH)))

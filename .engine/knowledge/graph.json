@@ -1774,6 +1774,7 @@
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
+          "operation:memory-migration-trial",
           "operation:memory-recall",
           "operation:module-add",
           "operation:module-remove",
@@ -1836,6 +1837,7 @@
           "operation:external-contribution-submit",
           "operation:first-run",
           "operation:knowledge-impact-check",
+          "operation:memory-migration-trial",
           "operation:memory-recall",
           "operation:module-add",
           "operation:module-remove",
@@ -1853,7 +1855,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:a6b9839d9f6b3b1f3a3be2b84e96a92f8e178bc7396d3719d46b45e49ff75224",
+        "fingerprint": "sha256:e057813111a626c0b9809789ddf096cc42713145402b63065b625a6fd526c24c",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5081,7 +5083,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:390a9978724686d2d86a7ecd6248291a414198a52a3d81dad6ee0d4554a2526b",
+        "fingerprint": "sha256:97829976f3d50b700ba1e70a700c1b3cd998c58f04040f812a01bb0834f84067",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5262,7 +5264,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2f88818642ac939294de03146a46929dfdee32732f786d4e1071811f3e6a5f45",
+        "fingerprint": "sha256:ecc6a1acdfc11221d505e510297f5235e3d1043cb8057b61fd7585c86ec798f3",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5915,6 +5917,26 @@
       "source": {
         "fingerprint": "sha256:14a5ab88100584a64d682e054f4f248b2c1876c704ad280f26c792cda214a45a",
         "path": ".engine/operations/knowledge-impact-check.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:memory-migration-trial",
+      "name": ".engine/operations/memory-migration-trial.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "memory-migration-trial",
+      "source": {
+        "fingerprint": "sha256:79f626a8d5403345efafb0b284819ffb8da621d00dcbe601e82948a4d66a3e6e",
+        "path": ".engine/operations/memory-migration-trial.md"
       },
       "status": "active",
       "type": "operation"
@@ -9633,6 +9655,38 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:clawmem_export",
+      "name": ".engine/tools/memory/clawmem_export.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:compact",
+          "tool:export",
+          "tool:forget",
+          "tool:ledger",
+          "tool:moment",
+          "tool:mutation_authority",
+          "tool:pins",
+          "tool:recall",
+          "tool:records",
+          "tool:scrub"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "clawmem_export",
+      "source": {
+        "fingerprint": "sha256:1e5ce363b1f366500b8c33c9053ec6d0cf8f8bd0e00081c39b8cf167a75a536b",
+        "path": ".engine/tools/memory/clawmem_export.py"
+      },
+      "status": "active",
+      "summary": "clawmem_export.py — a terminal-gated, point-in-time export of the memory ledger in ClawMem-ingestible form.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "hook",
       "guarded": true,
       "id": "tool:close",
@@ -11726,7 +11780,7 @@
       },
       "slug": "erase",
       "source": {
-        "fingerprint": "sha256:2ea42f3e86b76cb0cb30ee805cac10d5de0ca334bb940f46c2ba435dec757d23",
+        "fingerprint": "sha256:0d10a2932ed7831f90ba3ad5917c4c8453d057560f1b97c40e2af9167ff00f39",
         "path": ".engine/tools/memory/erase.py"
       },
       "status": "active",
@@ -11826,7 +11880,7 @@
       },
       "slug": "export",
       "source": {
-        "fingerprint": "sha256:467191821b9fc8e0e7ba02fd3207c4db21bd2249a7b4d843fec7d494a01e9d65",
+        "fingerprint": "sha256:6d1802526d82956e0c00f3930ab9c4fb23742db93a3e0354cc4fc70ef00431e1",
         "path": ".engine/tools/memory/export.py"
       },
       "status": "active",
@@ -13177,7 +13231,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:faef581206c96bc5d0079a357a0f70b2991acaf544eb83eeac533cfce9c416ec",
+        "fingerprint": "sha256:1adaf7e3dc7612d7d34e985ac3401e0c22e25b59156b60378ccf75025c4789b6",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13197,7 +13251,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:8ed45e5e0cb7ab775687cc88e7c858392bcbf24df028bd257578bed18dc1e6bc",
+        "fingerprint": "sha256:37295ab2667454ecc2a610d864b6e8cdea1a8d17834b7f2f0d430c071b7e96b9",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -15918,6 +15972,36 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_clawmem_export",
+      "name": ".engine/tools/memory/test_clawmem_export.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:clawmem_export",
+          "tool:compact",
+          "tool:export",
+          "tool:forget",
+          "tool:ledger",
+          "tool:recall",
+          "tool:records",
+          "tool:scrub"
+        ]
+      },
+      "slug": "test_clawmem_export",
+      "source": {
+        "fingerprint": "sha256:79f6b5b0cd9ef3514eff6c9876b09249c8b16952be9c8c27e7123cc97b371435",
+        "path": ".engine/tools/memory/test_clawmem_export.py"
+      },
+      "status": "active",
+      "summary": "Unit tests for clawmem_export.py — the terminal-gated, point-in-time ClawMem export.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_close",
       "name": ".engine/tools/test_close.py",
       "owner": "core",
@@ -16513,12 +16597,13 @@
           "tool:erase",
           "tool:forget",
           "tool:ledger",
-          "tool:records"
+          "tool:records",
+          "tool:validate"
         ]
       },
       "slug": "test_erase",
       "source": {
-        "fingerprint": "sha256:5668afe0eebd9cb8ab93bf8ee4c50b3b80b12c343e03d5c0bbe4cc1c90e0f2ac",
+        "fingerprint": "sha256:113427070ecc723626c814c3f8fda11feb6c3a66e9ba02de69a942a6e6020ab8",
         "path": ".engine/tools/memory/test_erase.py"
       },
       "status": "active",
@@ -17798,6 +17883,8 @@
         ],
         "tests": [
           "tool:capture",
+          "tool:clawmem_export",
+          "tool:erase",
           "tool:execution_context",
           "tool:first_run_health",
           "tool:ledger",
@@ -17809,7 +17896,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:fd4998ad790e38d8631f717bc4a1de26018e2a9fc8cc02b6422878fc3fbc3349",
+        "fingerprint": "sha256:00095535a4048d38710ff70be38c7390ff7f2a3ca93f712effac8efb2bb1b49a",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",

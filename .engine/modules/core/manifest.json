@@ -38,6 +38,7 @@
       ".engine/operations/engine-upgrade.md",
       ".engine/operations/first-run.md",
       ".engine/operations/knowledge-impact-check.md",
+      ".engine/operations/memory-migration-trial.md",
       ".engine/operations/memory-recall.md",
       ".engine/operations/module-add.md",
       ".engine/operations/module-remove.md",

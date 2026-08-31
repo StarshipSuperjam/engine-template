@@ -137,6 +137,15 @@ REGISTRY = (
            "records", "backup-snapshot", ["memory.rescrub.main"]),
     _entry("attended-export", "memory.export.write", "export-artifact", "destructive-irreversible",
            _ATTENDED, 1, "files", "backup-snapshot", ["memory.export.main"]),
+    # The ClawMem migration exporter (a substrate-owned migration instrument, retired with the module at PR 4).
+    # `_render` writes the export tree (conversations/, curated/, meta/); `export_all` tears a half-written
+    # export down fail-closed on a scrub fault. Both are terminal-gated in `main`, like the export above.
+    _entry("attended-clawmem-export", "memory.clawmem_export._render", "export-artifact",
+           "destructive-irreversible", _ATTENDED, None, "files", "backup-snapshot",
+           ["memory.clawmem_export.export_all"]),
+    _entry("attended-clawmem-export-teardown", "memory.clawmem_export.export_all", "export-artifact",
+           "destructive-irreversible", _ATTENDED, None, "files", "none",
+           ["memory.clawmem_export.main"]),
     _entry("attended-keyword-search-heal", "memory.index.search", "derived-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
            ["memory.mcp_server._recall"], schema_cutover=True),

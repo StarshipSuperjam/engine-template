@@ -897,6 +897,9 @@
   ".engine/operations/knowledge-impact-check.md": [
    "core"
   ],
+  ".engine/operations/memory-migration-trial.md": [
+   "core"
+  ],
   ".engine/operations/memory-recall.md": [
    "core"
   ],
@@ -1689,6 +1692,9 @@
   ".engine/tools/memory/capture.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/clawmem_export.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/compact.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1792,6 +1798,9 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_capture.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/test_clawmem_export.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_compact.py": [

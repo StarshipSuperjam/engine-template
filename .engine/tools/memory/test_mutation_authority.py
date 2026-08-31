@@ -341,6 +341,102 @@ class ConvertedCallGraphTests(unittest.TestCase):
                 self.assertEqual(external.read_text(encoding="utf-8"), "ORIGINAL")
 
 
+class TerminalAttendedAuthorityTests(unittest.TestCase):
+    """The authority a terminal verb (the ClawMem exporter, the erasure verb) runs its own writes on when it has
+    no execution context: a real terminal, checked before the scope opens, fail-closed on both halves. The tty
+    check is a speed-bump, not a proof of human presence (a pty passes it) — these tests pin the frame/entry
+    gating, not attendance. They exercise the REAL path (not the test-only adapter), where the original gap hid."""
+
+    def tearDown(self):
+        mutation_authority._THREAD.state = None
+
+    def test_refuses_without_a_real_terminal_on_either_stream(self):
+        from unittest import mock
+        for stdin_tty, stdout_tty in ((False, True), (True, False), (False, False)):
+            with self.subTest(stdin=stdin_tty, stdout=stdout_tty):
+                with mock.patch("sys.stdin.isatty", return_value=stdin_tty), \
+                        mock.patch("sys.stdout.isatty", return_value=stdout_tty):
+                    with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "real terminal"):
+                        with mutation_authority.terminal_attended(["attended-clawmem-export"]):
+                            pass
+                self.assertIsNone(getattr(mutation_authority._THREAD, "state", None))
+
+    def test_refuses_a_caller_that_is_not_a_sanctioned_verb(self):
+        # A tty is not enough: the opener must be one of the engine's OWN terminal verb entrypoints. This test
+        # frame is not one, so even with a tty on both streams the scope refuses and sets no state. NOTE this does
+        # NOT stop an AI from running the GENUINE verb under a pty (that passes both checks) — the frame gate only
+        # blocks arbitrary/non-verb callers; attendance is not enforced (see terminal_attended's honesty note).
+        from unittest import mock
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+                mock.patch("sys.stdout.isatty", return_value=True):
+            with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "terminal verbs"):
+                with mutation_authority.terminal_attended(["attended-clawmem-export"]):
+                    pass
+        self.assertIsNone(getattr(mutation_authority._THREAD, "state", None))
+
+    def test_refuses_opening_inside_another_scope(self):
+        from unittest import mock
+        mutation_authority._THREAD.state = {"test_only": True, "mode": "attended"}
+        try:
+            with mock.patch("sys.stdin.isatty", return_value=True), \
+                    mock.patch("sys.stdout.isatty", return_value=True):
+                with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "inside another"):
+                    with mutation_authority.terminal_attended(["attended-clawmem-export"]):
+                        pass
+        finally:
+            mutation_authority._THREAD.state = None
+
+    def test_within_a_scope_only_the_named_writes_are_authorized(self):
+        # White-box: with a scope open for exactly one entry, a nested authorization for THAT entry is granted and
+        # any other registered writer is refused — an allowed verb cannot become a door to the store beneath it.
+        mutation_authority._THREAD.state = {
+            "test_only": False, "terminal_attended": True,
+            "allowed_entries": frozenset({"attended-clawmem-export"})}
+        try:
+            receipt = mutation_authority.authorize_nested("attended-clawmem-export")
+            self.assertEqual(receipt["exception"], "operator-attended-terminal")
+            with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "not one of the writes"):
+                mutation_authority.authorize_nested("erasure-proposal-write")
+        finally:
+            mutation_authority._THREAD.state = None
+
+    def test_the_sanctioned_verbs_name_only_real_registry_entries(self):
+        # The allowlist must not drift from the registry: every id a terminal verb may authorize is a real,
+        # currently-registered writer, and each verb names a source file and an entrypoint function.
+        known = {entry["id"] for entry in mutation_contract.REGISTRY}
+        self.assertTrue(mutation_authority._TERMINAL_ATTENDED_VERBS)
+        for source, (function_name, allowed) in mutation_authority._TERMINAL_ATTENDED_VERBS.items():
+            self.assertTrue(str(source).endswith(".py"))
+            self.assertIsInstance(function_name, str)
+            self.assertTrue(allowed)
+            for entry_id in allowed:
+                self.assertIn(entry_id, known)
+
+    def test_each_verb_authorizes_exactly_its_own_guarded_registry_writers(self):
+        # The lockstep the verb modules' comments claim: a verb's terminal-attended allowlist must equal EXACTLY
+        # the guarded registry writers of that verb's module, and its own declared write-entries constant must
+        # equal that allowlist. This is the coverage test that catches drift both ways — a new guarded writer the
+        # scope would refuse, or an allowlist id dropped so a real write silently loses authorization (the exact
+        # "green but wrong" regression class for erase.py that the behavioural main() tests also guard).
+        from memory import clawmem_export, erase
+        module_writers = {}
+        for entry in mutation_contract.REGISTRY:
+            module = entry["writer"].rsplit(".", 1)[0]
+            if entry["effect_class"] != "semantic-read" and entry["id"] not in mutation_authority._SKIP_WRAPPERS:
+                module_writers.setdefault(module, set()).add(entry["id"])
+        cases = {
+            "memory.clawmem_export": clawmem_export._EXPORT_WRITE_ENTRIES,
+            "memory.erase": erase._ERASE_WRITE_ENTRIES,
+        }
+        by_source = {src: allowed for src, (_fn, allowed) in mutation_authority._TERMINAL_ATTENDED_VERBS.items()}
+        for module, declared in cases.items():
+            allowlist = next(a for s, a in by_source.items() if s.endswith(module.split(".")[-1] + ".py"))
+            self.assertEqual(set(declared), set(allowlist),
+                             f"{module}'s declared write-entries constant must equal its allowlist")
+            self.assertEqual(set(allowlist), module_writers.get(module, set()),
+                             f"{module}'s allowlist must equal exactly its guarded registry writers")
+
+
 class LockedAuthorityTests(unittest.TestCase):
     def setUp(self):
         self.fixture = _QualifiedFixture()
