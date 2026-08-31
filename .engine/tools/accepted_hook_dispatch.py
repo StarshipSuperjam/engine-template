@@ -396,6 +396,43 @@ def _verify_exact_object(root: str, activation: dict) -> None:
         raise QualificationError("the activated repository does not match this clone's origin")
 
 
+def _configured_pointer(value) -> bool:
+    """A pointer carrying real vault coordinates — the same shape the public-safety check gates on."""
+    return isinstance(value, dict) and all(
+        isinstance(value.get(key), str) and value.get(key) for key in ("owner", "repo", "namespace"))
+
+
+def _home_pointer_split_is_mandated(canonical: str, accepted_tree: str, pointer: str,
+                                    accepted_pointer: str) -> bool:
+    """True iff a pointer-parity mismatch is the engine HOME repo's mandated split — the one state the
+    engine requires and forbids reconciling: the accepted committed pointer is the unconfigured placeholder
+    (engine/check/memory-pointer-public-safety, StarshipSuperjam/engine-template#224, forbids committing the
+    configured pointer there) while the live canonical pointer carries the real vault coordinates, kept
+    local via skip-worktree. Everything else — garbage on disk, two differing configured pointers, any
+    non-home repository — stays a refusal.
+
+    Every input fails TOWARD refusal: an unreadable pointer, manifest, or origin returns False and the
+    parity refusal stands (deliberately the opposite direction from `repo_identity.is_home_repo`, whose
+    fail-toward-home is right for a detector that makes a safety check RUN, and wrong for one that would
+    stand a safety refusal DOWN). The home judgment reads `home_repository` from the ACCEPTED tree's
+    manifest — operator-accepted, digest-pinned state — never from the editable working tree."""
+    try:
+        committed = _read_json(accepted_pointer, "activated committed pointer")
+        live = _read_json(pointer, "canonical backup pointer")
+        manifest = _read_json(os.path.join(accepted_tree, ".engine", "engine.json"), "accepted manifest")
+        origin = _origin_slug(canonical)
+    except QualificationError:
+        return False
+    if committed.get("configured") is not False or _configured_pointer(committed):
+        return False
+    if not _configured_pointer(live):
+        return False
+    home = manifest.get("home_repository")
+    if not isinstance(home, str) or not home.strip():
+        return False
+    return origin == home.strip().casefold()
+
+
 def _canonical_context(root: str, activation: dict, accepted_tree: str | None = None) -> dict:
     canonical = _main_checkout(root)
     common = _common_dir(root)
@@ -408,7 +445,8 @@ def _canonical_context(root: str, activation: dict, accepted_tree: str | None = 
     )
     pointer_digest = _file_digest(pointer)
     accepted_pointer_digest = _file_digest(accepted_pointer) if accepted_pointer else pointer_digest
-    if accepted_tree and pointer_digest != accepted_pointer_digest:
+    if accepted_tree and pointer_digest != accepted_pointer_digest and not _home_pointer_split_is_mandated(
+            canonical, accepted_tree, pointer, accepted_pointer):
         raise QualificationError("the canonical backup pointer differs from the activated committed pointer")
     pointer_identity = None
     if pointer_digest:
