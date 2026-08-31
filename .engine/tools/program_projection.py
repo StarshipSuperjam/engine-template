@@ -25,15 +25,20 @@ import plan_program
 import plan_store
 
 PROGRAM_MD = "PROGRAM.md"
-_GENERATED_AT_PREFIX = "<!-- generated-at: "
-# The staleness window, disclosed in the file rather than promised away: PROGRAM.md is a projection of
-# live child-plan data, so a child plan revised, sealed, retired or completed OUTSIDE any program verb
-# moves what the file should say with no program-record change to trigger a refresh.
-_STALENESS_NOTE = (
-    "<!-- This PROGRAM.md is generated from the program record and its children at the moment above.\n"
-    "     Every program verb that touches this program regenerates it. It can still go stale between\n"
-    "     those moments: a CHILD PLAN changed outside a program verb is not reflected until the next\n"
-    "     program verb here, or a `program reproject` sweep. Edits are overwritten. -->")
+# The trust signal is VISIBLE body text, not an HTML comment — a comment is stripped by every common
+# markdown renderer, so an operator browsing PROGRAM.md at rest the normal way would see no generation
+# moment at all. This mirrors the sibling PLAN.md, which states its own metadata in plain visible text.
+# The generated-at moment and the staleness window are disclosed here rather than promised away: the
+# file is a projection of live child-plan data, so a child plan revised, sealed, retired or completed
+# OUTSIDE any program verb moves what it should say with no program-record change to trigger a refresh.
+_GENERATED_LINE_PREFIX = "> **Generated "
+
+
+def _generated_blockquote(at: str) -> str:
+    return (f"> **Generated {at}.** Regenerated from the program record and its children by every "
+            "program verb that touches this program. It can go stale between those moments — a child "
+            "plan changed outside a program verb is not reflected until the next program verb here, or "
+            "a `program reproject` sweep. Edits here are overwritten.")
 
 PORTFOLIO_NOTE = ("<!-- generated from the program records; a read-only view — nothing here selects, "
                   "starts, or advances work -->")
@@ -46,13 +51,36 @@ _ATTENTION_STATES = ("missing", "unreadable")
 _HEADLINE_CAP = 180
 
 
+# The clause boundaries a truncated headline prefers to end on, so the visible text stops on a complete
+# thought rather than an orphaned lead-in. Punctuation breaks first, then the coordinating phrases that
+# introduce a subordinate clause — cutting BEFORE any of these keeps the clause and drops the rest.
+_CLAUSE_MARKERS = (", ", "; ", " — ", " – ", ": ")
+_CLAUSE_PHRASES = (" so that ", " rather than ", " because ", " while ", " and ", " but ", " so ", " to ")
+# Don't cut so early that the headline says almost nothing: a clause boundary only wins if it lands past
+# this fraction of the cap. Below it, a plain word-boundary cut carries more of the goal.
+_CLAUSE_FLOOR_RATIO = 0.55
+
+
+def _last_clause_boundary(window: str) -> int | None:
+    floor = int(len(window) * _CLAUSE_FLOOR_RATIO)
+    best = None
+    for marker in _CLAUSE_MARKERS + _CLAUSE_PHRASES:
+        idx = window.rfind(marker)
+        if idx >= floor and (best is None or idx > best):
+            best = idx
+    return best
+
+
 def goal_headline(objective: str, *, cap: int = _HEADLINE_CAP) -> str:
-    """The objective's opening sentence, hard-capped and cut at a word boundary with an ellipsis.
+    """The objective's opening sentence, hard-capped at `cap` and cut on a complete thought.
 
     The live shelf holds objectives that are a single ~490-character sentence and 322-character opening
     sentences with an inline list, so "the first sentence" alone is not a bound — the cap is. A sentence
-    at or under the cap is returned whole, its period kept; a longer one is cut at the last word break
-    within the cap and given a single-character ellipsis so the truncation is visible.
+    at or under the cap is returned whole, its period kept. A longer one is cut at the last CLAUSE
+    boundary within the cap (a comma, semicolon, dash, colon, or a coordinating phrase like "so that")
+    so the visible text ends on a complete thought rather than an orphaned lead-in; only when there is
+    no such boundary late enough does it fall back to a plain word break. Either way a single-character
+    ellipsis marks the truncation.
     """
     text = " ".join(objective.split())          # collapse any internal whitespace, so the cap is on prose
     if not text:
@@ -61,10 +89,13 @@ def goal_headline(objective: str, *, cap: int = _HEADLINE_CAP) -> str:
     sentence = text[:match.start() + 1] if match else text
     if len(sentence) <= cap:
         return sentence
-    cut = sentence[:cap]
-    if " " in cut:
-        cut = cut[:cut.rfind(" ")]
-    return cut.rstrip().rstrip(".,;:") + "…"
+    window = sentence[:cap]
+    clause = _last_clause_boundary(window)
+    if clause is not None:
+        cut = window[:clause]
+    else:
+        cut = window[:window.rfind(" ")] if " " in window else window
+    return cut.rstrip().rstrip(".,;:—–") + "…"
 
 
 def _strip_program_prefix(program_title: str, child_title: str) -> str:
@@ -87,12 +118,31 @@ def _strip_program_prefix(program_title: str, child_title: str) -> str:
     return remainder.lstrip(" —-:–").strip() or child_title
 
 
+def _obligation_phrase(obligation: dict) -> str:
+    """An obligation as `ID — its short statement`, so the line says what is owed, not just a code.
+
+    The whole point of the portfolio is qualitative, and a bare ID is the one place it fell back to a
+    code the operator would have to run `program show` to decode. The statement is trimmed to a short
+    length at a word boundary so a long one does not run the line away."""
+    statement = " ".join((obligation.get("statement") or "").split())
+    if not statement:
+        return obligation["id"]
+    if len(statement) > 60:
+        statement = statement[:60].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+    return f"{obligation['id']} — {statement}"
+
+
 def _obligations_line(programs: plan_program.ProgramLibrary, record: dict) -> str:
     report = programs.obligation_report(record)
-    known = [o["id"] for o in report["obligations"]]
+    known = report["obligations"]
     parts = []
     if known:
-        parts.append(", ".join(known))
+        # Name the first few with their statements; fold any remainder to a bare count so a program
+        # carrying many obligations does not run the line off the page.
+        shown = [_obligation_phrase(o) for o in known[:3]]
+        if len(known) > 3:
+            shown.append(f"(+{len(known) - 3} more)")
+        parts.append("; ".join(shown))
     if report["unknown"]:
         # Unknown is never folded into a count of zero and never rendered as "none": a debt whose
         # position cannot be computed is still a debt the operator must see named as unknown.
@@ -151,7 +201,10 @@ def _open_block(programs: plan_program.ProgramLibrary, record: dict) -> list:
            f"- **Last movement**: {plan_program.last_movement(record)}"]
     in_flight = _in_flight_titles(programs, record, view)
     if in_flight:
-        out.append(f"- **In flight**: {', '.join(in_flight)}")
+        # Semicolon-delimited, not comma: child titles are free text that regularly carry their own
+        # internal commas, and a comma join makes three children read as five. The separator has to be
+        # something the items do not themselves contain.
+        out.append(f"- **In flight**: {'; '.join(in_flight)}")
     elif status == plan_program.ProgramLibrary.CHILDREN_COMPLETE:
         out.append("- **In flight**: nothing — every live child has landed, but no one has recorded "
                    "the PROGRAM complete; unwritten successors are unknown, not done")
@@ -231,7 +284,7 @@ def render_program_md(programs: plan_program.ProgramLibrary, record: dict, *, at
     window. A pure read: it renders text and writes nothing. `at` pins the generated-at for a test."""
     moment_at = at if at is not None else moment.utc_now()
     body = plan_program.render(programs, record)
-    header = f"{_GENERATED_AT_PREFIX}{moment_at} -->\n{_STALENESS_NOTE}\n\n"
+    header = _generated_blockquote(moment_at) + "\n\n"
     return header + body if body.endswith("\n") else header + body + "\n"
 
 
@@ -239,7 +292,7 @@ def render_needs_attention_md(slug: str, problem: str, *, at: str | None = None)
     """The projection for a program whose record will not read: the sweep writes THIS rather than
     skipping the folder, so the damage is visible at rest instead of looking like the program vanished."""
     moment_at = at if at is not None else moment.utc_now()
-    return (f"{_GENERATED_AT_PREFIX}{moment_at} -->\n{_STALENESS_NOTE}\n\n"
+    return (_generated_blockquote(moment_at) + "\n\n"
             f"# {slug}\n\n> **Needs attention.** This program's record did not read when the projection "
             f"was generated, so its state cannot be shown: {problem}\n")
 

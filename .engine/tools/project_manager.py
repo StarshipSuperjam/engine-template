@@ -2299,19 +2299,54 @@ def build_parser() -> argparse.ArgumentParser:
 
     program = sub.add_parser(
         "program",
-        help="moved — the program surface now lives at its own address (program_manager.py)")
+        help="moved — the program surface now lives at its own address (program_manager.py)",
+        add_help=False)
     # A refusing stub, not a removed subcommand. The `program` name is kept with a REMAINDER catch-all
     # so any trailing verb and its arguments are swallowed rather than argparse-erroring first with a
     # generic message; the handler then prints ONE pointer to the new address and exits 2, so an
-    # in-process caller branching on the code cannot mistake the dead door for success.
+    # in-process caller branching on the code cannot mistake the dead door for success. `add_help` is
+    # OFF on purpose: the most natural way a confused caller self-orients at a dead command is `-h`, and
+    # argparse's automatic help would fire BEFORE the handler, printing empty help and exit 0 — a
+    # false-success at the exact discovery path the refusal exists to serve. With it off, `-h` lands in
+    # the REMAINDER and reaches the same pointer and exit 2.
     program.add_argument("rest", nargs=argparse.REMAINDER,
                          help=argparse.SUPPRESS)
     program.set_defaults(func=cmd_program_moved)
     return parser
 
 
+def _reaches_dead_program_door(argv: list) -> bool:
+    """Whether this invocation's SUBCOMMAND is the moved `program` word — before argparse sees it.
+
+    The dead door refuses uniformly, and argparse cannot be trusted to deliver that: a leading `-h`
+    lands in the REMAINDER quirk and argparses to its own error, not our pointer. So the first
+    positional (past the one value-taking global, `--library`) is read here, and if it is `program`
+    the refusal is raised before the parser runs — for a verb, a flag, `-h`, or nothing at all.
+    """
+    tokens = iter(argv or [])
+    for token in tokens:
+        if token == "--library":
+            next(tokens, None)           # its value is not the subcommand
+            continue
+        if token.startswith("--library="):
+            continue
+        if token.startswith("-"):
+            continue                     # any other flag; none take a value at the top level
+        return token == "program"        # the first positional is the subcommand
+    return False
+
+
 def main(argv: list | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    resolved = list(sys.argv[1:] if argv is None else argv)
+    if _reaches_dead_program_door(resolved):
+        # The moved program surface refuses at the door, uniformly, before argparse can turn a `-h`
+        # into empty help and a false exit 0.
+        try:
+            return cmd_program_moved(None)
+        except ProjectManagerError as exc:
+            print(f"project-manager: {exc}", file=sys.stderr)
+            return 2
+    args = build_parser().parse_args(resolved)
     try:
         return args.func(args)
     except ProjectManagerError as exc:

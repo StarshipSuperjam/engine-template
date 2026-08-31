@@ -133,7 +133,7 @@ def _build_main_shelf(shelf):
                               "they touch different files")
 
 
-EXPECTED_MAIN = '# Programs — portfolio\n\n<!-- generated from the program records; a read-only view — nothing here selects, starts, or advances work -->\n\nA shelf, not a queue: every OPEN program below, what it is for, how far along it is, and what is in flight — as facts, never a percentage and never a recommendation. Unknown is unknown, not done.\n\n## In flight (3)\n\n### Alpha\n- **Goal**: Give the operator a single durable place to see, reason about and act on every long-running program the engine is carrying at once, so that the state of the whole portfolio is…\n- **Program**: `prg_000000000101` · status active (derived)\n- **Last movement**: 2026-08-05\n- **In flight**: 2: the feature\n- **Settled on the chain**: 1 landed\n- **Obligations**: OB-1\n\n### Bravo\n- **Goal**: Deliver Bravo in two PRs.\n- **Program**: `prg_000000000102` · status children-complete (derived)\n- **Last movement**: 2026-08-06\n- **In flight**: nothing — every live child has landed, but no one has recorded the PROGRAM complete; unwritten successors are unknown, not done\n- **Settled on the chain**: 1 landed\n- **Obligations**: none outstanding\n\n### Charlie\n- **Goal**: Deliver the review capability in three parts: the finder that surfaces candidates, the adjudicator that disposes each one, and the recorder that writes the outcome, so that a…\n- **Program**: `prg_000000000103` · status active (derived)\n- **Last movement**: 2026-08-09\n- **In flight**: finder, recorder\n- **Obligations**: none outstanding\n- **Lanes**: finding — pln_c00000000001; recording — pln_c00000000002\n'
+EXPECTED_MAIN = '# Programs — portfolio\n\n<!-- generated from the program records; a read-only view — nothing here selects, starts, or advances work -->\n\nA shelf, not a queue: every OPEN program below, what it is for, how far along it is, and what is in flight — as facts, never a percentage and never a recommendation. Unknown is unknown, not done.\n\n## In flight (3)\n\n### Alpha\n- **Goal**: Give the operator a single durable place to see, reason about and act on every long-running program the engine is carrying at once…\n- **Program**: `prg_000000000101` · status active (derived)\n- **Last movement**: 2026-08-05\n- **In flight**: 2: the feature\n- **Settled on the chain**: 1 landed\n- **Obligations**: OB-1 — cut over\n\n### Bravo\n- **Goal**: Deliver Bravo in two PRs.\n- **Program**: `prg_000000000102` · status children-complete (derived)\n- **Last movement**: 2026-08-06\n- **In flight**: nothing — every live child has landed, but no one has recorded the PROGRAM complete; unwritten successors are unknown, not done\n- **Settled on the chain**: 1 landed\n- **Obligations**: none outstanding\n\n### Charlie\n- **Goal**: Deliver the review capability in three parts: the finder that surfaces candidates, the adjudicator that disposes each one, and the recorder that writes the outcome…\n- **Program**: `prg_000000000103` · status active (derived)\n- **Last movement**: 2026-08-09\n- **In flight**: finder; recorder\n- **Obligations**: none outstanding\n- **Lanes**: finding — pln_c00000000001; recording — pln_c00000000002\n'
 
 
 class ThePortfolioRendersTheOpenShelf(_Shelf):
@@ -234,11 +234,14 @@ class ThePROGRAMmdProjection(_Shelf):
             slug = self.progs.create("Alpha", "Deliver Alpha across several PRs.")
         return slug
 
-    def test_the_file_carries_the_generated_at_and_the_staleness_disclosure(self):
+    def test_the_generated_at_and_staleness_are_VISIBLE_not_hidden_in_a_comment(self):
         slug = self._program()
         text = program_projection.render_program_md(self.progs, self.progs.read(slug),
                                                     at="2026-01-01T00:00:00Z")
-        self.assertTrue(text.startswith("<!-- generated-at: 2026-01-01T00:00:00Z -->"))
+        # The trust signal must survive markdown rendering, so it is visible body text (a blockquote),
+        # not an HTML comment a renderer would strip. The moment is the first thing in the file.
+        self.assertTrue(text.startswith("> **Generated 2026-01-01T00:00:00Z.**"), text[:80])
+        self.assertNotIn("<!--", text.split("# Alpha", 1)[0])  # nothing trust-critical is in a comment
         self.assertIn("go stale", text)                       # the window is disclosed, not promised away
         self.assertIn("child plan changed outside a program verb".lower(), text.lower())
         self.assertIn("# Alpha", text)                        # the program show body is present
@@ -252,7 +255,7 @@ class ThePROGRAMmdProjection(_Shelf):
                                                       at="2026-12-31T23:59:59Z")
         self.assertNotEqual(first, second)                    # the generated-at moved
         drop = lambda t: "\n".join(line for line in t.splitlines()
-                                   if not line.startswith("<!-- generated-at: "))
+                                   if not line.startswith("> **Generated "))
         self.assertEqual(drop(first), drop(second))           # everything else is identical
 
     def test_projecting_a_program_leaves_its_record_untouched(self):

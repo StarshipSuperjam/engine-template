@@ -262,6 +262,22 @@ class TheOldProgramDoorRefuses(unittest.TestCase):
         _, _, err = self._run("program", "list")
         self.assertIn("forwards nothing", err)
 
+    def test_asking_the_dead_door_for_help_reaches_the_pointer_not_a_false_success(self):
+        # `-h` is the most natural way a confused caller self-orients; argparse's automatic help would
+        # fire before the refusal and exit 0 with an empty usage — a false success at the exact
+        # discovery path. The dead door refuses uniformly instead: pointer, exit 2, no stdout.
+        for flag in ("-h", "--help"):
+            with self.subTest(flag=flag):
+                code, out, err = self._run("program", flag)
+                self.assertEqual(code, 2)
+                self.assertEqual(out, "")
+                self.assertIn("program_manager.py program", err)
+
+    def test_the_dead_door_refuses_even_after_the_library_global(self):
+        code, out, err = self._run("--library", "/tmp/nowhere", "program", "portfolio")
+        self.assertEqual(code, 2)
+        self.assertIn("program_manager.py program", err)
+
 
 class ProgramVerbs(_ProgramSurface):
     def _obligation(self, identifier, statement, state="carried"):
@@ -1121,10 +1137,17 @@ class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
         doc["program"] = {"program_id": program_id}
         self.lib.create(doc)
 
-    def test_new_writes_a_fresh_projection_with_a_generated_at_line(self):
+    def _seal(self, plan_id):
+        slug = self.lib.resolve(plan_id)
+        digest = self.lib.read_record(slug)["current"]["plan_digest"]
+        self.lib.update_record(slug, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-23T03:00:00Z", "delta_judgment": "none"}}))
+
+    def test_new_writes_a_fresh_projection_with_a_visible_generated_line(self):
         program_id = self._new()
         md = self._md(program_id)
-        self.assertIn("<!-- generated-at: ", md)
+        self.assertTrue(md.startswith("> **Generated "))       # visible, not an HTML comment
         self.assertIn("Alpha", md)
 
     def test_add_reflects_the_new_child(self):
@@ -1132,6 +1155,40 @@ class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
         self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
         self.assertEqual(self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")[0], 0)
         self.assertIn("First child", self._md(program_id))
+
+    def test_insert_reflects_the_reordered_chain(self):
+        program_id = self._new()
+        self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
+        self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
+        self._seed_child(program_id, "pln_cccccccccccc", "Inserted ahead")
+        self.assertEqual(self.run_command("program", "insert", program_id, "pln_cccccccccccc",
+                                          "--before", "pln_aaaaaaaaaaaa")[0], 0)
+        self.assertIn("Inserted ahead", self._md(program_id))
+
+    def test_supersede_reflects_the_replacement(self):
+        program_id = self._new()
+        self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
+        self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
+        self._seal("pln_aaaaaaaaaaaa")
+        self._seed_child(program_id, "pln_dddddddddddd", "The replacement")
+        code, _, err = self.run_command("program", "supersede", program_id, "pln_aaaaaaaaaaaa",
+                                        "--with", "pln_dddddddddddd", "--reason", "wrong shape")
+        self.assertEqual(code, 0, err)
+        self.assertIn("The replacement", self._md(program_id))
+
+    def test_release_reflects_the_released_obligation(self):
+        program_id = self._new()
+        doc = _document(plan_id="pln_aaaaaaaaaaaa", title="First child")
+        doc["program"] = {"program_id": program_id,
+                          "carried_obligations": [{"id": "OB-9", "statement": "a debt", "state": "carried"}]}
+        self.lib.create(doc)
+        self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
+        self.assertIn("still carried", self._md(program_id).lower())   # outstanding before the release
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-9", "--reason", "its successor was abandoned")
+        md = self._md(program_id)                               # the release is reflected...
+        self.assertIn("released along the way", md)
+        self.assertIn("OB-9", md.split("released along the way", 1)[1])  # ...OB-9 now sits under released
 
     def test_revise_objective_reflects_the_new_objective(self):
         program_id = self._new()
@@ -1144,6 +1201,23 @@ class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
         self.run_command("program", "retire", program_id, "--reason", "shelving")
         self.assertIn("retired", self._md(program_id))
 
+    def test_complete_reflects_the_recorded_completion(self):
+        program_id = self._new()          # completion needs something shipped: a child recorded complete
+        self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
+        self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
+        self.lib.update_record(self.lib.resolve("pln_aaaaaaaaaaaa"), lambda r: r.update(
+            {"closure": {"state": "complete", "at": "2026-08-29T05:00:00Z", "reason": "merged"}}))
+        code, _, err = self.run_command("program", "complete", program_id, "--reason", "the objective is met")
+        self.assertEqual(code, 0, err)
+        self.assertIn("recorded by an explicit close", self._md(program_id))   # the closure, not a derivation
+
+    def test_reopen_reflects_the_reversed_closure(self):
+        program_id = self._new()
+        self.run_command("program", "retire", program_id, "--reason", "shelving")
+        self.assertIn("retired", self._md(program_id))
+        self.run_command("program", "reopen", program_id, "--reason", "back on")
+        self.assertNotIn("Status**: retired", self._md(program_id))   # no longer a retired program
+
     def test_lanes_set_reflects_the_split(self):
         program_id = self._new()
         self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
@@ -1151,6 +1225,15 @@ class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
         self.run_command("program", "lanes", "set", program_id,
                          "--lane", "solo=pln_aaaaaaaaaaaa", "--reason", "one lane")
         self.assertIn("solo", self._md(program_id))
+
+    def test_lanes_clear_reflects_the_withdrawn_split(self):
+        program_id = self._new()
+        self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
+        self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
+        self.run_command("program", "lanes", "set", program_id,
+                         "--lane", "solo=pln_aaaaaaaaaaaa", "--reason", "one lane")
+        self.run_command("program", "lanes", "clear", program_id, "--reason", "no longer split")
+        self.assertIn("stopped standing", self._md(program_id))       # the cleared split, in lane history
 
     def test_a_projection_failure_never_fails_the_verb_and_converges_on_a_later_sweep(self):
         program_id = self._new()          # this new() already wrote a fresh projection
