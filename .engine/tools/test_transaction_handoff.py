@@ -532,6 +532,26 @@ class TestCurrencyRefusesAtEveryDoor(BaseCurrencyRepo):
         payload = _json.loads(buffer.getvalue())   # the whole stream must parse as ONE JSON document
         self.assertTrue(payload["refused"])
 
+    def test_the_upgrade_door_under_json_emits_a_json_refusal_not_loose_prose(self):
+        # SC-R1: the upgrade door shares _door_base_currency(json_mode) with the remove door, but coverage was
+        # asymmetric — only the remove door had a --json refusal test. Drive the upgrade door itself so the
+        # symmetric behavior is verified, not merely assumed. The consent gate runs first here, so short it to
+        # 'matches' to reach the base-currency gate under test; the mutation is stubbed so a leak would fail.
+        import json as _json
+        import module_manager
+        self.make_wrong_base()
+        with mock.patch.object(module_manager, "_refuse_stale_consent", return_value=None), \
+             mock.patch.object(module_manager, "upgrade") as domain, \
+             mock.patch.object(validate, "ROOT", self.root):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = module_manager.main(
+                    ["upgrade", "--confirm", "--consent-handle=x", "--json"])
+        self.assertEqual(code, 2)
+        domain.assert_not_called()
+        payload = _json.loads(buffer.getvalue())   # the whole stream must parse as ONE JSON document
+        self.assertTrue(payload["refused"])
+
 
 class TestTheModuleFlowTakesNoNewRefusal(BaseCurrencyRepo):
     """The in-tree module add/remove flow keeps its recorded current-branch design: its only pre-mutation

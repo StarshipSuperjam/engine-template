@@ -13138,7 +13138,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:4d84e48c9dae65718cb366e95ce1a5e67890ce1215b1871de5893acfafa9a23d",
+        "fingerprint": "sha256:f9fbff826f330b4d9c23d03152dbe23ad7b0dd51e5b625f874cd2b2124820ca2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -17820,6 +17820,7 @@
           "tool:demo_599_upgrade_reconcile",
           "tool:demo_757_upgrade_reconciles_default_groups",
           "tool:demo_759_upgrade_installs_new_modules",
+          "tool:engine_fixture",
           "tool:hooks",
           "tool:ledger",
           "tool:memory.__init__",
@@ -17839,7 +17840,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:272f6d04b81e575281f596dbea2d2a99ddd062369d614d46f2ab01c742766828",
+        "fingerprint": "sha256:6fb939b633a32d4cf7b216a04fc0e6b811cde2dab0796b3472db03263cefa91d",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -20151,7 +20152,7 @@
       },
       "slug": "test_transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:49536dad75bccfb5edfdaebb190e03238f6783a1395ef9dcd7283679fc2eb7fd",
+        "fingerprint": "sha256:7965f52f2db108e8bc7700cb3e3623c3afb951de4b2727117629bd3f6fca60c6",
         "path": ".engine/tools/test_transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20232,7 +20233,7 @@
       },
       "slug": "test_transaction_handoff",
       "source": {
-        "fingerprint": "sha256:6cc9a4b6be577f92a879edfd94d6b1655c66453659220d1f6fa7b65c521747f2",
+        "fingerprint": "sha256:3b034b9751eda6807382f42429512c93841cbb6ff61302d443731f0bfdc4f783",
         "path": ".engine/tools/test_transaction_handoff.py"
       },
       "status": "active",

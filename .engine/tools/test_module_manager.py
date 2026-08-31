@@ -2495,6 +2495,13 @@ class TestUpgradePrBodyIsTemplateConforming(unittest.TestCase):
         # And it is genuinely conditional: a result with no currency note renders no dangling currency line.
         quiet = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {})
         self.assertNotIn("Base currency:", quiet)
+        # U-R1: the unverified note already opens with "Base currency was not checked:" — the render must not
+        # double-label it as "Base currency: Base currency was not checked:".
+        unverified = "Base currency was not checked: origin could not be resolved. The change proceeds."
+        ubody = module_manager.render_upgrade_pr_body(
+            {"base": "0.1.0"}, {"base": "0.2.0"}, {"base_currency_note": unverified})
+        self.assertIn(unverified, ubody)
+        self.assertNotIn("Base currency: Base currency", ubody)
 
     def test_decline_guidance_names_the_remaining_local_branch_state(self):
         body = module_manager.render_upgrade_pr_body({"base": "0.1.0"}, {"base": "0.2.0"}, {}).lower()
@@ -3213,6 +3220,32 @@ class TestUpgradeTailAndSafeCli(unittest.TestCase):
         import quiet_call
         code = quiet_call.run(demo.main)   # captures the demo's walkthrough (keeps the suite summary clean)
         self.assertEqual(code, 0)
+
+    def test_base_currency_note_survives_the_real_child_interpreter_tail(self):
+        # TI-R3: base_currency_note must thread through the REAL child-interpreter subprocess tail
+        # (upgrade -> _spawn_upgrade_tail -> JSON state -> _run_upgrade_tail -> _upgrade_tail's `tail` dict)
+        # and reach the rendered PR body. Every other currency test either unit-tests render_upgrade_pr_body
+        # with a hand-built dict or mocks upgrade() away, so a renamed kwarg, a dropped JSON state key, or a
+        # positional slip in _upgrade_tail's long signature would go uncaught. This drives the actual
+        # subprocess (the practice arm of the #594 fixture: injected release, no opener -> child tail).
+        import engine_fixture
+        note = "Base is current with origin/main (fetched just now); judged against commit deadbeef0123."
+        real_root = module_manager.validate.ROOT
+        with tempfile.TemporaryDirectory() as d:
+            # Full clones (the child re-execs the overlaid tools from the redirected root, so it needs the
+            # real tool tree, not a minimal fixture). An injected release_tree runs the practice subprocess
+            # tail regardless of version equality, which is all this test needs.
+            live = engine_fixture.clone_engine(real_root, os.path.join(d, "live"))
+            release = engine_fixture.clone_engine(real_root, os.path.join(d, "release"))
+            with module_manager._redirect_root(live):
+                result = module_manager.upgrade(
+                    ref="v-demo", release_tree=release, base_currency_note=note)
+        # It survived the JSON round-trip and the tail threading inside the child interpreter...
+        self.assertEqual(result.get("base_currency_note"), note)
+        # ...and it reaches the rendered PR body (the same `tail` object the child renders from).
+        body = module_manager.render_upgrade_pr_body(
+            result.get("from") or {}, result.get("to") or {}, result)
+        self.assertIn(note, body)
 
 
 class TestUpgradeReconcile(unittest.TestCase):

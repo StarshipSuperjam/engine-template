@@ -1950,6 +1950,16 @@ def _retired_capability_line(description) -> str:
     return "- " + _retired_capability_text(description).translate(_MD_LITERAL)
 
 
+def _base_currency_pr_line(note: str) -> str:
+    """The operator-facing base-currency line for a transaction pull-request body. The note is already
+    self-describing on its own (it stands alone in the handoff summary and the CLI door output), so the
+    'Base currency:' label is prepended ONLY when the note does not already open with it — otherwise the
+    unverified note ('Base currency was not checked: ...') would double-label at the merge surface."""
+    if note.lower().startswith("base currency"):
+        return note
+    return "Base currency: " + note
+
+
 def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: dict) -> str:
     """The engine update's own pull-request body, authored in the repository template's shape — the nine
     required sections plus the consent preamble every engine pull request carries — so an engine update reads
@@ -2248,7 +2258,7 @@ def render_upgrade_pr_body(from_versions: dict, target_versions: dict, result: d
         # The base-currency verdict the update judged before opening — the attestation when it could confirm
         # the base, or the plain disclosure when it could not. It belongs on this durable surface, not only in
         # the transient CLI note, so the operator reading the merge sees what base this update was built on.
-        validation_bullets.append("- Base currency: " + currency_note)
+        validation_bullets.append("- " + _base_currency_pr_line(currency_note))
     out += release_cut.pr_section(
         "Validation",
         "What the engine checked before opening this.",
@@ -4421,7 +4431,7 @@ def _remove_engine_pr_body(result: dict) -> str:
                      "that rule exactly as it was. (The rule is yours, so it is not removed.)")
     note = result.get("base_currency_note")
     if note:
-        lines += ["", "Base currency: " + note]
+        lines += ["", _base_currency_pr_line(note)]
     lines += ["", "Reviewed and reversible: reverting this pull request restores the engine's files. The "
               "main-branch safety rule is turned back on by running the engine setup again.", "",
               "Merging this is your review and consent."]
@@ -4849,17 +4859,23 @@ def _redirect_root(root: str):
     saved_memory_dir = os.environ.get("ENGINE_MEMORY_DIR")
     global _IN_REDIRECTED_ROOT
     saved_redirected = _IN_REDIRECTED_ROOT
-    _IN_REDIRECTED_ROOT = True
-    validate.ROOT = root
-    validate.ENGINE_DIR = os.path.join(root, ".engine")
-    wiring.SETTINGS_PATH = os.path.join(root, ".claude", "settings.json")
-    wiring.MCP_PATH = os.path.join(root, ".mcp.json")
-    wiring.GITIGNORE_PATH = os.path.join(root, ".gitignore")
-    wiring.CATALOG_PATH = os.path.join(root, ".engine", "schemas", "surface-catalog.json")
-    wiring.CODEX_HOOKS_PATH = os.path.join(root, ".codex", "hooks.json")
-    wiring.CODEX_CONFIG_PATH = os.path.join(root, ".codex", "config.toml")
-    os.environ["ENGINE_MEMORY_DIR"] = os.path.join(root, ".engine", "memory")
+    # Set the exemption flag and every redirected path INSIDE the try, so the finally ALWAYS restores them:
+    # a raise partway through setup can then never leak `_IN_REDIRECTED_ROOT` True (the security-relevant
+    # direction, since it gates the removal consent exemption) or a half-redirected path. This flag and the
+    # path redirection assume SINGLE-THREADED use — module_manager runs as a per-invocation CLI tool and the
+    # self-test suite drives it single-threaded; entering `_redirect_root` concurrently from two threads of
+    # one process is not supported (a concurrent real-root caller could read the flag True).
     try:
+        _IN_REDIRECTED_ROOT = True
+        validate.ROOT = root
+        validate.ENGINE_DIR = os.path.join(root, ".engine")
+        wiring.SETTINGS_PATH = os.path.join(root, ".claude", "settings.json")
+        wiring.MCP_PATH = os.path.join(root, ".mcp.json")
+        wiring.GITIGNORE_PATH = os.path.join(root, ".gitignore")
+        wiring.CATALOG_PATH = os.path.join(root, ".engine", "schemas", "surface-catalog.json")
+        wiring.CODEX_HOOKS_PATH = os.path.join(root, ".codex", "hooks.json")
+        wiring.CODEX_CONFIG_PATH = os.path.join(root, ".codex", "config.toml")
+        os.environ["ENGINE_MEMORY_DIR"] = os.path.join(root, ".engine", "memory")
         yield
     finally:
         _IN_REDIRECTED_ROOT = saved_redirected

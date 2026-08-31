@@ -297,6 +297,15 @@ class TestRemovalPrBodyCarriesBaseCurrency(unittest.TestCase):
         body = module_manager._remove_engine_pr_body({"de_bootstrap": {"status": "kept"}})
         self.assertNotIn("Base currency:", body)
 
+    def test_the_unverified_note_is_not_double_labelled(self):
+        # U-R1: the unverified note already opens with "Base currency was not checked:" — the removal body
+        # must not render "Base currency: Base currency was not checked:".
+        unverified = "Base currency was not checked: origin could not be resolved. The change proceeds."
+        body = module_manager._remove_engine_pr_body(
+            {"de_bootstrap": {"status": "kept"}, "base_currency_note": unverified})
+        self.assertIn(unverified, body)
+        self.assertNotIn("Base currency: Base currency", body)
+
 
 if __name__ == "__main__":
     unittest.main()
