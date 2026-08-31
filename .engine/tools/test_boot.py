@@ -4338,5 +4338,228 @@ class TestSessionStartReachesQualification(unittest.TestCase):
         self.assertIn("will not converge", notice)
 
 
+class TestBindingReader(unittest.TestCase):
+    """The binding-reader node: `boot.resolve_task_binding` — the fail-open boot-side resolver of a
+    session's `task_binding` ('verified' or 'none'), never wired into `assemble_pack`/`handler` yet.
+
+    Every case here is fully hermetic: `_binding_locator_path` and `_current_build_snapshot` are
+    monkeypatched to real tempdir/tmp-file paths and in-memory snapshot dicts (never the real OS temp
+    directory or a real coordinator bind), and `os.getuid`/`repo_identity.origin_slug` are monkeypatched
+    where a case needs to simulate a wrong owner or a wrong repository.
+    """
+
+    PLAN_ID = "pln_abcdef012345"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        # Resolved once, the same way resolve_task_binding itself resolves its `worktree` argument, so a
+        # macOS /tmp -> /private/tmp symlink cannot make a correct locator look like a worktree mismatch.
+        self.worktree = str(__import__("pathlib").Path(self._tmp.name).resolve())
+
+    def _locator(self, **overrides):
+        locator = {
+            "schema_version": "session-binding.v1",
+            "worktree": self.worktree,
+            "plan_ref": self.PLAN_ID,
+            "coordinator_snapshot": {"revision": "3"},
+            "pr_contract": {"state": "open", "pr_ref": "#1187"},
+            "captured_at": "2026-01-01T00:00:00Z",
+        }
+        locator.update(overrides)
+        return locator
+
+    def _snapshot(self, **overrides):
+        snapshot = {
+            "revision": 3,
+            "plan": {"plan_id": self.PLAN_ID},
+            "build": {"repository": "owner/repo", "pr": 1187},
+        }
+        snapshot.update(overrides)
+        return snapshot
+
+    def _write_locator(self, content, *, mode=0o600, name="locator.json"):
+        path = os.path.join(self._tmp.name, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(content) if not isinstance(content, str) else content)
+        os.chmod(path, mode)
+        return path
+
+    def _patched(self, *, locator_path, snapshot=None, origin_slug="owner/repo"):
+        """The three seams every case patches: the locator's path, the CURRENT bound snapshot (None ==
+        no live snapshot for this worktree, i.e. absent/superseded/retired), and the current repository
+        (read offline from git in the real implementation)."""
+        return (
+            mock.patch.object(boot, "_binding_locator_path", return_value=locator_path),
+            mock.patch.object(boot, "_current_build_snapshot", return_value=snapshot),
+            mock.patch.object(boot.repo_identity, "origin_slug", return_value=origin_slug),
+        )
+
+    def _resolve(self, *, locator_path, snapshot=None, origin_slug="owner/repo"):
+        p1, p2, p3 = self._patched(locator_path=locator_path, snapshot=snapshot, origin_slug=origin_slug)
+        with p1, p2, p3:
+            return boot.resolve_task_binding(self.worktree)
+
+    # -- 1. missing locator -------------------------------------------------------------------
+
+    def test_missing_locator_resolves_to_none(self):
+        absent = os.path.join(self._tmp.name, "does-not-exist.json")
+        result = self._resolve(locator_path=absent, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 2. wrong-worktree ----------------------------------------------------------------------
+
+    def test_wrong_worktree_resolves_to_none(self):
+        path = self._write_locator(self._locator(worktree="/somewhere/else/entirely"))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+        self.assertNotIn("recovery", result)
+
+    # -- 3. wrong-repository ---------------------------------------------------------------------
+
+    def test_wrong_repository_resolves_to_none(self):
+        path = self._write_locator(self._locator())
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(build={"repository": "owner/repo", "pr": 1187}),
+                                origin_slug="someone-else/spoofed-repo")
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 4. changed plan digest / plan mismatch (session-binding.v1 carries no digest field — see the
+    #       reconciliation gap in the returned report; this is the identity-level proxy the schema supports)
+
+    def test_plan_mismatch_resolves_to_none(self):
+        path = self._write_locator(self._locator(plan_ref="pln_ffffff000000"))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 5. invalid coordinator state -------------------------------------------------------------
+
+    def test_invalid_coordinator_snapshot_resolves_to_none(self):
+        path = self._write_locator(self._locator())
+        # A snapshot missing the fields this check needs (corrupt/partial write) must degrade, not raise.
+        result = self._resolve(locator_path=path, snapshot={"revision": 3})
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 6. expired snapshot (revision moved) ------------------------------------------------------
+
+    def test_expired_snapshot_revision_resolves_to_none(self):
+        path = self._write_locator(self._locator(coordinator_snapshot={"revision": "3"}))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(revision=4))
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 7. closed/merged PR ------------------------------------------------------------------------
+
+    def test_non_open_pr_contract_state_resolves_to_none(self):
+        path = self._write_locator(self._locator(pr_contract={"state": "merged", "pr_ref": "#1187"}))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    def test_terminal_snapshot_absent_resolves_to_none(self):
+        """A merged/closed PR's Build is retired/superseded locally — its snapshot stops being the ONE
+        live snapshot bound to this worktree, which `_current_build_snapshot` reports as None."""
+        path = self._write_locator(self._locator())
+        result = self._resolve(locator_path=path, snapshot=None)
+        self.assertEqual(result, {"state": "none"})
+
+    def test_pr_number_mismatch_resolves_to_none(self):
+        path = self._write_locator(self._locator(pr_contract={"state": "open", "pr_ref": "#1"}))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(build={"repository": "owner/repo", "pr": 1187}))
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 8. FORGED locator: wrong owner / wrong permissions / symlink --------------------------------
+
+    def test_forged_locator_wrong_owner_resolves_to_none(self):
+        path = self._write_locator(self._locator())
+        with mock.patch.object(boot.os, "getuid", return_value=os.getuid() + 999999):
+            result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    def test_forged_locator_wrong_permissions_resolves_to_none(self):
+        path = self._write_locator(self._locator(), mode=0o644)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    def test_forged_locator_symlink_resolves_to_none(self):
+        target = self._write_locator(self._locator(), name="real.json")
+        link = os.path.join(self._tmp.name, "link.json")
+        os.symlink(target, link)
+        result = self._resolve(locator_path=link, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 9. malformed locator: the ONLY case that may carry recovery data -----------------------------
+
+    def test_malformed_json_resolves_to_none_with_recovery_only(self):
+        path = self._write_locator("{not valid json at all", mode=0o600)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result["state"], "none")
+        self.assertIn("recovery", result)
+        self.assertIsInstance(result["recovery"], dict)
+
+    def test_schema_invalid_document_resolves_to_none_with_recovery_only(self):
+        broken = self._locator()
+        del broken["plan_ref"]  # required by session-binding.v1
+        path = self._write_locator(broken)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result["state"], "none")
+        self.assertIn("recovery", result)
+
+    def test_only_malformed_carries_recovery_every_other_none_is_plain(self):
+        """Every other failure mode in this suite returns a bare {"state": "none"} — asserted directly
+        here for the two most representative non-malformed cases, so the "malformed is the ONLY case
+        with recovery data" contract is checked in one place rather than trusted from scattered asserts."""
+        # wrong worktree
+        path = self._write_locator(self._locator(worktree="/nope"))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertNotIn("recovery", result)
+        # expired revision
+        path = self._write_locator(self._locator())
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(revision=999))
+        self.assertNotIn("recovery", result)
+
+    # -- 10. VALID worktree-keyed binding -> verified, identically regardless of provider ---------------
+
+    def test_valid_binding_resolves_to_verified_exposing_only_verified_evidence(self):
+        locator = self._locator()
+        path = self._write_locator(locator)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "verified", "binding": locator})
+
+    def test_valid_binding_resolves_identically_regardless_of_provider(self):
+        """resolve_task_binding takes no provider input and must not consult `providers` at all — proven
+        by making `providers.detect` raise if it is ever called, then resolving successfully twice."""
+        locator = self._locator()
+        path = self._write_locator(locator)
+        with mock.patch.object(boot.providers, "detect",
+                                side_effect=AssertionError("task_binding must not consult providers")):
+            result_claude = self._resolve(locator_path=path, snapshot=self._snapshot())
+            result_codex = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result_claude, {"state": "verified", "binding": locator})
+        self.assertEqual(result_codex, {"state": "verified", "binding": locator})
+
+    # -- 11. COLD UNBOUND session stays 'none' despite unrelated live signals ---------------------------
+
+    def test_cold_unbound_session_stays_none_despite_other_signals(self):
+        """No locator at all for this worktree. `resolve_task_binding` takes no argument for a milestone,
+        a top board item, a recent merge, prior-session memory, or another worktree's Build, so none of
+        those can produce a binding here — asserted by supplying a fully MATCHING, verifiable snapshot
+        (as if a parallel worktree's live Build happened to describe this same plan/PR) and confirming
+        the missing locator alone is decisive."""
+        absent = os.path.join(self._tmp.name, "no-locator-here.json")
+        result = self._resolve(locator_path=absent, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+        self.assertNotIn("recovery", result)
+
+    # -- fail-open guarantee: a guarded import failure anywhere degrades to 'none', never raises ---------
+
+    def test_broken_coordinator_import_fails_open_to_none(self):
+        path = self._write_locator(self._locator())
+        with mock.patch.object(boot, "_binding_locator_path", side_effect=RuntimeError("boom")):
+            result = boot.resolve_task_binding(self.worktree)
+        self.assertEqual(result, {"state": "none"})
+
+    def test_unresolvable_worktree_argument_fails_open_to_none(self):
+        result = boot.resolve_task_binding("\x00bad-path")
+        self.assertEqual(result, {"state": "none"})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,12 +69,15 @@ CLI:  python tools/boot.py pack     # print the assembled briefing (what the hoo
 from __future__ import annotations
 
 import datetime
+import json
 import os
+import stat
 import subprocess
 import sys
 import unicodedata
 import urllib.error
 import urllib.parse
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
@@ -3378,6 +3381,203 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         blocks = _pack_blocks("\n".join(out + ["", loud]), sprawl_note, neighborhood, wwlo, "", status)
         text, _shed2 = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     return text
+
+
+# ---- BINDING-READER NODE (binding-reader): boot-side task_binding resolver -------------------
+#
+# WHAT THIS IS. The boot-side half of the session's `task_binding` fact — 'verified' or 'none' — that the
+# eventual typed envelope (session-relay.v1, `task_binding` section) will carry. This is a PURE RESOLVER:
+# it reads local, offline evidence and returns a small dict. It does NOT render text (session_relay.render
+# does that) and it is NOT wired into `assemble_pack`/`handler` yet — the envelope-assembler node owns that
+# cutover. Calling `resolve_task_binding` today is inert with respect to what SessionStart actually injects.
+#
+# SECURITY POSTURE: a binding is EVIDENCE ONLY. It never expands what a session may do and never changes
+# the Explore/Build stance — `modes.py` owns that gate entirely and is untouched by this resolver. Getting
+# this resolver wrong in the permissive direction (returning 'verified' for a session that is not genuinely
+# standing in a coordinator-bound worktree) would let a forged or stale binding masquerade as legitimate
+# Build evidence, so every check below is fail-CLOSED to 'none' on any doubt, ambiguity, or error — while
+# the function AS A WHOLE is fail-OPEN (it never raises), because it runs on the SessionStart path and a
+# raised exception there must never be able to break boot.
+#
+# THE SIX CHECKS, all required for 'verified' (see `resolve_task_binding` for the order they run in):
+#   1. locator present        — computed from THIS session's own resolved worktree only, never scanned.
+#   2. owner-only read check  — mirrors modes.py's `_harden_marker_write`/`current_stance` marker check:
+#                                the locator path must be a regular file, not a symlink, owned by this uid,
+#                                and (as an added suspicion signal) mode 0600 — anything else is FORGED.
+#   3. schema-valid           — session_relay.validate_binding against session-binding.v1. Malformed JSON
+#                                or a schema-invalid document is the ONE case that returns a `recovery` hint
+#                                alongside `state: "none"`; every other failure is a plain, quiet 'none'.
+#   4. worktree identity      — the locator's own `worktree` field must resolve to this session's worktree.
+#   5. agreement + currency   — re-compared against the CURRENT durable Build snapshot for this worktree
+#                                (never a GitHub network call): repository (via `repo_identity.origin_slug`,
+#                                read offline from `git remote`), plan identity (`plan_ref` == the snapshot's
+#                                `plan.plan_id`), snapshot-revision currency (`coordinator_snapshot.revision`
+#                                == the snapshot's CURRENT `revision` — a Build that advanced expires a
+#                                not-rewritten locator), PR-number agreement (when both sides carry one), and
+#                                PR-contract-state openness (the locator's own recorded `pr_contract.state`
+#                                must read "open" — a live Build's `_record_session_binding` never writes any
+#                                other value, so any other value is itself a tamper/staleness signal). A
+#                                snapshot that is absent, ambiguous, or unparsable for this worktree is
+#                                treated as EXPIRED (this is how a merged/closed/superseded PR is detected
+#                                locally: the coordinator retires or supersedes that Build's snapshot, and a
+#                                cold reader that finds none bound to this worktree cannot call the binding
+#                                current). Expiry is decided purely by RE-COMPARING recorded evidence against
+#                                current values — there is no separate "close" event this resolver watches for.
+#   6. all pass                → {"state": "verified", "binding": <the locator's own evidence, verbatim>} —
+#                                exposing ONLY what was actually verified, never anything this resolver itself
+#                                infers or embellishes.
+#
+# RECONCILIATION GAP (reported, not silently patched): session-binding.v1 (owned by the relay-schemas node)
+# has no field for a plan CONTENT digest — only `plan_ref` (the plan's id/slug). This resolver therefore
+# checks plan IDENTITY (`plan_ref` agreement) but cannot check plan-DIGEST agreement (whether the plan's
+# content changed since the binding was captured) — that check would need a new locator field. Flagged here
+# for the orchestrator/envelope-assembler node to reconcile; see the worker's returned report for detail.
+#
+# FAIL-OPEN GUARANTEE: every import of coordinator-side code (`build_coordinator_core`, `build_state_store`,
+# `session_relay`) happens LAZILY, inside a narrow try/except that resolves straight to 'none' on ImportError
+# or any other exception — never at boot.py's module import time, and never propagated to the caller. The
+# outer `resolve_task_binding` body is itself wrapped so that truly unexpected failures anywhere in this
+# section still degrade to a quiet 'none' rather than raising into the SessionStart hook.
+
+
+def _binding_locator_path(resolved_worktree: str) -> "str | None":
+    """The session-binding.v1 locator path for `resolved_worktree`, or None if it cannot be computed
+    (a missing/broken `build_coordinator_core` import — fail-open, never raise)."""
+    try:
+        import build_coordinator_core as _core
+        return str(_core.session_binding_locator_path(resolved_worktree))
+    except Exception:  # noqa: BLE001 — coordinator-side code is optional from boot's point of view
+        return None
+
+
+def _binding_schema_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "schemas",
+                         "session-binding.v1.json")
+
+
+def _validate_binding_locator(locator: dict) -> None:
+    """Validate `locator` against session-binding.v1, raising on any problem. Prefers the single-homed
+    `session_relay.validate_binding` (relay-schemas node); a missing/broken import is itself treated as a
+    validation failure here — the caller folds every exception from this function into the same quiet
+    'malformed' outcome, so an environment problem and a genuinely invalid document both fail closed."""
+    import session_relay
+    session_relay.validate_binding(locator)
+
+
+def _current_build_snapshot(resolved_worktree: str) -> "dict | None":
+    """The parsed CURRENT durable Build snapshot bound to `resolved_worktree`, or None when there is no
+    exactly-one live snapshot for it (absent, superseded/retired, ambiguous, or unparsable) — every one of
+    those is EXPIRY from a binding reader's point of view, never a distinct error to surface."""
+    try:
+        import build_state_store as _bss
+        import build_coordinator_core as _core
+    except Exception:  # noqa: BLE001 — coordinator-side code unavailable -> no snapshot to agree with
+        return None
+    try:
+        found = _bss.bound_snapshots(resolved_worktree)
+    except Exception:  # noqa: BLE001 — a broken plan library reads as "no snapshot", not a crash
+        return None
+    if len(found) != 1:
+        return None
+    _slug, path = found[0]
+    try:
+        return _core.json_file(path)
+    except Exception:  # noqa: BLE001 — a corrupt snapshot file reads as "no snapshot"
+        return None
+
+
+def resolve_task_binding(worktree) -> dict:
+    """Resolve THIS session's `task_binding`: {"state": "none"} (optionally with a terse `recovery` hint,
+    malformed-locator case only) or {"state": "verified", "binding": <session-binding.v1 evidence>}.
+
+    `worktree` is the session's own worktree (a path or Path). Never scans any other worktree or session,
+    never makes a network call, and never raises — see the section docstring above for the six checks, the
+    fail-open guarantee, and the one reconciliation gap this node found but could not close. This is a
+    thin outer guard around `_resolve_task_binding_unguarded`: every step in there already fails closed to
+    'none' on its own doubt, but this wrapper is the belt-and-suspenders backstop that keeps the WHOLE
+    resolver from ever raising into the SessionStart hook, no matter what fails and how.
+    """
+    try:
+        return _resolve_task_binding_unguarded(worktree)
+    except Exception:  # noqa: BLE001 — SessionStart must never break on this resolver
+        return {"state": "none"}
+
+
+def _resolve_task_binding_unguarded(worktree) -> dict:
+    try:
+        resolved = str(Path(worktree).resolve())
+    except Exception:  # noqa: BLE001 — an unresolvable worktree argument is not this session's problem
+        return {"state": "none"}
+
+    # 1. locator present
+    locator_path = _binding_locator_path(resolved)
+    if not locator_path:
+        return {"state": "none"}
+    try:
+        info = os.lstat(locator_path)
+    except OSError:
+        return {"state": "none"}
+
+    # 2. owner-only read check — mirrors modes.py's marker read-side check, plus a mode-bits suspicion signal
+    try:
+        forged = (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                  or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600)
+    except Exception:  # noqa: BLE001 — cannot confirm ownership -> cannot trust it
+        return {"state": "none"}
+    if forged:
+        return {"state": "none"}
+
+    # 3. schema-valid — malformed JSON or schema-invalid is the ONE case carrying recovery data
+    try:
+        with open(locator_path, encoding="utf-8") as fh:
+            locator = json.loads(fh.read())
+        if not isinstance(locator, dict):
+            raise ValueError("the session-binding locator is not a JSON object")
+        _validate_binding_locator(locator)
+    except Exception:  # noqa: BLE001 — any parse/schema failure is "malformed", the one recoverable case
+        return {"state": "none",
+                "recovery": {"code": "malformed_session_binding_locator",
+                             "detail": "the session-binding locator at this worktree could not be read as "
+                                       "valid session-binding.v1 evidence; it is being ignored, not trusted"}}
+
+    # 4. worktree identity — defends against a locator copied from another worktree
+    try:
+        if str(Path(locator["worktree"]).resolve()) != resolved:
+            return {"state": "none"}
+    except Exception:  # noqa: BLE001 — an unresolvable recorded worktree cannot be confirmed as this one
+        return {"state": "none"}
+
+    # 5. agreement + currency against the CURRENT coordinator snapshot for this worktree
+    snapshot = _current_build_snapshot(resolved)
+    if not snapshot:
+        return {"state": "none"}
+    try:
+        plan_id = snapshot["plan"]["plan_id"]
+        revision = snapshot["revision"]
+        build = snapshot["build"]
+    except Exception:  # noqa: BLE001 — a snapshot missing the fields this check needs cannot be agreed with
+        return {"state": "none"}
+    if locator.get("plan_ref") != plan_id:
+        return {"state": "none"}
+    if str(locator.get("coordinator_snapshot", {}).get("revision")) != str(revision):
+        return {"state": "none"}
+    pr_contract = locator.get("pr_contract") or {}
+    if pr_contract.get("state") != "open":
+        return {"state": "none"}
+    recorded_pr = pr_contract.get("pr_ref")
+    current_pr = build.get("pr")
+    if recorded_pr is not None and current_pr is not None and recorded_pr != f"#{current_pr}":
+        return {"state": "none"}
+    try:
+        current_repo = repo_identity.origin_slug(resolved)
+    except Exception:  # noqa: BLE001 — cannot confirm repository -> cannot confirm agreement
+        current_repo = None
+    recorded_repo = build.get("repository")
+    if not repo_identity.slug_eq(current_repo, recorded_repo):
+        return {"state": "none"}
+
+    # 6. all pass — expose ONLY the verified evidence, verbatim
+    return {"state": "verified", "binding": locator}
 
 
 # ---- SIZE-SPIKE NODE (size-spike-and-ledger): component-disposition ledger ------------------
