@@ -3380,6 +3380,198 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     return text
 
 
+# ---- SIZE-SPIKE NODE (size-spike-and-ledger): component-disposition ledger ------------------
+#
+# This section is the feasibility gate for the "session relay: typed envelope" Build, BEFORE any assembler
+# or cutover work. It is measurement + a durable ledger only — nothing below changes assemble_pack's
+# behaviour; `assemble_pack` above is untouched. It records what the CURRENT pack emits, where each piece
+# is going, and — using today's real renderers as stand-ins for content the typed envelope hasn't built yet
+# — whether the redesign's never-shed set can plausibly fit the platform's injection cap. The per-shape
+# measurement regression tests live in test_boot.py (`TestSizeSpikeAndLedger`); this ledger is their
+# reference data, not code either of them calls at runtime.
+#
+# THE SEVEN PUSH WARRANTS a fact may enter the new envelope under (nothing else earns a permanent push slot):
+#   1. grounding-receipt          — the calm present-marker COUNT line + consent-critical helper-availability
+#   2. identity                   — what this repo/session IS (home workshop vs. an ordinary deployed project)
+#   3. typed-authority-contract   — the Explore write-gate contract, exported typed (replaces the prose lecture)
+#   4. task_binding                — verified-binding-or-'none'
+#   5. action-forcing-alarm       — action needed THIS session AND invisible anywhere else
+#   6. bounded-standing-directive — pins index, execution posture, the 2 non-mechanical routing lines, a
+#                                    one-line labelled where-we-left-off pointer
+#   7. closed-enumeration-pointer — a pointer drawn from a closed schema enumeration (e.g. the modes stance)
+#
+# Anything else is either a NEW-HOME (moved to a named point of use, pulled rather than pushed) or a DROP
+# (recorded reason, no successor). "component" below names what TODAY's assemble_pack/_pack_blocks/
+# render_dashboard emit; "disposition" is where it goes under the redesign.
+
+_WARRANTS = ("grounding-receipt", "identity", "typed-authority-contract", "task_binding",
+             "action-forcing-alarm", "bounded-standing-directive", "closed-enumeration-pointer")
+
+# Each row: (component, disposition, detail). disposition is "warrant:<one of _WARRANTS>",
+# "new-home:<point of use>", or "drop:<reason>". This enumerates EVERY component assemble_pack/
+# _pack_blocks/render_dashboard emit today, read against this worktree's current source (not the plan's
+# recollection of it) — see the verification note at the bottom of this section for what was re-checked.
+_COMPONENT_DISPOSITION_LEDGER = (
+    # -- the AI-facing header/instructions wrapper (assemble_pack out[0..4]) --
+    ("briefing header + 4 numbered instructions (present marker / relay / MCP-check / status pull)",
+     "new-home:folded into the typed envelope's own fixed protocol — a schema replaces hand-written "
+     "numbered prose; the FACTS each step carries (render the marker, relay alarms, check MCP helpers, "
+     "pull status on request) are preserved under grounding-receipt/action-forcing-alarm/typed-authority- "
+     "contract below, only the delivery form changes from prose to typed fields"),
+    ("present-marker line (▸/⚠ `Project status: N open issues` or an alarm headline)",
+     "warrant:grounding-receipt"),
+    ("MCP/knowledge-graph helper availability check (mcp_availability_check)", "warrant:grounding-receipt"),
+    ("instruction 4's status-pull pointer ('run engine_status.py' / '/engine-status')",
+     "new-home:the operator-typed `/engine-status` pull surface (the dashboard leaves boot entirely)"),
+    # -- the Explore write-gate lecture --
+    ("Explore write-gate scope lecture (modes.describe_explore_scope, prose)",
+     "warrant:typed-authority-contract"),
+    # -- identity grounding (mutually exclusive today; home_workshop wins when both could apply) --
+    ("home-workshop grounding (this repo IS the engine's own home; StarshipSuperjam/engine-template#323)",
+     "warrant:identity"),
+    ("engine-mechanic grounding (render_mechanic_grounding — a separate owned checkout + PR target)",
+     "warrant:identity — EXCLUDED from this node's shape measurement per operator decision "
+     "(the mechanic shape is vestigial); still enumerated so the disposition is on record"),
+    ("engine-mechanic build-sprawl note (render_mechanic_sprawl_note, StarshipSuperjam/engine-template#950)",
+     "new-home:mechanic-only pull surface (folds into the mechanic's own status pull, mirroring the "
+     "dashboard's departure) — EXCLUDED from this node's shape measurement (mechanic vestigial)"),
+    # -- execution posture --
+    ("execution posture relay (how the engine operates under the current runtime; _bounded_posture)",
+     "warrant:bounded-standing-directive"),
+    ("execution-drift alarm (a `changed` posture — a qualified component drifted since qualification)",
+     "warrant:action-forcing-alarm"),
+    # -- continuity / orientation, today all sheddable (_pack_blocks priorities 3-6) --
+    ("work-neighbourhood map (render_neighborhood — knowledge-graph relationship groups)",
+     "new-home:pulled on demand from the knowledge graph at the point the assistant actually needs "
+     "neighbourhood context, not pushed every session"),
+    ("where-we-left-off recent-session excerpts (render_recent_sessions, full quoted cards)",
+     "new-home:the full excerpts move to the memory-recall tools (asked for, not pushed); ONLY a one-line "
+     "labelled pointer ('where you left off: ...') is promoted to warrant:bounded-standing-directive"),
+    ("pins index (render_pins — the operator's pinned standing notes, titles + count)",
+     "warrant:bounded-standing-directive — PROMOTED from today's sheddable priority-3 tier to never-shed; "
+     "this is a genuine widening of the never-shed set, not a like-for-like carry-over"),
+    ("loud pin set-aside disclosure (cap_shed dropped the pins block; a forced second pack_blocks pass)",
+     "drop:no longer reachable once pins are never-shed (warrant:bounded-standing-directive) — cap_shed "
+     "cannot set aside a never-shed block, so this disclosure has no condition left to fire on; the "
+     "UNCONDITIONAL per-render folding disclosure inside render_pins itself ('+N OLDER pinned notes') is "
+     "untouched and keeps doing this job when the pin count itself overflows the index's own width"),
+    ("build-sprawl note's set-aside rank in the ladder (_pack_blocks priority 6)",
+     "drop:the block it ranks no longer exists in the push pack (see build-sprawl note above)"),
+    # -- the status dashboard, as a whole --
+    ("status dashboard (render_dashboard, whole — priority 2, sheds last but is not never-shed today)",
+     "new-home:pull-only via `/engine-status` — explicit design decision (the dashboard leaves boot "
+     "entirely); this is the single largest removal from the push pack (dashboard_chars_max budget "
+     "4,500 chars) and is what makes the never-shed set's headroom possible"),
+    ("routine dashboard body: fact/count lines, stance line, shipped-work digest, backlog register",
+     "new-home:pull-only via `/engine-status` (rides out with the dashboard as a whole)"),
+    ("dashboard degraded-substrate notices (map_rebuilt/map_corrupt, ledger_malformed, migration_stalled, "
+     "recall_offline, fast_search_unavailable, audit_stale, live_standing, capture_status_line, "
+     "hooks_health_line, set_aside recall)",
+     "warrant:action-forcing-alarm for the two that are genuinely invisible elsewhere and time-critical "
+     "(capture_status_line — a session's conversation failed to save; hooks_health_line — the engine's "
+     "automatic hooks are not running, so nothing downstream of them is either); "
+     "new-home:pull-only via `/engine-status` for the rest (map/ledger/recall degradations are inspectable "
+     "on demand and not action-forcing on their own)"),
+    # -- the must-push governance alarms already emitted today (must_push / _pushed_alarms, priority 0) --
+    ("safety-gate alarm (off / unknown)", "warrant:action-forcing-alarm"),
+    ("refused-state-cursor tell (project status entirely unknown)", "warrant:action-forcing-alarm"),
+    ("interrupted-restore recovery alarm (memory writes paused, verified or not)",
+     "warrant:action-forcing-alarm — the background's own example of this warrant"),
+    ("blocking engine findings alarm (the engine's own machinery is broken)", "warrant:action-forcing-alarm"),
+    ("memory-write qualification relay (_qualification_relay — what ambient activation just did)",
+     "warrant:action-forcing-alarm — the background's own example of this warrant"),
+    ("automatic-checkout relay (_automatic_checkout_relay — updated/blocked/disabled/invalid-config/"
+     "unavailable)", "warrant:action-forcing-alarm — the background's own 'memory-drain-on-catchup'-style "
+     "example of this warrant"),
+    # -- the dashboard-ONLY alarms/offers the task requires enumerated by name; these have NO push warrant
+    # today (they surface only if the operator's session happens to render the dashboard). Once the
+    # dashboard leaves boot (pull-only), each of these LOSES its every-session surface unless promoted —
+    # so every one of them is promoted here. This is the ledger's most consequential finding: the new
+    # action-forcing-alarm category must be able to carry substantially more simultaneous content than
+    # today's push relay ever has, which is exactly what the per-shape "alarm-heavy" measurement below
+    # stress-tests (on a representative, not exhaustive, simultaneous subset — see the unresolved concern
+    # recorded with the measurement tests).
+    ("un-finished first-run setup offer (StarshipSuperjam/engine-template#353)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("stranded-checkout heads-up (`strand`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("off-main-line alarm (`off_main` / `behind_origin`, all stages)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("stuck pull-request alarm (`pr_conflict`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("disabled safety-hook offer (`hooks_path`, fixable or manual)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("half-finished engine-update recovery offer (`staged_update`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("post-revert memory-ahead-of-engine offer (`migration_revert`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("empty-memory restore offer (`restore_offer`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("no-update-home-recorded offer (`absent_home`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    ("leftover foreign-license tidy-up offer (`foreign_license`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    # -- content with no clean warrant home today; recorded as open gaps, not silently invented --
+    ("plain-deployment identity content (there is no 'this is an ordinary deployed project' fact rendered "
+     "anywhere today — home/mechanic grounding only fires for the two special shapes)",
+     "warrant:identity — GAP: today's source has nothing to carry over for the plain-deployment case; the "
+     "typed envelope will need to originate this field (a session/repo identity fact), not inherit it — "
+     "flagged as an unresolved concern, modelled with a placeholder for measurement purposes only"),
+    ("task binding (verified-binding-or-'none')",
+     "warrant:task_binding — GAP: does not exist in today's source at all (no component to carry over); "
+     "flagged as an unresolved concern, modelled with a placeholder for measurement purposes only"),
+    ("closed-enumeration pointer (e.g. the modes stance token: Exploring/Building/...)",
+     "warrant:closed-enumeration-pointer — the modes stance is read today (used inside the Explore lecture "
+     "and in gathered signals) but never emitted as its OWN compact pointer line; modelled with a "
+     "placeholder for measurement purposes only"),
+)
+
+def _cited_warrants(disposition: str) -> "list[str]":
+    """Every warrant named in a ledger disposition string — usually exactly one ('warrant:x'), but the
+    combined dashboard-degraded-notices row cites two ('warrant:x for ...; new-home:... for the rest').
+    Matched by known warrant name (longest first, so no name is a prefix of another false match)."""
+    return [w for w in sorted(_WARRANTS, key=len, reverse=True) if f"warrant:{w}" in disposition]
+
+
+# The set of warrants actually IN USE by at least one component above. Used by the completeness test.
+_LEDGER_WARRANTS_USED = frozenset(
+    w for _name, disposition in ((c[0], c[1]) for c in _COMPONENT_DISPOSITION_LEDGER)
+    for w in _cited_warrants(disposition)
+)
+
+# TODAY's never-shed set (assemble_pack priority 0 — what `_pack_blocks` can NEVER set aside), named by the
+# component names used above, for the superset check. This is the GOVERNANCE/CONSENT/GROUNDING content of
+# the priority-0 briefing text — the header/instructions WRAPPER and the plain status-pull pointer are left
+# out on purpose: they are delivery mechanism, not governance content, and their disposition (folded into
+# the envelope's own protocol / made pull-only by explicit design) does not drop any fact a superset check
+# should catch. What remains is: the Explore lecture, whichever identity grounding fires, execution
+# posture (when `ex.get("lines")` is truthy), the execution-drift alarm, and every must_push alarm.
+_NEVER_SHED_TODAY = frozenset({
+    "present-marker line (▸/⚠ `Project status: N open issues` or an alarm headline)",
+    "MCP/knowledge-graph helper availability check (mcp_availability_check)",
+    "Explore write-gate scope lecture (modes.describe_explore_scope, prose)",
+    "home-workshop grounding (this repo IS the engine's own home; StarshipSuperjam/engine-template#323)",
+    "engine-mechanic grounding (render_mechanic_grounding — a separate owned checkout + PR target)",
+    # NOT the build-sprawl note: it renders at _pack_blocks priority 6, the FIRST tier cap_shed sets aside —
+    # it was never part of today's never-shed set, so it is rightly absent here (only the SHEDDABLE ladder
+    # entry for it above was dropped, which is a different, correct disposition).
+    "execution posture relay (how the engine operates under the current runtime; _bounded_posture)",
+    "execution-drift alarm (a `changed` posture — a qualified component drifted since qualification)",
+    "safety-gate alarm (off / unknown)",
+    "refused-state-cursor tell (project status entirely unknown)",
+    "interrupted-restore recovery alarm (memory writes paused, verified or not)",
+    "blocking engine findings alarm (the engine's own machinery is broken)",
+    "memory-write qualification relay (_qualification_relay — what ambient activation just did)",
+    "automatic-checkout relay (_automatic_checkout_relay — updated/blocked/disabled/invalid-config/"
+    "unavailable)",
+})
+
+# The NEW never-shed set (the v1 typed envelope's push content — everything above disposed "warrant:...").
+_NEVER_SHED_V1 = frozenset(
+    name for name, disposition in ((c[0], c[1]) for c in _COMPONENT_DISPOSITION_LEDGER)
+    if disposition.startswith("warrant:")
+)
+
+
+def superset_check() -> "tuple[bool, frozenset]":
+    """Whether the NEW never-shed set (_NEVER_SHED_V1) is a superset of TODAY's (_NEVER_SHED_TODAY) —
+    the governance/consent/grounding guarantee this node must not weaken. Returns (holds, missing) where
+    `missing` is whatever of today's never-shed content the new set would drop (empty when it holds). A
+    pure check over the two ledger-derived sets above; called by the ledger completeness test."""
+    missing = _NEVER_SHED_TODAY - _NEVER_SHED_V1
+    return (not missing), missing
+
+
 # ---- the hook handler + CLI -----------------------------------------------------------------
 
 #: Set to "1" to stop `ambient_qualification` reaching GitHub and writing activation state.

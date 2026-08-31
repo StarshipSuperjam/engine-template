@@ -4030,6 +4030,251 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertLessEqual(len(body), 700)
 
 
+class TestSizeSpikeAndLedger(unittest.TestCase):
+    """The size-spike feasibility gate for the "session relay: typed envelope" Build, BEFORE any
+    assembler/cutover work — measurement + a durable ledger only. Nothing here changes assemble_pack's
+    behaviour; every real render used below is TODAY's shipped renderer, called exactly as assemble_pack
+    calls it. Where the typed envelope names a field that doesn't exist in today's source at all
+    (task_binding, a plain-deployment identity fact, a standalone closed-enumeration pointer), a short,
+    clearly-labelled placeholder string stands in for it — the ledger records each as a GAP, not a
+    silent invention. See boot.py's "SIZE-SPIKE NODE" section for the full component-disposition ledger
+    this class's numbers are read against.
+
+    HOW A SHAPE'S WORST CASE IS BUILT: never-shed content adds up as
+        grounding-receipt (worst-platform present marker + MCP check)
+      + identity (shape-specific: nothing carried over for a plain deployment [a ledger GAP; modelled
+        with a placeholder] vs. the real home-workshop grounding text for engine-home)
+      + typed-authority-contract (modes.describe_explore_scope — a conservative stand-in: the real typed
+        contract replacing this prose lecture is expected to be smaller, so using the lecture's own size
+        over-estimates the future cost, which is the safe direction for a feasibility gate)
+      + task_binding (a GAP placeholder)
+      + bounded-standing-directive (pins index at its policy ceiling + execution posture at its policy
+        ceiling + two short fixed routing lines + a one-line where-we-left-off pointer)
+      + closed-enumeration-pointer (a GAP placeholder)
+      + action-forcing-alarm (0 for "alarm-quiet"; a REAL must_push() render of a representative
+        simultaneous six-alarm pile-up for "alarm-heavy" — see _HEAVY_ALARM_SIGNALS's docstring for why
+        six and not the full ~15-alarm set the ledger's promotions make newly possible).
+    The mechanic shape is excluded throughout, per the operator decision recorded in the ledger.
+    """
+
+    # ---- GAP placeholders (see the ledger's three "warrant:... — GAP" rows). Short, honestly labelled,
+    # never dressed up as a measured render. Sized to be plausible one-liners, not padded or starved.
+    _IDENTITY_PLAIN_PLACEHOLDER = (
+        "IDENTITY: this is a deployed engine project (not the engine's own home).")
+    _TASK_BINDING_PLACEHOLDER = "TASK BINDING: none verified for this session."
+    _CLOSED_ENUM_PLACEHOLDER = (
+        "STANCE: Exploring (the Explore write-gate contract governs this session).")
+    # The "2 non-mechanical routing lines" the background names explicitly (never hand-write memory;
+    # notebook vs. memory routing) — today these exist only as prose buried inside conduct docs, never as
+    # their own boot line, so they too are placeholders standing in for a compact typed pair.
+    _ROUTING_LINE_1 = "Never hand-write .engine/memory — go through the memory tools."
+    _ROUTING_LINE_2 = "Route your own working notes to your notebook; project conclusions go to memory."
+    _WWLO_POINTER_PLACEHOLDER = (
+        "WHERE WE LEFT OFF: last session ended mid-review of the write-gate change; nothing else pending.")
+
+    def _heavy_alarm_signals(self):
+        """A representative — NOT exhaustive — simultaneous alarm pile-up: gate off, 5 blocking findings,
+        an execution-posture drift, an unverified interrupted-restore, a qualification-relay notice, and a
+        blocked automatic checkout. Six of the ledger's ~15 promoted action-forcing-alarm sources firing at
+        once. This is a real stress case (today's actual detectors do not exclude most of these
+        co-occurring), but it is NOT the full simultaneous worst case the ledger's promotions make
+        possible — see this class's recorded unresolved concern below for what a fuller combination would
+        cost and why it is not computed here."""
+        return _signals(
+            gate="off", reason="branch protection not found",
+            blocking_findings=_blocking(5),
+            execution={"posture": "changed", "runtime": "claude",
+                       "drift": ["policies/model-routing.md", "conduct/defaults.md"], "lines": ["a", "b"]},
+            restore_recovery={"ok": False, "pending": True, "verified": False, "error": "recovery-invalid"},
+            qualification_notices=["memory-write qualification advanced to full access for this session"],
+            automatic_checkout={"status": "blocked", "reason": "diverged"},
+        )
+
+    def _pins_block(self, count):
+        """The real render_pins() output at the policy's own ceiling dials — 0 or `count` pins, each long
+        enough that the block is genuinely exercising pins_block_chars_max, not an under-filled sample."""
+        if count == 0:
+            return ""
+        bvals = boot._briefing_values()
+        pins = [{"text": f"standing directive number {i} " + "x" * 60} for i in range(count)]
+        return "\n".join(boot.render_pins(pins, bvals["pin_index_title_chars"],
+                                          count_max=bvals["pin_index_count_max"],
+                                          block_chars=bvals["pins_block_chars_max"]))
+
+    def _shape_total(self, *, home, pins_count, alarm_heavy):
+        """The modelled never-shed byte total for one (shape, pins, alarm-load) cell, in UTF-8 bytes —
+        the unit hooks.HOOK_OUTPUT_CAP itself measures in (Python len() on str is code points; every
+        component measured here is ASCII/near-ASCII prose, so the two coincide, but bytes is the honest
+        unit to state given the cap is defined on the platform's byte-oriented output channel)."""
+        bvals = boot._briefing_values()
+        # grounding-receipt: the worst-case (⚠) present-marker line + the worst-platform MCP check.
+        marker = boot.present_marker_line(_signals(
+            behind_origin={"state": "behind", "on_default": True, "presentation": "warning"},
+            off_main={"branch": "side-line"}))
+        mcp = boot.MCP_AVAILABILITY_CHECK_CODEX      # the larger of the two shipped platform checks
+        grounding_receipt = marker + "\n" + mcp
+        # identity: shape-specific, per the ledger's two identity rows.
+        if home:
+            identity = (
+                "GROUNDING (for you, not the operator — a deployed project never sees this): you are in "
+                "the engine's OWN HOME repo, where the Engine itself is developed (a project that runs on "
+                "the Engine receives it as updates; here its machinery IS the work). Develop through the "
+                "reviewed gate — every change is a pull request against protected `main`, cold-context "
+                "audited before you build it (the plan gate) and again before merge (the deliverable "
+                "gate), reaching main only through the maintainer's merge. The full runbook is "
+                "`.engine/operations/engine-development.md`; read it to ground before building.")
+        else:
+            identity = self._IDENTITY_PLAIN_PLACEHOLDER
+        typed_authority_contract = modes.describe_explore_scope()
+        task_binding = self._TASK_BINDING_PLACEHOLDER
+        closed_enum = self._CLOSED_ENUM_PLACEHOLDER
+        exec_posture_line = "Execution environment is not a verified qualified match here — run your " \
+                            "full, careful ceremony. Make no model-dependent shortcuts."
+        exec_body, _clipped = boot._bounded_posture([exec_posture_line], bvals["posture_lines_max"],
+                                                     bvals["posture_chars_max"])
+        # the execution-posture CEILING (its policy budget, not this one real render) is the honest
+        # worst-case input to a feasibility ceiling — a longer real posture is clamped there by design.
+        exec_posture_ceiling = bvals["posture_chars_max"]
+        bounded_standing_directive = "\n".join([
+            self._pins_block(pins_count),
+            "X" * exec_posture_ceiling,        # stands in for the posture body AT its policy ceiling
+            self._ROUTING_LINE_1, self._ROUTING_LINE_2, self._WWLO_POINTER_PLACEHOLDER,
+        ])
+        action_forcing_alarm = ("\n".join(f"   - {l}" for l in boot.must_push(self._heavy_alarm_signals()))
+                                if alarm_heavy else "")
+        parts = [grounding_receipt, identity, typed_authority_contract, task_binding, closed_enum,
+                bounded_standing_directive, action_forcing_alarm]
+        return sum(len(p.encode("utf-8")) for p in parts if p)
+
+    # ---- the before/after table -------------------------------------------------------------------
+
+    def test_todays_real_pack_before_row(self):
+        # the plan's grounding claim: ~6,083 bytes with dashboard + pins + neighbourhood + continuity
+        # already shed. Re-measured directly: forcing every sheddable tier aside (a tight cap) leaves the
+        # governance-briefing-only render, which is the same "before" shape the plan's figure describes.
+        # This is a re-verification of that reference figure against TODAY's live source, not an
+        # assertion that boot must keep producing this exact number.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 6083 + 50):
+                shed_to_gov_only = boot.assemble_pack()
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                today_unshed = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        gov_only_bytes = len(shed_to_gov_only.encode("utf-8"))
+        unshed_bytes = len(today_unshed.encode("utf-8"))
+        # BEFORE table (recorded here, not asserted against a moving target):
+        #   today, governance-only (dashboard/pins/neighbourhood/continuity shed): ~5,684-5,750 B measured
+        #     (plan's reference: ~6,083 B — same shape, a few hundred bytes apart; see the size-spike
+        #     report for the reference-figure note. Both are comfortably inside a 10,000 B cap.)
+        #   today, nothing shed (this worktree's offline fixture, no pins/alarms): ~8,900-9,000 B measured
+        # Both numbers must stay well inside the cap; that is the only thing asserted — the exact byte
+        # count is reported, not pinned, since it drifts with ordinary prose edits elsewhere in boot.py.
+        self.assertLess(gov_only_bytes, boot.hooks.HOOK_OUTPUT_CAP)
+        self.assertLess(unshed_bytes, boot.hooks.HOOK_OUTPUT_CAP)
+
+    def test_ledger_completeness_and_superset(self):
+        # every one of the 7 warrants is actually used by at least one ledger row (no warrant is vestigial).
+        self.assertEqual(set(boot._WARRANTS), boot._LEDGER_WARRANTS_USED)
+        # every component the task's brief calls out by name is present in the ledger (a literal string
+        # match against the ledger's own component names — a renamed row must update this list too).
+        required_substrings = [
+            "briefing header", "MCP/knowledge-graph helper availability check",
+            "Explore write-gate scope lecture", "status dashboard (render_dashboard",
+            "execution posture relay", "build-sprawl note (render_mechanic_sprawl_note",
+            "work-neighbourhood map", "where-we-left-off recent-session excerpts", "pins index",
+            "loud pin set-aside disclosure",
+            "un-finished first-run setup offer", "stranded-checkout heads-up",
+            "off-main-line alarm", "stuck pull-request alarm", "disabled safety-hook offer",
+            "half-finished engine-update recovery offer", "post-revert memory-ahead-of-engine offer",
+            "empty-memory restore offer", "no-update-home-recorded offer",
+            "leftover foreign-license tidy-up offer",
+        ]
+        names = [c[0] for c in boot._COMPONENT_DISPOSITION_LEDGER]
+        joined = "\n".join(names)
+        for s in required_substrings:
+            self.assertIn(s, joined, f"the ledger must name a component matching {s!r}")
+        # the NEW never-shed set is a superset of TODAY's (the governance/consent/grounding guarantee).
+        holds, missing = boot.superset_check()
+        self.assertTrue(holds, f"the new never-shed set drops: {missing}")
+
+    def _assert_shape_gate(self, *, home, real_canary_tightest_margin):
+        bvals = boot._briefing_values()
+        cap = boot.hooks.HOOK_OUTPUT_CAP
+        cells = {}
+        for pins_count in (0, 8):
+            for alarm_heavy in (False, True):
+                cells[(pins_count, alarm_heavy)] = self._shape_total(
+                    home=home, pins_count=pins_count, alarm_heavy=alarm_heavy)
+        worst_key = max(cells, key=cells.get)
+        worst = cells[worst_key]
+        margin = cap - worst
+        shape = "engine-home" if home else "plain deployment"
+        # THE GATE: fit under the cap with a margin no looser than today's tightest real canary.
+        self.assertLess(worst, cap,
+                        f"{shape} worst case ({worst} B, {worst_key}) does not fit the {cap} B cap")
+        self.assertGreaterEqual(
+            margin, real_canary_tightest_margin,
+            f"{shape} worst case ({worst} B) leaves only {margin} B of margin under the {cap} B cap — "
+            f"looser than today's tightest real margin canary ({real_canary_tightest_margin} B)")
+        return cells, worst_key, worst, margin
+
+    def test_plain_deployment_shape_fits_the_gate(self):
+        # today's tightest real margin canary (test_margin_canary_never_shed_core_keeps_real_headroom)
+        # measures ~309 B of actual headroom over its 300 B required floor at time of writing; re-measured
+        # live here rather than hard-coded, so this gate tracks the real canary if it moves.
+        real_margin = boot.hooks.HOOK_OUTPUT_CAP - TestBriefingBudget()._clean_codex_core()
+        cells, worst_key, worst, margin = self._assert_shape_gate(
+            home=False, real_canary_tightest_margin=min(real_margin,
+                                                         boot.hooks.HOOK_OUTPUT_CAP
+                                                         - TestBriefingBudget()._mechanic_claude_core()))
+        # recorded for the report: worst cell, byte total, and margin.
+        self.assertIn(worst_key, cells)
+
+    def test_engine_home_shape_fits_the_gate(self):
+        real_margin = boot.hooks.HOOK_OUTPUT_CAP - TestBriefingBudget()._clean_codex_core()
+        cells, worst_key, worst, margin = self._assert_shape_gate(
+            home=True, real_canary_tightest_margin=min(real_margin,
+                                                        boot.hooks.HOOK_OUTPUT_CAP
+                                                        - TestBriefingBudget()._mechanic_claude_core()))
+        self.assertIn(worst_key, cells)
+
+    def test_grounding_receipt_and_alarms_truncation_preview_finding(self):
+        # THE OTHER HALF OF THE GATE: "the grounding receipt + action-forcing alarms must render within
+        # the first 2,000 chars (the platform's truncation-preview size)" — checked here as a REPORTED
+        # finding, not a hard pass/fail on shipped code: the content combined below (the marker, the
+        # worst-platform MCP check, and a representative alarm pile-up) is a MODELLED future never-shed
+        # payload that doesn't exist in boot.py yet, so there is nothing in this repository a red assertion
+        # here would be asking anyone to go fix. What IS asserted is the arithmetic itself, so a future
+        # change to any of the real inputs (the MCP check text, the alarm prose) is caught here rather than
+        # silently drifting the finding stale.
+        marker = boot.present_marker_line(_signals(
+            behind_origin={"state": "behind", "on_default": True, "presentation": "warning"},
+            off_main={"branch": "side-line"}))
+        mcp = boot.MCP_AVAILABILITY_CHECK_CODEX
+        heavy_alarms = "\n".join(f"   - {l}" for l in boot.must_push(self._heavy_alarm_signals()))
+        combined = len(marker.encode()) + len(mcp.encode()) + len(heavy_alarms.encode())
+        preview_window = 2000
+        # This is the size-spike's STOP-flagged sub-finding (see the returned report): on today's real
+        # renderers, a Codex session with this representative 6-alarm pile-up does NOT fit the
+        # grounding-receipt + action-forcing-alarm content within the platform's 2,000-char truncation
+        # preview. Recorded here as an honest arithmetic check (either branch is a legitimate outcome —
+        # this is a feasibility measurement, not a shipped guarantee), so the finding cannot go stale
+        # silently: if a future change makes it fit, this test's own comment goes stale instead of the
+        # number, which is a far cheaper thing to notice and fix.
+        if combined <= preview_window:
+            self.fail(
+                "RE-CHECK THE REPORT: grounding-receipt + heavy action-forcing-alarms now fit the "
+                f"{preview_window}-char preview ({combined} B) — the size-spike report's STOP-flagged "
+                "sub-finding on this point is stale and should be updated, not silently left as-is.")
+        self.assertGreater(combined, preview_window,
+                           f"grounding-receipt + a representative heavy alarm pile-up is {combined} B, "
+                           f"{combined - preview_window} B over the {preview_window}-char truncation "
+                           "preview window — the known, reported size-spike finding.")
+
+
 class TestSessionStartReachesQualification(unittest.TestCase):
     """The wiring the whole re-land exists for, asserted rather than assumed.
 
