@@ -2746,8 +2746,8 @@ class LaneCommands(ProgramVerbs):
         self.assertIn("NAME=plan", err)
 
     def test_a_set_line_round_trips_through_the_cli(self):
-        # `program lanes propose` (a later PR) ends its output with exactly this command shape; the
-        # round-trip is pinned here so that emitted line records the split it printed.
+        # `program lanes propose` ends its output with exactly this command shape; the round-trip is
+        # pinned here so that emitted line records the split it printed.
         program_id = self._two_child_program()
         argv = ["program", "lanes", "set", program_id, "--reason", "proposed split",
                 "--lane", "fast=pln_aaaaaaaaaaaa", "--lane", "slow=pln_bbbbbbbbbbbb"]
@@ -2756,6 +2756,64 @@ class LaneCommands(ProgramVerbs):
         self.assertEqual([lane["name"] for lane in record["lanes"]["lanes"]], ["fast", "slow"])
         self.assertEqual([lane["children"] for lane in record["lanes"]["lanes"]],
                          [["pln_aaaaaaaaaaaa"], ["pln_bbbbbbbbbbbb"]])
+
+    def _territory_plan(self, program_id, plan_id, paths, predecessor=None):
+        document = _document(plan_id=plan_id, title=plan_id[-4:])
+        document["build_plan"]["work_items"] = [{
+            "id": "w", "description": "d", "paths": list(paths), "depends_on": [],
+            "exclusive_resources": [], "executor_class": "builder", "verification": ["v"],
+            "output_contract": {"deliverable": "x", "artifact_kinds": ["code"],
+                                "required_evidence": ["t"]}}]
+        program = {"program_id": program_id}
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        document["program"] = program
+        self.lib.create(document)
+        after = ("--after", predecessor) if predecessor else ()
+        self.assertEqual(self.run_command("program", "add", program_id, plan_id, *after)[0], 0)
+
+    def _disjoint_program(self):
+        _, out, _ = self.run_command("program", "new", "--title", "Lanes",
+                                     "--objective", "Ride in parallel.")
+        program_id = out.split()[2]
+        self._territory_plan(program_id, "pln_aaaaaaaaaaaa", ["x.py"])
+        self._territory_plan(program_id, "pln_bbbbbbbbbbbb", ["y.py"],
+                             predecessor="pln_aaaaaaaaaaaa")
+        return program_id
+
+    def test_propose_renders_lanes_and_a_set_line_and_writes_nothing(self):
+        program_id = self._disjoint_program()
+        code, out, err = self.run_command("program", "lanes", "propose", program_id)
+        self.assertEqual(code, 0, err)
+        self.assertIn("## Lanes", out)
+        self.assertIn("program lanes set", out)
+        self.assertIn("declared work-item paths only", out)
+        self.assertNotIn("lanes", self._record(program_id))   # a pure read wrote nothing
+
+    def test_the_emitted_set_line_round_trips_through_the_real_cli(self):
+        import shlex
+        program_id = self._disjoint_program()
+        expected = plan_program.ProgramLibrary(self.lib).propose_lanes(
+            plan_program.ProgramLibrary(self.lib).resolve(program_id))
+        out = self.run_command("program", "lanes", "propose", program_id)[1]
+        set_line = next(line for line in out.splitlines() if "program lanes set" in line)
+        parts = shlex.split(set_line)          # ['program','lanes','set',prg,'--reason','<why>','--lane',...]
+        code, _, err = self.run_command(*parts)
+        self.assertEqual(code, 0, err)
+        recorded = self._record(program_id)["lanes"]["lanes"]
+        self.assertEqual([{"name": lane["name"], "children": lane["children"]} for lane in recorded],
+                         [{"name": lane["name"], "children": lane["members"]}
+                          for lane in expected["lanes"]])
+
+    def test_propose_amend_and_fresh_are_labelled(self):
+        program_id = self._disjoint_program()
+        self.assertEqual(self.run_command(
+            "program", "lanes", "set", program_id,
+            "--lane", "keep=pln_aaaaaaaaaaaa", "--reason", "recorded")[0], 0)
+        amend = self.run_command("program", "lanes", "propose", program_id)[1]
+        self.assertIn("amending around the recorded split", amend)
+        fresh = self.run_command("program", "lanes", "propose", program_id, "--fresh")[1]
+        self.assertIn("set aside", fresh)
 
 
 if __name__ == "__main__":

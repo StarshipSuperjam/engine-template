@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -2656,6 +2657,277 @@ class LaneRecord(_Program):
         self.assertEqual(standing | historic, {"L1", "L2"})
         self.assertEqual(len(record["lanes_history"]), 1)
         self.assertEqual(record["lanes_history"][0]["ended_by"], "replaced")
+
+
+class LaneProposal(_Program):
+    """`propose_lanes`: a pure, deterministic read on the engine's own fail-closed conflict rule.
+
+    Children that SHARE territory group into one lane; disjoint children ride separate lanes up to the
+    ceiling, so a contended shelf honestly recommends a single lane. Every stored child lands in exactly
+    one visible bucket. Nothing is written.
+    """
+
+    def _territory_child(self, slug, plan_id, title, paths, *, predecessor=None, resources=None):
+        """A plan whose single work item declares the given territory, joined to the program.
+
+        The territory-varying document helper the existing program fixtures lacked: it is what lets a
+        test place two children over the same or disjoint files and watch the recommendation react.
+        """
+        document = _document(plan_id=plan_id, title=title)
+        document["build_plan"]["work_items"] = [{
+            "id": "w", "description": title, "paths": list(paths), "depends_on": [],
+            "exclusive_resources": list(resources or []), "executor_class": "builder",
+            "verification": ["it runs"],
+            "output_contract": {"deliverable": "x", "artifact_kinds": ["code"],
+                                "required_evidence": ["a test"]}}]
+        program = {"program_id": self.program_id}
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        document["program"] = program
+        self.plans.create(document)
+        self.programs.add_child(slug, plan_id, predecessor=predecessor)
+        return plan_id
+
+    def _chain(self, slug, *specs):
+        """specs: (plan_id, paths). Chained in order, each succeeding the previous."""
+        prev = None
+        for plan_id, paths in specs:
+            self._territory_child(slug, plan_id, plan_id[-4:], paths, predecessor=prev)
+            prev = plan_id
+
+    def test_propose_leaves_the_record_byte_identical(self):
+        slug = self._program("Pure", "A pure read writes nothing.")
+        self._chain(slug, ("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        path = self.programs._record_path(slug)
+        before = path.read_bytes()
+        self.programs.propose_lanes(slug)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_disjoint_children_ride_separate_lanes_and_conflicts_group(self):
+        slug = self._program("Split", "Disjoint apart, shared together.")
+        # A(x) -> B(y, disjoint) -> C(x, conflicts A)
+        self._chain(slug, ("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]),
+                    ("pln_c00000000003", ["x.py"]))
+        proposal = self.programs.propose_lanes(slug)
+        lanes = {lane["name"]: lane["members"] for lane in proposal["lanes"]}
+        self.assertEqual(lanes["lane-1"], ["pln_a00000000001", "pln_c00000000003"])
+        self.assertEqual(lanes["lane-2"], ["pln_b00000000002"])
+        self.assertFalse(proposal["contended"])
+        # B succeeds A across lanes, and C succeeds B across lanes — both are merge-order risks.
+        edges = {(e["child"], e["predecessor"]) for e in proposal["cross_lane_edges"]}
+        self.assertIn(("pln_b00000000002", "pln_a00000000001"), edges)
+        self.assertIn(("pln_c00000000003", "pln_b00000000002"), edges)
+
+    def test_a_contended_shelf_recommends_a_single_lane_naming_the_territory(self):
+        slug = self._program("Contended", "Everything over the same two files.")
+        self._chain(slug, ("pln_a00000000001", ["p.py", "q.py"]),
+                    ("pln_b00000000002", ["p.py", "q.py"]), ("pln_c00000000003", ["p.py", "q.py"]))
+        proposal = self.programs.propose_lanes(slug)
+        self.assertEqual(len(proposal["lanes"]), 1)
+        self.assertEqual(len(proposal["lanes"][0]["members"]), 3)
+        self.assertTrue(proposal["contended"])
+        self.assertEqual(proposal["lanes"][0]["territory"], ["p.py", "q.py"])
+
+    def test_a_glob_declared_path_conflicts_with_a_file_under_it_fails_closed(self):
+        slug = self._program("Glob", "A glob reaches under itself.")
+        self._chain(slug, ("pln_a00000000001", [".engine/tools/*"]),
+                    ("pln_b00000000002", [".engine/tools/x.py"]))
+        proposal = self.programs.propose_lanes(slug)
+        # The glob and the file under it are NOT provably disjoint, so they share a lane (fails closed).
+        self.assertEqual(len(proposal["lanes"]), 1)
+
+    def test_a_shared_resource_token_with_disjoint_paths_is_a_caution_not_a_verdict(self):
+        slug = self._program("Tokens", "A shared token does not separate lanes.")
+        # Disjoint paths but the SAME exclusive_resources token on both.
+        self._territory_child(slug, "pln_a00000000001", "A", ["x.py"], resources=["shared-token"])
+        self._territory_child(slug, "pln_b00000000002", "B", ["y.py"],
+                              predecessor="pln_a00000000001", resources=["shared-token"])
+        proposal = self.programs.propose_lanes(slug)
+        self.assertEqual(len(proposal["lanes"]), 2)   # disjoint paths => separate lanes despite the token
+        tokens = {caution["token"] for caution in proposal["resource_cautions"]}
+        self.assertIn("shared-token", tokens)
+
+    def _seal(self, plan_id):
+        digest = self.plans.read_record(self.plans.resolve(plan_id))["current"]["plan_digest"]
+        self.plans.update_record(self.plans.resolve(plan_id), lambda cur: cur.__setitem__(
+            "seal", {"revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+                     "build_plan_digest": digest, "at": "2026-01-01T00:00:00Z",
+                     "delta_judgment": "none"}))
+
+    def _close(self, plan_id, state):
+        self.plans.update_record(self.plans.resolve(plan_id), lambda cur: cur.__setitem__(
+            "closure", {"state": state, "at": "2026-01-01T00:00:00Z", "reason": "fixture"}))
+
+    _V1_PAYLOAD = {
+        "schema_version": "build-plan.v1", "profile": "normal",
+        "intent_source": {"kind": "direct"}, "raw_intent": "a legacy payload",
+        "interpretation": "A v1 payload for a fixture; it cannot express exclusive_resources.",
+        "evidence": [{"claim": "it stores", "basis": "this test", "kind": "observed"}],
+        "assumptions": [],
+        "objective": "A v1 payload that cannot express exclusive_resources.",
+        "success_obligations": [{"outcome": "it exists", "verification": "this test"}],
+        "scope_boundary": ["one node"], "non_goals": ["everything else"],
+        "risks": ["none worth listing in a fixture"], "review_strategy": "this test",
+        "work_items": [{"id": "w", "description": "d", "paths": ["c.py"], "verification": ["v"]}],
+        "spec": {"posture": "none", "selection_basis": "fixture", "disclosure": "fixture"}}
+    _IMPORTED_PAYLOAD = {"schema_version": "build-plan.imported", "work_items": []}
+
+    def _shaped_child(self, slug, plan_id, predecessor, build_plan):
+        """Create a child carrying `build_plan` verbatim, validated and digested at creation time.
+
+        The shape must be set BEFORE create() so the stored revision hashes to its own digest —
+        rewriting a head afterward trips the store's read-time digest check and reads as unreadable,
+        not as the v1/imported shape under test. create() validates the payload against its versioned
+        schema, so these are REAL v1 and imported payloads, not mutated v2 ones.
+        """
+        document = _document(plan_id=plan_id, title=plan_id[-4:])
+        document["build_plan"] = json.loads(json.dumps(build_plan))   # a fresh copy
+        if build_plan.get("schema_version") == "build-plan.imported":
+            document["intake"] = {"provenance": "an imported native plan"}
+            document["deliberation"]["unresolved_decisions"] = ["the decomposition is not authored yet"]
+        program = {"program_id": self.program_id}
+        if predecessor:
+            program["predecessor_plan_id"] = predecessor
+        document["program"] = program
+        self.plans.create(document)
+        self.programs.add_child(slug, plan_id, predecessor=predecessor)
+
+    def test_every_stored_child_lands_in_exactly_one_bucket(self):
+        slug = self._program("Buckets", "One of each kind of child.")
+        # Nine children created through the real path (v1/imported shaped at creation so their digests
+        # hold), chained; the closures, seal, corruption and program-record facts are applied after.
+        self._territory_child(slug, "pln_000000000001", "1", ["a.py"])                     # v2-sealed
+        self._territory_child(slug, "pln_000000000002", "2", ["b.py"],
+                              predecessor="pln_000000000001")                              # v2-draft
+        self._shaped_child(slug, "pln_000000000003", "pln_000000000002", self._V1_PAYLOAD)   # v1
+        self._shaped_child(slug, "pln_000000000004", "pln_000000000003",
+                           self._IMPORTED_PAYLOAD)                                            # imported
+        self._territory_child(slug, "pln_000000000005", "5", ["e.py"],
+                              predecessor="pln_000000000004")                              # invalid head
+        self._territory_child(slug, "pln_000000000006", "6", ["f.py"],
+                              predecessor="pln_000000000005")                              # complete
+        self._territory_child(slug, "pln_000000000007", "7", ["g.py"],
+                              predecessor="pln_000000000006")                              # retired
+        self._territory_child(slug, "pln_000000000008", "8", ["h.py"],
+                              predecessor="pln_000000000007")                              # abandoned
+        self._territory_child(slug, "pln_000000000009", "9", ["i.py"],
+                              predecessor="pln_000000000008")                              # superseded
+        self._seal("pln_000000000001")
+        self._corrupt_head("pln_000000000005")
+        self._close("pln_000000000006", "complete")
+        self._close("pln_000000000007", "retired")
+        self._close("pln_000000000008", "abandoned")
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == "pln_000000000009":
+                child["superseded_by"] = "pln_000000000001"
+        record["children"].append({"plan_id": "pln_00000000000a",
+                                   "added_at": "2026-01-01T00:00:00Z",
+                                   "predecessor_plan_id": "pln_000000000009"})    # missing from library
+        self.programs._write(slug, record)
+
+        proposal = self.programs.propose_lanes(slug)
+        placed = set(proposal["placed"])
+        unplaceable = {u["plan_id"]: u["class"] for u in proposal["unplaceable"]}
+        excluded = {e["plan_id"]: e["reason"] for e in proposal["excluded"]}
+        self.assertEqual(placed, {"pln_000000000001", "pln_000000000002"})
+        self.assertEqual(unplaceable["pln_000000000003"],
+                         plan_program.ProgramLibrary.UNPLACEABLE_V1)
+        self.assertEqual(unplaceable["pln_000000000004"],
+                         plan_program.ProgramLibrary.UNPLACEABLE_IMPORTED)
+        self.assertEqual(unplaceable["pln_000000000005"],
+                         plan_program.ProgramLibrary.UNPLACEABLE_UNREADABLE)
+        self.assertEqual(excluded["pln_000000000006"], "complete")
+        self.assertEqual(excluded["pln_000000000007"], "retired")
+        self.assertEqual(excluded["pln_000000000008"], "abandoned")
+        self.assertEqual(excluded["pln_000000000009"], "superseded-marked")
+        self.assertIn("missing from this library", excluded["pln_00000000000a"])
+        # Every stored child appears exactly once across the three buckets — nothing dropped, nothing double.
+        all_ids = placed | set(unplaceable) | set(excluded)
+        self.assertEqual(len(all_ids), 10)
+        stored = {c["plan_id"] for c in self.programs.read(slug)["children"]}
+        self.assertEqual(all_ids, stored)
+
+    def _head_path(self, plan_id):
+        slug = self.plans.resolve(plan_id)
+        record = self.plans.read_record(slug)
+        return self.plans.root / slug / record["current"]["snapshot"]
+
+    def _corrupt_head(self, plan_id):
+        path = self._head_path(plan_id)
+        path.write_text(json.dumps({"schema_version": "engine-plan.v1"}), encoding="utf-8")
+
+    def test_amend_places_only_newcomers_and_preserves_recorded_membership(self):
+        slug = self._program("Amend", "A recorded split, then a newcomer.")
+        self._chain(slug, ("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "keep", "children": ["pln_a00000000001"]}],
+                                "the recorded split")
+        # A newcomer disjoint from the seed's territory.
+        self._territory_child(slug, "pln_c00000000003", "C", ["z.py"],
+                              predecessor="pln_b00000000002")
+        proposal = self.programs.propose_lanes(slug)
+        self.assertEqual(proposal["mode"], "amend")
+        seed = next(lane for lane in proposal["lanes"] if lane["name"] == "keep")
+        self.assertTrue(seed["seed"])
+        self.assertEqual(seed["members"], ["pln_a00000000001"])   # recorded membership verbatim
+        # The newcomers (B and C) are placed; A is not re-placed.
+        placed_members = [m for lane in proposal["lanes"] for m in lane["members"]]
+        self.assertIn("pln_b00000000002", placed_members)
+        self.assertIn("pln_c00000000003", placed_members)
+
+    def test_fresh_sets_aside_the_recorded_split(self):
+        slug = self._program("Fresh", "Recompute from scratch.")
+        self._chain(slug, ("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "keep", "children": ["pln_a00000000001"]}],
+                                "the recorded split")
+        proposal = self.programs.propose_lanes(slug, fresh=True)
+        self.assertEqual(proposal["mode"], "fresh")
+        self.assertTrue(proposal["recorded_split_present"])
+        # No seed lanes in fresh mode — every lane is freshly computed.
+        self.assertFalse(any(lane["seed"] for lane in proposal["lanes"]))
+
+    def test_max_lanes_caps_new_lanes_and_the_declared_paths_caveat_is_present(self):
+        slug = self._program("Cap", "More disjoint children than lanes.")
+        self._chain(slug, ("pln_a00000000001", ["a.py"]), ("pln_b00000000002", ["b.py"]),
+                    ("pln_c00000000003", ["c.py"]))
+        proposal = self.programs.propose_lanes(slug, max_lanes=2)
+        self.assertLessEqual(len(proposal["lanes"]), 2)
+        # The third disjoint child, at the cap, joins its nearest-predecessor lane rather than a new one.
+        placed_members = [m for lane in proposal["lanes"] for m in lane["members"]]
+        self.assertEqual(sorted(placed_members),
+                         ["pln_a00000000001", "pln_b00000000002", "pln_c00000000003"])
+        self.assertIn("declared work-item paths only", proposal["declared_paths_caveat"])
+
+    def test_propose_does_not_reimplement_the_conflict_rule(self):
+        # Obligation 1's grep-proof: the conflict rule is IMPORTED from build_coordinator_dag and used
+        # as-is; plan_program must not define its own _pair_conflict or paths_conflict.
+        source = Path(plan_program.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("def paths_conflict", source)
+        self.assertNotIn("def _pair_conflict", source)
+        self.assertIn("dag.paths_conflict", source)
+
+    def test_proposal_is_byte_identical_across_hash_seeds(self):
+        import os
+        import subprocess
+        slug = self._program("Determinism", "Same output whatever the hash seed.")
+        self._chain(slug, ("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]),
+                    ("pln_c00000000003", ["x.py"]), ("pln_d00000000004", ["z.py", "w.py"]))
+        tools_dir = str(Path(plan_program.__file__).resolve().parent)
+        root = str(self.plans.root)
+        code = (
+            "import sys, json\n"
+            f"sys.path.insert(0, {tools_dir!r})\n"
+            "import plan_store, plan_program\n"
+            f"progs = plan_program.ProgramLibrary(plan_store.PlanLibrary({root!r}))\n"
+            f"proposal = progs.propose_lanes({slug!r})\n"
+            "sys.stdout.buffer.write(json.dumps(proposal, sort_keys=True).encode('utf-8'))\n")
+
+        def run(seed):
+            proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                                  env={**os.environ, "PYTHONHASHSEED": seed}, check=True)
+            return proc.stdout
+
+        self.assertEqual(run("1"), run("2"))
 
 
 class LaneSchema(_Program):
