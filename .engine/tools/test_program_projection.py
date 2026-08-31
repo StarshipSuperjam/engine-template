@@ -224,5 +224,58 @@ class ADamagedRecordNeedsAttentionAndDoesNotBlankTheShelf(_Shelf):
         self.assertIn(bad, render)                            # the damaged program is named, not dropped
 
 
+class ThePROGRAMmdProjection(_Shelf):
+    """PROGRAM.md is `program show` for a program at rest in the library, headed by the moment it
+    reflects and its staleness window. Pure output — regenerating it never touches a record — and the
+    library-wide sweep continues past a damaged program by writing it a needs-attention file."""
+
+    def _program(self):
+        with self._seeding():
+            slug = self.progs.create("Alpha", "Deliver Alpha across several PRs.")
+        return slug
+
+    def test_the_file_carries_the_generated_at_and_the_staleness_disclosure(self):
+        slug = self._program()
+        text = program_projection.render_program_md(self.progs, self.progs.read(slug),
+                                                    at="2026-01-01T00:00:00Z")
+        self.assertTrue(text.startswith("<!-- generated-at: 2026-01-01T00:00:00Z -->"))
+        self.assertIn("go stale", text)                       # the window is disclosed, not promised away
+        self.assertIn("child plan changed outside a program verb".lower(), text.lower())
+        self.assertIn("# Alpha", text)                        # the program show body is present
+        self.assertIn("## Objective", text)
+
+    def test_regeneration_is_byte_stable_apart_from_the_generated_at_line(self):
+        slug = self._program()
+        first = program_projection.render_program_md(self.progs, self.progs.read(slug),
+                                                     at="2026-01-01T00:00:00Z")
+        second = program_projection.render_program_md(self.progs, self.progs.read(slug),
+                                                      at="2026-12-31T23:59:59Z")
+        self.assertNotEqual(first, second)                    # the generated-at moved
+        drop = lambda t: "\n".join(line for line in t.splitlines()
+                                   if not line.startswith("<!-- generated-at: "))
+        self.assertEqual(drop(first), drop(second))           # everything else is identical
+
+    def test_projecting_a_program_leaves_its_record_untouched(self):
+        slug = self._program()
+        record_path = self.lib.root / "programs" / slug / "record.json"
+        before = record_path.read_bytes()
+        program_projection.project_program(self.progs, slug)
+        self.assertEqual(record_path.read_bytes(), before)
+        self.assertTrue((self.lib.root / "programs" / slug / "PROGRAM.md").exists())
+
+    def test_the_sweep_writes_a_needs_attention_file_and_continues_past_a_damaged_program(self):
+        with self._seeding():
+            good = self.progs.create("Healthy", "A readable program.")
+            bad = self.progs.create("Broken", "About to break.")
+        self._corrupt(bad)
+        written = program_projection.project_all(self.progs, at="2026-01-01T00:00:00Z")
+        self.assertEqual(set(written), {good, bad})           # the sweep did not die on the damaged one
+        good_md = (self.lib.root / "programs" / good / "PROGRAM.md").read_text(encoding="utf-8")
+        bad_md = (self.lib.root / "programs" / bad / "PROGRAM.md").read_text(encoding="utf-8")
+        self.assertIn("# Healthy", good_md)
+        self.assertIn("Needs attention", bad_md)
+        self.assertIn(bad, bad_md)
+
+
 if __name__ == "__main__":
     unittest.main()

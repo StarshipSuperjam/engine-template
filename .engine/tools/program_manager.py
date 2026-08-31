@@ -42,6 +42,19 @@ def _programs(args):
     return plan_program.ProgramLibrary(project_manager._library(args))
 
 
+def _refresh_projection(programs, slug: str) -> None:
+    """Regenerate the touched program's PROGRAM.md AFTER its record write, OUTSIDE the verb's failure
+    path. A projection failure never fails the verb — the verb's exit code reports the RECORD's truth,
+    and the record is already written — it only warns, and the stale file converges on the next program
+    verb here or a `program reproject` sweep."""
+    try:
+        program_projection.project_program(programs, slug)
+    except Exception as exc:  # noqa: BLE001 — degrade open; the record write already succeeded
+        print(f"warning: {slug}'s PROGRAM.md could not be regenerated and is now stale; it converges on "
+              f"the next program verb here or a `program reproject` sweep — the record itself is written "
+              f"and correct: {exc}", file=sys.stderr)
+
+
 def cmd_program_new(args) -> int:
     programs = _programs(args)
     slug = programs.create(args.title, args.objective)
@@ -49,6 +62,17 @@ def cmd_program_new(args) -> int:
     print(f"created program {record['program_id']} at {programs.program_dir(slug)}")
     print("Add its first child with `program add`. Order records a decision — nothing here starts, "
           "selects, or advances a child.")
+    _refresh_projection(programs, slug)
+    return 0
+
+
+def cmd_program_reproject(args) -> int:
+    """The library-wide sweep: regenerate every program's PROGRAM.md — a needs-attention file for any
+    whose record will not read — and continue past the damaged ones. A pure projection; it writes no
+    record, selects nothing, and starts nothing."""
+    programs = _programs(args)
+    written = program_projection.project_all(programs)
+    print(f"regenerated PROGRAM.md for {len(written)} program(s)")
     return 0
 
 
@@ -118,6 +142,7 @@ def cmd_program_add(args) -> int:
         print("\nThe next child on this branch must answer for each — satisfied, still carried, or "
               "released with a stated reason. None of them can be dropped by saying nothing.")
     _report_decay(programs, slug)
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -171,6 +196,7 @@ def cmd_program_supersede(args) -> int:
     print("Nothing was deleted: the replaced child stays in the record, marked with what replaced "
           "it, and its plan and every revision stay on the shelf.")
     _report_decay(programs, slug)
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -199,6 +225,7 @@ def cmd_program_insert(args) -> int:
         for obligation in outstanding:
             print(f"  - {obligation['id']}: {obligation['statement']}")
     _report_decay(programs, slug)
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -256,7 +283,8 @@ def _report_decay(programs, slug: str, *, plan_id: str | None = None) -> list:
 
 def cmd_program_close(args) -> int:
     programs = _programs(args)
-    record = programs.close(programs.resolve(args.program), args.state, args.reason,
+    slug = programs.resolve(args.program)
+    record = programs.close(slug, args.state, args.reason,
                             acknowledged_unknown=getattr(args, "acknowledge_unknown", None))
     print(f"{record['program_id']} is now {args.state}: {args.reason}")
     if record["closure"].get("acknowledged_unknown"):
@@ -265,17 +293,20 @@ def cmd_program_close(args) -> int:
         print("That is a decision, not a resolution — what this program owed still cannot be "
               "computed from its record.")
     print("Nothing was deleted — every child plan and every revision stays on the shelf.")
+    _refresh_projection(programs, slug)
     return 0
 
 
 def cmd_program_complete(args) -> int:
     """The only door to a complete program. Nothing derives it, and nothing else writes it."""
     programs = _programs(args)
-    record = programs.complete(programs.resolve(args.program), args.reason)
+    slug = programs.resolve(args.program)
+    record = programs.complete(slug, args.reason)
     print(f"{record['program_id']} is recorded complete: {args.reason}")
     print("Recorded, not derived — this is your judgment that the objective is met, and the record "
           "now says so with your reason attached.")
     print("It is reversible: `program reopen` undoes it, with a reason, and keeps what was undone.")
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -300,6 +331,7 @@ def cmd_program_release(args) -> int:
     if report["obligations"]:
         print(f"\n{len(report['obligations'])} obligation(s) still outstanding: "
               + ", ".join(o["id"] for o in report["obligations"]))
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -314,6 +346,7 @@ def cmd_program_revise_objective(args) -> int:
     print(f"Now:        {record['objective']}")
     print("\nNothing was overwritten silently — `program show` lists every prior objective with "
           "when it was replaced and why.")
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -326,6 +359,7 @@ def cmd_program_reopen(args) -> int:
     print(f"  {args.reason}")
     print("What was undone stays on the record: `program show` lists every closure that was "
           "reversed, with the reason for reversing it.")
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -375,6 +409,7 @@ def cmd_program_lanes_set(args) -> int:
               "that stopped standing, and whether it was replaced or cleared.")
     print("\nAdvisory only: this records which children may ride at once. It dispatches nothing, "
           "selects nothing, and gates no Build.")
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -385,6 +420,7 @@ def cmd_program_lanes_clear(args) -> int:
     print(f"cleared the lane split on {record['program_id']}")
     print(f"  {args.reason}")
     print("What was cleared is kept in the lane history — `program show` lists it, marked cleared.")
+    _refresh_projection(programs, slug)
     return 0
 
 
@@ -508,6 +544,11 @@ def build_parser() -> argparse.ArgumentParser:
         "portfolio", help="every open program at a glance, qualitatively — goals, progress, what is in "
                           "flight (a pure read; nothing is selected or started)")
     program_portfolio.set_defaults(func=cmd_program_portfolio)
+
+    program_reproject = program.add_parser(
+        "reproject", help="regenerate every program's PROGRAM.md from its record (a pure projection; "
+                          "writes no record) — the library-wide sweep that converges a stale file")
+    program_reproject.set_defaults(func=cmd_program_reproject)
 
     program_show = program.add_parser("show", help="one program, its children and outstanding obligations")
     program_show.add_argument("program")

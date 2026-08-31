@@ -19,9 +19,12 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from unittest import mock
+
 import plan_program
 import plan_store
 import program_manager
+import program_projection
 import project_manager
 
 from test_plan_store import _document
@@ -1098,6 +1101,72 @@ class TheListAndShowPointAtThePortfolio(_ProgramSurface):
         self.run_command("program", "portfolio")
         after = (self.lib.root / "programs" / slug / "record.json").read_bytes()
         self.assertEqual(before, after, "portfolio is a pure read; it must not touch a record")
+
+
+class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
+    """Every mutating program verb regenerates the touched program's PROGRAM.md after its record write,
+    and does it OUTSIDE its own failure path: a projection failure warns and leaves the verb succeeding,
+    the record written, and the stale file to converge on the next verb or a `program reproject` sweep."""
+
+    def _md(self, program_id):
+        programs = plan_program.ProgramLibrary(self.lib)
+        return (self.lib.root / "programs" / programs.resolve(program_id) / "PROGRAM.md").read_text(
+            encoding="utf-8")
+
+    def _new(self, title="Alpha", objective="Deliver Alpha across PRs."):
+        return self.run_command("program", "new", "--title", title, "--objective", objective)[1].split()[2]
+
+    def _seed_child(self, program_id, plan_id, title):
+        doc = _document(plan_id=plan_id, title=title)
+        doc["program"] = {"program_id": program_id}
+        self.lib.create(doc)
+
+    def test_new_writes_a_fresh_projection_with_a_generated_at_line(self):
+        program_id = self._new()
+        md = self._md(program_id)
+        self.assertIn("<!-- generated-at: ", md)
+        self.assertIn("Alpha", md)
+
+    def test_add_reflects_the_new_child(self):
+        program_id = self._new()
+        self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")[0], 0)
+        self.assertIn("First child", self._md(program_id))
+
+    def test_revise_objective_reflects_the_new_objective(self):
+        program_id = self._new()
+        self.run_command("program", "revise-objective", program_id,
+                         "--objective", "A wholly new objective.", "--reason", "clarity")
+        self.assertIn("A wholly new objective.", self._md(program_id))
+
+    def test_retire_reflects_the_recorded_closure(self):
+        program_id = self._new()
+        self.run_command("program", "retire", program_id, "--reason", "shelving")
+        self.assertIn("retired", self._md(program_id))
+
+    def test_lanes_set_reflects_the_split(self):
+        program_id = self._new()
+        self._seed_child(program_id, "pln_aaaaaaaaaaaa", "First child")
+        self.run_command("program", "add", program_id, "pln_aaaaaaaaaaaa")
+        self.run_command("program", "lanes", "set", program_id,
+                         "--lane", "solo=pln_aaaaaaaaaaaa", "--reason", "one lane")
+        self.assertIn("solo", self._md(program_id))
+
+    def test_a_projection_failure_never_fails_the_verb_and_converges_on_a_later_sweep(self):
+        program_id = self._new()          # this new() already wrote a fresh projection
+        with mock.patch.object(program_projection, "project_program",
+                               side_effect=RuntimeError("disk full")):
+            code, _, err = self.run_command("program", "revise-objective", program_id,
+                                            "--objective", "The second objective.", "--reason", "x")
+        self.assertEqual(code, 0, "a projection failure must not fail the verb")
+        self.assertIn("could not be regenerated", err)          # it warned on stderr
+        programs = plan_program.ProgramLibrary(self.lib)
+        self.assertEqual(programs.read(programs.resolve(program_id))["objective"],
+                         "The second objective.", "the record itself must be written and correct")
+        # The projection is stale (still the first objective); the record is right; a sweep converges it.
+        self.assertNotIn("The second objective.", self._md(program_id))
+        self.assertEqual(self.run_command("program", "reproject")[0], 0)
+        self.assertIn("The second objective.", self._md(program_id))
 
 
 if __name__ == "__main__":

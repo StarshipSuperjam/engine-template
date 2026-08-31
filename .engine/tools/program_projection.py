@@ -19,7 +19,21 @@ from __future__ import annotations
 
 import re
 
+import build_coordinator_core as core
+import moment
 import plan_program
+import plan_store
+
+PROGRAM_MD = "PROGRAM.md"
+_GENERATED_AT_PREFIX = "<!-- generated-at: "
+# The staleness window, disclosed in the file rather than promised away: PROGRAM.md is a projection of
+# live child-plan data, so a child plan revised, sealed, retired or completed OUTSIDE any program verb
+# moves what the file should say with no program-record change to trigger a refresh.
+_STALENESS_NOTE = (
+    "<!-- This PROGRAM.md is generated from the program record and its children at the moment above.\n"
+    "     Every program verb that touches this program regenerates it. It can still go stale between\n"
+    "     those moments: a CHILD PLAN changed outside a program verb is not reflected until the next\n"
+    "     program verb here, or a `program reproject` sweep. Edits are overwritten. -->")
 
 PORTFOLIO_NOTE = ("<!-- generated from the program records; a read-only view — nothing here selects, "
                   "starts, or advances work -->")
@@ -208,3 +222,55 @@ def render_portfolio(programs: plan_program.ProgramLibrary) -> str:
             out.append(f"- … and {remainder} more closed program(s) not shown")
 
     return "\n".join(out) + "\n"
+
+
+# --- PROGRAM.md, the per-program generated file, and the library-wide sweep -----
+
+def render_program_md(programs: plan_program.ProgramLibrary, record: dict, *, at: str | None = None) -> str:
+    """The program as `program show` renders it, headed by the moment it reflects and its staleness
+    window. A pure read: it renders text and writes nothing. `at` pins the generated-at for a test."""
+    moment_at = at if at is not None else moment.utc_now()
+    body = plan_program.render(programs, record)
+    header = f"{_GENERATED_AT_PREFIX}{moment_at} -->\n{_STALENESS_NOTE}\n\n"
+    return header + body if body.endswith("\n") else header + body + "\n"
+
+
+def render_needs_attention_md(slug: str, problem: str, *, at: str | None = None) -> str:
+    """The projection for a program whose record will not read: the sweep writes THIS rather than
+    skipping the folder, so the damage is visible at rest instead of looking like the program vanished."""
+    moment_at = at if at is not None else moment.utc_now()
+    return (f"{_GENERATED_AT_PREFIX}{moment_at} -->\n{_STALENESS_NOTE}\n\n"
+            f"# {slug}\n\n> **Needs attention.** This program's record did not read when the projection "
+            f"was generated, so its state cannot be shown: {problem}\n")
+
+
+def _program_md_path(programs: plan_program.ProgramLibrary, slug: str):
+    return programs.program_dir(slug) / PROGRAM_MD
+
+
+def _write_program_md(programs: plan_program.ProgramLibrary, slug: str, text: str) -> None:
+    core.atomic_write(_program_md_path(programs, slug), text, durable=True, mode=plan_store.FILE_MODE)
+
+
+def project_program(programs: plan_program.ProgramLibrary, slug: str, *, at: str | None = None):
+    """Regenerate one program's PROGRAM.md from its record. Pure output — it never mutates a record.
+
+    Raises if the record does not read: this is the per-verb refresh path, called right after a verb
+    wrote the record, so the record is known good; a raise here is a real projection failure the caller
+    is expected to degrade open on (warn, exit 0), never to swallow into the record's own success."""
+    _write_program_md(programs, slug, render_program_md(programs, programs.read(slug), at=at))
+    return _program_md_path(programs, slug)
+
+
+def project_all(programs: plan_program.ProgramLibrary, *, at: str | None = None) -> list:
+    """The library-wide sweep: regenerate every program's PROGRAM.md, and CONTINUE past a damaged one
+    by writing it a needs-attention projection rather than letting the whole sweep die on it."""
+    written = []
+    for slug in programs.slugs():
+        try:
+            text = render_program_md(programs, programs.read(slug), at=at)
+        except Exception as exc:  # noqa: BLE001 — a record that will not read gets a needs-attention file
+            text = render_needs_attention_md(slug, str(exc), at=at)
+        _write_program_md(programs, slug, text)
+        written.append(slug)
+    return written
