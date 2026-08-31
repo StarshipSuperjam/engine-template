@@ -122,7 +122,7 @@ program well:
   child changed outside a program verb until the next verb or the regeneration sweep; treat its
   timestamp as the truth about its freshness.
 
-## Come in through the right door, and ask the tool for the rest
+### Come in through the right door, and ask the tool for the rest
 
 The program tool is the authority on sequence; this page does not restate its order. Reach it for the
 mechanics — starting a program, appending or inserting a child, recording or withdrawing a lane split,
