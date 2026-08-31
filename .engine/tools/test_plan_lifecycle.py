@@ -17,6 +17,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import program_manager
 import project_manager
 import plan_lifecycle
 import plan_program
@@ -35,9 +36,12 @@ class _Ceremony(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
 
     def run_command(self, *argv):
+        # The program surface moved to its own address; a `program ...` verb goes to program_manager,
+        # every plan verb to project_manager — the routing a caller does by choosing a tool name.
+        tool = program_manager if argv and argv[0] == "program" else project_manager
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = project_manager.main(["--library", str(self.root), *argv])
+            code = tool.main(["--library", str(self.root), *argv])
         return code, out.getvalue(), err.getvalue()
 
     def plan(self, **over):

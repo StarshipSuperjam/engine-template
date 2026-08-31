@@ -1998,6 +1998,12 @@
   ".engine/tools/product_design/test_spec_form.py": [
    "product-design"
   ],
+  ".engine/tools/program_manager.py": [
+   "core"
+  ],
+  ".engine/tools/program_projection.py": [
+   "core"
+  ],
   ".engine/tools/project_manager.py": [
    "core"
   ],
@@ -2437,6 +2443,12 @@
    "core"
   ],
   ".engine/tools/test_pr_reconcile.py": [
+   "core"
+  ],
+  ".engine/tools/test_program_manager.py": [
+   "core"
+  ],
+  ".engine/tools/test_program_projection.py": [
    "core"
   ],
   ".engine/tools/test_project_manager.py": [
