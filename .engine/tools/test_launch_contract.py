@@ -60,10 +60,15 @@ READ_ARGUMENTS = {
 }
 
 
-def _claude_argv() -> list:
+def _claude_argv(root: Path = ROOT) -> list:
+    """The shipped Claude argv, with the project-dir token expanded to `root`.
+
+    The configuration is always read from the REAL checkout (that is the shipped file this suite pins);
+    only the expansion target varies, so a test can launch the same contract against a pristine clone.
+    """
     config = json.loads(MCP_JSON.read_text(encoding="utf-8"))
     server = config["mcpServers"][SERVER_NAME]
-    return [server["command"]] + [a.replace(CLAUDE_PROJECT_DIR_TOKEN, str(ROOT)) for a in server["args"]]
+    return [server["command"]] + [a.replace(CLAUDE_PROJECT_DIR_TOKEN, str(root)) for a in server["args"]]
 
 
 def _codex_block() -> dict:
@@ -202,13 +207,58 @@ class _StdioClient:
 
 
 class LaunchContractTests(unittest.TestCase):
-    """The exact shipped commands, run for real."""
+    """The exact shipped commands, run for real — against a clone with no activation, BY CONSTRUCTION.
+
+    The first two tests' premise is a fresh clone where accepted-hook activation has never converged.
+    Launching against ROOT only *assumes* that premise: the activation record lives in the git common
+    directory, shared by the real checkout and every worktree, so on a machine where qualification has
+    converged (the engine's own home repository, once the mandated pointer split was excused) the write
+    verbs EXECUTE instead of refusing and the refusal test fails for a reason that has nothing to do
+    with the shipped contract. So the premise is constructed instead of assumed: a pristine local clone
+    has its own git directory and therefore no activation record — exactly the state every fresh clone,
+    including CI's, is in. The clone holds ROOT's committed HEAD; uncommitted edits are deliberately
+    absent, the same trade every commit-addressed harness makes.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls._clone_home = tempfile.TemporaryDirectory(prefix="launch-contract-clone-",
+                                                      ignore_cleanup_errors=True)
+        clone = Path(cls._clone_home.name) / "clone"
+        head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+        # --no-checkout + an explicit detach pins the clone to ROOT's exact HEAD even when ROOT is a
+        # linked worktree, whose default clone branch would otherwise be the source repository's choice.
+        subprocess.run(["git", "clone", "--quiet", "--no-checkout", str(ROOT), str(clone)],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(clone), "checkout", "--quiet", "--detach", head],
+                       check=True, capture_output=True)
+        cls.clone_root = clone
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._clone_home.cleanup()
+
+    @classmethod
+    def _clone_environment(cls, tmp: str) -> dict:
+        """The hermetic environment, plus the REAL checkout's project venv when one exists.
+
+        `uv run --frozen` inside the clone would otherwise materialize a second venv from the same
+        lockfile — identical bytes, minutes of linking. Pointing UV_PROJECT_ENVIRONMENT at the real
+        venv is a deliberate fixture choice, not smuggling: the clone sits at ROOT's committed HEAD,
+        so the lockfile the venv satisfies is the same one the clone carries.
+        """
+        environment = _hermetic_environment(_egress_shim(tmp))
+        venv = ROOT / ".engine" / ".venv"
+        if venv.is_dir():
+            environment["UV_PROJECT_ENVIRONMENT"] = str(venv)
+        return environment
 
     def test_the_memory_server_starts_and_answers_on_a_clone_with_no_activation(self):
         """The regression itself. RED at be922f46 (see the module docstring for the method)."""
         with tempfile.TemporaryDirectory() as tmp:
-            environment = _hermetic_environment(_egress_shim(tmp))
-            client = _StdioClient(_claude_argv(), cwd=str(ROOT), env=environment)
+            environment = self._clone_environment(tmp)
+            client = _StdioClient(_claude_argv(self.clone_root), cwd=str(self.clone_root), env=environment)
             try:
                 reply = client.handshake()
                 self.assertEqual(reply["result"]["serverInfo"]["name"], SERVER_NAME)
@@ -226,7 +276,8 @@ class LaunchContractTests(unittest.TestCase):
 
     def test_the_three_write_verbs_refuse_in_plain_words_and_leave_the_server_up(self):
         with tempfile.TemporaryDirectory() as tmp:
-            client = _StdioClient(_claude_argv(), cwd=str(ROOT), env=_hermetic_environment(_egress_shim(tmp)))
+            client = _StdioClient(_claude_argv(self.clone_root), cwd=str(self.clone_root),
+                                  env=self._clone_environment(tmp))
             try:
                 client.handshake()
                 arguments = {"pin": {"text": "launch-contract probe"},
