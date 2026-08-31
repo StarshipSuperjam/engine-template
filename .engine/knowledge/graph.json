@@ -13768,7 +13768,7 @@
       },
       "slug": "program_projection",
       "source": {
-        "fingerprint": "sha256:4b6fe43d5ddec5c745e844cde790562084c838b2cb68ec125bdc02ab94e84dd3",
+        "fingerprint": "sha256:7b5bfcf589241929c5e92af1501dd79cd537c4a3869a4d1bb874eea489beeff0",
         "path": ".engine/tools/program_projection.py"
       },
       "status": "active",
@@ -13798,7 +13798,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:bee69eecb1b669a7cd02643ede890773d0f322ae9d4818a38b0d9daa397672c2",
+        "fingerprint": "sha256:77aff00e885f03f64dc6ae498ffbdd9785b1d6382b1f17e8cbae61a12056ba5e",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -18534,7 +18534,7 @@
       },
       "slug": "test_program_manager",
       "source": {
-        "fingerprint": "sha256:8349f62644701d03612ac1036ddb33fe396dd7b96082843eed176b4e4f50b626",
+        "fingerprint": "sha256:3f8af132ce2743cf8ae3eaf734231fb553c5b4b889d56c96a7b45988e1ccbc3c",
         "path": ".engine/tools/test_program_manager.py"
       },
       "status": "active",
@@ -18561,7 +18561,7 @@
       },
       "slug": "test_program_projection",
       "source": {
-        "fingerprint": "sha256:ad5c14321d0bc1350f1dbbd907aa69b8880d291ff3df487da6f95aaf720d3727",
+        "fingerprint": "sha256:53b2951d1fe0d457221708ca3763dce3e2f0bb8f810738ab3088f55d53eab1bf",
         "path": ".engine/tools/test_program_projection.py"
       },
       "status": "active",
