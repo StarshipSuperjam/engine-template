@@ -432,6 +432,20 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
         # rerouted (denied), exactly the carve-out the copy now names
         self.assertTrue(_deny(modes.handler(_explore_payload(
             "Bash", 'gh issue create --label engine -b "just free text"'))))
+        # RE-HOMED: the prose above is being retired in favor of the typed export as boot's source of
+        # truth (export_authority_contract) — this pins that the typed contract carries the SAME
+        # allow/deny rules and the same two non-mechanical routing lines the prose used to be the only
+        # place stating, so retiring the prose from boot loses nothing.
+        contract = modes.export_authority_contract(modes.EXPLORE)
+        self.assertIn("build_commit", contract["blocked"])       # edit/branch/commit/PR — named above
+        self.assertIn("memory_write", contract["blocked"])       # the hand-write-.engine/memory denial
+        self.assertIn("engine_issue_bypass", contract["blocked"])  # the reroute carve-out named above
+        self.assertIn("protected_branch_merge", contract["blocked"])
+        self.assertEqual(contract["action_default"], "allow-by-default")  # the no-default-deny law
+        self.assertEqual(
+            list(modes.STANDING_ROUTING_LINES),
+            ["never hand-write .engine/memory directly",
+             "route personal working notes to the notebook; route project conclusions to memory"])
 
 
 class TestPlanArtifactCarveOut(unittest.TestCase):
@@ -1050,6 +1064,166 @@ class TestResolveSession(unittest.TestCase):
             self.assertEqual(rc, 1)
             self.assertIn("unknown", buf.getvalue().lower())
             self.assertNotIn(modes.EXPLORE, buf.getvalue())
+
+
+class TestAuthorityContractExport(unittest.TestCase):
+    """The typed export_authority_contract(stance) — session-relay.v1's `authority_contract` shape,
+    the compact replacement for describe_explore_scope()'s boot-time prose. The crux (the success
+    obligation this node exists to satisfy): every code the export lists as blocked must be a block
+    handler() GENUINELY enforces for that stance, driven through the REAL gate over representative
+    tool-call payloads — never read off the constants and never asserted from the prose."""
+
+    def _gate(self, session, tool, cmd="", tool_input=None):
+        ti = dict(tool_input or {})
+        if cmd:
+            ti["command"] = cmd
+        return modes.handler({"session_id": session, "tool_name": tool, "tool_input": ti})
+
+    def _envelope_with(self, authority_contract: dict) -> dict:
+        """The smallest full session-relay.v1 envelope that embeds `authority_contract`, so
+        session_relay.validate can check it in context (the schema validates the whole envelope, not a
+        sub-shape in isolation)."""
+        return {
+            "schema_version": "session-relay.v1",
+            "grounding_receipt": {
+                "present_marker_count": 1,
+                "helpers": {"memory": {"state": "available"}, "knowledge_graph": {"state": "available"}},
+            },
+            "identity": {"deployment": "deployed_project"},
+            "authority_contract": authority_contract,
+            "task_binding": {"state": "none"},
+            "action_forcing_alarms": [],
+            "standing_directives": {
+                "pins_index": {"count": 0},
+                "execution_posture": authority_contract["stance"],
+                "routing_lines": list(modes.STANDING_ROUTING_LINES),
+                "where_we_left_off": {"label": "Where we left off", "pointer": "n/a"},
+            },
+            "pointers": [],
+        }
+
+    def test_contract_shape_matches_session_relay_v1(self):
+        import session_relay
+        for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+            contract = modes.export_authority_contract(stance)
+            self.assertEqual(contract["stance"], stance)
+            self.assertEqual(contract["action_default"], "allow-by-default")
+            session_relay.validate(self._envelope_with(contract))  # raises on any schema violation
+
+    def test_unrecognized_stance_degrades_to_explore(self):
+        contract = modes.export_authority_contract("nonsense")
+        self.assertEqual(contract["stance"], modes.EXPLORE)
+
+    def test_session_relay_write_is_never_claimed_blocked(self):
+        # modes.py enforces no block specific to the session-relay locator/envelope today (it is new
+        # this Build) — an honest export omits it in every stance, never invents the code.
+        for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+            self.assertNotIn("session_relay_write", modes.export_authority_contract(stance)["blocked"])
+
+    def test_protected_branch_merge_and_engine_issue_bypass_are_blocked_in_every_stance(self):
+        # Both are stance-independent real invariants (MERGE_BLOCK_INVARIANT, REROUTE_BLOCK_INVARIANT):
+        # the export must claim them blocked in Explore, Build, AND Routine, and the REAL gate must
+        # actually deny a representative action of each, in every one of those stances.
+        for stance in (modes.EXPLORE, modes.BUILD, modes.ROUTINE):
+            session = f"contract-always-{stance}"
+            modes.clear_stance(session)
+            if stance != modes.EXPLORE:
+                self.assertTrue(modes.set_stance(session, stance))
+            try:
+                blocked = set(modes.export_authority_contract(stance)["blocked"])
+                self.assertIn("protected_branch_merge", blocked)
+                self.assertIn("engine_issue_bypass", blocked)
+                self.assertTrue(_deny(self._gate(session, "Bash", "gh pr merge 1")),
+                                f"protected-merge nudge must fire in {stance}")
+                self.assertTrue(_deny(self._gate(
+                    session, "Bash", 'gh issue create --label engine -b "free text"')),
+                                f"engine-issue reroute must fire in {stance}")
+            finally:
+                modes.clear_stance(session)
+
+    def test_build_commit_and_memory_write_are_explore_only(self):
+        # The enumerated building set (build_commit) and the memory-hand-write denial (memory_write) are
+        # BOTH sub-cases of the Explore-only write-gate: Build/Routine permit every write, so neither
+        # block exists outside Explore — the export must say so, and the real gate must agree.
+        explore_blocked = set(modes.export_authority_contract(modes.EXPLORE)["blocked"])
+        self.assertIn("build_commit", explore_blocked)
+        self.assertIn("memory_write", explore_blocked)
+        self.assertTrue(_deny(self._gate(None, "Edit")), "build_commit must really deny in Explore")
+        self.assertTrue(_deny(self._gate(
+            None, "Write", tool_input={"file_path": ".engine/memory/ledger.ndjson"})),
+                        "memory_write must really deny in Explore")
+
+        for stance in (modes.BUILD, modes.ROUTINE):
+            session = f"contract-explore-only-{stance}"
+            modes.clear_stance(session)
+            self.assertTrue(modes.set_stance(session, stance))
+            try:
+                blocked = set(modes.export_authority_contract(stance)["blocked"])
+                self.assertNotIn("build_commit", blocked)
+                self.assertNotIn("memory_write", blocked)
+                self.assertTrue(_allow(self._gate(session, "Edit")),
+                                f"build_commit is not really enforced in {stance}")
+                self.assertTrue(_allow(self._gate(
+                    session, "Write", tool_input={"file_path": ".engine/memory/ledger.ndjson"})),
+                                f"memory_write is not really enforced in {stance}")
+            finally:
+                modes.clear_stance(session)
+
+    def test_provider_exceptions_disclose_the_claude_only_carveouts(self):
+        contract = modes.export_authority_contract(modes.EXPLORE)
+        self.assertEqual(len(contract["provider_exceptions"]), 1)
+        exc = contract["provider_exceptions"][0]
+        self.assertEqual(exc["provider"], "codex")
+        self.assertIn("plan-mode", exc["note"])
+        self.assertIn("notebook", exc["note"])
+        # fidelity: the carve-outs really are provider-confined to claude (is_plan_artifact returns
+        # False for anything else, and is_harness_memory_write does too), which is the fact the note
+        # discloses.
+        self.assertFalse(modes.is_plan_artifact("Write", {"is_plan_file": True}, "plan", provider="codex"))
+        self.assertFalse(modes.is_harness_memory_write(
+            "Write", {"file_path": "/x"}, "/repo", provider="codex"))
+
+    def test_standing_routing_lines_match_the_schema_enum_exactly(self):
+        # The two non-mechanical routing lines have no mechanical gate counterpart (nothing in handler()
+        # enforces them) — they can only be pushed as fixed lines, so they must be the LITERAL schema
+        # enum members, in a form the assembler can hand straight to standing_directives.routing_lines.
+        self.assertEqual(
+            list(modes.STANDING_ROUTING_LINES),
+            ["never hand-write .engine/memory directly",
+             "route personal working notes to the notebook; route project conclusions to memory"])
+        contract = modes.export_authority_contract(modes.EXPLORE)
+        envelope = self._envelope_with(contract)
+        import session_relay
+        session_relay.validate(envelope)  # routing_lines round-trips through the real schema
+
+
+class TestDenialRoutesTheTwoDoors(unittest.TestCase):
+    """#3 of this node: post-cutover, a session relayed the typed authority contract (not the
+    describe_explore_scope prose) is never shown that lecture — so the DENIAL itself must name the two
+    doors: the auto-memory notebook as the one permitted edit location beyond the plan file, and the
+    memory CLI as the only safe door into `.engine/memory/`. This is the re-homed fidelity pin: what
+    describe_explore_scope used to be the only place saying, the generic denial now also says."""
+
+    def test_generic_denial_names_the_notebook_and_the_memory_cli(self):
+        d = modes._DENIAL.lower()
+        self.assertIn("notebook", d)
+        self.assertIn("plan file", d)
+        self.assertIn("cli", d)
+        self.assertIn(".engine/memory", d)
+
+    def test_memory_relay_still_never_leaks_the_store_seam_to_the_operator(self):
+        # Unchanged pin (StarshipSuperjam/engine-template#257/#766): the MEMORY-specific relay stays a plain,
+        # non-engineer sentence with no store names or paths — the routing addition lives in the generic
+        # denial (above), which is what a session sees when it tried a NON-memory-shaped write.
+        r = modes._MEMORY_DENIAL.lower()
+        self.assertNotIn(".engine/memory", r)
+        self.assertNotIn("cli", r)
+
+    def test_a_real_denied_build_action_carries_the_routed_reason(self):
+        d = modes.handler({"session_id": None, "tool_name": "Edit", "tool_input": {}})
+        self.assertTrue(_deny(d))
+        self.assertEqual(d["reason"], modes._DENIAL)
+        self.assertIn("notebook", d["reason"].lower())
 
 
 if __name__ == "__main__":
