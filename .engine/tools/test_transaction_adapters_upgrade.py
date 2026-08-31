@@ -15,6 +15,22 @@ import module_manager  # noqa: E402
 import transaction  # noqa: E402
 import transaction_adapters_upgrade as adapters  # noqa: E402
 import transaction_envelope as te  # noqa: E402
+import transaction_handoff as handoff  # noqa: E402
+
+# The base-currency gate (a separate obligation from consent) refuses a wrong/stale base before the
+# upgrade apply and inside the operator-typed door. These tests predate it and exercise consent and
+# release-resolution against this in-place checkout, which is legitimately a wrong base — so they hold
+# the currency gate open to isolate the behavior each one is actually about. Its own refusals are
+# covered in test_transaction_handoff.
+_CURRENCY_OK = {"verified": False, "note": "base currency held open for this test"}
+
+
+def _pass_currency():
+    return mock.patch.object(handoff, "refuse_if_stale_base", return_value=_CURRENCY_OK)
+
+
+def _pass_door_currency():
+    return mock.patch.object(module_manager, "_door_base_currency", return_value=(False, ""))
 
 
 class Args:
@@ -162,6 +178,7 @@ class TestConsentIsEnforcedOnTheCommandTheOperatorTypes(unittest.TestCase):
     def _main(self, *argv, stale):
         refusal = "This is not the update you read." if stale else None
         with mock.patch.object(module_manager, "_refuse_stale_consent", return_value=refusal), \
+             _pass_door_currency(), \
              mock.patch.object(module_manager, "upgrade") as applied:
             code = module_manager.main(list(argv))
         return code, applied
@@ -239,12 +256,14 @@ class TestApplyUsesTheReleaseThePlanNamed(unittest.TestCase):
 
     def test_the_planned_release_is_what_gets_applied(self):
         plan = {"inputs": {"release": "v9.9.9"}}
-        with mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
+        with _pass_currency(), \
+             mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
             adapters.UpgradeEngine().apply(Args(), plan)
         applied.assert_called_once_with("v9.9.9")
 
     def test_a_plan_naming_no_release_still_falls_back_to_the_operand(self):
-        with mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
+        with _pass_currency(), \
+             mock.patch.object(module_manager, "upgrade", return_value={"pr": {"url": "u"}}) as applied:
             adapters.UpgradeEngine().apply(Args("v1"), {"inputs": {}})
         applied.assert_called_once_with("v1")
 
@@ -265,12 +284,14 @@ class TestTheTypedCommandAppliesTheReleaseItsHandleApproved(unittest.TestCase):
             return None
 
         with mock.patch.object(module_manager, "_refuse_stale_consent", side_effect=fake_check), \
+             _pass_door_currency(), \
              mock.patch.object(module_manager, "upgrade") as applied:
             module_manager.main(["upgrade", "--confirm", "--consent-handle", "sha256:" + "0" * 64])
         applied.assert_called_once_with("v7.7.7")
 
     def test_a_stale_handle_still_refuses_before_anything_is_applied(self):
         with mock.patch.object(module_manager, "_refuse_stale_consent", return_value="no match"), \
+             _pass_door_currency(), \
              mock.patch.object(module_manager, "upgrade") as applied:
             code = module_manager.main(["upgrade", "--confirm", "--consent-handle", "sha256:" + "9" * 64])
         self.assertEqual(code, 2)
@@ -438,6 +459,7 @@ class TestAnAbsentHandleIsARefusalNotAPass(unittest.TestCase):
              mock.patch.object(module_manager, "staged_upgrade_detail",
                                return_value=(detail if detail is not None else {"target_ref": "v9"})), \
              mock.patch.object(module_manager, "_diagnose_undo", return_value={"state": undo}), \
+             _pass_door_currency(), \
              mock.patch.object(module_manager, "upgrade") as applied:
             code = module_manager.main(list(argv))
         return code, applied
