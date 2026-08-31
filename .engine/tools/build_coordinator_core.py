@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import re
 import selectors
+import stat
 import subprocess
 import tempfile
 import time
@@ -151,6 +152,89 @@ def atomic_write(path: Path, text: str, *, durable: bool = False, mode: int | No
     finally:
         if os.path.exists(temp_name):
             os.unlink(temp_name)
+
+
+class SessionBindingForgedError(CoordinatorError):
+    """The session-binding locator path exists and is not a private regular file this uid owns.
+
+    Never treated as a best-effort failure the way an ordinary write fault is. A locator path that
+    fails the private-regular-file check was placed by someone else — a symlink, another user's
+    file, or a non-regular node planted at the deterministic path — and writing THROUGH it, or later
+    trusting whatever sits there as genuine binding evidence, is exactly how a repository-adjacent
+    write could forge a Build binding a cold session relies on. The caller surfaces this rather than
+    swallowing it the way it swallows a full disk or a permission-denied temp directory.
+    """
+
+
+def session_binding_locator_path(worktree: Path | str) -> Path:
+    """The OS-temp path for the session-binding.v1 locator of `worktree`.
+
+    Derived DETERMINISTICALLY from the RESOLVED worktree path alone — never from a session id or any
+    other session-scoped state — because a cold boot-side reader must be able to compute this exact
+    path knowing only its own worktree, with nothing carried over from the session that wrote it.
+    Resolution mirrors `build_state_store.resolve_for_worktree`'s own worktree identity
+    (`Path(worktree).resolve()`), so a macOS temp path, a symlinked home, and a `/private` prefix
+    collapse onto the one locator instead of scattering three unreachable copies of it.
+
+    Lives in the OS temp directory — never inside the repository or the worktree it describes —
+    so a plain repository write can neither forge this evidence nor read it back; the same posture
+    modes.py's session-stance marker already takes for a smaller, session-scoped fact.
+    """
+    resolved = str(Path(worktree).resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()
+    return Path(tempfile.gettempdir()) / f".engine-session-binding-{digest}.json"
+
+
+def write_session_binding_locator(worktree: Path | str, binding: dict, schema_path: Path) -> Path:
+    """Atomically write the session-binding.v1 locator for `worktree`, owner-only throughout.
+
+    Mirrors modes.py's `_harden_marker_write` precedent for the session-stance marker, at the same
+    owner-only path this locator itself resolves to (`session_binding_locator_path`):
+      - validated against `schema_path` (session-binding.v1) BEFORE anything touches disk, so a
+        caller bug can never write a locator a cold reader would then refuse to trust;
+      - created via a same-directory `tempfile.mkstemp` and `os.fchmod(fd, 0o600)` on the fd itself
+        — never a post-hoc `os.chmod`, which would leave a window where a briefly world-readable
+        file exists at a guessable path;
+      - landed with `os.replace`, so a concurrent reader observes either the previous locator or the
+        complete new one, never a partial write;
+      - refuses to write through anything already at the path that is not a private regular file
+        this uid owns (a symlink, another user's file, a socket/fifo/device) — raising
+        `SessionBindingForgedError` rather than silently overwriting a forgery or silently skipping
+        the write and letting a stale/forged file stand as if it were genuine evidence.
+
+    Returns the path written. Everything OTHER than the forged-file case (a full disk, a
+    permission-denied temp directory, a missing jsonschema dependency at validation) is an ordinary
+    OSError/CoordinatorError the caller is expected to treat as best-effort and non-fatal — this
+    function does not decide that policy, it only tells the truth about what happened.
+    """
+    validate(binding, schema_path)
+    path = session_binding_locator_path(worktree)
+    directory = path.parent
+    fd, temporary = tempfile.mkstemp(prefix=".engine-session-binding-", dir=str(directory))
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(binding, indent=2, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            info = os.lstat(path)
+        except FileNotFoundError:
+            info = None
+        if info is not None and (stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode)
+                                 or info.st_uid != os.getuid()):
+            raise SessionBindingForgedError(
+                f"the session-binding locator path is not a private regular file this session owns: "
+                f"{path} — refusing to write through it")
+        os.replace(str(temporary), str(path))
+        temporary = None
+        return path
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 def json_file(path: Path) -> Any:
