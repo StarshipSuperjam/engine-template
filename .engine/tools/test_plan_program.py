@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -3420,6 +3421,114 @@ class LaneStandingDerivation(_Program):
                         if m["plan_id"] == "pln_f00000000099")
         self.assertEqual(departed["bucket"], plan_program.LANE_BUCKET_UNKNOWN)
         self.assertEqual(departed["status"], "not in this program")
+
+
+# --- The shipped program doctrine, asserted at its actual text -------------------------------------
+# The runbook and recognition skill (PR 5, W2) ship to every Engine project. The wiring checks
+# (manifest, self-map, module-surfaces, codex-gen, route-budget, skill-coherence) prove the doctrine is
+# INSTALLED; none reads a word of what it SAYS. These do — the build-time evidence obligation the plan
+# panel required (findings on trigger coverage and the never-author/never-dispatch guarantee). They live
+# in this file rather than a new one because the program-doctrine surface is part of the program
+# component these tests already cover.
+
+_DOCTRINE_ROOT = Path(__file__).resolve().parents[2]
+_DOCTRINE_RUNBOOK = _DOCTRINE_ROOT / ".engine/operations/program-orchestration.md"
+_DOCTRINE_SKILL = _DOCTRINE_ROOT / ".claude/skills/engine-manage-programs/SKILL.md"
+
+
+class TheRecognitionSkillFiresOnBothRegisters(unittest.TestCase):
+    def setUp(self):
+        self.text = _DOCTRINE_SKILL.read_text(encoding="utf-8")
+        self.lower = self.text.lower()
+
+    def test_it_is_a_model_only_non_user_invocable_route(self):
+        self.assertIn("invocation: model-only", self.text)
+        self.assertIn("user-invocable: false", self.text)
+
+    def test_its_engine_target_resolves_to_the_runbook(self):
+        self.assertIn("program-orchestration.md", self.text)
+        self.assertTrue(_DOCTRINE_RUNBOOK.is_file(), "the skill points at a runbook that must exist")
+
+    def test_it_names_the_program_tool_as_the_address(self):
+        self.assertIn("program_manager.py", self.text)
+
+    def test_it_recognizes_the_program_vocabulary_register(self):
+        self.assertIn("make this a program", self.lower)
+        self.assertIn("lanes", self.lower)
+
+    def test_it_recognizes_the_pre_name_backlog_and_concurrency_register(self):
+        # The shape the same ask arrives in without the word "program" — a backlog with a
+        # sequencing/combine/concurrency question. Under-triggering here is the predicted failure, so at
+        # least one such phrasing must be a recognized trigger in the skill's own text.
+        self.assertIn("backlog", self.lower)
+        self.assertTrue(
+            "concurrent lanes" in self.lower or "session per lane" in self.lower,
+            "the skill must recognize a plain concurrency ask, not only the word 'program'")
+        self.assertTrue(
+            "combined into one pr" in self.lower or "what order" in self.lower,
+            "the skill must recognize a plain sequencing ask")
+
+    def test_it_recognizes_and_points_but_never_authors_or_dispatches(self):
+        self.assertIn("recognizes and points", self.lower)
+        self.assertIn("never dispatches", self.lower)
+        self.assertTrue("does not author" in self.lower and "advance a child" in self.lower)
+
+
+class TheProgramRunbookCarriesJudgmentNotSequence(unittest.TestCase):
+    def setUp(self):
+        self.text = _DOCTRINE_RUNBOOK.read_text(encoding="utf-8")
+        self.lower = self.text.lower()
+
+    def test_it_carries_the_when_not_to_lane_judgment(self):
+        self.assertIn("do not lane", self.lower)
+        self.assertIn("serial", self.lower)
+
+    def test_it_carries_honest_ends_children_complete_is_not_program_complete(self):
+        self.assertIn("does not complete itself", self.lower)
+        self.assertIn("unknown, not done", self.lower)
+
+    def test_it_points_at_the_tool_for_sequence_rather_than_restating_it(self):
+        self.assertIn("program_manager.py", self.text)
+        self.assertIn("ask it", self.lower)
+        self.assertNotIn("step 1:", self.lower)   # must not enumerate the tool's ordered verb sequence
+
+    def test_neither_shipped_doctrine_file_names_a_repository_specific_reference(self):
+        # The citation bound: runbook and skill ship to every Engine project, so they carry
+        # de-identified PATTERNS only — no issue number, program/plan id, milestone, or session id.
+        for path in (_DOCTRINE_RUNBOOK, _DOCTRINE_SKILL):
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(re.findall(r"#\d+", text), [], f"{path.name} names an issue number")
+            self.assertEqual(re.findall(r"pln_[0-9a-f]+|prg_[0-9a-f]+", text), [],
+                             f"{path.name} names a plan/program id")
+            self.assertNotIn("Release Candidate", text)
+            self.assertEqual(re.findall(r"\b[0-9a-f]{8}-[0-9a-f]{4}-", text), [],
+                             f"{path.name} names a session id")
+
+
+class TheProgramManifestWiringIsWholeAndAdditive(unittest.TestCase):
+    """Neither module-surfaces staleness nor skill-coherence can DETECT a missing or dropped manifest
+    entry (both derive from the same manifest, or never read it). So the manifest's correctness is
+    asserted here directly: the new paths are present, and the edit dropped nothing it had — including
+    the two hard-check declarations, whose loss no other named check catches."""
+
+    def setUp(self):
+        self.provides = json.loads(
+            (_DOCTRINE_ROOT / ".engine/modules/core/manifest.json").read_text("utf-8"))["provides"]
+
+    def test_the_new_operation_skill_and_codex_skill_paths_are_listed(self):
+        self.assertIn(".engine/operations/program-orchestration.md", self.provides["operation"])
+        self.assertIn(".claude/skills/engine-manage-programs/SKILL.md", self.provides["skill"])
+        self.assertIn(".agents/skills/engine-manage-programs/SKILL.md", self.provides["codex-skill"])
+        self.assertIn(".agents/skills/engine-manage-programs/agents/openai.yaml",
+                      self.provides["codex-skill"])
+
+    def test_the_edit_preserved_the_sibling_plan_surfaces(self):
+        self.assertIn(".engine/operations/plan-orchestration.md", self.provides["operation"])
+        self.assertIn(".claude/skills/engine-manage-plans/SKILL.md", self.provides["skill"])
+
+    def test_the_two_hard_check_declarations_survive(self):
+        self.assertIn(".engine/check/guardrail-weakening.json", self.provides["check"])
+        self.assertIn(".engine/check/protection.json", self.provides["check"])
 
 
 if __name__ == "__main__":
