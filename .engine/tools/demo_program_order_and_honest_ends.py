@@ -31,7 +31,7 @@ same command line you would type yourself, against a throwaway library this scri
   6. A WRECKED RECORD COULD NOT BE PUT DOWN HONESTLY. This shows a program whose books cannot be
      computed refusing a quiet close, then closing on an explicit, recorded acknowledgement.
 
-Everything below runs the REAL command line (`project_manager.py --library <temp> ...`) against a
+Everything below runs the REAL command line (`program_manager.py --library <temp> ...`) against a
 temporary directory. Nothing on your shelf is read or touched, and every identifier is invented for
 this script. It can fail: each step asserts what it expects, and a wrong answer stops the run with a
 non-zero exit.
@@ -54,7 +54,8 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import project_manager  # noqa: E402  — the public command line under demonstration
+import program_manager  # noqa: E402  — the program command line under demonstration
+import project_manager  # noqa: E402  — the plan command line, for the `init` scaffolding below
 import plan_store       # noqa: E402  — read-only checks against what the commands wrote
 
 from test_plan_store import _document  # noqa: E402  — the same minimal plan shape the tests use
@@ -81,10 +82,15 @@ def check(claim: str, condition: bool, detail: str = "") -> None:
 
 
 def run(*argv) -> tuple[int, str, str]:
-    """One real command-line invocation: the same argv you would type, minus the temp --library."""
+    """One real command-line invocation: the same argv you would type, minus the temp --library.
+
+    The program surface has its own address now, so a `program ...` verb goes to program_manager and
+    the `init` scaffolding to project_manager — the same routing a caller does by picking a tool name.
+    """
+    tool = program_manager if argv and argv[0] == "program" else project_manager
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        code = project_manager.main(["--library", str(LIBRARY), *argv])
+        code = tool.main(["--library", str(LIBRARY), *argv])
     return code, out.getvalue(), err.getvalue()
 
 

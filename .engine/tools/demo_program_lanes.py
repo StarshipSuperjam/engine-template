@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Operator-runnable falsification of the Program Manager lanes surface, end to end.
 
-It drives the whole surface in-process through project_manager.main — propose reads the evidence and
+It drives the whole surface in-process through program_manager.main — propose reads the evidence and
 recommends a split; the operator decides DIFFERENTLY and records it; `program show` renders the decided
 split truthfully; a laned child is superseded and a newcomer added; `program show` marks the dead member
 and lists the newcomer; and amend-mode propose places the newcomer without touching the recorded lanes.
@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / ".engine" / "tools"))
 
 import plan_program  # noqa: E402
 import plan_store  # noqa: E402
-import project_manager  # noqa: E402
+import program_manager  # noqa: E402
 
 
 def _check(label: str, condition: bool) -> bool:
@@ -74,7 +74,7 @@ def main() -> int:
     def run(*argv) -> tuple[int, str]:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = project_manager.main(["--library", str(root), *argv])
+            code = program_manager.main(["--library", str(root), *argv])
         return code, out.getvalue() + err.getvalue()
 
     slug = programs.create("Lanes demo", "Ride the children in parallel where territory allows.")

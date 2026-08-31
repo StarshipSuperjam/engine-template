@@ -768,6 +768,95 @@ class TheSeamHoldsAtModuleLevel(_Program):
             self._assert_pin_holds(seeded)
 
 
+class TheProgramSurfaceReachesThePlanLibraryOnlyThroughTheSeam(unittest.TestCase):
+    """program_manager may READ the plan library; it may WRITE it in exactly ONE place — the named
+    close seam `project_manager.close_plan_record`, which `program supersede` uses to retire the plan
+    it replaces. This pins that at the module level, an ALLOWLIST over program_manager's syntax tree,
+    the sibling of TheSeamHoldsAtModuleLevel above.
+
+    Written for program_manager's ACTUAL write surface, not copied blind from the plan_program pin.
+    program_manager reaches the plan library through `programs.plans` AND through locals aliased from
+    it (`library = programs.plans`), so this tracks those aliases and checks method calls on them. A
+    copy of the plan_program pin that only watched `self.plans.<x>` would sail straight past
+    `library.update_record(...)` and report a green it never earned — the exact vacuous pass a cold
+    reviewer warned this move would invite. The seeded-alias control below proves it does not.
+    """
+
+    # Exactly what program_manager reads on a plan-library handle. Reads only — a minting or stamping
+    # call is the Project Manager's act, performed through the close seam and no other way.
+    PERMITTED = {"resolve", "read_record", "head", "root"}
+    # Module-level reads of plan_store itself — enumerated, so adding one is a visible edit here.
+    PERMITTED_MODULE = {"PlanStoreError", "PlanLibrary", "derived_status"}
+
+    def _plan_library_handles(self, tree) -> set:
+        """Every local name bound to `<x>.plans` — a plan-library handle the write path could use."""
+        import ast
+        handles = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Attribute) \
+                    and node.value.attr == "plans":
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        handles.add(target.id)
+        return handles
+
+    def _forbidden(self, source: str) -> set:
+        """Every plan-library access program_manager makes that the allowlist does not permit —
+        counting accesses through `<x>.plans.<attr>`, through an aliased local, and on plan_store."""
+        import ast
+        tree = ast.parse(source)
+        handles = self._plan_library_handles(tree)
+        forbidden = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute):
+                continue
+            value = node.value
+            reaches_handle = (
+                (isinstance(value, ast.Attribute) and value.attr == "plans")   # <x>.plans.<attr>
+                or (isinstance(value, ast.Name) and value.id in handles))      # library = programs.plans
+            if reaches_handle:
+                if node.attr not in self.PERMITTED:
+                    forbidden.add(node.attr)
+            elif isinstance(value, ast.Name) and value.id == "plan_store":
+                if node.attr not in self.PERMITTED_MODULE:
+                    forbidden.add(node.attr)
+        return forbidden
+
+    def _source(self):
+        import program_manager
+        return Path(program_manager.__file__).read_text(encoding="utf-8")
+
+    def _assert_pin_holds(self, source):
+        forbidden = self._forbidden(source)
+        self.assertEqual(forbidden, set(),
+                         f"program_manager reached {sorted(forbidden)} on the plan library; it may "
+                         f"only read ({sorted(self.PERMITTED)}) or write through "
+                         "project_manager.close_plan_record — the one seam supersede uses.")
+
+    def test_the_module_reaches_the_plan_library_only_by_reading(self):
+        self._assert_pin_holds(self._source())
+
+    def test_the_pin_goes_red_on_a_write_through_the_library_alias(self):
+        # THE spelling a copy of the plan_program pin would miss: a write through `library`, the local
+        # aliased from programs.plans — not through `self.plans`. The guard itself must go red.
+        seeded = (self._source()
+                  + "\ndef _seeded(programs):\n    library = programs.plans\n"
+                  "    library.update_record('s', lambda r: r)\n")
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+    def test_the_pin_goes_red_on_a_direct_plans_write(self):
+        seeded = (self._source()
+                  + "\ndef _seeded(programs):\n    programs.plans.append_revision(1, 2)\n")
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+    def test_the_pin_goes_red_on_a_mutating_plan_store_function(self):
+        seeded = self._source() + "\ndef _seeded():\n    plan_store.atomic_write('x', 'y')\n"
+        with self.assertRaises(AssertionError):
+            self._assert_pin_holds(seeded)
+
+
 class ADebtOffTheChainIsUnknownNotAbsent(_Program):
     """A detached cycle beside a healthy root printed "None outstanding" and "lead in a circle" on
     the same page — the obligations on the loop belonged to no branch, so the union never saw them
@@ -2219,8 +2308,9 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
     #: plan_program.py at first, and the gap was not theoretical: a cold reviewer found the bind
     #: refusal in build_coordinator.py pointing at `reopen`, which refuses every plan that can
     #: reach that message. A guard that covers one file while the promise covers the change is a
-    #: guard that reports safety it has not checked.
-    SOURCES = ("plan_program", "project_manager", "build_coordinator")
+    #: guard that reports safety it has not checked. program_manager joined when the program surface
+    #: moved to its own address — its refusals are where `program <verb>` pointers live now.
+    SOURCES = ("plan_program", "project_manager", "program_manager", "build_coordinator")
 
     def _sources(self) -> str:
         import importlib
@@ -2244,8 +2334,10 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
                               source if source is not None else self._sources()))
 
     def test_every_program_verb_a_refusal_names_is_a_real_verb(self):
-        import project_manager
-        parser = project_manager.build_parser()
+        # The program verbs live at their own address now, so their availability is read from
+        # program_manager's parser — project_manager's `program` word is a refusing stub.
+        import program_manager
+        parser = program_manager.build_parser()
         program_action = next(
             action for action in parser._subparsers._group_actions[0].choices["program"]._actions
             if hasattr(action, "choices") and action.choices)
@@ -2284,8 +2376,8 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
         seeded = 'raise ProgramError("try `program unburden <program>` instead")'
         self.assertEqual(self._named_program_verbs(seeded), {"unburden"})
 
-        import project_manager
-        parser = project_manager.build_parser()
+        import program_manager
+        parser = program_manager.build_parser()
         program_action = next(
             action for action in parser._subparsers._group_actions[0].choices["program"]._actions
             if hasattr(action, "choices") and action.choices)
@@ -3066,8 +3158,12 @@ class TheLaneRecordHasOneReader(unittest.TestCase):
     """
 
     KEYS = {"lanes", "lanes_history"}
-    ALLOWLIST = {"plan_program.py", "project_manager.py", "test_plan_program.py",
-                 "test_project_manager.py", "demo_program_lanes.py"}
+    # The program surface moved to its own address: program_manager.py and its test now read the lane
+    # record, and project_manager.py / test_project_manager.py no longer do. The set both GAINS the
+    # new readers and LOSES the vacated ones — held exact by the earns-its-exemption companion below,
+    # so a file that stopped reading cannot linger here and hide the next real drift.
+    ALLOWLIST = {"plan_program.py", "program_manager.py", "test_plan_program.py",
+                 "test_program_manager.py", "demo_program_lanes.py"}
 
     def _record_key_reads(self, source: str) -> set:
         """Every read of a lane record key this source makes: `x["lanes"]` or `x.get("lanes")`."""
@@ -3128,6 +3224,19 @@ class TheLaneRecordHasOneReader(unittest.TestCase):
             offenders = self._scan_tree(tmp)
         self.assertEqual(offenders,
                          {"some_subsystem/drifting_reader.py": ["lanes", "lanes_history"]})
+
+    def test_the_allowlist_carries_no_entry_that_no_longer_reads_the_lane_record(self):
+        """A stale exemption is how an allowlist stops meaning anything: it keeps a permission for a
+        file that no longer needs it, and the next genuine drifter hides among the excuses. Mirrors
+        the retitle guard's companion — an entry earns its keep only while it still reads the record.
+        This is exactly what forces project_manager.py off the list now that the verbs moved.
+        """
+        tools = Path(plan_program.__file__).resolve().parent
+        stale = sorted(name for name in self.ALLOWLIST
+                       if not self._record_key_reads((tools / name).read_text(encoding="utf-8")))
+        self.assertEqual(stale, [],
+                         "these are on the lane-reader allowlist but no longer read the lane record: "
+                         f"{stale}")
 
 
 class LaneSchema(_Program):
