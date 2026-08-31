@@ -247,6 +247,63 @@ class TestUnknownOperation(ProtocolTestCase):
         self.assertIn("transaction_adapters_remove", caught.exception.load_failures)
 
 
+class TestLoadAdaptersReportsAnImportFailure(unittest.TestCase):
+    """The REAL load_adapters() import path under a broken adapter — not the hand-fed load_failures dict
+    the sibling test above uses. A synthetic adapter module that raises on import is REPORTED by name with
+    its typed error, never swallowed; every other adapter still registers and dispatches; and a caller
+    asking for the broken adapter's operation meets a load-failure notice, not a "did you mean" for a typo
+    that does not exist. `load_adapters` exists precisely so one broken adapter does not take the CLI down,
+    and this proves each half of that promise instead of trusting the comment."""
+
+    _BROKEN = "transaction_adapters_synthetic_boom"
+
+    def setUp(self):
+        self._saved_modules = transaction._ADAPTER_MODULES
+        self._saved_registry = dict(transaction._REGISTRY)
+        self._saved_syspath = list(sys.path)
+        self._saved_sysmodules = set(sys.modules)
+        self._tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(self._tmp.name, self._BROKEN + ".py"), "w", encoding="utf-8") as handle:
+            handle.write("raise RuntimeError('synthetic adapter import failure')\n")
+        sys.path.insert(0, self._tmp.name)
+        transaction._ADAPTER_MODULES = tuple(self._saved_modules) + (self._BROKEN,)
+
+    def tearDown(self):
+        transaction._ADAPTER_MODULES = self._saved_modules
+        transaction._REGISTRY.clear()
+        transaction._REGISTRY.update(self._saved_registry)
+        sys.path[:] = self._saved_syspath
+        for name in set(sys.modules) - self._saved_sysmodules:
+            sys.modules.pop(name, None)
+        self._tmp.cleanup()
+
+    def test_the_broken_adapter_is_named_with_its_typed_error(self):
+        failed = transaction.load_adapters()
+        self.assertIn(self._BROKEN, failed)
+        self.assertIn("RuntimeError", failed[self._BROKEN])
+        self.assertIn("synthetic adapter import failure", failed[self._BROKEN])
+
+    def test_the_other_adapters_still_register_and_dispatch(self):
+        failed = transaction.load_adapters()
+        # The broken one is the ONLY failure; every real operation still registered and reachable.
+        self.assertEqual(set(failed), {self._BROKEN})
+        for operation in ("engine-upgrade", "engine-upgrade-rollback", "module-add", "module-remove",
+                          "engine-remove"):
+            self.assertEqual(transaction._adapter_for(operation).operation, operation)
+
+    def test_a_caller_asking_for_the_broken_adapters_operation_meets_the_load_failure_not_a_typo(self):
+        import contextlib
+        import io
+        captured = io.StringIO()
+        with contextlib.redirect_stderr(captured):
+            code = transaction.main(["inspect", "synthetic-op"])
+        self.assertEqual(code, 2)
+        text = captured.getvalue()
+        self.assertIn(self._BROKEN, text)
+        self.assertIn("could not be loaded", text)
+        self.assertIn("synthetic adapter import failure", text)
+
+
 class TestStaysOnTheArrivalFloor(unittest.TestCase):
     def test_core_is_standard_library_only_with_the_future_import(self):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "transaction.py")
