@@ -1,0 +1,11 @@
+{
+  "schema_version": "executor-qualification.v1",
+  "record_kind": "fail-closed-witness",
+  "executor_id": "witness-external-refused",
+  "recorded_at": "2026-08-31T15:58:15Z",
+  "witness": {
+    "scenario": "external-transport-refused",
+    "observed": "Real coordinator cmd_work_claim persisted a fail_closed 'dispatch' attempt (disposition 'open', gap 'external-transport-refused') and refused the claim. Refusal message: external-transport routing is refused by default; no ordinary coordinator entry point requests it, and enabling it is a deliberate, guarded act. External-transport dispatch is not available in this Build, or run `build_coordinator.py work retry --item shared --strategy integrator-inline --reason <why>` to run this node inline in the senior session."
+  },
+  "notes": "Captured from a real StateStore + cmd_work_claim run over a fixture DAG node; the coordinator code path and persistence are real, only the plan is a minimal fixture. The build-state gap and the witness scenario name the same case as cause vs outcome."
+}
