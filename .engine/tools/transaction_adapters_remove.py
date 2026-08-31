@@ -104,6 +104,12 @@ class RemoveEngine(transaction.Adapter):
         }
 
     def apply(self, args, plan: dict) -> dict:
+        # BASE CURRENCY FIRST, before this deletes anything: a wrong, behind-origin or diverged base refuses
+        # here — and refusing costs nothing, since nothing has been touched yet. The non-refusing note is
+        # carried onto the result for the handoff. (This adapter's `apply` is belt-and-braces: production
+        # removal runs through `module_manager.remove_engine`, wired at the operator-typed door; `transaction
+        # .py run engine-remove` refuses outright. Both operator-facing entries carry the same check.)
+        currency = handoff.refuse_if_stale_base()
         # PRELOAD, then delete. Everything the later phases need must be resident now: the envelope schema
         # (already read at import), this module, and the handoff renderers. Nothing below may read a file
         # under .engine/ — it will not be there.
@@ -120,6 +126,7 @@ class RemoveEngine(transaction.Adapter):
             raise transaction.TransactionRefused(
                 "remove-engine-refused", result.get("reason", "The engine could not be removed."),
                 ["Resolve what the reason above names, then run this again."])
+        result["base_currency"] = currency
         return result
 
     def verify(self, args, applied: dict) -> list:
@@ -149,15 +156,18 @@ class RemoveEngine(transaction.Adapter):
         return receipts
 
     def handoff(self, args, applied: dict, receipts) -> dict:
+        currency_line = handoff.currency_summary_line(applied.get("base_currency"))
         pr = applied.get("pr") or {}
         if not pr:
-            return {
-                "kind": "manual-follow-up",
-                "summary": "The engine was removed from your working copy, but the pull request that "
-                           "proposes it could not be opened. The change is committed on its branch — open "
-                           "the pull request yourself to complete the removal.",
-            }
-        return handoff.pull_request_handoff(pr, "The engine's removal is proposed for your review.")
+            summary = ("The engine was removed from your working copy, but the pull request that "
+                       "proposes it could not be opened. The change is committed on its branch — open "
+                       "the pull request yourself to complete the removal.")
+            return {"kind": "manual-follow-up",
+                    "summary": summary + (" " + currency_line if currency_line else "")}
+        what = "The engine's removal is proposed for your review."
+        if currency_line:
+            what += " " + currency_line
+        return handoff.pull_request_handoff(pr, what)
 
 
 transaction.register(RemoveEngine())

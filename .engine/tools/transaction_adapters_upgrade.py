@@ -150,6 +150,9 @@ class UpgradeEngine(transaction.Adapter):
         }
 
     def apply(self, args, plan: dict) -> dict:
+        # BASE CURRENCY FIRST, before any mutation: refuse a wrong, behind-origin or diverged base, and
+        # otherwise carry the (current | unverified) note onto the result for the envelope and the handoff.
+        currency = handoff.refuse_if_stale_base()
         # APPLY WHAT THE PLAN NAMED. This used to pass the raw command-line operand -- `None` for the
         # ordinary "update me" case -- so `upgrade()` resolved "latest" a SECOND time, after the consent
         # handle had already been checked against the concretely resolved tag the plan recorded. A release
@@ -162,6 +165,7 @@ class UpgradeEngine(transaction.Adapter):
             raise transaction.TransactionRefused(
                 "upgrade-refused", result.get("reason", "The update could not be applied."),
                 ["Resolve what the reason above names, then run this again."])
+        result["base_currency"] = currency
         return result
 
     def verify(self, args, applied: dict) -> list:
@@ -184,14 +188,17 @@ class UpgradeEngine(transaction.Adapter):
         return receipts
 
     def handoff(self, args, applied: dict, receipts) -> dict:
+        currency_line = handoff.currency_summary_line(applied.get("base_currency"))
         pr = applied.get("pr")
         if not pr:
-            return {
-                "kind": "manual-follow-up",
-                "summary": "The update is staged in your working copy but was not opened for review. You "
-                           "can finish it by applying again, or undo it with rollback — nothing was merged.",
-            }
-        return handoff.pull_request_handoff(pr, "The update is proposed for your review.")
+            summary = ("The update is staged in your working copy but was not opened for review. You "
+                       "can finish it by applying again, or undo it with rollback — nothing was merged.")
+            return {"kind": "manual-follow-up",
+                    "summary": summary + (" " + currency_line if currency_line else "")}
+        what = "The update is proposed for your review."
+        if currency_line:
+            what += " " + currency_line
+        return handoff.pull_request_handoff(pr, what)
 
     def resume(self, args):
         """Upgrade is the one adapter with a DURABLE progress record, so it does not re-plan blindly.
@@ -331,11 +338,15 @@ class RollbackUpgrade(transaction.Adapter):
         }
 
     def apply(self, args, plan: dict) -> dict:
+        # BASE CURRENCY FIRST — an undo mutates the working tree too, so a wrong, behind-origin or diverged
+        # base refuses here before anything is touched; the non-refusing note rides on for the handoff.
+        currency = handoff.refuse_if_stale_base()
         result = module_manager.rollback(confirm=True)
         if result.get("refused"):
             raise transaction.TransactionRefused(
                 "rollback-refused", result.get("reason", "The undo could not complete."),
                 ["Resolve what the reason above names, then run this again."])
+        result["base_currency"] = currency
         return result
 
     def verify(self, args, applied: dict) -> list:
@@ -348,12 +359,14 @@ class RollbackUpgrade(transaction.Adapter):
         }]
 
     def handoff(self, args, applied: dict, receipts) -> dict:
+        currency_line = handoff.currency_summary_line(applied.get("base_currency"))
+        suffix = (" " + currency_line) if currency_line else ""
         if not applied.get("undone"):
             return {"kind": "manual-follow-up",
                     "summary": "Nothing was undone locally. If the update was already merged, revert its "
-                               "pull request — the engine never rewrites your main line."}
+                               "pull request — the engine never rewrites your main line." + suffix}
         return {"kind": "local-recovery",
-                "summary": "The engine is back the way it was, with a recovery point saved first.",
+                "summary": "The engine is back the way it was, with a recovery point saved first." + suffix,
                 "reference": str(applied.get("recovery_point") or "")}
 
 

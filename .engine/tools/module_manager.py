@@ -5746,6 +5746,26 @@ def _refuse_stale_consent(ref, handle: str, on_release=None):
     return None
 
 
+def _door_base_currency() -> tuple:
+    """The base-currency gate for an operator-typed transaction door (upgrade / remove-engine --confirm).
+
+    The same judgment the transaction adapters run — the shared helper in `transaction_handoff` — so the
+    door and the adapter cannot drift into two notions of a stale base. Returns (refused, note_line):
+      * refused=True  — a wrong / behind-origin / diverged base; the reason and a remedy are printed and the
+        caller returns non-zero WITHOUT mutating anything. No remedy ever names removing or re-pointing the
+        remote; the base is what is wrong, not origin.
+      * refused=False — a non-refusing verdict; note_line is the plain-language currency line to surface to
+        the operator (the attestation when judged, the disclosure when currency could not be established).
+    Local git only; nothing here touches the network.
+    """
+    import transaction_handoff
+    verdict = transaction_handoff.judge_base_currency()
+    if verdict["refuses"]:
+        print("\n".join([verdict["explanation"], ""] + list(verdict["next_actions"])))
+        return True, ""
+    return False, transaction_handoff.currency_summary_line(verdict.get("currency"))
+
+
 def _staged_upgrade_dirty() -> bool:
     """COULD this working copy hold a staged update — the RECOVERY question.
 
@@ -6241,6 +6261,15 @@ def main(argv: list) -> int:
                     return 2
                 # Apply the release the VERIFIED plan named, not a second resolve of the operand.
                 resume_ref = consented.get("release") or ref
+            # BASE CURRENCY, the last gate before this mutates: refuse a wrong / behind-origin / diverged
+            # base (covering the fresh-consent AND the finish-a-staged-update paths alike, since both reach
+            # the one apply below), and otherwise surface the currency line to the operator. Same judgment
+            # the transaction adapter runs, so the two doors cannot disagree about a stale base.
+            base_refused, base_note = _door_base_currency()
+            if base_refused:
+                return 2
+            if base_note:
+                print(base_note)
             # The staged path applies the RECORDED release, never a re-resolved "latest".
             result = upgrade(resume_ref or ref)
             if "--json" in argv:
@@ -6299,6 +6328,15 @@ def main(argv: list) -> int:
                       "--remove-protection (your choice for the main-branch safety rule).", file=sys.stderr)
                 return 2
             choice = "drop" if drop_f else "keep"
+            # BASE CURRENCY, before the engine deletes itself: refuse a wrong / behind-origin / diverged
+            # base here — the deletion opens a pull request, and a stale base makes that a deletion against
+            # the wrong line. Refusing costs nothing; nothing has been touched. On a non-refusing verdict the
+            # currency line is surfaced to the operator alongside the removal's own output.
+            base_refused, base_note = _door_base_currency()
+            if base_refused:
+                return 2
+            if base_note:
+                print(base_note)
             result = remove_engine(choice=choice)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))

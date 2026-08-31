@@ -248,8 +248,13 @@ def do_run(adapter: Adapter, args, supplied_handle: str) -> dict:
     completed.append("verify")
     handoff = adapter.handoff(args, applied, receipts)
     completed.append("handoff")
+    # A pull-request-shaped adapter that checks base currency before it mutates leaves its non-refusing
+    # verdict (current, or currency-unverified) under `base_currency`; carry it onto the envelope so the
+    # attestation or disclosure rides with the machine record too. Absent for adapters that do not check
+    # it (module add/remove), and `_envelope` drops a None, so this is safe for every adapter.
     return _envelope(adapter.operation, "run", completed, "ok",
-                     facts=facts, plan=fresh, verification=receipts, handoff=handoff)
+                     facts=facts, plan=fresh, verification=receipts, handoff=handoff,
+                     currency=(applied or {}).get("base_currency"))
 
 
 class StalePlan(Exception):

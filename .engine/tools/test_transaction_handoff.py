@@ -310,6 +310,260 @@ class TestTheOtherOpenerRedactsToo(unittest.TestCase):
         self.assertNotIn("ghp_16C7e42F292c69", rendered)
 
 
+import contextlib   # noqa: E402
+import io   # noqa: E402
+
+import validate   # noqa: E402
+
+
+class _Args:
+    """A stand-in for the CLI args an adapter method receives; the currency check reads none of it."""
+    rest = []
+
+
+class BaseCurrencyRepo(unittest.TestCase):
+    """A throwaway repo whose origin refs are set with LOCAL plumbing only (update-ref / symbolic-ref),
+    never a fetch — the same discipline the check under test keeps. Default state: on `main`, current with
+    origin. The `make_*` helpers move it into each judged state."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = self._tmp.name
+        git(self.root, "init", "-q", "-b", "main")
+        git(self.root, "config", "user.email", "test@example.invalid")
+        git(self.root, "config", "user.name", "Test")
+        self._commit("seed")
+        head = git(self.root, "rev-parse", "HEAD").stdout.strip()
+        git(self.root, "update-ref", "refs/remotes/origin/main", head)
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _commit(self, name):
+        with open(os.path.join(self.root, name), "w", encoding="utf-8") as handle:
+            handle.write(name + "\n")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", name)
+        return git(self.root, "rev-parse", "HEAD").stdout.strip()
+
+    def _fingerprint(self):
+        return (git(self.root, "rev-parse", "HEAD").stdout.strip(),
+                git(self.root, "status", "--porcelain").stdout)
+
+    def make_wrong_base(self):
+        git(self.root, "checkout", "-q", "-b", "feature")
+
+    def make_behind(self):
+        ahead = self._commit("origin-only")
+        git(self.root, "update-ref", "refs/remotes/origin/main", ahead)
+        git(self.root, "reset", "-q", "--hard", "HEAD~1")
+
+    def make_diverged(self):
+        self.make_behind()
+        self._commit("local-only")
+
+    def make_default_unresolvable(self):
+        git(self.root, "symbolic-ref", "-d", "refs/remotes/origin/HEAD")
+
+    def make_origin_ref_unknown(self):
+        # origin/HEAD still names main, but the ref itself was never fetched here.
+        git(self.root, "update-ref", "-d", "refs/remotes/origin/main")
+
+
+_REFUSING_STATES = (("wrong_base", "wrong-base"), ("behind", "behind-origin"), ("diverged", "diverged"))
+
+
+class TestBaseCurrencyHelper(BaseCurrencyRepo):
+    def test_current_carries_a_judged_against_attestation(self):
+        verdict = th.judge_base_currency(root=self.root)
+        self.assertEqual(verdict["status"], "current")
+        self.assertFalse(verdict["refuses"])
+        attest = verdict["currency"]["judged_against"]
+        self.assertEqual(attest["default_branch"], "main")
+        self.assertEqual(attest["origin_commit"],
+                         git(self.root, "rev-parse", "refs/remotes/origin/main").stdout.strip())
+        self.assertTrue(attest["fetch_age"])
+
+    def test_a_default_branch_that_cannot_be_resolved_discloses_rather_than_refusing(self):
+        self.make_default_unresolvable()
+        verdict = th.judge_base_currency(root=self.root)
+        self.assertEqual(verdict["status"], "unverified")
+        self.assertFalse(verdict["refuses"])
+        self.assertFalse(verdict["currency"]["verified"])
+        self.assertIn("default branch", verdict["currency"]["note"])
+
+    def test_an_origin_ref_never_fetched_here_discloses_rather_than_refusing(self):
+        self.make_origin_ref_unknown()
+        verdict = th.judge_base_currency(root=self.root)
+        self.assertEqual(verdict["status"], "unverified")
+        self.assertFalse(verdict["refuses"])
+        self.assertIn("origin/main", verdict["currency"]["note"])
+
+    def test_each_refusal_names_a_remedy_and_never_touches_the_remote(self):
+        for maker, code in _REFUSING_STATES:
+            with self.subTest(state=maker):
+                self._tmp.cleanup(); self.setUp()
+                getattr(self, "make_" + maker)()
+                verdict = th.judge_base_currency(root=self.root)
+                self.assertEqual(verdict["code"], code)
+                self.assertTrue(verdict["refuses"])
+                self.assertTrue(verdict["next_actions"])
+                joined = " ".join(verdict["next_actions"]).lower()
+                for forbidden in ("remove the remote", "re-point", "repoint", "remove origin", "set-url"):
+                    self.assertNotIn(forbidden, joined)
+
+    def test_the_check_makes_no_network_call(self):
+        """Every git invocation the check issues is local plumbing. A fetch or ls-remote slipping in later
+        fails here rather than reaching a remote."""
+        seen = []
+        original = th._git
+
+        def spy(args, root, check=False):
+            seen.append(list(args))
+            return original(args, root, check=check)
+
+        with mock.patch.object(th, "_git", spy):
+            th.judge_base_currency(root=self.root)
+        self.assertTrue(seen)
+        for call in seen:
+            self.assertIn(call[0], th._CURRENCY_GIT_SUBCOMMANDS,
+                          "unexpected git subcommand in the currency check: {0}".format(call))
+
+
+class TestCurrencyRefusesAtEveryAdapterEntry(BaseCurrencyRepo):
+    """Obligation 1: EACH wired entry point refuses — not only the helper. The refusal fires before any
+    domain call, so a refusing state leaves the tree untouched (nothing was mutated to be undone)."""
+
+    def _adapter_entries(self):
+        import transaction as tx
+        import transaction_adapters_remove  # noqa: F401 — registers engine-remove
+        import transaction_adapters_upgrade  # noqa: F401 — registers upgrade + rollback
+        return (
+            ("upgrade-adapter", lambda: tx._REGISTRY["engine-upgrade"].apply(
+                _Args(), {"inputs": {"release": "v1"}})),
+            ("rollback-adapter", lambda: tx._REGISTRY["engine-upgrade-rollback"].apply(_Args(), {})),
+            ("remove-adapter", lambda: tx._REGISTRY["engine-remove"].apply(
+                _Args(), {"inputs": {"protection": "keep"}})),
+        )
+
+    def test_each_adapter_entry_refuses_each_stale_state_without_mutating(self):
+        for entry_label, run_entry in self._adapter_entries():
+            for maker, code in _REFUSING_STATES:
+                with self.subTest(entry=entry_label, state=maker):
+                    self._tmp.cleanup(); self.setUp()
+                    getattr(self, "make_" + maker)()
+                    before = self._fingerprint()
+                    with mock.patch.object(validate, "ROOT", self.root):
+                        with self.assertRaises(transaction.TransactionRefused) as caught:
+                            run_entry()
+                    self.assertEqual(caught.exception.code, code)
+                    self.assertEqual(self._fingerprint(), before)
+
+
+class TestCurrencyRefusesAtEveryDoor(BaseCurrencyRepo):
+    """The two operator-typed doors in module_manager refuse each stale state before their mutation, using
+    the same shared judgment — so a door and its adapter cannot drift into two notions of a stale base."""
+
+    def _run_upgrade_door(self):
+        import module_manager
+        # The consent gate runs first on this path and needs a real engine to derive a handle; short it to
+        # 'matches' so the base-currency gate under test is reached. The mutation itself is stubbed so a
+        # bug that let it through would be caught, not silently applied.
+        with mock.patch.object(module_manager, "_refuse_stale_consent", return_value=None), \
+             mock.patch.object(module_manager, "upgrade") as domain, \
+             mock.patch.object(validate, "ROOT", self.root):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = module_manager.main(["upgrade", "--confirm", "--consent-handle=x"])
+        return code, domain, buffer.getvalue()
+
+    def _run_remove_door(self):
+        import module_manager
+        with mock.patch.object(module_manager, "remove_engine") as domain, \
+             mock.patch.object(validate, "ROOT", self.root):
+            buffer = io.StringIO()
+            with contextlib.redirect_stdout(buffer):
+                code = module_manager.main(["remove-engine", "--confirm", "--keep-protection"])
+        return code, domain, buffer.getvalue()
+
+    def test_each_door_refuses_each_stale_state_without_applying(self):
+        for door_label, run_door in (("upgrade-door", self._run_upgrade_door),
+                                     ("remove-door", self._run_remove_door)):
+            for maker, code in _REFUSING_STATES:
+                with self.subTest(door=door_label, state=maker):
+                    self._tmp.cleanup(); self.setUp()
+                    getattr(self, "make_" + maker)()
+                    rc, domain, out = run_door()
+                    self.assertEqual(rc, 2)
+                    domain.assert_not_called()
+                    self.assertNotIn("re-point", out.lower())
+                    self.assertNotIn("remove the remote", out.lower())
+
+
+class TestTheModuleFlowTakesNoNewRefusal(BaseCurrencyRepo):
+    """The in-tree module add/remove flow keeps its recorded current-branch design: its only pre-mutation
+    gate is `refuse_unless_ready`, which never consults base currency. On a wrong AND behind base — where
+    every PR-shaped entry refuses — the module gate still passes."""
+
+    def test_refuse_unless_ready_does_not_consult_base_currency(self):
+        self.make_wrong_base()
+        self.make_behind()
+        os.makedirs(os.path.join(self.root, ".engine", "modules"), exist_ok=True)
+        state = th.refuse_unless_ready([".engine/modules/design-review.json"], root=self.root)
+        self.assertNotEqual(state["branch"], "main")   # genuinely a wrong base for a PR-shaped transaction
+
+
+class TestCurrencyReachesTheOperatorAndTheEnvelope(BaseCurrencyRepo):
+    """Obligation 2 and 3: the note rides the machine envelope AND surfaces in the operator-facing handoff
+    text, for both the unverified disclosure and the judged attestation."""
+
+    def test_do_run_threads_the_currency_note_onto_the_envelope(self):
+        note = {"verified": False, "note": "Base currency was not checked: origin unknown here."}
+
+        class _FakeAdapter(transaction.Adapter):
+            operation = "engine-upgrade"
+
+            def inspect(self, args):
+                return {"summary": "x", "fingerprints": {"a": "1"}}
+
+            def plan(self, args, facts):
+                return {"inputs": {}, "consequences": ["c"], "effects": [],
+                        "reversibility": "reverted-pull-request"}
+
+            def apply(self, args, plan):
+                return {"pr": {"url": "https://example.invalid/1"}, "base_currency": note}
+
+            def verify(self, args, applied):
+                return []
+
+            def handoff(self, args, applied, receipts):
+                return {"kind": "pull-request", "summary": "done"}
+
+        adapter = _FakeAdapter()
+        args = _Args()
+        _facts, planned = transaction._planned(adapter, args)   # the handle the operator would carry back
+        envelope = transaction.do_run(adapter, args, planned["consent_handle"])
+        self.assertEqual(envelope["currency"], note)
+
+    def test_the_upgrade_handoff_summary_carries_the_note_for_the_operator(self):
+        import transaction_adapters_upgrade as up
+        note = {"verified": False, "note": "Base currency was not checked: origin/main unknown here."}
+        handoff = up.UpgradeEngine().handoff(
+            _Args(), {"pr": {"url": "https://example.invalid/1"}, "base_currency": note}, [])
+        self.assertIn("Base currency was not checked", handoff["summary"])
+
+    def test_the_remove_handoff_summary_carries_the_attestation_for_the_operator(self):
+        import transaction_adapters_remove as rm
+        note = {"verified": True, "note": "Base is current with origin/main (last fetched 1 hour ago); "
+                                          "judged against abcdef123456.",
+                "judged_against": {"default_branch": "main", "origin_commit": "abcdef1234567",
+                                   "fetch_age": "last fetched 1 hour ago"}}
+        handoff = rm.RemoveEngine().handoff(
+            _Args(), {"pr": {"url": "https://example.invalid/9"}, "base_currency": note}, [])
+        self.assertIn("Base is current with origin/main", handoff["summary"])
+
+
 # Kept LAST on purpose: this block used to sit mid-file, so every test class below it was
 # invisible to anyone running the file directly -- 19 of this build's own tests among them. CI
 # uses discovery and ran them, which is the same "green over a gap" shape as the defect repaired
