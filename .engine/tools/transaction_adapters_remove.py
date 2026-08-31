@@ -14,7 +14,16 @@ validated and rendered afterwards.
 WHY `run` REFUSES HERE. The operator's ruling: an upgrade can be rolled back, an engine deletion is a
 harder recovery, so its start stays a deliberate act of theirs rather than something a session can reach.
 `transaction.py run engine-remove` refuses unconditionally and names the typed command; this adapter's
-phases are driven by that command. The digest handle still binds what was previewed.
+phases are driven by that command.
+
+AND THE DIGEST HANDLE NOW ACTUALLY BINDS — this sentence used to be aspirational. `module_manager.remove_engine`
+verifies the consent handle at its own function seam before it touches anything: a real (non-injected) removal
+re-derives the handle from THIS adapter's plan (via the shared `_refuse_stale_consent` core that also serves
+upgrade) and refuses an absent or stale one. So `plan` here mints the handle the operator carries to
+`remove-engine --confirm`, and applying a plan that has since moved refuses rather than deleting against
+consent given to a different change. The bound guarantee is plan-identity and repository-state freshness, not
+authorship: the handle is replayable and self-mintable, so the operator-typed `--confirm` remains the consent
+evidence and that residual is disclosed rather than overclaimed.
 
 AND WHAT THE PULL REQUEST CANNOT CARRY. The protection change is a repository setting, applied during
 apply and outside any pull request. That is disclosed here in plain words rather than left for a reader to

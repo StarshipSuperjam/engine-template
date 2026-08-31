@@ -4415,7 +4415,7 @@ def _remove_engine_pr_body(result: dict) -> str:
 
 
 def remove_engine(opener=None, transport=None, choice: str | None = None, announce=None,
-                  repo=None, token=None) -> dict:
+                  repo=None, token=None, consent_handle: str | None = None) -> dict:
     """Remove the WHOLE engine cleanly — the
     'separate step' that per-module remove() points a required module toward, leaving an operable,
     engine-free product. The order is what safety demands:
@@ -4443,6 +4443,20 @@ def remove_engine(opener=None, transport=None, choice: str | None = None, announ
     say = announce if announce is not None else (lambda text: print(text))
     result = {"de_bootstrap": None, "reversed": [], "left_in_place": [], "deleted": [],
               "pr": None, "reversal_note": None, "refused": False, "reason": None, "notes": []}
+
+    # CONSENT AT THE FUNCTION SEAM, before anything is touched. A real (non-injected) removal is the engine's
+    # most destructive act, so it applies your consent to the EXACT plan you were shown: the handle from
+    # `transaction.py plan engine-remove <choice>` is re-derived here and must still match. Enforced at this
+    # seam — not only the CLI door — so a non-CLI caller reaching a real removal cannot skip it. The INJECTED
+    # path (a fixture opener/transport) is the module's own test/demo seam, never a real removal, and is
+    # exempt by that same design; the CLI-path test drives the real confirm path THROUGH this gate. Residual,
+    # stated plainly: the handle binds plan-identity and repository-state freshness, not authorship — it is
+    # replayable and self-mintable, so the operator-typed `--confirm` remains the consent evidence.
+    if not injected:
+        stale = _refuse_stale_remove_consent(choice, consent_handle)
+        if stale:
+            return {**result, "refused": True, "reason": stale}
+
     manifests = module_coherence.discover_manifests()
 
     # (1) DE-BOOTSTRAP FIRST — drop the engine required checks so the deletion PR can't deadlock.
@@ -5706,44 +5720,91 @@ def _consent_handle_arg(argv: list):
     return None
 
 
-def _refuse_stale_consent(ref, handle: str, on_release=None):
-    """Compare the carried handle against a freshly-derived one. Returns a message to print, or None.
-
-    Derived through the transaction adapter so the comparison uses the SAME plan the operator was shown —
-    not a second notion of what an update means, which would drift.
-
-    AND HANDS BACK THE RELEASE THAT PLAN NAMED, via `on_release`. This function resolved "latest" to a
-    concrete tag, compared the handle against it, and then threw the plan away — after which the caller
-    ran `upgrade(None)` and resolved latest a SECOND time. So the handle was checked against release X
-    and release Y could be applied, on the operator-typed path the skill documents and whose notes promise
-    "the handle you carry from the plan to the apply is what guarantees the thing applied is the thing you
-    read". Returning the resolved release is what makes that sentence true.
-    """
+def _refuse_stale_transaction_consent(operation, adapter_module, rest, handle, *,
+                                      unverifiable_message, mismatch_message, on_plan=None):
+    """Compare a carried consent handle against one freshly derived THROUGH the transaction adapter, so the
+    comparison uses the same plan the operator was shown — one notion of what the change is, shared by
+    engine-upgrade and whole-engine removal rather than re-derived per operation, which would drift. This
+    is the shared core the divergence trap this program exists to close would otherwise reopen: a copied
+    check is a second rule, and two copies of a consent rule diverge invisibly until a deletion turns on
+    the difference. Returns a message to print (the handle could not be checked, or it does not match), or
+    None when it matches; on a match it hands the verified plan to `on_plan` for any operation-specific
+    follow-up (upgrade uses it to apply the release the plan named, not a second resolve of 'latest')."""
     try:
         import transaction
-        import transaction_adapters_upgrade  # noqa: F401 — registers the adapter
+        __import__(adapter_module)   # registers this operation's adapter
         import transaction_envelope
 
         class _Args:
-            rest = [ref] if ref else []
+            pass
 
-        adapter = transaction._REGISTRY["engine-upgrade"]
-        facts = adapter.inspect(_Args())
-        plan = dict(adapter.plan(_Args(), facts))
+        args = _Args()
+        args.rest = list(rest)
+        adapter = transaction._REGISTRY[operation]
+        facts = adapter.inspect(args)
+        plan = dict(adapter.plan(args, facts))
         plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
         fresh = transaction_envelope.consent_handle(plan)
     except Exception as exc:   # noqa: BLE001 — an unverifiable handle must not silently pass
-        return ("Couldn't check the consent handle you passed, so this update was NOT applied and nothing "
-                "was changed. Re-run `transaction.py plan engine-upgrade` for a fresh plan and handle. "
-                "({0})".format(exc))
-    if handle == fresh and on_release is not None:
-        on_release((plan.get("inputs") or {}).get("release"))
-    if handle != fresh:
-        return ("The consent handle does not match this update. Something moved since the plan you read — "
-                "the release, what it turns on or retires, or your checkout — so applying now would apply "
-                "your consent to a different change. Nothing was changed. Run "
-                "`transaction.py plan engine-upgrade` to see the current plan, and apply with its handle.")
-    return None
+        return "{0} ({1})".format(unverifiable_message, exc)
+    if handle == fresh:
+        if on_plan is not None:
+            on_plan(plan)
+        return None
+    return mismatch_message
+
+
+def _refuse_stale_consent(ref, handle: str, on_release=None):
+    """Upgrade's consent gate — behavior unchanged, now expressed through the shared core above so upgrade
+    and removal cannot drift into two notions of a stale plan.
+
+    AND HANDS BACK THE RELEASE THAT PLAN NAMED, via `on_release`. Without it the caller runs `upgrade(None)`
+    and resolves "latest" a SECOND time, so the handle checked against release X could apply release Y — the
+    substitution this gate exists to stop, on the operator-typed path whose notes promise "the handle you
+    carry from the plan to the apply is what guarantees the thing applied is the thing you read".
+    """
+    return _refuse_stale_transaction_consent(
+        "engine-upgrade", "transaction_adapters_upgrade", [ref] if ref else [], handle,
+        on_plan=((lambda plan: on_release((plan.get("inputs") or {}).get("release")))
+                 if on_release is not None else None),
+        unverifiable_message=(
+            "Couldn't check the consent handle you passed, so this update was NOT applied and nothing "
+            "was changed. Re-run `transaction.py plan engine-upgrade` for a fresh plan and handle."),
+        mismatch_message=(
+            "The consent handle does not match this update. Something moved since the plan you read — "
+            "the release, what it turns on or retires, or your checkout — so applying now would apply "
+            "your consent to a different change. Nothing was changed. Run "
+            "`transaction.py plan engine-upgrade` to see the current plan, and apply with its handle."))
+
+
+def _refuse_stale_remove_consent(choice, handle):
+    """Whole-engine removal's consent gate — through the SAME shared core as upgrade, never a copy. `choice`
+    is the operator's 'keep'/'drop' protection decision; the plan is derived with the matching flag so the
+    handle covers that choice too. Returns a message to print (unverifiable or mismatch), or None on a
+    match. The handle binds plan-identity and repository-state freshness (the same guarantee upgrade's does)
+    — the operator-typed `remove-engine --confirm` remains the consent evidence, and the residual is honest:
+    the handle is replayable and self-mintable, so it proves the plan was not SWAPPED between reading and
+    applying, not who authorized it."""
+    flag = "--remove-protection" if choice == "drop" else "--keep-protection"
+    if not handle:
+        # AN ABSENT HANDLE IS A REFUSAL, NOT A PASS — the same rule as upgrade, and for a harder-to-undo act.
+        # Optional would be no gate at all: a caller that wants to skip it simply omits the flag.
+        return ("Removing the engine applies your consent to the exact plan you were shown, so it needs the "
+                "consent handle from that plan. Nothing was changed.\n"
+                "See the plan and get a fresh handle:\n"
+                "    transaction.py plan engine-remove {0}\n"
+                "then run `remove-engine --confirm {0}` with the --consent-handle it prints.".format(flag))
+    return _refuse_stale_transaction_consent(
+        "engine-remove", "transaction_adapters_remove", [flag], handle,
+        unverifiable_message=(
+            "Couldn't check the consent handle you passed, so the engine was NOT removed and nothing was "
+            "changed. Re-run `transaction.py plan engine-remove {0}` for a fresh plan and handle."
+            .format(flag)),
+        mismatch_message=(
+            "The consent handle does not match this removal. Something moved since the plan you read — your "
+            "checkout, or the engine's own state — so applying now would apply your consent to a different "
+            "change. Nothing was changed. Run `transaction.py plan engine-remove {0}` to see the current "
+            "plan, and apply with its handle.".format(flag)))
 
 
 def _door_base_currency() -> tuple:
@@ -6318,9 +6379,11 @@ def main(argv: list) -> int:
                 print("Removing the WHOLE engine is a deliberate step. It takes the engine's checks off "
                       "your main branch's safety rule, removes the engine's entries from your shared setup "
                       "files, deletes all the engine's files, and opens a pull request with the deletions "
-                      "for your review. Nothing has changed.\n\nTo proceed, re-run with --confirm and ONE "
+                      "for your review. Nothing has changed.\n\nTo proceed, re-run with --confirm, ONE "
                       "of:\n  --keep-protection    keep your main-branch safety rule (engine's checks "
-                      "removed)\n  --remove-protection  remove your main-branch safety rule entirely")
+                      "removed)\n  --remove-protection  remove your main-branch safety rule entirely\n"
+                      "and the --consent-handle from the plan you read:\n"
+                      "  transaction.py plan engine-remove --keep-protection|--remove-protection")
                 return 1
             keep_f, drop_f = "--keep-protection" in argv, "--remove-protection" in argv
             if keep_f == drop_f:   # neither, or BOTH (ambiguous) — never silently pick the destructive one
@@ -6337,7 +6400,11 @@ def main(argv: list) -> int:
                 return 2
             if base_note:
                 print(base_note)
-            result = remove_engine(choice=choice)
+            # CONSENT: the handle the operator carried back from `transaction.py plan engine-remove`. It is
+            # verified at the remove_engine() function seam below (not here), so a non-CLI caller cannot skip
+            # it; the door only carries it through and renders whatever the seam decides.
+            handle = _consent_handle_arg(argv)
+            result = remove_engine(choice=choice, consent_handle=handle)
             if "--json" in argv:
                 print(json.dumps(result, indent=2))
             else:

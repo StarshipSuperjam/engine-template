@@ -17,10 +17,12 @@ state neither the old world nor the new one. Everything else is the transaction'
    checks out of it. Decide whether to **keep** the rule (protected, minus the engine's checks) or
    **remove** it entirely. Keep it unless you are sure you want it gone. The engine never removes that
    protection without you choosing.
-2. **Start it yourself.** `module_manager.py remove-engine --confirm` with your choice. This one is not
-   something the engine will start for you: an update can be rolled back, but an engine that has removed
-   itself is a harder recovery, so beginning it stays your deliberate act. Running the plan first changes
-   nothing.
+2. **Start it yourself.** `module_manager.py remove-engine --confirm` with your choice **and the
+   `--consent-handle` the plan printed** — the removal applies your consent to the exact plan you read, and
+   refuses without a matching handle (or if your checkout moved since), so run the plan above first and carry
+   its handle over. This one is not something the engine will start for you: an update can be rolled back, but
+   an engine that has removed itself is a harder recovery, so beginning it stays your deliberate act. Running
+   the plan first changes nothing.
 3. **Review and merge.** The deletions arrive as a pull request. Until you merge it, the engine's files are
    still present. Merging is your approval; reverting brings them back.
 
