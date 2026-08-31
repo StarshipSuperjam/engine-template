@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "session-relay.v1 — the typed session-start envelope",
+  "description": "The whole envelope boot's session-start relay is built from. The platform never injects raw JSON — a validated envelope of this shape is rendered by the session_relay helper into a deterministic prose block. A fact may enter the envelope only under one of seven PUSH WARRANTS, and this schema's seven required top-level sections ARE that taxonomy: grounding_receipt (proof of grounding), identity (who/where this session is), authority_contract (the Explore write-gate contract shape), task_binding (verified-or-none, referencing session-binding.v1), action_forcing_alarms (compact, closed-enumeration alarms — never free prose), standing_directives (bounded operator-facing routing), and pointers (closed-enumeration pointers to points of use). additionalProperties is false at every object level so an unrecognized field is a schema change, never silent growth. Every machine-derived string anywhere in this envelope (worktree/branch/PR names, pin text, slugs, paths, memory excerpts) is DATA: the renderer must treat it as inert text and never let it forge relay structure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "grounding_receipt",
+    "identity",
+    "authority_contract",
+    "task_binding",
+    "action_forcing_alarms",
+    "standing_directives",
+    "pointers"
+  ],
+  "properties": {
+    "schema_version": {"const": "session-relay.v1"},
+
+    "grounding_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present_marker_count", "helpers"],
+      "description": "Proof of grounding: the calm present-marker count line, and the consent-critical helper-availability state for both helper families. This section, together with action_forcing_alarms, MUST render inside the first 2,000 characters of output (the platform's injected-context preview truncates there).",
+      "properties": {
+        "present_marker_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How many present markers grounding found this session. A plain count, not a list of the markers themselves."
+        },
+        "helpers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["memory", "knowledge_graph"],
+          "description": "Consent-critical availability for BOTH helper families — always both, so a missing helper is disclosed rather than silently absent from the envelope.",
+          "properties": {
+            "memory": {"$ref": "#/$defs/helper_state"},
+            "knowledge_graph": {"$ref": "#/$defs/helper_state"}
+          }
+        }
+      }
+    },
+
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deployment"],
+      "description": "Who/where this session is.",
+      "properties": {
+        "deployment": {
+          "enum": ["deployed_project", "engine_home"],
+          "description": "Closed enumeration: whether this session is running inside a project the engine is installed into, or inside the engine's own home repository (the mechanic)."
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional human-facing project or worktree label. Machine-derived data; render as inert text."
+        }
+      }
+    },
+
+    "authority_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stance", "action_default", "blocked", "provider_exceptions"],
+      "description": "The SHAPE of the Explore write-gate contract. A later node populates this from modes.py at render time; this schema fixes what a populated contract must look like.",
+      "properties": {
+        "stance": {
+          "enum": ["explore", "build", "routine"],
+          "description": "The session's current operating stance, matching modes.py's three stances."
+        },
+        "action_default": {
+          "enum": ["allow-by-default"],
+          "description": "The gate's default disposition for an action it does not recognize. Closed to a single literal today (the write-gate's no-default-deny law); widening this enumeration is a deliberate schema change, never a free-form string."
+        },
+        "blocked": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "memory_write",
+              "protected_branch_merge",
+              "engine_issue_bypass",
+              "build_commit",
+              "session_relay_write"
+            ]
+          },
+          "description": "The enumerable set of action codes the gate currently blocks while exploring. Closed enumeration — a new blocked action is a deliberate schema change, never free text."
+        },
+        "provider_exceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["provider", "note"],
+            "properties": {
+              "provider": {"type": "string", "minLength": 1},
+              "note": {"type": "string", "minLength": 1}
+            }
+          },
+          "description": "Sanctioned per-provider differences in how the gate applies. `note` is machine-derived/authored data; render as inert text."
+        }
+      }
+    },
+
+    "task_binding": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {"state": {"const": "none"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "binding"],
+          "properties": {
+            "state": {"const": "verified"},
+            "binding": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["worktree", "plan_ref", "coordinator_snapshot", "pr_contract"],
+              "description": "Evidence shaped exactly like session-binding.v1 (worktree-keyed, with coordinator-snapshot and PR-contract expiry evidence). Duplicated inline rather than $ref'd across schema files so this envelope validates standalone.",
+              "properties": {
+                "worktree": {"type": "string", "minLength": 1},
+                "plan_ref": {"type": "string", "minLength": 1},
+                "captured_at": {"type": "string", "minLength": 1},
+                "coordinator_snapshot": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["revision"],
+                  "properties": {"revision": {"type": "string", "minLength": 1}}
+                },
+                "pr_contract": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["state"],
+                  "properties": {
+                    "state": {"enum": ["open", "merged", "closed", "superseded"]},
+                    "pr_ref": {"type": "string", "minLength": 1}
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Either 'none' (no verified binding) or a 'verified' state carrying binding evidence shaped like session-binding.v1. See session-binding.v1.json for the authoritative evidence documentation."
+    },
+
+    "action_forcing_alarms": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/alarm"},
+      "description": "A list of COMPACT alarms — each a short stable code plus minimal structured data, never free prose. Renders immediately after grounding_receipt, and both together must fit the first 2,000 characters."
+    },
+
+    "standing_directives": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pins_index", "execution_posture", "routing_lines", "where_we_left_off"],
+      "description": "Bounded operator-facing routing: the pins index, the execution posture, exactly two fixed non-mechanical routing lines, and a one-line labelled where-we-left-off pointer.",
+      "properties": {
+        "pins_index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count"],
+          "properties": {
+            "count": {"type": "integer", "minimum": 0},
+            "summary": {"type": "string", "description": "Optional short summary of the pins. Machine-derived data; render as inert text."}
+          }
+        },
+        "execution_posture": {
+          "enum": ["explore", "build", "routine"],
+          "description": "The posture standing_directives reports — matches authority_contract.stance in a well-formed envelope, but is validated independently since this section stands alone in the render."
+        },
+        "routing_lines": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "Exactly two FIXED, non-mechanical routing reminders. Each must be one of the canonical lines below — this is closed template text, never operator- or machine-supplied prose, so it cannot be used to forge relay structure.",
+          "items": {
+            "enum": [
+              "never hand-write .engine/memory directly",
+              "route personal working notes to the notebook; route project conclusions to memory"
+            ]
+          }
+        },
+        "where_we_left_off": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "pointer"],
+          "properties": {
+            "label": {"const": "Where we left off"},
+            "pointer": {
+              "type": "string",
+              "minLength": 1,
+              "description": "One-line pointer to where the prior session left off. Machine-derived data; render as inert text."
+            }
+          }
+        }
+      }
+    },
+
+    "pointers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "memory_recall_procedure",
+              "explore_scope_detail",
+              "neighbourhood_detail",
+              "dashboard_pull"
+            ],
+            "description": "Closed enumeration of pointer kinds. Adding a kind is a deliberate schema change."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional machine-derived reference (a path, command, or slug) naming the point of use. Render as inert text."
+          }
+        }
+      },
+      "description": "Closed-enumeration pointers to points of use (e.g. the memory-recall procedure, Explore-scope detail, neighbourhood detail, a dashboard pull)."
+    }
+  },
+
+  "$defs": {
+    "helper_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "enum": ["available", "missing", "unhealthy"],
+          "description": "Closed enumeration of a helper family's consent-critical availability state."
+        }
+      }
+    },
+    "alarm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "data"],
+      "description": "One compact action-forcing alarm: a short stable code plus a data shape fixed BY that code (enforced by the if/then branches below), never free prose.",
+      "properties": {
+        "code": {
+          "enum": [
+            "qualification",
+            "memory_drain",
+            "restore_recovery",
+            "gate_off",
+            "blocking_findings",
+            "review_stall"
+          ]
+        },
+        "data": {"type": "object"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"code": {"const": "qualification"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object", "additionalProperties": false,
+                "required": ["rounds_remaining"],
+                "properties": {"rounds_remaining": {"type": "integer", "minimum": 0}}
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"code": {"const": "memory_drain"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object", "additionalProperties": false,
+                "required": ["pct_used"],
+                "properties": {"pct_used": {"type": "number", "minimum": 0, "maximum": 100}}
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"code": {"const": "restore_recovery"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object", "additionalProperties": false,
+                "required": ["snapshot_age_hours"],
+                "properties": {"snapshot_age_hours": {"type": "number", "minimum": 0}}
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"code": {"const": "gate_off"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object", "additionalProperties": false,
+                "required": ["gate"],
+                "properties": {
+                  "gate": {"enum": ["explore_write_gate", "protected_merge_guard"]}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"code": {"const": "blocking_findings"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object", "additionalProperties": false,
+                "required": ["count"],
+                "properties": {"count": {"type": "integer", "minimum": 1}}
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"code": {"const": "review_stall"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object", "additionalProperties": false,
+                "required": ["rounds"],
+                "properties": {"rounds": {"type": "integer", "minimum": 1}}
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

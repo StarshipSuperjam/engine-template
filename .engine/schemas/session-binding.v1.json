@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "session-binding.v1 — verified task-binding evidence, keyed by worktree",
+  "description": "The evidence shape for a session's verified binding to a task (a plan or Build node it is working). Keyed by WORKTREE because a binding is a property of the isolated worktree a session runs in, not of the session process itself — a resumed session in the same worktree inherits the same binding. Expiry is evaluated by COMPARISON, never by a recorded close event: a reader re-checks the coordinator's current snapshot revision and the pull request's current contract state against the values captured here, and treats a mismatch as stale. This schema defines only the evidence's shape and validation; writing, reading, and expiring a binding are later nodes' work. Every machine-derived string here (worktree, plan_ref, revision, pr identifiers) is DATA — a renderer must treat it as inert text, never as render structure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "worktree", "plan_ref", "coordinator_snapshot", "pr_contract"],
+  "properties": {
+    "schema_version": {"const": "session-binding.v1"},
+
+    "worktree": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The absolute path of the worktree this binding belongs to — the key evidence is looked up by. Machine-derived data; render as inert text."
+    },
+
+    "plan_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The identifier of the plan or Build node the worktree is bound to (e.g. a plan slug or PR number reference). Machine-derived data; render as inert text."
+    },
+
+    "captured_at": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional ISO-8601 timestamp of when this binding evidence was captured. This is historical evidence data captured once at bind time — never a value the renderer regenerates at render time (the renderer must never stamp 'now')."
+    },
+
+    "coordinator_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision"],
+      "description": "The Build coordinator's state-snapshot revision captured at bind time. A reader re-checks this against the coordinator's CURRENT revision; a mismatch means the binding has gone stale — this is expiry-by-comparison, not a recorded close event.",
+      "properties": {
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The coordinator snapshot revision identifier at bind time. Machine-derived data; render as inert text."
+        }
+      }
+    },
+
+    "pr_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "description": "The pull request's contract state captured at bind time. A reader re-checks this against the PR's CURRENT state; a mismatch (e.g. it merged, closed, or was superseded since binding) means the binding has gone stale.",
+      "properties": {
+        "state": {
+          "enum": ["open", "merged", "closed", "superseded"],
+          "description": "Closed enumeration of the pull request's contract state at bind time."
+        },
+        "pr_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional identifier of the pull request (e.g. '#1187'). Machine-derived data; render as inert text."
+        }
+      }
+    }
+  }
+}
