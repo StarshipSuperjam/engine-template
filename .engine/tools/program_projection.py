@@ -101,7 +101,13 @@ def _balanced_prefix(text: str) -> str:
       follows: the headline then shows the aside's own words rather than an empty line or a lone
       bracket. Recursion handles a run of such leading opens; it is bounded by their count.
 
-    The result is guaranteed to hold no unmatched '(' for any input."""
+    Scope, deliberately: this guards unmatched OPEN parens only — the reader-facing harm, where a
+    headline shows an open bracket and half an aside with no main clause. A truncated headline can
+    still carry an unmatched CLOSE ')', because a goal often uses ')' as a list marker ('1) design,
+    2) build, 3) ship'); that reads perfectly naturally and is left intact ON PURPOSE. Dropping it
+    would mangle the very numbered-list phrasing the plan names as a real live-shelf shape. So the
+    guarantee is 'no unmatched OPEN paren for any input', not full count-balance — the two differ only
+    on list-marker goals, and only in a way a reader never notices."""
     depth = 0
     open_at = None
     for i, ch in enumerate(text):

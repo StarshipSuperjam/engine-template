@@ -271,6 +271,20 @@ class GoalHeadlineCutsOnACompleteThought(unittest.TestCase):
                                  f"unbalanced parentheses in {headline!r}")
                 self.assertTrue(headline.endswith("…"))
 
+    def test_a_numbered_list_marker_close_paren_is_kept_not_dropped(self):
+        # Deliberate scope: the balance guard drops unmatched OPENS (the dangling-'(' harm) but leaves
+        # a ')' used as a list marker intact — '1) ... 2) ... 3) ...' reads naturally and dropping the
+        # markers would mangle it. This pins that decision so a later 'make it fully balanced' change
+        # cannot silently regress the numbered-list phrasing the plan names as a real shelf shape.
+        obj = ("Deliver the capability in four parts: 1) design the schema and finalize the stored "
+               "contract, 2) build the ingestion pipeline end to end, 3) ship the operator-facing UI "
+               "with its docs, and 4) write the migration and rollback playbooks before the launch.")
+        headline = program_projection.goal_headline(obj)
+        self.assertGreater(len(obj), program_projection._HEADLINE_CAP)     # it is truncated
+        self.assertIn("1) design", headline)                              # markers preserved, not stripped
+        self.assertIn("2) build", headline)
+        self.assertEqual(headline.count("("), 0)                          # no open paren was introduced
+
     def test_last_clause_boundary_returns_none_when_every_late_marker_is_inside_a_paren(self):
         # A true pin on the guard: the ONLY markers past the 0.55 floor are commas inside an unclosed
         # '(...)', so a guarded boundary search finds nothing (None). Unguarded, rfind would return an
