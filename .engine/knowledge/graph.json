@@ -17515,7 +17515,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:a15ece96e30f809a08cc2da73da949027bdffd055fa33c25404d343046dc06a5",
+        "fingerprint": "sha256:ea39a5a562ba01c4641d2aa24d680824766f2960ea8dd0ff87c2cbcae465cf1b",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
