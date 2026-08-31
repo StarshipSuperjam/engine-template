@@ -31,6 +31,7 @@ import moment
 import plan_program
 import plan_projection
 import plan_store
+import program_projection
 import project_manager
 
 ProgramManagerError = plan_store.PlanStoreError
@@ -75,6 +76,7 @@ def cmd_program_list(args) -> int:
             # exact misreading this change exists to remove.
             print("                    ^ every child on record is done; nobody has recorded that "
                   "the PROGRAM is. Run `program show` for what that does and does not claim.")
+    print("\nEvery open program at a glance, qualitatively — `program portfolio`.")
     return 0
 
 
@@ -83,6 +85,15 @@ def cmd_program_show(args) -> int:
     slug = programs.resolve(args.program)
     print(plan_program.render(programs, programs.read(slug)))
     _report_decay(programs, slug)
+    print("\nEvery open program at a glance, qualitatively — `program portfolio`.")
+    return 0
+
+
+def cmd_program_portfolio(args) -> int:
+    """The qualitative portfolio: every open program at a glance. A pure read — it renders and writes
+    nothing, selects nothing, starts nothing."""
+    programs = _programs(args)
+    print(program_projection.render_portfolio(programs), end="")
     return 0
 
 
@@ -492,6 +503,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     program_list = program.add_parser("list", help="every program, its children and what it still owes")
     program_list.set_defaults(func=cmd_program_list)
+
+    program_portfolio = program.add_parser(
+        "portfolio", help="every open program at a glance, qualitatively — goals, progress, what is in "
+                          "flight (a pure read; nothing is selected or started)")
+    program_portfolio.set_defaults(func=cmd_program_portfolio)
 
     program_show = program.add_parser("show", help="one program, its children and outstanding obligations")
     program_show.add_argument("program")

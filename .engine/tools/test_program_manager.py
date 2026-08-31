@@ -70,13 +70,27 @@ def _golden_normalize(text, root):
     return text.replace(root, "<LIB>")
 
 
+_PORTFOLIO_HINT_BLOCK = "\nEvery open program at a glance, qualitatively — `program portfolio`.\n"
+
+
 def _fold_new_to_old(entry):
-    """Rewrite the new tool's output by the ONE permitted delta, so what remains must match the golden
-    byte-for-byte. Applied only to the replay side; the golden is the pre-move truth, untouched."""
+    """Rewrite the new tool's output by the permitted deltas, so what remains must match the golden
+    byte-for-byte. Applied only to the replay side; the golden is the pre-move truth, untouched.
+
+    The move's own two deltas are the tool name in printed hints and the refusal prefix. A THIRD,
+    intended and disclosed, is added by the portfolio work: `list` and `show` now print a next-step
+    hint naming `program portfolio`, which did not exist pre-move — it is folded out here and its
+    presence is asserted positively in TheListAndShowPointAtThePortfolio, so the identity check still
+    pins that NOTHING ELSE about the moved behaviour changed."""
+    stdout = entry["stdout"].replace("program_manager.py", "project_manager.py")
+    # `list` and `show` append exactly this block (a leading blank line, then the hint line). Strip it
+    # as a suffix so the rest of their pre-move output is compared untouched — no other line moves.
+    if stdout.endswith(_PORTFOLIO_HINT_BLOCK):
+        stdout = stdout[:-len(_PORTFOLIO_HINT_BLOCK)]
     return {
         "argv": entry["argv"],
         "code": entry["code"],
-        "stdout": entry["stdout"].replace("program_manager.py", "project_manager.py"),
+        "stdout": stdout,
         "stderr": (entry["stderr"].replace("program-manager:", "project-manager:")
                    .replace("program_manager.py", "project_manager.py")),
     }
@@ -1051,8 +1065,39 @@ class LaneCommands(ProgramVerbs):
         self.assertIn("**cleared**", cleared)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TheListAndShowPointAtThePortfolio(_ProgramSurface):
+    """The move ships the portfolio verb before PR 5's doctrine exists, so the tool points at it: list
+    and show both print the next-step hint. The verb itself renders and writes nothing."""
+
+    def _new_program(self):
+        out = self.run_command("program", "new", "--title", "Pointer",
+                               "--objective", "Deliver the thing across PRs.")[1]
+        return out.split()[2]
+
+    def test_list_names_the_portfolio_verb(self):
+        self._new_program()
+        self.assertIn("`program portfolio`", self.run_command("program", "list")[1])
+
+    def test_show_names_the_portfolio_verb(self):
+        program_id = self._new_program()
+        self.assertIn("`program portfolio`", self.run_command("program", "show", program_id)[1])
+
+    def test_portfolio_renders_the_open_program(self):
+        program_id = self._new_program()
+        code, out, err = self.run_command("program", "portfolio")
+        self.assertEqual(code, 0, err)
+        self.assertIn("# Programs — portfolio", out)
+        self.assertIn("## In flight (1)", out)
+        self.assertIn("Pointer", out)
+
+    def test_portfolio_writes_nothing_to_the_record(self):
+        program_id = self._new_program()
+        programs = plan_program.ProgramLibrary(self.lib)
+        slug = programs.resolve(program_id)
+        before = (self.lib.root / "programs" / slug / "record.json").read_bytes()
+        self.run_command("program", "portfolio")
+        after = (self.lib.root / "programs" / slug / "record.json").read_bytes()
+        self.assertEqual(before, after, "portfolio is a pure read; it must not touch a record")
 
 
 if __name__ == "__main__":

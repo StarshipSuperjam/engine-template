@@ -115,6 +115,39 @@ def superseded_children(record: dict) -> set:
             if child.get("superseded_by") in ids}
 
 
+def lane_split(record: dict) -> list | None:
+    """The standing lane split's lanes, or None when none stands. The one reader of the lane record
+    keys outside this module's own render is the portfolio, and it reaches them through here rather
+    than touching the advisory keys directly — so the lane-reader tripwire keeps its short allowlist.
+    """
+    return (record.get("lanes") or {}).get("lanes") or None
+
+
+def last_movement(record: dict) -> str:
+    """The most recent moment anything about this program moved, as a YYYY-MM-DD date.
+
+    Derived from the timestamps the record already carries — nothing new is stored. Every write path
+    stamps one (a child added, a closure or its reversal, a lane decided or ended, a release, an
+    objective revised), so the max over them is the last time the program was touched. Kept here, with
+    the record it reads, so the portfolio never reaches into the advisory lane keys itself.
+    """
+    stamps = [record.get("created_at")]
+    for child in record.get("children", []):
+        stamps.append(child.get("added_at"))
+    stamps.append((record.get("closure") or {}).get("at"))
+    for entry in record.get("closure_history", []):
+        stamps.append(entry.get("at"))
+    stamps.append((record.get("lanes") or {}).get("decided_at"))
+    for entry in record.get("lanes_history", []):
+        stamps.append(entry.get("ended_at"))
+    for entry in record.get("releases", []):
+        stamps.append(entry.get("at"))
+    for entry in record.get("objective_history", []):
+        stamps.append(entry.get("replaced_at"))
+    valid = [s for s in stamps if isinstance(s, str) and s]
+    return max(valid)[:10] if valid else "unknown"
+
+
 def way_through_for(plan_id: str, status: str, sealed: bool) -> str:
     """What the operator can actually DO about a child that cannot answer for an obligation.
 
