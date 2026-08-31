@@ -243,11 +243,62 @@ def _in_flight_titles(programs: plan_program.ProgramLibrary, record: dict, view:
     return titles
 
 
-def _lanes_line(record: dict) -> str | None:
-    split = plan_program.lane_split(record)
-    if not split:
-        return None
-    return "; ".join(f"{lane['name']} — {', '.join(lane['children'])}" for lane in split)
+# The portfolio's per-lane section is a GLANCE — bounded like every other element in this view, and a
+# thin formatter over plan_program.lane_standing (never the raw lane record, so this module stays off
+# the lane-reader allowlist). The complete, unbounded per-lane render lives in `program show`; here
+# each bound is stated the way the obligations and closed-tail bounds are.
+_LANES_SHOWN_CAP = 5          # a program split into more lanes than this folds the remainder to a count
+_LANE_IN_FLIGHT_CAP = 3       # in-flight members named per lane before the rest fold to "(+N more)"
+_UNLANED_SHOWN_CAP = 3        # unlaned children named before the rest fold to "(+N more)"
+
+
+def _lanes_block(programs: plan_program.ProgramLibrary, record: dict, view: list) -> list:
+    """The bounded per-lane glance for one program in the portfolio, or [] when no split stands.
+
+    Formats plan_program.lane_standing: per lane, what is in flight (named by title, capped) and how
+    much has settled or is unknown (folded to counts) — then any unlaned children and any cross-lane
+    merge-order risk, each bounded. Unknown is disclosed as unknown and never rendered as a zero; a
+    lane with nothing live says so. No standing split renders no section at all — absence is the truth.
+    """
+    standing = plan_program.lane_standing(record, view)
+    if not standing:
+        return []
+    title_of = {child["plan_id"]: _strip_program_prefix(record["title"], child["title"])
+                for child in view}
+    lines = [f"- **Lanes** — decided {(standing['decided_at'] or 'unknown')[:10]}:"]
+    for row in standing["lane_rows"][:_LANES_SHOWN_CAP]:
+        in_flight = [m["plan_id"] for m in row["members"] if m["bucket"] == plan_program.LANE_BUCKET_IN_FLIGHT]
+        settled = sum(1 for m in row["members"] if m["bucket"] == plan_program.LANE_BUCKET_SETTLED)
+        unknown = sum(1 for m in row["members"] if m["bucket"] == plan_program.LANE_BUCKET_UNKNOWN)
+        pieces = []
+        if in_flight:
+            named = [title_of.get(pid, pid) for pid in in_flight[:_LANE_IN_FLIGHT_CAP]]
+            # Semicolon-joined: a child title can carry its own commas, so a comma join would misread
+            # the count of what is in flight — the same reason the program-wide in-flight line uses ";".
+            extra = len(in_flight) - _LANE_IN_FLIGHT_CAP
+            fold = f" (+{extra} more)" if extra > 0 else ""
+            pieces.append("in flight " + "; ".join(named) + fold)
+        else:
+            pieces.append("nothing in flight")
+        if settled:
+            pieces.append(f"{settled} settled")
+        if unknown:
+            # Never a count of zero and never omitted when present: a member whose status cannot be
+            # derived is disclosed as unknown, not absorbed into settled and not read as done.
+            pieces.append(f"{unknown} unknown")
+        lines.append(f"  - **{row['name']}**: " + " · ".join(pieces))
+    extra_lanes = len(standing["lane_rows"]) - _LANES_SHOWN_CAP
+    if extra_lanes > 0:
+        lines.append(f"  - (+{extra_lanes} more lane(s) — see `program show`)")
+    unlaned = standing["unlaned"]
+    if unlaned:
+        named = ", ".join(f"`{pid}`" for pid in unlaned[:_UNLANED_SHOWN_CAP])
+        fold = f" (+{len(unlaned) - _UNLANED_SHOWN_CAP} more)" if len(unlaned) > _UNLANED_SHOWN_CAP else ""
+        lines.append(f"  - Unlaned children: {named}{fold}")
+    if standing["cross_lane_edges"]:
+        lines.append(f"  - Cross-lane merge-order risk: {len(standing['cross_lane_edges'])} "
+                     "edge(s) — see `program show`")
+    return lines
 
 
 def _open_block(programs: plan_program.ProgramLibrary, record: dict) -> list:
@@ -275,9 +326,7 @@ def _open_block(programs: plan_program.ProgramLibrary, record: dict) -> list:
     if settled:
         out.append(f"- **Settled on the chain**: {settled}")
     out.append(f"- **Obligations**: {_obligations_line(programs, record)}")
-    lanes = _lanes_line(record)
-    if lanes:
-        out.append(f"- **Lanes**: {lanes}")
+    out += _lanes_block(programs, record, view)
     return out
 
 
