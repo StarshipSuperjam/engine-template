@@ -2819,6 +2819,7 @@ class LaneProposal(_Program):
         self._territory_child(slug, "pln_000000000009", "9", ["i.py"],
                               predecessor="pln_000000000008")                              # superseded
         self._seal("pln_000000000001")
+        self._seal("pln_000000000003")   # the v1 child is literally the 'v1-sealed' bucket case
         self._corrupt_head("pln_000000000005")
         self._close("pln_000000000006", "complete")
         self._close("pln_000000000007", "retired")
@@ -2892,17 +2893,35 @@ class LaneProposal(_Program):
         # No seed lanes in fresh mode — every lane is freshly computed.
         self.assertFalse(any(lane["seed"] for lane in proposal["lanes"]))
 
-    def test_max_lanes_caps_new_lanes_and_the_declared_paths_caveat_is_present(self):
+    def test_at_the_cap_a_disjoint_child_joins_its_nearest_predecessor_lane(self):
+        # A(a) -> B(b) -> C(c), all disjoint, ceiling 2. A opens lane-1, B opens lane-2; C is disjoint
+        # from both but the ceiling is reached, so it joins the lane of its NEAREST placed predecessor
+        # (B, in lane-2) — the deterministic tie-break for a capacity merge — and is flagged cap_forced.
         slug = self._program("Cap", "More disjoint children than lanes.")
         self._chain(slug, ("pln_a00000000001", ["a.py"]), ("pln_b00000000002", ["b.py"]),
                     ("pln_c00000000003", ["c.py"]))
         proposal = self.programs.propose_lanes(slug, max_lanes=2)
-        self.assertLessEqual(len(proposal["lanes"]), 2)
-        # The third disjoint child, at the cap, joins its nearest-predecessor lane rather than a new one.
-        placed_members = [m for lane in proposal["lanes"] for m in lane["members"]]
-        self.assertEqual(sorted(placed_members),
-                         ["pln_a00000000001", "pln_b00000000002", "pln_c00000000003"])
+        self.assertEqual(len(proposal["lanes"]), 2)
+        by_name = {lane["name"]: lane["members"] for lane in proposal["lanes"]}
+        self.assertEqual(by_name["lane-1"], ["pln_a00000000001"])
+        self.assertEqual(by_name["lane-2"], ["pln_b00000000002", "pln_c00000000003"])
+        self.assertEqual([c["plan_id"] for c in proposal["cap_forced"]], ["pln_c00000000003"])
+        self.assertFalse(proposal["contended"])   # a capacity merge is never a collision
         self.assertIn("declared work-item paths only", proposal["declared_paths_caveat"])
+
+    def test_a_child_contending_with_two_lanes_is_disclosed_unplaced(self):
+        # A(a) and B(b) ride separate lanes; C touches BOTH files, so it collides with two already-
+        # separated lanes and cannot join either without a cross-lane collision — the fourth placement
+        # outcome, disclosed in the unplaced list naming what it contends with.
+        slug = self._program("Bridge", "A child bridging two disjoint lanes.")
+        self._chain(slug, ("pln_a00000000001", ["a.py"]), ("pln_b00000000002", ["b.py"]),
+                    ("pln_c00000000003", ["a.py", "b.py"]))
+        proposal = self.programs.propose_lanes(slug)
+        self.assertEqual(len(proposal["lanes"]), 2)
+        self.assertEqual([u["plan_id"] for u in proposal["unplaced"]], ["pln_c00000000003"])
+        self.assertEqual(set(proposal["unplaced"][0]["contends_with"]), {"lane-1", "lane-2"})
+        # An unplaced child is not laned and never silently dropped — still a placed-classification child.
+        self.assertIn("pln_c00000000003", proposal["placed"])
 
     def test_a_cap_forced_merge_is_not_reported_as_a_collision(self):
         # Two provably-disjoint children under a ceiling of 1 are merged for lack of room — a capacity
@@ -3068,27 +3087,47 @@ class TheLaneRecordHasOneReader(unittest.TestCase):
                 found.add(key)
         return found
 
-    def test_only_the_allowlisted_surface_reads_the_lane_record(self):
-        tools = Path(plan_program.__file__).resolve().parent
+    def _scan_tree(self, root) -> dict:
+        """Every non-allowlisted module UNDER `root` (recursively) that reads a lane record key.
+
+        Recursive on purpose: .engine/tools/ has ~90 modules in subfolders, and authority drift could
+        hide in any of them — a top-level-only glob would leave the whole subtree unguarded. Offenders
+        are keyed by path relative to root so a subfolder drifter is named, not just its basename.
+        """
+        root = Path(root)
         offenders = {}
-        for path in sorted(tools.glob("*.py")):
+        for path in sorted(root.rglob("*.py")):
             if path.name in self.ALLOWLIST:
                 continue
             reads = self._record_key_reads(path.read_text(encoding="utf-8"))
             if reads:
-                offenders[path.name] = sorted(reads)
+                offenders[str(path.relative_to(root))] = sorted(reads)
+        return offenders
+
+    def test_only_the_allowlisted_surface_reads_the_lane_record(self):
+        tools = Path(plan_program.__file__).resolve().parent
+        offenders = self._scan_tree(tools)
         self.assertEqual(offenders, {},
                          "the lane record is advisory and has exactly one reader surface; these "
                          f"modules read its keys and are not on the allowlist: {offenders}")
 
-    def test_the_tripwire_catches_a_seeded_out_of_allowlist_reader(self):
-        # THE function the guard rests on, proven to go red — a synthetic drifting reader outside the
-        # allowlist must turn the real assertion red, not merely be visible to a detector beside it.
-        seeded = "def drift(record):\n    return record['lanes'], record.get('lanes_history')\n"
-        self.assertEqual(self._record_key_reads(seeded), {"lanes", "lanes_history"})
-        offenders = {"a_drifting_module.py": sorted(self._record_key_reads(seeded))}
-        with self.assertRaises(AssertionError):
-            self.assertEqual(offenders, {})
+    def test_the_tripwire_catches_a_seeded_reader_in_a_subfolder(self):
+        # THE guarantee the tripwire rests on, proven against a REAL FILE the real scan examines — a
+        # synthetic drifting reader planted in a SUBFOLDER must turn the actual scan red. A string-only
+        # proof would miss exactly the subfolder gap this recursive scan exists to close.
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            subsystem = Path(tmp) / "some_subsystem"
+            subsystem.mkdir()
+            (subsystem / "drifting_reader.py").write_text(
+                "def drift(record):\n    return record['lanes'], record.get('lanes_history')\n",
+                encoding="utf-8")
+            # An unrelated subscript on another key must NOT trip the scan.
+            (Path(tmp) / "unrelated.py").write_text("x = {'other': 1}\ny = x['other']\n",
+                                                    encoding="utf-8")
+            offenders = self._scan_tree(tmp)
+        self.assertEqual(offenders,
+                         {"some_subsystem/drifting_reader.py": ["lanes", "lanes_history"]})
 
 
 class LaneSchema(_Program):

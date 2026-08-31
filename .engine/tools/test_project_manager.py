@@ -2833,6 +2833,18 @@ class LaneCommands(ProgramVerbs):
         set_line = next(line for line in out.splitlines() if "program lanes set" in line)
         self.assertIn("python tools/project_manager.py program lanes set", set_line)
 
+    def test_a_child_contending_with_two_lanes_renders_in_the_unplaced_section(self):
+        _, out, _ = self.run_command("program", "new", "--title", "Bridge",
+                                     "--objective", "A bridging child.")
+        program_id = out.split()[2]
+        self._territory_plan(program_id, "pln_aaaaaaaaaaaa", ["a.py"])
+        self._territory_plan(program_id, "pln_bbbbbbbbbbbb", ["b.py"], predecessor="pln_aaaaaaaaaaaa")
+        self._territory_plan(program_id, "pln_cccccccccccc", ["a.py", "b.py"],
+                             predecessor="pln_bbbbbbbbbbbb")
+        shown = self.run_command("program", "lanes", "propose", program_id)[1]
+        self.assertIn("Unplaced — contends with more than one open lane", shown)
+        self.assertIn("pln_cccccccccccc", shown.split("Unplaced")[1])
+
     def test_program_show_renders_the_lanes_section_and_history(self):
         program_id = self._disjoint_program()
         # No section before a split is recorded.
