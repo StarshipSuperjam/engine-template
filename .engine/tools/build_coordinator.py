@@ -42,6 +42,7 @@ BINDINGS_PATH = ROOT / ".engine" / "policies" / "model-bindings.json"
 PLAN_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-plan.v2.json"
 STATE_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-state.v2.json"
 HANDOFF_SCHEMA_V2 = ROOT / ".engine" / "schemas" / "build-handoff.v2.json"
+SESSION_BINDING_SCHEMA_V1 = ROOT / ".engine" / "schemas" / "session-binding.v1.json"
 # schema_version -> the schema file that validates a document carrying it. ONE generation. The maps
 # stay maps because a future v3 should be a one-line addition rather than a fork, but there is no
 # longer a v1 entry to fall back to, and nothing here defaults an absent version: a document that
@@ -1308,6 +1309,41 @@ def _check_authorization(plan: dict, issue: int | None, mode: str) -> None:
             "written from the Issue you meant.")
 
 
+def _record_session_binding(state: dict, *, pr_number: int) -> None:
+    """Best-effort, non-fatal: write this worktree's session-binding.v1 locator so a later cold
+    session standing in THIS worktree can prove it belongs to THIS Build (its plan, its coordinator
+    snapshot revision, and the pull request's contract state, all captured now).
+
+    Called at the two moments a worktree becomes freshly bound to a live Build: `plan bind` and
+    `handoff restore`. Both call sites have already confirmed, by this point, that the pull
+    request is the open claim at this worktree's HEAD — so `pr_contract.state` is always "open"
+    here; a later reader is the one that re-checks whether it still is.
+
+    NON-FATAL exactly the way the PR-tagging a few lines above is non-fatal
+    (StarshipSuperjam/engine-template#1014): a locator write failing must never wedge a bind or a
+    restore, so any ordinary failure (a full disk, a denied temp directory, a missing jsonschema import) is
+    disclosed on stderr and swallowed. The ONE exception is `SessionBindingForgedError` — the
+    locator path already held something that is not a private regular file this session owns —
+    which is a forgery signal, not a disk hiccup, and is left to propagate so the command that
+    triggered this write fails loudly instead of proceeding as if the evidence were trustworthy.
+    """
+    binding = {
+        "schema_version": "session-binding.v1",
+        "worktree": str(ROOT),
+        "plan_ref": state["plan"]["plan_id"],
+        "coordinator_snapshot": {"revision": str(state["revision"])},
+        "pr_contract": {"state": "open", "pr_ref": f"#{pr_number}"},
+        "captured_at": moment.utc_now(),
+    }
+    try:
+        core.write_session_binding_locator(ROOT, binding, SESSION_BINDING_SCHEMA_V1)
+    except core.SessionBindingForgedError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — best-effort aid: never wedge a bind/restore over this
+        print(f"build-coordinator: could not write the session-binding locator (a non-blocking aid): "
+              f"{exc}", file=sys.stderr)
+
+
 def cmd_plan_bind(args, store: Snapshot) -> None:
     mode = getattr(args, "mode", "same-session")
     plan_id, sealed_digest, plan = _sealed_plan(args.plan)
@@ -1374,6 +1410,7 @@ def cmd_plan_bind(args, store: Snapshot) -> None:
         print("build-coordinator: could not tag this PR 'engine-coordinator-owned' (a non-blocking aid); "
               "the Build proceeds — reach ready only through 'submit apply', never a bare 'gh pr ready'.",
               file=sys.stderr)
+    _record_session_binding(state, pr_number=args.pr)
     print(json.dumps({"plan_digest": state["plan"]["digest"], "state": str(store.path)}))
 
 
@@ -4113,6 +4150,7 @@ def cmd_handoff_restore(args, store: Snapshot) -> None:
     # the attribution re-derivation, and before the snapshot is written so a bad receipt writes nothing.
     _rederive_restored_receipts(plan, state)
     store.create(state)
+    _record_session_binding(state, pr_number=value["build"]["pr"])
     print(f"restored Build snapshot against sealed plan {plan_id}")
 
 

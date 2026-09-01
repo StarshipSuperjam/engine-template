@@ -1152,6 +1152,12 @@
   ".engine/schemas/selftest-selection.v1.json": [
    "core"
   ],
+  ".engine/schemas/session-binding.v1.json": [
+   "core"
+  ],
+  ".engine/schemas/session-relay.v1.json": [
+   "core"
+  ],
   ".engine/schemas/skill.v1.json": [
    "core"
   ],
@@ -2112,6 +2118,9 @@
   ".engine/tools/session_economy.py": [
    "core"
   ],
+  ".engine/tools/session_relay.py": [
+   "core"
+  ],
   ".engine/tools/setup_route_drift_check.py": [
    "core"
   ],
@@ -2563,6 +2572,9 @@
    "core"
   ],
   ".engine/tools/test_session_economy.py": [
+   "core"
+  ],
+  ".engine/tools/test_session_relay.py": [
    "core"
   ],
   ".engine/tools/test_setup_route_gen.py": [

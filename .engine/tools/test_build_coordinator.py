@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -4567,6 +4568,172 @@ class TestCoordinatorOwnedTag(CoordinatorCase):
             bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=False), self.store)
         self.assertIn("submit apply", out.getvalue())
         self.assertIn("gh pr ready", out.getvalue())
+
+
+class TestSessionBindingLocator(CoordinatorCase):
+    """The owner-only, worktree-keyed session-binding.v1 locator written at bind and at restore.
+
+    The locator's OWN mechanics (path derivation, fchmod-on-fd, uid checks, forged-file refusal) are
+    exercised directly against `build_coordinator_core`, mirroring how `test_modes.py` exercises the
+    stance-marker precedent this locator follows. The two coordinator call sites (`plan bind`,
+    `handoff restore`) are exercised through the real commands so a regression that stops calling the
+    writer, or starts wedging on a benign failure, shows up here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # A per-test OS-temp directory, monkeypatched in for `tempfile.gettempdir()` as read by the
+        # core module, so these tests never touch the real system temp directory and two runs of the
+        # suite (or two tests in this class) never collide on the same deterministic path.
+        self.locator_tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.locator_tmp.cleanup)
+        patch_tmp = mock.patch.object(bc.core.tempfile, "gettempdir", return_value=self.locator_tmp.name)
+        patch_tmp.start()
+        self.addCleanup(patch_tmp.stop)
+
+    def _locator_path(self) -> Path:
+        return bc.core.session_binding_locator_path(bc.ROOT)
+
+    def _valid_binding(self, revision="1", pr_ref="#7"):
+        return {"schema_version": "session-binding.v1", "worktree": str(bc.ROOT), "plan_ref": PLAN_ID,
+                "coordinator_snapshot": {"revision": revision},
+                "pr_contract": {"state": "open", "pr_ref": pr_ref}}
+
+    def _bind(self, pr_number=7):
+        pr = {"number": pr_number, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_record_build_binding"), \
+                mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
+                contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_plan_bind(self.bind_args(pr=pr_number), self.store)
+
+    # --- path derivation -----------------------------------------------------------------
+
+    def test_path_is_derived_deterministically_from_the_worktree_alone(self):
+        first = bc.core.session_binding_locator_path(bc.ROOT)
+        second = bc.core.session_binding_locator_path(bc.ROOT)
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, bc.core.session_binding_locator_path(Path(self.temp.name)))
+
+    def test_locator_lives_outside_the_repository(self):
+        path = bc.core.session_binding_locator_path(bc.ROOT)
+        self.assertNotIn(str(bc.ROOT), str(path))
+        self.assertEqual(path.parent, Path(self.locator_tmp.name))
+
+    # --- owner-only write mechanics -------------------------------------------------------
+
+    def test_write_creates_an_owner_only_file_via_atomic_replace(self):
+        path = bc.core.write_session_binding_locator(bc.ROOT, self._valid_binding(), bc.SESSION_BINDING_SCHEMA_V1)
+        info = os.stat(path)
+        self.assertEqual(stat.S_IMODE(info.st_mode), 0o600)
+        self.assertEqual(info.st_uid, os.getuid())
+        # no leftover mkstemp scratch file beside it
+        leftovers = [p for p in Path(self.locator_tmp.name).iterdir() if p != path]
+        self.assertEqual(leftovers, [])
+
+    def test_write_rejects_a_planted_symlink_and_never_writes_through_it(self):
+        path = self._locator_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        target = Path(self.temp.name) / "someone-elses-file"
+        target.write_text("untouched", encoding="utf-8")
+        os.symlink(target, path)
+        with self.assertRaises(bc.core.SessionBindingForgedError):
+            bc.core.write_session_binding_locator(bc.ROOT, self._valid_binding(), bc.SESSION_BINDING_SCHEMA_V1)
+        self.assertEqual(target.read_text(encoding="utf-8"), "untouched")
+
+    def test_write_rejects_a_preexisting_file_owned_by_another_uid(self):
+        path = self._locator_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+        with mock.patch.object(bc.core.os, "getuid", return_value=os.getuid() + 1):
+            with self.assertRaises(bc.core.SessionBindingForgedError):
+                bc.core.write_session_binding_locator(bc.ROOT, self._valid_binding(),
+                                                       bc.SESSION_BINDING_SCHEMA_V1)
+
+    def test_write_accepts_a_preexisting_private_regular_file_owned_by_this_uid(self):
+        # Same-owner precedent from modes.py: a regular file this uid already owns at the path is
+        # honoured (replaced), not refused as forged -- the check is ownership and file type, not a
+        # blanket "anything already there is suspicious".
+        path = self._locator_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}", encoding="utf-8")
+        bc.core.write_session_binding_locator(bc.ROOT, self._valid_binding(), bc.SESSION_BINDING_SCHEMA_V1)
+        self.assertEqual(json.loads(path.read_text())["plan_ref"], PLAN_ID)
+
+    def test_write_validates_the_binding_against_the_schema_before_touching_disk(self):
+        bad = self._valid_binding()
+        del bad["plan_ref"]
+        with self.assertRaises(bc.CoordinatorError):
+            bc.core.write_session_binding_locator(bc.ROOT, bad, bc.SESSION_BINDING_SCHEMA_V1)
+        self.assertFalse(self._locator_path().exists())
+
+    # --- the two coordinator call sites ----------------------------------------------------
+
+    def test_bind_writes_a_valid_locator_recording_expiry_evidence(self):
+        self._bind(pr_number=7)
+        binding = json.loads(self._locator_path().read_text())
+        bc.core.validate(binding, bc.SESSION_BINDING_SCHEMA_V1)
+        self.assertEqual(binding["worktree"], str(bc.ROOT))
+        self.assertEqual(binding["plan_ref"], PLAN_ID)
+        self.assertEqual(binding["coordinator_snapshot"]["revision"], str(self.state()["revision"]))
+        self.assertEqual(binding["pr_contract"], {"state": "open", "pr_ref": "#7"})
+        self.assertNotIn("close", json.dumps(binding).lower())
+
+    def test_bind_locator_write_is_non_fatal_when_the_temp_directory_is_unwritable(self):
+        with mock.patch.object(bc.core, "write_session_binding_locator",
+                               side_effect=OSError("disk full")), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            self._bind(pr_number=8)
+        # The bind itself still succeeded (state created) despite the locator write failing.
+        self.assertEqual(self.state()["build"]["pr"], 8)
+        self.assertIn("session-binding locator", err.getvalue())
+
+    def test_bind_surfaces_a_forged_locator_rather_than_swallowing_it(self):
+        path = self._locator_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        target = Path(self.temp.name) / "someone-elses-bind-file"
+        target.write_text("untouched", encoding="utf-8")
+        os.symlink(target, path)
+        with self.assertRaises(bc.core.SessionBindingForgedError):
+            self._bind(pr_number=9)
+
+    def test_restore_writes_a_valid_locator_recording_expiry_evidence(self):
+        self.seed(issue=11)
+        handoff = bc._handoff(self.state())
+        path = Path(self.temp.name) / "handoff-binding.json"
+        path.write_text(json.dumps(handoff))
+        restored = bc.StateStore(str(Path(self.temp.name) / "restored-binding.json"))
+        pr = {"number": 7, "state": "OPEN", "headRefOid": HEAD_A}
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())):
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+        binding = json.loads(self._locator_path().read_text())
+        bc.core.validate(binding, bc.SESSION_BINDING_SCHEMA_V1)
+        self.assertEqual(binding["plan_ref"], PLAN_ID)
+        self.assertEqual(binding["coordinator_snapshot"]["revision"], str(restored.read()["revision"]))
+        self.assertEqual(binding["pr_contract"], {"state": "open", "pr_ref": "#7"})
+
+    def test_restore_locator_write_is_non_fatal_when_the_temp_directory_is_unwritable(self):
+        self.seed(issue=11)
+        handoff = bc._handoff(self.state())
+        path = Path(self.temp.name) / "handoff-binding-nonfatal.json"
+        path.write_text(json.dumps(handoff))
+        restored = bc.StateStore(str(Path(self.temp.name) / "restored-binding-nonfatal.json"))
+        pr = {"number": 7, "state": "OPEN", "headRefOid": HEAD_A}
+        with mock.patch.object(bc.repo_identity, "origin_slug", return_value="owner/repo"), \
+                mock.patch.object(bc.github, "pr_state", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_sealed_plan", return_value=(PLAN_ID, SEALED, plan())), \
+                mock.patch.object(bc.core, "write_session_binding_locator",
+                                  side_effect=OSError("disk full")), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            bc.cmd_handoff_restore(argparse.Namespace(input=str(path), repository="owner/repo", pr=7), restored)
+        # Restore still succeeded despite the locator write failing.
+        self.assertEqual(restored.read()["plan"]["plan_id"], PLAN_ID)
+        self.assertIn("session-binding locator", err.getvalue())
 
 
 class TestEvidenceDurability(CoordinatorCase):

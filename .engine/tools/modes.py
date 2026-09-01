@@ -106,6 +106,74 @@ MERGE_BLOCK_INVARIANT = {"event": "PreToolUse", "name": "protected-merge-nudge",
                          "modes": [EXPLORE, BUILD, ROUTINE]}
 
 
+# ---- the typed authority-contract export (session-relay.v1's `authority_contract` shape) -----
+# A compact, TYPED alternative to describe_explore_scope()'s boot-time prose lecture, for the boot
+# envelope (session-relay.v1) to carry instead. HONESTY IS THE WHOLE POINT: every code below is
+# included in `blocked` for a stance ONLY where modes.py's real handler() genuinely denies it in that
+# stance TODAY — see the behavioral-correspondence tests in test_modes.py, which drive real tool-call
+# payloads through handler() and assert this mapping, not just read the constants.
+#
+#   protected_branch_merge <- is_merge_action / MERGE_BLOCK_INVARIANT. Stance-independent: the session
+#       never merges the protected branch, in Explore, Build, or Routine.
+#   engine_issue_bypass    <- issue_gate.reroute_reason / REROUTE_BLOCK_INVARIANT. Also
+#       stance-independent: a non-conforming engine-labelled `gh issue create` is rerouted in every stance.
+#   build_commit           <- is_building_action / BLOCK_INVARIANT (the enumerated building set: file
+#       edits, branch creation, commits, opening a PR). EXPLORE-ONLY: Build/Routine permit every write
+#       (handler's stance short-circuit), so this block does not exist outside Explore.
+#   memory_write           <- the hand-write-to-`.engine/memory/` denial (is_memory_target selecting
+#       _MEMORY_DENIAL on an already-denied write). Also a sub-case of the Explore-only building set, so
+#       EXPLORE-ONLY for the same reason as build_commit.
+#   session_relay_write    <- deliberately NEVER included. modes.py enforces no block specific to the
+#       session-relay locator/envelope today (session-relay is new this Build); a write to it is covered,
+#       if at all, by the ordinary build_commit block like any other file. Claiming this code would be
+#       dishonest — an unenforced block is omitted, never invented (the schema enum lists ALLOWED
+#       values, not required ones).
+_AUTHORITY_BLOCKED_ALWAYS = ("protected_branch_merge", "engine_issue_bypass")
+_AUTHORITY_BLOCKED_EXPLORE_ONLY = ("build_commit", "memory_write")
+
+# The two non-mechanical routing lines session-relay.v1's `standing_directives.routing_lines` fixes as
+# closed template text (schema enum, verbatim) — they have no gate/mechanical counterpart (nothing in
+# handler() enforces "use the memory CLI" or "route notes to the right store"), so they can only ever be
+# PUSHED as short fixed lines, never derived from a decision. modes owns them because describe_explore_scope
+# used to be the only place they were said; the assembler consumes this tuple directly for
+# standing_directives.routing_lines (order matches the schema's enum members).
+STANDING_ROUTING_LINES = (
+    "never hand-write .engine/memory directly",
+    "route personal working notes to the notebook; route project conclusions to memory",
+)
+
+
+def export_authority_contract(stance: str, provider_note: str | None = None) -> dict:
+    """The typed export of the Explore write-gate contract, shaped exactly like session-relay.v1's
+    `authority_contract` (validate with session_relay.validate against a full envelope). An unrecognized
+    stance degrades to the EXPLORE contract — the safe floor, matching current_stance's own degrade rule.
+
+    `blocked` names only blocks handler() genuinely enforces for THIS stance (see the mapping comment
+    above the two block tuples) — never a code with no matching real denial. `provider_exceptions`
+    discloses the one standing, sanctioned per-provider difference in today's gate: the plan-mode and
+    harness-memory-notebook carve-outs (is_plan_artifact / is_harness_memory_write) are Claude-Code-only
+    features and are inert, by rule, on any other provider — a Codex plan-shaped or notebook-shaped write
+    earns no exemption there. `provider_note` lets a caller override the disclosed note text; the default
+    is this same honest sentence."""
+    if stance not in STANCES:
+        stance = EXPLORE
+    blocked = list(_AUTHORITY_BLOCKED_ALWAYS)
+    if stance == EXPLORE:
+        blocked += list(_AUTHORITY_BLOCKED_EXPLORE_ONLY)
+    note = provider_note or (
+        "the plan-mode and harness-memory-notebook carve-outs (is_plan_artifact / "
+        "is_harness_memory_write) are Claude Code features and are inert on Codex, by rule — a "
+        "Codex plan-shaped or notebook-shaped write earns no exemption there and stays subject to "
+        "the ordinary building-set block."
+    )
+    return {
+        "stance": stance,
+        "action_default": "allow-by-default",
+        "blocked": sorted(blocked),
+        "provider_exceptions": [{"provider": "codex", "note": note}],
+    }
+
+
 # ---- the stance signal: ephemeral, session-keyed, OS-temp, non-committed --------------------
 # A session_id-keyed marker in OS-temp storage (a build-spec leaf settled here). NON-committed, never
 # read across sessions, no repo footprint. Cleared at every SessionStart; resolves to explore when
@@ -556,10 +624,17 @@ def is_harness_memory_write(tool_name: str, tool_input, cwd, provider: str = "cl
 
 
 # The plain-language denial — names what was blocked AND the concrete way forward, never a silent
-# refusal (the stance is always operator-legible).
+# refusal (the stance is always operator-legible). It ALSO carries the two doors describe_explore_scope()
+# used to name only in the boot-time prose lecture (the auto-memory notebook as the one permitted
+# edit location beyond the plan file, and the memory CLI as the only safe door into `.engine/memory/`):
+# a post-cutover session, relayed the typed authority contract instead of that lecture, is never shown
+# describe_explore_scope's wording, so THIS denial is the one place left that can route it — right at
+# the moment routing is actually needed (the session just tried the wrong door).
 _DENIAL = ("I didn't make that change — we're exploring, so I won't edit files, commit, create a branch, "
            "or open a pull request yet. (I can still read, run tests, search, and log GitHub issues — "
-           "authoring any engine Issue through the issue helper — while we explore; those don't need build.) "
+           "authoring any engine Issue through the issue helper — while we explore; those don't need build. "
+           "My auto-memory notebook is the one place beyond the plan file where I can still write, and "
+           "saved project memory goes through its own CLI, never a hand-write to `.engine/memory/`.) "
            "Tell me to build it and I'll open a pull request — the change I submit for your approval.")
 
 # The MEMORY-specific denial relay (StarshipSuperjam/engine-template#257, made honest by StarshipSuperjam/engine-template#766). A blocked Write/Edit that targets a

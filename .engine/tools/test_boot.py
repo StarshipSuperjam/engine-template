@@ -17,6 +17,8 @@ import io
 import json
 import inspect
 import os
+import re
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -110,6 +112,13 @@ def _offline():
         # dict, and this shape resolves behind_origin/off_main cleanly to None. A surfacing test re-patches it.
         mock.patch.object(boot.checkout_health, "checkout_snapshot",
                           return_value={"state": "current", "on_default": True}),
+        # A NON-stranded checkout by default: gather_signals() also calls the separate detect_strand(), which
+        # reads the REAL checkout's HEAD/engine-files. Unstubbed, it fires on any detached-HEAD checkout — e.g.
+        # the CI runner checks out the PR merge at a detached SHA, so the real strand surfaces a checkout_strand
+        # alarm and the generic pack tests (which assert no alarm) fail in CI but pass in a branch-attached
+        # worktree. A strand-surfacing test re-patches this inside its own `with` block, exactly like
+        # checkout_snapshot above.
+        mock.patch.object(boot.checkout_health, "detect_strand", return_value=None),
         # The real SessionStart handler invokes the bounded automatic controller before gathering this ordinary
         # snapshot. Keep generic boot rendering tests hermetic; dedicated cases below exercise that handoff.
         mock.patch.object(boot.checkout_auto_update, "automatic_catch_up", return_value={"status": "current"}),
@@ -233,6 +242,14 @@ class TestHooksPathOffer(unittest.TestCase):
                                                    hooks_path={"plan_kind": "fixable", "collapsed": False}))
         self.assertIn("safety gate is off", marker)
 
+    def test_offer_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): now PROMOTED into the pushed set (code hooks_path_broken),
+        # so it keeps its every-session surface with the dashboard gone.
+        pushed = "\n".join(boot.must_push(
+            _signals(hooks_path={"plan_kind": "fixable", "collapsed": False, "fingerprint": "hp-1"})))
+        self.assertIn("safety check", pushed.lower())
+        self.assertIn("look at my hook path", pushed)
+
 
 class TestRepoSlug(unittest.TestCase):
     """`repo_slug` derives `owner/repo` from the origin remote when no `GITHUB_REPOSITORY` env is set."""
@@ -333,6 +350,27 @@ class TestFirstRunOffer(unittest.TestCase):
     def test_gate_off_offer_shows_normally_without_first_run(self):
         dash = boot.render_dashboard(_signals(gate="off", reason="branch protection not found")).lower()
         self.assertIn("turn my safety gate back on", dash)
+
+    def test_offer_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): now PROMOTED into the pushed set (code
+        # first_run_setup_pending), so it keeps its every-session surface with the dashboard gone.
+        pushed = "\n".join(boot.must_push(_signals(first_run=self._FIRST_RUN)))
+        self.assertIn("set up my project", pushed)
+        self.assertIn("/engine-setup", pushed)
+
+
+class TestAbsentHomeOfferMustPush(unittest.TestCase):
+    """#367: the absent-update-home offer is surfaced read-only, below the governance alarms. Dashboard-
+    decoupling (StarshipSuperjam/engine-template#1187): NOW ALSO in the must-push/INFORM set (code absent_home_recorded),
+    promoted to keep its every-session surface now that the dashboard no longer rides the pack every session."""
+
+    def test_offer_shows_in_the_dashboard(self):
+        dash = boot.render_dashboard(_signals(absent_home=True)).lower()
+        self.assertIn("update home recorded", dash)
+
+    def test_offer_now_rides_must_push_after_dashboard_decoupling(self):
+        pushed = "\n".join(boot.must_push(_signals(absent_home=True)))
+        self.assertIn("update home isn't recorded", pushed)
 
 
 class TestReadoutAndGateHonesty(unittest.TestCase):
@@ -1183,6 +1221,17 @@ class TestDegradedNotice(unittest.TestCase):
         dash2 = boot.render_dashboard(_signals(migration_revert={"tag": "x"})).lower()
         self.assertIn("restore my memory from before the update", dash2)
 
+    def test_staged_update_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): now PROMOTED into the pushed set (code staged_update), so it
+        # keeps its every-session surface with the dashboard gone; and the SAME staged-first precedence that
+        # suppresses the competing memory-ahead offer in the dashboard also holds in the pushed set.
+        pushed = "\n".join(boot.must_push(_signals(staged_update=True))).lower()
+        self.assertIn("half-finished", pushed)
+        self.assertIn("/engine-upgrade", pushed)
+        both = "\n".join(boot.must_push(_signals(staged_update=True, migration_revert={"tag": "x"}))).lower()
+        self.assertIn("half-finished", both)
+        self.assertNotIn("restore my memory from before the update", both)
+
 
 class TestPresentMarker(unittest.TestCase):
     def test_marker_is_project_status_byte_identical_to_the_floor(self):
@@ -1263,7 +1312,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
     def test_notice_lives_in_the_governance_block_above_the_sheddable_components(self):
         # the notice must carry operator-relay force, so in the assembled pack it sits in the never-shed
         # governance block — inside the numbered must-do sequence, BEFORE the sheddable components and the
-        # status dashboard, never beside the don't-relay orientation content.
+        # status-pull pointer (instruction 4), never beside the don't-relay orientation content. Dashboard-
+        # decoupling (StarshipSuperjam/engine-template#1187): the status dashboard is no longer a pack component to anchor
+        # against, so instruction 4's status-pull pointer line is the stable anchor instead.
         patchers = _offline()
         try:
             with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
@@ -1274,9 +1325,9 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertIn(boot.MCP_AVAILABILITY_CHECK, pack)
         self.assertIn("Check the engine's live helpers", pack)      # introduced as a numbered must-do step
         self.assertLess(pack.index(boot.MCP_AVAILABILITY_CHECK),
-                        pack.index("--- the full status (your grounding"),
+                        pack.index("This session's briefing does not carry the routine status dashboard"),
                         "the consent-critical MCP notice must sit in the governance block, above the "
-                        "sheddable components and the dashboard")
+                        "sheddable components and the status-pull pointer")
 
     def test_codex_deferred_discovery_uses_exact_content_free_health_tools(self):
         note = boot.MCP_AVAILABILITY_CHECK_CODEX
@@ -1322,6 +1373,85 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
                       boot.MCP_AVAILABILITY_CHECK)
         self.assertNotIn("deferred-tool discovery", boot.MCP_AVAILABILITY_CHECK)
         self.assertNotIn(".health", boot.MCP_AVAILABILITY_CHECK)
+
+    def test_explicit_status_pull_trigger_names_every_advertised_phrasing(self):
+        # StarshipSuperjam/engine-template#1187 provider-adapters node: the trigger definition names the EXACT phrasings the root
+        # floors advertise (CLAUDE.md's "where do things stand?" / "give me the full status") plus the
+        # /engine-status skill invocation — every one of these must fire the full dashboard.
+        trigger = boot.EXPLICIT_STATUS_PULL_TRIGGER
+        self.assertIn("give me the full status", trigger)
+        self.assertIn("where do things stand?", trigger)
+        self.assertIn("/engine-status", trigger)
+        self.assertIn("uv run --directory .engine --frozen -- python tools/engine_status.py", trigger)
+
+    def test_explicit_status_pull_trigger_keeps_narrow_questions_targeted(self):
+        # The generic "status or next-step question" trigger this replaces was too broad — it fired the full
+        # dashboard on a narrow question about one issue, PR, or component. The tightened definition must say
+        # so explicitly, not merely omit the old broad wording.
+        trigger = boot.EXPLICIT_STATUS_PULL_TRIGGER
+        self.assertIn("stays TARGETED", trigger)
+        self.assertIn("one issue, one pull request, or one component", trigger)
+        self.assertIn("never by dumping the full dashboard", trigger)
+        self.assertNotIn("status or next-step question", trigger)   # the retired, too-broad phrasing
+
+    def test_pack_carries_the_tightened_trigger_verbatim(self):
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn(boot.EXPLICIT_STATUS_PULL_TRIGGER, pack)
+
+    def test_codex_pack_carries_session_economy_guidance_claude_does_not(self):
+        # StarshipSuperjam/engine-template#1187: Claude relies on its wired PreToolUse gate (session_economy.py); Codex has no
+        # tool-layer enforcement for the same two rules (not registered in .codex/hooks.json), so the guidance
+        # must ride the Codex envelope instead — and must NOT appear on Claude, which already has the mechanism.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
+                codex_pack = boot.assemble_pack()
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CLAUDE):
+                claude_pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("Session economy", codex_pack)
+        self.assertIn("cheap model", codex_pack)
+        self.assertIn("self-scheduling wakeup", codex_pack)
+        self.assertIn("no mechanical gate here", codex_pack)
+        self.assertNotIn("Session economy", claude_pack)
+
+    def test_provider_parity_envelope_identical_only_frame_handles_differ(self):
+        # PROVIDER-PARITY: the typed session-relay.v1 envelope carries the SAME semantic fields regardless of
+        # provider (assemble_envelope never branches on provider at all) — only the surrounding AI-facing frame
+        # text (the MCP availability-check handle, the Codex-only session-economy note) differs.
+        signals = _signals()
+        envelope_claude = boot._envelope_from_signals(signals, "sess-parity", use_ledger=False)
+        envelope_codex = boot._envelope_from_signals(signals, "sess-parity", use_ledger=False)
+        self.assertEqual(envelope_claude, envelope_codex)
+
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CLAUDE):
+                claude_pack = boot.assemble_pack(session_id="sess-parity")
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
+                codex_pack = boot.assemble_pack(session_id="sess-parity")
+        finally:
+            for p in patchers:
+                p.stop()
+        # The rendered envelope block (## GROUNDING .. ## POINTERS) is identical across providers: extract it
+        # by slicing between the two frame markers both packs share.
+        def _envelope_block(pack):
+            start = pack.index("## GROUNDING")
+            end = pack.index("Above is your typed grounding envelope")
+            return pack[start:end]
+        self.assertEqual(_envelope_block(claude_pack), _envelope_block(codex_pack))
+        # The handles differ: each provider's own MCP-availability procedure appears, never the other's.
+        self.assertIn(boot.MCP_AVAILABILITY_CHECK, claude_pack)
+        self.assertNotIn("Codex defers tools", claude_pack)
+        self.assertIn(boot.MCP_AVAILABILITY_CHECK_CODEX, codex_pack)
+        self.assertNotIn(boot.MCP_AVAILABILITY_CHECK, codex_pack)
 
 
 _GOOD_CURSOR = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
@@ -1424,22 +1554,29 @@ class TestRefusedState(unittest.TestCase):
         self.assertNotIn("**Milestone:**", pack)
 
     def test_healthy_empty_reads_differently_from_refused(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): "No milestone is open" / "What merged last" / "may be out of
+        # date" are routine STATUS facts, not a promoted governance alarm — they render in the DASHBOARD only
+        # (the explicit `/engine-status` pull), never pushed into the SessionStart pack. Two separate checks:
+        # the dashboard still carries the honest healthy-empty reading, and the pack carries no refused-cursor
+        # alarm (a healthy, if empty, read is not a refusal).
         patchers = _offline()
         try:
             with mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
-                                                  "integration_debt": {"open_count": 0}}, False)), \
-                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):  # content test — isolate from cap-shedding
+                                                  "integration_debt": {"open_count": 0}}, False)):
                 pack = boot.assemble_pack()
+                dash = boot.render_dashboard(boot.gather_signals())
         finally:
             for p in patchers:
                 p.stop()
         # offline (no repo/token) the live derive is skipped, so the card shows the cached standing lines —
         # an absent milestone renders as the honest normal "No milestone is open", and it is stale-labelled.
-        self.assertIn("No milestone is open", pack)
-        self.assertIn("What merged last", pack)
-        self.assertIn("may be out of date", pack)   # the cached read names that it couldn't be refreshed
+        self.assertIn("No milestone is open", dash)
+        self.assertIn("What merged last", dash)
+        self.assertIn("may be out of date", dash)   # the cached read names that it couldn't be refreshed
+        self.assertNotIn("couldn't read where the project stands", dash)
         self.assertNotIn("couldn't read where the project stands", pack)
+        self.assertNotIn("No milestone is open", pack)          # routine status is pull-only, not pushed
 
 
 class TestWhereWeAreLiveOrCached(unittest.TestCase):
@@ -1733,7 +1870,11 @@ class TestFocusedNeighborhood(unittest.TestCase):
             _, _, nb, _, _ = boot.needs_attention({})
         self.assertIsNone(nb)                                             # no work in hand -> no neighbourhood
 
-    def test_pack_carries_the_neighborhood_block_when_focus_present(self):
+    def test_pack_carries_the_neighborhood_pointer_when_focus_present(self):
+        # point-of-use-deferral node: the PUSH pack carries only the compact pointer form
+        # (render_neighborhood_pointer) — what you're touching, plus a knowledge-tools pointer — never the
+        # full per-relationship walk every session. The full walk (render_neighborhood, exercised above)
+        # stays reachable, unchanged, as the point of use a session pulls when it actually needs it.
         patchers = _offline()
         try:
             with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
@@ -1746,7 +1887,10 @@ class TestFocusedNeighborhood(unittest.TestCase):
                 p.stop()
         self.assertIn("knowledge neighborhood of your current work", pack)
         self.assertIn("You're touching: attention", pack)
-        self.assertIn("attention is checked by", pack)
+        self.assertIn("mcp__engine-knowledge-graph__neighbors", pack,
+                      "the pack must point at the knowledge-graph tools, not dump the walk")
+        self.assertNotIn("attention is checked by", pack,
+                         "the per-relationship walk itself must NOT be pushed every session")
 
     def test_boot_reads_the_slice_once_and_threads_it_as_the_source(self):
         # boot's rung-1 boot-slice read (#37) is fetched ONCE and threaded into all three knowledge reads, so
@@ -1798,16 +1942,51 @@ class TestGovernanceAlarms(unittest.TestCase):
             for p in patchers:
                 p.stop()
 
+    def _dashboard_with(self, gate, findings, *, severity=None):
+        # The dashboard-decoupling (StarshipSuperjam/engine-template#1187) sibling of `_pack_with`: same real gather_signals()
+        # pipeline (so severity classification, att_lines, etc. are the REAL derivation, not a hand-built
+        # stand-in), but rendered through render_dashboard directly for the routine-status content that no
+        # longer rides the boot pack.
+        count, register = findings
+        low = None if count is None else 0
+        rows = None if count is None else [{"number": i, "source_id": None, "severity": severity}
+                                           for i in range(count)]
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "protected_branch_signal", return_value=gate), \
+                 mock.patch.object(boot, "open_findings", return_value=(count, register, low, rows)), \
+                 mock.patch.object(boot, "read_state",
+                                   return_value=({"schema_version": 1, "standing_situation": {},
+                                                  "integration_debt": {"open_count": 0}}, False)):
+                return boot.render_dashboard(boot.gather_signals())
+        finally:
+            for p in patchers:
+                p.stop()
+
     def test_gate_off_pins_a_loud_alarm_before_the_facts(self):
-        pack = self._pack_with(("off", "a pull request is not required"), (0, "u"))
-        lines = pack.splitlines()
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): the dashboard's own pin-above-facts ordering is still a real
+        # guarantee of render_dashboard itself, checked directly here. Separately, the envelope's ## ALARMS
+        # section — the governance-critical alarm's NEW home — must lead the boot pack (before any other
+        # section), checked against the real assemble_pack().
+        dash = self._dashboard_with(("off", "a pull request is not required"), (0, "u"))
+        lines = dash.splitlines()
         alarm = next(i for i, ln in enumerate(lines) if ln.startswith("> ") and "safety gate is off" in ln.lower())
         facts = next(i for i, ln in enumerate(lines) if ln.startswith("**What merged last"))
         self.assertLess(alarm, facts, "the governance alarm must pin above the status facts")
+        pack = self._pack_with(("off", "a pull request is not required"), (0, "u"))
+        self.assertIn("safety_gate_off", pack)
+        self.assertLess(pack.index("## ALARMS"), pack.index("## STANDING_DIRECTIVES"),
+                        "the envelope's alarms section must lead the pack, ahead of every other section")
 
     def test_gate_unknown_is_never_a_green_all_clear(self):
+        # dashboard-decoupling: the dashboard's own "don't assume" wording is checked directly; the pack's
+        # ALARMS section — this alarm's new every-session home — must carry the same substance and never a
+        # false "safety gate is off" positive.
+        dash = self._dashboard_with(("unknown", None), (None, None)).lower()
+        self.assertIn("don't assume", dash)
         pack = self._pack_with(("unknown", None), (None, None))
-        self.assertIn("don't assume", pack.lower())
+        self.assertIn("safety_gate_unverified", pack)
+        self.assertIn("shouldn't assume", pack.lower())
         self.assertNotIn("safety gate is off", pack.lower())  # not a false positive either
 
     def test_gate_on_is_silent(self):
@@ -1840,17 +2019,27 @@ class TestGovernanceAlarms(unittest.TestCase):
     def test_routine_findings_do_not_pin_or_relay_only_a_quiet_fact(self):
         # A routine (unmarked) finding count is the engine's own housekeeping: no ⚠ pin, no must-push relay —
         # it appears only as the quiet "Engine findings" facts line, folded into the whole-backlog total.
+        # Dashboard-decoupling (StarshipSuperjam/engine-template#1187): that quiet facts line is routine status, not a promoted
+        # alarm, so it now lives in the dashboard (pull-only) — never pushed into the boot pack at all.
         pack = self._pack_with(("on", None), (2, "https://example/issues"))
         self.assertNotIn("open engine finding(s) about", pack)   # no governance relay for routine findings
         self.assertNotIn("open engine finding(s)** about", pack)  # no dashboard ⚠ pin
-        self.assertIn("**Engine findings:** 2", pack)            # the quiet facts line is present
+        self.assertIn("## ALARMS (0)", pack)                      # no alarm at all for a routine finding count
+        self.assertNotIn("**Engine findings:** 2", pack)          # the quiet facts line is pull-only, not pushed
+        dash = self._dashboard_with(("on", None), (2, "https://example/issues"))
+        self.assertIn("**Engine findings:** 2", dash)             # ...but it IS in the dashboard pull
 
     def test_a_blocking_finding_pins_a_relay_and_surfaces_with_a_bang(self):
-        # A genuinely blocking (trust-critical) finding keeps a never-shed relay and a ❗ action line.
+        # A genuinely blocking (trust-critical) finding keeps a never-shed relay (pushed every session, in the
+        # boot pack) and a ❗ action line (routine status, dashboard-decoupling StarshipSuperjam/engine-template#1187 moved this to the
+        # dashboard-only pull — it was never a promoted alarm, just the dashboard's own attention-list marker).
         pack = self._pack_with(("on", None), (1, "https://example/issues"),
                                severity=boot.telemetry.TRUST_CRITICAL)
         self.assertIn("BLOCKING", pack)                          # the never-shed governance relay
-        self.assertIn("❗", pack)                                 # the action-line bang in "Needs your attention"
+        self.assertIn("blocking_findings", pack)
+        dash = self._dashboard_with(("on", None), (1, "https://example/issues"),
+                                    severity=boot.telemetry.TRUST_CRITICAL)
+        self.assertIn("❗", dash)                                 # the action-line bang in "Needs your attention"
 
     def test_gate_off_dashboard_offers_the_built_fix_not_a_manual_repair(self):
         # #392 defect 1: the protection-off alarm must OFFER the already-built one-click fix, not hand a
@@ -1959,11 +2148,14 @@ class TestGovernanceAlarms(unittest.TestCase):
 class TestTriagePressureRender(unittest.TestCase):
     """The render-only triage-pressure line (#403.2): boot renders it read-only from the COMPLETE open
     low-severity count open_findings read (CI + ambient + every low-severity source), and SUPPRESSES it on a
-    degraded read or a below-threshold count — never a false number, never a triage write."""
+    degraded read or a below-threshold count — never a false number, never a triage write. Dashboard-decoupling
+    (StarshipSuperjam/engine-template#1187): this line is routine status, not a promoted governance alarm, so it renders in the
+    DASHBOARD only (the explicit `/engine-status` pull) — it is no longer expected in `assemble_pack()`'s
+    SessionStart pack at all, exactly like every other non-promoted dashboard fact."""
 
     _GROWING = "self-monitoring backlog is growing"
 
-    def _pack(self, count, low):
+    def _dashboard(self, count, low):
         rows = None if count is None else [{"number": i, "source_id": None, "severity": None}
                                            for i in range(count)]   # 4th value: the per-issue rows (see above)
         patchers = _offline()
@@ -1973,7 +2165,7 @@ class TestTriagePressureRender(unittest.TestCase):
                  mock.patch.object(boot, "read_state",
                                    return_value=({"schema_version": 1, "standing_situation": {},
                                                   "integration_debt": {"open_count": 0}}, False)):
-                return boot.assemble_pack()
+                return boot.render_dashboard(boot.gather_signals())
         finally:
             for p in patchers:
                 p.stop()
@@ -1981,20 +2173,40 @@ class TestTriagePressureRender(unittest.TestCase):
     def test_renders_when_the_complete_backlog_crosses_the_threshold(self):
         # low_severity_count 15 > triage_pressure 10 -> the plain-language line appears (the count is the
         # COMPLETE durable-Issue count, so a CI-only or ambient-only meter can't under-count it away).
-        self.assertIn(self._GROWING, self._pack(15, 15))
+        self.assertIn(self._GROWING, self._dashboard(15, 15))
 
     def test_suppressed_below_the_threshold(self):
-        self.assertNotIn(self._GROWING, self._pack(5, 5))
+        self.assertNotIn(self._GROWING, self._dashboard(5, 5))
 
     def test_suppressed_on_a_degraded_read_never_a_false_number(self):
         # register unreadable -> low count is None -> the meter is suppressed (never a wrong zero-or-more).
-        self.assertNotIn(self._GROWING, self._pack(None, None))
+        self.assertNotIn(self._GROWING, self._dashboard(None, None))
+
+    def test_the_line_is_pull_only_never_in_the_boot_pack(self):
+        # dashboard-decoupling: even at a triggering count, this routine-status line is NOT in assemble_pack()
+        # — it is not one of the ten promoted alarms, so it stays dashboard-only (pull via /engine-status).
+        rows = [{"number": i, "source_id": None, "severity": None} for i in range(15)]
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "protected_branch_signal", return_value=("on", None)), \
+                 mock.patch.object(boot, "open_findings", return_value=(15, "u", 15, rows)), \
+                 mock.patch.object(boot, "read_state",
+                                   return_value=({"schema_version": 1, "standing_situation": {},
+                                                  "integration_debt": {"open_count": 0}}, False)):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertNotIn(self._GROWING, pack)
 
 
 class TestStrandSurfacing(unittest.TestCase):
     """A stranded operator checkout is surfaced read-only at the OPEN-FINDINGS tier — pinned BELOW
-    the governance alarms (a stranded local checkout cannot reach the protected branch) and NOT in the
-    must-push/INFORM set. Detection only — the line names that it cannot yet be repaired."""
+    the governance alarms (a stranded local checkout cannot reach the protected branch). Detection only — the
+    line names that it cannot yet be repaired. dashboard-decoupling (StarshipSuperjam/engine-template#1187): NOW ALSO in the
+    must-push/INFORM set (code checkout_strand) — the dashboard no longer rides the pack every session, so
+    this heads-up was PROMOTED to keep its every-session surface; it is still ranked below the strict
+    governance alarms."""
     _STRAND = {"states": ["detached"], "main": "/p"}
 
     def test_render_surfaces_the_strand_line_only_when_stranded(self):
@@ -2021,11 +2233,16 @@ class TestStrandSurfacing(unittest.TestCase):
         self.assertEqual(boot.present_marker_line(_signals(gate="off", strand=self._STRAND)),
                          "⚠ Your safety gate is off")
 
-    def test_strand_is_not_in_the_must_push_set(self):
-        # a strand is NOT governance-critical -> no INFORM marker (relayed via the needs-attention headline).
-        self.assertEqual(boot.must_push(_signals(strand=self._STRAND)), [])
-        self.assertFalse(any("folder" in it.lower() for it in
-                             boot.must_push(_signals(gate="off", reason="x", strand=self._STRAND))))
+    def test_strand_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): a strand is not strictly governance-critical (it cannot
+        # reach protected `main`), but it now DOES ride must_push (promoted, code checkout_strand) so it keeps
+        # its every-session surface now that the dashboard no longer rides the pack every session.
+        pushed = boot.must_push(_signals(strand=self._STRAND))
+        self.assertTrue(any("folder" in it.lower() for it in pushed))
+        # it coexists with a real governance alarm rather than being crowded out of the pushed set.
+        both = boot.must_push(_signals(gate="off", reason="x", strand=self._STRAND))
+        self.assertTrue(any("safety gate" in it.lower() for it in both))
+        self.assertTrue(any("folder" in it.lower() for it in both))
 
     def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
         patchers = _offline()
@@ -2044,7 +2261,9 @@ class TestStrandSurfacing(unittest.TestCase):
 class TestBehindOriginSurfacing(unittest.TestCase):
     """The behind-origin tail (#335) is surfaced read-only at the strand tier (folder health, below the
     governance alarms), consequence-led and COUNT-FREE (the design's 'never a count' leaf law), with no git
-    verbs and a concrete consent phrase. boot RELAYS; the assistant runs catch_up on consent."""
+    verbs and a concrete consent phrase. boot RELAYS; the assistant runs catch_up on consent.
+    Dashboard-decoupling (StarshipSuperjam/engine-template#1187): NOW ALSO rides must_push (code checkout_behind_origin), promoted to
+    keep its every-session surface now that the dashboard no longer rides the pack every session."""
     # behind on the DEFAULT branch (#335): on_default True -> the original consequence copy. The branch-agnostic
     # side-line case (on_default False) is exercised in TestOffMainSurfacing below.
     _BEHIND = {"state": "behind", "main": "/p", "branch": "main", "current": "main", "on_default": True,
@@ -2119,9 +2338,11 @@ class TestBehindOriginSurfacing(unittest.TestCase):
                       boot.present_marker_line(_signals(strand={"states": ["detached"], "main": "/p"},
                                                         behind_origin=self._BEHIND)))
 
-    def test_behind_is_not_in_the_must_push_set(self):
-        # not governance-critical -> no INFORM marker (relayed via the dashboard heads-up, like the strand)
-        self.assertEqual(boot.must_push(_signals(behind_origin=self._BEHIND)), [])
+    def test_behind_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): not strictly governance-critical, but now PROMOTED into the
+        # pushed set (code checkout_behind_origin) so it keeps its every-session surface with the dashboard gone.
+        self.assertTrue(any("behind" in it.lower() or "up to date" in it.lower()
+                            for it in boot.must_push(_signals(behind_origin=self._BEHIND))))
 
     def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
         patchers = _offline()
@@ -2144,7 +2365,9 @@ class TestOffMainSurfacing(unittest.TestCase):
     """The off-main Stage-1 signal (#342): the top-level checkout parked on a side line of work is
     surfaced read-only at the strand tier (folder health, below the governance alarms), as a GENTLE INVITATION
     (not a defect report), COUNT-FREE, with no git verbs and the one shared consent phrase. The firm Stage-2
-    (behind on a side line) supersedes it, with a two-tone advisory and — on escalation — a named lineage."""
+    (behind on a side line) supersedes it, with a two-tone advisory and — on escalation — a named lineage.
+    Dashboard-decoupling (StarshipSuperjam/engine-template#1187): NOW ALSO rides must_push (code off_main_line), promoted to keep
+    its every-session surface now that the dashboard no longer rides the pack every session."""
     _OFF_MAIN = {"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"}
     # behind on a SIDE line of work (on_default False): the branch-agnostic Stage-2 escalation
     _BEHIND_SIDE = {"state": "behind", "main": "/p", "branch": "main", "current": "feature-x",
@@ -2219,9 +2442,11 @@ class TestOffMainSurfacing(unittest.TestCase):
         self.assertIn("isn't on your main line of work",
                       boot.present_marker_line(_signals(behind_origin=self._BEHIND_SIDE)))
 
-    def test_off_main_is_not_in_the_must_push_set(self):
-        # gentle folder health -> not governance-critical, no INFORM marker (relayed via the dashboard heads-up)
-        self.assertEqual(boot.must_push(_signals(off_main=self._OFF_MAIN)), [])
+    def test_off_main_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): gentle folder health, not strictly governance-critical, but now
+        # PROMOTED into the pushed set (code off_main_line) so it keeps its every-session surface.
+        self.assertTrue(any("side line" in it.lower() for it in
+                            boot.must_push(_signals(off_main=self._OFF_MAIN))))
 
     def test_gather_signals_relays_the_off_main_detector_and_degrades_quietly(self):
         patchers = _offline()
@@ -2318,7 +2543,13 @@ class TestWhereWeLeftOff(unittest.TestCase):
     def test_the_block_actually_reaches_the_assembled_pack(self):
         """END-TO-END WIRING, which the renderer tests cannot cover. Without this, deleting the one line that
         puts the block into the orientation tier — or making the relay return nothing — leaves the whole feature
-        absent from every operator's briefing with the suite fully green."""
+        absent from every operator's briefing with the suite fully green.
+
+        typed-envelope cutover: the where-we-left-off continuity is now a compact one-line pointer inside the
+        never-shed typed envelope's standing_directives (rendered `Where we left off: HISTORY, …`) — labelled
+        HISTORY, naming the session and when it ended, never the multi-line quoted excerpt. The full card
+        renderer (render_recent_sessions, exercised above) stays reachable as the point of use `recall-window`
+        pulls when the excerpts would help."""
         card = self._card(first_ask="rebuild the nightly export so it can be re-run safely")
         patchers = _offline()
         try:
@@ -2331,14 +2562,21 @@ class TestWhereWeLeftOff(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertIn("where we left off", pack)
-        self.assertIn("rebuild the nightly export so it can be re-run safely", pack,
-                      "the operator's own words must survive into the pack, not just the heading")
+        self.assertIn("Where we left off", pack)             # the never-shed envelope's standing-directive label
+        self.assertIn("HISTORY", pack, "the pointer must be labelled as history, not a task or a binding")
+        self.assertIn("s1", pack, "the session id travels so recall-window can open it directly")
+        self.assertIn("recall-window", pack)
+        self.assertNotIn("rebuild the nightly export so it can be re-run safely", pack,
+                         "the multi-line excerpt itself must NOT be pushed every session — only the pointer")
 
-    def test_when_the_briefing_runs_long_the_block_is_dropped_and_its_absence_is_disclosed(self):
-        """The block lives in the tier dropped FIRST when the briefing exceeds the platform's output cap — the
-        right place, since a note about what you were doing must never displace an alarm. But that is only
-        honest if its absence is named: silently missing orientation reads as "there was none"."""
+    def test_the_continuity_pointer_survives_a_tight_cap_in_the_never_shed_core(self):
+        """typed-envelope cutover — the inverted ladder: the where-we-left-off continuity was PROMOTED into
+        the never-shed typed envelope, so at a cap tight enough to shed the reconstructible inventory that
+        remains (the work-neighbourhood pointer / build-sprawl note) the continuity pointer STILL rides — it
+        now OUTLASTS the reconstructible inventory rather than being the first thing dropped. Dashboard-
+        decoupling (StarshipSuperjam/engine-template#1187): the status dashboard is no longer part of that reconstructible
+        inventory at all (it is not a pack component, so there is nothing dashboard-shaped left to shed here),
+        which this also pins down. The full multi-line excerpt is never pushed either way."""
         card = self._card(first_ask="rebuild the nightly export so it can be re-run safely")
         patchers = _offline()
         try:
@@ -2351,9 +2589,13 @@ class TestWhereWeLeftOff(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertNotIn("rebuild the nightly export", pack, "the orientation tier sheds first")
-        self.assertIn("where we left off", pack,
-                      "and the shed notice must name what was dropped, so the loss is not silent")
+        self.assertNotIn("rebuild the nightly export", pack, "the full excerpt is never pushed")
+        self.assertIn("Where we left off", pack,
+                      "the continuity pointer rides the never-shed core and survives a tight cap")
+        self.assertNotIn("--- the full status (your grounding", pack,
+                         "the dashboard is not a pack component any more, at any cap")
+        self.assertNotIn("the status dashboard", pack,
+                         "nothing dashboard-shaped is ever named in a shed notice any more")
 
     def test_the_relay_passes_the_current_session_through_to_be_excluded(self):
         seen = {}
@@ -2496,8 +2738,10 @@ class TestSetAsideCollapseThreading(unittest.TestCase):
 class TestPrConflictSurfacing(unittest.TestCase):
     """#136: a pull request stranded on the two derived index files is surfaced read-only at the STRAND tier —
     pinned BELOW the governance alarms (a conflicting PR cannot reach protected `main`), carried on the
-    always-visible present-marker (so it cannot rot unnoticed), and DELIBERATELY NOT in the must-push/INFORM
-    set. boot OFFERS the one-step fix; the assistant runs pr_reconcile.reconcile on the operator's consent."""
+    always-visible present-marker (so it cannot rot unnoticed). boot OFFERS the one-step fix; the assistant
+    runs pr_reconcile.reconcile on the operator's consent. Dashboard-decoupling (StarshipSuperjam/engine-template#1187): NOW ALSO in
+    the must-push/INFORM set (code pr_conflict), promoted to keep its every-session surface now that the
+    dashboard no longer rides the pack every session."""
     _PR = {"pr": 7, "title": "My pull request"}
 
     def test_render_surfaces_the_offer_only_when_a_pr_is_stuck(self):
@@ -2526,9 +2770,11 @@ class TestPrConflictSurfacing(unittest.TestCase):
         self.assertEqual(boot.present_marker_line(_signals(gate="off", pr_conflict=self._PR)),
                          "⚠ Your safety gate is off")
 
-    def test_pr_conflict_is_not_in_the_must_push_set(self):
-        # not governance-critical -> no INFORM marker; the always-visible present-marker carries it instead.
-        self.assertEqual(boot.must_push(_signals(pr_conflict=self._PR)), [])
+    def test_pr_conflict_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): not strictly governance-critical, but now PROMOTED into the
+        # pushed set (code pr_conflict) so it keeps its every-session surface with the dashboard gone.
+        self.assertTrue(any("can't be merged" in it.lower()
+                            for it in boot.must_push(_signals(pr_conflict=self._PR))))
 
     def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
         patchers = _offline()
@@ -2547,8 +2793,10 @@ class TestPrConflictSurfacing(unittest.TestCase):
 class TestRestoreOfferSurfacing(unittest.TestCase):
     """When local memory is empty AND a backup is configured, boot surfaces a plain-language
     auto-restore OFFER — a recovery opportunity (NOT a ⚠ governance alarm), pinned BELOW the governance alarms,
-    carried on the always-visible present-marker, and DELIBERATELY NOT in the must-push/INFORM set. boot OFFERS;
-    the assistant runs restore_vault on the operator's consent. Memory owns the detector; boot owns the wording."""
+    carried on the always-visible present-marker. boot OFFERS; the assistant runs restore_vault on the
+    operator's consent. Memory owns the detector; boot owns the wording. Dashboard-decoupling (StarshipSuperjam/engine-template#1187):
+    NOW ALSO in the must-push/INFORM set (code restore_offer), promoted to keep its every-session surface now
+    that the dashboard no longer rides the pack every session."""
     _OFFER = {"configured": True}
 
     def test_render_surfaces_the_offer_only_when_present(self):
@@ -2579,9 +2827,11 @@ class TestRestoreOfferSurfacing(unittest.TestCase):
             boot.present_marker_line(_signals(pr_conflict={"pr": 7}, restore_offer=self._OFFER)),
             f"⚠ {boot.PRESENT_MARKER}: a pull request is stuck — say 'reconcile it' and I'll look into clearing it")
 
-    def test_offer_is_not_in_the_must_push_set(self):
-        # a recovery opportunity, not governance-critical -> no INFORM marker; the present-marker carries it.
-        self.assertEqual(boot.must_push(_signals(restore_offer=self._OFFER)), [])
+    def test_offer_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): a recovery opportunity, not strictly governance-critical, but
+        # now PROMOTED into the pushed set (code restore_offer) so it keeps its every-session surface.
+        self.assertTrue(any("restore my memory" in it.lower()
+                            for it in boot.must_push(_signals(restore_offer=self._OFFER))))
 
     def test_gather_signals_relays_the_local_detector_and_degrades_quietly(self):
         patchers = _offline()
@@ -2601,7 +2851,9 @@ class TestRestoreOfferSurfacing(unittest.TestCase):
 class TestMigrationRevertOffer(unittest.TestCase):
     """#303: boot RELAYS memory's code-older-than-data detector as a one-action recovery
     OFFER, by plain handle (never the raw tag the signal carries), pinned below the governance alarms, carried on the
-    present-marker, and NOT in must_push. boot OFFERS; the assistant runs memory.restore_pre_migration on consent."""
+    present-marker. boot OFFERS; the assistant runs memory.restore_pre_migration on consent. Dashboard-decoupling
+    (StarshipSuperjam/engine-template#1187): NOW ALSO in must_push (code migration_revert), promoted to keep its every-session
+    surface now that the dashboard no longer rides the pack every session."""
     _OFFER = {"store_label": "recall-ledger", "stamped": "2.0.0", "running": "1.0.0",
               "tag": "engine-snapshot/abc123/core-2.0.0"}
 
@@ -2633,8 +2885,11 @@ class TestMigrationRevertOffer(unittest.TestCase):
         self.assertEqual(boot.present_marker_line(_signals(gate="off", migration_revert=self._OFFER)),
                          "⚠ Your safety gate is off")                 # a governance alarm outranks the offer
 
-    def test_offer_is_not_in_the_must_push_set(self):
-        self.assertEqual(boot.must_push(_signals(migration_revert=self._OFFER)), [])
+    def test_offer_now_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): now PROMOTED into the pushed set (code migration_revert).
+        pushed = boot.must_push(_signals(migration_revert=self._OFFER))
+        self.assertTrue(any("before that update" in it.lower() for it in pushed))
+        self.assertFalse(any("engine-snapshot/" in it for it in pushed))   # the raw tag never leaks here either
 
     def test_gather_signals_relays_the_detector_and_degrades_quietly(self):
         patchers = _offline()
@@ -2776,7 +3031,11 @@ class TestFailOpen(unittest.TestCase):
             for p in patchers:
                 p.stop()
         _assert_ai_briefing(self, pack)
-        self.assertIn("don't assume", pack.lower())  # the unknown-gate line, not a green all-clear
+        # the unknown-gate ALARM must still relay (governance-critical; never a green all-clear) — it now
+        # rides the envelope's ## ALARMS section (dashboard-decoupling, StarshipSuperjam/engine-template#1187), not a dashboard line.
+        self.assertIn("safety_gate_unverified", pack)
+        self.assertIn("shouldn't assume", pack.lower())
+        self.assertIn("couldn't be verified", pack.lower())
 
     def test_handler_never_raises_and_injects(self):
         patchers = _offline()
@@ -2866,15 +3125,22 @@ class TestBriefingRelay(unittest.TestCase):
         self.assertIn("- do X", dash)
 
     def test_present_marker_survives_a_dashboard_exception(self):
-        # the marker line is emitted BEFORE the dashboard, so a dashboard failure can't suppress it.
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): assemble_pack no longer calls render_dashboard AT ALL, so a
+        # dashboard failure cannot touch the pack any more (a stronger guarantee than the old fallback text
+        # this test used to check for) — confirmed here by mocking render_dashboard to raise and showing the
+        # pack is completely unaffected. The status PULL (engine_status.py), which is the sole remaining
+        # render_dashboard caller for the operator-facing view, keeps its own degrade-gracefully fallback.
+        import engine_status
         with mock.patch.object(boot, "gather_signals", return_value=_signals(gate="off", reason="x")), \
              mock.patch.object(boot, "render_dashboard", side_effect=Exception("boom")):
             pack = boot.assemble_pack()
+            pulled = engine_status.render()
         self.assertIn("⚠ Your safety gate is off", pack)   # the present-marker line still rendered
         self.assertIn(boot.PRESENT_MARKER, pack)
-        self.assertIn("couldn't be assembled", pack)        # the degraded dashboard fallback
-        self.assertLess(pack.index("⚠ Your safety gate is off"), pack.index("couldn't be assembled"),
-                        "the marker is emitted BEFORE the dashboard, so a dashboard failure can't suppress it")
+        self.assertIn("safety_gate_off", pack)              # the alarm itself, unaffected by the dashboard raising
+        self.assertNotIn("couldn't be assembled", pack)     # no dashboard fallback text — there is no dashboard here
+        # the explicit status pull degrades gracefully instead (engine_status's own always-answers guard)
+        self.assertIn(engine_status._DEGRADED, pulled)
 
 
 class TestHookRegistration(unittest.TestCase):
@@ -2990,21 +3256,55 @@ class TestStanceLine(unittest.TestCase):
         self.assertIn(boot.modes.describe_stance("explore"), pack)
         self.assertIn("Exploring", pack)
 
-    def test_pack_carries_the_assistant_facing_explore_scope_note(self):
-        # The AI-facing briefing grounds the model on what Explore actually permits/denies, so a session
-        # does not over-restrict itself (the bug: switching to Build merely to log a GitHub issue, which
-        # Explore allows). modes owns the copy; boot places it. It must stay AI-facing only.
+    def test_pack_carries_the_typed_authority_contract_not_the_lecture(self):
+        # point-of-use-deferral node: the AI-facing briefing used to carry describe_explore_scope()'s full
+        # prose lecture every session. It now carries only the COMPACT typed export
+        # (modes.export_authority_contract) plus the one-line stance sentence — the lecture's content moved
+        # to its two named points of use (the gate's own denial text; the fuller explanation in
+        # `.engine/operations/memory-recall.md`). modes owns the copy; boot places it. It must stay
+        # AI-facing only.
         patchers = _offline()
         try:
             pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
-        note = boot.modes.describe_explore_scope()
-        self.assertIn(note, pack)                       # the briefing carries the gate-scope grounding
+        lecture = boot.modes.describe_explore_scope()
+        self.assertNotIn(lecture, pack,
+                         "the full prose lecture must no longer be pushed every session")
+        contract = boot.modes.export_authority_contract(boot.modes.EXPLORE)
+        for code in contract["blocked"]:
+            self.assertIn(code, pack, f"the typed contract's {code!r} block code must reach the pack")
+        self.assertIn(contract["action_default"], pack)
         self.assertIn("don't relay", pack.lower())      # self-labelled so the AI does not relay it
-        # the note stays OUT of the operator's own dashboard view — the operator surface is unchanged.
-        self.assertNotIn(note, boot.render_dashboard(_signals()))
+        self.assertIn(".engine/operations/memory-recall.md", pack,
+                      "the pack must point at the fuller write-gate/memory explanation's new home")
+        # the contract stays OUT of the operator's own dashboard view — the operator surface is unchanged.
+        self.assertNotIn("Write-gate authority (typed)", boot.render_dashboard(_signals()))
+
+    def test_memory_recall_doc_carries_the_relocated_write_gate_explanation(self):
+        # "deferral replay green": the fuller "how the write gate works / where memory belongs" explanation
+        # that used to live only in boot's every-session lecture is genuinely present at its new named
+        # point of use — a session that needs it (rather than just the compact contract) can still reach it.
+        path = os.path.join(validate.ENGINE_DIR, "operations", "memory-recall.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        for phrase in ("auto-memory notebook", ".engine/memory/", "issue helper",
+                      "Explore"):
+            self.assertIn(phrase, text,
+                          f"memory-recall.md must carry the relocated write-gate/memory explanation ({phrase!r})")
+
+    def test_denial_routes_to_the_two_doors_the_lecture_used_to_name(self):
+        # "deferral replay green" + "write-gate behaviour is unchanged": the routing the lecture used to
+        # carry (the notebook, and the memory CLI) now lives in the gate's own denial, reachable exactly
+        # when a session hits the wrong door — and the gate still denies what it denied before this node.
+        self.assertIn("auto-memory notebook", modes._DENIAL)
+        self.assertIn("memory", modes._DENIAL.lower())
+        decision = modes.handler({"session_id": "deferral-replay", "tool_name": "Write",
+                                  "tool_input": {"file_path": "src/thing.py"}})
+        self.assertEqual(decision["permissionDecision"], "deny",
+                         "the write gate must still deny an ordinary file write while exploring")
+        self.assertIn("auto-memory notebook", decision["reason"])
 
     def test_wiring_map_advert_lives_in_both_floors_not_the_capped_pack(self):
         # #92 relocated by #787: the standing wiring-map advert (formerly KNOWLEDGE_FACULTY_NOTE in
@@ -3577,9 +3877,22 @@ class TestForeignLicenseOffer(unittest.TestCase):
     def test_absent_signal_renders_nothing(self):
         self.assertNotIn("license file", boot.render_dashboard(_signals(foreign_license=None)))
 
-    def test_offer_is_not_a_governance_critical_must_relay(self):
-        # It renders only in the dashboard, never in must_push (the "governance-critical, do not skip" set).
+    def test_offer_now_also_rides_must_push_after_dashboard_decoupling(self):
+        # dashboard-decoupling (StarshipSuperjam/engine-template#1187): this offer used to render ONLY in the dashboard, never in
+        # must_push — but the dashboard no longer rides the SessionStart pack every session, so this offer was
+        # PROMOTED to a pushed alarm (`_pushed_alarms`, code foreign_license_present) to keep its every-session
+        # surface. It is still NOT one of the strict safety-gate/refused/blocking-findings tier (a leftover
+        # license is the lowest-urgency of the promoted set), but it does now appear in the pushed set.
         pushed = "\n".join(boot.must_push(_signals(foreign_license=self._FIRE)))
+        self.assertIn("license file", pushed)
+
+    def test_a_retired_offer_never_rides_must_push_either(self):
+        # the retire honor (an operator's "I meant to keep this") must suppress the pushed alarm exactly as it
+        # suppresses the dashboard offer — never a governance-alarm-style un-silenceable surface.
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}):
+                boot_alarm_ledger.retire("22e2c095376d", "foreign_license")
+                pushed = "\n".join(boot.must_push(_signals(foreign_license=self._FIRE)))
         self.assertNotIn("license file", pushed)
 
     def test_relay_lines_honors_a_retired_marker_hook_side(self):
@@ -3663,10 +3976,14 @@ class TestGreenfieldIntakeOffer(unittest.TestCase):
 
 
 class TestPackCapGuard(unittest.TestCase):
-    """The pack is measured before injecting and set aside per component in the briefing-budget ladder:
-    the work-neighbourhood map first, then where-we-left-off, then the pins index, then the
-    status dashboard; the governance briefing never — with a relayed notice naming what was left out.
-    The margin canary and the loud pin set-aside live in TestBriefingBudget."""
+    """The pack is measured before injecting and set aside per component in the INVERTED briefing-budget
+    ladder of the typed-envelope cutover: only the RECONSTRUCTIBLE inventory sheds — the build-sprawl note
+    first, then the work-neighbourhood pointer last — while the governance briefing (which now carries the
+    typed envelope, the pins index and the where-we-left-off continuity) never sheds. Pins and continuity
+    thus OUTLAST the reconstructible inventory rather than yielding before it. The status dashboard is NOT
+    part of this ladder any more (dashboard-decoupling, StarshipSuperjam/engine-template#1187): it is not a pack component at all,
+    never a candidate to shed — it renders solely through the explicit status pull (`/engine-status`). The
+    margin canary lives in TestBriefingBudget."""
 
     def _pack(self, cap):
         patchers = _offline()
@@ -3678,30 +3995,29 @@ class TestPackCapGuard(unittest.TestCase):
                 p.stop()
 
     def _shed(self, cap):
-        # synthetic, uniformly-sized components so the set-aside ORDER is unambiguous.
-        blocks = boot._pack_blocks("G" * 500, "S" * 500, "N" * 500, "W" * 500, "P" * 500, "D" * 500)
+        # synthetic, uniformly-sized components so the set-aside ORDER is unambiguous. Three blocks now (the
+        # dashboard is no longer a pack component to include here at all): the never-shed governance briefing
+        # plus the two remaining reconstructible inventory components.
+        blocks = boot._pack_blocks("G" * 500, "S" * 500, "N" * 500)
         return boot.hooks.cap_shed(blocks, cap=cap, notice=lambda n: "", compact_notice=lambda n: "")[1]
 
     def test_set_aside_ladder_order(self):
-        # 6 blocks of 500 (+5 newline joins) = 3005. Each tighter cap sheds the next rung of the ladder — the
-        # build-sprawl note first (StarshipSuperjam/engine-template#950), the governance briefing never.
-        self.assertEqual(self._shed(2700), ["the build-sprawl note"])
-        self.assertEqual(self._shed(2100), ["the build-sprawl note", "the work-neighbourhood map"])
-        self.assertEqual(self._shed(1600),
-                         ["the build-sprawl note", "the work-neighbourhood map", "where we left off"])
-        self.assertEqual(self._shed(1100),
-                         ["the build-sprawl note", "the work-neighbourhood map", "where we left off",
-                          boot._PINS_BLOCK_NAME])
-        self.assertEqual(self._shed(600),
-                         ["the build-sprawl note", "the work-neighbourhood map", "where we left off",
-                          boot._PINS_BLOCK_NAME, "the status dashboard"])
-        # the governance briefing is never set aside, even at an impossible cap
+        # 3 blocks of 500 (+2 newline joins) = 1502 unshed. Each tighter cap sheds the next rung of the
+        # INVERTED ladder — the build-sprawl note first, then the work-neighbourhood map last; the governance
+        # briefing (pins + continuity now inside it) never sheds. Only two rungs remain now that the status
+        # dashboard has left the pack entirely — it is not a candidate to shed, not merely always kept.
+        self.assertEqual(self._shed(1300), ["the build-sprawl note"])
+        self.assertEqual(self._shed(800), ["the build-sprawl note", "the work-neighbourhood map"])
+        # the governance briefing — carrying the pins index and the where-we-left-off continuity — is never
+        # set aside, even at an impossible cap; and pins/continuity therefore outlast every reconstructible.
         self.assertNotIn("the governance briefing", self._shed(10))
+        self.assertNotIn(boot._PINS_BLOCK_NAME, self._shed(10))   # pins never enter the sheddable set at all
+        self.assertNotIn("the status dashboard", self._shed(10))  # not a pack component; never shed-named
 
     def test_wide_cap_keeps_everything_no_notice(self):
         pack = self._pack(10**6)
-        self.assertIn("the full status (your grounding", pack)
         self.assertNotIn("left out this session", pack)
+        self.assertIn("This session's briefing does not carry the routine status dashboard", pack)
 
     def test_offline_pack_is_hermetic_to_an_ambient_mechanic_host(self):
         # These tests ship into generated repositories. Prove their ordinary-repository fixture does not
@@ -3714,21 +4030,19 @@ class TestPackCapGuard(unittest.TestCase):
             pack = self._pack(boot.hooks.HOOK_OUTPUT_CAP)
         self.assertNotIn("this is an engine-MECHANIC", pack)
         self.assertNotIn("BUILD-SPRAWL", pack)
-        self.assertIn("the full status (your grounding", pack)
+        self.assertIn("Project status", pack)
 
-    def test_real_platform_cap_keeps_the_status_dashboard_after_codex_probe_expansion(self):
+    def test_real_platform_cap_survives_after_codex_probe_expansion(self):
         with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
             pack = self._pack(boot.hooks.HOOK_OUTPUT_CAP)
         self.assertLessEqual(len(pack), boot.hooks.HOOK_OUTPUT_CAP)
         self.assertIn(boot.MCP_AVAILABILITY_CHECK_CODEX, pack)
-        self.assertIn("the full status (your grounding", pack)
         self.assertIn("Project status", pack)
 
-    def test_extreme_pressure_sheds_status_too_never_the_governance_tier(self):
+    def test_extreme_pressure_never_sheds_the_governance_tier(self):
         pack = self._pack(4000)
-        self.assertNotIn("the full status (your grounding", pack)
         self.assertIn("Project status", pack)                        # marker pinned
-        self.assertIn("the status dashboard", pack)                  # named in the shed notice
+        self.assertNotIn("the status dashboard", pack)  # not a pack component; never named in a shed notice
 
     def test_pinned_tier_survives_even_an_impossible_cap(self):
         pack = self._pack(10)                                        # smaller than the pinned tier itself
@@ -3800,37 +4114,111 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertEqual(sum(1 for ln in lines if "depends on" in ln), 3)   # only 3 groups shown
         self.assertTrue(any("…and 7 more relationship groups" in ln for ln in lines))
 
+    def test_every_briefing_dial_is_consumed_and_every_read_dial_is_declared(self):
+        # The dial-consumption invariant (policy-alignment, StarshipSuperjam/engine-template#1187): the set of dials the policy DECLARES
+        # must equal the set of dials code actually READS. A declared dial that nothing reads is dead config; a
+        # read of an undeclared key is a typo that _briefing_values would silently drop to a default. Both fail
+        # here. "Read by code" spans the three projections of the typed-envelope cutover, and each dial's home is
+        # exactly where its consumer lives:
+        #   - the pushed session-start relay reads the never-shed-core dials at pack build (boot's `bvals[...]`):
+        #     pin_index_title_chars, pin_index_count_max, pins_block_chars_max, posture_lines_max, posture_chars_max;
+        #   - the point-of-use pulls and the margin/mechanic/growth bounds read the re-pointed dials through
+        #     `_briefing_values()[...]` (excerpt_chars via the recall render, neighborhood_groups_max via the
+        #     knowledge-graph render, dashboard_chars_max as the pull-only dashboard's growth alarm,
+        #     mechanic_grounding_chars_max and margin_floor_chars in the margin canaries).
+        # A growth alarm's regression check IS the dial's consumer — if the dial vanished, that check breaks — so
+        # this test scans both boot.py and this test module for the two dial-read idioms. It reads no dial value;
+        # it proves the wiring, so it holds in any repo shape.
+        declared = set(boot._BRIEFING_BUDGET_DEFAULTS)
+        sources = inspect.getsource(boot) + inspect.getsource(sys.modules[__name__])
+        read = set(re.findall(r'(?:bvals|_briefing_values\(\))\["([a-z_]+)"\]', sources))
+        self.assertEqual(
+            read, declared,
+            "briefing-budget dial drift: declared-but-unread (dead config) = "
+            f"{sorted(declared - read)}; read-but-undeclared (typo) = {sorted(read - declared)}")
+
     def _clean_codex_core(self):
-        # The NEVER-SHED core under the Codex worst case (larger MCP check) with NO alarm relay firing — a
-        # clean session: governance Tier-0 + the dashboard at its FULL budget + the full trim notice. A heavy
-        # alarm load legitimately grows Tier-0 and sheds lower tiers (alarms never shed — the correct
-        # priority), so the canary guards STRUCTURAL Tier-0 growth, not a transient alarm load; and it budgets
-        # the dashboard at its ceiling so a dashboard grown to budget is still proven to fit with the margin.
+        # RE-BASED for dashboard-decoupling (StarshipSuperjam/engine-template#1187). Two things about the never-shed core's
+        # true worst case changed under that node, so budgeting `dashboard_chars_max` here (the OLD formula)
+        # would now be wrong on both counts:
+        #  (1) the dashboard no longer rides this pack AT ALL — assemble_pack never builds or includes it, so a
+        #      canary that still added `dashboard_chars_max` would be modelling a component that has left;
+        #  (2) pins are NEVER-SHED (promoted out of the old sheddable ladder in the envelope cutover), so the
+        #      true worst case needs a FULL pins block at its policy ceiling (`pins_block_chars_max`) — not
+        #      whatever pins happen to be recorded in THIS worktree right now, which is what the old formula
+        #      silently measured (`read_pins()` was never mocked, so "no pins" was an accident of this repo's
+        #      ambient state, not a designed guarantee). `read_pins` is pinned to `[]` below so this canary is
+        #      deterministic, then the ceiling is added back in explicitly as its own term.
+        # Alarms are ALSO never-shed and legitimately grow Tier-0, so a quiet, alarm-free session is no longer
+        # the worst case either: `relay_records` is pinned to `[]` for the STRUCTURAL governance-core
+        # measurement (so "gov" here is genuinely alarm-free), and a representative HEAVY simultaneous-alarm
+        # pile-up — the SAME fixture the size-spike feasibility gate uses
+        # (`TestSizeSpikeAndLedger._heavy_alarm_signals`, rendered through the real `must_push`) — is added back
+        # in as its own term, exactly mirroring how the pins ceiling is added back in.
+        #
+        # A FIFTH term closes a gap the size-spike shape gate (TestSizeSpikeAndLedger._shape_total) exposed:
+        # EXECUTION POSTURE is ALSO never-shed and policy-bounded up to `posture_chars_max`, but the real
+        # posture text rendered offline today is short (~194 B) — nowhere near that ceiling. `_shape_total`
+        # correctly models posture AT its ceiling (a stand-in string of `posture_chars_max` X's) as the honest
+        # worst-case input; this canary must do the same, or the two feasibility measures silently drift apart
+        # (exactly what happened before this fifth term existed: the shape gate's home-shape total exceeded
+        # this canary's assumed core, because this canary was quietly banking on TODAY's short posture staying
+        # short forever). So `_bounded_posture` is spied to find the REAL rendered posture length, and the
+        # unused headroom up to the ceiling is added back — the same "model at the ceiling, not at today's
+        # accidental value" discipline already applied to pins and, before that, the dashboard.
+        #
+        # So the re-based formula sums FIVE independently-worst terms: the never-shed governance-briefing
+        # structure with NO real pins and NO real alarms (but today's real, short posture embedded in it) +
+        # the posture-ceiling headroom + a full pins block at its ceiling + a heavy alarm pile-up's real
+        # rendered size + the full trim notice (now naming only the sheddable set that survives the
+        # dashboard's departure — see `_pack_blocks`). These terms never actually co-occur at their individual
+        # worst in one real `assemble_pack()` call in this harness, so summing them independently can only
+        # OVER-count the true never-shed size, never under-count it — the safe direction for a margin canary,
+        # and the one that keeps this canary and the shape gate from disagreeing about which is the stricter
+        # measure. Measured at time of writing: ~6,359 B against a 10,000 B cap (see the heavy-alarm sibling
+        # canary below for the ~7,646 B heavy-alarm+full-pins+posture-ceiling worst case) — comfortably inside
+        # the cap, and this canary now genuinely goes RED if the never-shed structure, the posture ceiling, the
+        # pins ceiling, or the heavy-alarm rendering outgrows the cap-minus-floor.
         patchers = _offline()
         captured = {}
         try:
             with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX), \
-                 mock.patch.object(boot, "must_push", return_value=[]), \
-                 mock.patch.object(boot, "_relay_lines", return_value=[]):
+                 mock.patch.object(boot, "relay_records", return_value=[]), \
+                 mock.patch.object(boot, "read_pins", return_value=[]):
                 real = boot.hooks.cap_shed
+                real_posture = boot._bounded_posture
+
+                def posture_spy(lines, max_lines, max_chars):
+                    body, clipped = real_posture(lines, max_lines, max_chars)
+                    captured["posture_len"] = len(body)
+                    return body, clipped
 
                 def spy(blocks, cap=None, notice=None, compact_notice=None):
                     captured["gov"] = next(t for p, n, t in blocks if p == 0)
-                    captured["notice"] = notice(["the work-neighbourhood map", "where we left off",
-                                                 boot._PINS_BLOCK_NAME, "the status dashboard"])
+                    # The sheddable set that survives dashboard-decoupling: the work-neighbourhood pointer only
+                    # (a clean, non-mechanic session never carries the build-sprawl note either) — see
+                    # `_pack_blocks`. No dashboard name: it is not a candidate to shed any more.
+                    captured["notice"] = notice(["the work-neighbourhood map"])
                     return real(blocks, cap, notice, compact_notice)
-                with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy):
+                with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy), \
+                     mock.patch.object(boot, "_bounded_posture", side_effect=posture_spy):
                     boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
         b = boot._briefing_values()
-        return len(captured["gov"]) + b["dashboard_chars_max"] + len(captured["notice"])
+        heavy_alarms = "\n".join(f"   - {l}" for l in
+                                 boot.must_push(TestSizeSpikeAndLedger()._heavy_alarm_signals()))
+        posture_headroom = max(0, b["posture_chars_max"] - captured.get("posture_len", 0))
+        return (len(captured["gov"]) + posture_headroom + b["pins_block_chars_max"]
+                + len(heavy_alarms) + len(captured["notice"]))
 
     def test_margin_canary_never_shed_core_keeps_real_headroom(self):
-        # #899: the pack must keep a stated margin under the cap so Tier-0 growth is caught BEFORE the dashboard
-        # sheds — not merely that the shed result fits. Reads the floor from the policy (single source), and it
-        # is clamped at or above the hard code minimum, so this margin cannot be silently lowered.
+        # #899, re-based for dashboard-decoupling (StarshipSuperjam/engine-template#1187): the pack must keep a stated margin
+        # under the cap so never-shed growth (the governance structure, a full pins block, or a heavy alarm
+        # load) is caught BEFORE anything sheds — not merely that a shed result happens to fit. Reads the floor
+        # from the policy (single source), and it is clamped at or above the hard code minimum, so this margin
+        # cannot be silently lowered.
         core = self._clean_codex_core()
         floor = boot._briefing_values()["margin_floor_chars"]
         self.assertGreaterEqual(floor, boot._MIN_MARGIN_FLOOR)
@@ -3850,32 +4238,54 @@ class TestBriefingBudget(unittest.TestCase):
         # grounding WITHOUT it. A GENEROUS-but-realistic durable-checkout path (~57 chars, longer than the common
         # `~/Developer/engine-template`) is modelled so the interpolation is not under-counted and the headroom
         # this proves covers a deeper-than-typical checkout too.
+        #
+        # RE-BASED for dashboard-decoupling (StarshipSuperjam/engine-template#1187) — same re-basing as `_clean_codex_core` above:
+        # no `dashboard_chars_max` term (the dashboard is not a pack component any more), `read_pins` pinned to
+        # `[]` with the pins ceiling (`pins_block_chars_max`) added back explicitly, `relay_records` pinned to
+        # `[]` with a representative heavy-alarm pile-up's real rendered size added back explicitly, and
+        # EXECUTION POSTURE modelled at its ceiling (`posture_chars_max`) rather than today's short real text —
+        # the same fifth term `_clean_codex_core` adds, for the same reason (reconciling with
+        # `TestSizeSpikeAndLedger._shape_total`, which already models posture at its ceiling). See that
+        # method's comment for the full reasoning; measured at time of writing: ~7,646 B (heavy-alarm +
+        # full-pins + posture-ceiling worst case) against a 10,000 B cap.
         patchers = _offline()
         captured = {}
         resolved = {"product": "StarshipSuperjam/engine-template",
                     "checkout": "/Users/a-longer-developer-name/code/engine-template", "state": "resolved"}
         try:
             with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CLAUDE), \
-                 mock.patch.object(boot, "must_push", return_value=[]), \
-                 mock.patch.object(boot, "_relay_lines", return_value=[]), \
+                 mock.patch.object(boot, "relay_records", return_value=[]), \
+                 mock.patch.object(boot, "read_pins", return_value=[]), \
                  mock.patch.object(boot.checkout_health, "mechanic_orientation", return_value=resolved), \
                  mock.patch.object(boot.checkout_health, "detect_product_build_sprawl", return_value=None), \
                  mock.patch.object(boot.first_run_health, "detect_home_workshop", return_value=None):
                 real = boot.hooks.cap_shed
+                real_posture = boot._bounded_posture
+
+                def posture_spy(lines, max_lines, max_chars):
+                    body, clipped = real_posture(lines, max_lines, max_chars)
+                    captured["posture_len"] = len(body)
+                    return body, clipped
 
                 def spy(blocks, cap=None, notice=None, compact_notice=None):
                     captured["gov"] = next(t for p, n, t in blocks if p == 0)
-                    captured["notice"] = notice(["the build-sprawl note", "the work-neighbourhood map",
-                                                 "where we left off", boot._PINS_BLOCK_NAME,
-                                                 "the status dashboard"])
+                    # The sheddable set that survives dashboard-decoupling in a mechanic deployment: the
+                    # build-sprawl note and the work-neighbourhood pointer — see `_pack_blocks`. No dashboard
+                    # name: it is not a candidate to shed any more.
+                    captured["notice"] = notice(["the build-sprawl note", "the work-neighbourhood map"])
                     return real(blocks, cap, notice, compact_notice)
-                with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy):
+                with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy), \
+                     mock.patch.object(boot, "_bounded_posture", side_effect=posture_spy):
                     boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
         b = boot._briefing_values()
-        return len(captured["gov"]) + b["dashboard_chars_max"] + len(captured["notice"])
+        heavy_alarms = "\n".join(f"   - {l}" for l in
+                                 boot.must_push(TestSizeSpikeAndLedger()._heavy_alarm_signals()))
+        posture_headroom = max(0, b["posture_chars_max"] - captured.get("posture_len", 0))
+        return (len(captured["gov"]) + posture_headroom + b["pins_block_chars_max"]
+                + len(heavy_alarms) + len(captured["notice"]))
 
     def test_mechanic_shape_margin_canary_keeps_headroom(self):
         # StarshipSuperjam/engine-template#950 — the durable fix: product CI's plain canary runs the HOME shape, where the mechanic
@@ -3924,32 +4334,48 @@ class TestBriefingBudget(unittest.TestCase):
         numbered = [ln for ln in lines if ln[:1].isdigit() and ". " in ln[:6]]
         self.assertEqual(len(numbered), 20)
 
-    def test_a_pins_set_aside_fails_loudly_in_the_never_shed_portion(self):
-        # operator decision 6: a pin set-aside must never be silent. The loud disclosure must ride the
-        # never-shed governance block, BEFORE the dashboard divider — not the droppable trim notice. The cap
-        # is chosen dynamically so the DASHBOARD SURVIVES while the pins index is set aside, so the ordering
-        # guarantee is actually exercised (a fixed cap that also sheds the dashboard would leave it unchecked).
+    def test_the_pins_index_rides_the_never_shed_core_and_its_overflow_is_loud(self):
+        # typed-envelope cutover (re-based operator decision 6): pins were PROMOTED into the never-shed core,
+        # so an over-pinned index is never silently set aside by cap_shed — it rides the governance briefing
+        # even at a tight cap. The LOUD disclosure is now render_pins's own bounded "+N OLDER pinned note(s)"
+        # folding (nothing dropped from storage; a `list-pins` away), which sits in the never-shed portion.
+        # Dashboard-decoupling (StarshipSuperjam/engine-template#1187): the dashboard is gone from the pack entirely, so the
+        # sheddable candidate this test exercises against is now the work-neighbourhood pointer (forced
+        # non-empty here via a direct patch, since the offline fixture's own focus is empty) — cap chosen so
+        # THAT sheds while the pins index does not, exercising the same ordering as before: pins/continuity
+        # OUTLAST the reconstructible inventory.
         many = [{"text": f"standing directive number {i} " + "x" * 90} for i in range(12)]
+        neighborhood_lines = ["--- knowledge neighborhood of your current work (orientation context, not an "
+                              "alarm) ---", "You're touching: some-module.",
+                              "The full relationship walk is not pushed here — pull it with the "
+                              "knowledge-graph tools when a change actually reaches into related code.", ""]
         patchers = _offline()
         try:
             with mock.patch.object(boot, "read_pins", return_value=many), \
-                 mock.patch.object(boot, "must_push", return_value=[]), \
-                 mock.patch.object(boot, "_relay_lines", return_value=[]):
-                # baseline never-shed size with NO pins block; give room above it for the loud line + notice
-                # but not for the (much larger) pins index, so pins shed and the dashboard is kept.
+                 mock.patch.object(boot, "relay_records", return_value=[]), \
+                 mock.patch.object(boot, "render_neighborhood_pointer", return_value=neighborhood_lines):
+                # baseline never-shed size with NO pins block (but WITH the forced-non-empty neighbourhood
+                # pointer); a cap just above it forces the sheddable neighbourhood pointer to shed while the
+                # never-shed pins index rides (it can never be set aside — it is priority-0 Tier-0).
                 with mock.patch.object(boot, "render_pins", return_value=[]):
                     base = len(boot.assemble_pack())
-                with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", base + 600):
+                # A cap just above the no-pins baseline: too tight to also hold the (much larger) pins index
+                # AND the neighbourhood pointer, so the reconstructible pointer sheds while the never-shed
+                # pins index rides.
+                with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", base + 300):
                     pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
-        self.assertIn("did not fit in this session's briefing and were set aside", pack)
+        # the pins index survives (never shed) and its overflow is disclosed loudly, with the prune nudge and
+        # the "nothing dropped, retrievable" reassurance render_pins carries.
+        self.assertIn("what you asked me to remember", pack)          # the pins index rode the never-shed core
+        self.assertIn("OLDER pinned note", pack)                       # LOUD, count-named overflow disclosure
         self.assertIn("prune", pack)
-        divider = pack.find("--- the full status (your grounding")
-        self.assertNotEqual(divider, -1, "the dashboard must survive so the ordering guarantee is exercised")
-        self.assertLess(pack.find("did not fit in this session's briefing"), divider,
-                        "the loud pin disclosure must precede (sit above, in the never-shed block) the dashboard")
+        self.assertIn("list-pins", pack)                               # nothing dropped from storage
+        self.assertNotIn("knowledge neighborhood of your current work", pack,
+                         "the reconstructible neighbourhood pointer sheds at this cap while pins do not")
+        self.assertIn("the work-neighbourhood map", pack)              # named in the shed notice instead
 
     def test_dashboard_routine_body_stays_within_its_growth_budget(self):
         # #787 growth alarm: the ROUTINE dashboard body (the facts/counts/shipped/attention block, plus the
@@ -3969,32 +4395,17 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertLessEqual(len(boot.render_dashboard(heavy)), budget,
                              "a heavy dashboard outgrew dashboard_chars_max — raise the budget deliberately or trim")
 
-    @unittest.skipUnless(_CONSTRUCTION, _SKIP_DEPLOYED)
-    def test_real_assembled_dashboard_routine_body_stays_within_budget(self):
-        # The same #787 canary over the REAL assembled dashboard (not a synthetic signal set). This is meaningful
-        # ONLY in the home/construction repo: in a deployed projection the ambient state is a fresh, foreign copy,
-        # so several conditional pinned alerts legitimately fire (empty-memory, half-finished-upgrade,
-        # foreign-license, greenfield-intake) and inflate the routine block past the routine budget by design —
-        # cap_shed then sets the whole block aside with its disclosed notice. Asserting the routine budget there
-        # would judge the deployed shape against a home-only invariant (the exact class the deployment gate's
-        # Arm A exists to catch); the synthetic case above backstops the routine body in every shape.
-        budget = boot._briefing_values()["dashboard_chars_max"]
-        patchers = _offline()
-        captured = {}
-        try:
-            real = boot.hooks.cap_shed
-
-            def spy(blocks, cap=None, notice=None, compact_notice=None):
-                captured["dash"] = next((t for p, n, t in blocks if p == 2), "")
-                return real(blocks, cap, notice, compact_notice)
-            with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy):
-                boot.assemble_pack()
-        finally:
-            for p in patchers:
-                p.stop()
-        self.assertLessEqual(len(captured["dash"]), budget,
-                             f"the real assembled dashboard ({len(captured['dash'])}) outgrew "
-                             f"dashboard_chars_max ({budget}) — the canary's budget assumption no longer holds")
+    # NOTE (policy-alignment, StarshipSuperjam/engine-template#1187): the former companion
+    # `test_real_assembled_dashboard_routine_body_stays_within_budget` was RETIRED here. It measured the
+    # dashboard as an assembled pack block (the priority-2 rung of `assemble_pack`), but dashboard-decoupling
+    # removed the dashboard from the pushed pack entirely — there is no priority-2 dashboard block any more, so
+    # that test measured an empty string and passed vacuously. The dashboard is now a pull-only projection
+    # (`/engine-status`), and its routine-body growth alarm against `dashboard_chars_max` is covered in every
+    # repo shape by the synthetic `test_dashboard_routine_body_stays_within_its_growth_budget` above (no pinned
+    # alerts, so it isolates the routine body). Re-pointing the retired test at the real pulled dashboard would
+    # be wrong: in the home repo the live render legitimately carries pinned alerts (home-workshop grounding and
+    # others) that inflate it past the routine budget by design — exactly the case the synthetic isolation
+    # exists to avoid judging.
 
     def test_safety_dials_are_floored_so_the_posture_cannot_be_gutted(self):
         # security finding: posture_chars_max / posture_lines_max gate the NEVER-SHED EXECUTION-POSTURE safety
@@ -4028,6 +4439,339 @@ class TestBriefingBudget(unittest.TestCase):
         body, clipped = boot._bounded_posture(["x" * 50] * 40, 8, 700)
         self.assertTrue(clipped)
         self.assertLessEqual(len(body), 700)
+
+
+class TestSizeSpikeAndLedger(unittest.TestCase):
+    """The size-spike feasibility gate for the "session relay: typed envelope" Build, BEFORE any
+    assembler/cutover work — measurement + a durable ledger only. Nothing here changes assemble_pack's
+    behaviour; every real render used below is TODAY's shipped renderer, called exactly as assemble_pack
+    calls it. Where the typed envelope names a field that doesn't exist in today's source at all
+    (task_binding, a plain-deployment identity fact, a standalone closed-enumeration pointer), a short,
+    clearly-labelled placeholder string stands in for it — the ledger records each as a GAP, not a
+    silent invention. See boot.py's "SIZE-SPIKE NODE" section for the full component-disposition ledger
+    this class's numbers are read against.
+
+    HOW A SHAPE'S WORST CASE IS BUILT: never-shed content adds up as
+        grounding-receipt (worst-platform present marker + MCP check)
+      + identity (shape-specific: nothing carried over for a plain deployment [a ledger GAP; modelled
+        with a placeholder] vs. the real home-workshop grounding text for engine-home)
+      + typed-authority-contract (modes.describe_explore_scope — a conservative stand-in: the real typed
+        contract replacing this prose lecture is expected to be smaller, so using the lecture's own size
+        over-estimates the future cost, which is the safe direction for a feasibility gate)
+      + task_binding (a GAP placeholder)
+      + bounded-standing-directive (pins index at its policy ceiling + execution posture at its policy
+        ceiling + two short fixed routing lines + a one-line where-we-left-off pointer)
+      + closed-enumeration-pointer (a GAP placeholder)
+      + action-forcing-alarm (0 for "alarm-quiet"; a REAL must_push() render of a representative
+        simultaneous six-alarm pile-up for "alarm-heavy" — see _HEAVY_ALARM_SIGNALS's docstring for why
+        six and not the full ~15-alarm set the ledger's promotions make newly possible).
+    The mechanic shape is excluded throughout, per the operator decision recorded in the ledger.
+    """
+
+    # ---- GAP placeholders (see the ledger's three "warrant:... — GAP" rows). Short, honestly labelled,
+    # never dressed up as a measured render. Sized to be plausible one-liners, not padded or starved.
+    _IDENTITY_PLAIN_PLACEHOLDER = (
+        "IDENTITY: this is a deployed engine project (not the engine's own home).")
+    _TASK_BINDING_PLACEHOLDER = "TASK BINDING: none verified for this session."
+    _CLOSED_ENUM_PLACEHOLDER = (
+        "STANCE: Exploring (the Explore write-gate contract governs this session).")
+    # The "2 non-mechanical routing lines" the background names explicitly (never hand-write memory;
+    # notebook vs. memory routing) — today these exist only as prose buried inside conduct docs, never as
+    # their own boot line, so they too are placeholders standing in for a compact typed pair.
+    _ROUTING_LINE_1 = "Never hand-write .engine/memory — go through the memory tools."
+    _ROUTING_LINE_2 = "Route your own working notes to your notebook; project conclusions go to memory."
+    _WWLO_POINTER_PLACEHOLDER = (
+        "WHERE WE LEFT OFF: last session ended mid-review of the write-gate change; nothing else pending.")
+
+    def _heavy_alarm_signals(self):
+        """A representative — NOT exhaustive — simultaneous alarm pile-up: gate off, 5 blocking findings,
+        an execution-posture drift, an unverified interrupted-restore, a qualification-relay notice, and a
+        blocked automatic checkout. Six of the ledger's ~15 promoted action-forcing-alarm sources firing at
+        once. This is a real stress case (today's actual detectors do not exclude most of these
+        co-occurring), but it is NOT the full simultaneous worst case the ledger's promotions make
+        possible — see this class's recorded unresolved concern below for what a fuller combination would
+        cost and why it is not computed here."""
+        return _signals(
+            gate="off", reason="branch protection not found",
+            blocking_findings=_blocking(5),
+            execution={"posture": "changed", "runtime": "claude",
+                       "drift": ["policies/model-routing.md", "conduct/defaults.md"], "lines": ["a", "b"]},
+            restore_recovery={"ok": False, "pending": True, "verified": False, "error": "recovery-invalid"},
+            qualification_notices=["memory-write qualification advanced to full access for this session"],
+            automatic_checkout={"status": "blocked", "reason": "diverged"},
+        )
+
+    def _pins_block(self, count):
+        """The real render_pins() output at the policy's own ceiling dials — 0 or `count` pins, each long
+        enough that the block is genuinely exercising pins_block_chars_max, not an under-filled sample."""
+        if count == 0:
+            return ""
+        bvals = boot._briefing_values()
+        pins = [{"text": f"standing directive number {i} " + "x" * 60} for i in range(count)]
+        return "\n".join(boot.render_pins(pins, bvals["pin_index_title_chars"],
+                                          count_max=bvals["pin_index_count_max"],
+                                          block_chars=bvals["pins_block_chars_max"]))
+
+    def _shape_total(self, *, home, pins_count, alarm_heavy):
+        """The modelled never-shed byte total for one (shape, pins, alarm-load) cell, in UTF-8 bytes —
+        the unit hooks.HOOK_OUTPUT_CAP itself measures in (Python len() on str is code points; every
+        component measured here is ASCII/near-ASCII prose, so the two coincide, but bytes is the honest
+        unit to state given the cap is defined on the platform's byte-oriented output channel)."""
+        bvals = boot._briefing_values()
+        # grounding-receipt: the worst-case (⚠) present-marker line + the worst-platform MCP check.
+        marker = boot.present_marker_line(_signals(
+            behind_origin={"state": "behind", "on_default": True, "presentation": "warning"},
+            off_main={"branch": "side-line"}))
+        mcp = boot.MCP_AVAILABILITY_CHECK_CODEX      # the larger of the two shipped platform checks
+        grounding_receipt = marker + "\n" + mcp
+        # identity: shape-specific, per the ledger's two identity rows.
+        if home:
+            identity = (
+                "GROUNDING (for you, not the operator — a deployed project never sees this): you are in "
+                "the engine's OWN HOME repo, where the Engine itself is developed (a project that runs on "
+                "the Engine receives it as updates; here its machinery IS the work). Develop through the "
+                "reviewed gate — every change is a pull request against protected `main`, cold-context "
+                "audited before you build it (the plan gate) and again before merge (the deliverable "
+                "gate), reaching main only through the maintainer's merge. The full runbook is "
+                "`.engine/operations/engine-development.md`; read it to ground before building.")
+        else:
+            identity = self._IDENTITY_PLAIN_PLACEHOLDER
+        typed_authority_contract = modes.describe_explore_scope()
+        task_binding = self._TASK_BINDING_PLACEHOLDER
+        closed_enum = self._CLOSED_ENUM_PLACEHOLDER
+        exec_posture_line = "Execution environment is not a verified qualified match here — run your " \
+                            "full, careful ceremony. Make no model-dependent shortcuts."
+        exec_body, _clipped = boot._bounded_posture([exec_posture_line], bvals["posture_lines_max"],
+                                                     bvals["posture_chars_max"])
+        # the execution-posture CEILING (its policy budget, not this one real render) is the honest
+        # worst-case input to a feasibility ceiling — a longer real posture is clamped there by design.
+        exec_posture_ceiling = bvals["posture_chars_max"]
+        bounded_standing_directive = "\n".join([
+            self._pins_block(pins_count),
+            "X" * exec_posture_ceiling,        # stands in for the posture body AT its policy ceiling
+            self._ROUTING_LINE_1, self._ROUTING_LINE_2, self._WWLO_POINTER_PLACEHOLDER,
+        ])
+        action_forcing_alarm = ("\n".join(f"   - {l}" for l in boot.must_push(self._heavy_alarm_signals()))
+                                if alarm_heavy else "")
+        parts = [grounding_receipt, identity, typed_authority_contract, task_binding, closed_enum,
+                bounded_standing_directive, action_forcing_alarm]
+        return sum(len(p.encode("utf-8")) for p in parts if p)
+
+    # ---- the before/after table -------------------------------------------------------------------
+
+    def test_todays_real_pack_before_row(self):
+        # the plan's grounding claim: ~6,083 bytes with dashboard + pins + neighbourhood + continuity
+        # already shed. Re-measured directly: forcing every sheddable tier aside (a tight cap) leaves the
+        # governance-briefing-only render, which is the same "before" shape the plan's figure describes.
+        # This is a re-verification of that reference figure against TODAY's live source, not an
+        # assertion that boot must keep producing this exact number.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 6083 + 50):
+                shed_to_gov_only = boot.assemble_pack()
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                today_unshed = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        gov_only_bytes = len(shed_to_gov_only.encode("utf-8"))
+        unshed_bytes = len(today_unshed.encode("utf-8"))
+        # BEFORE table (recorded here, not asserted against a moving target):
+        #   today, governance-only (dashboard/pins/neighbourhood/continuity shed): ~5,684-5,750 B measured
+        #     (plan's reference: ~6,083 B — same shape, a few hundred bytes apart; see the size-spike
+        #     report for the reference-figure note. Both are comfortably inside a 10,000 B cap.)
+        #   today, nothing shed (this worktree's offline fixture, no pins/alarms): ~8,900-9,000 B measured
+        # Both numbers must stay well inside the cap; that is the only thing asserted — the exact byte
+        # count is reported, not pinned, since it drifts with ordinary prose edits elsewhere in boot.py.
+        self.assertLess(gov_only_bytes, boot.hooks.HOOK_OUTPUT_CAP)
+        self.assertLess(unshed_bytes, boot.hooks.HOOK_OUTPUT_CAP)
+
+    def _floor_block(self, filename):
+        """The engine-managed floor block of a root instruction file (CLAUDE.md / AGENTS.md), as text —
+        everything from the BEGIN fence through the END fence inclusive, or None if the fence is absent."""
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, filename), encoding="utf-8") as fh:
+            text = fh.read()
+        begin = text.find("BEGIN engine-managed block: floor")
+        end = text.find("END engine-managed block: floor")
+        if begin == -1 or end == -1 or end < begin:
+            return None
+        line_start = text.rfind("\n", 0, begin) + 1
+        line_end = text.find("\n", end)
+        return text[line_start:(line_end if line_end != -1 else len(text))]
+
+    def test_floor_recovery_deltas_recorded_in_the_before_after_table(self):
+        # The floor half of the before/after measurement table (fixtures-replay-measurement, StarshipSuperjam/engine-template#1187).
+        # floor-recovery-note added the additive envelope-recognition/recovery block to both engine-managed
+        # floors. Recorded here alongside the pack before-row above so the whole footprint change is in one
+        # place. MEASURED before/after (this home repo, against the build base 5b96d04d):
+        #   CLAUDE.md floor:  8,684 B -> 9,681 B  (delta +997 B)   [recovery block, under the 3000 B/floor ceiling]
+        #   AGENTS.md floor:  9,815 B -> 10,806 B (delta +991 B)   [recovery block, under the 3000 B/floor ceiling]
+        # The exact byte counts are RECORDED, not pinned to a moving target (they drift with ordinary floor
+        # edits and differ in a deployed projection where the floor is propagated): what is asserted is that
+        # each floor is well-formed and actually carries the recovery content, and that neither floor is
+        # anywhere near a size that would crowd the instruction corpus. Deployment-safe — the recovery block
+        # propagates to deployed floors via module_manager._merge_floor, so this holds in any shape.
+        for filename in ("CLAUDE.md", "AGENTS.md"):
+            block = self._floor_block(filename)
+            self.assertIsNotNone(block, f"{filename} has no well-formed engine-managed floor block")
+            # the recovery content this build added is present (the session-start-relay-is-orientation block).
+            self.assertIn("session-start relay", block,
+                          f"{filename} floor is missing the envelope-recognition recovery block")
+            self.assertIn("re-ground", block.lower(),
+                          f"{filename} floor's recovery block must name the re-ground path")
+            # a generous runaway-growth guard — the real floors are ~9.7-10.8 KB, far under this.
+            self.assertLess(len(block.encode("utf-8")), 16000,
+                            f"{filename} floor block has grown past its runaway-growth guard")
+
+    def test_ledger_completeness_and_superset(self):
+        # every one of the 7 warrants is actually used by at least one ledger row (no warrant is vestigial).
+        self.assertEqual(set(boot._WARRANTS), boot._LEDGER_WARRANTS_USED)
+        # every component the task's brief calls out by name is present in the ledger (a literal string
+        # match against the ledger's own component names — a renamed row must update this list too).
+        required_substrings = [
+            "briefing header", "MCP/knowledge-graph helper availability check",
+            "Explore write-gate scope lecture", "status dashboard (render_dashboard",
+            "execution posture relay", "build-sprawl note (render_mechanic_sprawl_note",
+            "work-neighbourhood map", "where-we-left-off recent-session excerpts", "pins index",
+            "loud pin set-aside disclosure",
+            "un-finished first-run setup offer", "stranded-checkout heads-up",
+            "off-main-line alarm", "stuck pull-request alarm", "disabled safety-hook offer",
+            "half-finished engine-update recovery offer", "post-revert memory-ahead-of-engine offer",
+            "empty-memory restore offer", "no-update-home-recorded offer",
+            "leftover foreign-license tidy-up offer",
+        ]
+        names = [c[0] for c in boot._COMPONENT_DISPOSITION_LEDGER]
+        joined = "\n".join(names)
+        for s in required_substrings:
+            self.assertIn(s, joined, f"the ledger must name a component matching {s!r}")
+        # the NEW never-shed set is a superset of TODAY's (the governance/consent/grounding guarantee).
+        holds, missing = boot.superset_check()
+        self.assertTrue(holds, f"the new never-shed set drops: {missing}")
+
+    def test_every_promoted_dashboard_alarm_appears_in_the_real_boot_pack(self):
+        """dashboard-decoupling (StarshipSuperjam/engine-template#1187), step 4's central proof: every dashboard-only alarm/offer the
+        ledger records as PROMOTED must actually appear in a REAL `assemble_pack()` render (not only in the
+        pulled dashboard) when its condition fires — the governance-critical guarantee this node exists to
+        keep. One signals dict fires all ten at once (a heavier simultaneous load than any single real session
+        is likely to see, which is the safe direction for this proof), and the assembled pack — with a cap wide
+        enough that nothing sheds — must carry a distinguishing phrase for each."""
+        patchers = _offline()
+        tmp = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6), \
+                 mock.patch.dict(os.environ, {boot_alarm_ledger.ENV_DIR: tmp}), \
+                 mock.patch.object(boot_alarm_ledger, "is_retired", return_value=False):
+                s = _signals(
+                    first_run={"present": True, "main": "/proj", "home": "StarshipSuperjam/engine-template",
+                               "own": "acme/widgets"},
+                    strand={"states": ["detached"], "main": "/p"},
+                    off_main={"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"},
+                    behind_origin={"state": "behind", "main": "/p", "branch": "main", "current": "main",
+                                  "on_default": True, "behind_commits": 9, "missing_merges": 5,
+                                  "presentation": "warning", "latest": "2026-06-27", "advisory": "merged"},
+                    absent_home=True,
+                    hooks_path={"plan_kind": "fixable", "collapsed": False, "fingerprint": "hp-1"},
+                    pr_conflict={"pr": 7, "title": "My pull request"},
+                    restore_offer={"configured": True},
+                    migration_revert={"store_label": "recall-ledger", "stamped": "2.0.0", "running": "1.0.0",
+                                      "tag": "engine-snapshot/abc123/core-2.0.0"},
+                    staged_update=False,   # kept False so migration_revert is NOT suppressed by it here
+                    foreign_license={"present": True, "fingerprint": "seed-x", "pr_open": False},
+                )
+                with mock.patch.object(boot, "gather_signals", return_value=s):
+                    pack = boot.assemble_pack(use_ledger=True)
+        finally:
+            for p in patchers:
+                p.stop()
+        expected = {
+            "un-finished first-run setup offer": "set up my project",
+            "stranded-checkout heads-up": "drifted into a broken state",
+            "off-main-line alarm (off_main)": "side line",
+            "off-main-line alarm (behind_origin)": "up to date",
+            "no-update-home-recorded offer": "update home isn't recorded",
+            "disabled safety-hook offer": "look at my hook path",
+            "stuck pull-request alarm": "can't be merged",
+            "empty-memory restore offer": "restore my memory",
+            "post-revert memory-ahead-of-engine offer": "before that update",
+            "leftover foreign-license tidy-up offer": "license file",
+        }
+        for label, phrase in expected.items():
+            self.assertIn(phrase, pack.lower(), f"{label}: expected {phrase!r} in the real boot pack")
+
+    def _assert_shape_gate(self, *, home, real_canary_tightest_margin):
+        bvals = boot._briefing_values()
+        cap = boot.hooks.HOOK_OUTPUT_CAP
+        cells = {}
+        for pins_count in (0, 8):
+            for alarm_heavy in (False, True):
+                cells[(pins_count, alarm_heavy)] = self._shape_total(
+                    home=home, pins_count=pins_count, alarm_heavy=alarm_heavy)
+        worst_key = max(cells, key=cells.get)
+        worst = cells[worst_key]
+        margin = cap - worst
+        shape = "engine-home" if home else "plain deployment"
+        # THE GATE: fit under the cap with a margin no looser than today's tightest real canary.
+        self.assertLess(worst, cap,
+                        f"{shape} worst case ({worst} B, {worst_key}) does not fit the {cap} B cap")
+        self.assertGreaterEqual(
+            margin, real_canary_tightest_margin,
+            f"{shape} worst case ({worst} B) leaves only {margin} B of margin under the {cap} B cap — "
+            f"looser than today's tightest real margin canary ({real_canary_tightest_margin} B)")
+        return cells, worst_key, worst, margin
+
+    def test_plain_deployment_shape_fits_the_gate(self):
+        # today's tightest real margin canary (test_margin_canary_never_shed_core_keeps_real_headroom)
+        # measures ~309 B of actual headroom over its 300 B required floor at time of writing; re-measured
+        # live here rather than hard-coded, so this gate tracks the real canary if it moves.
+        real_margin = boot.hooks.HOOK_OUTPUT_CAP - TestBriefingBudget()._clean_codex_core()
+        cells, worst_key, worst, margin = self._assert_shape_gate(
+            home=False, real_canary_tightest_margin=min(real_margin,
+                                                         boot.hooks.HOOK_OUTPUT_CAP
+                                                         - TestBriefingBudget()._mechanic_claude_core()))
+        # recorded for the report: worst cell, byte total, and margin.
+        self.assertIn(worst_key, cells)
+
+    def test_engine_home_shape_fits_the_gate(self):
+        real_margin = boot.hooks.HOOK_OUTPUT_CAP - TestBriefingBudget()._clean_codex_core()
+        cells, worst_key, worst, margin = self._assert_shape_gate(
+            home=True, real_canary_tightest_margin=min(real_margin,
+                                                        boot.hooks.HOOK_OUTPUT_CAP
+                                                        - TestBriefingBudget()._mechanic_claude_core()))
+        self.assertIn(worst_key, cells)
+
+    def test_grounding_receipt_and_alarms_truncation_preview_finding(self):
+        # THE OTHER HALF OF THE GATE: "the grounding receipt + action-forcing alarms must render within
+        # the first 2,000 chars (the platform's truncation-preview size)" — checked here as a REPORTED
+        # finding, not a hard pass/fail on shipped code: the content combined below (the marker, the
+        # worst-platform MCP check, and a representative alarm pile-up) is a MODELLED future never-shed
+        # payload that doesn't exist in boot.py yet, so there is nothing in this repository a red assertion
+        # here would be asking anyone to go fix. What IS asserted is the arithmetic itself, so a future
+        # change to any of the real inputs (the MCP check text, the alarm prose) is caught here rather than
+        # silently drifting the finding stale.
+        marker = boot.present_marker_line(_signals(
+            behind_origin={"state": "behind", "on_default": True, "presentation": "warning"},
+            off_main={"branch": "side-line"}))
+        mcp = boot.MCP_AVAILABILITY_CHECK_CODEX
+        heavy_alarms = "\n".join(f"   - {l}" for l in boot.must_push(self._heavy_alarm_signals()))
+        combined = len(marker.encode()) + len(mcp.encode()) + len(heavy_alarms.encode())
+        preview_window = 2000
+        # This is the size-spike's STOP-flagged sub-finding (see the returned report): on today's real
+        # renderers, a Codex session with this representative 6-alarm pile-up does NOT fit the
+        # grounding-receipt + action-forcing-alarm content within the platform's 2,000-char truncation
+        # preview. Recorded here as an honest arithmetic check (either branch is a legitimate outcome —
+        # this is a feasibility measurement, not a shipped guarantee), so the finding cannot go stale
+        # silently: if a future change makes it fit, this test's own comment goes stale instead of the
+        # number, which is a far cheaper thing to notice and fix.
+        if combined <= preview_window:
+            self.fail(
+                "RE-CHECK THE REPORT: grounding-receipt + heavy action-forcing-alarms now fit the "
+                f"{preview_window}-char preview ({combined} B) — the size-spike report's STOP-flagged "
+                "sub-finding on this point is stale and should be updated, not silently left as-is.")
+        self.assertGreater(combined, preview_window,
+                           f"grounding-receipt + a representative heavy alarm pile-up is {combined} B, "
+                           f"{combined - preview_window} B over the {preview_window}-char truncation "
+                           "preview window — the known, reported size-spike finding.")
 
 
 class TestSessionStartReachesQualification(unittest.TestCase):
@@ -4091,6 +4835,605 @@ class TestSessionStartReachesQualification(unittest.TestCase):
         self.assertIn(boot.AMBIENT_QUALIFICATION_OFF_ENV, notice)   # names the variable to unset
         self.assertIn("switched OFF", notice)
         self.assertIn("will not converge", notice)
+
+
+class TestBindingReader(unittest.TestCase):
+    """The binding-reader node: `boot.resolve_task_binding` — the fail-open boot-side resolver of a
+    session's `task_binding` ('verified' or 'none'), never wired into `assemble_pack`/`handler` yet.
+
+    Every case here is fully hermetic: `_binding_locator_path` and `_current_build_snapshot` are
+    monkeypatched to real tempdir/tmp-file paths and in-memory snapshot dicts (never the real OS temp
+    directory or a real coordinator bind), and `os.getuid`/`repo_identity.origin_slug` are monkeypatched
+    where a case needs to simulate a wrong owner or a wrong repository.
+    """
+
+    PLAN_ID = "pln_abcdef012345"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        # Resolved once, the same way resolve_task_binding itself resolves its `worktree` argument, so a
+        # macOS /tmp -> /private/tmp symlink cannot make a correct locator look like a worktree mismatch.
+        self.worktree = str(__import__("pathlib").Path(self._tmp.name).resolve())
+
+    def _locator(self, **overrides):
+        locator = {
+            "schema_version": "session-binding.v1",
+            "worktree": self.worktree,
+            "plan_ref": self.PLAN_ID,
+            "coordinator_snapshot": {"revision": "3"},
+            "pr_contract": {"state": "open", "pr_ref": "#1187"},
+            "captured_at": "2026-01-01T00:00:00Z",
+        }
+        locator.update(overrides)
+        return locator
+
+    def _snapshot(self, **overrides):
+        snapshot = {
+            "revision": 3,
+            "plan": {"plan_id": self.PLAN_ID},
+            "build": {"repository": "owner/repo", "pr": 1187},
+        }
+        snapshot.update(overrides)
+        return snapshot
+
+    def _write_locator(self, content, *, mode=0o600, name="locator.json"):
+        path = os.path.join(self._tmp.name, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(content) if not isinstance(content, str) else content)
+        os.chmod(path, mode)
+        return path
+
+    def _patched(self, *, locator_path, snapshot=None, origin_slug="owner/repo"):
+        """The three seams every case patches: the locator's path, the CURRENT bound snapshot (None ==
+        no live snapshot for this worktree, i.e. absent/superseded/retired), and the current repository
+        (read offline from git in the real implementation)."""
+        return (
+            mock.patch.object(boot, "_binding_locator_path", return_value=locator_path),
+            mock.patch.object(boot, "_current_build_snapshot", return_value=snapshot),
+            mock.patch.object(boot.repo_identity, "origin_slug", return_value=origin_slug),
+        )
+
+    def _resolve(self, *, locator_path, snapshot=None, origin_slug="owner/repo"):
+        p1, p2, p3 = self._patched(locator_path=locator_path, snapshot=snapshot, origin_slug=origin_slug)
+        with p1, p2, p3:
+            return boot.resolve_task_binding(self.worktree)
+
+    # -- 1. missing locator -------------------------------------------------------------------
+
+    def test_missing_locator_resolves_to_none(self):
+        absent = os.path.join(self._tmp.name, "does-not-exist.json")
+        result = self._resolve(locator_path=absent, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 2. wrong-worktree ----------------------------------------------------------------------
+
+    def test_wrong_worktree_resolves_to_none(self):
+        path = self._write_locator(self._locator(worktree="/somewhere/else/entirely"))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+        self.assertNotIn("recovery", result)
+
+    # -- 3. wrong-repository ---------------------------------------------------------------------
+
+    def test_wrong_repository_resolves_to_none(self):
+        path = self._write_locator(self._locator())
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(build={"repository": "owner/repo", "pr": 1187}),
+                                origin_slug="someone-else/spoofed-repo")
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 4. changed plan digest / plan mismatch (session-binding.v1 carries no digest field — see the
+    #       reconciliation gap in the returned report; this is the identity-level proxy the schema supports)
+
+    def test_plan_mismatch_resolves_to_none(self):
+        path = self._write_locator(self._locator(plan_ref="pln_ffffff000000"))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 5. invalid coordinator state -------------------------------------------------------------
+
+    def test_invalid_coordinator_snapshot_resolves_to_none(self):
+        path = self._write_locator(self._locator())
+        # A snapshot missing the fields this check needs (corrupt/partial write) must degrade, not raise.
+        result = self._resolve(locator_path=path, snapshot={"revision": 3})
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 6. expired snapshot (revision moved) ------------------------------------------------------
+
+    def test_expired_snapshot_revision_resolves_to_none(self):
+        path = self._write_locator(self._locator(coordinator_snapshot={"revision": "3"}))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(revision=4))
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 7. closed/merged PR ------------------------------------------------------------------------
+
+    def test_non_open_pr_contract_state_resolves_to_none(self):
+        path = self._write_locator(self._locator(pr_contract={"state": "merged", "pr_ref": "#1187"}))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    def test_terminal_snapshot_absent_resolves_to_none(self):
+        """A merged/closed PR's Build is retired/superseded locally — its snapshot stops being the ONE
+        live snapshot bound to this worktree, which `_current_build_snapshot` reports as None."""
+        path = self._write_locator(self._locator())
+        result = self._resolve(locator_path=path, snapshot=None)
+        self.assertEqual(result, {"state": "none"})
+
+    def test_pr_number_mismatch_resolves_to_none(self):
+        path = self._write_locator(self._locator(pr_contract={"state": "open", "pr_ref": "#1"}))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(build={"repository": "owner/repo", "pr": 1187}))
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 8. FORGED locator: wrong owner / wrong permissions / symlink --------------------------------
+
+    def test_forged_locator_wrong_owner_resolves_to_none(self):
+        path = self._write_locator(self._locator())
+        with mock.patch.object(boot.os, "getuid", return_value=os.getuid() + 999999):
+            result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    def test_forged_locator_wrong_permissions_resolves_to_none(self):
+        path = self._write_locator(self._locator(), mode=0o644)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    def test_forged_locator_symlink_resolves_to_none(self):
+        target = self._write_locator(self._locator(), name="real.json")
+        link = os.path.join(self._tmp.name, "link.json")
+        os.symlink(target, link)
+        result = self._resolve(locator_path=link, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+
+    # -- 9. malformed locator: the ONLY case that may carry recovery data -----------------------------
+
+    def test_malformed_json_resolves_to_none_with_recovery_only(self):
+        path = self._write_locator("{not valid json at all", mode=0o600)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result["state"], "none")
+        self.assertIn("recovery", result)
+        self.assertIsInstance(result["recovery"], dict)
+
+    def test_schema_invalid_document_resolves_to_none_with_recovery_only(self):
+        broken = self._locator()
+        del broken["plan_ref"]  # required by session-binding.v1
+        path = self._write_locator(broken)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result["state"], "none")
+        self.assertIn("recovery", result)
+
+    def test_only_malformed_carries_recovery_every_other_none_is_plain(self):
+        """Every other failure mode in this suite returns a bare {"state": "none"} — asserted directly
+        here for the two most representative non-malformed cases, so the "malformed is the ONLY case
+        with recovery data" contract is checked in one place rather than trusted from scattered asserts."""
+        # wrong worktree
+        path = self._write_locator(self._locator(worktree="/nope"))
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertNotIn("recovery", result)
+        # expired revision
+        path = self._write_locator(self._locator())
+        result = self._resolve(locator_path=path, snapshot=self._snapshot(revision=999))
+        self.assertNotIn("recovery", result)
+
+    # -- 10. VALID worktree-keyed binding -> verified, identically regardless of provider ---------------
+
+    def test_valid_binding_resolves_to_verified_exposing_only_verified_evidence(self):
+        locator = self._locator()
+        path = self._write_locator(locator)
+        result = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "verified", "binding": locator})
+
+    def test_valid_binding_resolves_identically_regardless_of_provider(self):
+        """resolve_task_binding takes no provider input and must not consult `providers` at all — proven
+        by making `providers.detect` raise if it is ever called, then resolving successfully twice."""
+        locator = self._locator()
+        path = self._write_locator(locator)
+        with mock.patch.object(boot.providers, "detect",
+                                side_effect=AssertionError("task_binding must not consult providers")):
+            result_claude = self._resolve(locator_path=path, snapshot=self._snapshot())
+            result_codex = self._resolve(locator_path=path, snapshot=self._snapshot())
+        self.assertEqual(result_claude, {"state": "verified", "binding": locator})
+        self.assertEqual(result_codex, {"state": "verified", "binding": locator})
+
+    # -- 11. COLD UNBOUND session stays 'none' despite unrelated live signals ---------------------------
+
+    def test_cold_unbound_session_stays_none_despite_other_signals(self):
+        """No locator at all for this worktree. `resolve_task_binding` takes no argument for a milestone,
+        a top board item, a recent merge, prior-session memory, or another worktree's Build, so none of
+        those can produce a binding here — asserted by supplying a fully MATCHING, verifiable snapshot
+        (as if a parallel worktree's live Build happened to describe this same plan/PR) and confirming
+        the missing locator alone is decisive."""
+        absent = os.path.join(self._tmp.name, "no-locator-here.json")
+        result = self._resolve(locator_path=absent, snapshot=self._snapshot())
+        self.assertEqual(result, {"state": "none"})
+        self.assertNotIn("recovery", result)
+
+    # -- fail-open guarantee: a guarded import failure anywhere degrades to 'none', never raises ---------
+
+    def test_broken_coordinator_import_fails_open_to_none(self):
+        path = self._write_locator(self._locator())
+        with mock.patch.object(boot, "_binding_locator_path", side_effect=RuntimeError("boom")):
+            result = boot.resolve_task_binding(self.worktree)
+        self.assertEqual(result, {"state": "none"})
+
+    def test_unresolvable_worktree_argument_fails_open_to_none(self):
+        result = boot.resolve_task_binding("\x00bad-path")
+        self.assertEqual(result, {"state": "none"})
+
+
+class TestPointOfUseDeferral(unittest.TestCase):
+    """The point-of-use-deferral node: boot's ANTICIPATORY prose (the Explore write-gate lecture, the full
+    knowledge-neighbourhood walk, the multi-line where-we-left-off excerpts) moved out to its named points
+    of use, and the push pack carries a coherent trim in its place. Two things this class must show: (1) each
+    deferred payload is still REACHABLE at its named point of use ("deferral replay green"), and (2) the
+    actual byte reduction the trim buys, component by component ("before/after component size table").
+    Everything measured here calls TODAY's real renderers, not a reconstruction — this class documents the
+    cutover `assemble_pack` above now performs, complementing (not replacing) the size-spike node's own
+    feasibility ledger, which models the FUTURE typed envelope rather than today's actual trim.
+    """
+
+    # ---- deferral replay green: every deferred payload is reachable at its named point of use -----------
+
+    def test_explore_lecture_routing_is_reachable_in_the_denial_and_write_gate_behaviour_is_unchanged(self):
+        # The two doors describe_explore_scope() used to name (the auto-memory notebook; the memory CLI)
+        # are reachable right now, at the moment a session actually needs them: the gate's own denial text.
+        self.assertIn("auto-memory notebook", modes._DENIAL)
+        self.assertIn("saved project memory goes through its own CLI", modes._DENIAL)
+        self.assertIn("blocked while we explore", modes._MEMORY_DENIAL)
+        # WRITE-GATE BEHAVIOUR IS UNCHANGED: the gate still denies exactly what it denied before this node,
+        # with the routing present — an ordinary file write while exploring is still refused, and a
+        # memory-shaped write still gets the memory-specific relay, not a decision change.
+        ordinary = modes.handler({"session_id": "replay-ordinary", "tool_name": "Write",
+                                  "tool_input": {"file_path": "src/thing.py"}})
+        self.assertEqual(ordinary["permissionDecision"], "deny")
+        self.assertIn("auto-memory notebook", ordinary["reason"])
+        memory_write = modes.handler({"session_id": "replay-memory", "tool_name": "Write",
+                                      "tool_input": {"file_path": ".engine/memory/whatever.ndjson"}})
+        self.assertEqual(memory_write["permissionDecision"], "deny")
+        self.assertIn("blocked while we explore", memory_write["reason"])
+        allowed_read = modes.handler({"session_id": "replay-read", "tool_name": "Read",
+                                      "tool_input": {"file_path": "src/thing.py"}})
+        self.assertNotIn("permissionDecision", allowed_read)  # an allow proceeds silently, never denies
+
+    def test_the_fuller_write_gate_explanation_is_reachable_in_memory_recall_doc(self):
+        # The fuller "how the gate works / where memory belongs" explanation the lecture used to carry is
+        # genuinely present at its named new home, not merely referenced.
+        path = os.path.join(validate.ENGINE_DIR, "operations", "memory-recall.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        for phrase in ("auto-memory notebook", "hand-write", "issue helper",
+                      "gh issue create", "Write/Edit"):
+            self.assertIn(phrase, text, f"the relocated write-gate explanation is missing {phrase!r}")
+
+    def test_the_full_neighbourhood_walk_is_reachable_via_the_named_renderer(self):
+        # The push pack now carries only the pointer; the full per-relationship walk it used to inline is
+        # still reachable, unchanged, at its point of use — the renderer the knowledge-graph tools' output
+        # feeds (render_neighborhood), exercised directly here exactly as a pull would use it.
+        summary = {"focus": ["tool:attention"], "groups": [
+            {"source": "tool:attention", "predicate": "targets", "direction": "in",
+             "total": 2, "sample": ["check:a", "check:b"]}]}
+        full = "\n".join(boot.render_neighborhood(summary))
+        self.assertIn("attention is checked by: a, b", full)
+        pointer = "\n".join(boot.render_neighborhood_pointer(summary))
+        self.assertNotIn("is checked by", pointer)
+        self.assertIn("mcp__engine-knowledge-graph__neighbors", pointer)
+
+    def test_the_full_wwlo_excerpts_are_reachable_via_the_named_renderer(self):
+        # Likewise for where-we-left-off: the full quoted card is still reachable via render_recent_sessions
+        # (what `recall-window`, named in the pointer, backs); only the PUSH form is now a single line.
+        card = {"session_id": "s9", "ended": 1_700_000_000, "count": 3,
+                "first_ask": "investigate the flaky export test", "last_ask": "confirm the fix holds"}
+        full = "\n".join(boot.render_recent_sessions([card]))
+        self.assertIn("investigate the flaky export test", full)
+        pointer = "\n".join(boot.render_wwlo_pointer([card]))
+        self.assertNotIn("investigate the flaky export test", pointer)
+        self.assertIn("HISTORY", pointer)
+        self.assertIn("s9", pointer)
+        self.assertIn("recall-window", pointer)
+
+    # ---- before/after component size table ---------------------------------------------------------
+
+    def test_before_after_component_size_table(self):
+        """Measures, component by component, what the trim actually removes from the push pack — using
+        TODAY's real renderers on both sides (the deferred full renderers ran as "before" stand-ins for
+        what boot used to inline; the new pointer renderers, and the assembled compact contract text
+        assemble_pack itself now emits, as "after"). Printed into the assertion message so the numbers are
+        visible in CI output; the pass/fail condition is only that every component genuinely shrank."""
+        # -- component 1: the Explore write-gate lecture -> the typed contract + stance sentence.
+        lecture = modes.describe_explore_scope()
+        stance_line = modes.describe_stance(modes.EXPLORE)
+        contract = modes.export_authority_contract(modes.EXPLORE)
+        exceptions = "; ".join(f"{e['provider']}: {e['note']}" for e in contract["provider_exceptions"])
+        contract_text = "\n".join([
+            stance_line + " (for you — don't relay this; it's your own session's wiring, not a status "
+            "update for the operator.)",
+            "Write-gate authority (typed): stance=" + contract["stance"]
+            + " action_default=" + contract["action_default"]
+            + " blocked=[" + ", ".join(contract["blocked"]) + "]"
+            + (" provider_exceptions=[" + exceptions + "]" if exceptions else ""),
+            "A denial you actually hit names the concrete way forward; the full write-gate/memory "
+            "explanation — what's allowed without building, the notebook and memory-CLI doors, the "
+            "engine-Issue carve-out — is in `.engine/operations/memory-recall.md` if you need more than "
+            "the contract above before that happens.",
+        ])
+
+        # -- component 2: the full neighbourhood walk -> the compact pointer (a representative hub focus).
+        nb_summary = {"focus": ["tool:validate"], "groups": [
+            {"source": "tool:validate", "predicate": "imports", "direction": "in",
+             "total": 94, "sample": ["attention", "boot", "close", "hooks"]},
+            {"source": "tool:validate", "predicate": "tests", "direction": "in",
+             "total": 3, "sample": ["test_validate"]},
+        ]}
+        nb_full = "\n".join(boot.render_neighborhood(nb_summary, 8))
+        nb_pointer = "\n".join(boot.render_neighborhood_pointer(nb_summary))
+
+        # -- component 3: the multi-line where-we-left-off excerpt -> the one-line HISTORY pointer.
+        wwlo_card = {"session_id": "s9", "ended": 1_700_000_000, "count": 12,
+                    "first_ask": "make the exporter idempotent so a retry after a partial failure is safe",
+                    "last_ask": "now check the retry path holds under a simulated crash mid-write too"}
+        wwlo_full = "\n".join(boot.render_recent_sessions([wwlo_card], 200))
+        wwlo_pointer = "\n".join(boot.render_wwlo_pointer([wwlo_card]))
+
+        rows = [
+            ("Explore write-gate lecture -> typed contract + stance sentence",
+             len(lecture.encode("utf-8")), len(contract_text.encode("utf-8"))),
+            ("knowledge-neighbourhood full walk -> compact pointer",
+             len(nb_full.encode("utf-8")), len(nb_pointer.encode("utf-8"))),
+            ("where-we-left-off multi-line excerpt -> one-line HISTORY pointer",
+             len(wwlo_full.encode("utf-8")), len(wwlo_pointer.encode("utf-8"))),
+        ]
+        before_total = sum(b for _, b, _ in rows)
+        after_total = sum(a for _, _, a in rows)
+        report_lines = [f"{name}: {before} B -> {after} B ({before - after} B saved)"
+                        for name, before, after in rows]
+        report_lines.append(f"TOTAL: {before_total} B -> {after_total} B "
+                            f"({before_total - after_total} B saved, "
+                            f"{100 * (before_total - after_total) // before_total}% reduction)")
+        report = "\n".join(report_lines)
+        for name, before, after in rows:
+            self.assertLess(after, before, f"{name} did not shrink:\n{report}")
+        self.assertLess(after_total, before_total, f"no net reduction:\n{report}")
+        # Recorded for the PR body (see this test's failure message format for the exact numbers):
+        # print(report)  # uncomment for a local run to see the table; assertions above are what CI checks.
+
+    def test_pack_total_size_is_smaller_after_the_trim_for_a_realistic_session(self):
+        # An end-to-end corroboration of the component table above: with a focus AND recent-session history
+        # present (the two sheddable components this node actually trims), the fully-unbounded assembled
+        # pack is smaller than the same signals would have produced with the retired full renderers in
+        # their place — computed by substituting today's REAL full-renderer output for the pointer text
+        # this node's `assemble_pack` now emits, never a reconstruction of removed code.
+        nb_summary = {"focus": ["tool:attention"], "focus_total": 1, "groups": [
+            {"source": "tool:attention", "predicate": "targets", "direction": "in",
+             "total": 2, "sample": ["check:a", "check:b"]}]}
+        wwlo_card = {"session_id": "s9", "ended": 1_700_000_000, "count": 12,
+                    "first_ask": "make the exporter idempotent so a retry after a partial failure is safe",
+                    "last_ask": "now check the retry path holds under a simulated crash mid-write too"}
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
+                    mock.patch.object(boot.attention, "rank_live",
+                                      return_value={"partition": [], "degraded_inputs": []}), \
+                    mock.patch.object(boot.attention, "neighborhood_of", return_value=nb_summary), \
+                    mock.patch.object(boot, "_recent_sessions_recall", return_value=[wwlo_card]), \
+                    mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                after_pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        after_bytes = len(after_pack.encode("utf-8"))
+        # Reconstruct the "before" total by swapping this node's two new pointer blocks and the compact
+        # contract block for what boot used to inline, on the SAME assembled pack (every other component —
+        # dashboard, execution posture, home-workshop grounding — is identical on both sides, so the
+        # difference isolates exactly what this node changed).
+        old_lecture_block = modes.describe_explore_scope() + "\n"
+        new_contract_block = (after_pack.split(modes.describe_stance(modes.EXPLORE), 1)[1]
+                              .split("\n\nGROUNDING", 1)[0])
+        new_contract_block = modes.describe_stance(modes.EXPLORE) + new_contract_block
+        old_nb_block = "\n".join(boot.render_neighborhood(nb_summary, boot._briefing_values()["neighborhood_groups_max"])) + "\n"
+        new_nb_block = "\n".join(boot.render_neighborhood_pointer(nb_summary)) + "\n"
+        old_wwlo_block = "\n".join(boot.render_recent_sessions([wwlo_card], boot._briefing_values()["excerpt_chars"])) + "\n"
+        new_wwlo_block = "\n".join(boot.render_wwlo_pointer([wwlo_card])) + "\n"
+        before_pack = (after_pack
+                      .replace(new_contract_block, old_lecture_block, 1)
+                      .replace(new_nb_block, old_nb_block, 1)
+                      .replace(new_wwlo_block, old_wwlo_block, 1))
+        before_bytes = len(before_pack.encode("utf-8"))
+        self.assertLess(after_bytes, before_bytes,
+                        f"the trimmed pack ({after_bytes} B) is not smaller than the reconstructed "
+                        f"pre-trim pack ({before_bytes} B)")
+
+
+class TestTypedEnvelopeCutover(unittest.TestCase):
+    """The envelope-assembler node: the typed session-relay.v1 envelope is boot's schema-validated SOURCE,
+    and assemble_pack is its deterministic serializer. These lock the cutover's load-bearing guarantees:
+    the envelope validates and carries the seven sections; every governance relay becomes an alarm
+    {code,text} with the collapse preserved; the receipt + alarm CODES survive the 2,000-char truncation
+    preview; the `pack` CLI is byte-identical to the hook injection; and an invalid assembly fails open."""
+
+    def _multi_alarm_signals(self):
+        return _signals(
+            gate="off", reason="branch protection not found",
+            blocking_findings=_blocking(3), register="https://x/issues",
+            execution={"posture": "changed", "runtime": "claude",
+                       "drift": ["conduct/defaults.md"], "lines": ["a"]},
+            restore_recovery={"ok": False, "pending": True, "verified": False, "error": "recovery-invalid"},
+            qualification_notices=["memory-write qualification advanced to full access for this session"],
+            automatic_checkout={"status": "blocked", "reason": "diverged"})
+
+    def test_assemble_envelope_validates_and_carries_the_seven_sections(self):
+        patchers = _offline()
+        try:
+            env = boot.assemble_envelope()
+        finally:
+            for p in patchers:
+                p.stop()
+        boot.session_relay.validate(env)   # raises on any violation
+        for section in ("schema_version", "grounding_receipt", "identity", "authority_contract",
+                        "task_binding", "action_forcing_alarms", "standing_directives", "pointers"):
+            self.assertIn(section, env)
+        self.assertEqual(env["schema_version"], "session-relay.v1")
+        # the standing directives carry the promoted continuity: the two fixed routing lines + the wwlo pointer.
+        self.assertEqual(env["standing_directives"]["routing_lines"], list(boot.modes.STANDING_ROUTING_LINES))
+        self.assertEqual(env["standing_directives"]["where_we_left_off"]["label"], "Where we left off")
+
+    def test_every_governance_relay_becomes_an_alarm_code_text_record(self):
+        # each real relay boot emits maps to a stable snake_case code + its own must-relay text; none invented.
+        records = boot.relay_records(self._multi_alarm_signals(), use_ledger=False)
+        by_code = {r["code"]: r["text"] for r in records}
+        self.assertIn("safety_gate_off", by_code)
+        self.assertIn("blocking_findings", by_code)
+        self.assertIn("execution_drift", by_code)
+        self.assertIn("restore_recovery_paused", by_code)
+        self.assertIn("memory_qualification", by_code)
+        self.assertIn("automatic_checkout", by_code)
+        for text in by_code.values():
+            self.assertTrue(text.strip())                     # every alarm carries a non-empty must-relay line
+        # the gate variants carry DISTINCT codes so the envelope names WHICH gate alarm fired.
+        unknown = {r["code"] for r in boot.relay_records(_signals(gate="unknown"), use_ledger=False)}
+        self.assertIn("safety_gate_unverified", unknown)
+        self.assertNotIn("safety_gate_off", unknown)
+        refused = {r["code"] for r in boot.relay_records(_signals(refused=True), use_ledger=False)}
+        self.assertIn("state_cursor_refused", refused)
+        # the texts are the SAME strings must_push relays — only the carrier is typed now.
+        self.assertEqual([r["text"] for r in records], boot.must_push(self._multi_alarm_signals()))
+
+    def test_alarm_collapse_is_preserved_through_the_envelope_carrier(self):
+        # the anti-habituation collapse still applies when the envelope is built on the ledger path.
+        self.dir = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: self.dir}):
+            s = _signals(gate="off", reason="no required checks")
+            first = boot.relay_records(s, use_ledger=True)                 # seed -> full
+            self.assertTrue(any("their safety gate is off" in r["text"] for r in first))
+            second = boot.relay_records(s, use_ledger=True)                # repeat -> terse
+            self.assertTrue(any("still off" in r["text"].lower() for r in second))
+            # the fresh (ledger-less) render never collapses.
+            fresh = boot.relay_records(s, use_ledger=False)
+            self.assertTrue(any("their safety gate is off" in r["text"] for r in fresh))
+            self.assertFalse(any("still off" in r["text"].lower() for r in fresh))
+
+    def test_over_cap_preview_keeps_the_receipt_and_the_alarm_codes(self):
+        # the render leads receipt -> alarms, so a truncated 2,000-char preview still tells the model WHICH
+        # alarms fired even when the full relay texts below it are cut.
+        with mock.patch.object(boot, "gather_signals", return_value=self._multi_alarm_signals()):
+            pack = boot.assemble_pack()
+        preview = pack[:2000]
+        self.assertIn("## GROUNDING", preview)
+        self.assertIn("## ALARMS", preview)
+        for code in ("safety_gate_off", "blocking_findings", "execution_drift", "restore_recovery_paused"):
+            self.assertIn(code, preview, f"the alarm code {code!r} must survive the 2,000-char preview")
+
+    def test_pack_cli_is_byte_identical_to_the_hook_injection(self):
+        # `boot.py pack` must print the EXACT string the SessionStart hook injects as additionalContext — a
+        # faithful debug view. On a fresh, alarm-quiet session the fresh and ledger renders coincide, so this
+        # holds byte-for-byte; the CLI and the injection's `context` are the same assembled pack.
+        patchers = _offline()
+        try:
+            buf = io.StringIO()
+            with mock.patch("sys.stdout", buf):
+                rc = boot.main(["pack"])
+            cli = buf.getvalue()
+            injected = boot.hooks.inject(boot.assemble_pack())["context"]
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(rc, 0)
+        self.assertEqual(cli.rstrip("\n"), injected)          # print() adds one trailing newline
+        # and with no alarm firing the hook (ledger) render equals the fresh CLI render byte-for-byte.
+        self.dir = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: self.dir}), \
+             mock.patch.object(boot, "gather_signals", return_value=_signals(gate="on")):
+            self.assertEqual(boot.assemble_pack(use_ledger=True), boot.assemble_pack(use_ledger=False))
+
+    def test_pretty_cli_prints_the_typed_envelope_as_json(self):
+        patchers = _offline()
+        try:
+            buf = io.StringIO()
+            with mock.patch("sys.stdout", buf):
+                rc = boot.main(["pack", "--pretty"])
+            out = buf.getvalue()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(rc, 0)
+        parsed = json.loads(out)                              # a human-readable, valid envelope JSON
+        self.assertEqual(parsed["schema_version"], "session-relay.v1")
+        boot.session_relay.validate(parsed)
+
+    def test_invalid_assembly_fails_open_to_a_minimal_safe_grounding_never_partial(self):
+        # if the envelope cannot be built/validated, the pack falls back to a minimal safe grounding — never a
+        # partial/corrupt render — and SessionStart still assembles a briefing (fail-open).
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "_envelope_from_signals",
+                                   side_effect=boot.session_relay.RelayValidationError("boom")):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        _assert_ai_briefing(self, pack)                       # still an AI briefing with the present marker
+        self.assertIn("minimal safe grounding", pack)
+        self.assertNotIn("## IDENTITY", pack)                 # no partial typed sections leaked through
+
+    def test_fail_open_still_relays_every_governance_alarm(self):
+        # StarshipSuperjam/engine-template#1187 deliverable review (divergence-hunter): the fail-open path must NEVER silently drop a
+        # governance alarm — this is the exact path where the dashboard's departure makes the envelope the sole
+        # every-session carrier. With alarms firing AND the typed envelope forced to fail, the fresh must_push
+        # relay lines must still reach the pack so instruction 2's "relay each alarm above" points at REAL
+        # alarms, not the empty "## ALARMS (unknown)" the old boolean-only fallback left. The fail-open test
+        # above fires no alarms, so it never exercised this.
+        signals = _signals(gate="off", reason="branch protection not found", staged_update=True)
+        relay = boot.must_push(signals)
+        self.assertTrue(relay, "precondition: the signals fire must-relay alarms")
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "gather_signals", return_value=signals), \
+                 mock.patch.object(boot, "_envelope_from_signals",
+                                   side_effect=boot.session_relay.RelayValidationError("boom")):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("minimal safe grounding", pack)         # fail-open
+        self.assertNotIn("## IDENTITY", pack)                 # no partial typed sections leaked through
+        self.assertIn("Relay each governance alarm", pack)    # instruction 2 fires
+        for line in relay:                                    # every real alarm relay text survived, inert
+            self.assertIn(boot.session_relay._inert(line), pack,
+                          "a governance alarm was silently dropped on the fail-open path")
+
+    def test_fail_open_survives_must_push_also_raising(self):
+        # StarshipSuperjam/engine-template#1187 (divergence-hunter, secondary): the fail-open fallback is itself GUARDED — if the same
+        # broken signal that failed the envelope also makes must_push raise, the pack degrades to the alarm-less
+        # minimal grounding rather than letting the exception escape assemble_pack (which would inject NO
+        # briefing at all — only the outer run_hook would catch it).
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "_envelope_from_signals",
+                                   side_effect=boot.session_relay.RelayValidationError("boom")), \
+                 mock.patch.object(boot, "must_push", side_effect=RuntimeError("the signal is broken too")):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        _assert_ai_briefing(self, pack)                       # a briefing still assembled, not an escape
+        self.assertIn("minimal safe grounding", pack)
+        self.assertIn("ALARMS (unknown)", pack)               # alarm-less fallback when must_push is unavailable
+
+    def test_gate_off_and_half_finished_update_both_surface_together(self):
+        # StarshipSuperjam/engine-template#1187 dashboard-decoupling node's required verification (spec-conformance): a session with the
+        # safety gate off AND a half-finished update must surface BOTH — neither promoted alarm crowds the
+        # other out now that they ride the envelope instead of the dashboard. The promoted-alarm test fires ten
+        # at once but with staged_update OFF (to avoid suppressing migration_revert); this pins the specific
+        # gate-off + staged_update co-occurrence the node names, which no other test exercised.
+        signals = _signals(gate="off", reason="branch protection not found", staged_update=True)
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "gather_signals", return_value=signals), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                pack = boot.assemble_pack().lower()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("safety gate is off", pack)             # the gate-off governance alarm
+        self.assertIn("half-finished", pack)                  # the staged-update recovery offer — both, together
 
 
 if __name__ == "__main__":

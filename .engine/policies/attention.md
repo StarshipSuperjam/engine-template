@@ -70,6 +70,18 @@ orientation first and blocking debt last). The per-prompt reminder to consult sa
 numbers at all — it is unconditional, so there is no bar to set. The numbers themselves stand as deliberate
 starting values, calibrated against real use rather than proven from the outset.
 
+**Where the ranked kinds surface, after the typed-envelope cutover.** The ranking still runs once at the
+start-of-session orientation event, exactly as before — none of these dials is retired or made inert; every
+one is still read to size what surfaces. What changed is *which projection* each ranked kind lands in (see the
+briefing-budget policy's three-projection model). Two kinds still ride the **pushed session-start relay**:
+anything **blocking** (surfaced as an action-forcing alarm, so a genuine blocker is never merely mentioned),
+and the **structural neighbours** of what you are touching — the ownership and collision notices — carried as a
+compact neighbourhood *pointer*, with the full walk pulled on demand. The remaining kinds — **work in flight**,
+**recent decisions**, and general **orientation** — no longer ride the pushed relay: they render in the
+**pulled status dashboard** (`/engine-status`), sized by the same budgets, shown when the operator asks rather
+than pushed every session. So the `budget_*`, `precedence_*`, and `weight_*` dials keep their full meaning; the
+surface their output is written to is what moved.
+
 When the engine looks at the parts of the project next to what you are touching, it follows the **wiring**
 between them — who owns a file, which rule governs it, what a check targets, which parts depend on which,
 which piece of code imports another, which tests exercise it, and what runs, enforces, or implements it. That

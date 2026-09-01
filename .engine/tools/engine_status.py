@@ -5,8 +5,12 @@ The PULL half of the operator-presentation relay. Boot PUSHES the safety-critica
 every session (the alarms + the present-marker the AI must relay); this verb PULLS the routine status
 dashboard on demand — milestone, what's next, what recently shipped, what needs attention. It is
 `operator-typed`: the operator types `/engine-status` to see it. The assistant does not invoke the skill,
-but still surfaces this status when the operator asks where things stand — by running this tool directly,
-the cue for which lives in the boot pack. Read-only: it changes nothing.
+but still runs this tool directly (the cue for which lives in the boot pack, `boot.EXPLICIT_STATUS_PULL_
+TRIGGER`) when the operator EXPLICITLY asks for the whole picture — 'give me the full status', 'where do
+things stand?', or invoking `/engine-status` itself. TIGHTENED (StarshipSuperjam/engine-template#1187): a generic "status or
+next-step question" trigger fired this on narrow questions too, so a narrow question about one issue, one
+pull request, or one component is answered directly and stays TARGETED — it must never trigger this full
+dashboard. Read-only: it changes nothing.
 
 It is a thin reuse of boot's seam — `gather_signals` (boot's SOLE I/O boundary) then `render_dashboard`
 (boot's PURE, operator-toned renderer). This is the design's "two renderings of the same data": boot wraps
