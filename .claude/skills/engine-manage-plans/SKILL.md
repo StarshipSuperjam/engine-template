@@ -15,7 +15,9 @@ engine-targets:
    this a plan for later", "turn this issue into a plan", "queue this up for a later build" — or to work the
    shelf of plans already written: what plans are waiting, picking one back up, retiring one whose work is
    done, abandoning one that is not going to happen. Name the Engine's planning procedure in
-   `.engine/operations/plan-orchestration.md` as the way to run it.
+   `.engine/operations/plan-orchestration.md` as the way to run it. If the question is really about a
+   multi-PR *program* — where one stands, how its children group, how a backlog splits into concurrent
+   lanes — that is the sibling door `engine-manage-programs`, not this one.
 
 2. Read that procedure before answering, because the judgment is the part that matters: how to ground in the
    issue before forming an opinion, when the thing in front of you is a symptom rather than the problem, how

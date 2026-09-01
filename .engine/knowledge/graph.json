@@ -824,6 +824,7 @@
           "codex-skill:engine-install-engine",
           "codex-skill:engine-manage-addons",
           "codex-skill:engine-manage-plans",
+          "codex-skill:engine-manage-programs",
           "codex-skill:engine-manage-setup",
           "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
@@ -898,6 +899,7 @@
           "codex-skill:engine-install-engine",
           "codex-skill:engine-manage-addons",
           "codex-skill:engine-manage-plans",
+          "codex-skill:engine-manage-programs",
           "codex-skill:engine-manage-setup",
           "codex-skill:engine-onboard-project",
           "codex-skill:engine-parts",
@@ -1783,6 +1785,7 @@
           "operation:owned-product-build",
           "operation:plan-orchestration",
           "operation:product-intake",
+          "operation:program-orchestration",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
@@ -1846,6 +1849,7 @@
           "operation:owned-product-build",
           "operation:plan-orchestration",
           "operation:product-intake",
+          "operation:program-orchestration",
           "operation:projects-release-advance",
           "operation:projects-sync-setup",
           "operation:routine-entry",
@@ -2653,6 +2657,7 @@
           "skill:engine-install-engine",
           "skill:engine-manage-addons",
           "skill:engine-manage-plans",
+          "skill:engine-manage-programs",
           "skill:engine-manage-setup",
           "skill:engine-onboard-project",
           "skill:engine-parts",
@@ -2727,6 +2732,7 @@
           "skill:engine-install-engine",
           "skill:engine-manage-addons",
           "skill:engine-manage-plans",
+          "skill:engine-manage-programs",
           "skill:engine-manage-setup",
           "skill:engine-onboard-project",
           "skill:engine-parts",
@@ -3763,7 +3769,7 @@
       },
       "slug": "engine-manage-plans",
       "source": {
-        "fingerprint": "sha256:286a73888eb82266ba8c6c8b149cc02309253b4d5da44d0e3590286397bb05e4",
+        "fingerprint": "sha256:97b6c36f619f64bf86347f3603cb69b60215303b4887e8db2b41d91650fc33ff",
         "path": ".agents/skills/engine-manage-plans/SKILL.md"
       },
       "status": "active",
@@ -3785,6 +3791,46 @@
       "source": {
         "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
         "path": ".agents/skills/engine-manage-plans/agents/openai.yaml"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-programs",
+      "name": ".agents/skills/engine-manage-programs/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-programs",
+      "source": {
+        "fingerprint": "sha256:3e7587cfc38b12c1a8270244571f6d67e2698b06156147888cfe2085f0f45925",
+        "path": ".agents/skills/engine-manage-programs/SKILL.md"
+      },
+      "status": "active",
+      "type": "codex-skill"
+    },
+    {
+      "id": "codex-skill:engine-manage-programs.policy",
+      "name": ".agents/skills/engine-manage-programs/agents/openai.yaml",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:codex-skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "engine-manage-programs.policy",
+      "source": {
+        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
+        "path": ".agents/skills/engine-manage-programs/agents/openai.yaml"
       },
       "status": "active",
       "type": "codex-skill"
@@ -5264,7 +5310,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:ecc6a1acdfc11221d505e510297f5235e3d1043cb8057b61fd7585c86ec798f3",
+        "fingerprint": "sha256:9d02fccf6b1a7eeb3c0048b7510b8c8ad5b559fd5f5d41bc727e9cdd450f4357",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6075,7 +6121,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:b8067c9724b861b192721e7ade87321ab35765a878da96954645119505b20d6d",
+        "fingerprint": "sha256:d154061885d5c17e761d8242b0559d5b16aedecae6d464a2b1102f43ce61c114",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -6097,6 +6143,26 @@
       "source": {
         "fingerprint": "sha256:ac73e7bb7a04a4a60ebc55a42271e5a71c2f4b517172e908bc60207333eda976",
         "path": ".engine/operations/product-intake.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:program-orchestration",
+      "name": ".engine/operations/program-orchestration.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "program-orchestration",
+      "source": {
+        "fingerprint": "sha256:764f3a3390a0e1e1b470d7cfb801674f01fc5bbaaf10d3d8047b7b60e6736373",
+        "path": ".engine/operations/program-orchestration.md"
       },
       "status": "active",
       "type": "operation"
@@ -7834,11 +7900,36 @@
       },
       "slug": "engine-manage-plans",
       "source": {
-        "fingerprint": "sha256:444270c50192098a4b07b3ec9548eb0d15f8847dfa3e510d69da1ae5145b00bd",
+        "fingerprint": "sha256:c4ca60cbed74bd1c9f4b034650335fa00e9004777999c3e023f4e8c7928b33e9",
         "path": ".claude/skills/engine-manage-plans/SKILL.md"
       },
       "status": "active",
       "title": "engine-manage-plans",
+      "type": "skill"
+    },
+    {
+      "id": "skill:engine-manage-programs",
+      "invocation": "model-only",
+      "name": ".claude/skills/engine-manage-programs/SKILL.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:skill.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ],
+        "routes_to": [
+          "operation:program-orchestration"
+        ]
+      },
+      "slug": "engine-manage-programs",
+      "source": {
+        "fingerprint": "sha256:7bd44bb1252231bd3baa0e26399bdd4f53ed38f92a188aed77380195762a0963",
+        "path": ".claude/skills/engine-manage-programs/SKILL.md"
+      },
+      "status": "active",
+      "title": "engine-manage-programs",
       "type": "skill"
     },
     {
@@ -13571,7 +13662,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:529bf80ba7bc39c39e954b601fb89417b2b9e4916195dcede89d289d20809a38",
+        "fingerprint": "sha256:4fa40d33a0e2d82a5ecd74431558b17bfa0e56da1c70107fdf312c20575a7922",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13768,7 +13859,7 @@
       },
       "slug": "program_projection",
       "source": {
-        "fingerprint": "sha256:cfe089283c88526fb6ed0068782d4e7f6e9e23c1c43e7bc0a514d0cecd18af6a",
+        "fingerprint": "sha256:8d3e90e0130527d05923b00a87fe40794a3520bd4567419706a2c3dc57fec5b4",
         "path": ".engine/tools/program_projection.py"
       },
       "status": "active",
@@ -17424,7 +17515,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:a15ece96e30f809a08cc2da73da949027bdffd055fa33c25404d343046dc06a5",
+        "fingerprint": "sha256:b9ea3bd598bb40368dffc5bbc412cbbf047049859e4fde732224d11e7b3f145f",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -18359,7 +18450,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:4c190f936bb5238bb89a2821103b0b2f8772c87d0d1fa3971b2049d687c5156f",
+        "fingerprint": "sha256:a75e465192bf50061a95fe6b3735e59aa337e555fb4e0498c8d9865da4a9bbff",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -18556,12 +18647,13 @@
           "tool:plan_program",
           "tool:plan_store",
           "tool:program_projection",
+          "tool:test_plan_program",
           "tool:test_plan_store"
         ]
       },
       "slug": "test_program_projection",
       "source": {
-        "fingerprint": "sha256:12001c19acd7ca0dffbe46d8c4de57be7378f9259ca8ec4190c77038ee07bad5",
+        "fingerprint": "sha256:18d8d47d126e7de574f7ec0359e2f74dad854505bee030eacfec4424d77c1978",
         "path": ".engine/tools/test_program_projection.py"
       },
       "status": "active",
