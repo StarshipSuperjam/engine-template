@@ -105,11 +105,12 @@ plainly that memory does not hold it. Every promising hit was read in its real c
 as a summary, and where exact wording mattered it was offered. **Nothing was changed, removed, or written at
 all** — searching and reading a conversation back are both pure reads.
 
-## Where memory belongs, and how the Explore write gate works
+## Notes
 
-This section is the point of use for detail boot's briefing used to push in full, every session, whether or
-not a session needed it (the point-of-use-deferral node). Boot's briefing now carries only a compact typed
-summary of the write gate — read this when that summary is not enough, or a denial pointed you here.
+**Where memory belongs, and how the Explore write gate works.** This is the point of use for detail boot's
+briefing used to push in full, every session, whether or not a session needed it (the point-of-use-deferral
+node). Boot's briefing now carries only a compact typed summary of the write gate — read this when that
+summary is not enough, or a denial pointed you here.
 
 **What the Explore write gate allows without building.** While exploring (before the operator says "build
 it"), you may: read files; run tests and other read-only commands; search the codebase; spawn subagents;
@@ -141,8 +142,6 @@ derives the native `Kind:`-prefix label.
 which you never perform yourself, in any stance. If you actually try one of the blocked actions, the denial
 you receive names the concrete way forward for that exact attempt; this section is for grounding ahead of
 that moment, not a substitute for reading the denial when it comes.
-
-## Notes
 
 **Tool names here are Claude's.** On another runtime the same capabilities are reached by that runtime's own
 names — check the tools available to you for the engine's memory operations (a keyword `search`, a

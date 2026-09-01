@@ -1319,9 +1319,9 @@ def _record_session_binding(state: dict, *, pr_number: int) -> None:
     request is the open claim at this worktree's HEAD — so `pr_contract.state` is always "open"
     here; a later reader is the one that re-checks whether it still is.
 
-    NON-FATAL exactly the way the PR-tagging a few lines above is non-fatal (StarshipSuperjam/
-    engine-template#1014): a locator write failing must never wedge a bind or a restore, so any
-    ordinary failure (a full disk, a denied temp directory, a missing jsonschema import) is
+    NON-FATAL exactly the way the PR-tagging a few lines above is non-fatal
+    (StarshipSuperjam/engine-template#1014): a locator write failing must never wedge a bind or a
+    restore, so any ordinary failure (a full disk, a denied temp directory, a missing jsonschema import) is
     disclosed on stderr and swallowed. The ONE exception is `SessionBindingForgedError` — the
     locator path already held something that is not a private regular file this session owns —
     which is a forgery signal, not a disk hiccup, and is left to propagate so the command that
