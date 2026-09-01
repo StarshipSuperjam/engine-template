@@ -4314,5 +4314,117 @@ class TestArrivalOpenerRepoint(unittest.TestCase):
             self.assertIn(inst._ROOT_CLAUDE_REL, captured["paths"])   # the instruction floor is staged
 
 
+# ==================================================================================================
+# Part B / node b3 — arrival EXECUTION through the typed protocol: the reviewed pull request, the
+# control-plane-finalize follow-up (never precomputed), and every degraded outcome carried honestly.
+# ==================================================================================================
+
+
+def _execution_adapter(target, release, *, decisions=None, opener=None, gate=None, consent=None,
+                       engine_release="v0.5.0", tier="solo", handle="you"):
+    fakes = _arrive_fakes()
+    if consent is not None:
+        fakes["consent"] = consent
+    return arrival_adapter.EngineArrival(
+        target_root=target, release_tree=release, engine_release=engine_release, tier=tier, handle=handle,
+        decisions=decisions, opener=opener, gate=gate, **{k: fakes[k] for k in fakes})
+
+
+def _accept_all_ids(target, release):
+    a0 = arrival_adapter.EngineArrival(target_root=target, release_tree=release,
+                                       gh_api=_arrive_fakes()["gh_api"], control_repo="you/your-project")
+    return {c["id"]: "accept" for c in a0.inspect(object())["collisions"]}
+
+
+class TestArrivalExecution(unittest.TestCase):
+    def _run(self, adapter):
+        _f, plan = transaction._planned(adapter, object())
+        return transaction.do_run(adapter, object(), plan["consent_handle"])
+
+    def test_arrival_runs_end_to_end_and_hands_off_a_reviewed_pull_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: prs.append(k) or {"number": 7})
+            env = self._run(adapter)
+            self.assertEqual(env["outcome"], "ok")
+            self.assertEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(env["handoff"].get("reference"), "7")
+            self.assertEqual(len(prs), 1)
+
+    def test_the_finalize_follow_up_is_named_but_never_precomputed(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: {"number": 1})
+            env = self._run(adapter)
+            follow_up = env["handoff"]["follow_up"]
+            self.assertEqual(follow_up["operation"], "control-plane-finalize")
+            self.assertIn("after you merge", follow_up["when"])
+            # No consent handle is precomputed — the merge changes the state finalize must inspect.
+            for forbidden in ("handle", "consent_handle", "digest"):
+                self.assertNotIn(forbidden, follow_up)
+
+    def test_the_embedded_control_plane_outcome_is_surfaced_verbatim(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: {"number": 1})
+            env = self._run(adapter)
+            cp = next((r for r in env["verification"] if "control-plane" in r["check"]), None)
+            self.assertIsNotNone(cp)
+            self.assertEqual(cp["result"], "passed")   # checkless protection went on
+
+    def test_a_hard_index_finding_forbids_a_clean_pull_request_handoff(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            # A gate that reports a hard index-drift finding: the arrival must NOT open a clean PR over it.
+            adapter = _execution_adapter(
+                target, release, decisions=_accept_all_ids(target, release),
+                opener=lambda **k: prs.append(k) or {"number": 1},
+                gate=lambda: [validate.finding("hard", "the generated knowledge index drifted")])
+            env = self._run(adapter)
+            self.assertNotEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(env["handoff"]["kind"], "manual-follow-up")
+            self.assertEqual(prs, [])                  # nothing opened for review over an inconsistency
+            idx = next(r for r in env["verification"] if "index" in r["check"])
+            self.assertEqual(idx["result"], "failed")
+
+    def test_an_aborted_overlap_is_a_degraded_handoff_never_a_pull_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            ids = _accept_all_ids(target, release)
+            first = sorted(ids)[0]
+            ids[first] = "abort"                       # the operator stops at one overlap
+            adapter = _execution_adapter(target, release, decisions=ids,
+                                         opener=lambda **k: prs.append(k) or {"number": 1})
+            env = self._run(adapter)
+            self.assertNotEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(prs, [])                  # nothing written, nothing opened
+
+    def test_a_tool_runtime_consent_halt_is_a_local_recovery_not_a_pull_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            # Declining the tool-runtime install halts setup mid-way: the engine's files are in place but
+            # setup did not finish -> a local recovery to resume, never a reviewed pull request.
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: prs.append(k) or {"number": 1},
+                                         consent=lambda kind: False)
+            env = self._run(adapter)
+            self.assertIn(env["handoff"]["kind"], ("local-recovery", "manual-follow-up"))
+            self.assertNotEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(prs, [])
+
+
 if __name__ == "__main__":
     unittest.main()

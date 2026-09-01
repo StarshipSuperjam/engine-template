@@ -325,22 +325,119 @@ class EngineArrival(transaction.Adapter):
             "manual_steps": [
                 "You obtain and run the pinned engine release yourself, before this project contains any "
                 "engine code — the engine cannot start its own arrival before it exists.",
-                "Merge the pull request it opens; then run `bootstrap.py finalize` to bind the engine's checks.",
+                "Merge the pull request it opens; then bind the engine's checks — `transaction.py plan "
+                "control-plane-finalize` shows what that would do, and you apply it yourself with "
+                "`bootstrap.py finalize`.",
             ],
         }
 
-    # -- apply / verify / handoff: provided by node b3-arrival-execution -----------------------------
+    # -- apply / verify / handoff (arrival execution) ------------------------------------------------
 
     def apply(self, args, plan: dict) -> dict:
-        raise NotImplementedError(
-            "arrival execution (overlay/setup/verify/retire, the verified draft PR, and the "
-            "control-plane-finalize follow-up) is provided by node b3-arrival-execution.")
+        # Run the SAME arrival machinery, now committing: the consent handle has already been verified, and
+        # each collision carries the decision the plan bound. The verified selective opener is injected here
+        # (the caller/door supplies it); arrive drives overlay -> setup -> verify -> retire -> index regen ->
+        # checkless control-plane bootstrap, and opens the reviewed pull request. Every degraded outcome is
+        # returned in the result rather than raised.
+        decisions = plan["inputs"]["collision_decisions"]
+
+        def decide(collision):
+            # The bound decision for this overlap; a somehow-unseen one aborts rather than guessing a write.
+            return decisions.get(_collision_id(collision), "abort")
+
+        b = self._boundaries
+        result = instantiator.arrive(
+            target_root=self._target_root, release_tree=self._release_tree,
+            engine_release=self._engine_release, keep=self._keep, declined=self._declined, tier=self._tier,
+            handle=b["handle"], default_branch=b["default_branch"], decide=decide, apply_changes=True,
+            opener=b["opener"], gh_api=b["gh_api"], home_reader=b["home_reader"],
+            settings_path=b["settings_path"], uv_present=b["uv_present"], uv_installer=b["uv_installer"],
+            uv_runner=b["uv_runner"], consent=b["consent"], control_transport=b["control_transport"],
+            gh_refresh=b["gh_refresh"], control_issues=b["control_issues"], control_repo=b["control_repo"],
+            control_token=b["control_token"], version_info=b["version_info"], gate=b["gate"])
+        return {"result": result}
+
+    @staticmethod
+    def _hard_gate_findings(result: dict) -> list:
+        return [f for f in (result.get("gate_findings") or []) if f.get("severity") == "hard"]
+
+    @staticmethod
+    def _control_plane_step(result: dict):
+        return next((s for s in (result.get("steps") or []) if s.get("step") == "control-plane"), None)
 
     def verify(self, args, applied: dict) -> list:
-        raise NotImplementedError("provided by node b3-arrival-execution")
+        result = applied["result"]
+        receipts = [{
+            "check": "engine files overlaid onto the project",
+            "result": "passed" if result.get("overlaid") else (
+                "unavailable" if not result.get("proceeded") else "failed"),
+            "detail": "{0} file(s) overlaid".format(len(result.get("overlaid") or [])),
+        }]
+        # The embedded control-plane outcome surfaced VERBATIM — its own step status and cause, not a
+        # re-derived verdict — so a reader sees exactly what the checkless bootstrap reported.
+        cp = self._control_plane_step(result)
+        if cp is not None:
+            receipts.append({
+                "check": "control-plane checkless protection (embedded outcome)",
+                "result": "passed" if cp.get("protected") else "failed",
+                "detail": "control-plane step: {0}".format(
+                    {k: cp[k] for k in ("status", "cause", "protected") if k in cp} or cp),
+            })
+        hard = self._hard_gate_findings(result)
+        receipts.append({
+            "check": "generated knowledge index consistent with the deployed sources",
+            "result": "failed" if hard else ("passed" if result.get("proceeded") else "unavailable"),
+            "detail": ("; ".join((f.get("message") or "") for f in hard)[:300] if hard
+                       else "no index drift"),
+        })
+        receipts.append({
+            "check": "arrival opened for review as a pull request",
+            "result": "passed" if result.get("pr") else "failed",
+            "detail": ("opened" if result.get("pr")
+                       else (result.get("reason") or "the pull request was not opened")),
+        })
+        return receipts
 
     def handoff(self, args, applied: dict, receipts) -> dict:
-        raise NotImplementedError("provided by node b3-arrival-execution")
+        result = applied["result"]
+        pr = result.get("pr")
+        hard = self._hard_gate_findings(result)
+        # THE CLEAN TERMINAL — a reviewed pull request with the finalize follow-up. Forbidden while a hard
+        # finding is outstanding: a pull-request handoff must never claim satisfied local postconditions over
+        # an inconsistency (arrive() already returns before the opener on a hard finding, so pr is None then;
+        # this is the defensive restatement of that invariant).
+        if pr and not hard:
+            reference = (pr.get("url") or pr.get("html_url") or (str(pr.get("number")) if pr.get("number")
+                         else "")) if isinstance(pr, dict) else str(pr)
+            handoff = {
+                "kind": "pull-request",
+                "summary": ("The engine's arrival is proposed for your review. Nothing about the project "
+                            "changes until you merge it; the branch is protected now, but the engine's own "
+                            "checks are bound only after the merge."),
+                # The finalize follow-up names the operation and WHEN — never a precomputed consent handle,
+                # because the merge changes the state finalize must inspect, so its plan is made fresh then.
+                "follow_up": {"operation": "control-plane-finalize",
+                              "when": "after you merge this pull request, so it inspects the merged state; "
+                                      "run `bootstrap.py finalize`"},
+            }
+            if reference:
+                handoff["reference"] = str(reference)
+            return handoff
+        if hard:
+            return {
+                "kind": "manual-follow-up",
+                "summary": (result.get("reason")
+                            or "The engine is installed but its generated knowledge index is inconsistent "
+                               "with the deployed sources, so the arrival was NOT opened for review."),
+            }
+        # Every other degraded/stopped outcome, carried honestly. A run that PROCEEDED (the engine is
+        # installed) but stopped short of the pull request is a local recovery the operator resumes; a run
+        # that stopped BEFORE installing anything is a clean stop to act on. arrive()'s own reason is the
+        # operator-facing text in both cases — including the tool-runtime consent halt, the retire-refused
+        # terminals, and the typed 3.9 codex deferral.
+        summary = result.get("reason") or "The arrival did not complete; nothing was opened for review."
+        kind = "local-recovery" if result.get("proceeded") else "manual-follow-up"
+        return {"kind": kind, "summary": summary}
 
 
 transaction.register(EngineArrival(target_root=".", release_tree="."))
