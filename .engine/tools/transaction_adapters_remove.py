@@ -14,7 +14,16 @@ validated and rendered afterwards.
 WHY `run` REFUSES HERE. The operator's ruling: an upgrade can be rolled back, an engine deletion is a
 harder recovery, so its start stays a deliberate act of theirs rather than something a session can reach.
 `transaction.py run engine-remove` refuses unconditionally and names the typed command; this adapter's
-phases are driven by that command. The digest handle still binds what was previewed.
+phases are driven by that command.
+
+AND THE DIGEST HANDLE NOW ACTUALLY BINDS — this sentence used to be aspirational. `module_manager.remove_engine`
+verifies the consent handle at its own function seam before it touches anything: a real (non-injected) removal
+re-derives the handle from THIS adapter's plan (via the shared `_refuse_stale_consent` core that also serves
+upgrade) and refuses an absent or stale one. So `plan` here mints the handle the operator carries to
+`remove-engine --confirm`, and applying a plan that has since moved refuses rather than deleting against
+consent given to a different change. The bound guarantee is plan-identity and repository-state freshness, not
+authorship: the handle is replayable and self-mintable, so the operator-typed `--confirm` remains the consent
+evidence and that residual is disclosed rather than overclaimed.
 
 AND WHAT THE PULL REQUEST CANNOT CARRY. The protection change is a repository setting, applied during
 apply and outside any pull request. That is disclosed here in plain words rather than left for a reader to
@@ -104,6 +113,13 @@ class RemoveEngine(transaction.Adapter):
         }
 
     def apply(self, args, plan: dict) -> dict:
+        # BASE CURRENCY FIRST, before this deletes anything: a wrong, behind-origin or diverged base refuses
+        # here — and refusing costs nothing, since nothing has been touched yet. The non-refusing note is
+        # carried onto the result for the handoff. (This adapter's `apply` is belt-and-braces: production
+        # removal runs through `module_manager.remove_engine`, wired at the operator-typed door; `transaction
+        # .py run engine-remove` refuses outright. Both operator-facing entries carry the same check.)
+        currency = handoff.refuse_if_stale_base()
+        currency_note = handoff.currency_summary_line(currency)
         # PRELOAD, then delete. Everything the later phases need must be resident now: the envelope schema
         # (already read at import), this module, and the handoff renderers. Nothing below may read a file
         # under .engine/ — it will not be there.
@@ -115,11 +131,20 @@ class RemoveEngine(transaction.Adapter):
                 "The receipt machinery is not loaded, so this removal could not report what it did after "
                 "deleting the engine. Nothing was changed.",
                 ["Report this: it is a defect in how the removal transaction loads its own schema."])
-        result = module_manager.remove_engine(choice=plan["inputs"]["protection"])
+        # Forward BOTH the consent handle and the currency note. The handle is re-derived at the
+        # remove_engine() function seam and must match, so the adapter mints it from THIS plan — the same
+        # self-mintable handle the docstring discloses, which is why the operator-typed `--confirm` remains
+        # the real consent evidence. Without forwarding it, this belt-and-braces path would refuse
+        # unconditionally (an absent handle is a refusal) rather than actually removing.
+        result = module_manager.remove_engine(
+            choice=plan["inputs"]["protection"],
+            consent_handle=envelope.consent_handle(plan),
+            base_currency_note=currency_note)
         if result.get("refused"):
             raise transaction.TransactionRefused(
                 "remove-engine-refused", result.get("reason", "The engine could not be removed."),
                 ["Resolve what the reason above names, then run this again."])
+        result["base_currency"] = currency
         return result
 
     def verify(self, args, applied: dict) -> list:
@@ -149,15 +174,18 @@ class RemoveEngine(transaction.Adapter):
         return receipts
 
     def handoff(self, args, applied: dict, receipts) -> dict:
+        currency_line = handoff.currency_summary_line(applied.get("base_currency"))
         pr = applied.get("pr") or {}
         if not pr:
-            return {
-                "kind": "manual-follow-up",
-                "summary": "The engine was removed from your working copy, but the pull request that "
-                           "proposes it could not be opened. The change is committed on its branch — open "
-                           "the pull request yourself to complete the removal.",
-            }
-        return handoff.pull_request_handoff(pr, "The engine's removal is proposed for your review.")
+            summary = ("The engine was removed from your working copy, but the pull request that "
+                       "proposes it could not be opened. The change is committed on its branch — open "
+                       "the pull request yourself to complete the removal.")
+            return {"kind": "manual-follow-up",
+                    "summary": summary + (" " + currency_line if currency_line else "")}
+        what = "The engine's removal is proposed for your review."
+        if currency_line:
+            what += " " + currency_line
+        return handoff.pull_request_handoff(pr, what)
 
 
 transaction.register(RemoveEngine())

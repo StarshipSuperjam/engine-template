@@ -165,5 +165,147 @@ class TestTheEnvelopeIsResidentBeforeTheDelete(unittest.TestCase):
         self.assertTrue(te.SCHEMA, "the schema must be resident before any deletion runs")
 
 
+class TestConsentIsBoundAtTheFunctionSeam(unittest.TestCase):
+    """A fresh whole-engine removal now applies the operator's consent to the EXACT plan they were shown:
+    remove_engine() re-derives the handle at its own function seam and refuses an absent or stale one BEFORE
+    it touches anything, so a non-CLI caller reaching a real removal cannot skip it. Each refusal here stops
+    before de-bootstrap and deletion — proven by the result never reporting a deletion or a de_bootstrap.
+
+    The handle is minted through the SAME shared `_refuse_stale_consent` core that serves upgrade, not a
+    copy — the divergence trap this program exists to close."""
+
+    def _minted_handle(self, *flags):
+        """Mint the handle exactly as `transaction.py plan engine-remove <flags>` would, so the round-trip is
+        the operator's real flow rather than a hand-built digest."""
+        adapter = adapter_module.RemoveEngine()
+        facts = adapter.inspect(Args(*flags))
+        plan = dict(adapter.plan(Args(*flags), facts))
+        plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
+        return te.consent_handle(plan)
+
+    def test_an_absent_handle_refuses_at_the_seam_before_any_mutation(self):
+        result = module_manager.remove_engine(choice="keep")   # non-injected, no handle
+        self.assertTrue(result["refused"])
+        self.assertIn("consent handle", result["reason"])
+        self.assertIn("transaction.py plan engine-remove", result["reason"])
+        # Nothing was touched: no de-bootstrap ran and nothing was deleted.
+        self.assertIsNone(result["de_bootstrap"])
+        self.assertEqual(result["deleted"], [])
+
+    def test_a_stale_handle_refuses_at_the_seam_before_any_mutation(self):
+        result = module_manager.remove_engine(choice="keep", consent_handle="sha256:" + "0" * 64)
+        self.assertTrue(result["refused"])
+        self.assertIn("does not match", result["reason"])
+        self.assertIsNone(result["de_bootstrap"])
+        self.assertEqual(result["deleted"], [])
+
+    def test_the_choice_is_bound_too_a_handle_for_the_other_choice_is_stale(self):
+        # A handle minted for --keep-protection must not authorise a --remove-protection removal: the choice
+        # is part of the plan the handle covers.
+        keep_handle = self._minted_handle("--keep-protection")
+        self.assertIsNone(module_manager._refuse_stale_remove_consent("keep", keep_handle))
+        self.assertIsNotNone(module_manager._refuse_stale_remove_consent("drop", keep_handle))
+
+    def test_the_plan_to_confirm_round_trip_accepts_the_carried_handle(self):
+        # The handle minted from the plan matches the one re-derived at the seam — the operator's real path.
+        for choice, flag in (("keep", "--keep-protection"), ("drop", "--remove-protection")):
+            with self.subTest(choice=choice):
+                self.assertIsNone(module_manager._refuse_stale_remove_consent(choice, self._minted_handle(flag)))
+
+    def test_the_adapter_forwards_the_plan_handle_and_currency_to_the_seam(self):
+        # TI-1: the belt-and-braces adapter path must forward BOTH the plan-derived consent handle and the
+        # currency note into remove_engine(). Without the handle, the seam's absent-handle rule would refuse
+        # unconditionally rather than remove — a dead belt-and-braces path. The seam is mocked so nothing is
+        # actually deleted; the assertion is only that the adapter carries the right arguments across.
+        adapter = adapter_module.RemoveEngine()
+        facts = adapter.inspect(Args("--keep-protection"))
+        plan = dict(adapter.plan(Args("--keep-protection"), facts))
+        plan["bound_fingerprints"] = dict((facts or {}).get("fingerprints") or {})
+        expected = te.consent_handle(plan)
+        note = "Base is current with origin/main (fetched just now); judged against commit abcdef012345."
+        with mock.patch.object(adapter_module.handoff, "refuse_if_stale_base", return_value={"note": note}), \
+             mock.patch.object(module_manager, "remove_engine",
+                               return_value={"pr": {"html_url": "u"}, "deleted": ["x"]}) as removed:
+            adapter.apply(Args("--keep-protection"), plan)
+        removed.assert_called_once_with(choice="keep", consent_handle=expected, base_currency_note=note)
+
+    def test_injection_alone_does_not_exempt_a_real_root_from_consent(self):
+        # secgov-1 / DH-1: the fixture exemption keys on BOTH facts together — a fixture boundary was injected
+        # AND a redirected root is active (`_redirect_root`). Injection ALONE must never stand in for "this is
+        # a test/demo": a caller that passes a fake opener/transport on the REAL tree (no `_redirect_root`
+        # context here) still has to cross the consent gate, so the fixture flag can never launder a real
+        # deletion past consent. Safe to assert on this live checkout precisely because the refusal lands
+        # BEFORE de-bootstrap and deletion — the result reports neither.
+        self.assertFalse(module_manager._IN_REDIRECTED_ROOT)   # no redirected root is active in this test
+        result = module_manager.remove_engine(
+            opener=lambda **kw: {"number": 0, "html_url": "(fixture)"},
+            transport=lambda *a, **k: (200, None, {}),
+            choice="keep", announce=lambda m: None)            # injected, but real root and no handle
+        self.assertTrue(result["refused"])
+        self.assertIn("consent handle", result["reason"])
+        self.assertIsNone(result["de_bootstrap"])
+        self.assertEqual(result["deleted"], [])
+
+    # The injected fixture/demo seam's exemption from the consent gate is proven — safely, on a redirected
+    # fixture root rather than the real tree — by the whole-engine removal fixture tests in
+    # test_module_manager (which call remove_engine injected, with no handle, and still delete cleanly) and by
+    # remove_engine_demo. It is deliberately NOT re-proven here: an injected remove_engine on THIS checkout
+    # would delete the engine under test. The residual is disclosed in the module docstring and the PR body.
+
+
+class TestTheRealConfirmPathCrossesConsent(unittest.TestCase):
+    """End-to-end evidence on the REAL CLI confirm path (`remove-engine --confirm`), not the injected demo
+    that bypasses it: the door carries the operator's --consent-handle to the function seam, and an absent
+    one refuses there. Base currency is short-circuited so the test isolates the consent gate rather than
+    d1's separate base check."""
+
+    def test_the_confirm_door_without_a_handle_refuses_through_the_real_path(self):
+        import contextlib
+        import io
+        captured = io.StringIO()
+        with mock.patch.object(module_manager, "_door_base_currency", return_value=(False, "")), \
+             contextlib.redirect_stdout(captured):
+            code = module_manager.main(["remove-engine", "--confirm", "--keep-protection"])
+        self.assertEqual(code, 1)
+        text = captured.getvalue()
+        self.assertIn("consent handle", text)
+        self.assertIn("transaction.py plan engine-remove", text)
+
+    def test_the_confirm_door_with_a_stale_handle_refuses_through_the_real_path(self):
+        import contextlib
+        import io
+        captured = io.StringIO()
+        with mock.patch.object(module_manager, "_door_base_currency", return_value=(False, "")), \
+             contextlib.redirect_stdout(captured):
+            code = module_manager.main(["remove-engine", "--confirm", "--keep-protection",
+                                        "--consent-handle=sha256:" + "0" * 64])
+        self.assertEqual(code, 1)
+        self.assertIn("does not match", captured.getvalue())
+
+
+class TestRemovalPrBodyCarriesBaseCurrency(unittest.TestCase):
+    """U1 / SC-1: the currency verdict must reach the DURABLE surface the operator merges — the removal
+    pull-request body — not only the machine envelope and the transient CLI note."""
+
+    def test_the_note_rides_the_pr_body_when_present(self):
+        note = "Base is current with origin/main (fetched 1 hour ago); judged against commit 0123456789ab."
+        body = module_manager._remove_engine_pr_body(
+            {"de_bootstrap": {"status": "kept"}, "base_currency_note": note})
+        self.assertIn(note, body)
+
+    def test_no_currency_line_when_there_is_no_note(self):
+        body = module_manager._remove_engine_pr_body({"de_bootstrap": {"status": "kept"}})
+        self.assertNotIn("Base currency:", body)
+
+    def test_the_unverified_note_is_not_double_labelled(self):
+        # U-R1: the unverified note already opens with "Base currency was not checked:" — the removal body
+        # must not render "Base currency: Base currency was not checked:".
+        unverified = "Base currency was not checked: origin could not be resolved. The change proceeds."
+        body = module_manager._remove_engine_pr_body(
+            {"de_bootstrap": {"status": "kept"}, "base_currency_note": unverified})
+        self.assertIn(unverified, body)
+        self.assertNotIn("Base currency: Base currency", body)
+
+
 if __name__ == "__main__":
     unittest.main()
