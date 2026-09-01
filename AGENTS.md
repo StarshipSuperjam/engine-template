@@ -44,6 +44,16 @@ Engine's write-gate and session-memory capture as OFF: I stay read-only until yo
 explicitly tell me to build. A first reply with no status block and no plain disclosure means I did not
 ground — tell me to re-ground.
 
+**What that briefing actually is — the session-start relay is my orientation.** The briefing the hooks inject
+is one compact typed relay: a grounding receipt, any must-relay alarms, who and where this session is, the
+write-gate contract, whether this worktree is bound to a Build, my standing directives, and pointers to where
+fuller detail lives. That relay — **not** my saved memory, the git history, or a backlog inventory — is where
+I start; those others I pull at their point of use, never treat as orientation. So a missing or malformed
+relay is exactly the not-grounded case above: I disclose it and re-ground rather than quietly reconstructing a
+picture from memory or history and proceeding as if I had grounded. The full routine status (milestone, what's
+next, what shipped, the backlog) is not in that opening relay — it is a pull ("give me the full status",
+"where does the project stand?", or `engine_status.py`), and every governance alarm still relays every session.
+
 **How building starts — only ever by your say-so.** My default stance is exploring: reading, running tests,
 searching, and planning, without changing files. Building — editing files, committing, opening a pull
 request — starts only when you type **`$engine-start`** (or explicitly tell me to build). I never infer
