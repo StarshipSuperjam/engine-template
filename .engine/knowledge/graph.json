@@ -5873,7 +5873,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:90361b211e8f3fa620886c6bb9d6eaea5de9caf319242686cf17a02d2f47a721",
+        "fingerprint": "sha256:552e0b93455733b2609451bd3958dea8337c7fbeec134bc81cb7e3ba90dd0cd6",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -5893,7 +5893,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:8acf1c0dc97b2bc680e1653123ef97abd78a4fd489deafea79f145526c36bcb5",
+        "fingerprint": "sha256:6817d8b568920029913eb9747a68cb082d647664ef3854b37df23f47b610fab5",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -9357,7 +9357,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:1e6ebfcbc777acc11535811434c36e402640f0f1b8de738507a1c54dce333489",
+        "fingerprint": "sha256:a811b729dd5f54196faaca8f706e28b5497744e8550bfc1edb6716a9c8727fd7",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -12491,6 +12491,7 @@
           "tool:repo_identity",
           "tool:security_floor",
           "tool:self_map",
+          "tool:transaction_handoff",
           "tool:validate",
           "tool:wiring"
         ],
@@ -12500,7 +12501,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:00c528d51a7c230a43e7e6fe6521c907275bc0e6094ba5a2baca06c1d9d26705",
+        "fingerprint": "sha256:25ff8e71048390417e9c5897a1bdf14e87270803b8f9d335415b7a3bbace3e5c",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -15886,12 +15887,14 @@
           "tool:issue_conformance_ci",
           "tool:protection_guard",
           "tool:telemetry",
+          "tool:transaction",
+          "tool:transaction_adapters_controlplane",
           "tool:weakening_guard"
         ]
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:254ec03040b093015c1c13a72a075e14f3fcd45ddc2509880bce398fd1143404",
+        "fingerprint": "sha256:1c5248a16590b5ed68896ab083e5bd5c5416cda9b44aca8e6caad3add9c67969",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -17410,13 +17413,16 @@
           "tool:license_seeds",
           "tool:module_coherence",
           "tool:self_map",
+          "tool:transaction",
+          "tool:transaction_adapters_arrival",
+          "tool:transaction_handoff",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:b5fde2e286c3f3b92cc446bbb835b10998cc916fa154bf4d245c80dcef920c54",
+        "fingerprint": "sha256:74018a8e38b653cce89d52ad4a4f93a09cdb872cfd76f81bc1a5116d67fd596a",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -20491,7 +20497,7 @@
       },
       "slug": "test_transaction",
       "source": {
-        "fingerprint": "sha256:ced19d892af9709864d76ae240bc4eb31ef1bb6690a2878b325009c2a01e772e",
+        "fingerprint": "sha256:f8a9225510ca772927523ce843bd145e53d628361be248048e4539715afd2d71",
         "path": ".engine/tools/test_transaction.py"
       },
       "status": "active",
@@ -20842,11 +20848,62 @@
       },
       "slug": "transaction",
       "source": {
-        "fingerprint": "sha256:a75b131c7f000fd2a95baaa2f8e001b6d087121c2c76de5b862ec4cb0d9f6c3b",
+        "fingerprint": "sha256:e5d24de596b8654b9c7e0591443b455baabedb8f7004ee8c1f3c297351a32adf",
         "path": ".engine/tools/transaction.py"
       },
       "status": "active",
       "summary": "transaction.py — one stateless CLI for every lifecycle transaction.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_arrival",
+      "name": ".engine/tools/transaction_adapters_arrival.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:instantiator",
+          "tool:transaction",
+          "tool:transaction_handoff"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_arrival",
+      "source": {
+        "fingerprint": "sha256:32a1d7a1897517d9a238f9a2cf37d4b93d5edd473b3eee77b99ba568b839f606",
+        "path": ".engine/tools/transaction_adapters_arrival.py"
+      },
+      "status": "active",
+      "summary": "Brownfield engine arrival, as a typed transaction.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_controlplane",
+      "name": ".engine/tools/transaction_adapters_controlplane.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:boot",
+          "tool:bootstrap",
+          "tool:repo_identity",
+          "tool:transaction"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_controlplane",
+      "source": {
+        "fingerprint": "sha256:006d80014c049bb742d5e11efd10cb1e5952a4165a7cee5fd86a7649149a46b0",
+        "path": ".engine/tools/transaction_adapters_controlplane.py"
+      },
+      "status": "active",
+      "summary": "Turning the branch-protection floor on (bootstrap) and binding the engine's checks after a brownfield",
       "type": "tool"
     },
     {
