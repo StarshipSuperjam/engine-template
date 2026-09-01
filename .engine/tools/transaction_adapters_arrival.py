@@ -67,7 +67,7 @@ ARRIVAL_REACHABLE_MODULES = (
     "license_health", "license_seeds", "modes", "module_catalog", "module_coherence", "module_manager",
     "moment", "mutation_guards", "operator_overrides", "pr_reconcile", "protection_guard", "providers",
     "release_source", "render_safety", "repo_behavior", "repo_identity", "security_floor", "self_map",
-    "standing_situation", "telemetry", "transaction", "transaction_adapters_arrival",
+    "session_relay", "standing_situation", "telemetry", "transaction", "transaction_adapters_arrival",
     "transaction_adapters_controlplane", "transaction_envelope", "transaction_handoff", "tune", "validate",
     "weakening_guard", "wiring", "work_record",
 )
