@@ -20873,7 +20873,7 @@
       },
       "slug": "transaction_adapters_arrival",
       "source": {
-        "fingerprint": "sha256:32a1d7a1897517d9a238f9a2cf37d4b93d5edd473b3eee77b99ba568b839f606",
+        "fingerprint": "sha256:d4e76dfeed5cdf819a6c21ffe760020305d7185da706a02a8d25e3896f1bafb9",
         "path": ".engine/tools/transaction_adapters_arrival.py"
       },
       "status": "active",
