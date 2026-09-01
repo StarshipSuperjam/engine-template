@@ -1593,9 +1593,6 @@
   ".engine/tools/engine_write.py": [
    "core"
   ],
-  ".engine/tools/execution_env_policy.py": [
-   "core"
-  ],
   ".engine/tools/execution_environment.py": [
    "core"
   ],
@@ -2320,9 +2317,6 @@
    "core"
   ],
   ".engine/tools/test_engine_write.py": [
-   "core"
-  ],
-  ".engine/tools/test_execution_env_policy.py": [
    "core"
   ],
   ".engine/tools/test_execution_environment.py": [

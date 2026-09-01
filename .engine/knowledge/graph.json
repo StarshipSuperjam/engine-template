@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:da235e40148c84668ca799b54924930c4246685c2eb397388057faf0e7c76b6c",
+        "fingerprint": "sha256:db69656485676762feaaedf34b02fd7974edaa29df6e9bfb22c6d9b7674864d7",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5633,7 +5633,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:e556cca73fbf9515c3fd2f999799e684e8a793a4142d69544acb61592edb0b34",
+        "fingerprint": "sha256:be495f6283d366a2ef187017ce99ad3320e32c54cd7d5e74092e941f2000f433",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -5653,7 +5653,7 @@
       },
       "slug": "build-execution",
       "source": {
-        "fingerprint": "sha256:3e74b1b95f1195a44cb30913bbdf1b221169b13e501de1b1a1cc4af0e54668c9",
+        "fingerprint": "sha256:133ce2eef10da63db5f9fb8e59318f1e809b4e445095b490060358e8fa09112a",
         "path": ".engine/operations/build-execution.md"
       },
       "status": "active",
@@ -6113,7 +6113,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:baa667161ddcfd648cd70d0a41a32338a6abc4889942f3cbd73d0bd21ad29ec1",
+        "fingerprint": "sha256:9fb3ec6ccbe16427e623561fa6bcec7e6ef28c1f940132cce5b5acf8cf2b1edf",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -6393,7 +6393,7 @@
       },
       "slug": "attention",
       "source": {
-        "fingerprint": "sha256:95cb75e231651793994367bf3b7c5237658da7c9078e6fcbf07b29dc51e69fef",
+        "fingerprint": "sha256:776e4c66a429434b9ed14e1e21404e36efae9933bbadabe4ae2449faf9fed705",
         "path": ".engine/policies/attention.md"
       },
       "status": "active",
@@ -6414,7 +6414,7 @@
       },
       "slug": "briefing-budget",
       "source": {
-        "fingerprint": "sha256:027a6c18e8fc5df122410b8a48e9ecbc5fda37eb588ceedee9b91160539fe379",
+        "fingerprint": "sha256:723a8f54165750b8e898afc15d0b24e7ca9a97ef7c030c60ab7c32d91bfc4abe",
         "path": ".engine/policies/briefing-budget.md"
       },
       "status": "active",
@@ -7141,7 +7141,7 @@
       },
       "slug": "executor-qualification.v1",
       "source": {
-        "fingerprint": "sha256:b43608ae783720f776d27bf4fcd7293f313767e3b76503b7e3ed4396086af891",
+        "fingerprint": "sha256:3c1f38195dd9557070a2be1cde134a6aac3a458373b9d6bf7af17cb02127f3d6",
         "path": ".engine/schemas/executor-qualification.v1.json"
       },
       "status": "active",
@@ -7517,6 +7517,40 @@
       "source": {
         "fingerprint": "sha256:76073bd1829409f3059a5c8ff436f18dc9cf65e8bc4a6f45fca2345031cc01b9",
         "path": ".engine/schemas/selftest-selection.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:session-binding.v1",
+      "name": ".engine/schemas/session-binding.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "session-binding.v1",
+      "source": {
+        "fingerprint": "sha256:f513001d2e4c1ad603a450af58d9bb6f381d76fab6dd623ddef97e8b642959a3",
+        "path": ".engine/schemas/session-binding.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:session-relay.v1",
+      "name": ".engine/schemas/session-relay.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "session-relay.v1",
+      "source": {
+        "fingerprint": "sha256:ca2d09b7e110e82463772fb6c9b2a58451d5e7c7fb887266cfe262de7710dc5e",
+        "path": ".engine/schemas/session-relay.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -9203,6 +9237,8 @@
           "tool:audit_digest",
           "tool:boot_alarm_ledger",
           "tool:boot_slice",
+          "tool:build_coordinator_core",
+          "tool:build_state_store",
           "tool:checkout_auto_update",
           "tool:checkout_health",
           "tool:drain",
@@ -9228,6 +9264,7 @@
           "tool:recall",
           "tool:repo_identity",
           "tool:restore_vault",
+          "tool:session_relay",
           "tool:standing_situation",
           "tool:telemetry",
           "tool:validate",
@@ -9239,7 +9276,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:f987e4a9f989eb4795e7dbfb025a5e76f32a48b235b0b70722c06d1a1c31364a",
+        "fingerprint": "sha256:0baa7607ef4bfed1e4db73255eeab0b0db7ddff414d65b64fa435c1bdb61b6b0",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9368,7 +9405,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:bb23482c61a863878c418cbc73f5910240e0ce3493d52296d39a5e3d814b91a5",
+        "fingerprint": "sha256:e6219f0f998d67f88550e276e7ec12ad78106fbe13c6fe7f9ed5a1de41fa95ba",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9412,7 +9449,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:cb899bcecf0ff945f9b9b4807d00abff9248499a60613dd2b80e81df1833812d",
+        "fingerprint": "sha256:f5510c7278f914981899485ad583b27d4950a153469e44a79ca6cae52c385998",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -11903,7 +11940,7 @@
       },
       "slug": "engine_status",
       "source": {
-        "fingerprint": "sha256:a94504a2bfc9011f54fa86e35a23bad4f134bae39b8d412fdba5fc9c49adedb3",
+        "fingerprint": "sha256:2b4d6314c96fe22034539dca286ba0016aa3dd82d5aef17adbaf853226b28734",
         "path": ".engine/tools/engine_status.py"
       },
       "status": "active",
@@ -12062,26 +12099,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "library",
-      "guarded": false,
-      "id": "tool:execution_env_policy",
-      "name": ".engine/tools/execution_env_policy.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "execution_env_policy",
-      "source": {
-        "fingerprint": "sha256:54ae41ce34ce23722daca23f39f857a682ecba4e92c26cf57badd47010434da1",
-        "path": ".engine/tools/execution_env_policy.py"
-      },
-      "status": "active",
-      "summary": "Execution-environment policy — a reusable, allowlist-first way to run and reap a supervised child process.",
-      "type": "tool"
-    },
-    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:execution_environment",
@@ -12118,7 +12135,7 @@
       },
       "slug": "executor_eligibility",
       "source": {
-        "fingerprint": "sha256:dd2016c0bec4b6bed083e3a4d89a82d26b84776ed0caf0bae5a9128b71689d68",
+        "fingerprint": "sha256:8a52013723f66c33dd4d7ecc21b955cb6655763a117e50541fb675db967682f5",
         "path": ".engine/tools/executor_eligibility.py"
       },
       "status": "active",
@@ -13296,7 +13313,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:7027f38686c003f65c735ad01218332ae316aff359d91b4ea6d70aa9c7a3ed80",
+        "fingerprint": "sha256:f651e548525eff8e6891a208a357b88a040115f606b90c65f7fc620982881ed7",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -15023,6 +15040,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:session_relay",
+      "name": ".engine/tools/session_relay.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "session_relay",
+      "source": {
+        "fingerprint": "sha256:29065905c9dbc26d6b7c1a912c77c4eb20e96faad7ae285804c64fcf70757e5a",
+        "path": ".engine/tools/session_relay.py"
+      },
+      "status": "active",
+      "summary": "session_relay: validate and deterministically render the session-relay.v1 envelope.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "ci",
       "guarded": true,
       "id": "tool:setup_route_drift_check",
@@ -15760,6 +15797,7 @@
           "tool:audit_digest",
           "tool:boot",
           "tool:boot_alarm_ledger",
+          "tool:engine_status",
           "tool:hooks",
           "tool:knowledge_index",
           "tool:modes",
@@ -15771,7 +15809,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:417e977ac20db7f8c1359f6cd3b80c9c09526b01ebd72e20fe2487da936a8815",
+        "fingerprint": "sha256:91f5594200c41009dd2f0d4708f2fc4cae6217837b1d2b4b3886de03ac350cf4",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -15891,7 +15929,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:a36307681422a42f28f1d52f66988a7a2cb3abf7645be631555049c24aefc27b",
+        "fingerprint": "sha256:5f2ef29e0230c9f728c2c854bcca579d9fa9327686dafd67f5082663f05b2924",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -17004,29 +17042,6 @@
     {
       "entrypoint": "test",
       "guarded": false,
-      "id": "tool:test_execution_env_policy",
-      "name": ".engine/tools/test_execution_env_policy.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:execution_env_policy"
-        ]
-      },
-      "slug": "test_execution_env_policy",
-      "source": {
-        "fingerprint": "sha256:e880c04a348a5c9dc7eb8cf1b05802b76287f328a5cae346efd02f4c9e2aff1b",
-        "path": ".engine/tools/test_execution_env_policy.py"
-      },
-      "status": "active",
-      "summary": "Tests for execution_env_policy — allowlist environment construction (only named keys, no ambient leak),",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
       "id": "tool:test_execution_environment",
       "name": ".engine/tools/test_execution_environment.py",
       "owner": "core",
@@ -18119,12 +18134,13 @@
           "tool:project_manager",
           "tool:providers",
           "tool:quiet_call",
+          "tool:session_relay",
           "tool:validate"
         ]
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:1e1233c460a684c7fe6b49f6a7a5e4ba88ec7864999db7f72f4d05acad0fd3ce",
+        "fingerprint": "sha256:385b4af33737d3bdc12aa61a6829cc8c194c1f2a3ae02669b8e663e0df1282c9",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
@@ -20092,6 +20108,29 @@
       },
       "status": "active",
       "summary": "Tests for the session-economy PreToolUse gate.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_session_relay",
+      "name": ".engine/tools/test_session_relay.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:session_relay"
+        ]
+      },
+      "slug": "test_session_relay",
+      "source": {
+        "fingerprint": "sha256:b03b0d0c1e07b2bde10b5c3769c9ee34d877bfe5c8e373e7e1a0d4089b05871b",
+        "path": ".engine/tools/test_session_relay.py"
+      },
+      "status": "active",
+      "summary": "Focused tests for session_relay: schema validation, deterministic rendering, the 2,000-char",
       "type": "tool"
     },
     {

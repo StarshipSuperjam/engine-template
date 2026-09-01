@@ -10,8 +10,9 @@ Fail closed. An empty record set, or a set in which no executor clears every one
 yields NO eligible executor and the caller must fail closed — there is no implicit fallback here.
 
 'best-qualified', never 'best-certified': eligibility rests only on an explicit, versioned Engine
-qualification record. In THIS Build every real record carries scope 'non-production', so a PRODUCTION
-eligibility query always returns no-eligible — the spike never makes a production eligibility claim.
+qualification record. Every qualification record this contract admits carries scope 'non-production', so a
+PRODUCTION eligibility query always returns no-eligible; this contract never makes a production eligibility
+claim.
 """
 from __future__ import annotations
 

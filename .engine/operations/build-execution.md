@@ -8,8 +8,8 @@ The Engine can dispatch a Build node's implementation to an executor other than 
 framework. This runbook is the judgment around the contract that governs that: what an executor
 standing is, how eligibility is answered, how dispatch refuses when it cannot honour a request, and what
 a qualification record does and does not establish. The machinery — the schema, the records and
-eligibility modules, the environment policy, and the fail-closed claim path — lives in code and its
-tests; this page is how you reason about it, not a restatement of its verbs.
+eligibility modules, and the fail-closed claim path — lives in code and its tests; this page is how you
+reason about it, not a restatement of its verbs.
 
 The contract has two halves. The **records half** is a governed home for versioned
 `executor-qualification.v1` records under `.engine/executors/`, a catalogued first-level surface owned

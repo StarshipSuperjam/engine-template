@@ -4420,7 +4420,7 @@ def external_transport_route(*, allow_external: bool = False, records=None) -> d
         return {"blocked": True, "transport": "external", "gap": "external-transport-refused",
                 "reason": ("external-transport routing is refused by default; no ordinary coordinator entry "
                            "point requests it, and enabling it is a deliberate, guarded act")}
-    records = executor_records.load_records() if records is None else records
+    records = executor_records.qualification_records() if records is None else records
     selected = executor_eligibility.select(records, production=True)
     if selected is None:
         return {"blocked": True, "transport": "external", "gap": "no-eligible-for-production",
