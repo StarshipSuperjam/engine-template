@@ -65,6 +65,18 @@ only, never the whole pack, and the session never halts.
      act in the grounding reply** — each alarm named with its consequence, never wrapped in an invented "boot
      check" preamble, and the "(unchanged)" framing is **not re-surfaced on later turns** (if asked again,
      answer plainly without restapling the boot wrapper).
+   - **The Explore write-gate note is a compact typed contract, not a lecture.** Boot no longer inlines
+     `modes.describe_explore_scope()`'s full prose every session; it carries `modes.export_authority_contract`
+     (stance, action default, the blocked codes, provider exceptions) plus a one-line stance sentence, and
+     points at [memory-recall.md](memory-recall.md) for the fuller explanation of what the gate allows and
+     where memory belongs. The two doors that explanation used to name (the auto-memory notebook; the memory
+     CLI) are routed instead at the moment they actually matter — inside the gate's own denial text.
+   - **The knowledge-neighbourhood and where-we-left-off blocks are compact pointers, not the full detail.**
+     Boot names only what the session is touching (with a pointer at the knowledge-graph tools for the full
+     relationship walk) and, separately, a single labelled `HISTORY` line for the most recent prior session
+     (with a pointer at `recall-window` for the full quoted excerpts) — never the full walk or the multi-line
+     excerpts inline. Point-of-use, not push: the detail is reachable when a session actually needs it,
+     rather than spent every session whether or not it does.
 
 To print the assembled briefing by hand (a debug view of what the hook injects): `python tools/boot.py pack`.
 

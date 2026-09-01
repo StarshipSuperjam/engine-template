@@ -1733,7 +1733,11 @@ class TestFocusedNeighborhood(unittest.TestCase):
             _, _, nb, _, _ = boot.needs_attention({})
         self.assertIsNone(nb)                                             # no work in hand -> no neighbourhood
 
-    def test_pack_carries_the_neighborhood_block_when_focus_present(self):
+    def test_pack_carries_the_neighborhood_pointer_when_focus_present(self):
+        # point-of-use-deferral node: the PUSH pack carries only the compact pointer form
+        # (render_neighborhood_pointer) — what you're touching, plus a knowledge-tools pointer — never the
+        # full per-relationship walk every session. The full walk (render_neighborhood, exercised above)
+        # stays reachable, unchanged, as the point of use a session pulls when it actually needs it.
         patchers = _offline()
         try:
             with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
@@ -1746,7 +1750,10 @@ class TestFocusedNeighborhood(unittest.TestCase):
                 p.stop()
         self.assertIn("knowledge neighborhood of your current work", pack)
         self.assertIn("You're touching: attention", pack)
-        self.assertIn("attention is checked by", pack)
+        self.assertIn("mcp__engine-knowledge-graph__neighbors", pack,
+                      "the pack must point at the knowledge-graph tools, not dump the walk")
+        self.assertNotIn("attention is checked by", pack,
+                         "the per-relationship walk itself must NOT be pushed every session")
 
     def test_boot_reads_the_slice_once_and_threads_it_as_the_source(self):
         # boot's rung-1 boot-slice read (#37) is fetched ONCE and threaded into all three knowledge reads, so
@@ -2318,7 +2325,12 @@ class TestWhereWeLeftOff(unittest.TestCase):
     def test_the_block_actually_reaches_the_assembled_pack(self):
         """END-TO-END WIRING, which the renderer tests cannot cover. Without this, deleting the one line that
         puts the block into the orientation tier — or making the relay return nothing — leaves the whole feature
-        absent from every operator's briefing with the suite fully green."""
+        absent from every operator's briefing with the suite fully green.
+
+        point-of-use-deferral node: the PUSH pack now carries only the compact one-line pointer
+        (render_wwlo_pointer) — labelled HISTORY, naming the session and when it ended — never the
+        multi-line quoted excerpt. The full card renderer (render_recent_sessions, exercised above) stays
+        reachable, unchanged, as the point of use `recall-window` pulls when the excerpts would help."""
         card = self._card(first_ask="rebuild the nightly export so it can be re-run safely")
         patchers = _offline()
         try:
@@ -2332,8 +2344,11 @@ class TestWhereWeLeftOff(unittest.TestCase):
             for p in patchers:
                 p.stop()
         self.assertIn("where we left off", pack)
-        self.assertIn("rebuild the nightly export so it can be re-run safely", pack,
-                      "the operator's own words must survive into the pack, not just the heading")
+        self.assertIn("HISTORY", pack, "the pointer must be labelled as history, not a task or a binding")
+        self.assertIn("s1", pack, "the session id travels so recall-window can open it directly")
+        self.assertIn("recall-window", pack)
+        self.assertNotIn("rebuild the nightly export so it can be re-run safely", pack,
+                         "the multi-line excerpt itself must NOT be pushed every session — only the pointer")
 
     def test_when_the_briefing_runs_long_the_block_is_dropped_and_its_absence_is_disclosed(self):
         """The block lives in the tier dropped FIRST when the briefing exceeds the platform's output cap — the
@@ -2990,21 +3005,55 @@ class TestStanceLine(unittest.TestCase):
         self.assertIn(boot.modes.describe_stance("explore"), pack)
         self.assertIn("Exploring", pack)
 
-    def test_pack_carries_the_assistant_facing_explore_scope_note(self):
-        # The AI-facing briefing grounds the model on what Explore actually permits/denies, so a session
-        # does not over-restrict itself (the bug: switching to Build merely to log a GitHub issue, which
-        # Explore allows). modes owns the copy; boot places it. It must stay AI-facing only.
+    def test_pack_carries_the_typed_authority_contract_not_the_lecture(self):
+        # point-of-use-deferral node: the AI-facing briefing used to carry describe_explore_scope()'s full
+        # prose lecture every session. It now carries only the COMPACT typed export
+        # (modes.export_authority_contract) plus the one-line stance sentence — the lecture's content moved
+        # to its two named points of use (the gate's own denial text; the fuller explanation in
+        # `.engine/operations/memory-recall.md`). modes owns the copy; boot places it. It must stay
+        # AI-facing only.
         patchers = _offline()
         try:
             pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
-        note = boot.modes.describe_explore_scope()
-        self.assertIn(note, pack)                       # the briefing carries the gate-scope grounding
+        lecture = boot.modes.describe_explore_scope()
+        self.assertNotIn(lecture, pack,
+                         "the full prose lecture must no longer be pushed every session")
+        contract = boot.modes.export_authority_contract(boot.modes.EXPLORE)
+        for code in contract["blocked"]:
+            self.assertIn(code, pack, f"the typed contract's {code!r} block code must reach the pack")
+        self.assertIn(contract["action_default"], pack)
         self.assertIn("don't relay", pack.lower())      # self-labelled so the AI does not relay it
-        # the note stays OUT of the operator's own dashboard view — the operator surface is unchanged.
-        self.assertNotIn(note, boot.render_dashboard(_signals()))
+        self.assertIn(".engine/operations/memory-recall.md", pack,
+                      "the pack must point at the fuller write-gate/memory explanation's new home")
+        # the contract stays OUT of the operator's own dashboard view — the operator surface is unchanged.
+        self.assertNotIn("Write-gate authority (typed)", boot.render_dashboard(_signals()))
+
+    def test_memory_recall_doc_carries_the_relocated_write_gate_explanation(self):
+        # "deferral replay green": the fuller "how the write gate works / where memory belongs" explanation
+        # that used to live only in boot's every-session lecture is genuinely present at its new named
+        # point of use — a session that needs it (rather than just the compact contract) can still reach it.
+        path = os.path.join(validate.ENGINE_DIR, "operations", "memory-recall.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        for phrase in ("auto-memory notebook", ".engine/memory/", "issue helper",
+                      "Explore"):
+            self.assertIn(phrase, text,
+                          f"memory-recall.md must carry the relocated write-gate/memory explanation ({phrase!r})")
+
+    def test_denial_routes_to_the_two_doors_the_lecture_used_to_name(self):
+        # "deferral replay green" + "write-gate behaviour is unchanged": the routing the lecture used to
+        # carry (the notebook, and the memory CLI) now lives in the gate's own denial, reachable exactly
+        # when a session hits the wrong door — and the gate still denies what it denied before this node.
+        self.assertIn("auto-memory notebook", modes._DENIAL)
+        self.assertIn("memory", modes._DENIAL.lower())
+        decision = modes.handler({"session_id": "deferral-replay", "tool_name": "Write",
+                                  "tool_input": {"file_path": "src/thing.py"}})
+        self.assertEqual(decision["permissionDecision"], "deny",
+                         "the write gate must still deny an ordinary file write while exploring")
+        self.assertIn("auto-memory notebook", decision["reason"])
 
     def test_wiring_map_advert_lives_in_both_floors_not_the_capped_pack(self):
         # #92 relocated by #787: the standing wiring-map advert (formerly KNOWLEDGE_FACULTY_NOTE in
@@ -4559,6 +4608,188 @@ class TestBindingReader(unittest.TestCase):
     def test_unresolvable_worktree_argument_fails_open_to_none(self):
         result = boot.resolve_task_binding("\x00bad-path")
         self.assertEqual(result, {"state": "none"})
+
+
+class TestPointOfUseDeferral(unittest.TestCase):
+    """The point-of-use-deferral node: boot's ANTICIPATORY prose (the Explore write-gate lecture, the full
+    knowledge-neighbourhood walk, the multi-line where-we-left-off excerpts) moved out to its named points
+    of use, and the push pack carries a coherent trim in its place. Two things this class must show: (1) each
+    deferred payload is still REACHABLE at its named point of use ("deferral replay green"), and (2) the
+    actual byte reduction the trim buys, component by component ("before/after component size table").
+    Everything measured here calls TODAY's real renderers, not a reconstruction — this class documents the
+    cutover `assemble_pack` above now performs, complementing (not replacing) the size-spike node's own
+    feasibility ledger, which models the FUTURE typed envelope rather than today's actual trim.
+    """
+
+    # ---- deferral replay green: every deferred payload is reachable at its named point of use -----------
+
+    def test_explore_lecture_routing_is_reachable_in_the_denial_and_write_gate_behaviour_is_unchanged(self):
+        # The two doors describe_explore_scope() used to name (the auto-memory notebook; the memory CLI)
+        # are reachable right now, at the moment a session actually needs them: the gate's own denial text.
+        self.assertIn("auto-memory notebook", modes._DENIAL)
+        self.assertIn("saved project memory goes through its own CLI", modes._DENIAL)
+        self.assertIn("blocked while we explore", modes._MEMORY_DENIAL)
+        # WRITE-GATE BEHAVIOUR IS UNCHANGED: the gate still denies exactly what it denied before this node,
+        # with the routing present — an ordinary file write while exploring is still refused, and a
+        # memory-shaped write still gets the memory-specific relay, not a decision change.
+        ordinary = modes.handler({"session_id": "replay-ordinary", "tool_name": "Write",
+                                  "tool_input": {"file_path": "src/thing.py"}})
+        self.assertEqual(ordinary["permissionDecision"], "deny")
+        self.assertIn("auto-memory notebook", ordinary["reason"])
+        memory_write = modes.handler({"session_id": "replay-memory", "tool_name": "Write",
+                                      "tool_input": {"file_path": ".engine/memory/whatever.ndjson"}})
+        self.assertEqual(memory_write["permissionDecision"], "deny")
+        self.assertIn("blocked while we explore", memory_write["reason"])
+        allowed_read = modes.handler({"session_id": "replay-read", "tool_name": "Read",
+                                      "tool_input": {"file_path": "src/thing.py"}})
+        self.assertNotIn("permissionDecision", allowed_read)  # an allow proceeds silently, never denies
+
+    def test_the_fuller_write_gate_explanation_is_reachable_in_memory_recall_doc(self):
+        # The fuller "how the gate works / where memory belongs" explanation the lecture used to carry is
+        # genuinely present at its named new home, not merely referenced.
+        path = os.path.join(validate.ENGINE_DIR, "operations", "memory-recall.md")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        for phrase in ("auto-memory notebook", "hand-write", "issue helper",
+                      "gh issue create", "Write/Edit"):
+            self.assertIn(phrase, text, f"the relocated write-gate explanation is missing {phrase!r}")
+
+    def test_the_full_neighbourhood_walk_is_reachable_via_the_named_renderer(self):
+        # The push pack now carries only the pointer; the full per-relationship walk it used to inline is
+        # still reachable, unchanged, at its point of use — the renderer the knowledge-graph tools' output
+        # feeds (render_neighborhood), exercised directly here exactly as a pull would use it.
+        summary = {"focus": ["tool:attention"], "groups": [
+            {"source": "tool:attention", "predicate": "targets", "direction": "in",
+             "total": 2, "sample": ["check:a", "check:b"]}]}
+        full = "\n".join(boot.render_neighborhood(summary))
+        self.assertIn("attention is checked by: a, b", full)
+        pointer = "\n".join(boot.render_neighborhood_pointer(summary))
+        self.assertNotIn("is checked by", pointer)
+        self.assertIn("mcp__engine-knowledge-graph__neighbors", pointer)
+
+    def test_the_full_wwlo_excerpts_are_reachable_via_the_named_renderer(self):
+        # Likewise for where-we-left-off: the full quoted card is still reachable via render_recent_sessions
+        # (what `recall-window`, named in the pointer, backs); only the PUSH form is now a single line.
+        card = {"session_id": "s9", "ended": 1_700_000_000, "count": 3,
+                "first_ask": "investigate the flaky export test", "last_ask": "confirm the fix holds"}
+        full = "\n".join(boot.render_recent_sessions([card]))
+        self.assertIn("investigate the flaky export test", full)
+        pointer = "\n".join(boot.render_wwlo_pointer([card]))
+        self.assertNotIn("investigate the flaky export test", pointer)
+        self.assertIn("HISTORY", pointer)
+        self.assertIn("s9", pointer)
+        self.assertIn("recall-window", pointer)
+
+    # ---- before/after component size table ---------------------------------------------------------
+
+    def test_before_after_component_size_table(self):
+        """Measures, component by component, what the trim actually removes from the push pack — using
+        TODAY's real renderers on both sides (the deferred full renderers ran as "before" stand-ins for
+        what boot used to inline; the new pointer renderers, and the assembled compact contract text
+        assemble_pack itself now emits, as "after"). Printed into the assertion message so the numbers are
+        visible in CI output; the pass/fail condition is only that every component genuinely shrank."""
+        # -- component 1: the Explore write-gate lecture -> the typed contract + stance sentence.
+        lecture = modes.describe_explore_scope()
+        stance_line = modes.describe_stance(modes.EXPLORE)
+        contract = modes.export_authority_contract(modes.EXPLORE)
+        exceptions = "; ".join(f"{e['provider']}: {e['note']}" for e in contract["provider_exceptions"])
+        contract_text = "\n".join([
+            stance_line + " (for you — don't relay this; it's your own session's wiring, not a status "
+            "update for the operator.)",
+            "Write-gate authority (typed): stance=" + contract["stance"]
+            + " action_default=" + contract["action_default"]
+            + " blocked=[" + ", ".join(contract["blocked"]) + "]"
+            + (" provider_exceptions=[" + exceptions + "]" if exceptions else ""),
+            "A denial you actually hit names the concrete way forward; the full write-gate/memory "
+            "explanation — what's allowed without building, the notebook and memory-CLI doors, the "
+            "engine-Issue carve-out — is in `.engine/operations/memory-recall.md` if you need more than "
+            "the contract above before that happens.",
+        ])
+
+        # -- component 2: the full neighbourhood walk -> the compact pointer (a representative hub focus).
+        nb_summary = {"focus": ["tool:validate"], "groups": [
+            {"source": "tool:validate", "predicate": "imports", "direction": "in",
+             "total": 94, "sample": ["attention", "boot", "close", "hooks"]},
+            {"source": "tool:validate", "predicate": "tests", "direction": "in",
+             "total": 3, "sample": ["test_validate"]},
+        ]}
+        nb_full = "\n".join(boot.render_neighborhood(nb_summary, 8))
+        nb_pointer = "\n".join(boot.render_neighborhood_pointer(nb_summary))
+
+        # -- component 3: the multi-line where-we-left-off excerpt -> the one-line HISTORY pointer.
+        wwlo_card = {"session_id": "s9", "ended": 1_700_000_000, "count": 12,
+                    "first_ask": "make the exporter idempotent so a retry after a partial failure is safe",
+                    "last_ask": "now check the retry path holds under a simulated crash mid-write too"}
+        wwlo_full = "\n".join(boot.render_recent_sessions([wwlo_card], 200))
+        wwlo_pointer = "\n".join(boot.render_wwlo_pointer([wwlo_card]))
+
+        rows = [
+            ("Explore write-gate lecture -> typed contract + stance sentence",
+             len(lecture.encode("utf-8")), len(contract_text.encode("utf-8"))),
+            ("knowledge-neighbourhood full walk -> compact pointer",
+             len(nb_full.encode("utf-8")), len(nb_pointer.encode("utf-8"))),
+            ("where-we-left-off multi-line excerpt -> one-line HISTORY pointer",
+             len(wwlo_full.encode("utf-8")), len(wwlo_pointer.encode("utf-8"))),
+        ]
+        before_total = sum(b for _, b, _ in rows)
+        after_total = sum(a for _, _, a in rows)
+        report_lines = [f"{name}: {before} B -> {after} B ({before - after} B saved)"
+                        for name, before, after in rows]
+        report_lines.append(f"TOTAL: {before_total} B -> {after_total} B "
+                            f"({before_total - after_total} B saved, "
+                            f"{100 * (before_total - after_total) // before_total}% reduction)")
+        report = "\n".join(report_lines)
+        for name, before, after in rows:
+            self.assertLess(after, before, f"{name} did not shrink:\n{report}")
+        self.assertLess(after_total, before_total, f"no net reduction:\n{report}")
+        # Recorded for the PR body (see this test's failure message format for the exact numbers):
+        # print(report)  # uncomment for a local run to see the table; assertions above are what CI checks.
+
+    def test_pack_total_size_is_smaller_after_the_trim_for_a_realistic_session(self):
+        # An end-to-end corroboration of the component table above: with a focus AND recent-session history
+        # present (the two sheddable components this node actually trims), the fully-unbounded assembled
+        # pack is smaller than the same signals would have produced with the retired full renderers in
+        # their place — computed by substituting today's REAL full-renderer output for the pointer text
+        # this node's `assemble_pack` now emits, never a reconstruction of removed code.
+        nb_summary = {"focus": ["tool:attention"], "focus_total": 1, "groups": [
+            {"source": "tool:attention", "predicate": "targets", "direction": "in",
+             "total": 2, "sample": ["check:a", "check:b"]}]}
+        wwlo_card = {"session_id": "s9", "ended": 1_700_000_000, "count": 12,
+                    "first_ask": "make the exporter idempotent so a retry after a partial failure is safe",
+                    "last_ask": "now check the retry path holds under a simulated crash mid-write too"}
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.attention, "derive_focus", return_value=(["tool:attention"], 1)), \
+                    mock.patch.object(boot.attention, "rank_live",
+                                      return_value={"partition": [], "degraded_inputs": []}), \
+                    mock.patch.object(boot.attention, "neighborhood_of", return_value=nb_summary), \
+                    mock.patch.object(boot, "_recent_sessions_recall", return_value=[wwlo_card]), \
+                    mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                after_pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        after_bytes = len(after_pack.encode("utf-8"))
+        # Reconstruct the "before" total by swapping this node's two new pointer blocks and the compact
+        # contract block for what boot used to inline, on the SAME assembled pack (every other component —
+        # dashboard, execution posture, home-workshop grounding — is identical on both sides, so the
+        # difference isolates exactly what this node changed).
+        old_lecture_block = modes.describe_explore_scope() + "\n"
+        new_contract_block = (after_pack.split(modes.describe_stance(modes.EXPLORE), 1)[1]
+                              .split("\n\nGROUNDING", 1)[0])
+        new_contract_block = modes.describe_stance(modes.EXPLORE) + new_contract_block
+        old_nb_block = "\n".join(boot.render_neighborhood(nb_summary, boot._briefing_values()["neighborhood_groups_max"])) + "\n"
+        new_nb_block = "\n".join(boot.render_neighborhood_pointer(nb_summary)) + "\n"
+        old_wwlo_block = "\n".join(boot.render_recent_sessions([wwlo_card], boot._briefing_values()["excerpt_chars"])) + "\n"
+        new_wwlo_block = "\n".join(boot.render_wwlo_pointer([wwlo_card])) + "\n"
+        before_pack = (after_pack
+                      .replace(new_contract_block, old_lecture_block, 1)
+                      .replace(new_nb_block, old_nb_block, 1)
+                      .replace(new_wwlo_block, old_wwlo_block, 1))
+        before_bytes = len(before_pack.encode("utf-8"))
+        self.assertLess(after_bytes, before_bytes,
+                        f"the trimmed pack ({after_bytes} B) is not smaller than the reconstructed "
+                        f"pre-trim pack ({before_bytes} B)")
 
 
 if __name__ == "__main__":

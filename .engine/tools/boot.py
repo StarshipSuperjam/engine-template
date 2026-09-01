@@ -832,6 +832,32 @@ def render_neighborhood(nb: dict | None, max_groups: int | None = None) -> list:
     return out
 
 
+def render_neighborhood_pointer(nb: dict | None) -> list:
+    """The push-pack's compact stand-in for render_neighborhood's full relationship walk
+    (point-of-use-deferral node). Every session used to receive the whole per-relationship group listing
+    whether or not it needed it; this instead names only what the session is touching and points at the
+    knowledge-graph tools for the rest — the full walk is reconstructible on demand there, not pushed. The
+    full renderer (render_neighborhood) is UNCHANGED and stays the point of use a session pulls when a change
+    actually reaches into related code: this function does not replace it, it replaces this block's caller in
+    `assemble_pack`.
+
+    [] when there is no focus (nothing to touch), exactly like render_neighborhood — no block, never an empty
+    heading."""
+    if not nb or not nb.get("focus"):
+        return []
+    focus = nb["focus"]
+    focus_names = ", ".join(_slug(f) for f in focus)
+    total = nb.get("focus_total") or len(focus)
+    touching = (f"You're touching: {focus_names} (showing {len(focus)} of {total} you've changed)."
+                if total > len(focus) else f"You're touching: {focus_names}.")
+    return ["--- knowledge neighborhood of your current work (orientation context, not an alarm) ---",
+            touching,
+            "The full relationship walk (what governs it, depends on it, tests it, and the rest) is not "
+            "pushed here — pull it with the knowledge-graph tools (mcp__engine-knowledge-graph__neighbors / "
+            "find) when a change actually reaches into related code.",
+            ""]
+
+
 # ---- "what just happened" — merged PRs, never a changelog -----------------------------------
 
 def _recent_sessions_recall(read=None, *, session_id=None) -> list:
@@ -1064,6 +1090,27 @@ def render_recent_sessions(cards: list, excerpt_chars: int | None = None) -> lis
                "material. Some may also be text the harness sent through the prompt channel rather than "
                "something they typed. Offer to read any of these back — `recall-window` takes the session id.")
     return out
+
+
+def render_wwlo_pointer(cards: list) -> list:
+    """The push-pack's compact stand-in for render_recent_sessions' full quoted, multi-line excerpts
+    (point-of-use-deferral node): a SINGLE labelled line naming when the most recent session ended, never
+    the conversational quotes themselves. Explicitly labelled HISTORY — a record of a past session, never a
+    current task or a binding on this one — so it cannot read as an instruction. The full card renderer
+    (render_recent_sessions) is UNCHANGED and stays the point of use a session pulls (via `recall-window`,
+    named in the pointer) when the prior excerpts would actually help.
+
+    [] when there is nothing to show, exactly like render_recent_sessions — no block, never an empty line."""
+    shown = [c for c in cards if isinstance(c, dict) and c.get("first_ask")]
+    if not shown:
+        return []
+    card = shown[0]
+    sid = card.get("session_id") or ""
+    pointer = ("HISTORY, not a task or a binding on this session — you last left off "
+               + _relative_moment(card.get("ended"))
+               + (f" (session `{sid}`)" if sid else "")
+               + ". Ask for the full record with `recall-window` if it would help ground this session.")
+    return ["--- where we left off ---", pointer, ""]
 
 
 def _quote_for_pack(text: str, max_chars: int | None = None) -> str:
@@ -3269,10 +3316,29 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                "tools/engine_status.py` and show its output verbatim. The protected-branch merge is the real "
                "governance guarantee.")
     out.append("")
-    # The Explore write-gate's scope, in plain words, for the MODEL's grounding (modes owns the vocabulary;
-    # boot places it). Self-labelled "don't relay" so it stays AI-facing and never enters the operator
-    # relay. Always the Explore note: the handler clears the stance to Explore before this pack is built.
-    out.append(modes.describe_explore_scope())
+    # POINT-OF-USE DEFERRAL (point-of-use-deferral node): boot used to carry describe_explore_scope()'s
+    # ~1,900-char prose lecture on the write gate here, every session, whether or not the session ever hit
+    # the gate. That content now has two named homes instead: the gate's own DENIAL text
+    # (modes._DENIAL/_MEMORY_DENIAL) names the two doors — the auto-memory notebook and the memory CLI —
+    # right when a session actually tries the wrong one, and the fuller "how the gate works / where memory
+    # belongs" explanation lives in `.engine/operations/memory-recall.md` for a session that wants it before
+    # ever hitting a denial. In the lecture's place, boot carries only the COMPACT typed export
+    # (modes.export_authority_contract) plus the one-line stance sentence already computed above (`s["stance"]`)
+    # — self-labelled AI-facing so it stays out of the operator relay, same as the lecture was. Always the
+    # Explore contract in practice: the handler clears the stance to Explore before this pack is built, but the
+    # stance is read fresh here rather than assumed, so a debug `pack` render off-path still reports honestly.
+    out.append(s["stance"] + " (for you — don't relay this; it's your own session's wiring, not a status "
+               "update for the operator.)")
+    contract = modes.export_authority_contract(modes.current_stance(session_id))
+    exceptions = "; ".join(f"{e['provider']}: {e['note']}" for e in contract["provider_exceptions"])
+    out.append("Write-gate authority (typed): stance=" + contract["stance"]
+               + " action_default=" + contract["action_default"]
+               + " blocked=[" + ", ".join(contract["blocked"]) + "]"
+               + (" provider_exceptions=[" + exceptions + "]" if exceptions else ""))
+    out.append("A denial you actually hit names the concrete way forward; the full write-gate/memory "
+               "explanation — what's allowed without building, the notebook and memory-CLI doors, the "
+               "engine-Issue carve-out — is in `.engine/operations/memory-recall.md` if you need more than "
+               "the contract above before that happens.")
     out.append("")
 
     # The home-workshop grounding (StarshipSuperjam/engine-template#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
@@ -3345,8 +3411,13 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # dashboard — and only in a mechanic (home_workshop and mechanic are mutually exclusive).
     sprawl_note = ("" if s.get("home_workshop")
                    else render_mechanic_sprawl_note(s.get("mechanic_sprawl")))
-    neighborhood = "\n".join(render_neighborhood(s.get("neighborhood"), bvals["neighborhood_groups_max"]))
-    wwlo = "\n".join(render_recent_sessions(s.get("recent_sessions") or [], bvals["excerpt_chars"]))
+    # POINT-OF-USE DEFERRAL (point-of-use-deferral node): the push pack carries the COMPACT pointer forms
+    # (render_neighborhood_pointer / render_wwlo_pointer), never the full walk/full excerpts — those stay
+    # reachable, unchanged, at their own point of use (the knowledge-graph tools; `recall-window`). The
+    # briefing-budget dials these full renderers take (neighborhood_groups_max, excerpt_chars) are unused by
+    # the compact forms; they remain live for the full renderers' own callers (tests, and a future direct pull).
+    neighborhood = "\n".join(render_neighborhood_pointer(s.get("neighborhood")))
+    wwlo = "\n".join(render_wwlo_pointer(s.get("recent_sessions") or []))
     pins = "\n".join(render_pins(s.get("pinned") or [], bvals["pin_index_title_chars"],
                                  count_max=bvals["pin_index_count_max"], block_chars=bvals["pins_block_chars_max"]))
     status = "\n".join(["--- the full status (your grounding for this session) ---", dashboard])
