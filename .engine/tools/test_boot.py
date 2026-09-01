@@ -112,6 +112,13 @@ def _offline():
         # dict, and this shape resolves behind_origin/off_main cleanly to None. A surfacing test re-patches it.
         mock.patch.object(boot.checkout_health, "checkout_snapshot",
                           return_value={"state": "current", "on_default": True}),
+        # A NON-stranded checkout by default: gather_signals() also calls the separate detect_strand(), which
+        # reads the REAL checkout's HEAD/engine-files. Unstubbed, it fires on any detached-HEAD checkout — e.g.
+        # the CI runner checks out the PR merge at a detached SHA, so the real strand surfaces a checkout_strand
+        # alarm and the generic pack tests (which assert no alarm) fail in CI but pass in a branch-attached
+        # worktree. A strand-surfacing test re-patches this inside its own `with` block, exactly like
+        # checkout_snapshot above.
+        mock.patch.object(boot.checkout_health, "detect_strand", return_value=None),
         # The real SessionStart handler invokes the bounded automatic controller before gathering this ordinary
         # snapshot. Keep generic boot rendering tests hermetic; dedicated cases below exercise that handoff.
         mock.patch.object(boot.checkout_auto_update, "automatic_catch_up", return_value={"status": "current"}),
