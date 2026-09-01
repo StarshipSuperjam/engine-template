@@ -352,17 +352,28 @@ class TestTheRealCommandLineWorks(unittest.TestCase):
                               cwd=self.ENGINE, capture_output=True, text=True)
 
     def test_every_shipped_operation_is_reachable_from_the_command_line(self):
-        for operation in ("engine-upgrade", "engine-upgrade-rollback", "module-add", "module-remove",
-                          "engine-remove"):
+        # Derive the roster from the CLI's OWN served list rather than a hand-kept tuple, so a newly
+        # shipped adapter is covered the moment it registers. The Part B external-state ops
+        # (control-plane-bootstrap, control-plane-finalize, engine-arrival) were added to the load list but
+        # this guard -- the suite's only real-subprocess reachability check -- was not, so they shipped
+        # exercised only in-process. The roster comes from the real CLI itself: its unknown-operation reply
+        # lists what it actually serves, which is precisely the __main__ registry the in-process tests
+        # cannot see (see this class's docstring).
+        roster = self._run("inspect", "definitely-not-an-operation", "--json")
+        self.assertEqual(roster.returncode, 2, roster.stdout + roster.stderr)
+        operations = json.loads(roster.stdout)["available_operations"]
+        for expected in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            self.assertIn(expected, operations, "the Part B ops must be on the CLI's served roster")
+        for operation in operations:
             result = self._run("inspect", operation)
             said = result.stdout + result.stderr
             # Assert on the OUTCOME, not on the absence of one string. Checking only for "No adapter
             # implements" passes over a command that dies with a traceback and prints nothing -- a
             # reviewer hit exactly that under a different interpreter and the test stayed green.
             #
-            # "Reachable" is not "exits 0": `inspect module-add` with no module id REFUSES, and a refusal
-            # is a real answer. What must never happen is silence, a crash, or the CLI disowning its own
-            # operation.
+            # "Reachable" is not "exits 0": `inspect module-add` with no module id REFUSES, and an
+            # unreachable control plane refuses too -- a refusal is a real answer. What must never happen
+            # is silence, a crash, or the CLI disowning its own operation.
             self.assertTrue(said.strip(), "{0} produced no output at all".format(operation))
             self.assertNotIn("Traceback", said, "{0} crashed".format(operation))
             self.assertNotIn("No adapter implements", said,

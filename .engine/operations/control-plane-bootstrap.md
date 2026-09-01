@@ -8,9 +8,12 @@ How the engine turns on the **branch protection** that makes a non-engineer's me
 trust dependency every other guardrail sits downstream of. The branch ruleset is a GitHub *setting*, not a file,
 so it does not travel with the template and must be applied once per repository by an operator-privileged actor.
 This runbook is the permanent, re-runnable mechanism, and a typed lifecycle transaction:
-`transaction.py plan control-plane-bootstrap` shows what it would do, changing nothing, and the apply is a
-command you type yourself — `tools/bootstrap.py`, or the `engine-enable-protection` skill — because it can
-trigger the GitHub authorization screen you approve in your browser, and that screen is the consent gate. The
+`transaction.py plan control-plane-bootstrap` previews it, changing nothing. Two doors apply it, and both
+trigger the same GitHub authorization screen you approve in your browser — the consent gate: the command you
+type yourself (`tools/bootstrap.py apply`, or the `engine-enable-protection` skill), and the transaction's own
+`transaction.py run control-plane-bootstrap --consent-handle <handle>`, which re-derives the previewed plan
+before applying. (The post-merge `control-plane-finalize` binds the checks through the same two doors —
+`bootstrap.py finalize` or `transaction.py run control-plane-finalize`.) The
 operator-facing copy is the `control-plane-bootstrap` template (`.engine/templates/control-plane-bootstrap.md`). Enter this
 runbook to understand or explain how protection is turned on, why it needs the operator, and what happens when
 it cannot be turned on.

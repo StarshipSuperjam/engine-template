@@ -16,10 +16,11 @@ takes the engine on, where the owner's decisions fall, and what happens after th
 Before starting: the project is on GitHub and you are signed in (`gh auth status` — the engine is fetched with
 your `gh`); you are on a clean working branch, not main and with nothing uncommitted, so the arrival is a
 reviewable set rather than an in-place edit; and you know which pinned release tag to install (default: the
-latest). The arrival is a typed lifecycle transaction: `transaction.py plan engine-arrival` shows what it
-would do, changing nothing. You apply it from the extracted release with
-`instantiator.py arrive --target <project> --accept-all …`; the arrival then lands as a pull request the owner
-merges, and that merge is the consent. The post-merge `finalize` is named as a follow-up but never precomputed.
+latest). The arrival is a typed lifecycle transaction. Its read-only preview is
+`instantiator.py arrive --target <project>` **without** `--accept-all`: it surfaces every overlap and changes
+nothing. You then apply it from the extracted release with `instantiator.py arrive --target <project>
+--accept-all …`; the arrival lands as a pull request the owner merges, and that merge is the consent. The
+post-merge `finalize` is named as a follow-up but never precomputed.
 
 ## Steps
 
