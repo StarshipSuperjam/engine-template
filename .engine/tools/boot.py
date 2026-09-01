@@ -1414,6 +1414,23 @@ MCP_AVAILABILITY_CHECK_CODEX = (
 )
 
 
+# The explicit-pull trigger (StarshipSuperjam/engine-template#1187 provider-adapters node). TIGHTENED from a generic "status or
+# next-step question" — that phrasing was too broad and fired the full dashboard on narrow questions about one
+# issue, PR, or component, defeating the point of the dashboard-decoupling cutover (a full-status dump every
+# time is exactly what pull-only was meant to end). The trigger now names the EXACT phrasings the root floors
+# advertise verbatim (CLAUDE.md / AGENTS.md's "ask me any time ('where do things stand?', or 'give me the full
+# status')") plus the `/engine-status` skill invocation, and says explicitly that a narrow question stays
+# targeted. Single-homed here; engine_status.py's own docstring restates this definition rather than re-deriving
+# it, so the two floors and the tool's own contract cannot silently drift apart.
+EXPLICIT_STATUS_PULL_TRIGGER = (
+    "Run `uv run --directory .engine --frozen -- python tools/engine_status.py` and show its output verbatim "
+    "ONLY when the operator explicitly asks for the whole picture — phrasings like 'give me the full status', "
+    "'where do things stand?', or invoking the `/engine-status` skill. A narrow question about one issue, one "
+    "pull request, or one component stays TARGETED: answer it directly from what you already know, never by "
+    "dumping the full dashboard. The protected-branch merge is the real guarantee."
+)
+
+
 def mcp_availability_check(provider: str | None = None) -> str:
     """The live-helper availability procedure in the current runtime's own vocabulary and capabilities.
     Both carry the same must-relay force; Codex adds deferred discovery plus fixed health calls."""
@@ -3584,9 +3601,18 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                + mcp_availability_check())
     out.append("4. This session's briefing does not carry the routine status dashboard — every governance "
                "alarm above still relays every session; routine status (milestone, what's next, what shipped, "
-               "the backlog) is pull-only now. On a status or next-step question, run `uv run --directory "
-               ".engine --frozen -- python tools/engine_status.py` and show its output verbatim. The "
-               "protected-branch merge is the real guarantee.")
+               "the backlog) is pull-only now. " + EXPLICIT_STATUS_PULL_TRIGGER)
+    if providers.detect(payload) == providers.CODEX:
+        # DISCLOSED, not fixed here (StarshipSuperjam/engine-template#1187 provider-adapters node): Claude's session-economy spend gate
+        # (.engine/tools/session_economy.py, .engine/policies/session-economy.md) is a wired PreToolUse hook —
+        # a subagent naming an expensive model, or a self-scheduling wakeup call, is mechanically refused before
+        # it runs. Codex has NO such tool-layer enforcement (session_economy.py is not registered in
+        # .codex/hooks.json's PreToolUse list) — nothing here blocks either spend. So the guidance rides the
+        # envelope instead of the gate: hold the same two rules yourself, by discipline, since Codex will not.
+        out.append("5. (Codex-only, no mechanical gate here — hold this by discipline) Session economy: run "
+                   "a search/planning subagent on a cheap model only (the mechanical tier's, or `sonnet` — "
+                   "never a strong model for delegated search/plan work), and never invoke a self-scheduling "
+                   "wakeup action from inside a session.")
     out.append("")
     # POINT-OF-USE DEFERRAL + typed cutover: boot used to carry describe_explore_scope()'s ~1,900-char prose
     # lecture on the write gate here, and then a compact typed-contract restatement. Both are now redundant with

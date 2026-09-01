@@ -1365,6 +1365,85 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
         self.assertNotIn("deferred-tool discovery", boot.MCP_AVAILABILITY_CHECK)
         self.assertNotIn(".health", boot.MCP_AVAILABILITY_CHECK)
 
+    def test_explicit_status_pull_trigger_names_every_advertised_phrasing(self):
+        # StarshipSuperjam/engine-template#1187 provider-adapters node: the trigger definition names the EXACT phrasings the root
+        # floors advertise (CLAUDE.md's "where do things stand?" / "give me the full status") plus the
+        # /engine-status skill invocation — every one of these must fire the full dashboard.
+        trigger = boot.EXPLICIT_STATUS_PULL_TRIGGER
+        self.assertIn("give me the full status", trigger)
+        self.assertIn("where do things stand?", trigger)
+        self.assertIn("/engine-status", trigger)
+        self.assertIn("uv run --directory .engine --frozen -- python tools/engine_status.py", trigger)
+
+    def test_explicit_status_pull_trigger_keeps_narrow_questions_targeted(self):
+        # The generic "status or next-step question" trigger this replaces was too broad — it fired the full
+        # dashboard on a narrow question about one issue, PR, or component. The tightened definition must say
+        # so explicitly, not merely omit the old broad wording.
+        trigger = boot.EXPLICIT_STATUS_PULL_TRIGGER
+        self.assertIn("stays TARGETED", trigger)
+        self.assertIn("one issue, one pull request, or one component", trigger)
+        self.assertIn("never by dumping the full dashboard", trigger)
+        self.assertNotIn("status or next-step question", trigger)   # the retired, too-broad phrasing
+
+    def test_pack_carries_the_tightened_trigger_verbatim(self):
+        patchers = _offline()
+        try:
+            pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn(boot.EXPLICIT_STATUS_PULL_TRIGGER, pack)
+
+    def test_codex_pack_carries_session_economy_guidance_claude_does_not(self):
+        # StarshipSuperjam/engine-template#1187: Claude relies on its wired PreToolUse gate (session_economy.py); Codex has no
+        # tool-layer enforcement for the same two rules (not registered in .codex/hooks.json), so the guidance
+        # must ride the Codex envelope instead — and must NOT appear on Claude, which already has the mechanism.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
+                codex_pack = boot.assemble_pack()
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CLAUDE):
+                claude_pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("Session economy", codex_pack)
+        self.assertIn("cheap model", codex_pack)
+        self.assertIn("self-scheduling wakeup", codex_pack)
+        self.assertIn("no mechanical gate here", codex_pack)
+        self.assertNotIn("Session economy", claude_pack)
+
+    def test_provider_parity_envelope_identical_only_frame_handles_differ(self):
+        # PROVIDER-PARITY: the typed session-relay.v1 envelope carries the SAME semantic fields regardless of
+        # provider (assemble_envelope never branches on provider at all) — only the surrounding AI-facing frame
+        # text (the MCP availability-check handle, the Codex-only session-economy note) differs.
+        signals = _signals()
+        envelope_claude = boot._envelope_from_signals(signals, "sess-parity", use_ledger=False)
+        envelope_codex = boot._envelope_from_signals(signals, "sess-parity", use_ledger=False)
+        self.assertEqual(envelope_claude, envelope_codex)
+
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CLAUDE):
+                claude_pack = boot.assemble_pack(session_id="sess-parity")
+            with mock.patch.object(boot.providers, "detect", return_value=boot.providers.CODEX):
+                codex_pack = boot.assemble_pack(session_id="sess-parity")
+        finally:
+            for p in patchers:
+                p.stop()
+        # The rendered envelope block (## GROUNDING .. ## POINTERS) is identical across providers: extract it
+        # by slicing between the two frame markers both packs share.
+        def _envelope_block(pack):
+            start = pack.index("## GROUNDING")
+            end = pack.index("Above is your typed grounding envelope")
+            return pack[start:end]
+        self.assertEqual(_envelope_block(claude_pack), _envelope_block(codex_pack))
+        # The handles differ: each provider's own MCP-availability procedure appears, never the other's.
+        self.assertIn(boot.MCP_AVAILABILITY_CHECK, claude_pack)
+        self.assertNotIn("Codex defers tools", claude_pack)
+        self.assertIn(boot.MCP_AVAILABILITY_CHECK_CODEX, codex_pack)
+        self.assertNotIn(boot.MCP_AVAILABILITY_CHECK, codex_pack)
+
 
 _GOOD_CURSOR = {"schema_version": 1, "standing_situation": {"milestone": None, "phase": None},
                 "integration_debt": {"open_count": 0, "as_of": None, "register": None}}
