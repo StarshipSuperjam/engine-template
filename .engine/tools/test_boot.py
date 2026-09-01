@@ -5366,6 +5366,68 @@ class TestTypedEnvelopeCutover(unittest.TestCase):
         self.assertIn("minimal safe grounding", pack)
         self.assertNotIn("## IDENTITY", pack)                 # no partial typed sections leaked through
 
+    def test_fail_open_still_relays_every_governance_alarm(self):
+        # StarshipSuperjam/engine-template#1187 deliverable review (divergence-hunter): the fail-open path must NEVER silently drop a
+        # governance alarm — this is the exact path where the dashboard's departure makes the envelope the sole
+        # every-session carrier. With alarms firing AND the typed envelope forced to fail, the fresh must_push
+        # relay lines must still reach the pack so instruction 2's "relay each alarm above" points at REAL
+        # alarms, not the empty "## ALARMS (unknown)" the old boolean-only fallback left. The fail-open test
+        # above fires no alarms, so it never exercised this.
+        signals = _signals(gate="off", reason="branch protection not found", staged_update=True)
+        relay = boot.must_push(signals)
+        self.assertTrue(relay, "precondition: the signals fire must-relay alarms")
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "gather_signals", return_value=signals), \
+                 mock.patch.object(boot, "_envelope_from_signals",
+                                   side_effect=boot.session_relay.RelayValidationError("boom")):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("minimal safe grounding", pack)         # fail-open
+        self.assertNotIn("## IDENTITY", pack)                 # no partial typed sections leaked through
+        self.assertIn("Relay each governance alarm", pack)    # instruction 2 fires
+        for line in relay:                                    # every real alarm relay text survived, inert
+            self.assertIn(boot.session_relay._inert(line), pack,
+                          "a governance alarm was silently dropped on the fail-open path")
+
+    def test_fail_open_survives_must_push_also_raising(self):
+        # StarshipSuperjam/engine-template#1187 (divergence-hunter, secondary): the fail-open fallback is itself GUARDED — if the same
+        # broken signal that failed the envelope also makes must_push raise, the pack degrades to the alarm-less
+        # minimal grounding rather than letting the exception escape assemble_pack (which would inject NO
+        # briefing at all — only the outer run_hook would catch it).
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "_envelope_from_signals",
+                                   side_effect=boot.session_relay.RelayValidationError("boom")), \
+                 mock.patch.object(boot, "must_push", side_effect=RuntimeError("the signal is broken too")):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        _assert_ai_briefing(self, pack)                       # a briefing still assembled, not an escape
+        self.assertIn("minimal safe grounding", pack)
+        self.assertIn("ALARMS (unknown)", pack)               # alarm-less fallback when must_push is unavailable
+
+    def test_gate_off_and_half_finished_update_both_surface_together(self):
+        # StarshipSuperjam/engine-template#1187 dashboard-decoupling node's required verification (spec-conformance): a session with the
+        # safety gate off AND a half-finished update must surface BOTH — neither promoted alarm crowds the
+        # other out now that they ride the envelope instead of the dashboard. The promoted-alarm test fires ten
+        # at once but with staged_update OFF (to avoid suppressing migration_revert); this pins the specific
+        # gate-off + staged_update co-occurrence the node names, which no other test exercised.
+        signals = _signals(gate="off", reason="branch protection not found", staged_update=True)
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "gather_signals", return_value=signals), \
+                 mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", 10**6):
+                pack = boot.assemble_pack().lower()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("safety gate is off", pack)             # the gate-off governance alarm
+        self.assertIn("half-finished", pack)                  # the staged-update recovery offer — both, together
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -26,7 +26,8 @@ section headers, list bullets, and pointer handles are ONLY ever emitted by the 
 start of a physical line immediately after a literal `\\n` this module itself writes, and a sanitized
 data value can never contain a `\\n`, a data value can never cause a new physical line to begin — so it
 can never forge a new header, bullet, or handle. `_inert()` also defangs the literal marker substrings
-the template uses (`## `, `\\n- `, and Markdown code fences) as defense in depth, even though the
+the template uses (`## `, `- `, `-> `, and Markdown code fences — the full `_FENCE_MARKERS` set) as
+defense in depth, even though the
 newline-stripping guarantee alone already makes them inert mid-line text.
 """
 from __future__ import annotations

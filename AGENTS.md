@@ -52,7 +52,7 @@ I start; those others I pull at their point of use, never treat as orientation. 
 relay is exactly the not-grounded case above: I disclose it and re-ground rather than quietly reconstructing a
 picture from memory or history and proceeding as if I had grounded. The full routine status (milestone, what's
 next, what shipped, the backlog) is not in that opening relay — it is a pull ("give me the full status",
-"where does the project stand?", or `engine_status.py`), and every governance alarm still relays every session.
+"where do things stand?", or `engine_status.py`), and every governance alarm still relays every session.
 
 **How building starts — only ever by your say-so.** My default stance is exploring: reading, running tests,
 searching, and planning, without changing files. Building — editing files, committing, opening a pull

@@ -3469,7 +3469,9 @@ def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool)
     # platform cap (modes' own default full note is unchanged for its other callers; this is boot's render).
     authority_contract = modes.export_authority_contract(
         stance,
-        provider_note=("Codex: Claude Code's plan-mode and harness-notebook carve-outs are inert here — a "
+        # No leading "Codex:" here — session_relay renders this as `codex:<note>`, so the provider key already
+        # names the platform; a leading "Codex:" would double it ("codex:Codex: …").
+        provider_note=("Claude Code's plan-mode and harness-notebook carve-outs are inert here — a "
                        "plan- or notebook-shaped write earns no exemption (see memory-recall.md)."))
     binding = resolve_task_binding(validate.ROOT)
     if binding.get("state") == "verified" and isinstance(binding.get("binding"), dict):
@@ -3565,8 +3567,31 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         rendered_envelope = session_relay.render(envelope)
         has_alarm = bool(envelope["action_forcing_alarms"])
     except Exception:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
-        rendered_envelope = _MINIMAL_SAFE_GROUNDING
-        has_alarm = bool(must_push(s))
+        # The typed envelope could not be built — but a governance alarm must NEVER be silently dropped, and
+        # this is the exact path where the dashboard's departure makes the envelope the sole every-session
+        # carrier. So re-derive the must-relay set straight from `must_push(s)` and render its FULL lines under
+        # the minimal grounding, keeping instruction 2's "relay each alarm above" pointing at real alarms.
+        # `must_push` is itself GUARDED: if the same signal that broke the envelope also breaks `must_push`,
+        # degrade to the alarm-less minimal grounding rather than let it escape `assemble_pack` (which would
+        # inject no briefing at all). Each line is inerted exactly as the normal alarm renderer inerts it, so
+        # the fallback keeps the same injection-safety guarantee.
+        try:
+            relay_lines = list(must_push(s))
+        except Exception:  # noqa: BLE001 — the fail-open fallback must never itself raise
+            relay_lines = []
+        if relay_lines:
+            rendered_envelope = (
+                "## GROUNDING\n"
+                "(the typed session-relay envelope could not be assembled or validated this session; this is a "
+                "minimal safe grounding — nothing partial or corrupt is rendered; treat status as unverified "
+                "until you re-ground)\n"
+                f"## ALARMS ({len(relay_lines)}): re-derived directly from the live signals after the typed "
+                "envelope failed\n"
+                + "\n".join(f"- {session_relay._inert(line)}" for line in relay_lines)
+            )
+        else:
+            rendered_envelope = _MINIMAL_SAFE_GROUNDING
+        has_alarm = bool(relay_lines)
 
     out: list[str] = []
     out.append("=== ENGINE BOOT BRIEFING — for you, the assistant; the operator CANNOT see this ===")
@@ -3747,8 +3772,10 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 # WHAT THIS IS. The boot-side half of the session's `task_binding` fact — 'verified' or 'none' — that the
 # eventual typed envelope (session-relay.v1, `task_binding` section) will carry. This is a PURE RESOLVER:
 # it reads local, offline evidence and returns a small dict. It does NOT render text (session_relay.render
-# does that) and it is NOT wired into `assemble_pack`/`handler` yet — the envelope-assembler node owns that
-# cutover. Calling `resolve_task_binding` today is inert with respect to what SessionStart actually injects.
+# does that); the envelope-assembler node wired it into the live pack — `_envelope_from_signals` calls it and
+# carries its 'verified'/'none' result into the typed envelope's `task_binding` section, which
+# `assemble_pack`/`handler` inject. So a session standing in a coordinator-bound worktree now reads a verified
+# binding at SessionStart, and every other session reads 'none'.
 #
 # SECURITY POSTURE: a binding is EVIDENCE ONLY. It never expands what a session may do and never changes
 # the Explore/Build stance — `modes.py` owns that gate entirely and is untouched by this resolver. Getting
