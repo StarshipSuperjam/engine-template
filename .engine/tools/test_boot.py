@@ -17,6 +17,8 @@ import io
 import json
 import inspect
 import os
+import re
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -4105,6 +4107,29 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertEqual(sum(1 for ln in lines if "depends on" in ln), 3)   # only 3 groups shown
         self.assertTrue(any("…and 7 more relationship groups" in ln for ln in lines))
 
+    def test_every_briefing_dial_is_consumed_and_every_read_dial_is_declared(self):
+        # The dial-consumption invariant (policy-alignment, StarshipSuperjam/engine-template#1187): the set of dials the policy DECLARES
+        # must equal the set of dials code actually READS. A declared dial that nothing reads is dead config; a
+        # read of an undeclared key is a typo that _briefing_values would silently drop to a default. Both fail
+        # here. "Read by code" spans the three projections of the typed-envelope cutover, and each dial's home is
+        # exactly where its consumer lives:
+        #   - the pushed session-start relay reads the never-shed-core dials at pack build (boot's `bvals[...]`):
+        #     pin_index_title_chars, pin_index_count_max, pins_block_chars_max, posture_lines_max, posture_chars_max;
+        #   - the point-of-use pulls and the margin/mechanic/growth bounds read the re-pointed dials through
+        #     `_briefing_values()[...]` (excerpt_chars via the recall render, neighborhood_groups_max via the
+        #     knowledge-graph render, dashboard_chars_max as the pull-only dashboard's growth alarm,
+        #     mechanic_grounding_chars_max and margin_floor_chars in the margin canaries).
+        # A growth alarm's regression check IS the dial's consumer — if the dial vanished, that check breaks — so
+        # this test scans both boot.py and this test module for the two dial-read idioms. It reads no dial value;
+        # it proves the wiring, so it holds in any repo shape.
+        declared = set(boot._BRIEFING_BUDGET_DEFAULTS)
+        sources = inspect.getsource(boot) + inspect.getsource(sys.modules[__name__])
+        read = set(re.findall(r'(?:bvals|_briefing_values\(\))\["([a-z_]+)"\]', sources))
+        self.assertEqual(
+            read, declared,
+            "briefing-budget dial drift: declared-but-unread (dead config) = "
+            f"{sorted(declared - read)}; read-but-undeclared (typo) = {sorted(read - declared)}")
+
     def _clean_codex_core(self):
         # RE-BASED for dashboard-decoupling (StarshipSuperjam/engine-template#1187). Two things about the never-shed core's
         # true worst case changed under that node, so budgeting `dashboard_chars_max` here (the OLD formula)
@@ -4363,32 +4388,17 @@ class TestBriefingBudget(unittest.TestCase):
         self.assertLessEqual(len(boot.render_dashboard(heavy)), budget,
                              "a heavy dashboard outgrew dashboard_chars_max — raise the budget deliberately or trim")
 
-    @unittest.skipUnless(_CONSTRUCTION, _SKIP_DEPLOYED)
-    def test_real_assembled_dashboard_routine_body_stays_within_budget(self):
-        # The same #787 canary over the REAL assembled dashboard (not a synthetic signal set). This is meaningful
-        # ONLY in the home/construction repo: in a deployed projection the ambient state is a fresh, foreign copy,
-        # so several conditional pinned alerts legitimately fire (empty-memory, half-finished-upgrade,
-        # foreign-license, greenfield-intake) and inflate the routine block past the routine budget by design —
-        # cap_shed then sets the whole block aside with its disclosed notice. Asserting the routine budget there
-        # would judge the deployed shape against a home-only invariant (the exact class the deployment gate's
-        # Arm A exists to catch); the synthetic case above backstops the routine body in every shape.
-        budget = boot._briefing_values()["dashboard_chars_max"]
-        patchers = _offline()
-        captured = {}
-        try:
-            real = boot.hooks.cap_shed
-
-            def spy(blocks, cap=None, notice=None, compact_notice=None):
-                captured["dash"] = next((t for p, n, t in blocks if p == 2), "")
-                return real(blocks, cap, notice, compact_notice)
-            with mock.patch.object(boot.hooks, "cap_shed", side_effect=spy):
-                boot.assemble_pack()
-        finally:
-            for p in patchers:
-                p.stop()
-        self.assertLessEqual(len(captured["dash"]), budget,
-                             f"the real assembled dashboard ({len(captured['dash'])}) outgrew "
-                             f"dashboard_chars_max ({budget}) — the canary's budget assumption no longer holds")
+    # NOTE (policy-alignment, StarshipSuperjam/engine-template#1187): the former companion
+    # `test_real_assembled_dashboard_routine_body_stays_within_budget` was RETIRED here. It measured the
+    # dashboard as an assembled pack block (the priority-2 rung of `assemble_pack`), but dashboard-decoupling
+    # removed the dashboard from the pushed pack entirely — there is no priority-2 dashboard block any more, so
+    # that test measured an empty string and passed vacuously. The dashboard is now a pull-only projection
+    # (`/engine-status`), and its routine-body growth alarm against `dashboard_chars_max` is covered in every
+    # repo shape by the synthetic `test_dashboard_routine_body_stays_within_its_growth_budget` above (no pinned
+    # alerts, so it isolates the routine body). Re-pointing the retired test at the real pulled dashboard would
+    # be wrong: in the home repo the live render legitimately carries pinned alerts (home-workshop grounding and
+    # others) that inflate it past the routine budget by design — exactly the case the synthetic isolation
+    # exists to avoid judging.
 
     def test_safety_dials_are_floored_so_the_posture_cannot_be_gutted(self):
         # security finding: posture_chars_max / posture_lines_max gate the NEVER-SHED EXECUTION-POSTURE safety
