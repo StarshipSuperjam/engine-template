@@ -1,0 +1,9 @@
+{
+  "id": "engine/check/executor-record",
+  "target": { "path": ".engine/executors/*.json" },
+  "kind": "schema",
+  "params": { "schema": ".engine/schemas/executor-qualification.v1.json" },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "Every committed executor record under .engine/executors/ must satisfy executor-qualification.v1. A record that fails this — a bad or missing gate, a missing bridge/vendored-agent identity, a scope other than 'non-production', or a witness missing its scenario — is a malformed qualification or fail-closed witness, and the eligibility path must never read one. This is a schema-kind rule, so it inherits the schema kind's proven bite; fix the record to match the schema, or the schema if the record is right."
+}

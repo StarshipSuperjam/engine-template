@@ -108,6 +108,15 @@
       "lifecycle": "artifact",
       "governing_schema": "codex-agent.v1.json",
       "template": null
+    },
+    "executors": {
+      "class": "structured",
+      "location": ".engine/executors/",
+      "purpose": "Executor-qualification records — the Engine's versioned, observed account of an external build-executor's three qualification gates (protocol, containment, capability) and fail-closed dispatch witnesses; distinct from the runtime-environment store at .engine/state/execution.json.",
+      "authority": "mechanics-and-guidance",
+      "lifecycle": "artifact",
+      "governing_schema": "executor-qualification.v1.json",
+      "template": null
     }
   }
 }

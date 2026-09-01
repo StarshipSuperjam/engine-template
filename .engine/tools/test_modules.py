@@ -604,6 +604,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
             ".engine/check/engine-manifest.json",
             ".engine/check/engine-todo-form.json",
             ".engine/check/execution-state.json",
+            ".engine/check/executor-record.json",
             ".engine/check/first-run-assets.json",
             ".engine/check/first-run-reference-closure.json",
             ".engine/check/hard-check-bite.json",

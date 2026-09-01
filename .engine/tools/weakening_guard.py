@@ -240,6 +240,7 @@ _FLOOR_GATE_SCHEMAS = (
     ".engine/schemas/doc.v1.json",
     ".engine/schemas/engine.v1.json",
     ".engine/schemas/execution-state.v1.json",
+    ".engine/schemas/executor-qualification.v1.json",
     ".engine/schemas/first-run-assets.v1.json",
     ".engine/schemas/interface.v1.json",
     ".engine/schemas/model-bindings.v1.json",

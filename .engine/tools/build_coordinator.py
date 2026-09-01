@@ -31,6 +31,8 @@ import build_coordinator_work as work
 import build_review_range as ranges
 import build_state_store
 import ci_gatekeeper
+import executor_eligibility
+import executor_records
 import hooks
 import moment
 import repo_identity
@@ -4393,11 +4395,65 @@ def cmd_work_frontier(args, store: Snapshot) -> None:
                       for node_id in projection["admission_rank"]))
 
 
+# External-transport routing (e.g. an ACP executor) is refused DEFAULT-ON and is not reachable from any
+# ordinary coordinator entry point: no `work claim` flag requests it, and the provider enum stays
+# {claude, codex}. Requesting it is a deliberate, guarded out-of-band act (ENGINE_EXTERNAL_TRANSPORT), so an
+# ordinary claim never enters this path. The seam exists so a FUTURE external-transport dispatch fails closed
+# by construction: refused by default, and — only when a controlled witness also lifts the default
+# (ENGINE_EXTERNAL_TRANSPORT_ALLOW) — governed by a real eligibility consultation over explicit qualification
+# records. In THIS Build every committed record is non-production, so a production query answers no-eligible
+# and the attempt blocks. Either outcome is a blocked route the claim path persists exactly like a native one.
+_EXTERNAL_TRANSPORT_ENV = "ENGINE_EXTERNAL_TRANSPORT"
+_EXTERNAL_TRANSPORT_ALLOW_ENV = "ENGINE_EXTERNAL_TRANSPORT_ALLOW"
+
+
+def _external_transport_requested() -> bool:
+    return bool(os.environ.get(_EXTERNAL_TRANSPORT_ENV))
+
+
+def external_transport_route(*, allow_external: bool = False, records=None) -> dict:
+    """Resolve an EXTERNAL-transport request to a route. Refused default-on: with allow_external False (every
+    ordinary path) this returns a blocked route naming the refusal. When a controlled witness lifts the
+    default, eligibility governs strictly over explicit qualification records; no eligible production executor
+    — always so in this Build — is itself a blocked route. Never returns a claimable external route here."""
+    if not allow_external:
+        return {"blocked": True, "transport": "external", "gap": "external-transport-refused",
+                "reason": ("external-transport routing is refused by default; no ordinary coordinator entry "
+                           "point requests it, and enabling it is a deliberate, guarded act")}
+    records = executor_records.qualification_records() if records is None else records
+    selected = executor_eligibility.select(records, production=True)
+    if selected is None:
+        return {"blocked": True, "transport": "external", "gap": "no-eligible-for-production",
+                "reason": ("no eligible executor for a production external-transport attempt: best-qualified "
+                           "selection over explicit qualification records found none")}
+    return {"blocked": False, "transport": "external", "inline": False, "executor_id": selected["executor_id"]}
+
+
+def _blocked_dispatch_reason(item_id: str, route: dict) -> str:
+    """The refusal a fail-closed block reports — it names both the GAP and the sanctioned escape, so the
+    operator reading the refusal sees the recovery without hunting for it."""
+    gap = route.get("gap")
+    base = route.get("reason") or f"dispatch blocked ({gap})"
+    if gap == "declared-incomplete-binding":
+        recover = ("Recover by completing or removing this class/provider entry in "
+                   ".engine/policies/model-bindings.json's implementation_classes")
+    else:
+        recover = "External-transport dispatch is not available in this Build"
+    escape = (f"or run `build_coordinator.py work retry --item {item_id} --strategy integrator-inline "
+              f"--reason <why>` to run this node inline in the senior session")
+    return f"{base}. {recover}, {escape}."
+
+
 def cmd_work_claim(args, store: Snapshot) -> None:
     plan = _plan(args.plan)
     _require_dag_plan(plan)
     item = work.node_item(plan, args.item)
-    route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
+    # Ordinary claims route natively (claude|codex). An external-transport request is a guarded out-of-band
+    # act, and it resolves through the eligibility-governed seam — which fails closed in this Build.
+    if _external_transport_requested():
+        route = external_transport_route(allow_external=bool(os.environ.get(_EXTERNAL_TRANSPORT_ALLOW_ENV)))
+    else:
+        route = work.resolve_route(_bindings(), item["executor_class"], args.provider)
     base_sha = _head()
     attempt_id = work.new_attempt_id()
     emitted: dict = {}
@@ -4411,11 +4467,27 @@ def cmd_work_claim(args, store: Snapshot) -> None:
             raise CoordinatorError(
                 f"work item {args.item} is not claimable now: {_claim_refusal_reason(plan, state, args.item, node)}")
         nw = state["work"].get(args.item) or work.empty_node()
-        # An integrator-inline retry disposition is honored HERE: the next attempt runs inline in the
-        # current senior session and is never re-dispatched, whatever the node's executor class.
-        effective_route = route
+        # The integrator-inline retry disposition is honored FIRST — before any fail-closed block — so the
+        # deliberate escape always wins: the next attempt runs inline in the current senior session and is
+        # never re-dispatched, whatever the node's executor class or why the route blocked.
         if (nw.get("latest_failure") or {}).get("disposition") == dag.DISP_INLINE:
-            effective_route = {**route, "model": "inherit", "effort": "inherit", "inline": True}
+            effective_route = {"executor_class": item["executor_class"], "provider": args.provider,
+                               "model": "inherit", "effort": "inherit", "inline": True}
+        elif route.get("blocked"):
+            # Fail closed: persist the blocked attempt as a fail-closed dispatch failure (OPEN disposition,
+            # so the existing retry/escape machinery reopens it) and REFUSE the claim. No claim is created,
+            # so no resources are reserved. The refusal names both the gap and the sanctioned escape.
+            reason = _blocked_dispatch_reason(args.item, route)
+            nw["attempt_count"] = nw.get("attempt_count", 0) + 1
+            nw["claim"] = None
+            nw["latest_result"] = None
+            nw["latest_failure"] = work.failure_record(
+                attempt_id, "dispatch", reason, dag.DISP_OPEN, fail_closed=True, gap=route.get("gap"))
+            state["work"][args.item] = nw
+            emitted["blocked"] = reason
+            return
+        else:
+            effective_route = route
         nw["attempt_count"] = nw.get("attempt_count", 0) + 1
         nw["claim"] = work.new_claim(attempt_id, base_sha, args.worktree,
                                      item.get("exclusive_resources", []), effective_route)
@@ -4425,6 +4497,10 @@ def cmd_work_claim(args, store: Snapshot) -> None:
         emitted["packet"] = work.build_packet(plan, state, args.item, effective_route, base_sha, attempt_id, args.worktree)
 
     _work_mutate(store, change)
+    if "blocked" in emitted:
+        # The blocked attempt is now persisted; refuse the claim so the command exits non-zero with the
+        # gap-and-escape message the operator (or unattended runner) acts on.
+        raise CoordinatorError(emitted["blocked"])
     print(json.dumps(emitted["packet"]))
 
 

@@ -688,11 +688,120 @@ class TestWorkRouting(unittest.TestCase):
         self.assertTrue(route["inline"])
         self.assertEqual(route["model"], "inherit")
 
-    def test_missing_binding_falls_back_to_integrator_inline_never_stronger(self):
-        route = work.resolve_route({"implementation_classes": {}}, "builder", "codex")
-        self.assertTrue(route["inline"])
-        self.assertEqual(route["model"], "inherit")
-        self.assertEqual(route["executor_class"], "builder")
+    def test_undeclared_implementation_classes_resolves_inline_as_before(self):
+        # The no-worker-packs deployment: nothing was ever declared, so there is nothing to fail closed
+        # on and the class resolves inline exactly as it did before W2. Both an empty bindings doc and a
+        # bindings doc that declares OTHER config but no implementation_classes key are "undeclared".
+        for bindings in ({}, {"tiers": {"judgment": {"model": "opus"}}}):
+            route = work.resolve_route(bindings, "builder", "codex")
+            self.assertTrue(route["inline"], bindings)
+            self.assertEqual(route["model"], "inherit")
+            self.assertEqual(route["executor_class"], "builder")
+            self.assertNotIn("blocked", route)
+
+    def test_declared_but_incomplete_binding_blocks_never_silently_inline(self):
+        # implementation_classes IS declared (worker packs configured) but this class/provider entry is
+        # missing or incomplete: fail closed with an explicit blocked route rather than degrade to inline.
+        empty = work.resolve_route({"implementation_classes": {}}, "builder", "codex")
+        self.assertTrue(empty["blocked"])
+        self.assertFalse(empty["inline"])
+        self.assertEqual(empty["gap"], "declared-incomplete-binding")
+        missing_provider = work.resolve_route(
+            {"implementation_classes": {"builder": {"claude": {"model": "sonnet", "effort": "medium"}}}},
+            "builder", "codex")
+        self.assertTrue(missing_provider["blocked"])
+        incomplete = work.resolve_route(
+            {"implementation_classes": {"builder": {"codex": {"model": "gpt"}}}},  # no effort
+            "builder", "codex")
+        self.assertTrue(incomplete["blocked"])
+
+    def test_blocked_route_helper_shape(self):
+        route = work.blocked_route("builder", "codex", gap="declared-incomplete-binding")
+        self.assertTrue(route["blocked"])
+        self.assertFalse(route["inline"])
+        self.assertIsNone(route["model"])
+        self.assertEqual(route["gap"], "declared-incomplete-binding")
+
+
+class TestFailClosedFailureRecord(unittest.TestCase):
+    def test_fail_closed_marks_the_record_and_keeps_dispatch_class(self):
+        rec = work.failure_record("a" * 32, "dispatch", "blocked: gap and escape", work.dag.DISP_OPEN,
+                                  fail_closed=True, gap="external-transport-refused")
+        self.assertEqual(rec["class"], "dispatch")
+        self.assertEqual(rec["disposition"], "open")
+        self.assertTrue(rec["fail_closed"])
+        self.assertEqual(rec["gap"], "external-transport-refused")
+
+    def test_ordinary_failure_carries_no_fail_closed_marker(self):
+        rec = work.failure_record("a" * 32, "worker", "worker died")
+        self.assertNotIn("fail_closed", rec)
+        self.assertNotIn("gap", rec)
+
+    def test_unknown_gap_is_refused(self):
+        with self.assertRaises(work.CoordinatorError):
+            work.failure_record("a" * 32, "dispatch", "x", work.dag.DISP_OPEN,
+                                fail_closed=True, gap="not-a-real-gap")
+
+
+class TestFailClosedDispatch(WorkCase):
+    """W2: fail-closed dispatch through the real claim path — a declared-but-incomplete binding blocks and
+    persists instead of degrading to inline, the deliberate integrator-inline escape still reaches the node,
+    present bindings dispatch unchanged, and external-transport routing is refused default-on with a real
+    eligibility consult behind the refusal."""
+
+    def _claim_raw(self, item="shared", provider="claude"):
+        args = argparse.Namespace(item=item, provider=provider, plan=str(self.plan_path), worktree="/tmp/wt")
+        with contextlib.redirect_stdout(io.StringIO()):
+            bc.cmd_work_claim(args, self.store)
+
+    def test_declared_incomplete_binding_blocks_and_persists_the_attempt(self):
+        with mock.patch.object(bc, "_bindings", return_value={"implementation_classes": {}}):
+            with self.assertRaises(bc.CoordinatorError) as caught:
+                self._claim_raw("shared")
+        msg = str(caught.exception)
+        self.assertIn("integrator-inline", msg)            # the sanctioned escape is named
+        self.assertIn("model-bindings.json", msg)          # the binding-gap recovery is named
+        nw = self.state()["work"]["shared"]
+        self.assertIsNone(nw["claim"])                     # no claim -> no resources reserved
+        self.assertTrue(nw["latest_failure"]["fail_closed"])
+        self.assertEqual(nw["latest_failure"]["gap"], "declared-incomplete-binding")
+        self.assertEqual(nw["latest_failure"]["class"], "dispatch")
+        self.assertEqual(dag.derive_lifecycle(self.plan_value, self.state())["shared"]["state"], dag.FAILED)
+
+    def test_integrator_inline_escape_survives_a_fail_closed_block(self):
+        with mock.patch.object(bc, "_bindings", return_value={"implementation_classes": {}}):
+            with self.assertRaises(bc.CoordinatorError):
+                self._claim_raw("shared")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_work_retry(argparse.Namespace(item="shared", strategy="integrator-inline",
+                                                     reason="run it inline"), self.store)
+            packet = self.claim("shared")                  # still under the incomplete bindings
+        self.assertTrue(packet["route"]["inline"])
+        self.assertEqual(packet["route"]["model"], "inherit")
+        self.assertEqual(packet["route"]["executor_class"], "builder")
+
+    def test_present_bindings_still_dispatch_unchanged(self):
+        # the real repo bindings bind builder/claude; a normal claim is byte-unchanged by W2.
+        packet = self.claim("shared")
+        self.assertFalse(packet["route"]["inline"])
+        self.assertEqual(packet["route"]["model"], "sonnet")
+        self.assertNotIn("blocked", packet["route"])
+
+    def test_external_transport_refused_default_on(self):
+        with mock.patch.dict(os.environ, {bc._EXTERNAL_TRANSPORT_ENV: "acp"}, clear=False):
+            with self.assertRaises(bc.CoordinatorError) as caught:
+                self._claim_raw("shared")
+        self.assertIn("external-transport", str(caught.exception).lower())
+        self.assertEqual(self.state()["work"]["shared"]["latest_failure"]["gap"], "external-transport-refused")
+
+    def test_external_transport_no_eligible_when_default_lifted(self):
+        with mock.patch.object(bc.executor_records, "load_records", return_value=[]), \
+             mock.patch.dict(os.environ, {bc._EXTERNAL_TRANSPORT_ENV: "acp",
+                                          bc._EXTERNAL_TRANSPORT_ALLOW_ENV: "1"}, clear=False):
+            with self.assertRaises(bc.CoordinatorError) as caught:
+                self._claim_raw("shared")
+        self.assertIn("no eligible", str(caught.exception).lower())
+        self.assertEqual(self.state()["work"]["shared"]["latest_failure"]["gap"], "no-eligible-for-production")
 
 
 class TestGoverningContextPacket(WorkCase):

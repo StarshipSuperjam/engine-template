@@ -89,7 +89,7 @@ class TestHomeTravelClassification(unittest.TestCase):
         # path outside the known instance locations fails here — forcing an explicit classification rather than
         # a silent travel/flag. (Runtime already default-flags the unknown, so this guards the over-flag side.)
         INSTANCE_PREFIXES = (".engine/state/", ".engine/audits/", ".engine/erasures/", ".engine/memory-backup/",
-                             ".engine/memory/", ".engine/projects-sync/")
+                             ".engine/memory/", ".engine/projects-sync/", ".engine/executors/")
         INSTANCE_FILES = {".engine/engine.json", ".engine/product-spec-matrix.json"}
         for p in self.owned:
             travels = mc.travels_to_engine_home(p)
