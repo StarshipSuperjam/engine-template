@@ -5873,7 +5873,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:552e0b93455733b2609451bd3958dea8337c7fbeec134bc81cb7e3ba90dd0cd6",
+        "fingerprint": "sha256:f09ee760c8230b91613b3cd624443628272333b712e5e68f63c57f0bddafd02d",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -5893,7 +5893,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:6817d8b568920029913eb9747a68cb082d647664ef3854b37df23f47b610fab5",
+        "fingerprint": "sha256:b9d16c1ab8441e0924fbc48173bfb3f2453dc33b52293e3680ad9a47f5d1db69",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -20497,7 +20497,7 @@
       },
       "slug": "test_transaction",
       "source": {
-        "fingerprint": "sha256:f8a9225510ca772927523ce843bd145e53d628361be248048e4539715afd2d71",
+        "fingerprint": "sha256:13bda2f98c78e3fa174f7d8c0b2fae05e98a0074e62439dc7457d0689134a548",
         "path": ".engine/tools/test_transaction.py"
       },
       "status": "active",
