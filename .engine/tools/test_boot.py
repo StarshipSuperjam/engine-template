@@ -4579,6 +4579,44 @@ class TestSizeSpikeAndLedger(unittest.TestCase):
         self.assertLess(gov_only_bytes, boot.hooks.HOOK_OUTPUT_CAP)
         self.assertLess(unshed_bytes, boot.hooks.HOOK_OUTPUT_CAP)
 
+    def _floor_block(self, filename):
+        """The engine-managed floor block of a root instruction file (CLAUDE.md / AGENTS.md), as text —
+        everything from the BEGIN fence through the END fence inclusive, or None if the fence is absent."""
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(root, filename), encoding="utf-8") as fh:
+            text = fh.read()
+        begin = text.find("BEGIN engine-managed block: floor")
+        end = text.find("END engine-managed block: floor")
+        if begin == -1 or end == -1 or end < begin:
+            return None
+        line_start = text.rfind("\n", 0, begin) + 1
+        line_end = text.find("\n", end)
+        return text[line_start:(line_end if line_end != -1 else len(text))]
+
+    def test_floor_recovery_deltas_recorded_in_the_before_after_table(self):
+        # The floor half of the before/after measurement table (fixtures-replay-measurement, StarshipSuperjam/engine-template#1187).
+        # floor-recovery-note added the additive envelope-recognition/recovery block to both engine-managed
+        # floors. Recorded here alongside the pack before-row above so the whole footprint change is in one
+        # place. MEASURED before/after (this home repo, against the build base 5b96d04d):
+        #   CLAUDE.md floor:  8,684 B -> 9,681 B  (delta +997 B)   [recovery block, under the 3000 B/floor ceiling]
+        #   AGENTS.md floor:  9,815 B -> 10,806 B (delta +991 B)   [recovery block, under the 3000 B/floor ceiling]
+        # The exact byte counts are RECORDED, not pinned to a moving target (they drift with ordinary floor
+        # edits and differ in a deployed projection where the floor is propagated): what is asserted is that
+        # each floor is well-formed and actually carries the recovery content, and that neither floor is
+        # anywhere near a size that would crowd the instruction corpus. Deployment-safe — the recovery block
+        # propagates to deployed floors via module_manager._merge_floor, so this holds in any shape.
+        for filename in ("CLAUDE.md", "AGENTS.md"):
+            block = self._floor_block(filename)
+            self.assertIsNotNone(block, f"{filename} has no well-formed engine-managed floor block")
+            # the recovery content this build added is present (the session-start-relay-is-orientation block).
+            self.assertIn("session-start relay", block,
+                          f"{filename} floor is missing the envelope-recognition recovery block")
+            self.assertIn("re-ground", block.lower(),
+                          f"{filename} floor's recovery block must name the re-ground path")
+            # a generous runaway-growth guard — the real floors are ~9.7-10.8 KB, far under this.
+            self.assertLess(len(block.encode("utf-8")), 16000,
+                            f"{filename} floor block has grown past its runaway-growth guard")
+
     def test_ledger_completeness_and_superset(self):
         # every one of the 7 warrants is actually used by at least one ledger row (no warrant is vestigial).
         self.assertEqual(set(boot._WARRANTS), boot._LEDGER_WARRANTS_USED)
