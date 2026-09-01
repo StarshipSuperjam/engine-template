@@ -2067,11 +2067,14 @@ def _render_lanes(record: dict, view: list) -> list:
             elif len(in_flight) == len(row["members"]):
                 lines.append(f"  - In flight: all {len(in_flight)} member(s)")
             else:
-                # Named the way the member line names them — one convention per block, and this
-                # listing form appears exactly when the reader needs to pick the live members out of
-                # a mixed lane. Semicolon-joined: a title can carry its own commas.
+                # Named the way the member line names them — title first, id kept — appearing
+                # exactly when the reader needs to pick the live members out of a mixed lane. Every
+                # in-flight member resolves a title by construction: absent and attention-state
+                # members both bucket unknown, so nothing in flight is missing from the map.
+                # Semicolon-joined, the titled-list convention these surfaces share; the backticked
+                # id terminates each entry when a title carries the join character itself.
                 lines.append("  - In flight: " + "; ".join(
-                    f"{title_of[p]} (`{p}`)" if p in title_of else f"`{p}`" for p in in_flight))
+                    f"{title_of[p]} (`{p}`)" for p in in_flight))
         if standing["unlaned"]:
             lines += ["", "Stored children not in any lane: "
                       + ", ".join(f"`{plan_id}`" for plan_id in standing["unlaned"])]

@@ -12,7 +12,6 @@ check as approval of a decision nothing examined.
 """
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 import re
@@ -3155,10 +3154,16 @@ class LaneRender(_Program):
     def test_the_lane_section_is_pinned_byte_for_byte(self):
         # The whole rendered section, pinned as one string — the same discipline the portfolio's
         # four-lane fixture applies to its glance — so any drift in this surface names itself as a
-        # deliberate rendering decision rather than slipping through substring checks.
-        slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
-        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001"]},
-                                       {"name": "slow", "children": ["pln_b00000000002"]}],
+        # deliberate rendering decision rather than slipping through substring checks. The fixture
+        # exercises all three call-out branches: a mixed lane whose TWO live members run the
+        # semicolon-joined listing, an all-live lane, and (via the mixed lane's settled member)
+        # the fold that keeps "nothing right now" honest elsewhere.
+        slug = self._shelf(("pln_a00000000001", ["w.py"]), ("pln_b00000000002", ["x.py"]),
+                           ("pln_c00000000003", ["y.py"]), ("pln_d00000000004", ["z.py"]))
+        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001",
+                                                                     "pln_b00000000002",
+                                                                     "pln_c00000000003"]},
+                                       {"name": "slow", "children": ["pln_d00000000004"]}],
                                 "split by territory")
         self.plans.update_record(self.plans.resolve("pln_a00000000001"), lambda cur: cur.__setitem__(
             "closure", {"state": "complete", "at": "2026-01-01T00:00:00Z", "reason": "merged"}))
@@ -3170,13 +3175,14 @@ class LaneRender(_Program):
             "\n\n"
             f"_Decided {decided_at}: split by territory_\n"
             "\n"
-            "- **fast**: 001 (`pln_a00000000001`, complete)\n"
-            "  - In flight: nothing right now\n"
-            "- **slow**: 002 (`pln_b00000000002`, draft)\n"
+            "- **fast**: 001 (`pln_a00000000001`, complete), 002 (`pln_b00000000002`, draft), "
+            "003 (`pln_c00000000003`, draft)\n"
+            "  - In flight: 002 (`pln_b00000000002`); 003 (`pln_c00000000003`)\n"
+            "- **slow**: 004 (`pln_d00000000004`, draft)\n"
             "  - In flight: all 1 member(s)\n"
             "\n"
             "Cross-lane predecessor edges — a merge-order risk to watch:\n"
-            "- `pln_b00000000002` (lane slow) succeeds `pln_a00000000001` (lane fast).\n"
+            "- `pln_d00000000004` (lane slow) succeeds `pln_c00000000003` (lane fast).\n"
             "\n",
             section)
 
@@ -3595,35 +3601,17 @@ class TheProgramRunbookCarriesJudgmentNotSequence(unittest.TestCase):
     def test_it_points_at_the_tool_for_sequence_rather_than_restating_it(self):
         self.assertIn("program_manager.py", self.text)
         self.assertIn("ask it", self.lower)
-        # The numbered step headings must carry JUDGMENT phrases, never bare tool verbs — a runbook
-        # whose steps read "add", "insert", "complete" would be restating the tool's ordered
-        # sequence. The verb set is derived from program_manager's OWN parser, so this guard cannot
-        # drift from the tool the way a hand-typed list did; a heading may still USE such a word
-        # inside a judgment phrase ("Lanes: the operator's concurrency…"), so what is pinned is that
-        # no heading IS a bare verb and every heading is a real multi-word phrase. (Whether the prose
-        # BETWEEN the headings re-derives the tool's order is the reviewer's judgment, exactly where
-        # the plan put it; this pins only the checkable surface.)
-        import program_manager
-
-        def cli_words(parser):
-            words = set()
-            for action in parser._actions:
-                if isinstance(action, argparse._SubParsersAction):
-                    for name, sub in action.choices.items():
-                        words.add(name)
-                        words |= cli_words(sub)
-            return words
-
-        tool_verbs = cli_words(program_manager.build_parser())
-        self.assertGreater(len(tool_verbs), 10, "the derived verb set collapsed — the seam moved")
+        # What this pins, exactly: the numbered step headings exist, and each carries at least a
+        # three-word phrase — a bare tool verb is one word, a verb-plus-object label two, and a
+        # judgment phrase starts where the label stops ("The reading surfaces"). That floor is the
+        # WHOLE mechanical guard: it catches a runbook whose steps degenerate into verb labels, and
+        # it deliberately checks nothing subtler — whether a longer heading or the prose between
+        # headings re-derives the tool's order is the reviewer's judgment, exactly where the plan
+        # put it. (A verb-list check was tried twice and claimed more than it checked: every tool
+        # verb is a single word, so the floor already refuses anything such a list would.)
         headings = re.findall(r"^###\s+\d+\.\s+(.+)$", self.text, re.MULTILINE)
         self.assertTrue(headings, "the runbook's Steps section lost its numbered headings")
         for heading in headings:
-            self.assertNotIn(heading.strip(":,. ").lower(), tool_verbs,
-                             f"step heading {heading!r} IS a bare tool verb — that is the tool's "
-                             "sequence restated, not judgment")
-            # Three words is the floor: a bare verb is one, a verb-plus-object label two, and a
-            # judgment phrase starts where the label stops ("The reading surfaces").
             self.assertGreaterEqual(
                 len(heading.split()), 3,
                 f"step heading {heading!r} is too bare to carry judgment — a multi-word phrase "

@@ -13662,7 +13662,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:8b234d7343e317d5d6772fe4b17a04ec9a0917bf8aebf80f7c553a415e32f81f",
+        "fingerprint": "sha256:4fa40d33a0e2d82a5ecd74431558b17bfa0e56da1c70107fdf312c20575a7922",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -18450,7 +18450,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:0b7cbb9b05f45234ba716eabddc5a103e34fa337cc9a121562263a11c4ffaf27",
+        "fingerprint": "sha256:a75e465192bf50061a95fe6b3735e59aa337e555fb4e0498c8d9865da4a9bbff",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
