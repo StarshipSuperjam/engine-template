@@ -133,7 +133,7 @@ def _build_main_shelf(shelf):
                               "they touch different files")
 
 
-EXPECTED_MAIN = '# Programs — portfolio\n\n<!-- generated from the program records; a read-only view — nothing here selects, starts, or advances work -->\n\nA shelf, not a queue: every OPEN program below, what it is for, how far along it is, and what is in flight — as facts, never a percentage and never a recommendation. Unknown is unknown, not done.\n\n## In flight (3)\n\n### Alpha\n- **Goal**: Give the operator a single durable place to see, reason about and act on every long-running program the engine is carrying at once…\n- **Program**: `prg_000000000101` · status active (derived)\n- **Last movement**: 2026-08-05\n- **In flight**: 2: the feature\n- **Settled on the chain**: 1 landed\n- **Obligations**: OB-1 — cut over\n\n### Bravo\n- **Goal**: Deliver Bravo in two PRs.\n- **Program**: `prg_000000000102` · status children-complete (derived)\n- **Last movement**: 2026-08-06\n- **In flight**: nothing — every live child has landed, but no one has recorded the PROGRAM complete; unwritten successors are unknown, not done\n- **Settled on the chain**: 1 landed\n- **Obligations**: none outstanding\n\n### Charlie\n- **Goal**: Deliver the review capability in three parts: the finder that surfaces candidates, the adjudicator that disposes each one, and the recorder that writes the outcome…\n- **Program**: `prg_000000000103` · status active (derived)\n- **Last movement**: 2026-08-09\n- **In flight**: finder; recorder\n- **Obligations**: none outstanding\n- **Lanes**: finding — pln_c00000000001; recording — pln_c00000000002\n'
+EXPECTED_MAIN = '# Programs — portfolio\n\n<!-- generated from the program records; a read-only view — nothing here selects, starts, or advances work -->\n\nA shelf, not a queue: every OPEN program below, what it is for, how far along it is, and what is in flight — as facts, never a percentage and never a recommendation. Unknown is unknown, not done.\n\n## In flight (3)\n\n### Alpha\n- **Goal**: Give the operator a single durable place to see, reason about and act on every long-running program the engine is carrying at once…\n- **Program**: `prg_000000000101` · status active (derived)\n- **Last movement**: 2026-08-05\n- **In flight**: 2: the feature\n- **Settled on the chain**: 1 landed\n- **Obligations**: OB-1 — cut over\n\n### Bravo\n- **Goal**: Deliver Bravo in two PRs.\n- **Program**: `prg_000000000102` · status children-complete (derived)\n- **Last movement**: 2026-08-06\n- **In flight**: nothing — every live child has landed, but no one has recorded the PROGRAM complete; unwritten successors are unknown, not done\n- **Settled on the chain**: 1 landed\n- **Obligations**: none outstanding\n\n### Charlie\n- **Goal**: Deliver the review capability in three parts: the finder that surfaces candidates, the adjudicator that disposes each one, and the recorder that writes the outcome…\n- **Program**: `prg_000000000103` · status active (derived)\n- **Last movement**: 2026-08-09\n- **In flight**: finder; recorder\n- **Obligations**: none outstanding\n- **Lanes** — decided 2026-08-09:\n  - **finding**: in flight finder\n  - **recording**: in flight recorder\n  - Cross-lane merge-order risk: 1 edge(s) — see `program show`\n'
 
 
 class ThePortfolioRendersTheOpenShelf(_Shelf):
@@ -185,6 +185,176 @@ class ThePortfolioRendersTheOpenShelf(_Shelf):
         program_projection.render_portfolio(self.progs)
         after = {p: p.read_bytes() for p in programs_dir.rglob("record.json")}
         self.assertEqual(before, after, "rendering the portfolio must not touch a record")
+
+
+EXPECTED_FOUR_LANE_BLOCK = (
+    "- **Lanes** — decided 2026-08-12:\n"
+    "  - **docs**: in flight RC docs pass\n"
+    "  - **core**: in flight RC core repair; RC core hardening\n"
+    "  - **tests**: in flight RC test coverage · 1 landed\n"
+    "  - **cli**: in flight RC cli surface\n"
+    "  - Cross-lane merge-order risk: 3 edge(s) — see `program show`")
+
+
+class ThePortfolioRendersLaneStanding(_Shelf):
+    """The per-lane glance in the portfolio (issue StarshipSuperjam/engine-template#1173), a bounded
+    formatter over plan_program.lane_standing. The centrepiece is the operator's own lived pattern —
+    a backlog split into concurrent lanes by file territory, one session per lane — byte-pinned; the
+    rest pin the bounds and the honesty rules one at a time."""
+
+    def _four_lane_program(self):
+        D, C1, C2 = "pln_0000000000d1", "pln_0000000000c1", "pln_0000000000c2"
+        T1, T2, L1 = "pln_0000000000a1", "pln_0000000000a2", "pln_0000000000e1"
+        with self._seeding():
+            self.clock.at = "2026-08-10T00:00:00Z"
+            slug = self.progs.create(
+                "Release backlog",
+                "Clear the release-candidate debt across concurrent lanes drawn by file territory.")
+            pid = self.progs.read(slug)["program_id"]
+            rows = [(D, "RC docs pass", None, None), (C1, "RC core repair", D, None),
+                    (C2, "RC core hardening", C1, None),
+                    (T1, "RC test determinism", C2,
+                     {"state": "complete", "at": "2026-08-11T00:00:00Z", "reason": "merged"}),
+                    (T2, "RC test coverage", T1, None), (L1, "RC cli surface", T2, None)]
+            for cpid, title, pred, closure in rows:
+                self._seed_child(cpid, title, pid, predecessor=pred, closure=closure)
+                self.progs.add_child(slug, cpid, predecessor=pred)
+            self.clock.at = "2026-08-12T00:00:00Z"
+            self.progs.set_lanes(slug, [{"name": "docs", "children": [D]},
+                                        {"name": "core", "children": [C1, C2]},
+                                        {"name": "tests", "children": [T1, T2]},
+                                        {"name": "cli", "children": [L1]}],
+                                 "four lanes by file territory")
+        return slug
+
+    def _lanes_block(self, render):
+        return render[render.index("- **Lanes**"):].rstrip()
+
+    def test_the_four_lane_lived_pattern_is_pinned(self):
+        self._four_lane_program()
+        render = program_projection.render_portfolio(self.progs)
+        self.assertEqual(self._lanes_block(render), EXPECTED_FOUR_LANE_BLOCK)
+
+    def test_no_standing_split_renders_no_lane_section(self):
+        with self._seeding():
+            slug = self.progs.create("Solo", "One lane's worth of work, never split.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000b1", "the only child", pid)
+            self.progs.add_child(slug, "pln_0000000000b1")
+        render = program_projection.render_portfolio(self.progs)
+        self.assertNotIn("- **Lanes**", render)
+
+    def test_in_flight_members_beyond_the_cap_fold_to_a_count(self):
+        with self._seeding():
+            slug = self.progs.create("Wide", "One lane holding more live children than the cap names.")
+            pid = self.progs.read(slug)["program_id"]
+            kids = [f"pln_00000000f0{i}0" for i in range(4)]
+            prev = None
+            for cpid in kids:
+                self._seed_child(cpid, f"child {cpid[-4:]}", pid, predecessor=prev)
+                self.progs.add_child(slug, cpid, predecessor=prev)
+                prev = cpid
+            self.progs.set_lanes(slug, [{"name": "everything", "children": kids}], "all in one lane")
+        block = self._lanes_block(program_projection.render_portfolio(self.progs))
+        self.assertIn("(+1 more)", block)     # 4 in flight, cap 3
+
+    def test_unlaned_children_beyond_the_cap_fold_to_a_count(self):
+        with self._seeding():
+            slug = self.progs.create("Sparse", "Only one child is laned; the rest are unlaned.")
+            pid = self.progs.read(slug)["program_id"]
+            kids = [f"pln_00000000e0{i}0" for i in range(5)]
+            prev = None
+            for cpid in kids:
+                self._seed_child(cpid, f"child {cpid[-4:]}", pid, predecessor=prev)
+                self.progs.add_child(slug, cpid, predecessor=prev)
+                prev = cpid
+            self.progs.set_lanes(slug, [{"name": "only", "children": [kids[0]]}], "lane just the first")
+        block = self._lanes_block(program_projection.render_portfolio(self.progs))
+        self.assertIn("Unlaned children:", block)
+        self.assertIn("(+1 more)", block)     # 4 unlaned, cap 3
+
+    def test_more_lanes_than_the_cap_fold_to_a_count(self):
+        from test_plan_program import force_lane_split
+        with self._seeding():
+            slug = self.progs.create("Many", "More lanes than the glance names.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000b1", "sole real child", pid)
+            self.progs.add_child(slug, "pln_0000000000b1")
+        # Six lanes, most naming a member no longer in the program — forged past set_lanes, which
+        # would refuse them — so the lane-count fold is exercised without needing six real children.
+        lanes = [{"name": "real", "children": ["pln_0000000000b1"]}]
+        lanes += [{"name": f"lane{i}", "children": [f"pln_00000000cc0{i}"]} for i in range(5)]
+        force_lane_split(self.progs, slug, lanes)
+        block = self._lanes_block(program_projection.render_portfolio(self.progs))
+        self.assertIn("(+1 more lane(s) — see `program show`)", block)   # 6 lanes, cap 5
+
+    def test_a_member_no_longer_in_the_program_is_disclosed_as_unknown_never_zero(self):
+        from test_plan_program import force_lane_split
+        with self._seeding():
+            slug = self.progs.create("Departed", "A split naming a child that left the program.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000b1", "still here", pid)
+            self.progs.add_child(slug, "pln_0000000000b1")
+        # Forged through the allowlisted helper: this module never touches the raw lane record keys.
+        force_lane_split(self.progs, slug,
+                         [{"name": "lane", "children": ["pln_0000000000b1", "pln_00000000dead"]}])
+        block = self._lanes_block(program_projection.render_portfolio(self.progs))
+        self.assertIn("1 unknown", block)
+        self.assertNotIn("0 unknown", block)
+        self.assertNotIn("0 settled", block)
+
+    def test_settled_members_fold_to_per_state_counts_and_an_unreachable_marked_one_stays_unknown(self):
+        # The two halves of one honesty rule, at the portfolio surface. A landed member and a validly
+        # superseded member fold to per-state counts in the program-wide settled line's own voice —
+        # never a lump of "settled" that hides whether work merged or died. And a member that is both
+        # unreachable and marked superseded is disclosed as unknown: an unreachable plan may not
+        # vouch for its own settled end, however its marker reads.
+        from test_plan_program import force_lane_split
+        with self._seeding():
+            slug = self.progs.create("Mixed", "One lane carrying every settled shape at once.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000b1", "landed work", pid,
+                             closure={"state": "complete", "at": "2026-08-11T00:00:00Z",
+                                      "reason": "merged"})
+            self.progs.add_child(slug, "pln_0000000000b1")
+            self._seed_child("pln_0000000000b2", "replaced work", pid,
+                             predecessor="pln_0000000000b1",
+                             closure={"state": "retired", "at": "2026-08-11T00:00:00Z",
+                                      "reason": "superseded"})
+            self.progs.add_child(slug, "pln_0000000000b2", predecessor="pln_0000000000b1")
+        record = self.progs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == "pln_0000000000b2":
+                child["superseded_by"] = "pln_0000000000b1"
+        # A stored child whose plan is gone from the library, marked superseded by a real child: the
+        # marker validates, the plan does not read. Appended directly (add_child needs a readable
+        # plan) and laned through the allowlisted forge (set_lanes rightly refuses the unreadable).
+        record["children"].append({"plan_id": "pln_00000000dead", "position": 3,
+                                   "added_at": "2026-08-11T00:00:00Z",
+                                   "predecessor_plan_id": "pln_0000000000b2",
+                                   "superseded_by": "pln_0000000000b1"})
+        self.progs._write(slug, record)
+        force_lane_split(self.progs, slug,
+                         [{"name": "lane", "children": ["pln_0000000000b1", "pln_0000000000b2",
+                                                        "pln_00000000dead"]}])
+        block = self._lanes_block(program_projection.render_portfolio(self.progs))
+        self.assertIn("1 landed, 1 superseded", block)
+        self.assertIn("1 unknown", block)
+        self.assertNotIn("settled", block)   # the lump never renders — only per-state counts do
+
+    def test_the_lane_section_carries_no_recommendation_voice(self):
+        self._four_lane_program()
+        block = self._lanes_block(program_projection.render_portfolio(self.progs)).lower()
+        for banned in ("you should", "recommend", "next up", "we suggest", "consider", "priority"):
+            self.assertNotIn(banned, block)
+
+    def test_rendering_lane_standing_does_not_touch_a_record(self):
+        self._four_lane_program()
+        programs_dir = self.lib.root / "programs"
+        before = {p: p.read_bytes() for p in programs_dir.rglob("record.json")}
+        program_projection.render_portfolio(self.progs)
+        after = {p: p.read_bytes() for p in programs_dir.rglob("record.json")}
+        self.assertEqual(before, after)
 
 
 class GoalHeadlineCutsOnACompleteThought(unittest.TestCase):

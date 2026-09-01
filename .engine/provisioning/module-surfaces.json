@@ -96,6 +96,12 @@
   ".agents/skills/engine-manage-plans/agents/openai.yaml": [
    "core"
   ],
+  ".agents/skills/engine-manage-programs/SKILL.md": [
+   "core"
+  ],
+  ".agents/skills/engine-manage-programs/agents/openai.yaml": [
+   "core"
+  ],
   ".agents/skills/engine-manage-setup/SKILL.md": [
    "core"
   ],
@@ -370,6 +376,9 @@
    "core"
   ],
   ".claude/skills/engine-manage-plans/SKILL.md": [
+   "core"
+  ],
+  ".claude/skills/engine-manage-programs/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-manage-setup/SKILL.md": [
@@ -923,6 +932,9 @@
   ],
   ".engine/operations/product-intake.md": [
    "product-design"
+  ],
+  ".engine/operations/program-orchestration.md": [
+   "core"
   ],
   ".engine/operations/projects-release-advance.md": [
    "github-projects-sync"

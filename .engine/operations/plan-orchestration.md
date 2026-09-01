@@ -97,7 +97,10 @@ Four doors reach this runbook:
 
 - **Start a new plan** — `init` — when agreed work needs a plan a later Build can pick up.
 - **Pick one back up** — `resume` — when a plan already in the library is being carried on.
-- **See the shelf** — `list` — when the question is what is waiting.
+- **See the shelf** — `list` — when the question is what is waiting. The shelf is a flat list of
+  plans; when the question is really about a multi-PR *program* — where one stands, how its children
+  group, how it splits into lanes — that is the Program Manager's grouped view, reached through
+  [program orchestration](program-orchestration.md) (`engine-manage-programs`), not this flat list.
 - **A plan that arrived on its own.** A plan the operator accepted in the platform's own plan mode lands
   through the intake adapter (`import-native` does the same by hand) as an unapproved draft whose judgment
   is deliberately left blank — no interpretation, no evidence, no risks, no review strategy. Filling that
