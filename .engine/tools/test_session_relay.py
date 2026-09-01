@@ -78,12 +78,23 @@ def _worst_case_envelope() -> dict:
         "/Users/example/Developer/engine-template/.claude/worktrees/repo-write-gate-enforcement-0ad206"
     )}
     env["action_forcing_alarms"] = [
-        {"code": "qualification", "data": {"rounds_remaining": 2}},
-        {"code": "memory_drain", "data": {"pct_used": 97.5}},
-        {"code": "restore_recovery", "data": {"snapshot_age_hours": 48.0}},
-        {"code": "gate_off", "data": {"gate": "protected_merge_guard"}},
-        {"code": "blocking_findings", "data": {"count": 7}},
-        {"code": "review_stall", "data": {"rounds": 3}},
+        {"code": "qualification",
+         "text": "memory-write qualification advanced to full access for this session."},
+        {"code": "memory_drain",
+         "text": "the local memory store is nearly full (97% used); older entries drop on the next "
+                 "write unless it is compacted soon."},
+        {"code": "restore_recovery",
+         "text": "memory writes are paused after an interrupted restore; the prior local store may be "
+                 "stale — restore or discard it before relying on saved memory."},
+        {"code": "gate_off",
+         "text": "their safety gate is off — `main` isn't protected, so work can reach it without "
+                 "review; they can say 'turn my safety gate back on' to restore it."},
+        {"code": "blocking_findings",
+         "text": "7 blocking findings are open against this project; they must be resolved or explicitly "
+                 "accepted before the affected work can merge."},
+        {"code": "execution_drift",
+         "text": "the execution posture changed this session (model-routing.md, defaults.md); re-ground "
+                 "before relying on any model-dependent shortcut."},
     ]
     env["standing_directives"]["pins_index"] = {
         "count": 9, "summary": "9 pins across operator directives and settled decisions",
@@ -120,16 +131,22 @@ class ValidateTests(unittest.TestCase):
         with self.assertRaises(sr.RelayValidationError):
             sr.validate(env)
 
-    def test_unknown_alarm_code_is_rejected(self):
+    def test_alarm_requires_text_and_a_snake_case_code(self):
+        # The alarm carrier is {code, text}: code an open snake_case identity (so any real boot
+        # governance alarm maps to one), text the must-relay line — required, never optional.
         env = _base_envelope()
-        env["action_forcing_alarms"] = [{"code": "made_up_alarm", "data": {}}]
+        env["action_forcing_alarms"] = [{"code": "gate_off"}]  # missing the required text
+        with self.assertRaises(sr.RelayValidationError):
+            sr.validate(env)
+        env["action_forcing_alarms"] = [{"code": "Gate Off!", "text": "x"}]  # code breaks the pattern
         with self.assertRaises(sr.RelayValidationError):
             sr.validate(env)
 
-    def test_alarm_data_shape_is_enforced_per_code(self):
+    def test_alarm_rejects_unknown_fields(self):
+        # additionalProperties:false still holds on the widened shape — an unrecognized field is a
+        # deliberate schema change, never silent growth.
         env = _base_envelope()
-        # qualification requires rounds_remaining; giving it memory_drain's field must fail.
-        env["action_forcing_alarms"] = [{"code": "qualification", "data": {"pct_used": 10}}]
+        env["action_forcing_alarms"] = [{"code": "gate_off", "text": "x", "severity": "high"}]
         with self.assertRaises(sr.RelayValidationError):
             sr.validate(env)
 
@@ -227,7 +244,9 @@ class FixtureMatrixTests(unittest.TestCase):
         env["task_binding"] = {"state": "verified", "binding": _verified_binding(
             "/repo/.claude/worktrees/relay-schemas-0ad206"
         )}
-        env["action_forcing_alarms"] = [{"code": "qualification", "data": {"rounds_remaining": 1}}]
+        env["action_forcing_alarms"] = [{"code": "qualification",
+                                         "text": "memory-write qualification advanced to full access "
+                                                 "for this session."}]
         sr.validate(env)
         sr.render(env)
 
@@ -236,7 +255,9 @@ class FixtureMatrixTests(unittest.TestCase):
         env["task_binding"] = {"state": "verified", "binding": _verified_binding(
             "/repo/.claude/worktrees/relay-schemas-0ad206"
         )}
-        env["action_forcing_alarms"] = [{"code": "qualification", "data": {"rounds_remaining": 1}}]
+        env["action_forcing_alarms"] = [{"code": "qualification",
+                                         "text": "memory-write qualification advanced to full access "
+                                                 "for this session."}]
         sr.validate(env)
         sr.render(env)
 
@@ -279,23 +300,28 @@ class SizeBudgetTests(unittest.TestCase):
         action_forcing_alarms are first in the fixed section order; assert the heavy simultaneous-alarm
         worst case keeps both sections (i.e. everything up to the next header) inside that budget."""
         out = sr.render(_worst_case_envelope())
+        # The ROBUST truncation guarantee: receipt + the ALARMS header (which lists every alarm's code)
+        # must survive the 2,000-char preview, so a truncated boot never hides WHICH alarms fired even
+        # when the full relay texts below are cut. Codes are short, so this holds by a wide margin
+        # regardless of how long the individual relay texts are.
+        alarms_header_end = out.index("\n", out.index("## ALARMS"))
+        self.assertLess(alarms_header_end, 2000, (
+            "receipt + the alarm-codes header must fit the 2,000-char preview so a truncated boot "
+            "never hides which alarms fired"))
+        # In the ordinary (uncapped) case the full receipt + relay-text block also fits under the cap
+        # for this heavy-but-realistic six-alarm worst case; recorded as a concrete regression number.
         identity_start = out.index("## IDENTITY")
-        self.assertLess(
-            identity_start, 2000,
-            f"grounding_receipt + action_forcing_alarms rendered to {identity_start} chars, "
-            f"which does not fit the platform's 2,000-char injected-context preview",
-        )
-        # Record the measured size so a future regression shows up as a concrete number, not a guess.
-        self.assertLess(identity_start, 700, (
-            "sanity margin: the compact alarm encoding should keep receipt+alarms far under the "
-            "2,000-char ceiling even in the worst realistic case measured here"
-        ))
+        self.assertLess(identity_start, 2000, (
+            f"receipt + full alarm relay text rendered to {identity_start} chars for the six-alarm "
+            f"worst case; beyond this fixture the codes header asserted above is the guarantee"))
 
-    def test_full_worst_case_render_also_fits_2000_chars(self):
-        """Not required by the push-warrant taxonomy (only receipt+alarms must survive truncation),
-        but worth knowing: the full worst-case render comfortably fits too."""
+    def test_full_worst_case_render_fits_the_injection_cap(self):
+        """Only receipt + the alarm-codes header must survive the 2,000-char TRUNCATION preview (asserted
+        above). The full render carries the governance relay TEXTS, so it is legitimately larger than
+        2,000 — what matters is that the whole envelope render fits the platform's real 10,000-char
+        injection cap with wide room, even in this heavy six-alarm worst case."""
         out = sr.render(_worst_case_envelope())
-        self.assertLess(len(out), 2000)
+        self.assertLess(len(out), 10000)
 
 
 class InjectionSafetyTests(unittest.TestCase):

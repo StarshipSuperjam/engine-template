@@ -151,16 +151,20 @@ def _render_grounding_receipt(section: dict) -> str:
 
 
 def _render_alarm(alarm: dict) -> str:
-    code = alarm["code"]
-    data = alarm.get("data", {})
-    # Deterministic key order: sorted, since dict insertion order is not a property of the validated
-    # envelope's meaning and must never leak into byte-identical output.
-    parts = " ".join(f"{k}={_inert(data[k])}" for k in sorted(data))
-    return f"- {code} {parts}".rstrip()
+    # The must-relay line itself — boot's own governance-relay text (terse or full per the
+    # anti-habituation ledger), carried verbatim in `text`. Inert-guarded like every other data value
+    # so an interpolated worktree/branch/PR name inside it can never forge relay structure. The `code`
+    # is envelope structure (audit + collapse identity), surfaced in the header line below, not here.
+    return f"- {_inert(alarm['text'])}"
 
 
 def _render_alarms(alarms: list) -> str:
-    lines = [f"## ALARMS ({len(alarms)})"]
+    # The header lists EVERY alarm's code up front, so the grounding_receipt + this one compact line
+    # (which lead the render) tell a truncated 2,000-char preview WHICH alarms fired even when the full
+    # relay texts below are cut. The texts follow in order; the whole block renders inside the cap in
+    # the ordinary (uncapped) case.
+    codes = ", ".join(_inert(a["code"]) for a in alarms)
+    lines = [f"## ALARMS ({len(alarms)}): {codes}" if alarms else "## ALARMS (0)"]
     for alarm in alarms:
         lines.append(_render_alarm(alarm))
     return "\n".join(lines)

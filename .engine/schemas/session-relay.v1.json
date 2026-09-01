@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "session-relay.v1 — the typed session-start envelope",
-  "description": "The whole envelope boot's session-start relay is built from. The platform never injects raw JSON — a validated envelope of this shape is rendered by the session_relay helper into a deterministic prose block. A fact may enter the envelope only under one of seven PUSH WARRANTS, and this schema's seven required top-level sections ARE that taxonomy: grounding_receipt (proof of grounding), identity (who/where this session is), authority_contract (the Explore write-gate contract shape), task_binding (verified-or-none, referencing session-binding.v1), action_forcing_alarms (compact, closed-enumeration alarms — never free prose), standing_directives (bounded operator-facing routing), and pointers (closed-enumeration pointers to points of use). additionalProperties is false at every object level so an unrecognized field is a schema change, never silent growth. Every machine-derived string anywhere in this envelope (worktree/branch/PR names, pin text, slugs, paths, memory excerpts) is DATA: the renderer must treat it as inert text and never let it forge relay structure.",
+  "description": "The whole envelope boot's session-start relay is built from. The platform never injects raw JSON — a validated envelope of this shape is rendered by the session_relay helper into a deterministic prose block. A fact may enter the envelope only under one of seven PUSH WARRANTS, and this schema's seven required top-level sections ARE that taxonomy: grounding_receipt (proof of grounding), identity (who/where this session is), authority_contract (the Explore write-gate contract shape), task_binding (verified-or-none, referencing session-binding.v1), action_forcing_alarms (the governance relays the session must surface — a stable code plus its must-relay text), standing_directives (bounded operator-facing routing), and pointers (closed-enumeration pointers to points of use). additionalProperties is false at every object level so an unrecognized field is a schema change, never silent growth. Every machine-derived string anywhere in this envelope (worktree/branch/PR names, pin text, slugs, paths, memory excerpts) is DATA: the renderer must treat it as inert text and never let it forge relay structure.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -152,7 +152,7 @@
     "action_forcing_alarms": {
       "type": "array",
       "items": {"$ref": "#/$defs/alarm"},
-      "description": "A list of COMPACT alarms — each a short stable code plus minimal structured data, never free prose. Renders immediately after grounding_receipt, and both together must fit the first 2,000 characters."
+      "description": "The governance alarms the session must relay this session — each a stable code plus the must-relay consequence-and-fix text (boot's own relay line, terse or full per the anti-habituation ledger). Renders immediately after grounding_receipt; the receipt plus each alarm's leading code must fit the first 2,000 characters so a truncated preview never hides that an alarm fired."
     },
 
     "standing_directives": {
@@ -244,97 +244,13 @@
     "alarm": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["code", "data"],
-      "description": "One compact action-forcing alarm: a short stable code plus a data shape fixed BY that code (enforced by the if/then branches below), never free prose.",
+      "required": ["code", "text"],
+      "description": "One action-forcing alarm the session must relay. `code` is a stable snake_case identity, used for anti-habituation collapse and the warrant audit (a new alarm identity is a deliberate, schema-visible addition, not a free-form label). `text` is the must-relay line the operator sees: the alarm's consequence and its concrete fix in plain words, in the terse or full form the anti-habituation ledger selects. `data` optionally carries the structured values behind the text (branch, count, drift, and the like) for audit and collapse fingerprinting. Boot computes `text` from its own governance-relay templates; this schema only guarantees the envelope can CARRY it. The renderer treats every value here as inert text and never lets it forge relay structure.",
       "properties": {
-        "code": {
-          "enum": [
-            "qualification",
-            "memory_drain",
-            "restore_recovery",
-            "gate_off",
-            "blocking_findings",
-            "review_stall"
-          ]
-        },
+        "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "text": {"type": "string", "minLength": 1},
         "data": {"type": "object"}
-      },
-      "allOf": [
-        {
-          "if": {"properties": {"code": {"const": "qualification"}}, "required": ["code"]},
-          "then": {
-            "properties": {
-              "data": {
-                "type": "object", "additionalProperties": false,
-                "required": ["rounds_remaining"],
-                "properties": {"rounds_remaining": {"type": "integer", "minimum": 0}}
-              }
-            }
-          }
-        },
-        {
-          "if": {"properties": {"code": {"const": "memory_drain"}}, "required": ["code"]},
-          "then": {
-            "properties": {
-              "data": {
-                "type": "object", "additionalProperties": false,
-                "required": ["pct_used"],
-                "properties": {"pct_used": {"type": "number", "minimum": 0, "maximum": 100}}
-              }
-            }
-          }
-        },
-        {
-          "if": {"properties": {"code": {"const": "restore_recovery"}}, "required": ["code"]},
-          "then": {
-            "properties": {
-              "data": {
-                "type": "object", "additionalProperties": false,
-                "required": ["snapshot_age_hours"],
-                "properties": {"snapshot_age_hours": {"type": "number", "minimum": 0}}
-              }
-            }
-          }
-        },
-        {
-          "if": {"properties": {"code": {"const": "gate_off"}}, "required": ["code"]},
-          "then": {
-            "properties": {
-              "data": {
-                "type": "object", "additionalProperties": false,
-                "required": ["gate"],
-                "properties": {
-                  "gate": {"enum": ["explore_write_gate", "protected_merge_guard"]}
-                }
-              }
-            }
-          }
-        },
-        {
-          "if": {"properties": {"code": {"const": "blocking_findings"}}, "required": ["code"]},
-          "then": {
-            "properties": {
-              "data": {
-                "type": "object", "additionalProperties": false,
-                "required": ["count"],
-                "properties": {"count": {"type": "integer", "minimum": 1}}
-              }
-            }
-          }
-        },
-        {
-          "if": {"properties": {"code": {"const": "review_stall"}}, "required": ["code"]},
-          "then": {
-            "properties": {
-              "data": {
-                "type": "object", "additionalProperties": false,
-                "required": ["rounds"],
-                "properties": {"rounds": {"type": "integer", "minimum": 1}}
-              }
-            }
-          }
-        }
-      ]
+      }
     }
   }
 }
