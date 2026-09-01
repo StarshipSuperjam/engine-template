@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -3106,6 +3107,95 @@ class LaneRender(_Program):
         # A cross-lane predecessor edge is disclosed.
         self.assertIn("succeeds", rendered)
 
+    def test_each_lane_calls_out_what_is_in_flight(self):
+        # The per-lane in-flight call-out beneath each lane's member line. Members are named the way
+        # the Children table names them — title first, id kept — and a lane still entirely in flight
+        # says so in one phrase rather than re-listing the members it just named.
+        slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001"]},
+                                       {"name": "slow", "children": ["pln_b00000000002"]}],
+                                "split by territory")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("- **fast**: 001 (`pln_a00000000001`, draft)\n"
+                      "  - In flight: all 1 member(s)", rendered)
+        self.assertIn("- **slow**: 002 (`pln_b00000000002`, draft)\n"
+                      "  - In flight: all 1 member(s)", rendered)
+
+    def test_a_partly_settled_lane_lists_only_its_live_members(self):
+        # Once a lane mixes states the call-out earns its listing form: it names exactly the live
+        # members, in the same title-first convention as the member line above — never a second
+        # naming scheme one line apart.
+        slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
+        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001",
+                                                                     "pln_b00000000002"]}],
+                                "one lane, two children")
+        self.plans.update_record(self.plans.resolve("pln_a00000000001"), lambda cur: cur.__setitem__(
+            "closure", {"state": "complete", "at": "2026-01-01T00:00:00Z", "reason": "merged"}))
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("  - In flight: 002 (`pln_b00000000002`)", rendered)
+
+    def test_an_unresolvable_member_keeps_the_bare_id_form_not_a_placeholder_title(self):
+        # A missing child's view "title" is the placeholder "(not in this library)"; rendering that
+        # beside the real status would state the same fact twice on exactly the broken-record line
+        # an operator most needs clean. The bare-id form is the honest one there.
+        slug = self._shelf(("pln_a00000000001", ["x.py"]))
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_e00000000077", "position": 2,
+                                   "added_at": "2026-08-23T06:00:00Z",
+                                   "predecessor_plan_id": "pln_a00000000001"})
+        self.programs._write(slug, record)
+        force_lane_split(self.programs, slug,
+                         [{"name": "L1", "children": ["pln_a00000000001", "pln_e00000000077"]}])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        lanes_section = rendered.split("## Lanes", 1)[1]
+        self.assertIn("`pln_e00000000077` (missing)", lanes_section)
+        self.assertNotIn("(not in this library) (`pln_e00000000077`", lanes_section)
+
+    def test_the_lane_section_is_pinned_byte_for_byte(self):
+        # The whole rendered section, pinned as one string — the same discipline the portfolio's
+        # four-lane fixture applies to its glance — so any drift in this surface names itself as a
+        # deliberate rendering decision rather than slipping through substring checks. The fixture
+        # exercises all three call-out branches: a mixed lane whose TWO live members run the
+        # semicolon-joined listing, an all-live lane, and (via the mixed lane's settled member)
+        # the fold that keeps "nothing right now" honest elsewhere.
+        slug = self._shelf(("pln_a00000000001", ["w.py"]), ("pln_b00000000002", ["x.py"]),
+                           ("pln_c00000000003", ["y.py"]), ("pln_d00000000004", ["z.py"]))
+        self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001",
+                                                                     "pln_b00000000002",
+                                                                     "pln_c00000000003"]},
+                                       {"name": "slow", "children": ["pln_d00000000004"]}],
+                                "split by territory")
+        self.plans.update_record(self.plans.resolve("pln_a00000000001"), lambda cur: cur.__setitem__(
+            "closure", {"state": "complete", "at": "2026-01-01T00:00:00Z", "reason": "merged"}))
+        record = self.programs.read(slug)
+        decided_at = record["lanes"]["decided_at"]
+        rendered = plan_program.render(self.programs, record)
+        section = rendered.split("## Lanes", 1)[1].split("## Obligations", 1)[0]
+        self.assertEqual(
+            "\n\n"
+            f"_Decided {decided_at}: split by territory_\n"
+            "\n"
+            "- **fast**: 001 (`pln_a00000000001`, complete), 002 (`pln_b00000000002`, draft), "
+            "003 (`pln_c00000000003`, draft)\n"
+            "  - In flight: 002 (`pln_b00000000002`); 003 (`pln_c00000000003`)\n"
+            "- **slow**: 004 (`pln_d00000000004`, draft)\n"
+            "  - In flight: all 1 member(s)\n"
+            "\n"
+            "Cross-lane predecessor edges — a merge-order risk to watch:\n"
+            "- `pln_d00000000004` (lane slow) succeeds `pln_c00000000003` (lane fast).\n"
+            "\n",
+            section)
+
+    def test_a_lane_with_nothing_live_says_so(self):
+        slug = self._shelf(("pln_a00000000001", ["x.py"]))
+        self.programs.set_lanes(slug, [{"name": "only", "children": ["pln_a00000000001"]}],
+                                "one lane")
+        self.plans.update_record(self.plans.resolve("pln_a00000000001"), lambda cur: cur.__setitem__(
+            "closure", {"state": "complete", "at": "2026-01-01T00:00:00Z", "reason": "merged"}))
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("- **only**: 001 (`pln_a00000000001`, complete)\n"
+                      "  - In flight: nothing right now", rendered)
+
     def test_a_superseded_laned_member_is_marked_not_hidden(self):
         slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
         self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001"]}],
@@ -3274,6 +3364,296 @@ class LaneSchema(_Program):
              "lanes": [{"name": "L", "children": ["pln_a00000000001"]}]})
         self.programs._write(slug, record)   # does not raise
         self.assertEqual(self.programs.read(slug)["lanes"]["lanes"][0]["name"], "L")
+
+
+def force_lane_split(programs, slug, lanes, *, decided_at="2026-08-09T00:00:00Z",
+                     reason="forged for a display test"):
+    """Write a standing lane split directly onto a program record, BYPASSING set_lanes' validation.
+
+    set_lanes deliberately refuses a lane member that is not a stored child, and no verb removes a
+    child once added — so the one truthful-display case both the portfolio and the show document must
+    handle, a split naming a member no longer in the program, is unreachable through the public API.
+    This helper forges it. It lives HERE, in a file already on the lane-reader allowlist, so a display
+    test in another module can seed the state without that module itself touching the raw lane keys.
+    """
+    record = programs.read(slug)
+    record["lanes"] = {"decided_at": decided_at, "reason": reason, "lanes": lanes}
+    programs._write(slug, record)
+
+
+class LaneStandingDerivation(_Program):
+    """`lane_standing` is the ONE derivation the show document and the portfolio both format, so the
+    two renders cannot drift in meaning. These pin the data it returns; the render tests pin the two
+    formatters over it."""
+
+    A = "pln_a00000000001"
+    B = "pln_b00000000002"
+    C = "pln_c00000000003"
+
+    def _shelf(self, *ids):
+        slug = self._program("A program with lanes", "Children that may ride in parallel.")
+        prev = None
+        for index, plan_id in enumerate(ids, start=1):
+            self._plan(plan_id, f"PR {index}", predecessor=prev)
+            self.programs.add_child(slug, plan_id, predecessor=prev)
+            prev = plan_id
+        return slug
+
+    def test_no_split_standing_returns_none(self):
+        slug = self._shelf(self.A, self.B)
+        record = self.programs.read(slug)
+        self.assertIsNone(plan_program.lane_standing(record, self.programs.child_view(record)))
+
+    def test_it_carries_the_splits_provenance(self):
+        slug = self._shelf(self.A)
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]}], "they touch different files")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        self.assertEqual(standing["reason"], "they touch different files")
+        self.assertTrue(standing["decided_at"])
+
+    def test_members_are_in_chain_order_within_a_lane(self):
+        slug = self._shelf(self.A, self.B, self.C)
+        # Lane lists C before A; the derivation must still return them in chain order (A, then C).
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.C, self.A]},
+                                       {"name": "L2", "children": [self.B]}], "split")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        l1 = next(row for row in standing["lane_rows"] if row["name"] == "L1")
+        self.assertEqual([m["plan_id"] for m in l1["members"]], [self.A, self.C])
+
+    def test_buckets_split_in_flight_from_settled_from_unknown(self):
+        slug = self._shelf(self.A, self.B)
+        # A is retired (a settled, dead branch); B is active (in flight).
+        self.plans.update_record(
+            self.plans.resolve(self.A),
+            lambda r: r.__setitem__("closure", {"state": "retired", "at": "2026-01-01T00:00:00Z",
+                                                "reason": "dropped"}))
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A, self.B]}], "split")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        bucket_of = {m["plan_id"]: m["bucket"] for row in standing["lane_rows"] for m in row["members"]}
+        self.assertEqual(bucket_of[self.A], plan_program.LANE_BUCKET_SETTLED)
+        self.assertEqual(bucket_of[self.B], plan_program.LANE_BUCKET_IN_FLIGHT)
+        mark_of = {m["plan_id"]: m["mark"] for row in standing["lane_rows"] for m in row["members"]}
+        self.assertIn("retired, marked not hidden", mark_of[self.A])
+
+    def test_a_superseded_member_is_marked_and_settled(self):
+        slug = self._shelf(self.A, self.B)
+        self.plans.update_record(
+            self.plans.resolve(self.B),
+            lambda r: r.__setitem__("closure", {"state": "retired", "at": "2026-01-01T00:00:00Z",
+                                                "reason": "superseded"}))
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == self.B:
+                child["superseded_by"] = self.A
+        self.programs._write(slug, record)
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A, self.B]}], "split")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        member_b = next(m for row in standing["lane_rows"] for m in row["members"]
+                        if m["plan_id"] == self.B)
+        self.assertEqual(member_b["bucket"], plan_program.LANE_BUCKET_SETTLED)
+        self.assertEqual(member_b["settled_as"], "superseded")
+        self.assertIn(f"superseded by `{self.A}`", member_b["mark"])
+
+    def test_an_unreachable_member_is_unknown_even_when_marked_superseded(self):
+        # Unknown WINS over any marker: an unreachable plan with a supersession marker is still an
+        # unreachable plan, and may not vouch for its own settled end. The mark still renders — it
+        # reports what the record says — but the bucket refuses the judgment.
+        slug = self._shelf(self.A)
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_e00000000077", "position": 2,
+                                   "added_at": "2026-08-23T06:00:00Z",
+                                   "predecessor_plan_id": self.A,
+                                   "superseded_by": self.A})
+        self.programs._write(slug, record)
+        # Forged: set_lanes rightly refuses to lane a child this workstation cannot read, so the
+        # state — a standing split whose member later became unreachable — is seeded directly.
+        force_lane_split(self.programs, slug,
+                         [{"name": "L1", "children": [self.A, "pln_e00000000077"]}])
+        record = self.programs.read(slug)
+        view = self.programs.child_view(record)
+        self.assertEqual(next(c["status"] for c in view if c["plan_id"] == "pln_e00000000077"),
+                         "missing")
+        standing = plan_program.lane_standing(record, view)
+        ghost = next(m for row in standing["lane_rows"] for m in row["members"]
+                     if m["plan_id"] == "pln_e00000000077")
+        self.assertEqual(ghost["bucket"], plan_program.LANE_BUCKET_UNKNOWN)
+        self.assertIsNone(ghost["settled_as"])
+        self.assertIn(f"superseded by `{self.A}`", ghost["mark"])
+
+    def test_a_dangling_supersession_marker_settles_nothing(self):
+        # The marker names a plan that is not a child at all — the validated-supersession rule
+        # (`superseded_children`) refuses it, so the member is judged by its own status and stays
+        # in flight rather than being counted a settled end on a marker nothing can verify.
+        slug = self._shelf(self.A)
+        record = self.programs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == self.A:
+                child["superseded_by"] = "pln_f00000000099"
+        self.programs._write(slug, record)
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]}], "split")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        member_a = next(m for row in standing["lane_rows"] for m in row["members"]
+                        if m["plan_id"] == self.A)
+        self.assertEqual(member_a["bucket"], plan_program.LANE_BUCKET_IN_FLIGHT)
+        self.assertIsNone(member_a["settled_as"])
+
+    def test_unlaned_children_are_reported_not_absorbed(self):
+        slug = self._shelf(self.A, self.B)
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]}], "only A is laned")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        self.assertEqual(standing["unlaned"], [self.B])
+
+    def test_a_cross_lane_predecessor_edge_is_detected(self):
+        slug = self._shelf(self.A, self.B)
+        # B succeeds A; putting them in different lanes is a cross-lane merge-order edge.
+        self.programs.set_lanes(slug, [{"name": "L1", "children": [self.A]},
+                                       {"name": "L2", "children": [self.B]}], "split the chain")
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        self.assertEqual(standing["cross_lane_edges"],
+                         [{"plan_id": self.B, "lane": "L2",
+                           "predecessor": self.A, "predecessor_lane": "L1"}])
+
+    def test_a_member_no_longer_in_the_program_reads_as_unknown(self):
+        slug = self._shelf(self.A)
+        # Forged through the allowlisted helper: a lane naming a plan that is not a child of the
+        # program — a state set_lanes refuses and no verb can otherwise produce.
+        force_lane_split(self.programs, slug,
+                         [{"name": "L1", "children": [self.A, "pln_f00000000099"]}])
+        record = self.programs.read(slug)
+        standing = plan_program.lane_standing(record, self.programs.child_view(record))
+        departed = next(m for row in standing["lane_rows"] for m in row["members"]
+                        if m["plan_id"] == "pln_f00000000099")
+        self.assertEqual(departed["bucket"], plan_program.LANE_BUCKET_UNKNOWN)
+        self.assertEqual(departed["status"], "not in this program")
+
+
+# --- The shipped program doctrine, asserted at its actual text -------------------------------------
+# The runbook and recognition skill (PR 5, W2) ship to every Engine project. The wiring checks
+# (manifest, self-map, module-surfaces, codex-gen, route-budget, skill-coherence) prove the doctrine is
+# INSTALLED; none reads a word of what it SAYS. These do — the build-time evidence obligation the plan
+# panel required (findings on trigger coverage and the never-author/never-dispatch guarantee). They live
+# in this file rather than a new one because the program-doctrine surface is part of the program
+# component these tests already cover.
+
+_DOCTRINE_ROOT = Path(__file__).resolve().parents[2]
+_DOCTRINE_RUNBOOK = _DOCTRINE_ROOT / ".engine/operations/program-orchestration.md"
+_DOCTRINE_SKILL = _DOCTRINE_ROOT / ".claude/skills/engine-manage-programs/SKILL.md"
+
+
+class TheRecognitionSkillFiresOnBothRegisters(unittest.TestCase):
+    def setUp(self):
+        self.text = _DOCTRINE_SKILL.read_text(encoding="utf-8")
+        self.lower = self.text.lower()
+
+    def test_it_is_a_model_only_non_user_invocable_route(self):
+        self.assertIn("invocation: model-only", self.text)
+        self.assertIn("user-invocable: false", self.text)
+
+    def test_its_engine_target_resolves_to_the_runbook(self):
+        self.assertIn("program-orchestration.md", self.text)
+        self.assertTrue(_DOCTRINE_RUNBOOK.is_file(), "the skill points at a runbook that must exist")
+
+    def test_it_names_the_program_tool_as_the_address(self):
+        self.assertIn("program_manager.py", self.text)
+
+    def test_it_recognizes_the_program_vocabulary_register(self):
+        self.assertIn("make this a program", self.lower)
+        self.assertIn("lanes", self.lower)
+
+    def test_it_recognizes_the_pre_name_backlog_and_concurrency_register(self):
+        # The shape the same ask arrives in without the word "program" — a backlog with a
+        # sequencing/combine/concurrency question. Under-triggering here is the predicted failure, so at
+        # least one such phrasing must be a recognized trigger in the skill's own text.
+        self.assertIn("backlog", self.lower)
+        self.assertTrue(
+            "concurrent lanes" in self.lower or "session per lane" in self.lower,
+            "the skill must recognize a plain concurrency ask, not only the word 'program'")
+        self.assertTrue(
+            "combined into one pr" in self.lower or "what order" in self.lower,
+            "the skill must recognize a plain sequencing ask")
+
+    def test_it_recognizes_and_points_but_never_authors_or_dispatches(self):
+        self.assertIn("recognizes and points", self.lower)
+        self.assertIn("never dispatches", self.lower)
+        self.assertTrue("does not author" in self.lower and "advance a child" in self.lower)
+
+
+class TheProgramRunbookCarriesJudgmentNotSequence(unittest.TestCase):
+    def setUp(self):
+        self.text = _DOCTRINE_RUNBOOK.read_text(encoding="utf-8")
+        self.lower = self.text.lower()
+
+    def test_it_carries_the_when_not_to_lane_judgment(self):
+        self.assertIn("do not lane", self.lower)
+        self.assertIn("serial", self.lower)
+
+    def test_it_carries_honest_ends_children_complete_is_not_program_complete(self):
+        self.assertIn("does not complete itself", self.lower)
+        self.assertIn("unknown, not done", self.lower)
+
+    def test_it_points_at_the_tool_for_sequence_rather_than_restating_it(self):
+        self.assertIn("program_manager.py", self.text)
+        self.assertIn("ask it", self.lower)
+        # What this pins, exactly: the numbered step headings exist, and each carries at least a
+        # three-word phrase — a bare tool verb is one word, a verb-plus-object label two, and a
+        # judgment phrase starts where the label stops ("The reading surfaces"). That floor is the
+        # WHOLE mechanical guard: it catches a runbook whose steps degenerate into verb labels, and
+        # it deliberately checks nothing subtler — whether a longer heading or the prose between
+        # headings re-derives the tool's order is the reviewer's judgment, exactly where the plan
+        # put it. (A verb-list check was tried twice and claimed more than it checked: every tool
+        # verb is a single word, so the floor already refuses anything such a list would.)
+        headings = re.findall(r"^###\s+\d+\.\s+(.+)$", self.text, re.MULTILINE)
+        self.assertTrue(headings, "the runbook's Steps section lost its numbered headings")
+        for heading in headings:
+            self.assertGreaterEqual(
+                len(heading.split()), 3,
+                f"step heading {heading!r} is too bare to carry judgment — a multi-word phrase "
+                "is what separates a step from a verb label")
+
+    def test_neither_shipped_doctrine_file_names_a_repository_specific_reference(self):
+        # The citation bound: runbook and skill ship to every Engine project, so they carry
+        # de-identified PATTERNS only — no issue number, program/plan id, milestone, or session id.
+        for path in (_DOCTRINE_RUNBOOK, _DOCTRINE_SKILL):
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(re.findall(r"#\d+", text), [], f"{path.name} names an issue number")
+            self.assertEqual(re.findall(r"pln_[0-9a-f]+|prg_[0-9a-f]+", text), [],
+                             f"{path.name} names a plan/program id")
+            self.assertNotIn("Release Candidate", text)
+            self.assertEqual(re.findall(r"\b[0-9a-f]{8}-[0-9a-f]{4}-", text), [],
+                             f"{path.name} names a session id")
+
+
+class TheProgramManifestWiringIsWholeAndAdditive(unittest.TestCase):
+    """Neither module-surfaces staleness nor skill-coherence can DETECT a missing or dropped manifest
+    entry (both derive from the same manifest, or never read it). So the manifest's correctness is
+    asserted here directly: the new paths are present, and the edit dropped nothing it had — including
+    the two hard-check declarations, whose loss no other named check catches."""
+
+    def setUp(self):
+        self.provides = json.loads(
+            (_DOCTRINE_ROOT / ".engine/modules/core/manifest.json").read_text("utf-8"))["provides"]
+
+    def test_the_new_operation_skill_and_codex_skill_paths_are_listed(self):
+        self.assertIn(".engine/operations/program-orchestration.md", self.provides["operation"])
+        self.assertIn(".claude/skills/engine-manage-programs/SKILL.md", self.provides["skill"])
+        self.assertIn(".agents/skills/engine-manage-programs/SKILL.md", self.provides["codex-skill"])
+        self.assertIn(".agents/skills/engine-manage-programs/agents/openai.yaml",
+                      self.provides["codex-skill"])
+
+    def test_the_edit_preserved_the_sibling_plan_surfaces(self):
+        self.assertIn(".engine/operations/plan-orchestration.md", self.provides["operation"])
+        self.assertIn(".claude/skills/engine-manage-plans/SKILL.md", self.provides["skill"])
+
+    def test_the_two_hard_check_declarations_survive(self):
+        self.assertIn(".engine/check/guardrail-weakening.json", self.provides["check"])
+        self.assertIn(".engine/check/protection.json", self.provides["check"])
 
 
 if __name__ == "__main__":
