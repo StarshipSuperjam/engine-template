@@ -1664,6 +1664,12 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
 _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/instantiator.py",
     ".engine/tools/test_instantiator.py",
+    # The typed arrival adapter drives the retiring instantiator's arrive() through the transaction protocol;
+    # it imports `instantiator` and is arrival-only machinery, so it retires in the SAME pass — else it survives
+    # into a generated repo and dangles an import of the removed instantiator (the first-run reference-closure
+    # invariant). The control-plane adapter is NOT here: it wraps the permanent bootstrap.py primitive that
+    # `finalize` uses after setup, so it survives. Mirrored in first-run-assets.json (parity-tested).
+    ".engine/tools/transaction_adapters_arrival.py",
     # The SECURITY.md-seed test + its demo exercise first-run-only machinery (instantiator._seed_security) and
     # import the retired instantiator / test_instantiator, so they retire in the SAME pass — else they survive
     # into a generated repo and abort its first `unittest discover` at collection (the first-run reference-closure
@@ -1791,6 +1797,13 @@ _FIRST_RUN_ASSET_FILES = (
     # not under `.engine/`. The corpus runner and the reporter it calls are NOT retired: they are ordinary
     # operator-runnable tools, and a deployed project's own demonstrations are worth being able to run.
     ".github/workflows/engine-nightly-demos.yml",
+    # The pinned-Python-3.9 arrival CI job. It imports the retiring instantiator and the arrival adapter (retired
+    # just above) to prove the brownfield arrival entry path loads on the system 3.9 floor. A deployed project has
+    # already arrived and never re-tests arrival, and the job runs unconditionally on push/PR — so if it survived
+    # it would fail a generated repo's CI on an import of the removed arrival machinery. It retires at first-run
+    # alongside the adapter it imports. Sanctioned below, because it is not under `.engine/`. Mirrored in
+    # first-run-assets.json (parity-tested).
+    ".github/workflows/engine-arrival-py39.yml",
     # The reporter that workflow calls, and the test that describes both. The reporter exists to keep the
     # engine's OWN nightly Issue singular; with the workflow gone there is nothing to call it, and a
     # shipped tool nobody calls is clutter that still has to be understood. The test asserts on the
@@ -1838,6 +1851,10 @@ _SANCTIONED_NON_ENGINE_RETIRE_PATHS = frozenset({
     # `.github/workflows/engine-*.yml`) but not under `.engine/`, so it needs saying here rather than
     # inheriting safety from a prefix.
     os.path.join(".github", "workflows", "engine-nightly-demos.yml"),
+    # The pinned-3.9 arrival CI job — engine-owned by provenance (the engine ships every
+    # `.github/workflows/engine-*.yml`) but not under `.engine/`, so it is named here rather than
+    # inheriting safety from a prefix.
+    os.path.join(".github", "workflows", "engine-arrival-py39.yml"),
 })
 
 

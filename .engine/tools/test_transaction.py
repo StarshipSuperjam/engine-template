@@ -209,6 +209,25 @@ class TestOperatorTypedOnlyOperations(ProtocolTestCase):
                          "upgrade's start protections are the harness-gated skill and the merge, and "
                          "its consent is the digest handle — not a refusal here")
 
+    def test_part_b_adapters_are_on_the_cli_load_list(self):
+        # typed-lifecycle Part B: the three external-state operations join the CLI load list so
+        # `transaction.py plan <op>` resolves them rather than answering unknown-operation.
+        for mod in ("transaction_adapters_controlplane", "transaction_adapters_arrival"):
+            self.assertIn(mod, transaction._ADAPTER_MODULES)
+        failed = transaction.load_adapters()
+        for mod in ("transaction_adapters_controlplane", "transaction_adapters_arrival"):
+            self.assertNotIn(mod, failed, f"{mod} must import cleanly in the engine's home repo")
+        for op in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            self.assertIn(op, transaction._REGISTRY, f"load_adapters must register {op}")
+
+    def test_part_b_external_state_operations_are_not_operator_typed_only(self):
+        # bootstrap/finalize/arrival are additive and reversible (protection augments, an arrival is
+        # reverted by reverting its pull request), so — unlike engine-remove, whose recovery is harder —
+        # they are NOT operator-typed-only: the protocol resolves them for `plan`, and `run` is a
+        # consent-verified apply (Part A's upgrade/module-add pattern) rather than a refusal.
+        for op in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            self.assertNotIn(op, transaction._OPERATOR_TYPED_ONLY)
+
 
 class TestResume(ProtocolTestCase):
     def test_resume_without_a_progress_marker_replans_and_says_so(self):
