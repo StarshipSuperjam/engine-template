@@ -12,6 +12,7 @@ check as approval of a decision nothing examined.
 """
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import re
@@ -3123,7 +3124,8 @@ class LaneRender(_Program):
 
     def test_a_partly_settled_lane_lists_only_its_live_members(self):
         # Once a lane mixes states the call-out earns its listing form: it names exactly the live
-        # members, so the reader is not left re-scanning statuses on the member line above.
+        # members, in the same title-first convention as the member line above — never a second
+        # naming scheme one line apart.
         slug = self._shelf(("pln_a00000000001", ["x.py"]), ("pln_b00000000002", ["y.py"]))
         self.programs.set_lanes(slug, [{"name": "fast", "children": ["pln_a00000000001",
                                                                      "pln_b00000000002"]}],
@@ -3131,7 +3133,24 @@ class LaneRender(_Program):
         self.plans.update_record(self.plans.resolve("pln_a00000000001"), lambda cur: cur.__setitem__(
             "closure", {"state": "complete", "at": "2026-01-01T00:00:00Z", "reason": "merged"}))
         rendered = plan_program.render(self.programs, self.programs.read(slug))
-        self.assertIn("  - In flight: `pln_b00000000002`", rendered)
+        self.assertIn("  - In flight: 002 (`pln_b00000000002`)", rendered)
+
+    def test_an_unresolvable_member_keeps_the_bare_id_form_not_a_placeholder_title(self):
+        # A missing child's view "title" is the placeholder "(not in this library)"; rendering that
+        # beside the real status would state the same fact twice on exactly the broken-record line
+        # an operator most needs clean. The bare-id form is the honest one there.
+        slug = self._shelf(("pln_a00000000001", ["x.py"]))
+        record = self.programs.read(slug)
+        record["children"].append({"plan_id": "pln_e00000000077", "position": 2,
+                                   "added_at": "2026-08-23T06:00:00Z",
+                                   "predecessor_plan_id": "pln_a00000000001"})
+        self.programs._write(slug, record)
+        force_lane_split(self.programs, slug,
+                         [{"name": "L1", "children": ["pln_a00000000001", "pln_e00000000077"]}])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        lanes_section = rendered.split("## Lanes", 1)[1]
+        self.assertIn("`pln_e00000000077` (missing)", lanes_section)
+        self.assertNotIn("(not in this library) (`pln_e00000000077`", lanes_section)
 
     def test_the_lane_section_is_pinned_byte_for_byte(self):
         # The whole rendered section, pinned as one string — the same discipline the portfolio's
@@ -3576,19 +3595,39 @@ class TheProgramRunbookCarriesJudgmentNotSequence(unittest.TestCase):
     def test_it_points_at_the_tool_for_sequence_rather_than_restating_it(self):
         self.assertIn("program_manager.py", self.text)
         self.assertIn("ask it", self.lower)
-        # The numbered step headings must carry JUDGMENT phrases, never a bare tool verb — a runbook
-        # whose steps read "append", "insert", "close" would be restating the tool's ordered sequence.
-        # (Whether the prose BETWEEN the headings re-derives the tool's order is the reviewer's
-        # judgment, exactly where the plan put it; this pins only the checkable surface.)
-        tool_verbs = {"start", "append", "insert", "record", "withdraw", "show", "portfolio",
-                      "close", "reopen", "complete", "supersede", "split"}
+        # The numbered step headings must carry JUDGMENT phrases, never bare tool verbs — a runbook
+        # whose steps read "add", "insert", "complete" would be restating the tool's ordered
+        # sequence. The verb set is derived from program_manager's OWN parser, so this guard cannot
+        # drift from the tool the way a hand-typed list did; a heading may still USE such a word
+        # inside a judgment phrase ("Lanes: the operator's concurrency…"), so what is pinned is that
+        # no heading IS a bare verb and every heading is a real multi-word phrase. (Whether the prose
+        # BETWEEN the headings re-derives the tool's order is the reviewer's judgment, exactly where
+        # the plan put it; this pins only the checkable surface.)
+        import program_manager
+
+        def cli_words(parser):
+            words = set()
+            for action in parser._actions:
+                if isinstance(action, argparse._SubParsersAction):
+                    for name, sub in action.choices.items():
+                        words.add(name)
+                        words |= cli_words(sub)
+            return words
+
+        tool_verbs = cli_words(program_manager.build_parser())
+        self.assertGreater(len(tool_verbs), 10, "the derived verb set collapsed — the seam moved")
         headings = re.findall(r"^###\s+\d+\.\s+(.+)$", self.text, re.MULTILINE)
         self.assertTrue(headings, "the runbook's Steps section lost its numbered headings")
         for heading in headings:
-            first_word = heading.split()[0].strip(":,").lower()
-            self.assertNotIn(first_word, tool_verbs,
-                             f"step heading {heading!r} leads with a tool verb — that is the tool's "
+            self.assertNotIn(heading.strip(":,. ").lower(), tool_verbs,
+                             f"step heading {heading!r} IS a bare tool verb — that is the tool's "
                              "sequence restated, not judgment")
+            # Three words is the floor: a bare verb is one, a verb-plus-object label two, and a
+            # judgment phrase starts where the label stops ("The reading surfaces").
+            self.assertGreaterEqual(
+                len(heading.split()), 3,
+                f"step heading {heading!r} is too bare to carry judgment — a multi-word phrase "
+                "is what separates a step from a verb label")
 
     def test_neither_shipped_doctrine_file_names_a_repository_specific_reference(self):
         # The citation bound: runbook and skill ship to every Engine project, so they carry

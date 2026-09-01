@@ -2038,7 +2038,12 @@ def _render_lanes(record: dict, view: list) -> list:
     lines: list = []
     standing = lane_standing(record, view)
     if standing:
-        title_of = {child["plan_id"]: child["title"] for child in view}
+        # Titles only for members whose plans actually resolve: a missing/unreadable child's view
+        # "title" is a placeholder ("(not in this library)" and kin), and rendering that beside the
+        # real status states the same fact twice on exactly the broken-record line an operator most
+        # needs clean — those members keep the bare-id form.
+        title_of = {child["plan_id"]: child["title"] for child in view
+                    if child["status"] not in _LANE_ATTENTION_STATES}
         lines += ["## Lanes", "",
                   f"_Decided {standing['decided_at']}: {standing['reason']}_", ""]
         for row in standing["lane_rows"]:
@@ -2062,7 +2067,11 @@ def _render_lanes(record: dict, view: list) -> list:
             elif len(in_flight) == len(row["members"]):
                 lines.append(f"  - In flight: all {len(in_flight)} member(s)")
             else:
-                lines.append("  - In flight: " + ", ".join(f"`{p}`" for p in in_flight))
+                # Named the way the member line names them — one convention per block, and this
+                # listing form appears exactly when the reader needs to pick the live members out of
+                # a mixed lane. Semicolon-joined: a title can carry its own commas.
+                lines.append("  - In flight: " + "; ".join(
+                    f"{title_of[p]} (`{p}`)" if p in title_of else f"`{p}`" for p in in_flight))
         if standing["unlaned"]:
             lines += ["", "Stored children not in any lane: "
                       + ", ".join(f"`{plan_id}`" for plan_id in standing["unlaned"])]

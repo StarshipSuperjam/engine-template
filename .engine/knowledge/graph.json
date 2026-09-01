@@ -13662,7 +13662,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:ac38735b58e0f5982e1051e7fd38bb05ea5d9632725aaac090ee2dec87cfff4e",
+        "fingerprint": "sha256:8b234d7343e317d5d6772fe4b17a04ec9a0917bf8aebf80f7c553a415e32f81f",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13859,7 +13859,7 @@
       },
       "slug": "program_projection",
       "source": {
-        "fingerprint": "sha256:f0c5e992c137a8472000b5b7b00e6a8e00b6d8311dd38a1e39572a56c4533038",
+        "fingerprint": "sha256:8d3e90e0130527d05923b00a87fe40794a3520bd4567419706a2c3dc57fec5b4",
         "path": ".engine/tools/program_projection.py"
       },
       "status": "active",
@@ -18450,7 +18450,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:d2cd2f0f7e9777e4cfc60210f23bcf5720cae54ef0b90da6ed556243a1dd28f4",
+        "fingerprint": "sha256:0b7cbb9b05f45234ba716eabddc5a103e34fa337cc9a121562263a11c4ffaf27",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",

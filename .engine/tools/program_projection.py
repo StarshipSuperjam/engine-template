@@ -257,8 +257,9 @@ def _lanes_block(programs: plan_program.ProgramLibrary, record: dict, view: list
 
     Formats plan_program.lane_standing: per lane, what is in flight (named by title, capped) and how
     much has settled (folded to per-state counts — landed, superseded, retired, abandoned) or is
-    unknown — then any unlaned children and any cross-lane merge-order risk, each bounded. Unknown is disclosed as unknown and never rendered as a zero; a
-    lane with nothing live says so. No standing split renders no section at all — absence is the truth.
+    unknown — then any unlaned children and any cross-lane merge-order risk, each bounded. Unknown
+    is disclosed as unknown and never rendered as a zero; a lane with nothing live says so. No
+    standing split renders no section at all — absence is the truth.
     """
     standing = plan_program.lane_standing(record, view)
     if not standing:
