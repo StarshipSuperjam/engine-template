@@ -2930,6 +2930,107 @@ def _pushed_alarms(s: dict) -> list:
         alarms.append({"key": "findings", "code": "blocking_findings",
                        "value": s.get("blocking_finding_fingerprint"), "collapsible": True,
                        "full": full, "terse": terse, "worse": worse})
+    # -- dashboard-decoupling node (StarshipSuperjam/engine-template#1187): the offers/heads-up the dashboard alone used to carry
+    # every session, PROMOTED here to a pushed governance-adjacent alarm so each keeps its every-session surface
+    # now that the dashboard itself leaves the SessionStart pack (pull-only via `/engine-status`). Recorded in
+    # `_COMPONENT_DISPOSITION_LEDGER` (search "PROMOTED, wired in _pushed_alarms"); this block is that promotion's
+    # code home. Ranked below the governance-critical alarms above and above execution-drift (still LAST), in the
+    # dashboard's own rough priority order. Four of these (off_main, checkout_drift, hooks_path, foreign_license)
+    # already ride the SAME single `decide()` ledger call in `relay_records` below — giving each of THESE FOUR a
+    # `key` matching the ledger key it already rides (`off_main`/`checkout_drift`/`hooks_path`/`foreign_license`)
+    # reuses that existing collapse/stamping machinery for free via the generic collapsible loop below; the rest
+    # have no ledger precedent today and are pushed NON-collapsible (always full while the underlying condition
+    # persists) — the safer default for a governance surface: full-every-session cannot silently under-relay,
+    # and each condition self-clears once fixed anyway.
+    first_run = s.get("first_run")
+    if first_run and first_run.get("present"):
+        full = (f"{RELAY_MARKER} this looks like a fresh copy of the engine template and first-time setup "
+                f"hasn't finished — tell them to say 'set up my project' and you'll walk them through "
+                f"`/engine-setup` step by step; nothing on their project changes until they approve each step.")
+        alarms.append({"key": "first_run", "code": "first_run_setup_pending", "value": True,
+                       "collapsible": False, "full": full})
+    if s.get("strand"):
+        full = (f"{RELAY_MARKER} their project folder has drifted into a broken state — tell them you work in "
+                f"a separate copy so this doesn't affect what you build, but their folder needs attention; on "
+                f"their word you'll get it healthy again, saving anything at risk first so nothing is lost.")
+        alarms.append({"key": "strand", "code": "checkout_strand", "value": True,
+                       "collapsible": False, "full": full})
+    off_main_alarm_value = _off_main_value(s)
+    if off_main_alarm_value is not None:
+        full = (f"{RELAY_MARKER} their project folder is pointed at a side line of work rather than their main "
+                f"project — nothing's wrong or at risk; tell them they can say 'bring it up to date' whenever "
+                f"they'd like it pointed back.")
+        terse = (f"{RELAY_MARKER} their project folder is still on a side line of work (unchanged since last "
+                 f"session) — the fix still stands: they can say 'bring it up to date' whenever ready.")
+        worse = (f"{RELAY_MARKER} the side line of work flagged earlier is now missing finished work from "
+                 f"their main project — tell them to say 'bring it up to date' so you can catch their folder "
+                 f"up safely.")
+        alarms.append({"key": "off_main", "code": "off_main_line", "value": off_main_alarm_value,
+                       "collapsible": True, "full": full, "terse": terse, "worse": worse})
+    behind_alarm_value = _behind_value(s)
+    if behind_alarm_value is not None:
+        full = (f"{RELAY_MARKER} shared updates have landed since their project folder last caught up and it "
+                f"doesn't have them yet — tell them nothing is broken; when ready, they can say 'bring it up "
+                f"to date' and you'll bring their folder current safely.")
+        terse = (f"{RELAY_MARKER} their project folder is still behind newer shared work (unchanged since "
+                 f"last session) — the fix still stands: they can say 'bring it up to date' whenever ready.")
+        alarms.append({"key": "checkout_drift", "code": "checkout_behind_origin", "value": behind_alarm_value,
+                       "collapsible": True, "full": full, "terse": terse, "worse": full})
+    if s.get("absent_home"):
+        full = (f"{RELAY_MARKER} the engine's update home isn't recorded, so engine updates can't be checked "
+                f"for or fetched — nothing is wrong or at risk; ask them for the repository their engine "
+                f"updates from and you'll record it, then updates will work.")
+        alarms.append({"key": "absent_home", "code": "absent_home_recorded", "value": True,
+                       "collapsible": False, "full": full})
+    hp = s.get("hooks_path")
+    hp_fp = hp.get("fingerprint") if hp else None
+    if hp_fp is not None:
+        full = (f"{RELAY_MARKER} a safety check on their project isn't running reliably — the setting that "
+                f"tells git where their project's hooks live points at a folder that no longer exists (their "
+                f"existing files and history are safe); tell them to say 'look at my hook path' and you'll "
+                f"sort it out with them.")
+        terse = (f"{RELAY_MARKER} that safety-check setting still isn't running reliably (unchanged since "
+                 f"last session) — the fix still stands: they can say 'look at my hook path' and you'll sort "
+                 f"it out.")
+        alarms.append({"key": "hooks_path", "code": "hooks_path_broken", "value": hp_fp,
+                       "collapsible": True, "full": full, "terse": terse, "worse": full})
+    if s["pr_conflict"]:
+        full = (f"{RELAY_MARKER} one of their pull requests can't be merged yet — two pieces of work landed "
+                f"at once and clashed; no work is lost and nothing is broken. Tell them to say 'reconcile it' "
+                f"and you'll check whether it clears in one step or needs their decision.")
+        alarms.append({"key": "pr_conflict", "code": "pr_conflict", "value": True,
+                       "collapsible": False, "full": full})
+    if s["restore_offer"]:
+        full = (f"{RELAY_MARKER} their saved memory looks empty and this project has a backup — tell them "
+                f"they can say 'restore my memory' and you'll try to bring it back; nothing changes until "
+                f"they say so.")
+        alarms.append({"key": "restore_offer", "code": "restore_offer", "value": True,
+                       "collapsible": False, "full": full})
+    if s.get("migration_revert") and not s.get("staged_update"):
+        full = (f"{RELAY_MARKER} their saved memory was changed by an engine update that isn't in place, so "
+                f"memory and the engine don't currently match — tell them they can say 'restore my memory "
+                f"from before the update' and you'll put it back to the copy saved before that update.")
+        alarms.append({"key": "migration_revert", "code": "migration_revert", "value": True,
+                       "collapsible": False, "full": full})
+    if s.get("staged_update"):
+        full = (f"{RELAY_MARKER} an engine update looks half-finished — it was started but not completed, so "
+                f"the engine is part-way between versions, but nothing was merged so they're safe. Tell them "
+                f"to type '/engine-upgrade' for the choice: finish the update, or undo it (a recovery point "
+                f"is saved first).")
+        alarms.append({"key": "staged_update", "code": "staged_update", "value": True,
+                       "collapsible": False, "full": full})
+    fl = s.get("foreign_license")
+    fl_alarm_fp = fl.get("fingerprint") if (fl and fl.get("present")) else None
+    if fl_alarm_fp is not None and not boot_alarm_ledger.is_retired(fl_alarm_fp, "foreign_license"):
+        full = (f"{RELAY_MARKER} a license file copied in from the template they started from is still in "
+                f"their project under its original author's name, not theirs — tell them their code is theirs "
+                f"by default; with their OK you'll clear it as a small change they review and merge, or if "
+                f"they meant to keep it they can say so and you'll stop bringing it up.")
+        terse = (f"{RELAY_MARKER} that leftover license file is still in their project (unchanged since last "
+                 f"session) — the fix still stands: with their OK you'll clear it as a reviewed change, or if "
+                 f"they meant to keep it they can say so.")
+        alarms.append({"key": "foreign_license", "code": "foreign_license_present", "value": fl_alarm_fp,
+                       "collapsible": True, "full": full, "terse": terse, "worse": full})
     # The execution-drift alarm, LAST so it ranks behind the governance-critical alarms above (a new
     # operator alarm arrives ranked behind the safety-critical ones — a re-qualify reminder is not safety-critical).
     # Only a `changed` posture pushes: qualified-here but a checked component drifted. unqualified/unknown are calm
@@ -3134,16 +3235,14 @@ def relay_records(s: dict, *, use_ledger: bool = True) -> list:
         # The fresh, ledger-less path: full lines, no decide(), no stamping — the read-only render.
         return _relay_prefix_records(s) + [{"code": a["code"], "text": a["full"]} for a in alarms]
     eligible = [{"key": a["key"], "value": a["value"]} for a in alarms if a["collapsible"]]
-    # The gentle off-main signal rides this ONE decide() call (blocking B2): it is NOT a pushed governance alarm
-    # (it has no relay line here — it renders only in the dashboard, below governance), but its collapse must use
-    # the same ledger pass. A SECOND decide() call would clobber gate/findings (decide writes only the keys it is
-    # passed), so off-main joins the single eligible set and its outcome is threaded onto `s` for render_dashboard.
+    # off_main and checkout_drift (behind_origin) now ride this decide() call TWICE-derived-once: the
+    # dashboard-decoupling node (StarshipSuperjam/engine-template#1187) promoted both to pushed alarms in `_pushed_alarms` (keyed
+    # "off_main"/"checkout_drift", matching these same values), so the generic collapsible loop above already
+    # added them to `eligible` — no separate append needed here any more. `off_main_value`/`behind_value` are
+    # still computed here because the STAMPING below (onto `s`, for the pure dashboard renderer) reads them
+    # directly; only the (now-redundant) `eligible.append` calls were removed.
     off_main_value = _off_main_value(s)
-    if off_main_value is not None:
-        eligible.append({"key": "off_main", "value": off_main_value})
     behind_value = _behind_value(s)
-    if behind_value is not None:
-        eligible.append({"key": "checkout_drift", "value": behind_value})
     # The set-aside readout rides this SAME decide() call (StarshipSuperjam/engine-template#413), exactly like off_main: it is not a
     # pushed governance alarm (it has no relay line here — it renders only in the dashboard), but its collapse
     # must use the same ledger pass. A second decide() would clobber the keys this one writes.
@@ -3158,13 +3257,14 @@ def relay_records(s: dict, *, use_ledger: bool = True) -> list:
     # finding class ("foreign_license") passed here — derived from the producing detector, NEVER a label read from
     # the ledger — so a retired marker planted on a governance alarm's fingerprint can never silence it (a
     # governance alarm never reaches this branch, and is_retired refuses a non-eligible class regardless).
+    # foreign_license is likewise now a pushed alarm (`_pushed_alarms`, key "foreign_license") when present and
+    # not retired, so it already joined `eligible` via the generic collapsible loop above; this block now only
+    # does the RETIRE-honor stamping the dashboard renderer needs (the pushed-alarm side checks is_retired
+    # itself before ever adding the alarm, so a retired offer never joins `eligible` from either producer).
     fl = s.get("foreign_license")
     fl_fp = fl.get("fingerprint") if (fl and fl.get("present")) else None
-    if fl_fp is not None:
-        if boot_alarm_ledger.is_retired(fl_fp, "foreign_license"):
-            s["foreign_license"] = {**fl, "retired": True}
-        else:
-            eligible.append({"key": "foreign_license", "value": fl_fp})
+    if fl_fp is not None and boot_alarm_ledger.is_retired(fl_fp, "foreign_license"):
+        s["foreign_license"] = {**fl, "retired": True}
     # The first-engagement nudge (StarshipSuperjam/engine-template#553) rides this SAME decide() call, exactly like the leftover-license offer:
     # it renders only in the dashboard (no relay line, below governance), and FIRST the hook-side RETIRE honor —
     # if the operator has said "I'm not describing a spec" (a retired marker for its fingerprint), the offer is
@@ -3189,15 +3289,11 @@ def relay_records(s: dict, *, use_ledger: bool = True) -> list:
         # this same condition (render_dashboard), so an accepted plan-limitation deployment finishes onboarding
         # once and never loops the "setup landed, awaiting the gate" state.
         first_run_health.clear_first_run_marker(sl["main"])
-    # The broken-hooksPath offer rides this SAME single decide() call (StarshipSuperjam/engine-template#707/StarshipSuperjam/engine-template#708), like off_main/foreign_license —
-    # it is NOT a pushed governance alarm (it renders only in the dashboard, at the top of the offer tier). It is
-    # deliberately NOT retire-eligible (a silently disabled safety hook must never be silenceable), so there is NO
-    # retire honor here — it always joins the ledger pass and, when unchanged, collapses to a terse reminder that
-    # still names the consequence and the fix (anti-habituation on a potentially long-lived alarm).
+    # The broken-hooksPath offer is now ALSO a pushed alarm (`_pushed_alarms`, key "hooks_path"), so it already
+    # joined `eligible` via the generic collapsible loop above. It is deliberately NOT retire-eligible (a
+    # silently disabled safety hook must never be silenceable), so there is no retire honor to run here.
     hp = s.get("hooks_path")
     hp_fp = hp.get("fingerprint") if hp else None
-    if hp_fp is not None:
-        eligible.append({"key": "hooks_path", "value": hp_fp})
     # Always call decide — even with an empty eligible set — so a now-resolved standing alarm is DROPPED
     # from the ledger (verified-fixed), never left to wrongly collapse a later recurrence.
     decision = boot_alarm_ledger.decide(eligible)
@@ -3275,24 +3371,28 @@ def _relay_lines(s: dict) -> list:
 _PINS_BLOCK_NAME = "your pins (what you asked me to remember)"
 
 
-def _pack_blocks(gov: str, sprawl: str, neighborhood: str, dashboard: str) -> list:
+def _pack_blocks(gov: str, sprawl: str, neighborhood: str) -> list:
     """The ordered (priority, name, text) blocks handed to cap_shed — the INVERTED set-aside ladder of the
-    typed-envelope cutover. The never-shed core is now the whole governance briefing (0): the AI-facing frame
-    around the schema-validated, deterministically rendered session-relay envelope (grounding receipt +
-    action-forcing alarms + identity + typed authority contract + task binding + standing directives — the
-    pins index, execution posture, routing lines and where-we-left-off pointer — + pointers), plus the
-    operator's full pins index. What sheds is only the RECONSTRUCTIBLE inventory, each pullable on demand: the
-    status dashboard sheds last (2, `/engine-status`), the work-neighbourhood pointer next (5, the
-    knowledge-graph tools), the build-sprawl nudge first (6, the mechanic's own status). So pins, the standing
-    directives and the where-we-left-off continuity now OUTLAST the reconstructible inventory rather than
-    yielding before it — the inversion this node performs. Empty components are omitted so the shed notice
-    never names something that was not there. A pure builder (a test seam for the margin canary), doing no
-    measurement of its own."""
+    typed-envelope cutover, now with the status dashboard's absence baked in (dashboard-decoupling,
+    StarshipSuperjam/engine-template#1187): the dashboard is no longer a pack COMPONENT at all — it renders solely through the
+    explicit status pull (`/engine-status` / `tools/engine_status.py`), so it is not a candidate here and never
+    sheds from something that no longer contains it (a removal, not a trim — see `assemble_pack`).
+
+    The never-shed core is the whole governance briefing (0): the AI-facing frame around the schema-validated,
+    deterministically rendered session-relay envelope (grounding receipt + action-forcing alarms + identity +
+    typed authority contract + task binding + standing directives — the pins index, execution posture, routing
+    lines and where-we-left-off pointer — + pointers), plus the operator's full pins index. What sheds is only
+    the RECONSTRUCTIBLE inventory that remains, each pullable on demand: the work-neighbourhood pointer (5, the
+    knowledge-graph tools), then the build-sprawl nudge first-to-shed (6, the mechanic's own status) — the
+    dashboard was the prior last-to-shed rung; with it gone the ladder is simply two rungs shorter, not
+    renumbered, so priorities 0/5/6 keep meaning stable across this cutover. Pins, the standing directives and
+    the where-we-left-off continuity OUTLAST this reconstructible inventory, as before. Empty components are
+    omitted so the shed notice never names something that was not there. A pure builder (a test seam for the
+    margin canary), doing no measurement of its own."""
     candidates = [
         (0, "the governance briefing", gov),
         (6, "the build-sprawl note", sprawl),
         (5, "the work-neighbourhood map", neighborhood),
-        (2, "the status dashboard", dashboard),
     ]
     return [(p, n, t) for (p, n, t) in candidates if t]
 
@@ -3413,12 +3513,23 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     It reaches the MODEL, never the operator's screen. `use_ledger` (the SessionStart HOOK path) applies the
     anti-habituation collapse — an unchanged standing alarm relays terse, a new/worsened one in full — via the
     deterministic ledger, inside the one envelope build; the `pack` debug CLI leaves it False for a fresh, full
-    render. The present-marker line and the dashboard NEVER collapse.
+    render. The present-marker line NEVER collapses.
+
+    DASHBOARD-DECOUPLING (StarshipSuperjam/engine-template#1187): the status dashboard is NOT rendered or included here at all — it
+    is a deliberate REMOVAL from this pack, not a trim/shed (a trim names something set aside under cap
+    pressure; this component simply is not a candidate any more). It renders solely through the explicit status
+    pull (`/engine-status` / `tools/engine_status.py`), which reuses the SAME `gather_signals`/`render_dashboard`
+    seam boot has always owned, just no longer called from here. `gather_signals` (below) still runs every
+    session regardless — the grounding receipt is derived from it — so boot's failure surface is UNCHANGED by
+    this node; only the dashboard's RENDERING left the pack. Every governance alarm/offer the dashboard used to
+    be the sole every-session carrier for is now either mapped into the envelope's `action_forcing_alarms`
+    (`relay_records`/`_pushed_alarms`, so it still relays every session) or is a recorded ledger decision that it
+    may wait for the pull — see `_COMPONENT_DISPOSITION_LEDGER` and `superset_check`.
 
     FAIL-OPEN: if the envelope cannot be built or does not validate, the pack falls back to a minimal safe
     grounding rather than a partial/corrupt render — SessionStart never breaks. TRIM: whole-component,
     disclosed set-asides are composed here (the never-shed governance core outlasts the reconstructible
-    inventory — dashboard, neighbourhood pointer, sprawl note); `hooks.cap_shed` is only the backstop."""
+    inventory that remains — neighbourhood pointer, sprawl note); `hooks.cap_shed` is only the backstop."""
     s = gather_signals(session_id, payload)
     bvals = _briefing_values()          # the briefing-budget dials, read once
     marker = present_marker_line(s)
@@ -3439,10 +3550,6 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     except Exception:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
         rendered_envelope = _MINIMAL_SAFE_GROUNDING
         has_alarm = bool(must_push(s))
-    try:
-        dashboard = render_dashboard(s)
-    except Exception:
-        dashboard = f"## {PRESENT_MARKER}\n(the full status couldn't be assembled this session)"
 
     out: list[str] = []
     out.append("=== ENGINE BOOT BRIEFING — for you, the assistant; the operator CANNOT see this ===")
@@ -3475,10 +3582,11 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         out.append("2. No governance alarm to relay this session.")
     out.append("3. Check the engine's live helpers against your own tools; report failures: "
                + mcp_availability_check())
-    out.append("4. Briefly surface status items needing attention. If the status was trimmed, its notice says "
-               "so. On a status or next-step question, run `uv run --directory .engine --frozen -- python "
-               "tools/engine_status.py` and show its output verbatim. The protected-branch merge is the real "
-               "guarantee.")
+    out.append("4. This session's briefing does not carry the routine status dashboard — every governance "
+               "alarm above still relays every session; routine status (milestone, what's next, what shipped, "
+               "the backlog) is pull-only now. On a status or next-step question, run `uv run --directory "
+               ".engine --frozen -- python tools/engine_status.py` and show its output verbatim. The "
+               "protected-branch merge is the real guarantee.")
     out.append("")
     # POINT-OF-USE DEFERRAL + typed cutover: boot used to carry describe_explore_scope()'s ~1,900-char prose
     # lecture on the write gate here, and then a compact typed-contract restatement. Both are now redundant with
@@ -3568,10 +3676,12 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # TRIM OWNERSHIP: only the RECONSTRUCTIBLE inventory sheds, each pullable on demand, and the set-aside is a
     # whole-component disclosed move composed here (cap_shed is the backstop that measures + names them). The
     # inverted ladder (first set aside -> last kept): the build-sprawl note (mechanic's own status), then the
-    # work-neighbourhood pointer (the knowledge-graph tools), then the status dashboard (`/engine-status`). The
-    # governance briefing — including the pins index, standing directives and where-we-left-off continuity above
-    # — is never set aside, so continuity now OUTLASTS the reconstructible inventory. The sprawl one-liner is
-    # AI-facing (StarshipSuperjam/engine-template#950) and only in a mechanic (home_workshop and mechanic are mutually exclusive).
+    # work-neighbourhood pointer (the knowledge-graph tools). The status dashboard is NOT part of this ladder any
+    # more (dashboard-decoupling, StarshipSuperjam/engine-template#1187) — it was never a candidate to build here, so there is nothing
+    # for `_shed_notice` to ever name for it; its absence is a removal, never a trim. The governance briefing —
+    # including the pins index, standing directives and where-we-left-off continuity above — is never set
+    # aside, so continuity now OUTLASTS the reconstructible inventory. The sprawl one-liner is AI-facing
+    # (StarshipSuperjam/engine-template#950) and only in a mechanic (home_workshop and mechanic are mutually exclusive).
     sprawl_note = ("" if s.get("home_workshop")
                    else render_mechanic_sprawl_note(s.get("mechanic_sprawl")))
     # POINT-OF-USE DEFERRAL: the reconstructible neighbourhood block is the COMPACT pointer form
@@ -3579,7 +3689,6 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # knowledge-graph tools. The where-we-left-off continuity is now a one-line pointer in the never-shed typed
     # envelope above (standing_directives), so it no longer rides a sheddable block of its own.
     neighborhood = "\n".join(render_neighborhood_pointer(s.get("neighborhood")))
-    status = "\n".join(["--- the full status (your grounding for this session) ---", dashboard])
 
     # The trim notice points the OPERATOR at `/engine-status` (the operator-typed skill), NOT the raw uv command
     # — the notice is counted against the cap it apologises for, and the operator's gesture is the slash verb.
@@ -3595,7 +3704,14 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         return ("(Part of this briefing was trimmed to fit the platform's size limit. Tell the operator in "
                 "one plain sentence; the full status is always available with `/engine-status`.)")
 
-    blocks = _pack_blocks("\n".join(out), sprawl_note, neighborhood, status)
+    # rstrip("\n") only: `out`'s last entries are often deliberate blank-line separators (posture/grounding
+    # blocks each end with `out.append("")`), which is harmless while a later block (the dashboard's `status`,
+    # before dashboard-decoupling StarshipSuperjam/engine-template#1187) always followed and absorbed it. With the dashboard gone, the
+    # governance block can now be the LAST (or only) block cap_shed joins, so its own trailing blank line would
+    # otherwise surface as a trailing newline on the whole pack — never true before this node, and never
+    # correct: the CLI (`pack`) and the hook injection must stay byte-identical (`print` adds the one
+    # newline the CLI needs; the injected string must carry none of its own).
+    blocks = _pack_blocks("\n".join(out).rstrip("\n"), sprawl_note, neighborhood)
     text, _shed = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     return text
 
@@ -3900,24 +4016,25 @@ _COMPONENT_DISPOSITION_LEDGER = (
     ("automatic-checkout relay (_automatic_checkout_relay — updated/blocked/disabled/invalid-config/"
      "unavailable)", "warrant:action-forcing-alarm — the background's own 'memory-drain-on-catchup'-style "
      "example of this warrant"),
-    # -- the dashboard-ONLY alarms/offers the task requires enumerated by name; these have NO push warrant
-    # today (they surface only if the operator's session happens to render the dashboard). Once the
-    # dashboard leaves boot (pull-only), each of these LOSES its every-session surface unless promoted —
-    # so every one of them is promoted here. This is the ledger's most consequential finding: the new
-    # action-forcing-alarm category must be able to carry substantially more simultaneous content than
-    # today's push relay ever has, which is exactly what the per-shape "alarm-heavy" measurement below
-    # stress-tests (on a representative, not exhaustive, simultaneous subset — see the unresolved concern
-    # recorded with the measurement tests).
-    ("un-finished first-run setup offer (StarshipSuperjam/engine-template#353)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("stranded-checkout heads-up (`strand`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("off-main-line alarm (`off_main` / `behind_origin`, all stages)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("stuck pull-request alarm (`pr_conflict`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("disabled safety-hook offer (`hooks_path`, fixable or manual)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("half-finished engine-update recovery offer (`staged_update`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("post-revert memory-ahead-of-engine offer (`migration_revert`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("empty-memory restore offer (`restore_offer`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("no-update-home-recorded offer (`absent_home`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
-    ("leftover foreign-license tidy-up offer (`foreign_license`)", "warrant:action-forcing-alarm — PROMOTED (dashboard-only today)"),
+    # -- the dashboard-ONLY alarms/offers the task requires enumerated by name; BEFORE the dashboard-decoupling
+    # node (StarshipSuperjam/engine-template#1187) these had NO push warrant (they surfaced only if the operator's session happened to
+    # render the dashboard). That node is what actually leaves the dashboard out of the SessionStart pack, so it
+    # is also where each of these LOSES its every-session surface unless promoted — and it IS the node that wires
+    # the promotion into code (`_pushed_alarms`), not merely records the decision here. This was the ledger's
+    # most consequential finding: the new action-forcing-alarm category must be able to carry substantially more
+    # simultaneous content than today's push relay ever has, which is exactly what the per-shape "alarm-heavy"
+    # measurement below stress-tests (on a representative, not exhaustive, simultaneous subset — see the
+    # unresolved concern recorded with the measurement tests).
+    ("un-finished first-run setup offer (StarshipSuperjam/engine-template#353)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code first_run_setup_pending)"),
+    ("stranded-checkout heads-up (`strand`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code checkout_strand)"),
+    ("off-main-line alarm (`off_main` / `behind_origin`, all stages)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (codes off_main_line / checkout_behind_origin)"),
+    ("stuck pull-request alarm (`pr_conflict`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code pr_conflict)"),
+    ("disabled safety-hook offer (`hooks_path`, fixable or manual)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code hooks_path_broken)"),
+    ("half-finished engine-update recovery offer (`staged_update`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code staged_update)"),
+    ("post-revert memory-ahead-of-engine offer (`migration_revert`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code migration_revert)"),
+    ("empty-memory restore offer (`restore_offer`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code restore_offer)"),
+    ("no-update-home-recorded offer (`absent_home`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code absent_home_recorded)"),
+    ("leftover foreign-license tidy-up offer (`foreign_license`)", "warrant:action-forcing-alarm — PROMOTED, wired in _pushed_alarms (code foreign_license_present)"),
     # -- content with no clean warrant home today; recorded as open gaps, not silently invented --
     ("plain-deployment identity content (there is no 'this is an ordinary deployed project' fact rendered "
      "anywhere today — home/mechanic grounding only fires for the two special shapes)",
