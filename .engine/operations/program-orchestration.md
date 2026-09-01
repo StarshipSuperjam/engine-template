@@ -118,9 +118,10 @@ program well:
 - **The program's own view** — one program in full: its children in chain order, what each owes, the
   complete lane standing, and the history of how the order and objective were revised.
 - **The generated file at rest** — each program keeps a generated document in its own folder, the way
-  a plan keeps one, for reading a program at rest. It states the moment it was generated and can lag a
-  child changed outside a program verb until the next verb or the regeneration sweep; treat its
-  timestamp as the truth about its freshness.
+  a plan keeps one, for reading a program at rest. It states the moment it was generated and holds
+  whatever it last rendered — content and presentation alike — so it can lag a child changed outside
+  a program verb, or show an older rendering than the live views, until the next verb or the
+  regeneration sweep; treat its timestamp as the truth about its freshness.
 
 ### Come in through the right door, and ask the tool for the rest
 

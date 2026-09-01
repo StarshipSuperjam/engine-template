@@ -246,12 +246,17 @@ class LaunchContractTests(unittest.TestCase):
         `uv run --frozen` inside the clone would otherwise materialize a second venv from the same
         lockfile — identical bytes, minutes of linking. Pointing UV_PROJECT_ENVIRONMENT at the real
         venv is a deliberate fixture choice, not smuggling: the clone sits at ROOT's committed HEAD,
-        so the lockfile the venv satisfies is the same one the clone carries.
+        so the lockfile the venv satisfies is the same one the clone carries. UV_NO_SYNC keeps that
+        reuse READ-ONLY — `--frozen` stops lockfile updates, not environment syncs, so without it a
+        run here could sync the operator's live venv toward the committed lockfile while their
+        working tree carries uncommitted dependency changes. The borrowed venv is used exactly as it
+        stands or not at all.
         """
         environment = _hermetic_environment(_egress_shim(tmp))
         venv = ROOT / ".engine" / ".venv"
         if venv.is_dir():
             environment["UV_PROJECT_ENVIRONMENT"] = str(venv)
+            environment["UV_NO_SYNC"] = "1"
         return environment
 
     def test_the_memory_server_starts_and_answers_on_a_clone_with_no_activation(self):

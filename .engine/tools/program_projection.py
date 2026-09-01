@@ -256,8 +256,8 @@ def _lanes_block(programs: plan_program.ProgramLibrary, record: dict, view: list
     """The bounded per-lane glance for one program in the portfolio, or [] when no split stands.
 
     Formats plan_program.lane_standing: per lane, what is in flight (named by title, capped) and how
-    much has settled or is unknown (folded to counts) — then any unlaned children and any cross-lane
-    merge-order risk, each bounded. Unknown is disclosed as unknown and never rendered as a zero; a
+    much has settled (folded to per-state counts — landed, superseded, retired, abandoned) or is
+    unknown — then any unlaned children and any cross-lane merge-order risk, each bounded. Unknown is disclosed as unknown and never rendered as a zero; a
     lane with nothing live says so. No standing split renders no section at all — absence is the truth.
     """
     standing = plan_program.lane_standing(record, view)
@@ -268,7 +268,8 @@ def _lanes_block(programs: plan_program.ProgramLibrary, record: dict, view: list
     lines = [f"- **Lanes** — decided {(standing['decided_at'] or 'unknown')[:10]}:"]
     for row in standing["lane_rows"][:_LANES_SHOWN_CAP]:
         in_flight = [m["plan_id"] for m in row["members"] if m["bucket"] == plan_program.LANE_BUCKET_IN_FLIGHT]
-        settled = sum(1 for m in row["members"] if m["bucket"] == plan_program.LANE_BUCKET_SETTLED)
+        settled_as = [m["settled_as"] for m in row["members"]
+                      if m["bucket"] == plan_program.LANE_BUCKET_SETTLED]
         unknown = sum(1 for m in row["members"] if m["bucket"] == plan_program.LANE_BUCKET_UNKNOWN)
         pieces = []
         if in_flight:
@@ -280,8 +281,14 @@ def _lanes_block(programs: plan_program.ProgramLibrary, record: dict, view: list
             pieces.append("in flight " + "; ".join(named) + fold)
         else:
             pieces.append("nothing in flight")
-        if settled:
-            pieces.append(f"{settled} settled")
+        if settled_as:
+            # Per-state counts in the same voice as the program-wide settled line: "3 settled" hides
+            # whether work merged or died, and the reader deciding what a lane still owes needs the
+            # difference. The derivation names each member's settled state; this only counts.
+            pieces.append(", ".join(
+                f"{sum(1 for s in settled_as if s == state)} {state}"
+                for state in ("landed", "superseded", "retired", "abandoned")
+                if any(s == state for s in settled_as)))
         if unknown:
             # Never a count of zero and never omitted when present: a member whose status cannot be
             # derived is disclosed as unknown, not absorbed into settled and not read as done.

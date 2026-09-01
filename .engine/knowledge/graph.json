@@ -6161,7 +6161,7 @@
       },
       "slug": "program-orchestration",
       "source": {
-        "fingerprint": "sha256:ff0d4889f338c6a4111835d2f634b35143517b905ed67c54e84639dd56258e31",
+        "fingerprint": "sha256:764f3a3390a0e1e1b470d7cfb801674f01fc5bbaaf10d3d8047b7b60e6736373",
         "path": ".engine/operations/program-orchestration.md"
       },
       "status": "active",
@@ -13662,7 +13662,7 @@
       },
       "slug": "plan_program",
       "source": {
-        "fingerprint": "sha256:9186c4b62a72b7214840a6710bd65bbede8cd1a83bbe4127837dea5a27ac355f",
+        "fingerprint": "sha256:ac38735b58e0f5982e1051e7fd38bb05ea5d9632725aaac090ee2dec87cfff4e",
         "path": ".engine/tools/plan_program.py"
       },
       "status": "active",
@@ -13859,7 +13859,7 @@
       },
       "slug": "program_projection",
       "source": {
-        "fingerprint": "sha256:9f961d5e176507fc709f7b758263df2dfbdfc1b5c384010f564ffbf52d429dc5",
+        "fingerprint": "sha256:f0c5e992c137a8472000b5b7b00e6a8e00b6d8311dd38a1e39572a56c4533038",
         "path": ".engine/tools/program_projection.py"
       },
       "status": "active",
@@ -17515,7 +17515,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:ea39a5a562ba01c4641d2aa24d680824766f2960ea8dd0ff87c2cbcae465cf1b",
+        "fingerprint": "sha256:b9ea3bd598bb40368dffc5bbc412cbbf047049859e4fde732224d11e7b3f145f",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -18450,7 +18450,7 @@
       },
       "slug": "test_plan_program",
       "source": {
-        "fingerprint": "sha256:0605fb1d34ab1246f6390b651cd2c85e03546821945151c986304ea113e79ee3",
+        "fingerprint": "sha256:d2cd2f0f7e9777e4cfc60210f23bcf5720cae54ef0b90da6ed556243a1dd28f4",
         "path": ".engine/tools/test_plan_program.py"
       },
       "status": "active",
@@ -18653,7 +18653,7 @@
       },
       "slug": "test_program_projection",
       "source": {
-        "fingerprint": "sha256:fe649648f04e41e2b1335cb665f6a9cbdd642cef1da16cd5a5323617d46dca91",
+        "fingerprint": "sha256:18d8d47d126e7de574f7ec0359e2f74dad854505bee030eacfec4424d77c1978",
         "path": ".engine/tools/test_program_projection.py"
       },
       "status": "active",

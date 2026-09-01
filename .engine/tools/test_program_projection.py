@@ -191,7 +191,7 @@ EXPECTED_FOUR_LANE_BLOCK = (
     "- **Lanes** — decided 2026-08-12:\n"
     "  - **docs**: in flight RC docs pass\n"
     "  - **core**: in flight RC core repair; RC core hardening\n"
-    "  - **tests**: in flight RC test coverage · 1 settled\n"
+    "  - **tests**: in flight RC test coverage · 1 landed\n"
     "  - **cli**: in flight RC cli surface\n"
     "  - Cross-lane merge-order risk: 3 edge(s) — see `program show`")
 
@@ -302,6 +302,45 @@ class ThePortfolioRendersLaneStanding(_Shelf):
         self.assertIn("1 unknown", block)
         self.assertNotIn("0 unknown", block)
         self.assertNotIn("0 settled", block)
+
+    def test_settled_members_fold_to_per_state_counts_and_an_unreachable_marked_one_stays_unknown(self):
+        # The two halves of one honesty rule, at the portfolio surface. A landed member and a validly
+        # superseded member fold to per-state counts in the program-wide settled line's own voice —
+        # never a lump of "settled" that hides whether work merged or died. And a member that is both
+        # unreachable and marked superseded is disclosed as unknown: an unreachable plan may not
+        # vouch for its own settled end, however its marker reads.
+        from test_plan_program import force_lane_split
+        with self._seeding():
+            slug = self.progs.create("Mixed", "One lane carrying every settled shape at once.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000b1", "landed work", pid,
+                             closure={"state": "complete", "at": "2026-08-11T00:00:00Z",
+                                      "reason": "merged"})
+            self.progs.add_child(slug, "pln_0000000000b1")
+            self._seed_child("pln_0000000000b2", "replaced work", pid,
+                             predecessor="pln_0000000000b1",
+                             closure={"state": "retired", "at": "2026-08-11T00:00:00Z",
+                                      "reason": "superseded"})
+            self.progs.add_child(slug, "pln_0000000000b2", predecessor="pln_0000000000b1")
+        record = self.progs.read(slug)
+        for child in record["children"]:
+            if child["plan_id"] == "pln_0000000000b2":
+                child["superseded_by"] = "pln_0000000000b1"
+        # A stored child whose plan is gone from the library, marked superseded by a real child: the
+        # marker validates, the plan does not read. Appended directly (add_child needs a readable
+        # plan) and laned through the allowlisted forge (set_lanes rightly refuses the unreadable).
+        record["children"].append({"plan_id": "pln_00000000dead", "position": 3,
+                                   "added_at": "2026-08-11T00:00:00Z",
+                                   "predecessor_plan_id": "pln_0000000000b2",
+                                   "superseded_by": "pln_0000000000b1"})
+        self.progs._write(slug, record)
+        force_lane_split(self.progs, slug,
+                         [{"name": "lane", "children": ["pln_0000000000b1", "pln_0000000000b2",
+                                                        "pln_00000000dead"]}])
+        block = self._lanes_block(program_projection.render_portfolio(self.progs))
+        self.assertIn("1 landed, 1 superseded", block)
+        self.assertIn("1 unknown", block)
+        self.assertNotIn("settled", block)   # the lump never renders — only per-state counts do
 
     def test_the_lane_section_carries_no_recommendation_voice(self):
         self._four_lane_program()

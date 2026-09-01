@@ -115,14 +115,6 @@ def superseded_children(record: dict) -> set:
             if child.get("superseded_by") in ids}
 
 
-def lane_split(record: dict) -> list | None:
-    """The standing lane split's lanes, or None when none stands. The one reader of the lane record
-    keys outside this module's own render is the portfolio, and it reaches them through here rather
-    than touching the advisory keys directly — so the lane-reader tripwire keeps its short allowlist.
-    """
-    return (record.get("lanes") or {}).get("lanes") or None
-
-
 # The three ways a lane member reads at a glance, so a formatter can name what is in flight and fold
 # the rest without ever counting an unknown as done or as a bare zero.
 LANE_BUCKET_IN_FLIGHT = "in_flight"     # still being built — an active, sealed or awaiting child
@@ -144,7 +136,8 @@ def lane_standing(record: dict, view: list) -> dict | None:
       {
         "decided_at": str, "reason": str,               # the split is an operator decision — its provenance
         "lane_rows": [ {"name": str, "members": [        # members in CHAIN order
-            {"plan_id": str, "status": str, "mark": str | None, "bucket": str} ...
+            {"plan_id": str, "status": str, "mark": str | None, "bucket": str,
+             "settled_as": str | None} ...
         ]} ... ],
         "unlaned": [plan_id, ...],                       # stored children in no lane
         "cross_lane_edges": [ {"plan_id","lane","predecessor","predecessor_lane"} ... ],
@@ -152,6 +145,9 @@ def lane_standing(record: dict, view: list) -> dict | None:
 
     `bucket` is one of the LANE_BUCKET_* values. `mark` is the same in-place annotation the show
     document has always carried — "— superseded by `X`" or "— <state>, marked not hidden" — or None.
+    `settled_as` names HOW a settled member settled ("landed", "superseded", "retired", "abandoned"),
+    so a formatter can fold settled members to per-state counts without re-deriving the judgment;
+    it is None for every other bucket.
     """
     split = record.get("lanes")
     if not split or not split.get("lanes"):
@@ -164,31 +160,46 @@ def lane_standing(record: dict, view: list) -> dict | None:
                       for child in record["children"]}
     lane_of = {member: lane["name"] for lane in split["lanes"] for member in lane["children"]}
 
+    # Supersession SUPPRESSES only when the marker is valid — `superseded_children` refuses a dangling
+    # marker, and every suppression keyed on `superseded_by` goes through it (see its docstring for the
+    # incident that rule answers). The raw marker still renders as a mark: the mark reports what the
+    # record says, the bucket judges what can honestly be concluded, and the two are allowed to differ.
+    validly_superseded = superseded_children(record)
+
     def classify(member: str) -> tuple:
-        # (status, mark, bucket). A member absent from the view is not in this program at all; a
-        # missing/unreadable plan cannot be judged — both are unknown, never folded into a count of
-        # settled. Superseded and dead branches are settled ends; complete is settled; anything else
-        # a child can derive to (active, sealed, awaiting-approval, …) is still in flight.
+        # (status, mark, bucket, settled_as). A member absent from the view is not in this program at
+        # all; a missing/unreadable plan cannot be judged — both are unknown, never folded into a count
+        # of settled, and unknown WINS over any marker: an unreachable plan with a supersession marker
+        # is still an unreachable plan, so it may not vouch for its own settled end. Validly superseded
+        # members and dead branches are settled ends; complete is settled; anything else a child can
+        # derive to (active, sealed, awaiting-approval, …) is still in flight.
         if member not in status_of:
-            return "not in this program", None, LANE_BUCKET_UNKNOWN
+            return "not in this program", None, LANE_BUCKET_UNKNOWN, None
         status = status_of[member]
         if member in superseded_of:
-            return status, f" — superseded by `{superseded_of[member]}`", LANE_BUCKET_SETTLED
+            mark = f" — superseded by `{superseded_of[member]}`"
+        elif status in DEAD_BRANCH_STATES:
+            mark = f" — {status}, marked not hidden"
+        else:
+            mark = None
         if status in _LANE_ATTENTION_STATES:
-            return status, None, LANE_BUCKET_UNKNOWN
+            return status, mark, LANE_BUCKET_UNKNOWN, None
+        if member in validly_superseded:
+            return status, mark, LANE_BUCKET_SETTLED, "superseded"
         if status in DEAD_BRANCH_STATES:
-            return status, f" — {status}, marked not hidden", LANE_BUCKET_SETTLED
+            return status, mark, LANE_BUCKET_SETTLED, status
         if status == "complete":
-            return status, None, LANE_BUCKET_SETTLED
-        return status, None, LANE_BUCKET_IN_FLIGHT
+            return status, mark, LANE_BUCKET_SETTLED, "landed"
+        return status, mark, LANE_BUCKET_IN_FLIGHT, None
 
     lane_rows, laned = [], set()
     for lane in split["lanes"]:
         members = []
         for member in sorted(lane["children"], key=lambda m: (ordinal_of.get(m, 1 << 30), m)):
             laned.add(member)
-            status, mark, bucket = classify(member)
-            members.append({"plan_id": member, "status": status, "mark": mark, "bucket": bucket})
+            status, mark, bucket, settled_as = classify(member)
+            members.append({"plan_id": member, "status": status, "mark": mark,
+                            "bucket": bucket, "settled_as": settled_as})
         lane_rows.append({"name": lane["name"], "members": members})
 
     unlaned = [child["plan_id"] for child in view if child["plan_id"] not in laned]
@@ -2027,17 +2038,31 @@ def _render_lanes(record: dict, view: list) -> list:
     lines: list = []
     standing = lane_standing(record, view)
     if standing:
+        title_of = {child["plan_id"]: child["title"] for child in view}
         lines += ["## Lanes", "",
                   f"_Decided {standing['decided_at']}: {standing['reason']}_", ""]
         for row in standing["lane_rows"]:
-            rendered = [f"`{m['plan_id']}` ({m['status']}){m['mark'] or ''}" for m in row["members"]]
+            rendered = []
+            for m in row["members"]:
+                # Named the way the Children table names them — title first, id kept — so a reader
+                # is never sent back up the document to decode which plan a lane actually holds. A
+                # member outside this program has no title to give and keeps the bare-id form.
+                title = title_of.get(m["plan_id"])
+                if title:
+                    rendered.append(f"{title} (`{m['plan_id']}`, {m['status']}){m['mark'] or ''}")
+                else:
+                    rendered.append(f"`{m['plan_id']}` ({m['status']}){m['mark'] or ''}")
             lines.append(f"- **{row['name']}**: " + ", ".join(rendered))
             in_flight = [m["plan_id"] for m in row["members"]
                          if m["bucket"] == LANE_BUCKET_IN_FLIGHT]
-            if in_flight:
-                lines.append("  - In flight: " + ", ".join(f"`{p}`" for p in in_flight))
-            else:
+            # The call-out earns its line only when it adds information: a lane still entirely in
+            # flight says so in one phrase instead of re-listing every member it just named.
+            if not in_flight:
                 lines.append("  - In flight: nothing right now")
+            elif len(in_flight) == len(row["members"]):
+                lines.append(f"  - In flight: all {len(in_flight)} member(s)")
+            else:
+                lines.append("  - In flight: " + ", ".join(f"`{p}`" for p in in_flight))
         if standing["unlaned"]:
             lines += ["", "Stored children not in any lane: "
                       + ", ".join(f"`{plan_id}`" for plan_id in standing["unlaned"])]
