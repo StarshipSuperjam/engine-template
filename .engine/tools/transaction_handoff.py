@@ -18,12 +18,21 @@ WHAT MUST BE TRUE FIRST. Every state check below runs BEFORE any mutation, and e
 code and a way forward. They exist because a transaction that starts from a dirty tree or a branch nobody
 can name produces a change nobody can cleanly review or revert.
 
-WHAT IS NOT CHECKED, SAID PLAINLY. The approved plan also names a behind-origin / wrong-base refusal. There
-is none here, and there was none before: a `refuse_unless_current` existed but no caller ever reached it,
-so it was removed rather than left reading as coverage. The gap is therefore pre-existing and now visible
-instead of disguised. Its practical cost is small — a stale-base transaction still produces a pull request
-the operator sees and can rebase — but it is an unmet requirement, not a decision, and it should not be
-rediscovered as a surprise.
+BASE CURRENCY, AND EXACTLY WHAT "behind-origin" DOES AND DOES NOT PROMISE. Every pull-request-shaped
+transaction — an upgrade, an upgrade rollback, a whole-engine removal — checks base currency before it
+mutates, through `judge_base_currency` below, and refuses `wrong-base` (HEAD is not on the repository's
+default branch), `behind-origin` (that branch is strictly behind the origin ref we last fetched), or
+`diverged` (it is both ahead of and behind that ref). Two things this deliberately does NOT do. It never
+touches the network: it judges only against `refs/remotes/origin/*` as they already are in this checkout,
+so `behind-origin` means "behind what the LAST FETCH told us", never "behind the live remote" — a base that
+passes can still be stale if origin moved since that fetch, and the currency note carried in the envelope
+states what it was judged against and how old that knowledge is. And it never guesses: where the default
+branch cannot be resolved (`refs/remotes/origin/HEAD` absent) or the origin ref was never fetched here, it
+does NOT refuse and does NOT invent a branch name — it discloses `currency-unverified` and lets the
+transaction proceed, because a refusal with no route to a fresh answer would be the dead end this protocol
+exists to remove. The in-tree module add/remove flow takes none of this: it commits on the operator's
+current branch by the design recorded in `transaction_adapters_module`, where "wrong base" is not a
+coherent idea, so it is deliberately left unwired.
 
 STANDARD LIBRARY ONLY on the 3.9 floor: the arrival adapter reaches this module.
 """
@@ -32,6 +41,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import time
 
 import transaction
 
@@ -61,6 +71,173 @@ def working_tree_state(root=None) -> dict:
         "branch": branch.stdout.strip() if branch.returncode == 0 else "",
         "dirty_paths": [line[3:] for line in dirty.stdout.splitlines() if line.strip()],
     }
+
+
+# ── Base currency ────────────────────────────────────────────────────────────────────────────────────
+# Is the base this transaction would build on current with what we last knew of origin? Answered with
+# LOCAL git plumbing only (rev-parse, rev-list, symbolic-ref against refs already fetched) — never a fetch,
+# an ls-remote, or any other network call. See the module docstring for what that costs and why it is the
+# right trade. The verdict is a plain dict the caller turns into a refusal (wrong-base / behind-origin /
+# diverged) or an envelope currency note (current, with an attestation; or unverified, with a disclosure).
+
+# The only git subcommands this check may run. The "no network" test asserts every invocation is one of
+# these, so a fetch or ls-remote slipping in later fails a test rather than reaching a remote.
+_CURRENCY_GIT_SUBCOMMANDS = frozenset({"rev-parse", "rev-list", "symbolic-ref"})
+
+
+def _current_branch(root) -> str:
+    result = _git(["rev-parse", "--abbrev-ref", "HEAD"], root)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _default_branch(root):
+    """The repository's default branch, read from refs/remotes/origin/HEAD. None when it is not set here —
+    never guessed, because guessing `main` would turn an honest disclosure into a false refusal on a repo
+    whose default is something else."""
+    result = _git(["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"], root)
+    ref = result.stdout.strip() if result.returncode == 0 else ""
+    prefix = "refs/remotes/origin/"
+    return ref[len(prefix):] if ref.startswith(prefix) and len(ref) > len(prefix) else None
+
+
+def _ref_commit(ref, root):
+    """The commit `ref` points at, or None when it does not resolve here (e.g. never fetched)."""
+    result = _git(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], root)
+    resolved = result.stdout.strip()
+    return resolved if result.returncode == 0 and resolved else None
+
+
+def _ahead_behind(local_ref, remote_ref, root):
+    """(ahead, behind): commits the local ref has that the remote ref does not, and vice versa. None when
+    the two cannot be counted."""
+    result = _git(["rev-list", "--left-right", "--count", "{0}...{1}".format(remote_ref, local_ref)], root)
+    if result.returncode != 0:
+        return None
+    parts = result.stdout.split()
+    if len(parts) != 2:
+        return None
+    try:
+        behind, ahead = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    return ahead, behind
+
+
+def _humanise_age(seconds: int) -> str:
+    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if seconds >= size:
+            count = seconds // size
+            return "last fetched {0} {1}{2} ago".format(count, unit, "s" if count != 1 else "")
+    return "last fetched under a minute ago"
+
+
+def _fetch_age(root) -> str:
+    """How stale our knowledge of origin is, in plain words — the freshness bound on every judged verdict.
+    Read from the mtime of `.git/FETCH_HEAD` (rewritten on every fetch); local only, never a remote."""
+    git_dir = _git(["rev-parse", "--git-dir"], root)
+    if git_dir.returncode != 0 or not git_dir.stdout.strip():
+        return "fetch time unknown"
+    fetch_head = os.path.join(root, git_dir.stdout.strip(), "FETCH_HEAD")
+    try:
+        seconds = max(0, int(time.time() - os.path.getmtime(fetch_head)))
+    except OSError:
+        return "no fetch recorded in this checkout"
+    return _humanise_age(seconds)
+
+
+def _refusal_verdict(code, explanation, next_actions) -> dict:
+    return {"status": code, "refuses": True, "code": code, "explanation": explanation,
+            "next_actions": list(next_actions), "currency": None}
+
+
+def _note_verdict(status, currency) -> dict:
+    return {"status": status, "refuses": False, "code": None, "explanation": "",
+            "next_actions": [], "currency": currency}
+
+
+def _unverified(reason: str) -> dict:
+    return _note_verdict("unverified", {
+        "verified": False,
+        "note": ("Base currency was not checked: {0}. The change proceeds; whether its base is current "
+                 "with origin was not established.".format(reason)),
+    })
+
+
+def judge_base_currency(root=None) -> dict:
+    """Judge base currency with local git only. Returns a verdict dict and raises nothing.
+
+    `status` is one of: `current` or `unverified` (both non-refusing, each carrying an envelope currency
+    note), or `wrong-base` / `behind-origin` / `diverged` (refusing, each carrying a stable code, a plain
+    explanation, and a remedy). No remedy ever suggests removing or re-pointing the remote — what is wrong
+    is the base this is running on, never origin itself.
+    """
+    root = root or _root()
+    default = _default_branch(root)
+    if default is None:
+        return _unverified("this checkout has no record of the repository's default branch "
+                           "(refs/remotes/origin/HEAD is not set here), and the check never guesses one")
+    branch = _current_branch(root)
+    if branch != default:
+        # `git rev-parse --abbrev-ref HEAD` answers the literal "HEAD" on a detached HEAD (and "" only when
+        # the call itself fails), so both spellings of "no branch here" map to the friendlier phrasing rather
+        # than reading as a branch literally named HEAD.
+        where = "a detached or unnamed HEAD" if branch in ("", "HEAD") else "{0!r}".format(branch)
+        return _refusal_verdict(
+            "wrong-base",
+            "This is running on {0}, not the repository's default branch {1!r}, so the change it would "
+            "propose would build on the wrong base. Nothing was changed.".format(where, default),
+            ["Check out {0!r} and run this again.".format(default)])
+    remote_ref = "refs/remotes/origin/{0}".format(default)
+    origin_commit = _ref_commit(remote_ref, root)
+    if origin_commit is None:
+        return _unverified("this checkout has no fetched record of origin/{0} to compare against"
+                           .format(default))
+    counted = _ahead_behind(default, remote_ref, root)
+    if counted is None:
+        return _unverified("origin/{0} and this branch could not be compared".format(default))
+    ahead, behind = counted
+    if behind > 0 and ahead > 0:
+        return _refusal_verdict(
+            "diverged",
+            "This branch and origin/{0} have both moved since the last fetch — {1} commit(s) here that "
+            "origin does not have, {2} there this does not — so a change proposed from here would build on "
+            "a base that no longer matches the line it targets. Nothing was changed.".format(
+                default, ahead, behind),
+            ["Reconcile this branch with origin/{0} (fetch, then rebase or merge), and run this again."
+             .format(default)])
+    if behind > 0:
+        return _refusal_verdict(
+            "behind-origin",
+            "This branch is {1} commit(s) behind origin/{0} as last fetched, so a change proposed from "
+            "here would build on a stale base. Nothing was changed.".format(default, behind),
+            ["Update this branch to origin/{0} (fetch, then fast-forward or rebase), and run this again."
+             .format(default)])
+    age = _fetch_age(root)
+    return _note_verdict("current", {
+        "verified": True,
+        "note": "Base is current with origin/{0} ({1}); judged against commit {2}.".format(
+            default, age, origin_commit[:12]),
+        "judged_against": {"default_branch": default, "origin_commit": origin_commit, "fetch_age": age},
+    })
+
+
+def refuse_if_stale_base(root=None) -> dict:
+    """The pre-mutation currency gate for a pull-request-shaped transaction. Raises TransactionRefused for
+    wrong-base / behind-origin / diverged; otherwise returns the envelope currency note (current or
+    unverified) for the caller to carry into its envelope and its operator-facing text."""
+    verdict = judge_base_currency(root)
+    if verdict["refuses"]:
+        raise transaction.TransactionRefused(
+            verdict["code"], verdict["explanation"], verdict["next_actions"])
+    return verdict["currency"]
+
+
+def currency_summary_line(currency) -> str:
+    """The plain-language currency note for operator-facing text (a handoff summary, a door's output).
+    Empty string when there is nothing to say, so a caller can append it unconditionally."""
+    if not currency:
+        return ""
+    return currency.get("note") or ""
 
 
 def refuse_unless_ready(declared_paths, state=None, root=None) -> dict:

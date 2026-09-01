@@ -48,7 +48,11 @@ is a pull request you can reject.
 no update home is recorded (the engine asks you to record one rather than guessing); the home has no such
 release, or was renamed or removed (it names the home so you can check); the network cannot be reached (it
 stays on the current version); a needed change to saved data cannot be backed up first; a module you have
-has vanished from the release without being recorded as an intentional removal (a broken release); or your
+has vanished from the release without being recorded as an intentional removal (a broken release); the
+**base it would build on is not current** — this copy is on the wrong branch, sits behind origin as last
+fetched, or has diverged from it — where it names the reconcile-with-origin step rather than proposing a
+change from a stale line (a base it cannot confirm is not a refusal — the update proceeds and says so
+plainly, on both its handoff and its pull request); or your
 engine is below the release's **clean-upgrade floor** — the oldest version proven to update to it in one
 clean pass — where it names both versions and says plainly to stay put. Each of those is the engine
 declining to guess, which is what makes an update safe to try.

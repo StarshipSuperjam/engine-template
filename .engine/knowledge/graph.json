@@ -5841,7 +5841,7 @@
       },
       "slug": "engine-remove",
       "source": {
-        "fingerprint": "sha256:e03d3b77135a9ee73ce96a3046f2916267ae39b6bb86eb9c474d86eea37ea1fe",
+        "fingerprint": "sha256:a2415b6241004d044c9c30f69b3d8608ecc739bf842ef223bed1bfbcdf1929ac",
         "path": ".engine/operations/engine-remove.md"
       },
       "status": "active",
@@ -5881,7 +5881,7 @@
       },
       "slug": "engine-upgrade",
       "source": {
-        "fingerprint": "sha256:d64d52b6ff324f9dd7a67f3fd4fa76cb1cb26abc3da0279588de5b6e3c1faaab",
+        "fingerprint": "sha256:54b7f198ac8b780ce8a6e43aa53d87b44201767be3d869562ff6bb0f96eaa381",
         "path": ".engine/operations/engine-upgrade.md"
       },
       "status": "active",
@@ -7505,7 +7505,7 @@
       },
       "slug": "transaction-envelope.v1",
       "source": {
-        "fingerprint": "sha256:c88489f03df48656a5ce27888da9c0a0954cbbe083e6649e364f8135a33f7724",
+        "fingerprint": "sha256:3ec96df49ddda46957e52ddf4049df57439920c7405f99518fe46c951e5d071c",
         "path": ".engine/schemas/transaction-envelope.v1.json"
       },
       "status": "active",
@@ -13218,7 +13218,6 @@
           "tool:restore_vault",
           "tool:telemetry",
           "tool:transaction",
-          "tool:transaction_adapters_upgrade",
           "tool:transaction_envelope",
           "tool:transaction_handoff",
           "tool:validate",
@@ -13230,7 +13229,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:9466ea0ad8623af9c946133b95f7fef3c80402fb3174b649254f97bb3b95b638",
+        "fingerprint": "sha256:f9fbff826f330b4d9c23d03152dbe23ad7b0dd51e5b625f874cd2b2124820ca2",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -17912,6 +17911,7 @@
           "tool:demo_599_upgrade_reconcile",
           "tool:demo_757_upgrade_reconciles_default_groups",
           "tool:demo_759_upgrade_installs_new_modules",
+          "tool:engine_fixture",
           "tool:hooks",
           "tool:ledger",
           "tool:memory.__init__",
@@ -17931,7 +17931,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:d57e65e95ea7eb0484210003ee978cd30f3ada8e48488333ded13ae81aeba55f",
+        "fingerprint": "sha256:6fb939b633a32d4cf7b216a04fc0e6b811cde2dab0796b3472db03263cefa91d",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -20191,7 +20191,7 @@
       },
       "slug": "test_transaction",
       "source": {
-        "fingerprint": "sha256:4167379c4769e39a977d9696d1bc5a93fbb38a3765ccc3e858b8c9cb778de68d",
+        "fingerprint": "sha256:ced19d892af9709864d76ae240bc4eb31ef1bb6690a2878b325009c2a01e772e",
         "path": ".engine/tools/test_transaction.py"
       },
       "status": "active",
@@ -20244,7 +20244,7 @@
       },
       "slug": "test_transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:00f38070b9355966df706bed6a650a585b5eccab6d9e9915e4b7b018fde30b92",
+        "fingerprint": "sha256:7965f52f2db108e8bc7700cb3e3623c3afb951de4b2727117629bd3f6fca60c6",
         "path": ".engine/tools/test_transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20267,12 +20267,13 @@
           "tool:transaction_adapters_module",
           "tool:transaction_adapters_remove",
           "tool:transaction_adapters_upgrade",
-          "tool:transaction_envelope"
+          "tool:transaction_envelope",
+          "tool:transaction_handoff"
         ]
       },
       "slug": "test_transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:b504971b5e999e0a10f8151612df867e5bfa63592ea683f55807ce0c14520680",
+        "fingerprint": "sha256:65ce4e89323e1300a908d301fabcde4086cda1204ca45b6f34c8f96203b18969",
         "path": ".engine/tools/test_transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -20315,13 +20316,16 @@
         "tests": [
           "tool:module_manager",
           "tool:transaction",
+          "tool:transaction_adapters_remove",
+          "tool:transaction_adapters_upgrade",
           "tool:transaction_handoff",
-          "tool:tune"
+          "tool:tune",
+          "tool:validate"
         ]
       },
       "slug": "test_transaction_handoff",
       "source": {
-        "fingerprint": "sha256:96ac8d06b93b4835deef9920a8c502821f2fc99756e90e6eac86e208586855f7",
+        "fingerprint": "sha256:3b034b9751eda6807382f42429512c93841cbb6ff61302d443731f0bfdc4f783",
         "path": ".engine/tools/test_transaction_handoff.py"
       },
       "status": "active",
@@ -20538,7 +20542,7 @@
       },
       "slug": "transaction",
       "source": {
-        "fingerprint": "sha256:3327a58a7682f88a2406f0a6345c849ff04e628c63c40c2787ff8c1bd45b950d",
+        "fingerprint": "sha256:a75b131c7f000fd2a95baaa2f8e001b6d087121c2c76de5b862ec4cb0d9f6c3b",
         "path": ".engine/tools/transaction.py"
       },
       "status": "active",
@@ -20592,7 +20596,7 @@
       },
       "slug": "transaction_adapters_remove",
       "source": {
-        "fingerprint": "sha256:1125a6a7306b92f2c78dc3ff5a4576fc1b35ed0e8c5d4b248925667fdd5792f9",
+        "fingerprint": "sha256:63365b4298dfeb0c66b68acca9ac88574f8c1dbd5b53f6c4fe8c1c81db943a75",
         "path": ".engine/tools/transaction_adapters_remove.py"
       },
       "status": "active",
@@ -20617,7 +20621,7 @@
       },
       "slug": "transaction_adapters_upgrade",
       "source": {
-        "fingerprint": "sha256:26578d8f821879e0eaf41fb32334057b3e49e37352a00b9db1342d861f9e5a74",
+        "fingerprint": "sha256:de23e0e87841716ec3f4817d234e2a12758a0760f2d582abc214a5dbf6834643",
         "path": ".engine/tools/transaction_adapters_upgrade.py"
       },
       "status": "active",
@@ -20661,7 +20665,7 @@
       },
       "slug": "transaction_handoff",
       "source": {
-        "fingerprint": "sha256:1c69a7d5fc836e866b0578c56d5315942c112def16ecae2b39d927aea13d240e",
+        "fingerprint": "sha256:51ecab3f1d470ae024165c28fadaa422b8319a25748e0f75ae1c261e4d60be52",
         "path": ".engine/tools/transaction_handoff.py"
       },
       "status": "active",
