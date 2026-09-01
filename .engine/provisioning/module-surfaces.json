@@ -792,12 +792,6 @@
   ".engine/erasures/proposal.json": [
    "memory-substrate-sqlite-fts5"
   ],
-  ".engine/executors/claude-agent-acp.json": [
-   "core"
-  ],
-  ".engine/executors/codex-acp.json": [
-   "core"
-  ],
   ".engine/executors/witness-declared-incomplete.json": [
    "core"
   ],
@@ -1107,9 +1101,6 @@
   ".engine/schemas/execution-state.v1.json": [
    "core"
   ],
-  ".engine/schemas/executor-attempt-receipt.v1.json": [
-   "core"
-  ],
   ".engine/schemas/executor-qualification.v1.json": [
    "core"
   ],
@@ -1252,9 +1243,6 @@
    "core"
   ],
   ".engine/tools/ack_status.py": [
-   "core"
-  ],
-  ".engine/tools/acp_client.py": [
    "core"
   ],
   ".engine/tools/agent_bindings.py": [
@@ -1611,13 +1599,7 @@
   ".engine/tools/execution_environment.py": [
    "core"
   ],
-  ".engine/tools/executor_acquisition.py": [
-   "core"
-  ],
   ".engine/tools/executor_eligibility.py": [
-   "core"
-  ],
-  ".engine/tools/executor_qualification.py": [
    "core"
   ],
   ".engine/tools/executor_records.py": [
@@ -2202,9 +2184,6 @@
   ".engine/tools/test_ack_status.py": [
    "core"
   ],
-  ".engine/tools/test_acp_client.py": [
-   "core"
-  ],
   ".engine/tools/test_actionlint.py": [
    "core"
   ],
@@ -2349,13 +2328,7 @@
   ".engine/tools/test_execution_environment.py": [
    "core"
   ],
-  ".engine/tools/test_executor_acquisition.py": [
-   "core"
-  ],
   ".engine/tools/test_executor_eligibility.py": [
-   "core"
-  ],
-  ".engine/tools/test_executor_qualification.py": [
    "core"
   ],
   ".engine/tools/test_executor_records.py": [
