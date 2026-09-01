@@ -106,6 +106,7 @@ import standing_situation  # noqa: E402  ("where we are" derived live from GitHu
 import execution_environment  # noqa: E402  (which runtime/environment is qualified; the posture the engine runs itself under)
 import audit_digest       # noqa: E402  (the self-review freshness signal; boot relays its staleness detection, never re-detects)
 import pr_reconcile       # noqa: E402  (StarshipSuperjam/engine-template#136: the stranded-PR conflict detector; boot relays its detection and OFFERS the fix)
+import session_relay      # noqa: E402  (the typed session-relay.v1 envelope: validate() + the deterministic render())
 
 # The card title a healthy boot always renders — byte-identical to the present-marker the floor names in the
 # root CLAUDE.md floor fence (the committed adopter floor since StarshipSuperjam/engine-template#323). The byte-identity is locked by
@@ -2845,6 +2846,10 @@ def present_marker_line(s: dict) -> str:
 def _pushed_alarms(s: dict) -> list:
     """The pushed governance set as STRUCTURED alarms — the single source for both must_push (the full
     lines) and the collapse decision. Each alarm carries:
+      code        a stable snake_case identity for the typed envelope's action_forcing_alarms (the
+                  anti-habituation collapse + warrant audit surface); distinct from `key`, which the
+                  presentation ledger collapses on (gate off vs gate unknown share `key` "gate" but have
+                  distinct codes, since the envelope names WHICH gate alarm fired);
       key         a stable identity (the ledger key);
       value       the STRUCTURED condition the ledger compares (never the prose) — JSON-able;
       collapsible whether it is in the collapse allowlist (a standing governance alarm). The
@@ -2871,10 +2876,11 @@ def _pushed_alarms(s: dict) -> list:
         terse = (f"{RELAY_MARKER} their safety gate is still off (unchanged since last session) — "
                  f"work could still reach `{branch}` without the required checks or a pull request; the fix still stands: they can "
                  f"say 'turn my safety gate back on' and the engine re-enables it.")
-        alarms.append({"key": "gate", "value": ["off", s["reason"]], "collapsible": True,
-                       "full": full, "terse": terse, "worse": full})
+        alarms.append({"key": "gate", "code": "safety_gate_off", "value": ["off", s["reason"]],
+                       "collapsible": True, "full": full, "terse": terse, "worse": full})
     elif s["gate"] == "unknown":
-        alarms.append({"key": "gate", "value": ["unknown", None], "collapsible": False, "full": (
+        alarms.append({"key": "gate", "code": "safety_gate_unverified", "value": ["unknown", None],
+                       "collapsible": False, "full": (
             f"{RELAY_MARKER} the safety gate couldn't be verified (no GitHub access), so they shouldn't "
             f"assume `{s.get('protected_branch') or PROTECTED_BRANCH}` is protected — confirm before merging "
             f"anything important.")})
@@ -2883,7 +2889,8 @@ def _pushed_alarms(s: dict) -> list:
         # sessions. Explicit (not a silent fall-through) so the intent is on the record.
         pass
     if s["refused"]:
-        alarms.append({"key": "refused", "value": True, "collapsible": False, "full": (
+        alarms.append({"key": "refused", "code": "state_cursor_refused", "value": True,
+                       "collapsible": False, "full": (
             f"{RELAY_MARKER} the engine couldn't read where the project stands, so project status is "
             f"unknown until it re-grounds.")})
     recovery = s.get("restore_recovery")
@@ -2897,7 +2904,7 @@ def _pushed_alarms(s: dict) -> list:
                     "recovery set could not be verified; the condition of the earlier files is unknown. Tell "
                     "them to ask me to diagnose the local recovery files before capturing new notes or retrying "
                     "the restore.")
-        alarms.append({"key": "restore-recovery",
+        alarms.append({"key": "restore-recovery", "code": "restore_recovery_paused",
                        "value": [recovery.get("error"), bool(recovery.get("verified"))],
                        "collapsible": False, "full": full})
     # ONLY blocking engine findings relay here — the never-shed governance tier. A routine (unrated /
@@ -2920,7 +2927,8 @@ def _pushed_alarms(s: dict) -> list:
         # The ledger fingerprint is the BLOCKING finding identity SET (blocking_finding_fingerprint), so a
         # new/worsened blocking finding relays full and an unchanged set collapses to terse — never a false
         # "unchanged" when the set churns at equal count. `.get` keeps synthetic test dicts fail-soft.
-        alarms.append({"key": "findings", "value": s.get("blocking_finding_fingerprint"), "collapsible": True,
+        alarms.append({"key": "findings", "code": "blocking_findings",
+                       "value": s.get("blocking_finding_fingerprint"), "collapsible": True,
                        "full": full, "terse": terse, "worse": worse})
     # The execution-drift alarm, LAST so it ranks behind the governance-critical alarms above (a new
     # operator alarm arrives ranked behind the safety-critical ones — a re-qualify reminder is not safety-critical).
@@ -2943,7 +2951,8 @@ def _pushed_alarms(s: dict) -> list:
         terse = (f"{RELAY_MARKER} a file the qualification was based on still differs from when it was qualified "
                  f"(unchanged since last session — {drift}); the fix still stands: re-qualify with `{cmd}` and "
                  f"merge when ready.")
-        alarms.append({"key": "execution", "value": ["changed", sorted(ex.get("drift") or [])],
+        alarms.append({"key": "execution", "code": "execution_drift",
+                       "value": ["changed", sorted(ex.get("drift") or [])],
                        "collapsible": True, "full": full, "terse": terse, "worse": full})
     return alarms
 
@@ -3023,12 +3032,21 @@ def _automatic_checkout_relay(s: dict) -> list[str]:
     ]
 
 
+def _relay_prefix_records(s: dict) -> list:
+    """The two free-text relay families that lead every governance relay, as {code, text} records: the
+    memory-write qualification notices and the one-boot automatic-checkout line. Each has no presentation
+    ledger of its own (it exists only for the boot that produced it), so it is stated once, in full, on
+    both the fresh and the ledger path — the collapse below applies only to the standing alarms."""
+    return ([{"code": "memory_qualification", "text": t} for t in _qualification_relay(s)]
+            + [{"code": "automatic_checkout", "text": t} for t in _automatic_checkout_relay(s)])
+
+
 def must_push(s: dict) -> list:
     """The INFORM-marked items the AI MUST relay to the operator in plain words — the FULL (uncollapsed)
     governance-critical alarms and the grounding-failure tell (the must-push set). This is the fresh
     render (the `pack` debug CLI and a fresh, ledger-less context); the SessionStart hook path applies the
     collapse via _relay_lines instead. A fixed relay over detected signals."""
-    return _qualification_relay(s) + _automatic_checkout_relay(s) + [a["full"] for a in _pushed_alarms(s)]
+    return [r["text"] for r in relay_records(s, use_ledger=False)]
 
 
 def _off_main_value(s: dict):
@@ -3094,13 +3112,27 @@ def _worse(key: str, prior, current) -> bool:
     return False
 
 
-def _relay_lines(s: dict) -> list:
-    """The hook-side relay set with the collapse applied (the deterministic decision lives here, in
-    the hook path — never the model): a collapse-eligible alarm whose structured condition is unchanged
-    since last shown in full renders TERSE; a new/changed one renders full; a worsened one renders the
-    'got worse' full line; the degrade-loud tells always render full. Fail-toward-full: if the ledger could
-    not be read (decide ok=False), every line is the neutral full form, never a misleading 'still'/'worse'."""
+def relay_records(s: dict, *, use_ledger: bool = True) -> list:
+    """The governance relay as ordered {code, text} RECORDS — the single producer both the fresh render
+    (`must_push`, use_ledger=False) and the hook path (`_relay_lines`, use_ledger=True) draw from, and the
+    source the typed session-relay envelope's `action_forcing_alarms` maps straight into.
+
+    use_ledger=True is the hook-side collapse (the deterministic decision lives here, never the model): a
+    collapse-eligible alarm whose structured condition is unchanged since last shown in full renders TERSE;
+    a new/changed one renders full; a worsened one renders the 'got worse' full line; the degrade-loud tells
+    always render full. Fail-toward-full: if the ledger could not be read (decide ok=False), every line is the
+    neutral full form, never a misleading 'still'/'worse'. This path ALSO carries the hook-side stamping side
+    effects (off-main/checkout/set-aside/foreign-license/greenfield/hooks-path collapse flags onto `s`, the
+    show-once setup-landed marker clear, and the retire honors) — so it runs exactly once per hook pack build.
+
+    use_ledger=False is the fresh, ledger-less render (the `pack` debug CLI and any read-only status gather):
+    every standing alarm renders in FULL and NOTHING is stamped or written — the read-only law for those
+    callers. Each record's `code` is the alarm's stable snake_case envelope identity; the free-text
+    qualification and automatic-checkout relays lead, in that order, exactly as `must_push` had them."""
     alarms = _pushed_alarms(s)
+    if not use_ledger:
+        # The fresh, ledger-less path: full lines, no decide(), no stamping — the read-only render.
+        return _relay_prefix_records(s) + [{"code": a["code"], "text": a["full"]} for a in alarms]
     eligible = [{"key": a["key"], "value": a["value"]} for a in alarms if a["collapsible"]]
     # The gentle off-main signal rides this ONE decide() call (blocking B2): it is NOT a pushed governance alarm
     # (it has no relay line here — it renders only in the dashboard, below governance), but its collapse must use
@@ -3215,19 +3247,27 @@ def _relay_lines(s: dict) -> list:
     if hp_fp is not None:
         r = results.get("hooks_path", {"outcome": "full", "prior": None})
         s["hooks_path"] = {**s["hooks_path"], "collapsed": r.get("outcome") == "collapse"}
-    lines: list = []
+    records: list = []
     for a in alarms:
         if not a["collapsible"]:
-            lines.append(a["full"])
+            records.append({"code": a["code"], "text": a["full"]})
             continue
         r = results.get(a["key"], {"outcome": "full", "prior": None})
         if r.get("outcome") == "collapse":
-            lines.append(a["terse"])
+            text = a["terse"]
         elif ok and r.get("prior") is not None and _worse(a["key"], r["prior"], a["value"]):
-            lines.append(a["worse"])
+            text = a["worse"]
         else:
-            lines.append(a["full"])
-    return _qualification_relay(s) + _automatic_checkout_relay(s) + lines
+            text = a["full"]
+        records.append({"code": a["code"], "text": text})
+    return _relay_prefix_records(s) + records
+
+
+def _relay_lines(s: dict) -> list:
+    """The hook-side relay set as plain strings (the collapse applied) — a thin text projection of
+    `relay_records(s, use_ledger=True)`. Kept as the name the status/dashboard collapse-threading path and
+    the tests call; the RECORDS form (with each alarm's stable code) is what the typed envelope maps."""
+    return [r["text"] for r in relay_records(s, use_ledger=True)]
 
 
 # The set-aside ladder's pin-block name (briefing budget) — named once so the two-pass loud
@@ -3235,41 +3275,153 @@ def _relay_lines(s: dict) -> list:
 _PINS_BLOCK_NAME = "your pins (what you asked me to remember)"
 
 
-def _pack_blocks(gov: str, sprawl: str, neighborhood: str, wwlo: str, pins: str, dashboard: str) -> list:
-    """The ordered (priority, name, text) blocks handed to cap_shed. The governance briefing never sheds (0);
-    the status dashboard sheds last (2); the pins index (3), where-we-left-off (4), the work-neighbourhood
-    map (5) and the build-sprawl nudge (6) shed in that reverse order — the briefing-budget set-aside ladder.
-    The sprawl nudge sheds FIRST (StarshipSuperjam/engine-template#950): it is a low-value housekeeping reminder whose operator-facing
-    detail already lives on the dashboard, so it yields before any orientation the operator cares about. Empty
-    components are omitted so the shed notice never names something that was not there. A pure builder (a test
-    seam for the margin canary), doing no measurement of its own."""
+def _pack_blocks(gov: str, sprawl: str, neighborhood: str, dashboard: str) -> list:
+    """The ordered (priority, name, text) blocks handed to cap_shed — the INVERTED set-aside ladder of the
+    typed-envelope cutover. The never-shed core is now the whole governance briefing (0): the AI-facing frame
+    around the schema-validated, deterministically rendered session-relay envelope (grounding receipt +
+    action-forcing alarms + identity + typed authority contract + task binding + standing directives — the
+    pins index, execution posture, routing lines and where-we-left-off pointer — + pointers), plus the
+    operator's full pins index. What sheds is only the RECONSTRUCTIBLE inventory, each pullable on demand: the
+    status dashboard sheds last (2, `/engine-status`), the work-neighbourhood pointer next (5, the
+    knowledge-graph tools), the build-sprawl nudge first (6, the mechanic's own status). So pins, the standing
+    directives and the where-we-left-off continuity now OUTLAST the reconstructible inventory rather than
+    yielding before it — the inversion this node performs. Empty components are omitted so the shed notice
+    never names something that was not there. A pure builder (a test seam for the margin canary), doing no
+    measurement of its own."""
     candidates = [
         (0, "the governance briefing", gov),
         (6, "the build-sprawl note", sprawl),
         (5, "the work-neighbourhood map", neighborhood),
-        (4, "where we left off", wwlo),
-        (3, _PINS_BLOCK_NAME, pins),
         (2, "the status dashboard", dashboard),
     ]
     return [(p, n, t) for (p, n, t) in candidates if t]
 
 
-def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, payload: dict | None = None) -> str:
-    """The AI-FACING briefing injected at SessionStart (the operator-presentation relay). It
-    reaches the MODEL, never the operator's screen — so it tells the AI to (1) render the present-marker
-    block first, (2) relay each INFORM line in plain words, (3) surface a brief needs-attention headline;
-    the full operator dashboard follows for grounding. The present-marker instruction always names the
-    `Project status` token (so the marker is present on every branch), and is emitted BEFORE the dashboard
-    so a dashboard failure can't suppress it. Posture — the protected-branch merge is the real guarantee.
+_MINIMAL_SAFE_GROUNDING = (
+    "## GROUNDING\n"
+    "(the typed session-relay envelope could not be assembled or validated this session; this is a minimal "
+    "safe grounding — nothing partial or corrupt is rendered)\n"
+    "## ALARMS (unknown): the full alarm set could not be assembled — treat status as unverified until re-ground"
+)
 
-    `use_ledger` (the SessionStart HOOK path) applies the anti-habituation collapse — an unchanged
-    standing alarm relays terse, a new/worsened one in full — via the deterministic ledger. The `pack`
-    debug CLI leaves it False for a fresh, full render. The present-marker line and the dashboard NEVER
-    collapse: only the must-push relay payload behind the marker varies."""
+
+def _project_binding_evidence(binding: dict) -> dict:
+    """Project a verified session-binding.v1 locator down to exactly the fields session-relay.v1's
+    `task_binding.binding` allows — dropping `schema_version` (which the binding schema requires but the
+    envelope's inlined shape forbids under additionalProperties:false), keeping only the evidence fields the
+    envelope can carry. Never invents or embellishes: exposes ONLY the verified evidence, like the resolver."""
+    allowed = ("worktree", "plan_ref", "captured_at", "coordinator_snapshot", "pr_contract")
+    return {k: binding[k] for k in allowed if k in binding}
+
+
+def _envelope_from_signals(s: dict, session_id: str | None, *, use_ledger: bool) -> dict:
+    """Build and VALIDATE the session-relay.v1 envelope from already-gathered signals. This is the schema
+    checked SOURCE of truth for the pack's grounding facts; `session_relay.render` is its deterministic
+    serializer. Raises RelayValidationError (or any build error) so the caller can fail open to a minimal safe
+    grounding rather than inject a partial/corrupt render.
+
+    The governance relays map straight into `action_forcing_alarms`: `relay_records(use_ledger=...)` is the
+    SAME producer `must_push`/`_relay_lines` draw from — so on the hook path (use_ledger=True) the
+    anti-habituation collapse and its stamping side effects happen here, exactly once, and on the fresh path
+    every alarm is full. Nothing about which alarms fire, their text, or the collapse changes; only the carrier
+    does. The home-workshop/mechanic identity and the execution/pins standing directives are mapped so they
+    still appear and are part of the never-shed core (their fuller AI-facing prose still rides the pack frame
+    the serializer wraps this in)."""
+    alarms = [{"code": r["code"], "text": r["text"]} for r in relay_records(s, use_ledger=use_ledger)]
+    # grounding_receipt: the present-marker COUNT (boot renders exactly one present marker per session) and the
+    # two consent-critical helper states, derived from the committed-file signals boot actually has (recall
+    # offline -> memory unhealthy; a corrupt committed map -> knowledge unhealthy, an absent one rebuilt live ->
+    # missing). The LIVE MCP routing check the model runs against its own tools is a separate, never-shed frame
+    # step (mcp_availability_check) — boot reads committed files only, so this is the honest offline proxy.
+    memory_state = "unhealthy" if s.get("recall_offline") else "available"
+    knowledge_state = ("unhealthy" if s.get("map_corrupt")
+                       else "missing" if s.get("map_rebuilt") else "available")
+    grounding_receipt = {
+        "present_marker_count": 1,
+        "helpers": {"memory": {"state": memory_state},
+                    "knowledge_graph": {"state": knowledge_state}},
+    }
+    identity = {"deployment": "engine_home" if s.get("home_workshop") else "deployed_project"}
+    mechanic = s.get("mechanic") if isinstance(s.get("mechanic"), dict) else None
+    label = (mechanic.get("product") if mechanic and mechanic.get("product") else None)
+    if isinstance(label, str) and label.strip():
+        identity["label"] = label
+    stance = modes.current_stance(session_id)
+    # A COMPACT honest provider note for the envelope's rendered AUTHORITY section — the same sanctioned
+    # per-provider difference modes discloses at length, said briefly so the never-shed core stays within the
+    # platform cap (modes' own default full note is unchanged for its other callers; this is boot's render).
+    authority_contract = modes.export_authority_contract(
+        stance,
+        provider_note=("Codex: Claude Code's plan-mode and harness-notebook carve-outs are inert here — a "
+                       "plan- or notebook-shaped write earns no exemption (see memory-recall.md)."))
+    binding = resolve_task_binding(validate.ROOT)
+    if binding.get("state") == "verified" and isinstance(binding.get("binding"), dict):
+        task_binding = {"state": "verified", "binding": _project_binding_evidence(binding["binding"])}
+    else:
+        task_binding = {"state": "none"}
+    wwlo = render_wwlo_pointer(s.get("recent_sessions") or [])
+    wwlo_pointer = wwlo[1] if len(wwlo) >= 2 else "no prior session is on record for this project yet."
+    standing_directives = {
+        "pins_index": {"count": len(s.get("pinned") or [])},
+        "execution_posture": stance,
+        "routing_lines": list(modes.STANDING_ROUTING_LINES),
+        "where_we_left_off": {"label": "Where we left off", "pointer": wwlo_pointer},
+    }
+    pointers = [
+        {"kind": "memory_recall_procedure", "ref": ".engine/operations/memory-recall.md"},
+        {"kind": "dashboard_pull"},  # the exact status-pull command is named in the frame's step 4 below
+    ]
+    nb = s.get("neighborhood")
+    if isinstance(nb, dict) and nb.get("focus"):
+        pointers.append({"kind": "neighbourhood_detail"})
+    envelope = {
+        "schema_version": "session-relay.v1",
+        "grounding_receipt": grounding_receipt,
+        "identity": identity,
+        "authority_contract": authority_contract,
+        "task_binding": task_binding,
+        "action_forcing_alarms": alarms,
+        "standing_directives": standing_directives,
+        "pointers": pointers,
+    }
+    session_relay.validate(envelope)
+    return envelope
+
+
+def assemble_envelope(session_id: str | None = None, *, use_ledger: bool = False,
+                      payload: dict | None = None) -> dict:
+    """The typed, schema-validated session-relay.v1 envelope for this session — boot's SOURCE of truth for
+    the grounding facts the SessionStart pack renders. Gathers signals and maps them into the seven-section
+    push-warrant taxonomy, validating the result against `.engine/schemas/session-relay.v1.json` before
+    returning it (raises RelayValidationError on any violation). `use_ledger` selects the same collapse the
+    prose relay uses for `action_forcing_alarms`; leave it False for a fresh, full render (the `pack`
+    debug/`--pretty` view). Boot's own deterministic serializer of this envelope is `assemble_pack`."""
+    s = gather_signals(session_id, payload)
+    return _envelope_from_signals(s, session_id, use_ledger=use_ledger)
+
+
+def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, payload: dict | None = None) -> str:
+    """The AI-FACING briefing injected at SessionStart (the operator-presentation relay), now the
+    DETERMINISTIC SERIALIZER of the typed session-relay.v1 envelope: it builds+validates that envelope
+    (`_envelope_from_signals`), renders it with `session_relay.render`, and wraps that rendered block in the
+    AI-facing frame the model and tests rely on — the "ENGINE BOOT BRIEFING … the operator CANNOT see this"
+    delimiter and the numbered grounding protocol (render the present-marker block first; relay each
+    governance alarm in plain words; run the live MCP-helper check; pull status on request). The rendered
+    envelope LEADS the pack (grounding receipt then the action-forcing-alarm codes), so a truncated
+    2,000-char preview always carries the receipt and which alarms fired.
+
+    It reaches the MODEL, never the operator's screen. `use_ledger` (the SessionStart HOOK path) applies the
+    anti-habituation collapse — an unchanged standing alarm relays terse, a new/worsened one in full — via the
+    deterministic ledger, inside the one envelope build; the `pack` debug CLI leaves it False for a fresh, full
+    render. The present-marker line and the dashboard NEVER collapse.
+
+    FAIL-OPEN: if the envelope cannot be built or does not validate, the pack falls back to a minimal safe
+    grounding rather than a partial/corrupt render — SessionStart never breaks. TRIM: whole-component,
+    disclosed set-asides are composed here (the never-shed governance core outlasts the reconstructible
+    inventory — dashboard, neighbourhood pointer, sprawl note); `hooks.cap_shed` is only the backstop."""
     s = gather_signals(session_id, payload)
     bvals = _briefing_values()          # the briefing-budget dials, read once
     marker = present_marker_line(s)
-    push = _relay_lines(s) if use_ledger else must_push(s)
     # DURABLE half of the refused-cursor posture: on the REAL SessionStart path only
     # (use_ledger — never the `pack` debug view or the read-only status verb, both use_ledger=False), a
     # refused cursor spools ONE benign finding the StarshipSuperjam/engine-template#412 drain later promotes. A local gitignored append only,
@@ -3277,6 +3429,16 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # never perturbs the pack. Consistent with the one other use_ledger-gated side effect (the alarm ledger).
     if use_ledger and s["refused"]:
         emit_refused_cursor_finding()
+    # Build + validate the typed envelope; render it deterministically. INVALID ASSEMBLY YIELDS NO PARTIAL
+    # CONTEXT — a build/validation failure falls back to a minimal safe grounding (fail-open), and the alarm
+    # relay behind the marker degrades to the fresh full must_push set so an alarm is never silently dropped.
+    try:
+        envelope = _envelope_from_signals(s, session_id, use_ledger=use_ledger)
+        rendered_envelope = session_relay.render(envelope)
+        has_alarm = bool(envelope["action_forcing_alarms"])
+    except Exception:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
+        rendered_envelope = _MINIMAL_SAFE_GROUNDING
+        has_alarm = bool(must_push(s))
     try:
         dashboard = render_dashboard(s)
     except Exception:
@@ -3284,14 +3446,16 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
 
     out: list[str] = []
     out.append("=== ENGINE BOOT BRIEFING — for you, the assistant; the operator CANNOT see this ===")
-    out.append("This reached you, not the operator: they see only what you type. Before you address the "
-               "request, do these in order:")
+    # The rendered typed envelope LEADS the pack (after the one header line), so its grounding receipt and the
+    # action-forcing-alarm CODES header land inside the platform's 2,000-char truncation preview.
+    out.append(rendered_envelope)
+    out.append("")
+    out.append("Above is your typed grounding envelope (for you, not the operator). Do these in order first:")
     out.append(f"1. Open your reply with this `{PRESENT_MARKER}` block, exactly: **{marker}** — its "
-               f"presence at the top is how the operator knows you grounded.")
-    if push:
-        out.append("2. Relay each of these to the operator in plain language (they are governance-critical "
-                   "— do not skip any):")
-        out.extend(f"   - {line}" for line in push)
+               f"presence up top is how the operator knows you grounded.")
+    if has_alarm:
+        out.append("2. Relay each governance alarm in the ## ALARMS section above to the operator in plain "
+                   "language (they are governance-critical — do not skip any):")
         # AI-facing collapse contract (don't relay this line itself). An item phrased "still …
         # (unchanged since last session)" is a standing one already seen — relay it as the brief reminder
         # it is; a new or worsened item is stated in full. If a standing alarm has dropped off entirely
@@ -3314,31 +3478,19 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     out.append("4. Briefly surface status items needing attention. If the status was trimmed, its notice says "
                "so. On a status or next-step question, run `uv run --directory .engine --frozen -- python "
                "tools/engine_status.py` and show its output verbatim. The protected-branch merge is the real "
-               "governance guarantee.")
+               "guarantee.")
     out.append("")
-    # POINT-OF-USE DEFERRAL (point-of-use-deferral node): boot used to carry describe_explore_scope()'s
-    # ~1,900-char prose lecture on the write gate here, every session, whether or not the session ever hit
-    # the gate. That content now has two named homes instead: the gate's own DENIAL text
-    # (modes._DENIAL/_MEMORY_DENIAL) names the two doors — the auto-memory notebook and the memory CLI —
-    # right when a session actually tries the wrong one, and the fuller "how the gate works / where memory
-    # belongs" explanation lives in `.engine/operations/memory-recall.md` for a session that wants it before
-    # ever hitting a denial. In the lecture's place, boot carries only the COMPACT typed export
-    # (modes.export_authority_contract) plus the one-line stance sentence already computed above (`s["stance"]`)
-    # — self-labelled AI-facing so it stays out of the operator relay, same as the lecture was. Always the
-    # Explore contract in practice: the handler clears the stance to Explore before this pack is built, but the
-    # stance is read fresh here rather than assumed, so a debug `pack` render off-path still reports honestly.
-    out.append(s["stance"] + " (for you — don't relay this; it's your own session's wiring, not a status "
-               "update for the operator.)")
-    contract = modes.export_authority_contract(modes.current_stance(session_id))
-    exceptions = "; ".join(f"{e['provider']}: {e['note']}" for e in contract["provider_exceptions"])
-    out.append("Write-gate authority (typed): stance=" + contract["stance"]
-               + " action_default=" + contract["action_default"]
-               + " blocked=[" + ", ".join(contract["blocked"]) + "]"
-               + (" provider_exceptions=[" + exceptions + "]" if exceptions else ""))
-    out.append("A denial you actually hit names the concrete way forward; the full write-gate/memory "
-               "explanation — what's allowed without building, the notebook and memory-CLI doors, the "
-               "engine-Issue carve-out — is in `.engine/operations/memory-recall.md` if you need more than "
-               "the contract above before that happens.")
+    # POINT-OF-USE DEFERRAL + typed cutover: boot used to carry describe_explore_scope()'s ~1,900-char prose
+    # lecture on the write gate here, and then a compact typed-contract restatement. Both are now redundant with
+    # the rendered envelope above — its `## AUTHORITY` section IS the typed write-gate contract (stance,
+    # allow-by-default, the blocked codes, the provider exceptions), and its `## POINTERS` names
+    # `.engine/operations/memory-recall.md` as the fuller explanation's home and the gate's own denial names the
+    # two doors when a session actually hits them. So the frame keeps only the ONE thing the compact envelope
+    # cannot render in the operator's own words — the plain-language stance sentence (`s["stance"]`, whose
+    # vocabulary modes owns) — self-labelled AI-facing so it stays out of the operator relay. Reading the stance
+    # fresh (not assumed) keeps a debug `pack` render honest even off the SessionStart path.
+    out.append(s["stance"] + " (for you — don't relay this; your session's wiring, not the operator's status. "
+               "The typed write-gate contract is in the envelope above.)")
     out.append("")
 
     # The home-workshop grounding (StarshipSuperjam/engine-template#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
@@ -3402,24 +3554,31 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                        "`.engine/policies/model-routing.md`.)")
         out.append("")
 
-    # The sheddable components, each its own block with its own set-aside rank (briefing budget),
-    # so trimming is per-component and every shed is named accurately — not one coarse "orientation" tier whose
-    # notice mislabels what actually went. The set-aside ladder (first set aside -> last kept): the build-sprawl
-    # note, then the work-neighbourhood map, then where-we-left-off, then the pins index, then the status
-    # dashboard; the governance briefing is never set aside. Each is rendered here; _pack_blocks assigns the
-    # priorities. The sprawl one-liner is AI-facing (StarshipSuperjam/engine-template#950) — its operator-facing detail rides the
-    # dashboard — and only in a mechanic (home_workshop and mechanic are mutually exclusive).
-    sprawl_note = ("" if s.get("home_workshop")
-                   else render_mechanic_sprawl_note(s.get("mechanic_sprawl")))
-    # POINT-OF-USE DEFERRAL (point-of-use-deferral node): the push pack carries the COMPACT pointer forms
-    # (render_neighborhood_pointer / render_wwlo_pointer), never the full walk/full excerpts — those stay
-    # reachable, unchanged, at their own point of use (the knowledge-graph tools; `recall-window`). The
-    # briefing-budget dials these full renderers take (neighborhood_groups_max, excerpt_chars) are unused by
-    # the compact forms; they remain live for the full renderers' own callers (tests, and a future direct pull).
-    neighborhood = "\n".join(render_neighborhood_pointer(s.get("neighborhood")))
-    wwlo = "\n".join(render_wwlo_pointer(s.get("recent_sessions") or []))
+    # THE PINS INDEX — the operator's standing directives — is now part of the NEVER-SHED core (the
+    # typed-envelope cutover PROMOTED it out of the old sheddable ladder). It rides Tier-0 here as the full
+    # human-readable index; the typed envelope's `standing_directives.pins_index` carries the compact count
+    # as the schema-audited fact. render_pins's own bounded, LOUD "+N OLDER pinned note(s)" folding is the
+    # disclosure now (re-based off the retired cap_shed set-aside pass): nothing is dropped unseen and the full
+    # set is a `list-pins` away. Since Tier-0 never sheds, an over-pinned index can never be silently lost.
     pins = "\n".join(render_pins(s.get("pinned") or [], bvals["pin_index_title_chars"],
                                  count_max=bvals["pin_index_count_max"], block_chars=bvals["pins_block_chars_max"]))
+    if pins:
+        out.append(pins)
+
+    # TRIM OWNERSHIP: only the RECONSTRUCTIBLE inventory sheds, each pullable on demand, and the set-aside is a
+    # whole-component disclosed move composed here (cap_shed is the backstop that measures + names them). The
+    # inverted ladder (first set aside -> last kept): the build-sprawl note (mechanic's own status), then the
+    # work-neighbourhood pointer (the knowledge-graph tools), then the status dashboard (`/engine-status`). The
+    # governance briefing — including the pins index, standing directives and where-we-left-off continuity above
+    # — is never set aside, so continuity now OUTLASTS the reconstructible inventory. The sprawl one-liner is
+    # AI-facing (StarshipSuperjam/engine-template#950) and only in a mechanic (home_workshop and mechanic are mutually exclusive).
+    sprawl_note = ("" if s.get("home_workshop")
+                   else render_mechanic_sprawl_note(s.get("mechanic_sprawl")))
+    # POINT-OF-USE DEFERRAL: the reconstructible neighbourhood block is the COMPACT pointer form
+    # (render_neighborhood_pointer), never the full walk — the full walk stays reachable, unchanged, at the
+    # knowledge-graph tools. The where-we-left-off continuity is now a one-line pointer in the never-shed typed
+    # envelope above (standing_directives), so it no longer rides a sheddable block of its own.
+    neighborhood = "\n".join(render_neighborhood_pointer(s.get("neighborhood")))
     status = "\n".join(["--- the full status (your grounding for this session) ---", dashboard])
 
     # The trim notice points the OPERATOR at `/engine-status` (the operator-typed skill), NOT the raw uv command
@@ -3436,21 +3595,8 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         return ("(Part of this briefing was trimmed to fit the platform's size limit. Tell the operator in "
                 "one plain sentence; the full status is always available with `/engine-status`.)")
 
-    blocks = _pack_blocks("\n".join(out), sprawl_note, neighborhood, wwlo, pins, status)
-    text, shed = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
-    # LOUD pin set-aside (operator directive): pins shed BEFORE the dashboard, but a pin dropping silently is
-    # exactly what must not happen — an operator who over-pins must learn to prune rather than lose them
-    # unseen. cap_shed's notice is droppable under pressure, so the disclosure rides the never-shed governance
-    # block instead (a second pass): if the pins index was set aside, add a plain must-relay line to Tier-0 and
-    # rebuild without the pins block. Stated as "did not fit / set aside", never a false "your pins are the
-    # cause" — pruning is the operator's lever whichever component grew.
-    if pins and _PINS_BLOCK_NAME in shed:
-        n = len(s.get("pinned") or [])
-        loud = ("ALSO relay to the operator: their " + str(n) + " pinned note" + ("" if n == 1 else "s")
-                + " did not fit in this session's briefing and were set aside (they are safe) — ask them to "
-                "review and prune any no longer needed, or offer to read any back with the memory tools.")
-        blocks = _pack_blocks("\n".join(out + ["", loud]), sprawl_note, neighborhood, wwlo, "", status)
-        text, _shed2 = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
+    blocks = _pack_blocks("\n".join(out), sprawl_note, neighborhood, status)
+    text, _shed = hooks.cap_shed(blocks, notice=_shed_notice, compact_notice=_compact_notice)
     return text
 
 
@@ -3963,6 +4109,13 @@ def handler(payload: dict) -> dict:
 
 def main(argv: list) -> int:
     if argv and argv[0] == "pack":
+        # `pack` prints the EXACT injection string — byte-identical to what the SessionStart hook injects
+        # as additionalContext (a debug view of the assembled briefing). `--pretty` instead prints the typed
+        # session-relay.v1 envelope this pack is the deterministic serializer of, as human-readable JSON, so a
+        # session can inspect the schema-validated SOURCE behind the rendered briefing.
+        if "--pretty" in argv[1:]:
+            print(json.dumps(assemble_envelope(), indent=2, ensure_ascii=False))
+            return 0
         print(assemble_pack())
         return 0
     if not argv or argv[0] == "hook":
@@ -3970,7 +4123,7 @@ def main(argv: list) -> int:
         # stdin, runs the handler, and translates inject -> structured stdout (additionalContext),
         # fail-open on any error. The harness owns the exit code; boot never halts a session.
         return hooks.run_hook("SessionStart", handler)
-    print("usage: boot.py [pack | hook]", file=sys.stderr)
+    print("usage: boot.py [pack [--pretty] | hook]", file=sys.stderr)
     return 2
 
 

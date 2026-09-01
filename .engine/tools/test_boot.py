@@ -2327,10 +2327,11 @@ class TestWhereWeLeftOff(unittest.TestCase):
         puts the block into the orientation tier — or making the relay return nothing — leaves the whole feature
         absent from every operator's briefing with the suite fully green.
 
-        point-of-use-deferral node: the PUSH pack now carries only the compact one-line pointer
-        (render_wwlo_pointer) — labelled HISTORY, naming the session and when it ended — never the
-        multi-line quoted excerpt. The full card renderer (render_recent_sessions, exercised above) stays
-        reachable, unchanged, as the point of use `recall-window` pulls when the excerpts would help."""
+        typed-envelope cutover: the where-we-left-off continuity is now a compact one-line pointer inside the
+        never-shed typed envelope's standing_directives (rendered `Where we left off: HISTORY, …`) — labelled
+        HISTORY, naming the session and when it ended, never the multi-line quoted excerpt. The full card
+        renderer (render_recent_sessions, exercised above) stays reachable as the point of use `recall-window`
+        pulls when the excerpts would help."""
         card = self._card(first_ask="rebuild the nightly export so it can be re-run safely")
         patchers = _offline()
         try:
@@ -2343,17 +2344,18 @@ class TestWhereWeLeftOff(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertIn("where we left off", pack)
+        self.assertIn("Where we left off", pack)             # the never-shed envelope's standing-directive label
         self.assertIn("HISTORY", pack, "the pointer must be labelled as history, not a task or a binding")
         self.assertIn("s1", pack, "the session id travels so recall-window can open it directly")
         self.assertIn("recall-window", pack)
         self.assertNotIn("rebuild the nightly export so it can be re-run safely", pack,
                          "the multi-line excerpt itself must NOT be pushed every session — only the pointer")
 
-    def test_when_the_briefing_runs_long_the_block_is_dropped_and_its_absence_is_disclosed(self):
-        """The block lives in the tier dropped FIRST when the briefing exceeds the platform's output cap — the
-        right place, since a note about what you were doing must never displace an alarm. But that is only
-        honest if its absence is named: silently missing orientation reads as "there was none"."""
+    def test_the_continuity_pointer_survives_a_tight_cap_in_the_never_shed_core(self):
+        """typed-envelope cutover — the inverted ladder: the where-we-left-off continuity was PROMOTED into
+        the never-shed typed envelope, so at a cap tight enough to shed the reconstructible inventory (the
+        dashboard) the continuity pointer STILL rides — it now OUTLASTS the reconstructible inventory rather
+        than being the first thing dropped. The full multi-line excerpt is never pushed either way."""
         card = self._card(first_ask="rebuild the nightly export so it can be re-run safely")
         patchers = _offline()
         try:
@@ -2366,9 +2368,11 @@ class TestWhereWeLeftOff(unittest.TestCase):
         finally:
             for p in patchers:
                 p.stop()
-        self.assertNotIn("rebuild the nightly export", pack, "the orientation tier sheds first")
-        self.assertIn("where we left off", pack,
-                      "and the shed notice must name what was dropped, so the loss is not silent")
+        self.assertNotIn("rebuild the nightly export", pack, "the full excerpt is never pushed")
+        self.assertIn("Where we left off", pack,
+                      "the continuity pointer rides the never-shed core and survives a tight cap")
+        self.assertNotIn("--- the full status (your grounding", pack,
+                         "the reconstructible dashboard sheds first, so continuity outlasts it")
 
     def test_the_relay_passes_the_current_session_through_to_be_excluded(self):
         seen = {}
@@ -3712,10 +3716,12 @@ class TestGreenfieldIntakeOffer(unittest.TestCase):
 
 
 class TestPackCapGuard(unittest.TestCase):
-    """The pack is measured before injecting and set aside per component in the briefing-budget ladder:
-    the work-neighbourhood map first, then where-we-left-off, then the pins index, then the
-    status dashboard; the governance briefing never — with a relayed notice naming what was left out.
-    The margin canary and the loud pin set-aside live in TestBriefingBudget."""
+    """The pack is measured before injecting and set aside per component in the INVERTED briefing-budget
+    ladder of the typed-envelope cutover: only the RECONSTRUCTIBLE inventory sheds — the build-sprawl note
+    first, then the work-neighbourhood pointer, then the status dashboard last — while the governance briefing
+    (which now carries the typed envelope, the pins index and the where-we-left-off continuity) never sheds.
+    Pins and continuity thus OUTLAST the reconstructible inventory rather than yielding before it. The margin
+    canary lives in TestBriefingBudget."""
 
     def _pack(self, cap):
         patchers = _offline()
@@ -3727,25 +3733,23 @@ class TestPackCapGuard(unittest.TestCase):
                 p.stop()
 
     def _shed(self, cap):
-        # synthetic, uniformly-sized components so the set-aside ORDER is unambiguous.
-        blocks = boot._pack_blocks("G" * 500, "S" * 500, "N" * 500, "W" * 500, "P" * 500, "D" * 500)
+        # synthetic, uniformly-sized components so the set-aside ORDER is unambiguous. Four blocks now: the
+        # never-shed governance briefing plus the three reconstructible inventory components.
+        blocks = boot._pack_blocks("G" * 500, "S" * 500, "N" * 500, "D" * 500)
         return boot.hooks.cap_shed(blocks, cap=cap, notice=lambda n: "", compact_notice=lambda n: "")[1]
 
     def test_set_aside_ladder_order(self):
-        # 6 blocks of 500 (+5 newline joins) = 3005. Each tighter cap sheds the next rung of the ladder — the
-        # build-sprawl note first (StarshipSuperjam/engine-template#950), the governance briefing never.
-        self.assertEqual(self._shed(2700), ["the build-sprawl note"])
-        self.assertEqual(self._shed(2100), ["the build-sprawl note", "the work-neighbourhood map"])
-        self.assertEqual(self._shed(1600),
-                         ["the build-sprawl note", "the work-neighbourhood map", "where we left off"])
-        self.assertEqual(self._shed(1100),
-                         ["the build-sprawl note", "the work-neighbourhood map", "where we left off",
-                          boot._PINS_BLOCK_NAME])
-        self.assertEqual(self._shed(600),
-                         ["the build-sprawl note", "the work-neighbourhood map", "where we left off",
-                          boot._PINS_BLOCK_NAME, "the status dashboard"])
-        # the governance briefing is never set aside, even at an impossible cap
+        # 4 blocks of 500 (+3 newline joins) = 2003. Each tighter cap sheds the next rung of the INVERTED
+        # ladder — the build-sprawl note first, then the work-neighbourhood map, then the status dashboard
+        # last; the governance briefing (pins + continuity now inside it) never sheds.
+        self.assertEqual(self._shed(1800), ["the build-sprawl note"])
+        self.assertEqual(self._shed(1300), ["the build-sprawl note", "the work-neighbourhood map"])
+        self.assertEqual(self._shed(800),
+                         ["the build-sprawl note", "the work-neighbourhood map", "the status dashboard"])
+        # the governance briefing — carrying the pins index and the where-we-left-off continuity — is never
+        # set aside, even at an impossible cap; and pins/continuity therefore outlast every reconstructible.
         self.assertNotIn("the governance briefing", self._shed(10))
+        self.assertNotIn(boot._PINS_BLOCK_NAME, self._shed(10))   # pins never enter the sheddable set at all
 
     def test_wide_cap_keeps_everything_no_notice(self):
         pack = self._pack(10**6)
@@ -3973,32 +3977,39 @@ class TestBriefingBudget(unittest.TestCase):
         numbered = [ln for ln in lines if ln[:1].isdigit() and ". " in ln[:6]]
         self.assertEqual(len(numbered), 20)
 
-    def test_a_pins_set_aside_fails_loudly_in_the_never_shed_portion(self):
-        # operator decision 6: a pin set-aside must never be silent. The loud disclosure must ride the
-        # never-shed governance block, BEFORE the dashboard divider — not the droppable trim notice. The cap
-        # is chosen dynamically so the DASHBOARD SURVIVES while the pins index is set aside, so the ordering
-        # guarantee is actually exercised (a fixed cap that also sheds the dashboard would leave it unchecked).
+    def test_the_pins_index_rides_the_never_shed_core_and_its_overflow_is_loud(self):
+        # typed-envelope cutover (re-based operator decision 6): pins were PROMOTED into the never-shed core,
+        # so an over-pinned index is never silently set aside by cap_shed — it rides the governance briefing
+        # ABOVE the dashboard divider even at a tight cap. The LOUD disclosure is now render_pins's own bounded
+        # "+N OLDER pinned note(s)" folding (nothing dropped from storage; a `list-pins` away), which sits in
+        # the never-shed portion. Cap chosen so the dashboard sheds but the pins index does not, exercising the
+        # ordering: pins/continuity OUTLAST the reconstructible inventory.
         many = [{"text": f"standing directive number {i} " + "x" * 90} for i in range(12)]
         patchers = _offline()
         try:
             with mock.patch.object(boot, "read_pins", return_value=many), \
                  mock.patch.object(boot, "must_push", return_value=[]), \
                  mock.patch.object(boot, "_relay_lines", return_value=[]):
-                # baseline never-shed size with NO pins block; give room above it for the loud line + notice
-                # but not for the (much larger) pins index, so pins shed and the dashboard is kept.
+                # baseline never-shed size with NO pins block; a cap just above it forces the dashboard to shed
+                # while the never-shed pins index rides (it can never be set aside — it is priority-0 Tier-0).
                 with mock.patch.object(boot, "render_pins", return_value=[]):
                     base = len(boot.assemble_pack())
-                with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", base + 600):
+                # A cap just above the no-pins baseline: too tight to also hold the (much larger) pins index
+                # AND the dashboard, so the reconstructible dashboard sheds while the never-shed pins index rides.
+                with mock.patch.object(boot.hooks, "HOOK_OUTPUT_CAP", base + 300):
                     pack = boot.assemble_pack()
         finally:
             for p in patchers:
                 p.stop()
-        self.assertIn("did not fit in this session's briefing and were set aside", pack)
+        # the pins index survives (never shed) and its overflow is disclosed loudly, with the prune nudge and
+        # the "nothing dropped, retrievable" reassurance render_pins carries.
+        self.assertIn("what you asked me to remember", pack)          # the pins index rode the never-shed core
+        self.assertIn("OLDER pinned note", pack)                       # LOUD, count-named overflow disclosure
         self.assertIn("prune", pack)
+        self.assertIn("list-pins", pack)                               # nothing dropped from storage
         divider = pack.find("--- the full status (your grounding")
-        self.assertNotEqual(divider, -1, "the dashboard must survive so the ordering guarantee is exercised")
-        self.assertLess(pack.find("did not fit in this session's briefing"), divider,
-                        "the loud pin disclosure must precede (sit above, in the never-shed block) the dashboard")
+        self.assertEqual(divider, -1, "the dashboard sheds at this cap while the pins index does not")
+        self.assertIn("the status dashboard", pack)                    # named in the shed notice instead
 
     def test_dashboard_routine_body_stays_within_its_growth_budget(self):
         # #787 growth alarm: the ROUTINE dashboard body (the facts/counts/shipped/attention block, plus the
@@ -4790,6 +4801,138 @@ class TestPointOfUseDeferral(unittest.TestCase):
         self.assertLess(after_bytes, before_bytes,
                         f"the trimmed pack ({after_bytes} B) is not smaller than the reconstructed "
                         f"pre-trim pack ({before_bytes} B)")
+
+
+class TestTypedEnvelopeCutover(unittest.TestCase):
+    """The envelope-assembler node: the typed session-relay.v1 envelope is boot's schema-validated SOURCE,
+    and assemble_pack is its deterministic serializer. These lock the cutover's load-bearing guarantees:
+    the envelope validates and carries the seven sections; every governance relay becomes an alarm
+    {code,text} with the collapse preserved; the receipt + alarm CODES survive the 2,000-char truncation
+    preview; the `pack` CLI is byte-identical to the hook injection; and an invalid assembly fails open."""
+
+    def _multi_alarm_signals(self):
+        return _signals(
+            gate="off", reason="branch protection not found",
+            blocking_findings=_blocking(3), register="https://x/issues",
+            execution={"posture": "changed", "runtime": "claude",
+                       "drift": ["conduct/defaults.md"], "lines": ["a"]},
+            restore_recovery={"ok": False, "pending": True, "verified": False, "error": "recovery-invalid"},
+            qualification_notices=["memory-write qualification advanced to full access for this session"],
+            automatic_checkout={"status": "blocked", "reason": "diverged"})
+
+    def test_assemble_envelope_validates_and_carries_the_seven_sections(self):
+        patchers = _offline()
+        try:
+            env = boot.assemble_envelope()
+        finally:
+            for p in patchers:
+                p.stop()
+        boot.session_relay.validate(env)   # raises on any violation
+        for section in ("schema_version", "grounding_receipt", "identity", "authority_contract",
+                        "task_binding", "action_forcing_alarms", "standing_directives", "pointers"):
+            self.assertIn(section, env)
+        self.assertEqual(env["schema_version"], "session-relay.v1")
+        # the standing directives carry the promoted continuity: the two fixed routing lines + the wwlo pointer.
+        self.assertEqual(env["standing_directives"]["routing_lines"], list(boot.modes.STANDING_ROUTING_LINES))
+        self.assertEqual(env["standing_directives"]["where_we_left_off"]["label"], "Where we left off")
+
+    def test_every_governance_relay_becomes_an_alarm_code_text_record(self):
+        # each real relay boot emits maps to a stable snake_case code + its own must-relay text; none invented.
+        records = boot.relay_records(self._multi_alarm_signals(), use_ledger=False)
+        by_code = {r["code"]: r["text"] for r in records}
+        self.assertIn("safety_gate_off", by_code)
+        self.assertIn("blocking_findings", by_code)
+        self.assertIn("execution_drift", by_code)
+        self.assertIn("restore_recovery_paused", by_code)
+        self.assertIn("memory_qualification", by_code)
+        self.assertIn("automatic_checkout", by_code)
+        for text in by_code.values():
+            self.assertTrue(text.strip())                     # every alarm carries a non-empty must-relay line
+        # the gate variants carry DISTINCT codes so the envelope names WHICH gate alarm fired.
+        unknown = {r["code"] for r in boot.relay_records(_signals(gate="unknown"), use_ledger=False)}
+        self.assertIn("safety_gate_unverified", unknown)
+        self.assertNotIn("safety_gate_off", unknown)
+        refused = {r["code"] for r in boot.relay_records(_signals(refused=True), use_ledger=False)}
+        self.assertIn("state_cursor_refused", refused)
+        # the texts are the SAME strings must_push relays — only the carrier is typed now.
+        self.assertEqual([r["text"] for r in records], boot.must_push(self._multi_alarm_signals()))
+
+    def test_alarm_collapse_is_preserved_through_the_envelope_carrier(self):
+        # the anti-habituation collapse still applies when the envelope is built on the ledger path.
+        self.dir = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: self.dir}):
+            s = _signals(gate="off", reason="no required checks")
+            first = boot.relay_records(s, use_ledger=True)                 # seed -> full
+            self.assertTrue(any("their safety gate is off" in r["text"] for r in first))
+            second = boot.relay_records(s, use_ledger=True)                # repeat -> terse
+            self.assertTrue(any("still off" in r["text"].lower() for r in second))
+            # the fresh (ledger-less) render never collapses.
+            fresh = boot.relay_records(s, use_ledger=False)
+            self.assertTrue(any("their safety gate is off" in r["text"] for r in fresh))
+            self.assertFalse(any("still off" in r["text"].lower() for r in fresh))
+
+    def test_over_cap_preview_keeps_the_receipt_and_the_alarm_codes(self):
+        # the render leads receipt -> alarms, so a truncated 2,000-char preview still tells the model WHICH
+        # alarms fired even when the full relay texts below it are cut.
+        with mock.patch.object(boot, "gather_signals", return_value=self._multi_alarm_signals()):
+            pack = boot.assemble_pack()
+        preview = pack[:2000]
+        self.assertIn("## GROUNDING", preview)
+        self.assertIn("## ALARMS", preview)
+        for code in ("safety_gate_off", "blocking_findings", "execution_drift", "restore_recovery_paused"):
+            self.assertIn(code, preview, f"the alarm code {code!r} must survive the 2,000-char preview")
+
+    def test_pack_cli_is_byte_identical_to_the_hook_injection(self):
+        # `boot.py pack` must print the EXACT string the SessionStart hook injects as additionalContext — a
+        # faithful debug view. On a fresh, alarm-quiet session the fresh and ledger renders coincide, so this
+        # holds byte-for-byte; the CLI and the injection's `context` are the same assembled pack.
+        patchers = _offline()
+        try:
+            buf = io.StringIO()
+            with mock.patch("sys.stdout", buf):
+                rc = boot.main(["pack"])
+            cli = buf.getvalue()
+            injected = boot.hooks.inject(boot.assemble_pack())["context"]
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(rc, 0)
+        self.assertEqual(cli.rstrip("\n"), injected)          # print() adds one trailing newline
+        # and with no alarm firing the hook (ledger) render equals the fresh CLI render byte-for-byte.
+        self.dir = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {boot.boot_alarm_ledger.ENV_DIR: self.dir}), \
+             mock.patch.object(boot, "gather_signals", return_value=_signals(gate="on")):
+            self.assertEqual(boot.assemble_pack(use_ledger=True), boot.assemble_pack(use_ledger=False))
+
+    def test_pretty_cli_prints_the_typed_envelope_as_json(self):
+        patchers = _offline()
+        try:
+            buf = io.StringIO()
+            with mock.patch("sys.stdout", buf):
+                rc = boot.main(["pack", "--pretty"])
+            out = buf.getvalue()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertEqual(rc, 0)
+        parsed = json.loads(out)                              # a human-readable, valid envelope JSON
+        self.assertEqual(parsed["schema_version"], "session-relay.v1")
+        boot.session_relay.validate(parsed)
+
+    def test_invalid_assembly_fails_open_to_a_minimal_safe_grounding_never_partial(self):
+        # if the envelope cannot be built/validated, the pack falls back to a minimal safe grounding — never a
+        # partial/corrupt render — and SessionStart still assembles a briefing (fail-open).
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "_envelope_from_signals",
+                                   side_effect=boot.session_relay.RelayValidationError("boom")):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        _assert_ai_briefing(self, pack)                       # still an AI briefing with the present marker
+        self.assertIn("minimal safe grounding", pack)
+        self.assertNotIn("## IDENTITY", pack)                 # no partial typed sections leaked through
 
 
 if __name__ == "__main__":
