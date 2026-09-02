@@ -9276,7 +9276,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:0baa7607ef4bfed1e4db73255eeab0b0db7ddff414d65b64fa435c1bdb61b6b0",
+        "fingerprint": "sha256:17df10d2de368f9357eebc44895fa76ffa8355a4889f938ae318c3bb18a2cec1",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -12278,7 +12278,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:217500cf4347ae28045447828e24c3d7000a3ffa6182859a2b8f3a3804bb7d7b",
+        "fingerprint": "sha256:39aef6d92f7d3cf4746c0e4d26c28aaeb5d3c7058e7e016cd9dcb253a2c187e2",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -13551,7 +13551,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:37295ab2667454ecc2a610d864b6e8cdea1a8d17834b7f2f0d430c071b7e96b9",
+        "fingerprint": "sha256:06eb2439b3382de2f1c57e50143536060d8deec20f3c075364766526a52a88f1",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -15810,7 +15810,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:91f5594200c41009dd2f0d4708f2fc4cae6217837b1d2b4b3886de03ac350cf4",
+        "fingerprint": "sha256:ca5479f9865fc07febd5f6a620953317389e57af7119fd445114819ee2d98118",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17209,6 +17209,7 @@
           "tool:index",
           "tool:ledger",
           "tool:legacy_shapes",
+          "tool:mutation_authority",
           "tool:pins",
           "tool:recall",
           "tool:records"
@@ -17216,7 +17217,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:0dc0c6cfb76e783cabdfb42fa193d7986d7e2b16de4a474947f9619741c7d8e5",
+        "fingerprint": "sha256:eea840d33dced23af0c0bc311f65fcf7c545d1c20ae40f5ed8dbdbb041d25131",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -18316,6 +18317,7 @@
           "tool:erase",
           "tool:execution_context",
           "tool:first_run_health",
+          "tool:forget",
           "tool:ledger",
           "tool:mutation_authority",
           "tool:mutation_contract",
@@ -18325,7 +18327,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:00095535a4048d38710ff70be38c7390ff7f2a3ca93f712effac8efb2bb1b49a",
+        "fingerprint": "sha256:3553a6fc11734b35ece4b9a00a4a2a4d55a0184ef61a0c9831c9238de433198c",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -18345,6 +18347,7 @@
         "tests": [
           "tool:accepted_hook_dispatch",
           "tool:compact",
+          "tool:execution_context",
           "tool:index",
           "tool:ledger",
           "tool:mutation_contract"
@@ -18352,7 +18355,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:c6a86c0e31b5db33f36f986fe1d5f79ddea32144535e7945b13e283bf217e305",
+        "fingerprint": "sha256:40265f69fe2fc808407af5d9a5c85a826d75e283536630110399450dde0562de",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",
