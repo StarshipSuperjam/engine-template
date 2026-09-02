@@ -5077,10 +5077,6 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
         self.assertEqual(quiet_call.run(demo.main), 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestStagedUpgradeIsAnnouncedNotInferred(unittest.TestCase):
     """StarshipSuperjam/engine-template#948 — the notice keys on the update announcing itself.
 
@@ -5189,3 +5185,7 @@ class TestTheStagedMarkerIsWrittenAfterTheRecoveryTransaction(unittest.TestCase)
         self.assertLess(began, marked,
                         "the staged marker is now written before the recovery transaction is opened, "
                         "which invalidates the warrant for the no-handle consent exception")
+
+
+if __name__ == "__main__":
+    unittest.main()

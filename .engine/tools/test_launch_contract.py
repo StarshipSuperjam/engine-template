@@ -374,12 +374,18 @@ class TestModuleIntegrityTests(unittest.TestCase):
     collected and DID run under discovery (verified by reconstructing that tree) — #1153 shipped broken
     because those tests never exercised the fresh-clone path, an inadequacy, not a dark suite. An earlier
     draft of this guard misattributed #1153 to non-collection; that claim was wrong and has been removed.
+
+    Corrective note on #1165. The below-runner classes in test_module_manager.py and test_modules.py that
+    #1165 flagged were likewise already COLLECTED and run under the canonical `unittest discover` — they were
+    never a coverage gap, only a direct-run-hygiene defect (`python tools/<file>.py` skipped them). Both
+    runners have now been moved to end-of-file, so this guard admits no exceptions and KNOWN_DEAD_TAILS is
+    empty.
     """
 
-    #: Modules with a known dead tail that predates this work and is out of this Build's declared scope.
-    #: Their below-runner classes still run under discovery; this is a direct-run-hygiene allowance, not a
-    #: coverage gap. The list must only ever shrink.
-    KNOWN_DEAD_TAILS = {"test_module_manager.py", "test_modules.py"}
+    #: Modules with a known dead tail allowed as a direct-run-hygiene exception. The list must only ever
+    #: shrink, and it is now EMPTY: test_module_manager.py and test_modules.py had their runners moved to
+    #: end-of-file, so every test module's direct run and discovered run now cover the same cases.
+    KNOWN_DEAD_TAILS: set = set()
 
     def _dead_classes(self, path: Path):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
