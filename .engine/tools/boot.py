@@ -337,7 +337,8 @@ def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | No
       - the gitignored crash-debug log gets the traceback (engine-only backstage detail: type, message, frame),
         via `hooks._record_crash_debug`;
       - the telemetry inbox spool gets ONE content-free benign finding (`_envelope_assembly_message`, a fixed
-        literal — no bytes of `exc`), for the #412 drain to promote if it persists across sessions.
+        literal — no bytes of `exc`), for the StarshipSuperjam/engine-template#412 drain to promote if it
+        persists across sessions.
 
     Each sink is individually best-effort and swallowed: recording a fail-open must never itself break the
     fail-open. Returns which sinks actually accepted the record, so the grounding names only what exists.
