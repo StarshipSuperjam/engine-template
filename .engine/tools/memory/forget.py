@@ -291,7 +291,15 @@ class ControlNotRecorded(RuntimeError):
 
     This RAISES rather than degrading quietly, because a missed withhold is the operator's instruction not
     happening. Reporting "done" over a write that did not land would hide a provider failure, and
-    the operator would have no way to tell."""
+    the operator would have no way to tell.
+
+    `raw_detail` is optional backstage text (e.g. a raw authority-boundary error, which names an internal
+    registry the operator cannot act on) kept OFF the operator-facing message: `str(exc)` stays plain, and a
+    maintainer or a log can read the raw reason from this attribute. It is never shown to the operator."""
+
+    def __init__(self, message: str, *, raw_detail: "str | None" = None):
+        super().__init__(message)
+        self.raw_detail = raw_detail
 
 
 def _target_state(src: str, rid, sid) -> tuple:
@@ -333,12 +341,15 @@ def _authority_refused(exc: Exception) -> "ControlNotRecorded":
     A withhold or restore is authorized at its own verb, but the marker is written through nested store
     operations — taking the capture lock, bumping the index epoch, appending the marker — that each consume
     their own authority. If one is refused, the raw refusal names an internal registry boundary the operator
-    cannot act on, so it is reported as plain language with the raw reason kept only as a wrapped
-    parenthetical for a maintainer reading a log. Nothing was written when this fires: the append never ran,
-    so the honest report is that the change did not happen, not that it half-happened."""
+    cannot act on and is engine jargon, so it NEVER appears in the operator-facing message; the plain report
+    that the change was not saved is what they read, and the raw reason is preserved on the exception's
+    `raw_detail` for a maintainer or a log. Nothing was written when this fires: the append never ran, so the
+    honest report is that the change did not happen, not that it half-happened. The wording is neutral about
+    the cause because the same failure type also carries non-authorization infrastructure faults (a missing
+    advisory-locking capability, an unavailable store lock)."""
     return ControlNotRecorded(
-        f"the change could not be saved — memory refused an internal write authorization ({exc}). "
-        "Nothing was changed."
+        "the change could not be saved — an internal memory-write check did not pass, so nothing was changed.",
+        raw_detail=str(exc),
     )
 
 
@@ -1057,12 +1068,25 @@ def main(argv: list) -> int:
     if args.cmd == "list-withheld":
         print(json.dumps(withheld_report(), sort_keys=True))
         return 0
+    # A refused restore must reach the operator as its plain-language reason, not a raw traceback: this CLI
+    # lane is driven by the engine-restore-operator-pin skill, and an uncaught ControlNotRecorded here escapes
+    # through the accepted-hook dispatcher as an unhandled exception. Mirror the sibling pins.py `remove` lane,
+    # which already catches and prints. `str(exc)` is plain by construction (any raw authority detail lives on
+    # exc.raw_detail, off the message), so nothing backstage is printed.
     if args.cmd == "restore-record":
-        restore(record_id=args.record_id)
+        try:
+            restore(record_id=args.record_id)
+        except ControlNotRecorded as exc:
+            print(f"Not restored: {exc}")
+            return 1
         print(f"Restored record {args.record_id}.")
         return 0
     if args.cmd == "restore-session":
-        restore(session_id=args.session_id)
+        try:
+            restore(session_id=args.session_id)
+        except ControlNotRecorded as exc:
+            print(f"Not restored: {exc}")
+            return 1
         print(f"Restored session {args.session_id}.")
         return 0
     return 2

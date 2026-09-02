@@ -322,10 +322,10 @@ def _envelope_assembly_message() -> str:
     summary (issue_title derives the title from it). No backstage vocabulary (envelope / spool / traceback)."""
     return (
         "The engine could not put together its start-of-session briefing this session. "
-        "It fell back to a minimal safe grounding rather than show a partial or wrong one, and recorded the "
-        "cause to its own local diagnostics — this is about the engine's internal bookkeeping, not your "
-        "project or its data. It clears on its own if the next session assembles cleanly; a repeat is worth an "
-        "engineer's look at the recorded diagnostic."
+        "It fell back to a minimal safe grounding rather than show a partial or wrong one, and recorded what "
+        "it could to its own local diagnostics — this is about the engine's internal bookkeeping, not your "
+        "project or its data. It clears on its own if the next session assembles cleanly; if it repeats, the "
+        "engine's own local crash log is where an engineer would look for the cause."
     )
 
 
@@ -341,44 +341,50 @@ def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | No
         persists across sessions.
 
     Each sink is individually best-effort and swallowed: recording a fail-open must never itself break the
-    fail-open. Returns which sinks actually accepted the record, so the grounding names only what exists.
-    `crash_path`/`spool_path` default to the real sinks, resolved at CALL time so a test can redirect them."""
-    recorded = {"crash": False, "finding": False}
+    fail-open. `crash_path`/`spool_path` default to the real sinks, resolved at CALL time so a test can
+    redirect them.
+
+    Returns `{"crash_log": bool}` — whether the crash-log write attempt COMPLETED WITHOUT RAISING, the one
+    sink whose outcome boot can honestly observe: in production there is no no-op path, so a clean return
+    means the traceback landed and a raise means it did not. The benign finding is emitted best-effort but its
+    landing is deliberately NOT reported — `telemetry.emit_finding` is fire-and-forget: it never raises and
+    returns falsy on the benign spool path whether or not the append lands (it swallows OSError internally),
+    so boot cannot honestly know, and must never claim, that the finding was captured.
+
+    The crash signal is "did not raise", NOT a re-encoding of `_record_crash_debug`'s own hermetic test-harness
+    guard. Under `unittest` with the default path that guard no-ops, and this then reports True without a
+    write — a harmless test-only artifact (production has no no-op, and a test that asserts the entry passes an
+    explicit `crash_path`, which takes the real write path). The cleaner fix — `_record_crash_debug` returning
+    whether it actually wrote — is a follow-up outside this change's scope, which does not touch hooks.py."""
+    crash_logged = False
     try:
         hooks._record_crash_debug(_ENVELOPE_ASSEMBLY_EVENT, exc, path=crash_path)
-        # `_record_crash_debug` no-ops under a test harness when the path is the production default (its own
-        # hermetic guard); mirror that condition so the grounding never claims a crash-log entry it skipped.
-        recorded["crash"] = crash_path is not None or "unittest" not in sys.modules
-    except Exception:  # noqa: BLE001 — a failing sink must not break the other, nor the fail-open
-        recorded["crash"] = False
+        crash_logged = True
+    except Exception:  # noqa: BLE001 — a raising sink must not break the other, nor the fail-open
+        crash_logged = False
     try:
         telemetry.emit_finding(
             {"source_id": ENVELOPE_ASSEMBLY_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
              "message": _envelope_assembly_message(), "location": None},
             spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
-        recorded["finding"] = True   # emit_finding is best-effort (it swallows and returns falsy); the emit
-    except Exception:  # noqa: BLE001 — attempt is the record, consistent with emit_refused_cursor_finding
-        recorded["finding"] = False
-    return recorded
+    except Exception:  # noqa: BLE001 — emit_finding is already fail-open; this guard is belt-and-suspenders
+        pass
+    return {"crash_log": crash_logged}
 
 
 def _envelope_assembly_grounding_note(recorded: dict) -> str:
-    """One grounding line naming the diagnostic that was recorded and where an engineer can read it —
-    conditional on what actually landed, so it never claims a record that does not exist. Empty when nothing
-    was written (a raising recorder swallowed to nothing, or the non-hook read-only paths that record at all)."""
-    where = []
-    if recorded.get("crash"):
-        where.append(f"the engine's local crash log ({telemetry.HOOK_CRASH_DEBUG_PATH}, gitignored)")
-    if recorded.get("finding"):
-        where.append("a benign finding captured for later promotion")
-    if not where:
+    """One grounding line naming the engine-local crash log where an engineer can read the cause — shown ONLY
+    when that log actually landed (`crash_log`), so it never points at a record that does not exist; empty
+    otherwise (a raising or no-op recorder). The benign finding is emitted for later promotion but is a
+    background mechanism, not a thing to READ, and its landing cannot be honestly confirmed, so it is not
+    named here."""
+    if not recorded.get("crash_log"):
         return ""
-    note = ("## DIAGNOSTIC: this session's briefing-assembly failure was recorded to "
-            + " and ".join(where)
-            + " — the engine's own bookkeeping, not your project.")
-    if recorded.get("crash"):
-        note += " An engineer can read that crash log to see the cause."
-    return note + "\n"
+    return (
+        "## DIAGNOSTIC: this session's briefing-assembly failure was recorded to the engine's local crash log "
+        f"({telemetry.HOOK_CRASH_DEBUG_PATH}, gitignored) — the engine's own bookkeeping, not your project. "
+        "An engineer can read that crash log to see the cause.\n"
+    )
 
 
 # ---- governance alarms (relayed from the substrates; pinned at the top of the card) ---------

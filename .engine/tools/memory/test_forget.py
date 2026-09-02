@@ -717,7 +717,8 @@ class WithholdTests(_Base):
 
 class AuthorityRefusalTranslationTests(_Base):
     """A refused memory-write authorization on the operator verbs must arrive as ControlNotRecorded plain
-    language, with the raw registry-boundary text kept only as a wrapped parenthetical a maintainer can read.
+    language, with the raw registry-boundary text kept OFF the operator-facing message — preserved only on the
+    exception's `raw_detail`, where a maintainer or a log can read it and the operator never does.
 
     The refusal can fire at TWO sites inside `_write_control`: acquiring the capture lock (which runs BEFORE
     the write try, and whose raw refusal escaped to the operator before this fix) and the ledger writes
@@ -734,10 +735,11 @@ class AuthorityRefusalTranslationTests(_Base):
 
     def _assert_translated(self, exc: Exception) -> None:
         message = str(exc)
-        self.assertNotEqual(message, self._RAW)                 # not the raw text surfaced verbatim
         self.assertIn("could not be saved", message.lower())    # plain-language lead
         self.assertIn("nothing was changed", message.lower())   # and the honest outcome
-        self.assertIn(self._RAW, message)                       # raw preserved, only as a wrapped detail
+        self.assertNotIn(self._RAW, message)                    # the raw jargon NEVER reaches the operator
+        self.assertNotIn("registry", message.lower())           # nor any of its internal vocabulary
+        self.assertEqual(exc.raw_detail, self._RAW)             # but it IS preserved, off the message
 
     def _assert_no_marker(self) -> None:
         self.assertEqual([r for r in ledger.iter_records()
@@ -766,12 +768,30 @@ class AuthorityRefusalTranslationTests(_Base):
 
     def test_an_ordinary_control_not_recorded_is_not_reworded_as_an_authority_refusal(self):
         # A genuine non-authority refusal (an id that names nothing) keeps its own plain words, untouched by
-        # the authority translation — the two failure classes stay distinct to the operator.
+        # the authority translation, and carries no raw_detail — the two failure classes stay distinct.
         with self.assertRaises(forget.ControlNotRecorded) as caught:
             forget.withhold(record_id="deadbeefdeadbeefdeadbeefdeadbeef")
         message = str(caught.exception)
         self.assertNotIn(self._RAW, message)
-        self.assertNotIn("internal write authorization", message)
+        self.assertNotIn("internal memory-write check", message)
+        self.assertIsNone(caught.exception.raw_detail)
+
+    def test_a_refused_restore_reaches_the_cli_as_plain_words_not_a_traceback(self):
+        # The engine-restore-operator-pin lane runs forget.main(); a refusal must print its plain reason and
+        # exit non-zero, never escape as an unhandled traceback (the sibling pins.py `remove` lane's contract).
+        import io, contextlib
+        rid = self._seed_one()
+        from unittest import mock
+        boom = mutation_authority.MutationAuthorityError(self._RAW)
+        out = io.StringIO()
+        with mock.patch.object(capture, "_acquire_lock", side_effect=boom), \
+                contextlib.redirect_stdout(out):
+            code = forget.main(["restore-record", rid])
+        self.assertEqual(code, 1)
+        printed = out.getvalue()
+        self.assertIn("Not restored:", printed)
+        self.assertIn("could not be saved", printed.lower())
+        self.assertNotIn(self._RAW, printed)                    # no raw jargon on the operator's screen
 
 
 if __name__ == "__main__":

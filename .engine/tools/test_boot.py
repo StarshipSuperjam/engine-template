@@ -1583,8 +1583,9 @@ class TestEnvelopeAssemblyDiagnostic(unittest.TestCase):
     """A boot envelope-assembly failure is fail-open — it falls back to a minimal safe grounding — but before
     this it left NO diagnostic anywhere, so a recurrence was invisible. Now, on the REAL SessionStart path
     only, the failure is recorded durably and content-safely (a gitignored crash-log traceback + one
-    content-free benign finding) and the grounding names what was recorded. The read-only pack/status paths
-    record nothing, and a raising recorder is swallowed so SessionStart never breaks."""
+    content-free benign finding) and the grounding names the crash log where an engineer reads the cause — but
+    ONLY when that log actually landed, so the diagnostic never lies about its own success. The read-only
+    pack/status paths record nothing, and a raising recorder is swallowed so SessionStart never breaks."""
 
     _SECRET = "SECRET-PROJECT-BYTES-must-not-leak-42"
 
@@ -1596,7 +1597,8 @@ class TestEnvelopeAssemblyDiagnostic(unittest.TestCase):
                 raise ValueError(self._SECRET)
             except ValueError as exc:
                 recorded = boot.record_envelope_assembly_failure(exc, crash_path=crash, spool_path=spool)
-            self.assertEqual(recorded, {"crash": True, "finding": True})
+            # Only the crash-log outcome is reported — the one sink boot can honestly observe.
+            self.assertEqual(recorded, {"crash_log": True})
             # The crash log is the engine-only backstage half: it CARRIES the exception detail (incl. the raw
             # bytes) because it is gitignored and never operator- or model-facing.
             with open(crash, encoding="utf-8") as fh:
@@ -1610,6 +1612,32 @@ class TestEnvelopeAssemblyDiagnostic(unittest.TestCase):
             self.assertEqual(rec["severity"], boot.telemetry.PERSISTENT_BENIGN)
             self.assertTrue(boot.telemetry.source_id_is_marker_safe(rec["source_id"]))
             self.assertNotIn(self._SECRET, json.dumps(rec))     # no bytes of the exception leak into it
+
+    def test_a_failed_crash_sink_yields_no_false_diagnostic_claim(self):
+        # The honesty guarantee: if the crash-log write raises (disk-full / permissions — plausibly the SAME
+        # condition that broke envelope assembly), the recorder reports crash_log=False and the grounding names
+        # NOTHING, rather than confidently pointing an engineer at a crash-log entry that was never written.
+        # The benign finding is still emitted best-effort, but its landing is never asserted.
+        with tempfile.TemporaryDirectory() as d:
+            spool = os.path.join(d, "findings-inbox.ndjson")
+            try:
+                raise ValueError(self._SECRET)
+            except ValueError as exc:
+                with mock.patch.object(boot.hooks, "_record_crash_debug",
+                                       side_effect=OSError("crash log unwritable")):
+                    recorded = boot.record_envelope_assembly_failure(exc, spool_path=spool)
+            self.assertEqual(recorded, {"crash_log": False})
+            self.assertEqual(boot._envelope_assembly_grounding_note(recorded), "")   # no claim
+            # the finding was still emitted despite the crash sink failing
+            self.assertTrue(os.path.exists(spool))
+
+    def test_the_grounding_note_names_only_the_crash_log_never_the_finding(self):
+        note = boot._envelope_assembly_grounding_note({"crash_log": True})
+        self.assertIn("## DIAGNOSTIC", note)
+        self.assertIn("crash log", note.lower())
+        self.assertIn(boot.telemetry.HOOK_CRASH_DEBUG_PATH, note)   # names WHERE to read it
+        self.assertNotIn("finding", note.lower())                   # the finding is not asserted as captured
+        self.assertEqual(boot._envelope_assembly_grounding_note({"crash_log": False}), "")
 
     def test_forced_failure_on_the_real_path_records_and_names_the_diagnostic(self):
         patchers = _offline()
