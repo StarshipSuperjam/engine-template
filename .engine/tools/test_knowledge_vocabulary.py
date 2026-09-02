@@ -25,7 +25,7 @@ import knowledge_vocabulary_check as kvc   # noqa: E402
 CATALOG = validate.load_json(validate.CATALOG_PATH)
 EXPECTED = kvc.expected_vocabulary(CATALOG)
 PATTERN = ("^(policy|conduct|schema|check|tool|operation|skill|agent|codex-skill|codex-agent"
-           "|interface|doc|module):[A-Za-z0-9._-]+$")
+           "|interface|doc|executors|module):[A-Za-z0-9._-]+$")
 
 
 class TestExpectedVocabulary(unittest.TestCase):

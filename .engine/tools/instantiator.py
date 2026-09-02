@@ -1664,6 +1664,12 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
 _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/instantiator.py",
     ".engine/tools/test_instantiator.py",
+    # The typed arrival adapter drives the retiring instantiator's arrive() through the transaction protocol;
+    # it imports `instantiator` and is arrival-only machinery, so it retires in the SAME pass — else it survives
+    # into a generated repo and dangles an import of the removed instantiator (the first-run reference-closure
+    # invariant). The control-plane adapter is NOT here: it wraps the permanent bootstrap.py primitive that
+    # `finalize` uses after setup, so it survives. Mirrored in first-run-assets.json (parity-tested).
+    ".engine/tools/transaction_adapters_arrival.py",
     # The SECURITY.md-seed test + its demo exercise first-run-only machinery (instantiator._seed_security) and
     # import the retired instantiator / test_instantiator, so they retire in the SAME pass — else they survive
     # into a generated repo and abort its first `unittest discover` at collection (the first-run reference-closure
@@ -1791,6 +1797,13 @@ _FIRST_RUN_ASSET_FILES = (
     # not under `.engine/`. The corpus runner and the reporter it calls are NOT retired: they are ordinary
     # operator-runnable tools, and a deployed project's own demonstrations are worth being able to run.
     ".github/workflows/engine-nightly-demos.yml",
+    # The pinned-Python-3.9 arrival CI job. It imports the retiring instantiator and the arrival adapter (retired
+    # just above) to prove the brownfield arrival entry path loads on the system 3.9 floor. A deployed project has
+    # already arrived and never re-tests arrival, and the job runs unconditionally on push/PR — so if it survived
+    # it would fail a generated repo's CI on an import of the removed arrival machinery. It retires at first-run
+    # alongside the adapter it imports. Sanctioned below, because it is not under `.engine/`. Mirrored in
+    # first-run-assets.json (parity-tested).
+    ".github/workflows/engine-arrival-py39.yml",
     # The reporter that workflow calls, and the test that describes both. The reporter exists to keep the
     # engine's OWN nightly Issue singular; with the workflow gone there is nothing to call it, and a
     # shipped tool nobody calls is clutter that still has to be understood. The test asserts on the
@@ -1838,6 +1851,10 @@ _SANCTIONED_NON_ENGINE_RETIRE_PATHS = frozenset({
     # `.github/workflows/engine-*.yml`) but not under `.engine/`, so it needs saying here rather than
     # inheriting safety from a prefix.
     os.path.join(".github", "workflows", "engine-nightly-demos.yml"),
+    # The pinned-3.9 arrival CI job — engine-owned by provenance (the engine ships every
+    # `.github/workflows/engine-*.yml`) but not under `.engine/`, so it is named here rather than
+    # inheriting safety from a prefix.
+    os.path.join(".github", "workflows", "engine-arrival-py39.yml"),
 })
 
 
@@ -3253,6 +3270,31 @@ def _arrival_index_gate() -> list:
     return findings
 
 
+def _open_verified_arrival_pr(*, branch, title, body, repo, paths=None, target_root=None, token=None,
+                              on_commit=None, on_pr_opening=None, on_pr=None) -> dict:
+    """Arrival's PR opener, repointed onto the VERIFIED, SELECTIVELY-STAGED seam Part A introduced.
+
+    Two changes from the plain upgrade opener this replaces, both the plan's point. VERIFIED: it refuses a
+    stale base before any push, through `transaction_handoff.refuse_if_stale_base` — the same local-git
+    currency gate (`wrong-base` / `behind-origin` / `diverged`) the pull-request-shaped transactions use — so
+    an arrival is never proposed on a base that has already moved (a `current`/`unverified` note is
+    non-refusing and rides on). SELECTIVE: it stages EXACTLY the engine's own overlaid files (`paths`), never
+    `git add -A`, so an operator's unrelated uncommitted work is never swept into the project's first pull
+    request. The push and the NON-DRAFT pull request itself reuse the one git+PR primitive
+    (`module_manager._open_upgrade_pr`, whose own selective `paths` parameter this is the first real caller
+    of); that primitive lives outside this node's scope, so the seam is composed here rather than moved into it.
+    """
+    # Imported HERE, not at module top: a top-level import would add an instantiator->transaction_handoff
+    # edge the committed knowledge graph does not carry, which the arrival's own coherence check reads back
+    # as a hard inconsistency and refuses on. The opener is the only site that needs it, and it runs well
+    # after the engine's 3.11 runtime exists, so a lazy import keeps both the graph and the arrival floor honest.
+    import transaction_handoff
+    transaction_handoff.refuse_if_stale_base(root=target_root)
+    return module_manager._open_upgrade_pr(
+        branch, title, body, repo=repo, token=token, paths=paths,
+        on_commit=on_commit, on_pr_opening=on_pr_opening, on_pr=on_pr)
+
+
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
            keep=None, declined=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
            announce=None, opener=None, gh_api=None,
@@ -3471,7 +3513,13 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
                     home_repository=_existing_home_repository(release_tree),
                     default_branch=default_branch or target_default_branch, protected=protected)
             try:
-                result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug)
+                # Stage EXACTLY the engine's own overlaid files plus the two instruction-floor roots — the
+                # selective set the verified opener commits, never `git add -A`. The verified opener also
+                # takes the target root so its base-currency gate judges the TARGET, not the release tree.
+                staged_paths = sorted(set(result.get("overlaid") or [])
+                                      | {_ROOT_CLAUDE_REL, _ROOT_AGENTS_REL})
+                result["pr"] = opener(branch="engine-arrival", title=title, body=body, repo=slug,
+                                      paths=staged_paths, target_root=target_root)
             except Exception as pr_exc:  # noqa: BLE001 — the engine IS installed; only publishing the PR failed
                 # The engine is fully installed (apply/verify/retire all ran); only publishing it as a pull
                 # request failed. The opener's own message states ACCURATELY what failed and how to recover —
@@ -4028,7 +4076,7 @@ def main(argv: list) -> int:
         ref = _flag_value(argv, "--engine-release")
         accept_all = "--accept-all" in argv
         decide = (lambda c: "accept") if accept_all else (lambda c: "abort")
-        opener = module_manager._open_upgrade_pr if accept_all else None
+        opener = _open_verified_arrival_pr if accept_all else None   # verified base + selective staging
         try:
             res = arrive(target_root=target, release_tree=release, engine_release=ref, keep=keep,
                          declined=decline, tier=tier, handle=handle, decide=decide, apply_changes=accept_all,

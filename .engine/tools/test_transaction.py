@@ -209,6 +209,25 @@ class TestOperatorTypedOnlyOperations(ProtocolTestCase):
                          "upgrade's start protections are the harness-gated skill and the merge, and "
                          "its consent is the digest handle — not a refusal here")
 
+    def test_part_b_adapters_are_on_the_cli_load_list(self):
+        # typed-lifecycle Part B: the three external-state operations join the CLI load list so
+        # `transaction.py plan <op>` resolves them rather than answering unknown-operation.
+        for mod in ("transaction_adapters_controlplane", "transaction_adapters_arrival"):
+            self.assertIn(mod, transaction._ADAPTER_MODULES)
+        failed = transaction.load_adapters()
+        for mod in ("transaction_adapters_controlplane", "transaction_adapters_arrival"):
+            self.assertNotIn(mod, failed, f"{mod} must import cleanly in the engine's home repo")
+        for op in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            self.assertIn(op, transaction._REGISTRY, f"load_adapters must register {op}")
+
+    def test_part_b_external_state_operations_are_not_operator_typed_only(self):
+        # bootstrap/finalize/arrival are additive and reversible (protection augments, an arrival is
+        # reverted by reverting its pull request), so — unlike engine-remove, whose recovery is harder —
+        # they are NOT operator-typed-only: the protocol resolves them for `plan`, and `run` is a
+        # consent-verified apply (Part A's upgrade/module-add pattern) rather than a refusal.
+        for op in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            self.assertNotIn(op, transaction._OPERATOR_TYPED_ONLY)
+
 
 class TestResume(ProtocolTestCase):
     def test_resume_without_a_progress_marker_replans_and_says_so(self):
@@ -333,17 +352,28 @@ class TestTheRealCommandLineWorks(unittest.TestCase):
                               cwd=self.ENGINE, capture_output=True, text=True)
 
     def test_every_shipped_operation_is_reachable_from_the_command_line(self):
-        for operation in ("engine-upgrade", "engine-upgrade-rollback", "module-add", "module-remove",
-                          "engine-remove"):
+        # Derive the roster from the CLI's OWN served list rather than a hand-kept tuple, so a newly
+        # shipped adapter is covered the moment it registers. The Part B external-state ops
+        # (control-plane-bootstrap, control-plane-finalize, engine-arrival) were added to the load list but
+        # this guard -- the suite's only real-subprocess reachability check -- was not, so they shipped
+        # exercised only in-process. The roster comes from the real CLI itself: its unknown-operation reply
+        # lists what it actually serves, which is precisely the __main__ registry the in-process tests
+        # cannot see (see this class's docstring).
+        roster = self._run("inspect", "definitely-not-an-operation", "--json")
+        self.assertEqual(roster.returncode, 2, roster.stdout + roster.stderr)
+        operations = json.loads(roster.stdout)["available_operations"]
+        for expected in ("control-plane-bootstrap", "control-plane-finalize", "engine-arrival"):
+            self.assertIn(expected, operations, "the Part B ops must be on the CLI's served roster")
+        for operation in operations:
             result = self._run("inspect", operation)
             said = result.stdout + result.stderr
             # Assert on the OUTCOME, not on the absence of one string. Checking only for "No adapter
             # implements" passes over a command that dies with a traceback and prints nothing -- a
             # reviewer hit exactly that under a different interpreter and the test stayed green.
             #
-            # "Reachable" is not "exits 0": `inspect module-add` with no module id REFUSES, and a refusal
-            # is a real answer. What must never happen is silence, a crash, or the CLI disowning its own
-            # operation.
+            # "Reachable" is not "exits 0": `inspect module-add` with no module id REFUSES, and an
+            # unreachable control plane refuses too -- a refusal is a real answer. What must never happen
+            # is silence, a crash, or the CLI disowning its own operation.
             self.assertTrue(said.strip(), "{0} produced no output at all".format(operation))
             self.assertNotIn("Traceback", said, "{0} crashed".format(operation))
             self.assertNotIn("No adapter implements", said,

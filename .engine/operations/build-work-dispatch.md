@@ -97,6 +97,26 @@ If a Build is restored from a cold handoff with a claim that never returned a re
 retry. A claim never expires on its own, and a timed-out or unreachable worker is never marked failed from
 elapsed time alone.
 
+### A dispatch that cannot be honored fails closed
+
+When a route cannot be honored the coordinator does not silently degrade to inline — it FAILS CLOSED, recording
+a blocked `dispatch` attempt (a persisted, disposition-awaiting failure) and refusing the claim, so a missing
+capability is a visible gap rather than a quiet demotion to the senior session (the anti-pattern
+StarshipSuperjam/engine-template#1138 names). The decision keys on whether worker packs are declared:
+
+- **Undeclared** `implementation_classes` — the no-worker-packs deployment: nothing to fail closed on, so the
+  class resolves inline exactly as before (unchanged).
+- **Declared but incomplete** — this class/provider entry is missing or lacks model/effort: the claim BLOCKS,
+  and the failure message names both the gap and the escape.
+- **External transport** (an ACP executor) — refused default-on and unreachable from any ordinary `work claim`
+  (the provider set stays `{claude, codex}`); where the seam is reached deliberately, a real eligibility
+  consult over explicit qualification records governs it, and no eligible production executor is itself blocked.
+
+**Recovery** is the operator's explicit choice, as for any failed node: complete or remove the class/provider
+entry in `model-bindings.json`'s `implementation_classes` and re-claim, or take the deliberate escape,
+`work retry --item <id> --strategy integrator-inline --reason <why>`, which is honored ahead of any block on the
+next claim. An unattended (Routine) Build stops at the block the same way — no timer or fallback advances it.
+
 ### A plan carrying a v1 payload
 
 There is no converter, and that is the decision rather than a gap: a v1 payload now exists only inside a
@@ -112,6 +132,8 @@ passed the candidate validation, imported engine-ci proof, deliverable review, a
 
 ## Notes
 
-Routing is resolved from one binding source and rendered for both providers; when a route cannot be honored, the
-node falls back to integrator-inline execution and never to a stronger or more expensive worker. See
+Routing is resolved from one binding source and rendered for both providers. When a declared worker pack cannot
+be honored the node fails closed (see "A dispatch that cannot be honored fails closed" above) rather than
+degrading; the coordinator never compensates by selecting a stronger or more expensive worker, and the
+integrator-inline escape stays the deliberate, operator-chosen way through. See
 [Build orchestration](build-orchestration.md) for the surrounding Build flow.

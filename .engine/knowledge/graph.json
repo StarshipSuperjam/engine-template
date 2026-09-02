@@ -1233,6 +1233,36 @@
       "type": "check"
     },
     {
+      "id": "check:executor-record",
+      "kind": "schema",
+      "name": ".engine/check/executor-record.json",
+      "owner": "validators-core",
+      "predicates": {
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ],
+        "targets": [
+          "executors:witness-declared-incomplete",
+          "executors:witness-external-refused",
+          "executors:witness-no-eligible"
+        ]
+      },
+      "slug": "executor-record",
+      "source": {
+        "fingerprint": "sha256:eaa902cdf916ae8a5dcfc6a97d36115fa6989f35dd9f086c9eb0ffad5a34b016",
+        "path": ".engine/check/executor-record.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:first-run-assets",
       "kind": "schema",
       "name": ".engine/check/first-run-assets.json",
@@ -1755,6 +1785,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:build-execution",
           "operation:build-orchestration",
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
@@ -1819,6 +1850,7 @@
         ],
         "targets": [
           "operation:boot-session-start",
+          "operation:build-execution",
           "operation:build-orchestration",
           "operation:build-product-grounding",
           "operation:build-submission-evidence",
@@ -5129,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:c5edb0331340e06d5fe190d309f1ba033b21bc5d9fbd99fd9a9c0d261b0b2914",
+        "fingerprint": "sha256:db69656485676762feaaedf34b02fd7974edaa29df6e9bfb22c6d9b7674864d7",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5176,6 +5208,66 @@
       "type": "doc"
     },
     {
+      "id": "executors:witness-declared-incomplete",
+      "name": ".engine/executors/witness-declared-incomplete.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "witness-declared-incomplete",
+      "source": {
+        "fingerprint": "sha256:7ef1df8d24330e668c9a2289e90f77899e25b3d401f4f03ba196663ef45faeac",
+        "path": ".engine/executors/witness-declared-incomplete.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
+      "id": "executors:witness-external-refused",
+      "name": ".engine/executors/witness-external-refused.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "witness-external-refused",
+      "source": {
+        "fingerprint": "sha256:ee0acc956ff9901f461fe59e438c0b04a2f7b8407b8e5b38921403189c5c24c4",
+        "path": ".engine/executors/witness-external-refused.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
+      "id": "executors:witness-no-eligible",
+      "name": ".engine/executors/witness-no-eligible.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:executor-qualification.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "witness-no-eligible",
+      "source": {
+        "fingerprint": "sha256:4f95983a749fe22cefde3b7c7ec518b64a126a7c5f31d1d9d045d852aae451a3",
+        "path": ".engine/executors/witness-no-eligible.json"
+      },
+      "status": "active",
+      "type": "executors"
+    },
+    {
       "fallback": "engine-knowledge-graph",
       "id": "interface:knowledge-retrieval",
       "name": ".engine/interfaces/knowledge-retrieval.json",
@@ -5200,7 +5292,7 @@
       },
       "slug": "knowledge-retrieval",
       "source": {
-        "fingerprint": "sha256:ae1599a16f5abfb004b5e69d3680b5ad8dc6535d7e9f60f5d31de10888f72742",
+        "fingerprint": "sha256:9f1a46dc4106f21034df9400f4fabce42a4ac12c15a500a4994a5727d8708bc2",
         "path": ".engine/interfaces/knowledge-retrieval.json"
       },
       "status": "active",
@@ -5310,7 +5402,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:9d02fccf6b1a7eeb3c0048b7510b8c8ad5b559fd5f5d41bc727e9cdd450f4357",
+        "fingerprint": "sha256:2254f5a71a9c8baf048bee33cbeb87c9c178368774ae0c0fa1899bd7e3e0999e",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5520,7 +5612,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:e79e7ca9174f2acccd0d56fb763498b682b6c9fbff0b2e8e5b1f4b57923b2a55",
+        "fingerprint": "sha256:02d1fcd804cc361947831732bbd945f0ad90140f4be461e3ca900ee12f28135e",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -5543,6 +5635,26 @@
       "source": {
         "fingerprint": "sha256:be495f6283d366a2ef187017ce99ad3320e32c54cd7d5e74092e941f2000f433",
         "path": ".engine/operations/boot-session-start.md"
+      },
+      "status": "active",
+      "type": "operation"
+    },
+    {
+      "id": "operation:build-execution",
+      "name": ".engine/operations/build-execution.md",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:operation.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build-execution",
+      "source": {
+        "fingerprint": "sha256:133ce2eef10da63db5f9fb8e59318f1e809b4e445095b490060358e8fa09112a",
+        "path": ".engine/operations/build-execution.md"
       },
       "status": "active",
       "type": "operation"
@@ -5621,7 +5733,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:90964994a22cd46a9795c765197679d6f797a12b16900dfda8e45fb1708f6160",
+        "fingerprint": "sha256:31393fba2a159ebb977dfdca596c71e2bd10319bef87bc754f2ed2a8af3d2771",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -5761,7 +5873,7 @@
       },
       "slug": "control-plane-bootstrap",
       "source": {
-        "fingerprint": "sha256:90361b211e8f3fa620886c6bb9d6eaea5de9caf319242686cf17a02d2f47a721",
+        "fingerprint": "sha256:f09ee760c8230b91613b3cd624443628272333b712e5e68f63c57f0bddafd02d",
         "path": ".engine/operations/control-plane-bootstrap.md"
       },
       "status": "active",
@@ -5781,7 +5893,7 @@
       },
       "slug": "engine-arrival",
       "source": {
-        "fingerprint": "sha256:8acf1c0dc97b2bc680e1653123ef97abd78a4fd489deafea79f145526c36bcb5",
+        "fingerprint": "sha256:b9d16c1ab8441e0924fbc48173bfb3f2453dc33b52293e3680ad9a47f5d1db69",
         "path": ".engine/operations/engine-arrival.md"
       },
       "status": "active",
@@ -6774,7 +6886,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:ed5f77f69575c4d4eb3ed625aea5e143971a4c232d02406e8f1c10e4161e9c72",
+        "fingerprint": "sha256:1dea1581011866156a75351f34ec7660b569e15f550e54e676c8e79464a73fe4",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7019,6 +7131,23 @@
       "type": "schema"
     },
     {
+      "id": "schema:executor-qualification.v1",
+      "name": ".engine/schemas/executor-qualification.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor-qualification.v1",
+      "source": {
+        "fingerprint": "sha256:3c1f38195dd9557070a2be1cde134a6aac3a458373b9d6bf7af17cb02127f3d6",
+        "path": ".engine/schemas/executor-qualification.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
       "id": "schema:finding-record.v1",
       "name": ".engine/schemas/finding-record.v1.json",
       "owner": "core",
@@ -7097,7 +7226,7 @@
       },
       "slug": "knowledge.v1",
       "source": {
-        "fingerprint": "sha256:0a6046704c5384e13f425347cf52748929a512b768516d5366ba3c82905c6e8e",
+        "fingerprint": "sha256:900eeb585113b9852c32d7662ad345cb3bab9269902a460c21df47e9eecb7950",
         "path": ".engine/schemas/knowledge.v1.json"
       },
       "status": "active",
@@ -7488,7 +7617,7 @@
       },
       "slug": "surface-catalog",
       "source": {
-        "fingerprint": "sha256:dd40297e04f15f9e625198400cf9fb02e5da425dcdc52a335aa3b504b6a7cdd5",
+        "fingerprint": "sha256:93e2127b9ef7d9206ab25b52a69f8e66a44713c65df955c6b54dd7cd81468a24",
         "path": ".engine/schemas/surface-catalog.json"
       },
       "status": "active",
@@ -9228,7 +9357,7 @@
       },
       "slug": "bootstrap",
       "source": {
-        "fingerprint": "sha256:1e6ebfcbc777acc11535811434c36e402640f0f1b8de738507a1c54dce333489",
+        "fingerprint": "sha256:a811b729dd5f54196faaca8f706e28b5497744e8550bfc1edb6716a9c8727fd7",
         "path": ".engine/tools/bootstrap.py"
       },
       "status": "active",
@@ -9256,6 +9385,8 @@
           "tool:build_state_store",
           "tool:ci_gatekeeper",
           "tool:derived_state",
+          "tool:executor_eligibility",
+          "tool:executor_records",
           "tool:hooks",
           "tool:moment",
           "tool:plan_contract",
@@ -9274,7 +9405,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:7a04119f8f3156e1f059c6a08db067e92f36f4f826e36b2d85cd177c68042b7e",
+        "fingerprint": "sha256:e6219f0f998d67f88550e276e7ec12ad78106fbe13c6fe7f9ed5a1de41fa95ba",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9461,7 +9592,7 @@
       },
       "slug": "build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:431dcddc697b54e42b815a01f366022462bdffa6571efa1f327071ea238fe738",
+        "fingerprint": "sha256:91e0ece181688538196c934142fdb7198eb006541f4081d0d0926cfe85e2d41d",
         "path": ".engine/tools/build_coordinator_work.py"
       },
       "status": "active",
@@ -11992,6 +12123,46 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:executor_eligibility",
+      "name": ".engine/tools/executor_eligibility.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor_eligibility",
+      "source": {
+        "fingerprint": "sha256:8a52013723f66c33dd4d7ecc21b955cb6655763a117e50541fb675db967682f5",
+        "path": ".engine/tools/executor_eligibility.py"
+      },
+      "status": "active",
+      "summary": "Executor eligibility — best-qualified selection strictly over explicit qualification records.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:executor_records",
+      "name": ".engine/tools/executor_records.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "executor_records",
+      "source": {
+        "fingerprint": "sha256:e1cd17422b682ebc055333dcb61e07d1c3f77761ed4dc7883af725d8a1ebd071",
+        "path": ".engine/tools/executor_records.py"
+      },
+      "status": "active",
+      "summary": "Executor-qualification records — load, validate, and refuse malformed records loudly.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:export",
@@ -12320,6 +12491,7 @@
           "tool:repo_identity",
           "tool:security_floor",
           "tool:self_map",
+          "tool:transaction_handoff",
           "tool:validate",
           "tool:wiring"
         ],
@@ -12329,7 +12501,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:00c528d51a7c230a43e7e6fe6521c907275bc0e6094ba5a2baca06c1d9d26705",
+        "fingerprint": "sha256:25ff8e71048390417e9c5897a1bdf14e87270803b8f9d335415b7a3bbace3e5c",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12979,7 +13151,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:59521c5ca249c84d6ed9d5ebc4a4f2a3d9a3a997a7c5c8b920426acc948d2f85",
+        "fingerprint": "sha256:06018ce05c637443291bd35c613edd88bfffd04fc4e94e8aee80bd23d1bc630d",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -15715,12 +15887,14 @@
           "tool:issue_conformance_ci",
           "tool:protection_guard",
           "tool:telemetry",
+          "tool:transaction",
+          "tool:transaction_adapters_controlplane",
           "tool:weakening_guard"
         ]
       },
       "slug": "test_bootstrap",
       "source": {
-        "fingerprint": "sha256:254ec03040b093015c1c13a72a075e14f3fcd45ddc2509880bce398fd1143404",
+        "fingerprint": "sha256:1c5248a16590b5ed68896ab083e5bd5c5416cda9b44aca8e6caad3add9c67969",
         "path": ".engine/tools/test_bootstrap.py"
       },
       "status": "active",
@@ -15940,7 +16114,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:52b6f89c43a348bc4c8eff623d924f9ba17fc801d65dde9ea45dedb24ab78686",
+        "fingerprint": "sha256:f9b8d10f3648e5d0dfd0a518bad3b6ed3714a43a071805507e72f854e434e2dd",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -16704,7 +16878,7 @@
       },
       "slug": "test_engine_home_travel",
       "source": {
-        "fingerprint": "sha256:5c5c01a2090ab60718c4d71b3b7e10a011ccd98a171e5331ac893b9f20707894",
+        "fingerprint": "sha256:5435fe9d44b88c1b827aa6bd3e217735ec07730d1ff4f657bbfab72a55b83c31",
         "path": ".engine/tools/test_engine_home_travel.py"
       },
       "status": "active",
@@ -16891,6 +17065,53 @@
       },
       "status": "active",
       "summary": "Self-tests for execution-environment awareness: the execution-state.v1 schema, the committed genesis",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_executor_eligibility",
+      "name": ".engine/tools/test_executor_eligibility.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:executor_eligibility"
+        ]
+      },
+      "slug": "test_executor_eligibility",
+      "source": {
+        "fingerprint": "sha256:dd1e63efcbda29bdaa140dc9f228cd44941b26b7e9a0a507702f299ecbd3b9ab",
+        "path": ".engine/tools/test_executor_eligibility.py"
+      },
+      "status": "active",
+      "summary": "Tests for executor_eligibility — best-qualified selection strictly over explicit qualification records,",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_executor_records",
+      "name": ".engine/tools/test_executor_records.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:executor_records",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_executor_records",
+      "source": {
+        "fingerprint": "sha256:8290b5a87dee767fed00cd427a2117af79ff4a84375c92ba0bc9ef9e90aabf8a",
+        "path": ".engine/tools/test_executor_records.py"
+      },
+      "status": "active",
+      "summary": "Tests for executor_records — schema validation, loud refusal of malformed records, and the",
       "type": "tool"
     },
     {
@@ -17192,13 +17413,16 @@
           "tool:license_seeds",
           "tool:module_coherence",
           "tool:self_map",
+          "tool:transaction",
+          "tool:transaction_adapters_arrival",
+          "tool:transaction_handoff",
           "tool:validate",
           "tool:wiring"
         ]
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:b5fde2e286c3f3b92cc446bbb835b10998cc916fa154bf4d245c80dcef920c54",
+        "fingerprint": "sha256:74018a8e38b653cce89d52ad4a4f93a09cdb872cfd76f81bc1a5116d67fd596a",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
@@ -17552,7 +17776,7 @@
       },
       "slug": "test_knowledge_vocabulary",
       "source": {
-        "fingerprint": "sha256:c4b943f1249313bbd01cf95dc1fe842265427452d085ff944f9a0796e24103c5",
+        "fingerprint": "sha256:d7dc9962638de139fc8dd4d7753507bc5af788f4b6911f728101a4b6fd18df63",
         "path": ".engine/tools/test_knowledge_vocabulary.py"
       },
       "status": "active",
@@ -17822,7 +18046,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:13414dcb7755099415e9c9dd47c45de9a19ab8251f9a1312c53cf8c2ceea6185",
+        "fingerprint": "sha256:86de02f594a090124d698d86a18ec2e035615e655395fd3e55c6501bd196987f",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18045,7 +18269,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:82814f9d0abd37a58436c2edd4f893a3e35da0015e9ad51983ebd75019bd74a3",
+        "fingerprint": "sha256:5e4e90ee7857c7c567cf09babe5d1e9d625b442fb889b9fafc9f050247db53c9",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -20273,7 +20497,7 @@
       },
       "slug": "test_transaction",
       "source": {
-        "fingerprint": "sha256:ced19d892af9709864d76ae240bc4eb31ef1bb6690a2878b325009c2a01e772e",
+        "fingerprint": "sha256:13bda2f98c78e3fa174f7d8c0b2fae05e98a0074e62439dc7457d0689134a548",
         "path": ".engine/tools/test_transaction.py"
       },
       "status": "active",
@@ -20624,11 +20848,62 @@
       },
       "slug": "transaction",
       "source": {
-        "fingerprint": "sha256:a75b131c7f000fd2a95baaa2f8e001b6d087121c2c76de5b862ec4cb0d9f6c3b",
+        "fingerprint": "sha256:e5d24de596b8654b9c7e0591443b455baabedb8f7004ee8c1f3c297351a32adf",
         "path": ".engine/tools/transaction.py"
       },
       "status": "active",
       "summary": "transaction.py — one stateless CLI for every lifecycle transaction.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_arrival",
+      "name": ".engine/tools/transaction_adapters_arrival.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:instantiator",
+          "tool:transaction",
+          "tool:transaction_handoff"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_arrival",
+      "source": {
+        "fingerprint": "sha256:d4e76dfeed5cdf819a6c21ffe760020305d7185da706a02a8d25e3896f1bafb9",
+        "path": ".engine/tools/transaction_adapters_arrival.py"
+      },
+      "status": "active",
+      "summary": "Brownfield engine arrival, as a typed transaction.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:transaction_adapters_controlplane",
+      "name": ".engine/tools/transaction_adapters_controlplane.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:boot",
+          "tool:bootstrap",
+          "tool:repo_identity",
+          "tool:transaction"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "transaction_adapters_controlplane",
+      "source": {
+        "fingerprint": "sha256:006d80014c049bb742d5e11efd10cb1e5952a4165a7cee5fd86a7649149a46b0",
+        "path": ".engine/tools/transaction_adapters_controlplane.py"
+      },
+      "status": "active",
+      "summary": "Turning the branch-protection floor on (bootstrap) and binding the engine's checks after a brownfield",
       "type": "tool"
     },
     {
@@ -20937,7 +21212,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:37639e3c05c6eb7b56f73bd18cc534aeeb24af3d4d28eb588c7837f09f0cd21c",
+        "fingerprint": "sha256:50412ef16a39437bf2a88937e5e9a2ad6ac42f958320f155c75063d7f9df11bd",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",

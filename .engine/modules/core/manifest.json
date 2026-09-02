@@ -19,6 +19,7 @@
     ],
     "operation": [
       ".engine/operations/boot-session-start.md",
+      ".engine/operations/build-execution.md",
       ".engine/operations/build-orchestration.md",
       ".engine/operations/build-product-grounding.md",
       ".engine/operations/build-submission-evidence.md",
@@ -108,6 +109,9 @@
     ],
     "knowledge": [
       ".engine/knowledge/*.json"
+    ],
+    "executors": [
+      ".engine/executors/*.json"
     ],
     "policy": [
       ".engine/policies/attention.md",

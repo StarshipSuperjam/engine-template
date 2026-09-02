@@ -40,12 +40,20 @@ Operator demo (a throwaway practice cabinet; never the real store):
   uv run --directory .engine --frozen -- python tools/memory/mcp_server.py demo
 """
 from __future__ import annotations
+import functools
 import os
 import sys
 
 # Third-party import first: it needs nothing from the path bootstrap below, and importing it above the
 # sys.path mutation closes the shadowing hazard (a same-named module in tools/ could otherwise win).
 from mcp.server import MCPServer
+# ToolError is the ONE exception whose message the MCP tool boundary forwards to the client verbatim.
+# Under mcp 2.1.1 every other exception is flattened to a bare "Error executing tool <name>", so a
+# refusal raised as anything else loses its sentence on the wire (under 2.0.0 the boundary returned
+# str(exc) for any exception, which masked the difference). Imported from an unexported path that is
+# nonetheless present in both 2.0.0 and 2.1.1; a future rename fails loudly here at server start rather
+# than silently reverting refusals to the masked form.
+from mcp.server.mcpserver.exceptions import ToolError
 
 # Make the package parent (.engine/tools) importable so `from memory import …` resolves both when launched as a
 # script via .mcp.json (`python tools/memory/mcp_server.py`) and when imported as `memory.mcp_server` in a test.
@@ -53,14 +61,48 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, index, ledger, mutation_authority as _mutation_authority, recall, records  # noqa: E402
+from memory import forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
 server = MCPServer(SERVER_NAME)
 
 
-@server.tool(
+# The refusals this server raises in plain words, each carrying a sentence written to be read by the
+# operator. `mutation_authority` re-wraps its own ContextError into MutationAuthorityError at every
+# call site, so that type cannot arrive here and is deliberately absent from the tuple.
+_TRANSLATED_REFUSALS = (
+    _mutation_authority.MutationAuthorityError,
+    pins.PinRefused,
+    forget.ControlNotRecorded,
+)
+
+
+def _tool(**registration):
+    """Register a tool through `@server.tool`, translating this server's plain-word refusals to
+    `ToolError` so their sentences reach the client under mcp 2.1.1 as well as 2.0.0 (see the ToolError
+    import above). Genuine crashes are NOT translated — they stay masked as a bare "Error executing
+    tool", which is the right disclosure for an unexpected fault.
+
+    `functools.wraps` copies the wrapped function's `__dict__`, so a tool that also carries a
+    `@_mutation_authority.guard` beneath this one keeps its `__engine_registry_id__` marker on the
+    returned wrapper — which is what `install_module_guards` reads when it rebinds the module globals
+    after registration, and what the guard-coverage test enumerates. `server.tool` returns the callable
+    it registers unchanged, so the wrapper is both what the boundary invokes (translation takes effect)
+    and what binds to the module global (marker preserved); `inspect.signature` follows `__wrapped__`,
+    so the registered tool schema is the original function's."""
+    def register(function):
+        @functools.wraps(function)
+        def wrapper(*args, **kwargs):
+            try:
+                return function(*args, **kwargs)
+            except _TRANSLATED_REFUSALS as exc:
+                raise ToolError(str(exc)) from exc
+        return server.tool(**registration)(wrapper)
+    return register
+
+
+@_tool(
     name="health",
     description=(
         "Content-free availability probe for this exact engine-memory server. Returns only its fixed identity "
@@ -141,7 +183,7 @@ _RECALL_COMPLETENESS_NOTE = (
 )
 
 
-@server.tool(
+@_tool(
     name="search",
     description=(
         "Recall the memory records most relevant to a query, ranked best-first by lexical relevance, with "
@@ -172,7 +214,7 @@ def search(query: str, tags: list[str] | None = None,
     return result
 
 
-@server.tool(
+@_tool(
     name="recall-window",
     description=(
         "Read back the actual conversation of one past session — the exact user and assistant turns, in the "
@@ -217,7 +259,7 @@ def _semantic_installed() -> bool:
 
 if _semantic_installed():
 
-    @server.tool(
+    @_tool(
         name="recall-by-meaning",
         description=(
             "Find past conversation that MEANS the same thing as your question, even when it shares no words "
@@ -412,7 +454,7 @@ def _demo() -> int:
 # erasure pull request — and no path from these tools reaches it.
 
 
-@server.tool(
+@_tool(
     name="pin",
     description=(
         "Save something the operator has asked you to remember — a standing preference, a way of working, a "
@@ -448,7 +490,7 @@ def pin(text: str, session_id: str | None = None) -> dict:
     return result
 
 
-@server.tool(
+@_tool(
     name="list-pins",
     description=(
         "Read back every pin the operator has saved, newest first, with the total. Reach for this whenever "
@@ -467,7 +509,7 @@ def list_pins() -> dict:
             "total": len(live)}
 
 
-@server.tool(
+@_tool(
     name="withhold",
     description=(
         "Stop surfacing one note, or one whole conversation, when the operator asks you to forget it. "
@@ -488,7 +530,7 @@ def withhold(record_id: str | None = None, session_id: str | None = None) -> dic
     return {"withheld": f"{what} is out of recall now. It is still saved — say the word and it comes back."}
 
 
-@server.tool(
+@_tool(
     name="list-withheld",
     description=(
         "Read back what the operator has taken out of recall, with the identifiers `restore` needs. Reach for "
@@ -503,7 +545,7 @@ def list_withheld() -> dict:
     return _forget.withheld_report()
 
 
-@server.tool(
+@_tool(
     name="restore",
     description=(
         "Put back something the operator withheld, naming the same target the withhold named. Restoring "

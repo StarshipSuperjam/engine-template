@@ -1,0 +1,55 @@
+# engine-arrival-py39 — prove the brownfield arrival path loads and is floor-clean on Python 3.9.
+#
+# WHY A SEPARATE INTERPRETER. Brownfield arrival runs on the operator's SYSTEM interpreter — the Python 3.9
+# floor (macOS ships 3.9) — BEFORE the engine's own 3.11 uv runtime exists. So every module the arrival entry
+# path reaches must import nothing beyond the standard library and carry `from __future__ import annotations`;
+# an evaluated `X | None` annotation is a TypeError on 3.9. That guarantee cannot be proven by the engine's
+# own 3.11 test suite, which never runs on the floor arrival actually lands on. This job runs the arrival
+# entry path on a REAL pinned 3.9 interpreter and fails if it does not load there.
+#
+# This is an advisory job, NOT a branch-required check: it never writes, and it does not change the protection
+# floor (protection_guard.REQUIRED_CHECKS). It uses uv to provide the 3.9 interpreter — no engine dependencies
+# are installed (`--no-project`), because the whole point is that the arrival floor is standard-library only.
+name: engine-arrival-py39
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  arrival-py39:
+    name: engine-arrival-py39
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv (pinned)
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.8"
+      - name: Provide the Python 3.9 arrival floor
+        run: uv python install 3.9
+      - name: Load and audit the arrival entry path on Python 3.9
+        # --no-project: no engine dependencies are installed, so this proves the arrival closure is
+        # standard-library only. The interpreter version is asserted AT RUNTIME (never trusted from the
+        # setup), the arrival entry modules are imported (a load-time 3.11 stdlib reach or an evaluated
+        # annotation fails HERE), the arrival's own preflight is run against this floor, and the
+        # language-level floor audit must come back clean.
+        run: |
+          uv run --no-project --python 3.9 python -c "
+          import sys
+          assert sys.version_info[:2] == (3, 9), 'expected Python 3.9, got ' + sys.version
+          sys.path.insert(0, '.engine/tools')
+          import instantiator
+          import transaction_adapters_arrival as arrival
+          import transaction_adapters_controlplane  # the checkless arrival bootstrap reaches this on the floor
+          assert instantiator._preflight(sys.version_info) is None, 'arrival preflight rejected the 3.9 floor'
+          findings = arrival.audit_arrival_floor()
+          assert not findings, 'arrival floor audit found: ' + repr(findings)
+          print('arrival entry path loads and audits clean on Python ' + sys.version.split()[0])
+          "

@@ -594,6 +594,35 @@ def gh_auth_refresh(scope: str = RULESET_SCOPE) -> bool:
         return False
 
 
+# ---- the cause taxonomy (the single source the typed adapter derives its matrix from) -----------
+# Every distinct way a control-plane write ends short of a confirmed floor, named ONCE. The typed
+# transaction adapter (transaction_adapters_controlplane) maps EACH of these to its own operator
+# recovery, and derives that map from CONTROL_PLANE_CAUSES rather than a hand-copied list — so a new
+# cause introduced by a Result() below with no home in the adapter's matrix fails a coverage test
+# (test_bootstrap) instead of silently collapsing into a generic failure and losing its recovery.
+# The eight are the complete set the methods above raise; `render()` and the adapter both branch on
+# them, and neither may branch on a string that is not here.
+CAUSE_NOT_ADMIN = "not-admin"                       # an ordinary not-admin 401/403 on the write
+CAUSE_ORG_POLICY = "org-policy"                      # an organization policy blocked the write
+CAUSE_DIDNT_SAVE = "didnt-save"                      # the authorization screen completed but did not persist
+CAUSE_UNSUPPORTED_PLATFORM = "unsupported-platform"  # the GitHub plan cannot host rulesets at all
+CAUSE_VERIFY_FAILED = "verify-failed"                # a write was attempted but the floor still is not in force
+CAUSE_VERIFY_UNREADABLE = "verify-unreadable"        # the post-write confirmation read itself could not be read
+CAUSE_PRESERVE_FAILED = "preserve-failed"            # the augment PUT could not be confirmed to preserve the operator's rule
+CAUSE_WORKFLOWS_ABSENT = "workflows-absent"          # finalize refused: the engine workflows are not on the branch yet
+CONTROL_PLANE_CAUSES = frozenset({
+    CAUSE_NOT_ADMIN, CAUSE_ORG_POLICY, CAUSE_DIDNT_SAVE, CAUSE_UNSUPPORTED_PLATFORM,
+    CAUSE_VERIFY_FAILED, CAUSE_VERIFY_UNREADABLE, CAUSE_PRESERVE_FAILED, CAUSE_WORKFLOWS_ABSENT,
+})
+
+# The reversal-marker union: the two — and only two — shapes the control-plane persists into engine.json
+# so a later clean removal reverses EXACTLY what the engine did. Named here, pinned by a test in
+# test_bootstrap, so the shape is fixed before any runbook prose that describes it is cut in b4.
+#   created  : the engine wrote its OWN ruleset          -> {"ruleset_mode": "created",   "augmented_ruleset_id": None, "added": None}
+#   augmented: the engine added into a PRODUCT ruleset   -> {"ruleset_mode": "augmented", "augmented_ruleset_id": <id>, "added": {"checks": [...], "rules": [...]}}
+REVERSAL_MARKER_MODES = ("created", "augmented")
+
+
 # ---- the result of an apply attempt -------------------------------------------------------------
 
 class Result:
@@ -604,8 +633,8 @@ class Result:
         self.status = status          # "applied" | "already" | "degraded" | "unverified"
         self.branch = branch
         self.missing = missing        # floor pieces still not in force (degraded) or disclosed (partial)
-        self.cause = cause            # "not-admin" | "org-policy" | "didnt-save" | "verify-failed" |
-        #                               "preserve-failed" | None
+        self.cause = cause            # one of CONTROL_PLANE_CAUSES, or None. The eight are named once
+        #                               above; the typed adapter derives its recovery matrix from that set.
         self.labels_ok = labels_ok
         # How the floor was put in force, for the right operator copy: "created" (the engine's own ruleset,
         # greenfield), "repaired" (the engine's own ruleset already existed), "augmented" (the engine added
@@ -876,8 +905,8 @@ class ControlPlane:
         if isinstance(body, dict):
             msg = (body.get("message") or "").lower()
         if "organization" in msg or "policy" in msg or "ruleset bypass" in msg:
-            return "org-policy"
-        return "not-admin"
+            return CAUSE_ORG_POLICY
+        return CAUSE_NOT_ADMIN
 
     def ensure_labels(self) -> bool:
         """Idempotently ensure the COMPLETE set of labels the engine's guards depend on exists (REQUIRED_LABELS),
@@ -927,7 +956,7 @@ class ControlPlane:
             scopes = self.token_scopes()            # verify-after-refresh (web flow can fail to persist)
             if scopes is not None and RULESET_SCOPE not in scopes:
                 labels_ok = self.ensure_labels()
-                return Result("degraded", branch, missing or [], "didnt-save", labels_ok)
+                return Result("degraded", branch, missing or [], CAUSE_DIDNT_SAVE, labels_ok)
 
         # 3. Apply. Three paths, in order of decisiveness:
         #    (a) the engine's OWN ruleset already exists -> repair it in place (greenfield re-run / a prior
@@ -974,9 +1003,9 @@ class ControlPlane:
                     plan_limited = self._plan_forbids_rulesets(branch)
                 except BootstrapError:
                     plan_limited = False
-                cause = "unsupported-platform" if plan_limited else self._forbidden_cause(body)
+                cause = CAUSE_UNSUPPORTED_PLATFORM if plan_limited else self._forbidden_cause(body)
             else:
-                cause = "verify-failed"
+                cause = CAUSE_VERIFY_FAILED
             return Result("degraded", branch, missing or [], cause, labels_ok, mode=mode)
 
         # 4. Verify the floor is now actually in force (never assume the write took). An UNREADABLE
@@ -988,9 +1017,9 @@ class ControlPlane:
         labels_ok = self.ensure_labels()
         marker = {"ruleset_mode": "created", "augmented_ruleset_id": None, "added": None}
         if still_missing is None:
-            return Result("unverified", branch, [], "verify-unreadable", labels_ok, mode=mode)
+            return Result("unverified", branch, [], CAUSE_VERIFY_UNREADABLE, labels_ok, mode=mode)
         if still_missing:
-            return Result("degraded", branch, still_missing, "verify-failed", labels_ok, mode=mode)
+            return Result("degraded", branch, still_missing, CAUSE_VERIFY_FAILED, labels_ok, mode=mode)
         return Result("applied", branch, [], None, labels_ok, mode=mode, marker=marker)
 
     def workflows_present_on(self, branch: str) -> bool:
@@ -1026,7 +1055,7 @@ class ControlPlane:
         branch = branch or boot.PROTECTED_BRANCH
         say = announce if announce is not None else (lambda text: print(text))
         if not self.workflows_present_on(branch):
-            return Result("degraded", branch, list(protection_guard.REQUIRED_CHECKS), "workflows-absent",
+            return Result("degraded", branch, list(protection_guard.REQUIRED_CHECKS), CAUSE_WORKFLOWS_ABSENT,
                           True, mode="finalize")
         result = self.apply(branch=branch, announce=announce)
         if result.is_protected():
@@ -1069,7 +1098,7 @@ class ControlPlane:
                 status, body, _ = self._transport("PUT", f"/repos/{self.repo}/rulesets/{rid}", payload)
             if status >= 400:
                 labels_ok = self.ensure_labels()
-                cause = self._forbidden_cause(body) if status in (401, 403) else "verify-failed"
+                cause = self._forbidden_cause(body) if status in (401, 403) else CAUSE_VERIFY_FAILED
                 return Result("degraded", branch, missing or [], cause, labels_ok, mode="augmented")
             try:
                 post = _project_ruleset(self.ruleset_detail(rid))   # immediately consistent with the PUT
@@ -1080,14 +1109,14 @@ class ControlPlane:
             if not _product_preserved(pre, post, added):
                 # The wholesale PUT altered something of the operator's — fail closed, never a false 'applied'.
                 labels_ok = self.ensure_labels()
-                return Result("degraded", branch, missing or [], "preserve-failed", labels_ok,
+                return Result("degraded", branch, missing or [], CAUSE_PRESERVE_FAILED, labels_ok,
                               mode="augmented")
             if all(c in _bound_checks(post["rules"]) for c in self.required_checks):
                 break                                     # our checks are in force (vacuously true when checkless)
             if attempts < 2:
                 continue                                  # a concurrent overwrite landed — re-read, retry once
             labels_ok = self.ensure_labels()
-            return Result("unverified", branch, missing or [], "verify-unreadable", labels_ok,
+            return Result("unverified", branch, missing or [], CAUSE_VERIFY_UNREADABLE, labels_ok,
                           mode="augmented")
 
         labels_ok = self.ensure_labels()
@@ -1100,7 +1129,7 @@ class ControlPlane:
         actual_missing = protection_guard.missing_floor(post["rules"], self.required_checks, tier=self.tier)
         unexpected = [m for m in actual_missing if m not in residual]
         if unexpected:
-            return Result("degraded", branch, actual_missing, "verify-failed", labels_ok, mode="augmented")
+            return Result("degraded", branch, actual_missing, CAUSE_VERIFY_FAILED, labels_ok, mode="augmented")
         if residual:   # a floor piece the product's own rule leaves open — disclosed, not modified
             return Result("applied", branch, residual, None, labels_ok, mode="augmented-partial",
                           marker=marker)
@@ -1220,13 +1249,13 @@ def render(result: Result, copy: dict | None = None) -> str:
         msg = copy["already"]
     elif result.status == "unverified":
         msg = copy["unverified"]
-    elif result.cause == "preserve-failed":
+    elif result.cause == CAUSE_PRESERVE_FAILED:
         # The wholesale PUT changed something of the operator's — say so plainly, never a false 'applied'.
         msg = ("I tried to add my checks to your existing branch-protection rule, but couldn't confirm I "
                "left the rest of your rule exactly as it was, so I've stopped rather than risk changing "
                "your protection. Nothing of yours should have changed — please check your repository's "
                "rules, and tell me if anything looks off.")
-    elif result.cause == "workflows-absent":
+    elif result.cause == CAUSE_WORKFLOWS_ABSENT:
         # Finalize (StarshipSuperjam/engine-template#673) refused because the engine's workflows aren't on the branch yet — binding the checks
         # now would deadlock every future pull request. Say so plainly, and name the likely cause.
         msg = ("I can't switch the engine's own checks on yet: I couldn't confirm the workflows that produce "
@@ -1235,7 +1264,7 @@ def render(result: Result, copy: dict | None = None) -> str:
                "again. (If it has merged, the other possibility is that this sign-in can't read the repository's "
                "files; a login that can administer branch protection can normally read them too.) Nothing was "
                "changed.")
-    elif result.cause == "verify-failed":
+    elif result.cause == CAUSE_VERIFY_FAILED:
         # The write reported success but the gate still isn't fully in force — honest, not "not-admin".
         detail = (": " + "; ".join(result.missing)) if result.missing else ""
         msg = ("I tried to turn on branch protection, but it still isn't fully in force" + detail +
@@ -1243,10 +1272,10 @@ def render(result: Result, copy: dict | None = None) -> str:
                "settings, or run this again.")
     else:  # degraded — pick the cause-matched banner
         key = {
-            "not-admin": "degraded-not-admin",
-            "org-policy": "degraded-org-policy",
-            "didnt-save": "degraded-didnt-save",
-            "unsupported-platform": "degraded-unsupported-platform",
+            CAUSE_NOT_ADMIN: "degraded-not-admin",
+            CAUSE_ORG_POLICY: "degraded-org-policy",
+            CAUSE_DIDNT_SAVE: "degraded-didnt-save",
+            CAUSE_UNSUPPORTED_PLATFORM: "degraded-unsupported-platform",
         }.get(result.cause or "", "degraded-not-admin")
         msg = copy[key]
     if not result.labels_ok:

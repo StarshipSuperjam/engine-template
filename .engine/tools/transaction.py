@@ -112,8 +112,15 @@ _REGISTRY = {}
 # adapters import this module (importing them here would be circular), and `transaction.py` has to stay
 # importable on the Python 3.9 arrival floor, where the domain modules an adapter reaches are not all
 # available. A library caller registers what it needs; the CLI loads them all.
+# control-plane-bootstrap/finalize and engine-arrival join the CLI here (typed-lifecycle Part B): the
+# operator drives them through `transaction.py plan/run <op>` exactly as the Part A operations above. The
+# arrival adapter is a first-run asset — it retires at engine setup, so on an installed engine its import
+# fails and `load_adapters` reports it (correctly: `engine-arrival` is not an operation an installed engine
+# offers). The control-plane adapter is permanent (it wraps the surviving bootstrap.py that finalize uses),
+# so it stays available for the re-runnable protection bootstrap and the post-merge finalize.
 _ADAPTER_MODULES = ("transaction_adapters_upgrade", "transaction_adapters_module",
-                    "transaction_adapters_remove")
+                    "transaction_adapters_remove", "transaction_adapters_controlplane",
+                    "transaction_adapters_arrival")
 
 
 def load_adapters():
