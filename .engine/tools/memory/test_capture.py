@@ -36,8 +36,12 @@ class CaptureTestCase(unittest.TestCase):
         os.environ.pop("CLAUDE_TRANSCRIPT_PATH", None)
         self.ledger = os.path.join(self.mem, "ledger.ndjson")
         self.data_dir = self.mem
+        # Hermeticity: every class in this module drives the real capture path, so redirect the
+        # status marker and failure history off the production cache files (StarshipSuperjam/engine-template#1193).
+        self._saved_health = capture.redirect_health_paths(os.path.join(self.tmp, "health"))
 
     def tearDown(self):
+        capture.restore_health_paths(self._saved_health)
         for k, v in self._saved.items():
             if v is None:
                 os.environ.pop(k, None)

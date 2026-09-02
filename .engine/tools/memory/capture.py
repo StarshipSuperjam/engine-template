@@ -769,6 +769,33 @@ CAPTURE_FAILURES_PATH = os.path.join(_ENGINE_DIR, "telemetry", ".cache", "memory
 MAX_FAILURE_HISTORY = 20
 
 
+def redirect_health_paths(directory: str) -> tuple:
+    """Point the capture-status marker and its failure history at *directory* and return the previous
+    (status, failures) pair so a caller can restore them with `restore_health_paths`.
+
+    This is a TEST SEAM and nothing else. A self-test run drives the real capture path, and without a
+    redirect its status/failure writes land on the PRODUCTION cache files this project reads for its own
+    memory-capture health — so a green suite silently latches a false "capture is failing" signal
+    (StarshipSuperjam/engine-template#1193). Every test that drives capture calls this, and a repo-wide
+    guard (`test_launch_contract.TestCaptureHermeticity`) fails the build if one does not. It moves ONLY
+    where the two sidecars live; it is never consulted by any capture, health or clearance decision, and
+    NO production code path calls it — hermeticity is a property of the tests, never a runtime "am I under
+    test" guess (the rejected alternative). `_health_path` reads these module globals at call time when no
+    persistent execution context is installed, which is the case under the test suite."""
+    global CAPTURE_STATUS_PATH, CAPTURE_FAILURES_PATH
+    saved = (CAPTURE_STATUS_PATH, CAPTURE_FAILURES_PATH)
+    os.makedirs(directory, exist_ok=True)
+    CAPTURE_STATUS_PATH = os.path.join(directory, "memory-capture.status")
+    CAPTURE_FAILURES_PATH = os.path.join(directory, "memory-capture-failures.ndjson")
+    return saved
+
+
+def restore_health_paths(saved: tuple) -> None:
+    """Restore the (status, failures) pair returned by `redirect_health_paths`."""
+    global CAPTURE_STATUS_PATH, CAPTURE_FAILURES_PATH
+    CAPTURE_STATUS_PATH, CAPTURE_FAILURES_PATH = saved
+
+
 def _health_path(key: str, fallback: str) -> str:
     if "ENGINE_PERSISTENT_EXECUTION_CONTEXT" not in os.environ:
         return fallback

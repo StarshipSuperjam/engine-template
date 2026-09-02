@@ -60,6 +60,18 @@ class CloseBase(unittest.TestCase):
     def setUp(self):
         self.sid = f"engine-test-close-{self.id()}"
         close.clear(self.sid)
+        # Hermeticity: close.handler triggers ambient capture on EVERY Stop, so every _stop() below
+        # drives the real capture path. Redirect the status marker and failure history off the
+        # production cache files (StarshipSuperjam/engine-template#1193). On a repo with no
+        # memory-substrate there is nothing to redirect (capture never runs), which is legitimate.
+        try:
+            from memory import capture
+        except Exception:  # noqa: BLE001 — no memory module: capture never runs, nothing to redirect
+            pass
+        else:
+            directory = tempfile.mkdtemp(prefix="engine-test-close-health-")
+            self.addCleanup(shutil.rmtree, directory, True)
+            self.addCleanup(capture.restore_health_paths, capture.redirect_health_paths(directory))
 
     def tearDown(self):
         close.clear(self.sid)

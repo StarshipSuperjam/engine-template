@@ -475,5 +475,81 @@ class RedWitnessMethodTests(unittest.TestCase):
         self.assertIn('value.get("engine_version")', result.stdout)
 
 
+class TestCaptureHermeticity(unittest.TestCase):
+    """Repo-wide invariant: a test module that DRIVES the real capture path must redirect its status
+    marker and failure history off the production cache files, or a green self-test run silently writes
+    a false "capture is failing" signal onto the very files the engine reads for its own memory-capture
+    health (StarshipSuperjam/engine-template#1193 — the test suite had latched exactly that). Hermeticity
+    is a property of the tests, guarded here — never a runtime "am I under test" guess inside capture, the
+    rejected alternative. The one blessed seam is `memory.capture.redirect_health_paths`; any module that
+    calls a capture entry point must reference it. The guard only PARSES modules; it never runs them, so
+    checking it can never itself write the production files."""
+
+    #: Capture entry points whose call writes the status marker and/or the failure history.
+    CAPTURE_DRIVERS = {"capture_turn_delta", "_trigger_ambient_capture"}
+    #: The blessed redirect seam a capture-driving module must use to stay hermetic.
+    REDIRECT_SEAM = "redirect_health_paths"
+
+    @classmethod
+    def _identifiers(cls, tree: ast.AST) -> set:
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute):
+                names.add(node.attr)
+            elif isinstance(node, ast.Name):
+                names.add(node.id)
+        return names
+
+    @classmethod
+    def _drives_capture(cls, tree: ast.AST) -> bool:
+        # A CALL to a driver, not a mere reference — so `hasattr(memory, "capture_turn_delta")` and
+        # `callable(memory.capture_turn_delta)` (which never write anything) are correctly ignored.
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
+                if name in cls.CAPTURE_DRIVERS:
+                    return True
+        return False
+
+    @classmethod
+    def _offenders(cls, test_files) -> list:
+        offenders = []
+        for path in test_files:
+            tree = ast.parse(Path(path).read_text(encoding="utf-8"), filename=str(path))
+            if cls._drives_capture(tree) and cls.REDIRECT_SEAM not in cls._identifiers(tree):
+                offenders.append(Path(path).name)
+        return sorted(offenders)
+
+    def test_no_capture_driving_test_writes_the_production_marker(self):
+        tools = ROOT / ".engine" / "tools"
+        offenders = self._offenders(sorted(tools.rglob("test_*.py")))
+        self.assertEqual(
+            offenders, [],
+            "these test modules call a capture entry point without redirecting its health paths, so a "
+            f"self-test run writes the production capture cache files: {offenders}. Redirect both in the "
+            "module's setUp with memory.capture.redirect_health_paths / restore_health_paths.")
+
+    def test_the_guard_flags_an_unredirected_driver_and_passes_a_redirected_one(self):
+        # Negative control: a synthetic module that drives capture without the seam MUST be flagged;
+        # a sibling that uses the seam must pass. Both are only parsed, never run — no production write.
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "test_synthetic_unredirected.py"
+            bad.write_text(
+                "from memory import capture\n"
+                "def test_it():\n"
+                "    capture.capture_turn_delta({'session_id': 'x'})\n",
+                encoding="utf-8")
+            self.assertEqual(self._offenders([bad]), ["test_synthetic_unredirected.py"])
+            good = Path(tmp) / "test_synthetic_redirected.py"
+            good.write_text(
+                "from memory import capture\n"
+                "def test_it():\n"
+                "    saved = capture.redirect_health_paths('/tmp/x')\n"
+                "    capture.capture_turn_delta({'session_id': 'x'})\n"
+                "    capture.restore_health_paths(saved)\n",
+                encoding="utf-8")
+            self.assertEqual(self._offenders([good]), [])
+
+
 if __name__ == "__main__":
     unittest.main()
