@@ -327,6 +327,21 @@ def _target_state(src: str, rid, sid) -> tuple:
     return exists, (rid in withheld_ids if rid is not None else sid in withheld_sessions)
 
 
+def _authority_refused(exc: Exception) -> "ControlNotRecorded":
+    """Translate a refused memory-write authorization into the operator-facing ControlNotRecorded.
+
+    A withhold or restore is authorized at its own verb, but the marker is written through nested store
+    operations — taking the capture lock, bumping the index epoch, appending the marker — that each consume
+    their own authority. If one is refused, the raw refusal names an internal registry boundary the operator
+    cannot act on, so it is reported as plain language with the raw reason kept only as a wrapped
+    parenthetical for a maintainer reading a log. Nothing was written when this fires: the append never ran,
+    so the honest report is that the change did not happen, not that it half-happened."""
+    return ControlNotRecorded(
+        f"the change could not be saved — memory refused an internal write authorization ({exc}). "
+        "Nothing was changed."
+    )
+
+
 def _write_control(kind: str, *, record_id=None, session_id=None,
                    path: "str | None" = None, now: "int | None" = None) -> dict:
     """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
@@ -370,7 +385,13 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         raise ControlNotRecorded(f"that {noun} is already out of recall — nothing needed changing.")
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
-    lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
+    # `_acquire_lock` consumes the capture-lock-create authority as its first act, so an authority refusal
+    # surfaces here — OUTSIDE the write try below. Translate it in place, or the raw closed-boundary text
+    # escapes to the operator as it did before this fix.
+    try:
+        lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
+    except _mutation_authority.MutationAuthorityError as exc:
+        raise _authority_refused(exc) from exc
     if lock_fd is None:
         # A `None` here does NOT prove contention — the same value comes back when the store cannot be opened
         # at all, which is what a permissions problem, a full disk or an unmounted volume looks like. Saying
@@ -400,6 +421,8 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         return marker
     except ControlNotRecorded:
         raise
+    except _mutation_authority.MutationAuthorityError as exc:
+        raise _authority_refused(exc) from exc
     except Exception as exc:
         raise ControlNotRecorded(f"the change could not be saved ({exc}).") from exc
     finally:

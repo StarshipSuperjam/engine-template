@@ -16,6 +16,7 @@ import jsonschema
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import accepted_hook_dispatch
 from memory import mutation_contract as contract
+from memory import execution_context as _execution_context
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -429,6 +430,202 @@ class TestPreCompactBoundedWarning(unittest.TestCase):
         self.assertIsNotNone(self._warn(
             {"status": "skipped", "reason": "compaction faulted, skipped: memory.compact.compact needs this "
                                             "session to be qualified to write memory"}))
+
+
+def _attended_ctx(registry_id):
+    return {"operation": {"invocation_mode": "attended", "registry_id": registry_id}}
+
+
+def _automatic_ctx(script):
+    return {"operation": {"invocation_mode": "automatic"}, "invocation": {"script": script}}
+
+
+def _closure(ctx):
+    """The real closure function against the real contract — the same call the guard makes at mint time."""
+    return _execution_context._allowed_registry_ids(ctx, contract)
+
+
+class TestSanctionedWriteLaneClosures(unittest.TestCase):
+    """Every sanctioned write lane must reach the exact nested store operations its code path consumes.
+
+    The withhold/restore lanes (and the CLI pin-remove lane that inherits withhold) reach their ledger
+    writers through an UNREGISTERED helper — `memory.forget._write_control` — so the closure's callers-edge
+    leg cannot bridge them the way it bridges pin-add (whose nested entries name `memory.pins.add` outright).
+    Before the boundary keys these lanes closed over just their own root and refused the very first nested
+    write with the raw "outside this invocation's closed transitive boundary" error."""
+
+    _WITHHOLD_NESTED = frozenset({"capture-lock-create", "ledger-append", "ledger-index-epoch"})
+
+    def test_mcp_withhold_reaches_lock_epoch_and_append(self):
+        self.assertLessEqual(self._WITHHOLD_NESTED, _closure(_attended_ctx("attended-withhold")))
+
+    def test_mcp_restore_reaches_lock_epoch_and_append(self):
+        self.assertLessEqual(self._WITHHOLD_NESTED, _closure(_attended_ctx("attended-restore-withheld")))
+
+    def test_cli_pin_removal_inherits_the_withhold_lane(self):
+        # engine-drop-operator-pin installs attended-pin-remove; its closure reaches attended-withhold across
+        # the callers edge (`memory.pins.remove` is a caller of attended-withhold), and thence the nested writers.
+        closure = _closure(_attended_ctx("attended-pin-remove"))
+        self.assertIn("attended-withhold", closure)
+        self.assertLessEqual(self._WITHHOLD_NESTED, closure)
+
+    def test_the_already_working_pin_add_lane_is_undisturbed(self):
+        self.assertLessEqual(self._WITHHOLD_NESTED, _closure(_attended_ctx("attended-pin-add")))
+
+    def test_automatic_erasure_observer_reaches_lock_and_append(self):
+        closure = _closure(_automatic_ctx(".engine/tools/memory/erasure_observer.py"))
+        self.assertLessEqual({"capture-lock-create", "ledger-append"}, closure)
+
+    def test_the_explicit_erasure_grant_holds_without_the_shared_harness_cascade(self):
+        # The erasure lane's ids are ALSO reachable through the automatic shared-harness cascade
+        # (AUTOMATIC_COMMON_EFFECTS -> hooks.run_hook -> boot/close boundaries -> capture writers), so on
+        # today's tree this explicit key is defensive rather than the thing that unbreaks the lane — the
+        # observer was never actually refused. This test pins the key's real value: were that cascade ever
+        # tightened toward least privilege, the explicit grant still delivers EXACTLY what enact_erasure
+        # consumes, and nothing more.
+        original = contract.AUTOMATIC_COMMON_EFFECTS
+        try:
+            contract.AUTOMATIC_COMMON_EFFECTS = ()
+            closure = _closure(_automatic_ctx(".engine/tools/memory/erasure_observer.py"))
+        finally:
+            contract.AUTOMATIC_COMMON_EFFECTS = original
+        self.assertEqual({eid for eid in closure if eid != "automatic-erasure-observer"},
+                         {"capture-lock-create", "ledger-append"})
+
+    def test_the_boundary_keys_declare_exactly_the_consumed_ids(self):
+        self.assertEqual(contract.TRANSITIVE_BOUNDARIES["memory.forget.withhold"],
+                         ("capture-lock-create", "ledger-append", "ledger-index-epoch"))
+        self.assertEqual(contract.TRANSITIVE_BOUNDARIES["memory.forget.restore"],
+                         ("capture-lock-create", "ledger-append", "ledger-index-epoch"))
+        self.assertEqual(contract.TRANSITIVE_BOUNDARIES["memory.erasure_observer.enact_from_merged_prs"],
+                         ("capture-lock-create", "ledger-append"))
+
+
+# The full allowed closure of every attended write root, pinned. Attended closures start from the single
+# operation and never fold in the automatic shared-harness cascade, so each set is small and each entry is a
+# genuine reachable write — which is exactly why a writer-through-helper gap (the withhold/restore bug) shows
+# up here as a MISSING id rather than being masked. Regenerate deliberately when the registry legitimately
+# changes; an unexplained diff is a lane that quietly gained or lost reach.
+_ATTENDED_WRITE_ROOT_CLOSURES = {
+    'accepted-lock-create': ('accepted-lock-create',),
+    'accepted-metadata-write': ('accepted-metadata-write',),
+    'attended-accepted-activation': ('accepted-lock-create', 'accepted-metadata-write', 'attended-accepted-activation'),
+    'attended-backup-setup': ('attended-backup-setup', 'backup-pointer-write', 'project-pointer-commit', 'vault-destination-bind', 'vault-readme-seed'),
+    'attended-clawmem-export': ('attended-clawmem-export',),
+    'attended-clawmem-export-teardown': ('attended-clawmem-export', 'attended-clawmem-export-teardown'),
+    'attended-erasure-request': ('attended-erasure-request', 'erasure-pr-open', 'erasure-proposal-write'),
+    'attended-export': ('attended-export',),
+    'attended-first-run-marker-stage': ('attended-first-run-marker-stage',),
+    'attended-keyword-mcp-search': ('attended-keyword-mcp-search', 'attended-keyword-search-heal', 'index-rebuild', 'index-schema', 'index-stale-heal'),
+    'attended-keyword-search-heal': ('attended-keyword-search-heal',),
+    'attended-migration-snapshot': ('attended-migration-snapshot', 'migration-stamp-write', 'vault-blob-create', 'vault-commit-build', 'vault-tag-create'),
+    'attended-pin-add': ('attended-pin-add', 'capture-lock-create', 'ledger-append', 'ledger-index-epoch'),
+    'attended-pin-remove': ('attended-pin-remove', 'attended-withhold', 'capture-lock-create', 'ledger-append', 'ledger-index-epoch'),
+    'attended-rescrub': ('attended-migration-snapshot', 'attended-rescrub', 'capture-lock-create', 'index-rebuild', 'index-schema', 'ledger-index-epoch', 'ledger-replace', 'migration-stamp-write', 'semantic-passages-drop', 'vault-blob-create', 'vault-commit-build', 'vault-tag-create'),
+    'attended-restore-now': ('attended-restore-now', 'automatic-restore-reconcile', 'capture-lock-create', 'index-rebuild', 'index-schema', 'ledger-generation-set', 'ledger-replace', 'restore-apply', 'restore-journal-complete', 'restore-journal-write', 'restore-orphan-cleanup', 'restore-prior-set', 'restore-quiet-remove'),
+    'attended-restore-pre-migration': ('attended-restore-pre-migration', 'automatic-restore-reconcile', 'capture-lock-create', 'index-rebuild', 'index-schema', 'ledger-generation-set', 'ledger-replace', 'migration-stamp-clear', 'restore-apply', 'restore-journal-complete', 'restore-journal-write', 'restore-orphan-cleanup', 'restore-prior-set', 'restore-quiet-remove'),
+    'attended-restore-withheld': ('attended-restore-withheld', 'capture-lock-create', 'ledger-append', 'ledger-index-epoch'),
+    'attended-saved-memory-projection': ('attended-saved-memory-projection', 'restore-quiet-remove', 'saved-belief-temp-projection'),
+    'attended-semantic-mcp-search': ('attended-semantic-mcp-search', 'attended-semantic-search-reconcile', 'semantic-store-connect', 'semantic-store-reconcile'),
+    'attended-semantic-search-reconcile': ('attended-semantic-search-reconcile', 'semantic-store-connect', 'semantic-store-reconcile'),
+    'attended-semantic-sync': ('attended-semantic-sync', 'semantic-store-connect', 'semantic-store-reconcile'),
+    'attended-withhold': ('attended-withhold', 'capture-lock-create', 'ledger-append', 'ledger-index-epoch'),
+    'automatic-backup': ('automatic-backup', 'backup-status-write', 'vault-blob-create', 'vault-commit-build', 'vault-files-push', 'vault-snapshot-publish'),
+    'automatic-compaction': ('automatic-compaction', 'capture-lock-create', 'compaction-temp-reap', 'compaction-temp-write', 'index-rebuild', 'index-schema', 'ledger-generation-bump', 'ledger-replace', 'migration-window-reap'),
+    'automatic-restore-reconcile': ('automatic-restore-reconcile', 'restore-orphan-cleanup', 'restore-prior-set'),
+    'backup-pointer-write': ('backup-pointer-write',),
+    'backup-status-write': ('backup-status-write',),
+    'capture-lock-create': ('capture-lock-create',),
+    'checkout-preference-write': ('checkout-preference-write',),
+    'close-findings-clear': ('close-findings-clear',),
+    'close-findings-record': ('close-findings-record',),
+    'compaction-temp-reap': ('compaction-temp-reap',),
+    'compaction-temp-write': ('compaction-temp-write',),
+    'erasure-pr-open': ('erasure-pr-open',),
+    'erasure-proposal-write': ('erasure-proposal-write',),
+    'index-rebuild': ('index-rebuild', 'index-schema'),
+    'index-schema': ('index-schema',),
+    'index-stale-heal': ('index-rebuild', 'index-schema', 'index-stale-heal'),
+    'ledger-append': ('ledger-append',),
+    'ledger-generation-bump': ('ledger-generation-bump',),
+    'ledger-generation-set': ('ledger-generation-set',),
+    'ledger-index-epoch': ('ledger-index-epoch',),
+    'ledger-replace': ('ledger-replace',),
+    'migration-stamp-clear': ('migration-stamp-clear',),
+    'migration-stamp-write': ('migration-stamp-write',),
+    'migration-window-close': ('migration-window-close',),
+    'migration-window-open': ('migration-window-open',),
+    'migration-window-reap': ('migration-window-reap',),
+    'project-pointer-commit': ('project-pointer-commit',),
+    'restore-apply': ('capture-lock-create', 'index-rebuild', 'index-schema', 'ledger-generation-set', 'ledger-replace', 'restore-apply', 'restore-journal-complete', 'restore-journal-write', 'restore-orphan-cleanup', 'restore-quiet-remove'),
+    'restore-journal-complete': ('restore-journal-complete', 'restore-journal-write'),
+    'restore-journal-write': ('restore-journal-write',),
+    'restore-orphan-cleanup': ('restore-orphan-cleanup',),
+    'restore-prior-set': ('restore-prior-set',),
+    'restore-quiet-remove': ('restore-quiet-remove',),
+    'resurrection-finding': ('resurrection-finding',),
+    'saved-belief-temp-projection': ('restore-quiet-remove', 'saved-belief-temp-projection'),
+    'semantic-passages-drop': ('semantic-passages-drop',),
+    'semantic-store-connect': ('semantic-store-connect',),
+    'semantic-store-reconcile': ('semantic-store-reconcile',),
+    'telemetry-finding-emit': ('telemetry-finding-emit',),
+    'vault-blob-create': ('vault-blob-create',),
+    'vault-commit-build': ('vault-blob-create', 'vault-commit-build'),
+    'vault-destination-bind': ('vault-destination-bind',),
+    'vault-files-push': ('vault-blob-create', 'vault-commit-build', 'vault-files-push'),
+    'vault-readme-seed': ('vault-readme-seed',),
+    'vault-snapshot-publish': ('vault-blob-create', 'vault-commit-build', 'vault-files-push', 'vault-snapshot-publish'),
+    'vault-tag-create': ('vault-tag-create',),
+    'vault-tag-delete': ('vault-tag-delete',),
+}
+
+
+class TestClosureCompletenessCensus(unittest.TestCase):
+    """A completeness census over every write lane, so a future writer-through-helper gap or registry edit
+    fails a test DELIBERATELY instead of shipping a silently-broken lane.
+
+    Two shapes, matched to where the gap class actually bites:
+
+    * Attended write roots get their FULL closure pinned (`_ATTENDED_WRITE_ROOT_CLOSURES`). These closures do
+      not fold in the automatic shared-harness cascade, so a missing nested writer is visible rather than
+      masked — this is the census that would have caught the withhold/restore bug on the day it landed.
+    * Automatic entrypoints get an INVARIANT (each reaches the core store writers) rather than a pinned
+      golden. Their closures are large and legitimately volatile as the control plane evolves, and the shared
+      cascade already MASKS a helper gap there (as it did for erasure), so a full golden would be high-noise,
+      low-signal, and would not detect the gap class anyway."""
+
+    def test_every_attended_write_root_matches_its_pinned_closure(self):
+        roots = sorted(entry["id"] for entry in contract.REGISTRY
+                       if "attended" in entry["allowed_invocation_modes"]
+                       and entry["effect_class"] != "semantic-read")
+        # The golden and the live registry name exactly the same roster — a new or removed write root shows here.
+        self.assertEqual(roots, sorted(_ATTENDED_WRITE_ROOT_CLOSURES))
+        for registry_id in roots:
+            with self.subTest(root=registry_id):
+                self.assertEqual(tuple(sorted(_closure(_attended_ctx(registry_id)))),
+                                 _ATTENDED_WRITE_ROOT_CLOSURES[registry_id])
+
+    def test_every_automatic_entrypoint_reaches_the_core_store_writers(self):
+        for script in contract.AUTOMATIC_ENTRYPOINTS:
+            with self.subTest(script=script):
+                closure = _closure(_automatic_ctx(script))
+                self.assertIn("ledger-append", closure)
+                self.assertIn("capture-lock-create", closure)
+
+    def test_the_census_detects_a_removed_boundary_grant(self):
+        # The deliberately-broken fixture: strip the withhold boundary key and confirm the census would fail
+        # — proof the golden is a live tripwire, not a tautology re-derived from the same data it checks.
+        from types import MappingProxyType
+        broken = MappingProxyType({k: v for k, v in contract.TRANSITIVE_BOUNDARIES.items()
+                                   if k != "memory.forget.withhold"})
+        original = contract.TRANSITIVE_BOUNDARIES
+        try:
+            contract.TRANSITIVE_BOUNDARIES = broken
+            closure = tuple(sorted(_closure(_attended_ctx("attended-withhold"))))
+        finally:
+            contract.TRANSITIVE_BOUNDARIES = original
+        self.assertNotEqual(closure, _ATTENDED_WRITE_ROOT_CLOSURES["attended-withhold"])
+        self.assertEqual(closure, ("attended-withhold",))  # collapses to just the root, the pre-fix bug
 
 
 if __name__ == "__main__":

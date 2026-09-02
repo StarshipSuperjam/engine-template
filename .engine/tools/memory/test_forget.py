@@ -20,6 +20,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from memory import capture, compact, forget, index, ledger, legacy_shapes as legacy, records  # noqa: E402
+from memory import mutation_authority  # noqa: E402
 
 
 class _Base(unittest.TestCase):
@@ -712,6 +713,65 @@ class WithholdTests(_Base):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(forget.main(["restore-record", rid]), 0)
         self.assertEqual(len(list(forget.live_records())), 1)
+
+
+class AuthorityRefusalTranslationTests(_Base):
+    """A refused memory-write authorization on the operator verbs must arrive as ControlNotRecorded plain
+    language, with the raw registry-boundary text kept only as a wrapped parenthetical a maintainer can read.
+
+    The refusal can fire at TWO sites inside `_write_control`: acquiring the capture lock (which runs BEFORE
+    the write try, and whose raw refusal escaped to the operator before this fix) and the ledger writes
+    (inside the try). Both must translate, and neither may leave a marker behind."""
+
+    _RAW = "registry operation is outside this invocation's closed transitive boundary"
+
+    def _seed_one(self, session: str = "s-auth") -> str:
+        rid = records.new_record_id()
+        ledger.append({"v": capture.RECORD_VERSION, "kind": records.AMBIENT_CAPTURE_KIND,
+                       records.RECORD_ID_KEY: rid, "session_id": session, "seq": 0,
+                       "speaker": "user", "ts": int(time.time()), "text": "a note about pastry"})
+        return rid
+
+    def _assert_translated(self, exc: Exception) -> None:
+        message = str(exc)
+        self.assertNotEqual(message, self._RAW)                 # not the raw text surfaced verbatim
+        self.assertIn("could not be saved", message.lower())    # plain-language lead
+        self.assertIn("nothing was changed", message.lower())   # and the honest outcome
+        self.assertIn(self._RAW, message)                       # raw preserved, only as a wrapped detail
+
+    def _assert_no_marker(self) -> None:
+        self.assertEqual([r for r in ledger.iter_records()
+                          if r.get("kind") in (records.WITHHOLD_KIND, records.RESTORE_KIND)], [])
+
+    def test_a_lock_acquire_authority_refusal_translates_on_withhold(self):
+        from unittest import mock
+        rid = self._seed_one()
+        boom = mutation_authority.MutationAuthorityError(self._RAW)
+        with mock.patch.object(capture, "_acquire_lock", side_effect=boom):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.withhold(record_id=rid)
+        self._assert_translated(caught.exception)
+        self._assert_no_marker()
+
+    def test_a_ledger_write_authority_refusal_translates_on_restore(self):
+        from unittest import mock
+        rid = self._seed_one()
+        boom = mutation_authority.MutationAuthorityError(self._RAW)
+        # restore of a never-withheld target still reaches the write, so the ledger-site refusal is exercised.
+        with mock.patch.object(ledger, "bump_index_epoch", side_effect=boom):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.restore(record_id=rid)
+        self._assert_translated(caught.exception)
+        self._assert_no_marker()
+
+    def test_an_ordinary_control_not_recorded_is_not_reworded_as_an_authority_refusal(self):
+        # A genuine non-authority refusal (an id that names nothing) keeps its own plain words, untouched by
+        # the authority translation — the two failure classes stay distinct to the operator.
+        with self.assertRaises(forget.ControlNotRecorded) as caught:
+            forget.withhold(record_id="deadbeefdeadbeefdeadbeefdeadbeef")
+        message = str(caught.exception)
+        self.assertNotIn(self._RAW, message)
+        self.assertNotIn("internal write authorization", message)
 
 
 if __name__ == "__main__":

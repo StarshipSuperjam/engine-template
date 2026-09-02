@@ -407,6 +407,22 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
     "memory.restore_vault.read_saved_memory": (
         "attended-saved-memory-projection", "saved-belief-temp-projection", "restore-quiet-remove",
     ),
+    # Operator withhold/restore and the merged-erasure observer each reach their ledger writers through an
+    # UNREGISTERED helper (`memory.forget._write_control`, `memory.compact.enact_erasure`), so the callers-edge
+    # leg of the closure — which bridges only when a nested entry names the ROOT writer directly — never fires
+    # for them the way it does for pin-add (whose nested entries name `memory.pins.add` outright). Naming the
+    # exact ids each root consumes keeps the closure honest without widening it: withhold and restore both run
+    # `_write_control`, which takes the capture lock and writes the marker under a bumped index epoch; the
+    # erasure observer runs `enact_erasure`, which takes the capture lock and appends (no epoch bump).
+    "memory.forget.withhold": (
+        "capture-lock-create", "ledger-append", "ledger-index-epoch",
+    ),
+    "memory.forget.restore": (
+        "capture-lock-create", "ledger-append", "ledger-index-epoch",
+    ),
+    "memory.erasure_observer.enact_from_merged_prs": (
+        "capture-lock-create", "ledger-append",
+    ),
 })
 
 

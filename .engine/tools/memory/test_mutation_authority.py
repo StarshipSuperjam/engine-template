@@ -570,5 +570,68 @@ class LockedAuthorityTests(unittest.TestCase):
         self.assertEqual(len(execution_context._GRANTS), 0)
 
 
+class AttendedWithholdRestoreEndToEndTests(unittest.TestCase):
+    """A withhold and a restore, end-to-end through the REAL guard path under a minted attended context.
+
+    These are the first tests to drive a SUCCESSFUL attended withhold/restore through the transitive-boundary
+    closure. Every existing round-trip in `test_forget` runs in the no-context arm, where the source-bound
+    test adapter waves the write through and the closure is never consulted. Here a real qualified context is
+    installed (`_QualifiedFixture`, the MCP root the 15 refused `mcp__engine-memory__withhold` calls used), so
+    the adapter is bypassed and the genuine capture-lock -> index-epoch -> append path runs and mints real
+    `CapabilityReceipt`s. Before the withhold/restore boundary keys this refused at the first nested write with
+    the raw "outside this invocation's closed transitive boundary" error — exactly the observed bug."""
+
+    def setUp(self):
+        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture.install()
+
+    def tearDown(self):
+        self.fixture.cleanup()
+
+    def _seed_turn(self, session, text):
+        record = capture._make_record(session, 0, "user", text)
+        ledger.append(record, path=os.path.join(self.fixture.memory, "ledger.ndjson"))
+        return record[records.RECORD_ID_KEY]
+
+    def _live_ids(self):
+        from memory import forget
+        return {record.get(records.RECORD_ID_KEY) for record in forget.live_records()}
+
+    def test_withhold_then_restore_round_trips_through_the_real_capability_path(self):
+        from memory import forget
+        rid = self._seed_turn("s-e2e", "a secret turn note")
+        self.assertIn(rid, self._live_ids())
+
+        receipts = []
+        original = execution_context.consume_capability
+
+        def _spy(capability, **kwargs):
+            receipt = original(capability, **kwargs)
+            receipts.append(receipt)
+            return receipt
+
+        execution_context.consume_capability = _spy
+        try:
+            marker = forget.withhold(record_id=rid)
+        finally:
+            execution_context.consume_capability = original
+
+        # The write went through the real path: genuine CapabilityReceipts, not a test-only dict.
+        self.assertEqual(marker["kind"], records.WITHHOLD_KIND)
+        self.assertTrue(receipts)
+        self.assertTrue(all(isinstance(receipt, execution_context.CapabilityReceipt) for receipt in receipts))
+
+        # The marker landed in the real temp ledger, and the record left recall.
+        landed = [record for record in ledger.iter_records(
+            path=os.path.join(self.fixture.memory, "ledger.ndjson"))
+            if record.get("kind") == records.WITHHOLD_KIND and record.get(records.TARGET_KEY) == rid]
+        self.assertEqual(len(landed), 1)
+        self.assertNotIn(rid, self._live_ids())
+
+        # Restore reverses it — the record re-enters live_records.
+        forget.restore(record_id=rid)
+        self.assertIn(rid, self._live_ids())
+
+
 if __name__ == "__main__":
     unittest.main()
