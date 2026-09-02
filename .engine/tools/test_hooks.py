@@ -977,15 +977,17 @@ class TestCrashDebugHermeticGuard(unittest.TestCase):
             class _T:                                 # stands in for the lazy telemetry import's constant
                 HOOK_CRASH_DEBUG_PATH = target
             with mock.patch.dict(sys.modules, {"telemetry": _T}):
-                hooks._record_crash_debug("PreToolUse", RuntimeError("boom"))
+                wrote = hooks._record_crash_debug("PreToolUse", RuntimeError("boom"))
             self.assertFalse(os.path.exists(target))
+            self.assertIs(wrote, False)          # the hermetic no-op reports it wrote nothing
 
     def test_explicit_path_still_writes(self):
         with tempfile.TemporaryDirectory() as d:
             target = os.path.join(d, "crash.log")
-            hooks._record_crash_debug("PreToolUse", RuntimeError("boom"), path=target)
+            wrote = hooks._record_crash_debug("PreToolUse", RuntimeError("boom"), path=target)
             with open(target, encoding="utf-8") as fh:
                 self.assertIn("RuntimeError: boom", fh.read())
+            self.assertIs(wrote, True)           # a real append reports it wrote
 
 
 
