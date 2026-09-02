@@ -908,5 +908,100 @@ class SandboxAwareNoTokenTests(_Base):
         self.assertIn("internet connection", net)                  # genuine network errors keep their message
 
 
+class DeadlineStageTests(_Base):
+    """A session-start deadline says WHERE the time went. A transport stalled at each publication stage —
+    including through the SIGALRM interrupt — carries that stage in the result and the sidecar, and the
+    operator line names it in plain words with a stage-specific next step. Bounds and fail-open are unchanged."""
+
+    # stage -> the backup_vault symbol to stall so the deadline falls IN that stage. The order matches the
+    # publication order in _push_now_under_deadline, so stalling one stage lets every earlier stage complete.
+    _STALL_TARGET = {
+        "probe": "_get",
+        "read": "_read_ledger_bytes",
+        "encode": ("snapshot_format", "encode"),
+        "manifest": "build_manifest",
+        "publish": "_publish_snapshot",
+    }
+
+    def _setup_vault(self):
+        ledger.append({"kind": "turn-delta", "text": "bounded backup"})
+        fake = bv._FakeVault()
+        self.assertTrue(bv.setup(scope="shared", transport=fake.transport, consent="y")["ok"])
+        return fake
+
+    @staticmethod
+    def _blocked(*args, **kwargs):
+        time.sleep(1)
+        return None
+
+    @contextlib.contextmanager
+    def _stall(self, stage, target):
+        # Stall exactly the target stage. For any stage AFTER encode, replace the real (~0.5s) encode with an
+        # instant stub so a short deadline falls in the STALLED stage, not in real encode's own deadline check.
+        with contextlib.ExitStack() as stack:
+            if stage not in ("probe", "read", "encode"):
+                stack.enter_context(mock.patch.object(
+                    bv.snapshot_format, "encode", side_effect=lambda *a, **k: {"manifest": {}}))
+            if isinstance(target, tuple):
+                stack.enter_context(mock.patch.object(getattr(bv, target[0]), target[1], side_effect=self._blocked))
+            else:
+                stack.enter_context(mock.patch.object(bv, target, side_effect=self._blocked))
+            yield
+
+    def test_stage_matrix_every_stalled_stage_is_carried_in_the_result_and_sidecar(self):
+        # The stage_matrix evidence: a deadline stalled at each stage reports exactly that stage, driven
+        # through the real SIGALRM interrupt path in push_now, and read back from the sidecar. One vault is
+        # set up and REUSED across stages so the committed pointer keeps naming a repo the fake still serves.
+        fake = self._setup_vault()
+        matrix = {}
+        for stage, target in self._STALL_TARGET.items():
+            with self.subTest(stage):
+                # A deadline generous enough that the real earlier stages (fake transport, a tiny ledger,
+                # the instant encode stub) finish well within it, so the SIGALRM falls in the ONE stalled
+                # stage — not in an earlier real stage's own cooperative deadline check.
+                with self._stall(stage, target):
+                    result = bv.push_now(transport=fake.transport, deadline_seconds=0.3)
+                self.assertEqual(result["error"], "deadline", stage)
+                self.assertEqual(result["stage"], stage, f"stalled at {stage}, reported {result.get('stage')}")
+                # The caller writes it to the sidecar, from which it reads back as the same stage.
+                bv._record_state(now=1234, success=False, privacy_ok=True, deadline_stage=result["stage"])
+                self.assertEqual(bv._read_state().get("last_deadline_stage"), stage)
+                matrix[stage] = result["stage"]
+        self.assertEqual(matrix, {s: s for s in self._STALL_TARGET})
+
+    def test_sidecar_records_the_deadline_stage_and_clears_it_on_a_clean_attempt(self):
+        bv._record_state(now=1000, success=False, privacy_ok=True, deadline_stage="publish")
+        self.assertEqual(bv._read_state().get("last_deadline_stage"), "publish")
+        # A later non-deadline attempt clears the field, so the sidecar never keeps a stale stage.
+        bv._record_state(now=2000, success=True, privacy_ok=True, deadline_stage=None)
+        self.assertNotIn("last_deadline_stage", bv._read_state())
+
+    def test_session_start_relay_names_the_stage_and_writes_the_sidecar(self):
+        self._setup_vault()
+        # Force a due push whose result is a staged deadline, without waiting on a real 10s stall.
+        staged = {"ok": False, "error": "deadline", "pushed": False, "namespace": None, "stage": "publish"}
+        with mock.patch.object(bv, "_should_push", return_value=True), \
+                mock.patch.object(bv, "push_now", return_value=staged):
+            decision = bv._session_start_handler({}, now=int(time.time()) + 100 * 3600)
+        self.assertEqual(decision["action"], "inject")
+        self.assertIn("uploading the backup", decision["context"])
+        self.assertEqual(bv._read_state().get("last_deadline_stage"), "publish")
+
+    def test_operator_lines_name_each_stage_in_plain_words(self):
+        for stage, (where, _next) in bv._DEADLINE_STAGE_PHRASING.items():
+            with self.subTest(stage):
+                foreground = bv._now_message({"ok": False, "error": "deadline", "stage": stage})
+                relay = bv._heads_up_deadline(stage)
+                self.assertIn(where, foreground)
+                self.assertIn(where, relay)
+                # The internal 'stage' vocabulary never reaches the operator surface.
+                self.assertNotIn("stage", foreground.lower())
+                self.assertNotIn("stage", relay.lower())
+
+    def test_a_deadline_with_no_recorded_stage_reads_as_the_stageless_message(self):
+        self.assertEqual(bv._heads_up_deadline(None), bv._HEADS_UP_DEADLINE)
+        self.assertNotIn("It stopped", bv._now_message({"ok": False, "error": "deadline"}))
+
+
 if __name__ == "__main__":
     unittest.main()
