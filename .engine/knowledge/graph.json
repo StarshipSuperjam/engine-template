@@ -9714,7 +9714,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:a02428319dc95bea9b0a931fb8fbeced23bd64580066c2a9e900d85dc2db10bd",
+        "fingerprint": "sha256:b64f4ae2918e7d09e74cffa9506dcc649f98abb565f7cd25c95e1d9681c7cb98",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
