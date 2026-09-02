@@ -1579,6 +1579,104 @@ class TestRefusedState(unittest.TestCase):
         self.assertNotIn("No milestone is open", pack)          # routine status is pull-only, not pushed
 
 
+class TestEnvelopeAssemblyDiagnostic(unittest.TestCase):
+    """A boot envelope-assembly failure is fail-open — it falls back to a minimal safe grounding — but before
+    this it left NO diagnostic anywhere, so a recurrence was invisible. Now, on the REAL SessionStart path
+    only, the failure is recorded durably and content-safely (a gitignored crash-log traceback + one
+    content-free benign finding) and the grounding names what was recorded. The read-only pack/status paths
+    record nothing, and a raising recorder is swallowed so SessionStart never breaks."""
+
+    _SECRET = "SECRET-PROJECT-BYTES-must-not-leak-42"
+
+    def test_recorder_writes_both_sinks_content_safely(self):
+        with tempfile.TemporaryDirectory() as d:
+            crash = os.path.join(d, "crash.log")
+            spool = os.path.join(d, "findings-inbox.ndjson")
+            try:
+                raise ValueError(self._SECRET)
+            except ValueError as exc:
+                recorded = boot.record_envelope_assembly_failure(exc, crash_path=crash, spool_path=spool)
+            self.assertEqual(recorded, {"crash": True, "finding": True})
+            # The crash log is the engine-only backstage half: it CARRIES the exception detail (incl. the raw
+            # bytes) because it is gitignored and never operator- or model-facing.
+            with open(crash, encoding="utf-8") as fh:
+                crash_text = fh.read()
+            self.assertIn("envelope-assembly", crash_text)
+            self.assertIn("ValueError", crash_text)
+            # The spooled finding is the promotable, model/operator-facing half: content-free by construction.
+            with open(spool, encoding="utf-8") as fh:
+                rec = json.loads(fh.read().splitlines()[0])
+            self.assertEqual(rec["source_id"], "boot/envelope-assembly-failed")
+            self.assertEqual(rec["severity"], boot.telemetry.PERSISTENT_BENIGN)
+            self.assertTrue(boot.telemetry.source_id_is_marker_safe(rec["source_id"]))
+            self.assertNotIn(self._SECRET, json.dumps(rec))     # no bytes of the exception leak into it
+
+    def test_forced_failure_on_the_real_path_records_and_names_the_diagnostic(self):
+        patchers = _offline()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                spool = os.path.join(d, "findings-inbox.ndjson")
+                crash_calls = []
+                real_crash = boot.hooks._record_crash_debug
+
+                def _spy_crash(event, exc, path=None):
+                    crash_calls.append((event, type(exc).__name__))
+                    return real_crash(event, exc, path=os.path.join(d, "crash.log"))  # explicit path -> writes
+
+                with mock.patch.object(boot.telemetry, "INBOX_SPOOL_PATH", spool), \
+                        mock.patch.object(boot.hooks, "_record_crash_debug", _spy_crash), \
+                        mock.patch.object(boot, "_envelope_from_signals",
+                                          side_effect=ValueError(self._SECRET)):
+                    pack = boot.assemble_pack(session_id="sess-fail", use_ledger=True)
+                # fell back to the minimal safe grounding AND named the recorded diagnostic
+                self.assertIn("minimal safe grounding", pack)
+                self.assertIn("## DIAGNOSTIC", pack)
+                self.assertNotIn(self._SECRET, pack)             # the grounding never carries the raw cause
+                # the real path reached BOTH sinks
+                self.assertEqual([c[0] for c in crash_calls], ["SessionStart-envelope-assembly"])
+                with open(spool, encoding="utf-8") as fh:
+                    rec = json.loads(fh.read().splitlines()[0])
+                self.assertEqual(rec["source_id"], "boot/envelope-assembly-failed")
+        finally:
+            for p in patchers:
+                p.stop()
+
+    def test_the_read_only_paths_record_nothing_and_name_no_diagnostic(self):
+        patchers = _offline()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                spool = os.path.join(d, "findings-inbox.ndjson")
+                crash_calls = []
+                with mock.patch.object(boot.telemetry, "INBOX_SPOOL_PATH", spool), \
+                        mock.patch.object(boot.hooks, "_record_crash_debug",
+                                          side_effect=lambda *a, **k: crash_calls.append(a)), \
+                        mock.patch.object(boot, "_envelope_from_signals",
+                                          side_effect=ValueError(self._SECRET)):
+                    pack = boot.assemble_pack(session_id="sess-debug", use_ledger=False)
+                self.assertIn("minimal safe grounding", pack)     # still fails open
+                self.assertNotIn("## DIAGNOSTIC", pack)           # but records/names nothing
+                self.assertEqual(crash_calls, [])
+                self.assertFalse(os.path.exists(spool))
+        finally:
+            for p in patchers:
+                p.stop()
+
+    def test_a_raising_recorder_is_swallowed_so_sessionstart_never_breaks(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "record_envelope_assembly_failure",
+                                   side_effect=RuntimeError("recorder itself crashed")), \
+                    mock.patch.object(boot, "_envelope_from_signals",
+                                      side_effect=ValueError(self._SECRET)):
+                pack = boot.assemble_pack(session_id="sess-recorder-boom", use_ledger=True)
+            self.assertTrue(pack)                                 # a pack still came back
+            self.assertIn("minimal safe grounding", pack)
+            self.assertNotIn("## DIAGNOSTIC", pack)               # nothing recorded -> nothing named
+        finally:
+            for p in patchers:
+                p.stop()
+
+
 class TestWhereWeAreLiveOrCached(unittest.TestCase):
     """The 'What merged last' line obeys the boot rendering law: show ONE of live-or-cached, never
     both; the live line when the GitHub derive succeeded; otherwise the committed offline cache, named with

@@ -151,6 +151,13 @@ _STATE_SCHEMA_PATH = os.path.join(validate.SCHEMAS_DIR, "state.v1.json")
 # finding, so a hand-crafted cursor can neither inject Issue-body content nor forge the signal sentinel;
 # marker-safe by construction, deduped downstream by source_id.
 REFUSED_CURSOR_SOURCE_ID = "boot/refused-cursor"
+# The fixed source-id of the durable envelope-assembly-failure finding (its telemetry half). Like the
+# refused-cursor one: a FIXED literal message carries no bytes of the failing exception, so a malformed
+# signal can neither leak project content into the finding nor forge it; deduped downstream by source_id.
+ENVELOPE_ASSEMBLY_SOURCE_ID = "boot/envelope-assembly-failed"
+# The crash-debug event label for that same failure — the engine-only backstage half (traceback to the
+# gitignored crash log). Named so a real-crash investigation can grep for it.
+_ENVELOPE_ASSEMBLY_EVENT = "SessionStart-envelope-assembly"
 
 # (The "what just happened" digest was sized here by a buried RECENTLY_SHIPPED_COUNT constant — the
 # magic-number pattern attention exists to retire. It is now the attention policy's reviewable, tunable
@@ -306,6 +313,71 @@ def emit_refused_cursor_finding(*, spool_path: str | None = None) -> bool:
     record = {"source_id": REFUSED_CURSOR_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
               "message": _refused_cursor_message(), "location": None}
     return telemetry.emit_finding(record, spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
+
+
+def _envelope_assembly_message() -> str:
+    """The plain-language, engine's-own-health copy of the durable envelope-assembly-failure finding. A FIXED
+    literal — no bytes of the failing exception flow into it, so it can neither leak project content nor forge
+    a signal. Names the engine's own bookkeeping, not the project; the first sentence is a title-length
+    summary (issue_title derives the title from it). No backstage vocabulary (envelope / spool / traceback)."""
+    return (
+        "The engine could not put together its start-of-session briefing this session. "
+        "It fell back to a minimal safe grounding rather than show a partial or wrong one, and recorded the "
+        "cause to its own local diagnostics — this is about the engine's internal bookkeeping, not your "
+        "project or its data. It clears on its own if the next session assembles cleanly; a repeat is worth an "
+        "engineer's look at the recorded diagnostic."
+    )
+
+
+def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | None = None,
+                                     spool_path: str | None = None) -> dict:
+    """Durably and content-safely record an envelope-assembly failure that would otherwise vanish, using two
+    sinks already registered under boot's automatic closure — so NO new writer is introduced:
+
+      - the gitignored crash-debug log gets the traceback (engine-only backstage detail: type, message, frame),
+        via `hooks._record_crash_debug`;
+      - the telemetry inbox spool gets ONE content-free benign finding (`_envelope_assembly_message`, a fixed
+        literal — no bytes of `exc`), for the #412 drain to promote if it persists across sessions.
+
+    Each sink is individually best-effort and swallowed: recording a fail-open must never itself break the
+    fail-open. Returns which sinks actually accepted the record, so the grounding names only what exists.
+    `crash_path`/`spool_path` default to the real sinks, resolved at CALL time so a test can redirect them."""
+    recorded = {"crash": False, "finding": False}
+    try:
+        hooks._record_crash_debug(_ENVELOPE_ASSEMBLY_EVENT, exc, path=crash_path)
+        # `_record_crash_debug` no-ops under a test harness when the path is the production default (its own
+        # hermetic guard); mirror that condition so the grounding never claims a crash-log entry it skipped.
+        recorded["crash"] = crash_path is not None or "unittest" not in sys.modules
+    except Exception:  # noqa: BLE001 — a failing sink must not break the other, nor the fail-open
+        recorded["crash"] = False
+    try:
+        telemetry.emit_finding(
+            {"source_id": ENVELOPE_ASSEMBLY_SOURCE_ID, "severity": telemetry.PERSISTENT_BENIGN,
+             "message": _envelope_assembly_message(), "location": None},
+            spool_path=spool_path or telemetry.INBOX_SPOOL_PATH)
+        recorded["finding"] = True   # emit_finding is best-effort (it swallows and returns falsy); the emit
+    except Exception:  # noqa: BLE001 — attempt is the record, consistent with emit_refused_cursor_finding
+        recorded["finding"] = False
+    return recorded
+
+
+def _envelope_assembly_grounding_note(recorded: dict) -> str:
+    """One grounding line naming the diagnostic that was recorded and where an engineer can read it —
+    conditional on what actually landed, so it never claims a record that does not exist. Empty when nothing
+    was written (a raising recorder swallowed to nothing, or the non-hook read-only paths that record at all)."""
+    where = []
+    if recorded.get("crash"):
+        where.append(f"the engine's local crash log ({telemetry.HOOK_CRASH_DEBUG_PATH}, gitignored)")
+    if recorded.get("finding"):
+        where.append("a benign finding captured for later promotion")
+    if not where:
+        return ""
+    note = ("## DIAGNOSTIC: this session's briefing-assembly failure was recorded to "
+            + " and ".join(where)
+            + " — the engine's own bookkeeping, not your project.")
+    if recorded.get("crash"):
+        note += " An engineer can read that crash log to see the cause."
+    return note + "\n"
 
 
 # ---- governance alarms (relayed from the substrates; pinned at the top of the card) ---------
@@ -3566,7 +3638,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
         envelope = _envelope_from_signals(s, session_id, use_ledger=use_ledger)
         rendered_envelope = session_relay.render(envelope)
         has_alarm = bool(envelope["action_forcing_alarms"])
-    except Exception:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
+    except Exception as exc:  # noqa: BLE001 — SessionStart is fail-open; never inject a partial/corrupt render
         # The typed envelope could not be built — but a governance alarm must NEVER be silently dropped, and
         # this is the exact path where the dashboard's departure makes the envelope the sole every-session
         # carrier. So re-derive the must-relay set straight from `must_push(s)` and render its FULL lines under
@@ -3579,18 +3651,31 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
             relay_lines = list(must_push(s))
         except Exception:  # noqa: BLE001 — the fail-open fallback must never itself raise
             relay_lines = []
+        # DURABLE, CONTENT-SAFE diagnostic for an otherwise-invisible failure: on the REAL SessionStart path
+        # only (use_ledger — never the `pack` debug view or the read-only status verb, both use_ledger=False,
+        # like the refused-cursor emit above), record the assembly failure so a recurrence is diagnosable
+        # instead of vanishing behind the fail-open. Wrapped so a raising recorder is swallowed — recording
+        # the failure must NEVER itself break SessionStart — and the grounding names the diagnostic only when
+        # something was actually written.
+        diagnostic_note = ""
+        if use_ledger:
+            try:
+                diagnostic_note = _envelope_assembly_grounding_note(record_envelope_assembly_failure(exc))
+            except Exception:  # noqa: BLE001 — the diagnostic recorder is best-effort; never break fail-open
+                diagnostic_note = ""
         if relay_lines:
             rendered_envelope = (
                 "## GROUNDING\n"
                 "(the typed session-relay envelope could not be assembled or validated this session; this is a "
                 "minimal safe grounding — nothing partial or corrupt is rendered; treat status as unverified "
                 "until you re-ground)\n"
-                f"## ALARMS ({len(relay_lines)}): re-derived directly from the live signals after the typed "
+                + diagnostic_note
+                + f"## ALARMS ({len(relay_lines)}): re-derived directly from the live signals after the typed "
                 "envelope failed\n"
                 + "\n".join(f"- {session_relay._inert(line)}" for line in relay_lines)
             )
         else:
-            rendered_envelope = _MINIMAL_SAFE_GROUNDING
+            rendered_envelope = _MINIMAL_SAFE_GROUNDING + (f"\n{diagnostic_note.rstrip()}" if diagnostic_note else "")
         has_alarm = bool(relay_lines)
 
     out: list[str] = []
