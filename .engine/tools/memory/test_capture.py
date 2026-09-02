@@ -981,5 +981,70 @@ class CaptureDiagnosticsTests(CaptureTestCase):
             self.fail("an unwritable history location must never raise")
 
 
+class RuntimeHomeRoutingTests(CaptureTestCase):
+    """n2: the transcript's RUNTIME HOME decides the parser, ahead of any process-level provider
+    signal, so a Claude transcript is never handed to the Codex recognizer (StarshipSuperjam/engine-template#1193,
+    where exactly that misrouted one real session). An ambiguous root falls back to providers.detect
+    unchanged. Every routing decision and the signal behind it is recorded, content-free, on the marker.
+    A private HOME holds both runtime homes so the real ~/.claude and ~/.codex are never touched."""
+
+    def setUp(self):
+        super().setUp()
+        self._home = tempfile.mkdtemp(prefix="engine-capture-home-")
+        self.addCleanup(shutil.rmtree, self._home, True)
+        self._claude_home = os.path.join(self._home, ".claude", "projects", "p")
+        self._codex_home = os.path.join(self._home, ".codex", "sessions")
+        os.makedirs(self._claude_home)
+        os.makedirs(self._codex_home)
+        self._saved_home = os.environ.get("HOME")
+        os.environ["HOME"] = self._home
+
+    def tearDown(self):
+        if self._saved_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self._saved_home
+        super().tearDown()
+
+    def _write(self, directory, name, lines):
+        path = os.path.join(directory, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            for line in lines:
+                fh.write(json.dumps(line) + "\n")
+        return path
+
+    def test_claude_rooted_transcript_captures_even_under_a_codex_env_signal(self):
+        # A Claude transcript under ~/.claude, carrying a novel Claude record type the parser filters,
+        # is captured by the Claude parser even though ENGINE_PROVIDER says codex — the home wins.
+        lines = [_msg("user", "route me by my home"),
+                 {"type": "atis-latch", "id": "x"},
+                 _msg("assistant", "captured by the claude parser")]
+        path = self._write(self._claude_home, "t.jsonl", lines)
+        with mock.patch.dict(os.environ, {"ENGINE_PROVIDER": "codex"}):
+            appended = capture.capture_turn_delta({"session_id": "sess-h", "transcript_path": path})
+        self.assertGreaterEqual(appended, 1)
+        rec = capture.read_capture_status()
+        self.assertEqual(rec.get("state"), "captured")
+        self.assertEqual(rec["detail"]["routing"], {"by": "home", "provider": "claude", "signal": None})
+
+    def test_codex_rooted_unknown_transcript_refuses_loudly_and_records_routing(self):
+        path = self._write(self._codex_home, "t.jsonl",
+                           [{"type": "totally_new_record", "body": {"role": "user", "text": "hi"}}])
+        self.assertEqual(capture.capture_turn_delta({"session_id": "sess-c", "transcript_path": path}), 0)
+        rec = capture.read_capture_status()
+        self.assertEqual(rec.get("state"), "unparseable")
+        self.assertEqual(rec["detail"]["routing"], {"by": "home", "provider": "codex", "signal": None})
+
+    def test_ambiguous_root_falls_back_to_detect_and_records_the_signal(self):
+        # self.tmp is the ENGINE_MEMORY_TRANSCRIPT_DIR override — an ambiguous root — so detect decides;
+        # turn_id keeps it Codex, a Claude-shaped transcript is refused, and the signal is recorded.
+        path = self.transcript("amb.jsonl", [_msg("user", "hi"), _msg("assistant", "yo")])
+        self.assertEqual(
+            capture.capture_turn_delta({"session_id": "s", "transcript_path": path, "turn_id": "x"}), 0)
+        rec = capture.read_capture_status()
+        self.assertEqual(rec.get("state"), "unparseable")
+        self.assertEqual(rec["detail"]["routing"], {"by": "detect", "provider": "codex", "signal": "turn_id"})
+
+
 if __name__ == "__main__":
     unittest.main()

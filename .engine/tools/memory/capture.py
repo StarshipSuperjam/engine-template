@@ -323,6 +323,27 @@ def _allowed_roots(cwd=None) -> list:
     return roots
 
 
+def _runtime_home_provider(transcript_path: str):
+    """`"claude"` if the resolved transcript sits under `~/.claude`, `"codex"` if under `~/.codex`, or
+    `None` for an AMBIGUOUS root — the shared clone root or the `ENGINE_MEMORY_TRANSCRIPT_DIR` override,
+    where the transcript's own location does not decide its format. A transcript's runtime home is what
+    a format actually is, regardless of a process-level provider signal, so this is consulted BEFORE
+    `providers.detect`: it stops a leaked or stale ENGINE_PROVIDER from handing a Claude transcript to
+    the Codex recognizer (StarshipSuperjam/engine-template#1193). The two homes are disjoint; an
+    ambiguous root falls back to `providers.detect` unchanged. The returned tokens equal
+    `providers.CLAUDE` / `providers.CODEX`."""
+    home = os.path.expanduser("~")
+    resolved = os.path.realpath(transcript_path)
+    for name, provider in ((".claude", "claude"), (".codex", "codex")):
+        root = os.path.realpath(os.path.join(home, name))
+        try:
+            if os.path.commonpath([resolved, root]) == root:
+                return provider
+        except ValueError:  # different drives on Windows, etc. — not under this home
+            continue
+    return None
+
+
 def _validate_transcript_path(path_str: str, cwd=None):
     """Reject traversal / wrong-suffix / out-of-scope / missing / oversized. Returns
     `(resolved_path, None)` on success, `(None, reason)` on refusal — the reason is a fixed code
@@ -463,8 +484,11 @@ def _clear_capture_transaction(data_dir: str) -> None:
         os.close(directory)
 
 
-def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -> int:
-    """Idempotently roll a prepared capture forward, then remove its journal last."""
+def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool, routing=None) -> int:
+    """Idempotently roll a prepared capture forward, then remove its journal last. `routing` is the
+    content-free provider-routing record for the current capture; it is recorded on the `captured`
+    marker so a misroute is visible after the fact. A crash-recovery rollforward (recovering=True) has
+    no current routing and passes None — the marker then simply carries no routing that pass."""
     transaction = _read_capture_transaction(data_dir)
     if transaction is None:
         return 0
@@ -491,7 +515,8 @@ def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool) -
     elif transaction["records"]:
         index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file)
     _capture_fault("index-apply")
-    _write_capture_status("captured", transaction["session_id"], required=True)
+    _write_capture_status("captured", transaction["session_id"], required=True,
+                          detail=({"routing": routing} if routing is not None else None))
     _capture_fault("required-status")
     _clear_capture_transaction(data_dir)
     return len(appended)
@@ -933,10 +958,28 @@ def _capture(payload, *, cwd) -> int:
         # PROVIDER-ROUTED parsing: a Codex session's transcript goes ONLY through the
         # Codex recognizer — an unrecognized (changed) format is a loud zero-capture, never a
         # fall-through to the tolerant Claude parser below, which could capture fragments.
+        #
+        # Route by the transcript's RUNTIME HOME first: a transcript under ~/.claude is a Claude
+        # transcript and one under ~/.codex a Codex one, whatever a process-level ENGINE_PROVIDER
+        # signal says — so a leaked or stale provider signal can never hand a Claude transcript to the
+        # Codex recognizer (StarshipSuperjam/engine-template#1193, where exactly that misrouted one real
+        # session). Only an AMBIGUOUS root (the shared clone root, or the ENGINE_MEMORY_TRANSCRIPT_DIR
+        # override) falls back to providers.detect exactly as before — turn_id and a Codex tool name
+        # stay Codex signals there, and detect's own answer is unchanged for every caller. The routing
+        # decision and the detect signal behind it are recorded, content-free, on every marker so a
+        # future misroute is visible after the fact.
         import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path
-        if providers.detect(payload) == providers.CODEX:
+        home_provider = _runtime_home_provider(transcript_path)
+        if home_provider is not None:
+            provider = home_provider
+            routing = {"by": "home", "provider": provider, "signal": None}
+        else:
+            provider = providers.detect(payload)
+            routing = {"by": "detect", "provider": provider, "signal": providers.detect_signal(payload)}
+        if provider == providers.CODEX:
             messages, recognized, detail = _codex_messages(transcript_path)
             if not recognized:
+                detail = {**detail, "routing": routing}
                 _write_capture_status("unparseable", session_id, detail=detail)
                 return 0
         else:
@@ -944,7 +987,7 @@ def _capture(payload, *, cwd) -> int:
         cursor = _read_cursor(data_dir, session_id)
         delta = messages[cursor:]
         if not delta:
-            _write_capture_status("captured", session_id)
+            _write_capture_status("captured", session_id, detail={"routing": routing})
             return 0
         fresh: list = []          # prepared first; the journal lands before any one of these records
         for offset, rec in enumerate(delta):
@@ -974,7 +1017,7 @@ def _capture(payload, *, cwd) -> int:
             "records": fresh,
         }
         _write_capture_transaction(data_dir, transaction)
-        return _recover_capture_transaction(data_dir, cwd, recovering=False)
+        return _recover_capture_transaction(data_dir, cwd, recovering=False, routing=routing)
     finally:
         _release_lock(lock_fd)
 

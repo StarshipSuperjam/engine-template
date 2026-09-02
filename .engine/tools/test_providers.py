@@ -182,6 +182,38 @@ class TestDetect(unittest.TestCase):
             self.assertEqual(providers.detect(), "claude")
 
 
+class TestDetectSignal(unittest.TestCase):
+    """detect_signal reports WHICH signal decides detect's answer, content-free, and never changes that
+    answer for anyone — it exists only so a capture marker can record why a transcript was routed."""
+
+    def test_env_is_reported_when_the_provider_variable_is_set(self):
+        with mock.patch.dict(os.environ, {"ENGINE_PROVIDER": "codex"}):
+            self.assertEqual(providers.detect_signal({"turn_id": "t"}), "env")
+        with mock.patch.dict(os.environ, {"ENGINE_PROVIDER": "claude"}):
+            self.assertEqual(providers.detect_signal(), "env")
+
+    def test_payload_signals_and_default(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(providers.detect_signal({"turn_id": "t"}), "turn_id")
+            self.assertEqual(providers.detect_signal({"tool_name": "apply_patch"}), "tool_name")
+            self.assertEqual(providers.detect_signal({"tool_name": "Edit"}), "default")
+            self.assertEqual(providers.detect_signal({}), "default")
+            self.assertEqual(providers.detect_signal(None), "default")
+
+    def test_the_signal_never_disagrees_with_detects_verdict(self):
+        cases = [{}, {"turn_id": "t"}, {"tool_name": "apply_patch"}, {"tool_name": "Edit"}, None]
+        for env in ({}, {"ENGINE_PROVIDER": "codex"}, {"ENGINE_PROVIDER": "claude"}):
+            for payload in cases:
+                with mock.patch.dict(os.environ, env, clear=True):
+                    signal, verdict = providers.detect_signal(payload), providers.detect(payload)
+                    if signal == "env":
+                        self.assertIn(env.get("ENGINE_PROVIDER"), ("codex", "claude"))
+                    elif signal in ("turn_id", "tool_name"):
+                        self.assertEqual(verdict, "codex")
+                    else:
+                        self.assertEqual(verdict, "claude")
+
+
 class TestMarkerProviderConfinement(unittest.TestCase):
     def setUp(self):
         import tempfile
