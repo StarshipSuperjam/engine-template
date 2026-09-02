@@ -74,7 +74,68 @@ _OID_LENGTHS = frozenset({40, 64})
 
 
 class ContextError(RuntimeError):
-    """Context, identity, target, or capability did not match its qualified boundary."""
+    """Context, identity, target, or capability did not match its qualified boundary.
+
+    The base class is the fail-safe: any staleness or mismatch that is NOT one of the typed subclasses
+    below refuses the write and degrades to read-only. Only `ExpectedStateStale` is refreshable; the
+    write path keys its one-shot re-seal on exactly that type and treats every other `ContextError` as
+    a genuine boundary change to refuse. The subclasses exist so the write path and the operator-facing
+    message can tell an index heal apart from the project moving under a running holder — they never
+    widen what is accepted."""
+
+
+class ExpectedStateStale(ContextError):
+    """The observed store fingerprint drifted while store, activation and backup pointer all held.
+
+    This is the one staleness a refresh can heal: the context stayed bound to the same store, the same
+    accepted activation and the same backup pointer, and only the fingerprint of the store's observed
+    state moved (a keyword index that healed itself, a sibling write that landed between binding and
+    use). Re-observing disk and re-sealing from the same document yields a context whose fingerprint
+    matches current disk; every staleness below re-raises through that re-seal because its bound
+    identity genuinely changed, not merely its observed state."""
+
+
+class ActivationStale(ContextError):
+    """The accepted activation no longer matches the one this context is bound to.
+
+    The repository moved under a running holder — a new commit, tree, engine release or epoch was
+    accepted. A refresh cannot heal this: the context is bound to an activation the project has left
+    behind. Recall still reads the store as it stands; a session restart re-accepts the current
+    activation and restores full memory, writes included. This is the staleness the operator sees when
+    a commit lands under a running server."""
+
+
+class AcceptedTreeStale(ContextError):
+    """The materialized accepted tree for this context's activation is gone.
+
+    A sibling of `ActivationStale`: the activation identity itself still matches, but the on-disk tree
+    that activation was materialized into is no longer present (a cache sweep, a moved checkout). A
+    refresh cannot heal it, and like an activation change a session restart re-materializes the tree and
+    restores full memory. Kept a distinct type so telemetry can tell a missing tree from a moved commit."""
+
+
+class StoreIdentityStale(ContextError):
+    """The persistent store's own identity no longer matches the one this context is bound to.
+
+    Not a view drift but the store itself: its recorded identity moved. A refresh cannot heal it, and
+    unlike an activation change a restart does not necessarily restore the same store — this is a
+    deeper divergence that the write path refuses and reads survive read-only."""
+
+
+class BackupPointerStale(ContextError):
+    """The canonical backup pointer no longer matches the one this context is bound to.
+
+    The store's durable backup pointer moved under the holder. Like a store-identity change this is a
+    genuine boundary shift, not a refreshable view drift: the write path refuses and reads continue."""
+
+
+class ArtifactUnreadable(ContextError):
+    """A persistent memory artefact exists but could not be read (an I/O or permission fault).
+
+    Distinct from a stale binding and from a malformed or absent artefact: the file is there and its
+    bytes could not be obtained. Never refreshable — a re-seal reads the same disk — so the write path
+    refuses; the operator-facing message points at the store on disk rather than at the session. Raised
+    from the module's two canonical readers so the category is total wherever a read can fail."""
 
 
 def _digest(value) -> str:
@@ -89,7 +150,7 @@ def _file_digest(path: str) -> str | None:
     except FileNotFoundError:
         return None
     except OSError as exc:
-        raise ContextError(f"persistent state is unreadable: {path}") from exc
+        raise ArtifactUnreadable(f"persistent state is unreadable: {path}") from exc
 
 
 def _deep_freeze(value):
@@ -137,7 +198,7 @@ def _snapshot_file(path: str, *, hash_content: bool = False) -> dict:
     except FileNotFoundError:
         return {"present": False}
     except OSError as exc:
-        raise ContextError(f"persistent artifact is unreadable: {path}") from exc
+        raise ArtifactUnreadable(f"persistent artifact is unreadable: {path}") from exc
     if stat.S_ISLNK(info.st_mode):
         raise ContextError(f"persistent artifact is a symlink: {path}")
     if not stat.S_ISREG(info.st_mode):
@@ -561,31 +622,31 @@ def revalidate_context(context: ExecutionContext) -> ExecutionContext:
     try:
         info = os.lstat(expected_lifecycle["accepted_activation"])
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            raise ContextError("accepted activation is not a regular file during context revalidation")
+            raise ActivationStale("accepted activation is not a regular file during context revalidation")
         with open(expected_lifecycle["accepted_activation"], encoding="utf-8") as handle:
             active = json.load(handle)
     except ContextError:
         raise
     except (OSError, ValueError) as exc:
-        raise ContextError("accepted activation is unavailable during context revalidation") from exc
+        raise ActivationStale("accepted activation is unavailable during context revalidation") from exc
     activation = document["activation"]
     for key in ("repository", "commit", "tree", "engine_release", "epoch"):
         if active.get(key) != activation.get(key):
-            raise ContextError(f"execution context activation {key} no longer matches")
+            raise ActivationStale(f"execution context activation {key} no longer matches")
     accepted_tree = os.path.join(
         expected_lifecycle["accepted_cache"], f"{activation['commit']}-{activation['tree']}")
     if not os.path.isfile(os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")):
-        raise ContextError("execution context accepted tree is unavailable")
+        raise AcceptedTreeStale("execution context accepted tree is unavailable")
     identity = _read_identity(expected_lifecycle["store_identity"])
     if identity != target["store_identity"]:
-        raise ContextError("execution context store identity no longer matches")
+        raise StoreIdentityStale("execution context store identity no longer matches")
     pointer, pointer_digest = _strict_pointer(expected_lifecycle["canonical_backup_pointer"])
     state = document["state"]
     if pointer != state["backup_pointer_identity"] or pointer_digest != state["backup_pointer_digest"]:
-        raise ContextError("execution context backup pointer no longer matches")
+        raise BackupPointerStale("execution context backup pointer no longer matches")
     observed = _observe_state(expected_lifecycle, identity, pointer, pointer_digest)
     if observed["expected_state_fingerprint"] != state["expected_state_fingerprint"]:
-        raise ContextError("execution context expected-state fingerprint is stale")
+        raise ExpectedStateStale("execution context expected-state fingerprint is stale")
     return context
 
 
@@ -771,6 +832,22 @@ def refresh_for_operation(context: ExecutionContext, operation_id: str) -> Execu
     return _refreshed_context(context, operation_id)
 
 
+def reseal_for_stale_state(context: ExecutionContext) -> ExecutionContext:
+    """Re-seal an authorized context from current disk after `ExpectedStateStale`, for the write retry.
+
+    The write path calls this exactly once, under its held lock, when the under-lock revalidation raised
+    `ExpectedStateStale` — the observed store fingerprint drifted while the store identity, the accepted
+    activation and the backup pointer all still held. It re-observes disk and re-validates from the SAME
+    document, so a genuine activation, store-identity or backup-pointer change — none of which is ever
+    `ExpectedStateStale` — still raises its own typed subclass here and refuses the retry. It narrows no
+    operation and grants no capability; it only advances the observed state the caller already holds, so
+    the binding it returns is the same store, activation and pointer it was given, at current fingerprint.
+
+    Unlike `refresh_for_operation` and `refresh_current_context`, this is not gated to the attended memory
+    server: a CLI write holds its own authorized context, and its fingerprint can drift the same way."""
+    return _refreshed_context(context)
+
+
 def refresh_current_context(context: ExecutionContext) -> ExecutionContext:
     """Advance the long-lived memory server's root context after one successful request."""
     global _CURRENT_CONTEXT
@@ -791,6 +868,28 @@ def observe_state_fingerprint(context: ExecutionContext) -> str:
         document["state"]["backup_pointer_identity"], document["state"]["backup_pointer_digest"],
     )
     return state["expected_state_fingerprint"]
+
+
+_BINDING_ACTIVATION_KEYS = ("repository", "commit", "tree", "engine_release", "epoch")
+
+
+def binding_identity(context: ExecutionContext) -> dict:
+    """The authority-bearing binding of a context: the store, its target and its accepted activation.
+
+    Deliberately excludes the observed-state fingerprint, which a legitimate re-seal advances. The write
+    path captures this before and after its one-shot re-seal and refuses if they differ, so the refresh
+    that heals a fingerprint drift can never quietly move the store identity, the memory directory, the
+    target kind or any of the five activation fields — the executable form of 'recover without widening
+    authority'. Reads the decoded document directly, so it does not require an installed context."""
+    document = context.to_document()
+    target = document["target"]
+    activation = document["activation"]
+    return {
+        "store_identity": copy.deepcopy(target["store_identity"]),
+        "memory_dir": target["memory_dir"],
+        "target_kind": target["kind"],
+        "activation": {key: activation.get(key) for key in _BINDING_ACTIVATION_KEYS},
+    }
 
 
 class OperationCapability:

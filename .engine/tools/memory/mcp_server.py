@@ -61,7 +61,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records  # noqa: E402
+from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
@@ -183,6 +183,41 @@ _RECALL_COMPLETENESS_NOTE = (
 )
 
 
+# One plain sentence every read tool attaches when this session holds a memory context whose binding has gone
+# stale in a way a restart clears — the operator scenario, a commit landing under a running server. It is
+# honest for a read: recall still reflects what is on disk, but writing is held and the meaning index may not
+# have healed, so anything asked to be remembered in this session may not have been saved.
+_READ_CAVEAT = (
+    "This session's memory needs a restart to fully reconnect: recall reflects what is already saved on disk, "
+    "but new memories can't be written and meaning-based recall may be incomplete until you restart, which "
+    "restores full recall."
+)
+
+
+def _memory_read_caveat() -> str | None:
+    """Return `_READ_CAVEAT` when this session's installed context is present but stale in a restart-clearable
+    way, else None. Every read tool calls it so all four answer the operator's moved-commit scenario the same.
+
+    Deliberately narrow. It fires ONLY when a context is installed AND revalidation fails with a binding
+    change a restart would clear — a moved activation or tree, a changed store identity or pointer, an
+    unreadable artefact. It stays silent when:
+      * no context is installed (an unqualified or CLI run) — nothing a restart fixes, and each tool already
+        carries its own honest signal, so a blanket 'restart' sentence would be both noise and wrong advice;
+      * the drift is the one refreshable class, an in-place fingerprint — a read already reflects current disk.
+    The revalidation it runs only reads; it never mutates the store."""
+    try:
+        context = _execution_context.current_context()
+    except _execution_context.ContextError:
+        return None
+    try:
+        _execution_context.revalidate_context(context)
+    except _execution_context.ExpectedStateStale:
+        return None
+    except _execution_context.ContextError:
+        return _READ_CAVEAT
+    return None
+
+
 @_tool(
     name="search",
     description=(
@@ -211,6 +246,9 @@ def search(query: str, tags: list[str] | None = None,
     result: dict = {"results": out}
     if out:
         result["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
+    caveat = _memory_read_caveat()
+    if caveat:
+        result["memory_caveat"] = caveat
     return result
 
 
@@ -233,7 +271,11 @@ def search(query: str, tags: list[str] | None = None,
 def recall_window(session_id: str, anchor_seq: int | None = None,
                   radius: int = recall.DEFAULT_RADIUS,
                   max_turns: int = recall.DEFAULT_MAX_TURNS) -> dict:
-    return recall.window(session_id, anchor_seq=anchor_seq, radius=radius, max_turns=max_turns)
+    result = recall.window(session_id, anchor_seq=anchor_seq, radius=radius, max_turns=max_turns)
+    caveat = _memory_read_caveat()
+    if caveat and isinstance(result, dict):
+        result["memory_caveat"] = caveat
+    return result
 
 
 def _semantic_installed() -> bool:
@@ -283,10 +325,19 @@ if _semantic_installed():
         from memory.semantic import embed as _embed
         from memory.semantic import store as _store
 
+        caveat = _memory_read_caveat()
+
+        def _answer(payload: dict) -> dict:
+            # Every exit passes through here so a stale or absent context adds the one plain restart sentence
+            # consistently, alongside — never overriding — this tool's own richer degradation messages.
+            if caveat:
+                payload.setdefault("memory_caveat", caveat)
+            return payload
+
         reason = _embed.unavailable_reason()
         if reason:
             # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
-            return {"results": [], "unavailable": reason}
+            return _answer({"results": [], "unavailable": reason})
         found = _store.search(query, limit=limit)
         if found.get("unavailable"):
             # NOT the same as "searched and found nothing", and the difference is the whole point: saying
@@ -294,10 +345,10 @@ if _semantic_installed():
             # is what the repair review caught this tool doing on an unqualified machine. The two reasons are
             # kept apart too — one resolves itself and the other needs someone to look at it.
             if found["unavailable"] == "not-qualified":
-                return {"results": [], "unavailable": (
+                return _answer({"results": [], "unavailable": (
                     "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
                     "index. This says NOTHING about what is in memory: keyword search works normally and "
-                    "covers everything. It sorts itself out at a session start that can reach GitHub.")}
+                    "covers everything. It sorts itself out at a session start that can reach GitHub.")})
             # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
             # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
             # delete it loses a possibly-fine cache and gets the identical error back. The internal class
@@ -310,9 +361,9 @@ if _semantic_installed():
             else:
                 remedy = ("Deleting `vectors.sqlite3` in the memory folder makes it rebuild from scratch; "
                           "nothing you said is stored there, so there is nothing to lose by doing it.")
-            return {"results": [], "unavailable": (
+            return _answer({"results": [], "unavailable": (
                 "Searching by meaning is not working right now. This says NOTHING about what is in memory: "
-                "keyword search works normally and covers everything. " + remedy)}
+                "keyword search works normally and covers everything. " + remedy)})
         results = []
         for record, passage in zip(found["records"], found["passages"]):
             # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
@@ -328,7 +379,7 @@ if _semantic_installed():
         elif not found["searched"]:
             out["unavailable"] = ("Nothing is stored to search by meaning yet — this project's memory is "
                                   "empty, so an empty answer here says nothing about what was discussed.")
-        return out
+        return _answer(out)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
@@ -504,9 +555,13 @@ def list_pins() -> dict:
     from memory import pins as _pins
 
     live = _pins.list_pins()
-    return {"pins": [{"id": p.get(records.RECORD_ID_KEY), "text": p.get("text"), "ts": p.get("ts"),
-                      records.PIN_VIA_KEY: p.get(records.PIN_VIA_KEY)} for p in live],
-            "total": len(live)}
+    result = {"pins": [{"id": p.get(records.RECORD_ID_KEY), "text": p.get("text"), "ts": p.get("ts"),
+                        records.PIN_VIA_KEY: p.get(records.PIN_VIA_KEY)} for p in live],
+              "total": len(live)}
+    caveat = _memory_read_caveat()
+    if caveat:
+        result["memory_caveat"] = caveat
+    return result
 
 
 @_tool(

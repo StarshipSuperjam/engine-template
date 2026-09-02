@@ -31,6 +31,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 import weakref
 from contextvars import ContextVar
 from contextlib import contextmanager
@@ -640,6 +641,60 @@ def test_scope(mode: str = "attended"):
         _TEST_SCOPE.reset(token)
 
 
+_LAST_RESEAL = None  # the one-shot stale-state retry's before/after binding and measured cost
+
+
+def _record_reseal(before: dict, after: dict, cost_seconds: float) -> None:
+    """Record the last stale-state re-seal so its binding equality and cost are observable.
+
+    The retry is bounded to one attempt, so this holds exactly that attempt's evidence: the binding
+    before and after, whether they were preserved, and how long the single re-seal took. Diagnostics and
+    tests read it; it drives no control decision, so a plain module global is the right home."""
+    global _LAST_RESEAL
+    _LAST_RESEAL = {
+        "binding_preserved": before == after,
+        "before": before,
+        "after": after,
+        "cost_seconds": cost_seconds,
+    }
+
+
+def last_reseal() -> dict | None:
+    """The most recent stale-state re-seal's binding-equality and cost evidence, or None if none ran."""
+    return _LAST_RESEAL
+
+
+def _stale_refusal(exc: "execution_context.ContextError") -> str:
+    """The plain, content-free sentence a write answers with when its bound context no longer matches disk.
+
+    Keyed on the exception TYPE, never its text: the raw `ContextError` message names paths, fingerprints
+    and commits, none of which belong in an operator- or client-facing refusal (obligation: no path,
+    fingerprint or commit reaches the caller for any refusal). Each branch says what held the write and
+    what clears it, and every branch keeps recall working — a stale write context never disables reads."""
+    if isinstance(exc, (execution_context.ActivationStale, execution_context.AcceptedTreeStale)):
+        return (
+            "This project moved to a new commit while this memory server was running, so its write context no "
+            "longer matches the project on disk. Nothing was changed. Writing stays held until the session "
+            "restarts, which re-accepts the current project and restores full memory; recall keeps working in "
+            "the meantime."
+        )
+    if isinstance(exc, execution_context.ArtifactUnreadable):
+        return (
+            "A memory file on disk could not be read, so writing is held and nothing was changed. This is a "
+            "problem with the store on disk, not with this session; recall keeps working where it can, and a "
+            "fresh session retries the read."
+        )
+    if isinstance(exc, (execution_context.StoreIdentityStale, execution_context.BackupPointerStale)):
+        return (
+            "This session's memory binding no longer matches the store on disk, so writing is held and nothing "
+            "was changed. Recall keeps working; a fresh session re-establishes the binding."
+        )
+    return (
+        "This session's memory context could not be confirmed against the store, so writing is held and "
+        "nothing was changed. Recall keeps working; a fresh session restores writing."
+    )
+
+
 @contextmanager
 def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capability=None, function=None):
     """Hold one coherent outer lock and consume this exact writer's one-shot subgrant."""
@@ -717,18 +772,55 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
     base_context = context
     handle = _open_store_lock(base_context)
     try:
+        stale = None
         if (base_context["operation"]["registry_id"] == "attended-memory-mcp"
                 and entry_id != "attended-memory-mcp"):
             try:
                 context = execution_context.refresh_for_operation(base_context, entry_id)
             except execution_context.ContextError as exc:
-                raise MutationAuthorityError(f"MCP request context refused: {exc}") from exc
-        _validate_explicit_targets(context, entry, args, kwargs, function)
-        _run_after_lock_test_hook()
-        try:
-            execution_context.revalidate_context(context)
-        except execution_context.ContextError as exc:
-            raise MutationAuthorityError(f"under-lock context revalidation refused: {exc}") from exc
+                stale = exc
+        if stale is None:
+            _validate_explicit_targets(context, entry, args, kwargs, function)
+            _run_after_lock_test_hook()
+            try:
+                execution_context.revalidate_context(context)
+            except execution_context.ExpectedStateStale:
+                # The one refreshable staleness: the observed store fingerprint drifted (a keyword index
+                # that healed itself, a sibling write that landed between binding and this lock) while the
+                # store identity, the accepted activation and the backup pointer all still held. Re-seal
+                # from the SAME document exactly once, timing that single attempt, and refuse if the re-seal
+                # moved any authority-bearing field. A genuine activation, store or pointer change is never
+                # ExpectedStateStale, so it re-raises its own typed subclass through the re-seal and is
+                # caught below; this retry can only ever advance an in-place fingerprint, never widen binding.
+                before = execution_context.binding_identity(context)
+                started = time.perf_counter()
+                try:
+                    context = execution_context.reseal_for_stale_state(context)
+                except execution_context.ContextError as exc:
+                    stale = exc
+                else:
+                    after = execution_context.binding_identity(context)
+                    _record_reseal(before, after, time.perf_counter() - started)
+                    if before != after:
+                        raise MutationAuthorityError(
+                            "the memory context refresh moved the store binding and was refused; nothing "
+                            "was changed")
+            except execution_context.ContextError as exc:
+                stale = exc
+        if stale is not None:
+            # A stale binding is not a dead store. Refuse only the writers whose contract says a degraded
+            # run must refuse; degrade the reads so recall keeps answering — each read tool attaches its
+            # own plain caveat — rather than failing the caller outright. This mirrors, under the lock, the
+            # no-context branch above, so a stale context and an absent one route by the same disposition.
+            if mutation_contract.degraded_disposition(entry) == "refuse":
+                raise MutationAuthorityError(_stale_refusal(stale)) from stale
+            mode = _default_mode(entry)
+            _THREAD.state = {"test_only": False, "degraded": True, "stale": True, "mode": mode}
+            try:
+                yield _degraded_receipt(entry, mode, measured)
+            finally:
+                _THREAD.state = None
+            return
         _THREAD.state = {"test_only": False, "context": context, "lock": handle}
         try:
             yield _consume(context, entry, measured, supplied_capability)

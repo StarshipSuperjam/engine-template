@@ -19,10 +19,11 @@ import sys
 import tempfile
 import time
 import unittest
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from memory import (capture, forget, index, ledger, mutation_authority,  # noqa: E402
+from memory import (capture, execution_context, forget, index, ledger, mutation_authority,  # noqa: E402
                     mutation_contract, pins, records)
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
@@ -537,6 +538,97 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("attended-semantic-mcp-search", ids)
             self.assertEqual(getattr(srv.recall_by_meaning, "__engine_registry_id__", None),
                              "attended-semantic-mcp-search")
+
+
+class ReadCaveatWiringTests(_ServerBase):
+    """All four read tools attach the stale-context caveat when the probe reports one and omit it when the probe
+    is silent — driven through the real in-memory client path with `_memory_read_caveat` stubbed, so this pins
+    the wiring independently of how staleness is detected."""
+
+    def _seed_conversation(self):
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                       "session_id": "s1", "seq": 1, "speaker": "user", "ts": self.now,
+                       "text": "a searchable line about widgets"})
+        index.rebuild()
+
+    async def test_each_read_tool_attaches_the_caveat_when_the_probe_reports_one(self):
+        self._seed_conversation()
+        sentinel = "STALE-CONTEXT-SENTINEL"
+        calls = [("search", {"query": "widgets"}),
+                 ("recall-window", {"session_id": "s1"}),
+                 ("list-pins", {})]
+        if srv._semantic_installed():
+            calls.append(("recall-by-meaning", {"query": "widgets"}))
+        with mock.patch.object(srv, "_memory_read_caveat", return_value=sentinel):
+            for name, args in calls:
+                with self.subTest(name):
+                    out = await self._call(name, args)
+                    self.assertEqual(out.get("memory_caveat"), sentinel)
+
+    async def test_no_read_tool_attaches_a_caveat_when_the_probe_is_silent(self):
+        self._seed_conversation()
+        with mock.patch.object(srv, "_memory_read_caveat", return_value=None):
+            for name, args in (("search", {"query": "widgets"}),
+                               ("recall-window", {"session_id": "s1"}),
+                               ("list-pins", {})):
+                with self.subTest(name):
+                    out = await self._call(name, args)
+                    self.assertNotIn("memory_caveat", out)
+
+
+class OperatorMovedCommitReadTests(unittest.TestCase):
+    """The headline recovery scenario. A commit lands under a running memory server, so its bound context is
+    stale. Every read tool still answers — carrying one plain restart caveat — while a mutating verb refuses in
+    plain words that name no path or commit; clearing the drift (the restart re-accepting the commit) removes
+    the caveat. Runs against a REAL installed context, so it exercises the production authority path."""
+
+    def setUp(self):
+        from memory import test_mutation_authority as tma
+
+        self.fixture = tma._QualifiedFixture(mcp=True)
+        self.fixture.install()
+        self.activation = os.path.join(
+            self.fixture.common, "engine", "accepted-hooks", "activation.json")
+        self._original = Path(self.activation).read_text(encoding="utf-8")
+
+    def tearDown(self):
+        self.fixture.cleanup()
+
+    def _set_commit(self, commit):
+        record = json.loads(Path(self.activation).read_text(encoding="utf-8"))
+        record["commit"] = commit
+        Path(self.activation).write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+
+    def test_reads_answer_with_a_restart_caveat_while_a_write_refuses_and_a_restart_clears_it(self):
+        # Healthy: the reads carry no caveat.
+        self.assertNotIn("memory_caveat", srv.list_pins())
+        self.assertNotIn("memory_caveat", srv.search("anything"))
+
+        # A commit lands under the running server: the binding is now stale.
+        self._set_commit("c" * 40)
+
+        pins = srv.list_pins()
+        self.assertIn("memory_caveat", pins)
+        self.assertIn("restart", pins["memory_caveat"])
+        self.assertEqual(pins["pins"], [])  # the read still answers, it is not an error
+
+        found = srv.search("anything")
+        self.assertIn("results", found)
+        self.assertIn("restart", found["memory_caveat"])
+
+        # A mutating verb refuses in plain words — no path, commit or fingerprint reaches the caller.
+        with self.assertRaises(ToolError) as caught:
+            srv.pin("must not be written while stale")
+        message = str(caught.exception)
+        self.assertIn("restart", message)
+        self.assertNotIn("c" * 40, message)
+        self.assertNotIn(self.fixture.base, message)
+        self.assertNotIn("fingerprint", message)
+
+        # The restart re-accepts the current commit: the caveat is gone and writes would resume.
+        Path(self.activation).write_text(self._original, encoding="utf-8")
+        execution_context._CURRENT_CONTEXT = self.fixture.context
+        self.assertNotIn("memory_caveat", srv.list_pins())
 
 
 if __name__ == "__main__":
