@@ -23,9 +23,11 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memory import (capture, forget, index, ledger, mutation_authority,  # noqa: E402
-                    mutation_contract, records)
+                    mutation_contract, pins, records)
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
+from mcp.server import MCPServer  # noqa: E402
+from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 
 _ID = records.RECORD_ID_KEY
 
@@ -450,6 +452,91 @@ class UnqualifiedTierTests(unittest.TestCase):
         self.assertIn("eras", reply)
         self.assertIn("nothing was registered", reply)
         self.assertIn("terminal", reply)
+
+
+class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
+    """The three plain-word refusals this server raises must reach the client whole.
+
+    Under mcp 2.1.1 the tool boundary forwards only a `ToolError`'s message to the client — every other
+    exception is flattened to a bare "Error executing tool <name>". The `_tool` registration helper
+    translates each refusal to `ToolError(str(exc))`, so its designed sentence survives under 2.1.1 as
+    it always did under 2.0.0 (whose boundary returned `str(exc)` for any exception). These tests reach
+    the shipped helper directly, so they hold under whichever mcp version is installed.
+    """
+
+    # A distinctive sentence per translated type. The point is not the wording but that the WHOLE
+    # sentence crosses; a "crash" case that is NOT one of the translated types proves the translation is
+    # selective and leaves a genuine fault to be masked as the unexpected crash it is.
+    SENTENCES = {
+        "mutation": "MUTATION-REFUSAL: this session is not qualified to write memory yet, so nothing was written.",
+        "pin": "PIN-REFUSAL: that pin is over the length cap and was refused rather than silently shortened.",
+        "control": "CONTROL-REFUSAL: nothing was registered to forget, and erasing stays your own terminal step.",
+        "crash": "CRASH: an internal detail that must never be dressed up as a refusal.",
+    }
+
+    def _probe(self):
+        """Register a probe tool through the REAL `srv._tool` helper on a throwaway server, so the
+        shipped translation path is exercised without publishing an extra tool on the module server.
+        Returns the throwaway server and the wrapper the helper produced (for direct, version-independent
+        assertions)."""
+        fresh = MCPServer("refusal-probe")
+        with mock.patch.object(srv, "server", fresh):
+            @srv._tool(name="probe", description="Raises the named refusal (or a crash), for the translation test.")
+            def probe(which: str) -> dict:
+                if which == "mutation":
+                    raise mutation_authority.MutationAuthorityError(self.SENTENCES["mutation"])
+                if which == "pin":
+                    raise pins.PinRefused(self.SENTENCES["pin"])
+                if which == "control":
+                    raise forget.ControlNotRecorded(self.SENTENCES["control"])
+                if which == "crash":
+                    raise RuntimeError(self.SENTENCES["crash"])
+                return {"ok": which}
+        return fresh, probe
+
+    async def test_each_refusal_sentence_arrives_whole_over_the_protocol(self):
+        fresh, _ = self._probe()
+        for which in ("mutation", "pin", "control"):
+            with self.subTest(which):
+                # call_tool_expect_error asserts is_error is true and hands back the text content. The
+                # ONE cross-version invariant is that the whole sentence arrives: under 2.0.0 the
+                # boundary returns str(exc) (a bare exception's text also crossed, prefixed with
+                # "Error executing tool <name>:"), while under 2.1.1 only a ToolError's message crosses
+                # and every other exception is flattened to that prefix WITHOUT the sentence. So the
+                # sentence's presence is exactly what the translation buys under 2.1.1; selectivity is
+                # asserted separately below, version-independently.
+                text = await mts.call_tool_expect_error(fresh, "probe", {"which": which})
+                self.assertIn(self.SENTENCES[which], text)  # the WHOLE sentence, not a truncation
+                self.assertNotIn("Traceback", text)         # a refusal, never a crash dump
+
+    def test_translation_is_selective_only_named_refusals_become_toolerror(self):
+        """A version-independent check on the wrapper itself: exactly the three named refusals become a
+        `ToolError` carrying the sentence intact, and a genuine fault propagates unchanged so the
+        boundary can mask it rather than the helper laundering it into a refusal."""
+        _, probe = self._probe()
+        for which in ("mutation", "pin", "control"):
+            with self.subTest(translated=which):
+                with self.assertRaises(ToolError) as caught:
+                    probe(which)
+                self.assertEqual(str(caught.exception), self.SENTENCES[which])
+        with self.subTest(not_translated="crash"):
+            with self.assertRaises(RuntimeError) as caught:
+                probe("crash")
+            self.assertNotIsInstance(caught.exception, ToolError)
+
+    def test_the_guard_marker_survives_the_translation_wrapper(self):
+        """search and recall-by-meaning carry a `@_mutation_authority.guard` beneath the `_tool` wrapper.
+        `functools.wraps` must copy its `__engine_registry_id__` onto the wrapper so
+        `install_module_guards` still recognises the writer when it rebinds the module globals, and the
+        guard-coverage enumeration still sees it."""
+        ids = mutation_authority.guarded_registry_ids(vars(srv))
+        self.assertIn("attended-keyword-mcp-search", ids)
+        self.assertEqual(getattr(srv.search, "__engine_registry_id__", None),
+                         "attended-keyword-mcp-search")
+        if srv._semantic_installed():
+            self.assertIn("attended-semantic-mcp-search", ids)
+            self.assertEqual(getattr(srv.recall_by_meaning, "__engine_registry_id__", None),
+                             "attended-semantic-mcp-search")
 
 
 if __name__ == "__main__":
