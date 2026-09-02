@@ -328,8 +328,8 @@ def _runtime_home_provider(transcript_path: str):
     `None` for an AMBIGUOUS root — the shared clone root or the `ENGINE_MEMORY_TRANSCRIPT_DIR` override,
     where the transcript's own location does not decide its format. A transcript's runtime home is what
     a format actually is, regardless of a process-level provider signal, so this is consulted BEFORE
-    `providers.detect`: it stops a leaked or stale ENGINE_PROVIDER from handing a Claude transcript to
-    the Codex recognizer (StarshipSuperjam/engine-template#1193). The two homes are disjoint; an
+    `providers.detect`: it stops a leaked or stale process-level provider signal from handing a Claude
+    transcript to the Codex recognizer (StarshipSuperjam/engine-template#1193). The two homes are disjoint; an
     ambiguous root falls back to `providers.detect` unchanged. The returned tokens equal
     `providers.CLAUDE` / `providers.CODEX`."""
     home = os.path.expanduser("~")
@@ -960,12 +960,13 @@ def _capture(payload, *, cwd) -> int:
         # fall-through to the tolerant Claude parser below, which could capture fragments.
         #
         # Route by the transcript's RUNTIME HOME first: a transcript under ~/.claude is a Claude
-        # transcript and one under ~/.codex a Codex one, whatever a process-level ENGINE_PROVIDER
-        # signal says — so a leaked or stale provider signal can never hand a Claude transcript to the
+        # transcript and one under ~/.codex a Codex one, whatever a process-level provider signal
+        # says — so a leaked or stale provider signal can never hand a Claude transcript to the
         # Codex recognizer (StarshipSuperjam/engine-template#1193, where exactly that misrouted one real
         # session). Only an AMBIGUOUS root (the shared clone root, or the ENGINE_MEMORY_TRANSCRIPT_DIR
-        # override) falls back to providers.detect exactly as before — turn_id and a Codex tool name
-        # stay Codex signals there, and detect's own answer is unchanged for every caller. The routing
+        # override) falls back to providers.detect exactly as before — a Codex turn identifier and a
+        # Codex tool name stay Codex signals there, and detect's own answer is unchanged for every
+        # caller. The routing
         # decision and the detect signal behind it are recorded, content-free, on every marker so a
         # future misroute is visible after the fact.
         import providers  # lazy: the tools-dir seam; this package puts the tools dir on sys.path
