@@ -1531,9 +1531,14 @@ def _now_message(result: dict) -> str:
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. "
                 + boot.gh_unreachable_note())
     if err == "deadline":
-        return ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains current, "
-                "and your memory on this computer is safe and complete." + _deadline_stage_clause(result.get("stage"))
-                + " Ask me to diagnose what consumed the time and retry the backup.")
+        base = ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains "
+                "current, and your memory on this computer is safe and complete.")
+        clause = _deadline_stage_clause(result.get("stage"))
+        # A recorded stage already carries its own 'what to try' next step; the generic diagnose-and-retry
+        # tail is only for a deadline with no recorded stage, so the operator never gets two competing asks.
+        if clause:
+            return base + clause
+        return base + " Ask me to diagnose what consumed the time and retry the backup."
     if err == "deadline-unavailable":
         return ("This runtime could not safely enforce the backup's wall-clock limit, so I refused before starting. "
                 "Ask me to retry from the main Engine session without another process timer active.")

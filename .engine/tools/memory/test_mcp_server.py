@@ -630,6 +630,35 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
         execution_context._CURRENT_CONTEXT = self.fixture.context
         self.assertNotIn("memory_caveat", srv.list_pins())
 
+    def test_recall_window_and_recall_by_meaning_carry_the_caveat_while_stale(self):
+        # Obligation 4 end-to-end for the other two read tools. The headline test above proves list-pins and
+        # search; this proves recall-window and recall-by-meaning against the SAME real moved-commit staleness
+        # (not a stubbed probe), so all four read tools' real staleness-to-caveat path is covered. recall-by-
+        # meaning exists only where the semantic add-on is installed, so it is exercised conditionally.
+        semantic = srv._semantic_installed()
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                       "session_id": "s-live", "ts": int(time.time()), "seq": 0, "speaker": "user",
+                       "text": "a line to recall", "tags": ["transcript", "stop"]})
+
+        # Healthy: the reads carry no caveat.
+        self.assertNotIn("memory_caveat", srv.recall_window("s-live"))
+        if semantic:
+            self.assertNotIn("memory_caveat", srv.recall_by_meaning("anything"))
+
+        # A commit lands under the running server: the binding is now stale.
+        self._set_commit("c" * 40)
+
+        window = srv.recall_window("s-live")
+        self.assertIn("memory_caveat", window)
+        self.assertIn("restart", window["memory_caveat"])
+        self.assertIn("turns", window)  # the read still answers; it is not an error
+
+        if semantic:
+            meaning = srv.recall_by_meaning("anything")
+            self.assertIn("memory_caveat", meaning)
+            self.assertIn("restart", meaning["memory_caveat"])
+            self.assertIn("results", meaning)
+
 
 if __name__ == "__main__":
     unittest.main()

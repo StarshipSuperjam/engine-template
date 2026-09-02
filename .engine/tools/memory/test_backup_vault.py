@@ -1002,6 +1002,16 @@ class DeadlineStageTests(_Base):
         self.assertEqual(bv._heads_up_deadline(None), bv._HEADS_UP_DEADLINE)
         self.assertNotIn("It stopped", bv._now_message({"ok": False, "error": "deadline"}))
 
+    def test_a_staged_deadline_drops_the_generic_diagnose_tail(self):
+        # A recorded stage carries its own 'what to try' next step, so the generic diagnose-and-retry
+        # tail is omitted — the operator gets one coherent ask, not two competing ones.
+        staged = bv._now_message({"ok": False, "error": "deadline", "stage": "read"})
+        self.assertIn("It stopped", staged)
+        self.assertNotIn("diagnose what consumed", staged)
+        # A stage-less deadline still carries the generic tail as its only next step.
+        stageless = bv._now_message({"ok": False, "error": "deadline"})
+        self.assertIn("diagnose what consumed", stageless)
+
 
 if __name__ == "__main__":
     unittest.main()

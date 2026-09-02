@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -502,6 +503,38 @@ class LockedAuthorityTests(unittest.TestCase):
         self.assertNotIn(self.fixture.base, message)
         self.assertNotIn("fingerprint", message)
         self.assertFalse(os.path.exists(target))
+
+    def test_a_reseal_that_moves_the_binding_refuses_and_does_not_write(self):
+        # The under-lock re-seal must only refresh observed state, never move the store binding. The
+        # `if before != after` guard defends the future refactor that breaks that invariant. Drive the
+        # refreshable path (a fingerprint drift under the lock) and stub the re-seal to hand back a context
+        # whose binding identity differs, so the guard fires: the refusal is content-free and nothing lands.
+        target = os.path.join(self.fixture.memory, "ledger.ndjson")
+        meta = os.path.join(self.fixture.memory, "ledger-meta.json")
+
+        def drift():
+            Path(meta).write_text('{"generation":7,"index_epoch":0}\n', encoding="utf-8")
+
+        original_reseal = execution_context.reseal_for_stale_state
+        moved = object()  # a stand-in "re-sealed" context whose binding reads as different
+
+        def reseal_moves_binding(context):
+            original_reseal(context)  # run the real refresh for its validation, then discard it
+            return moved
+
+        def binding_of(context):
+            return {"store_identity": "moved" if context is moved else "original"}
+
+        mutation_authority.set_after_lock_test_hook(drift)
+        with mock.patch.object(execution_context, "reseal_for_stale_state", reseal_moves_binding), \
+                mock.patch.object(execution_context, "binding_identity", binding_of):
+            with self.assertRaises(mutation_authority.MutationAuthorityError) as caught:
+                ledger.append({"body": "must not land"}, path=target)
+        message = str(caught.exception)
+        self.assertIn("binding shifted", message)
+        self.assertNotIn(self.fixture.base, message)
+        self.assertFalse(os.path.exists(target))
+        self.assertFalse(mutation_authority.last_reseal()["binding_preserved"])
 
     def test_explicit_path_outside_the_bound_store_refuses(self):
         escaped = os.path.join(self.fixture.base, "escaped.ndjson")

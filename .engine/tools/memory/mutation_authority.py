@@ -803,8 +803,9 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
                     _record_reseal(before, after, time.perf_counter() - started)
                     if before != after:
                         raise MutationAuthorityError(
-                            "the memory context refresh moved the store binding and was refused; nothing "
-                            "was changed")
+                            "This session's memory binding shifted while its write context was being "
+                            "refreshed, so writing is held and nothing was changed. Recall keeps working; "
+                            "a fresh session restores writing.")
             except execution_context.ContextError as exc:
                 stale = exc
         if stale is not None:
@@ -815,7 +816,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             if mutation_contract.degraded_disposition(entry) == "refuse":
                 raise MutationAuthorityError(_stale_refusal(stale)) from stale
             mode = _default_mode(entry)
-            _THREAD.state = {"test_only": False, "degraded": True, "stale": True, "mode": mode}
+            _THREAD.state = {"test_only": False, "degraded": True, "mode": mode}
             try:
                 yield _degraded_receipt(entry, mode, measured)
             finally:
