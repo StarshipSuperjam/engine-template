@@ -9,6 +9,7 @@ REAL protection_guard.missing_floor — the same evaluation the committed CI gua
 what the bootstrap writes and what the guard requires fails here.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -19,6 +20,8 @@ import protection_guard  # noqa: E402
 import weakening_guard  # noqa: E402  (ACK_LABEL — the frozen name bootstrap reuses when provisioning the label)
 import telemetry  # noqa: E402  (ENGINE_DOMAIN_LABEL — the engine label's canonical name/color/description)
 import integration_queue_backend  # noqa: E402  (the serialized-integration labels bootstrap provisions)
+import transaction  # noqa: E402  (the typed protocol the control-plane adapter runs through)
+import transaction_adapters_controlplane as controlplane_adapter  # noqa: E402
 
 REPO = "you/proj"
 
@@ -1385,6 +1388,343 @@ class TestSandboxAwareNoTokenWiring(unittest.TestCase):
         msg = self._run(bootstrap.cmd_status, token="tok", repo=None)
         self.assertIn("couldn't tell which GitHub repository", msg)      # the repo-specific message
         self.assertNotIn("No GitHub token was reachable", msg)           # NOT the token/sandbox story
+
+
+# ==================================================================================================
+# Part B / node b1 — the typed control-plane transaction adapter
+# (transaction_adapters_controlplane). The GitHub network stays the only fake; the adapter drives the
+# REAL bootstrap logic through the REAL transaction protocol, so a drift in either fails here.
+# ==================================================================================================
+
+_TOOLS_DIR = os.path.dirname(os.path.abspath(bootstrap.__file__))
+_FROZEN_CLOCK = "2026-09-01T00:00:00+00:00"
+
+
+class _AdapterArgs:
+    def __init__(self, branch="main"):
+        self.rest = [branch]
+
+
+def _bootstrap_cp(fake, *, checkless=False, issues=None):
+    return bootstrap.ControlPlane(REPO, "tok", transport=fake.transport, refresh_fn=lambda s: True,
+                                  issues=issues or FakeIssues(), checkless=checkless)
+
+
+def _run(adapter, args=None):
+    """Drive an adapter through the real protocol. Returns the envelope, or the TransactionRefused raised —
+    whether it is raised in the plan phase (a pre-mutation refusal) or the run phase."""
+    args = args or _AdapterArgs()
+    try:
+        _facts, plan = transaction._planned(adapter, args)
+        return transaction.do_run(adapter, args, plan["consent_handle"])
+    except transaction.TransactionRefused as refused:
+        return refused
+
+
+def _bootstrap_adapter(fake, *, checkless=False, issues=None, clock=_FROZEN_CLOCK):
+    cp = _bootstrap_cp(fake, checkless=checkless, issues=issues)
+    return controlplane_adapter.ControlPlaneBootstrap(control_plane=cp, clock=lambda: clock)
+
+
+class TestControlPlaneCauseTaxonomy(unittest.TestCase):
+    """Obligation: the degraded-outcome matrix is DERIVED from bootstrap's cause constants, so a new cause
+    fails coverage instead of escaping into a generic failure."""
+
+    def test_the_taxonomy_is_exactly_the_eight_named_constants(self):
+        named = {getattr(bootstrap, n) for n in dir(bootstrap) if n.startswith("CAUSE_")}
+        self.assertEqual(named, set(bootstrap.CONTROL_PLANE_CAUSES))
+        self.assertEqual(len(bootstrap.CONTROL_PLANE_CAUSES), 8)
+
+    def test_the_adapter_matrix_covers_exactly_the_taxonomy(self):
+        self.assertEqual(set(controlplane_adapter._RECOVERY), set(bootstrap.CONTROL_PLANE_CAUSES))
+
+    def test_an_unmapped_cause_fails_coverage_rather_than_smoothing_over(self):
+        # A cause with no home in the matrix must raise, never be smoothed into a generic message: this is
+        # the guarantee that a new degraded outcome cannot silently lose its distinct recovery.
+        adapter = controlplane_adapter.ControlPlaneBootstrap()
+        with self.assertRaises(AssertionError):
+            adapter._recovery("a-brand-new-cause-nobody-mapped")
+
+    def test_a_taxonomy_that_outruns_the_matrix_is_caught_at_import_time(self):
+        original = bootstrap.CONTROL_PLANE_CAUSES
+        try:
+            bootstrap.CONTROL_PLANE_CAUSES = frozenset(original | {"invented-cause"})
+            with self.assertRaises(AssertionError):
+                controlplane_adapter._assert_total_coverage()
+        finally:
+            bootstrap.CONTROL_PLANE_CAUSES = original
+
+    def test_every_cause_is_a_stable_lowercase_identifier(self):
+        # The adapter uses the cause verbatim as a refusal code, which the envelope requires to be a stable
+        # lowercase identifier safe to branch on.
+        for cause in bootstrap.CONTROL_PLANE_CAUSES:
+            self.assertTrue(cause[0].isalpha())
+            self.assertTrue(all(c.islower() or c.isdigit() or c == "-" for c in cause), cause)
+
+
+class TestControlPlaneVerifiedExternalState(unittest.TestCase):
+    """Obligation: verified-external-state is returned ONLY when the full protection floor is confirmed by a
+    post-write read; it carries a read-back timestamp and marks itself point-in-time."""
+
+    def test_full_floor_confirmed_returns_verified_external_state(self):
+        env = _run(_bootstrap_adapter(FakeGitHub(floor_met=False, rulesets=[])))
+        self.assertEqual(env["outcome"], "ok")
+        self.assertEqual(env["handoff"]["kind"], "verified-external-state")
+        self.assertEqual(env["handoff"]["observed_at"], _FROZEN_CLOCK)
+        self.assertIs(env["handoff"]["point_in_time"], True)
+        transaction_envelope_ok = env["verification"][0]
+        self.assertEqual(transaction_envelope_ok["result"], "passed")
+
+    def test_already_protected_is_verified_external_state_and_writes_nothing(self):
+        fake = FakeGitHub(floor_met=True)
+        env = _run(_bootstrap_adapter(fake))
+        self.assertEqual(env["handoff"]["kind"], "verified-external-state")
+        self.assertEqual(fake.writes(), [])
+
+    def test_the_handoff_is_rendered_as_point_in_time_not_standing_state(self):
+        env = _run(_bootstrap_adapter(FakeGitHub(floor_met=False, rulesets=[])))
+        text = transaction.envelope.render(env)
+        self.assertIn("true when read", text)
+        self.assertIn(_FROZEN_CLOCK, text)
+
+    def test_an_unreadable_confirmation_makes_the_receipt_unavailable_never_a_false_pass(self):
+        # When the post-write confirmation read could not be read (verify-unreadable), the floor is NOT
+        # confirmed: the receipt is 'unavailable' (never a quiet pass) and the handoff is not verified-external-state.
+        adapter = controlplane_adapter.ControlPlaneBootstrap()
+        applied = {"result": bootstrap.Result("unverified", "main", [], bootstrap.CAUSE_VERIFY_UNREADABLE),
+                   "observed_at": _FROZEN_CLOCK, "branch": "main", "checkless": False}
+        receipts = adapter.verify(_AdapterArgs(), applied)
+        self.assertEqual(receipts[0]["result"], "unavailable")
+        handoff = adapter.handoff(_AdapterArgs(), applied, receipts)
+        self.assertNotEqual(handoff["kind"], "verified-external-state")
+
+    def test_augmented_partial_is_disclosed_not_verified_external_state(self):
+        # An augment that leaves a residual floor gap in the operator's own rule is 'applied' but NOT the full
+        # floor, so it must be a disclosure follow-up, never verified-external-state.
+        fake = AugmentGitHub(products=[product_ruleset(thread_resolution=False)])
+        adapter = controlplane_adapter.ControlPlaneBootstrap(
+            control_plane=_bootstrap_cp(fake), clock=lambda: _FROZEN_CLOCK)
+        env = _run(adapter)
+        self.assertEqual(env["handoff"]["kind"], "manual-follow-up")
+        self.assertNotEqual(env["handoff"]["kind"], "verified-external-state")
+
+
+class TestControlPlaneChecklessTerminal(unittest.TestCase):
+    """Obligation: checkless setup is its own typed terminal, never verified-external-state; exactly one
+    caller (the checkless arrival bootstrap) may pass an empty required-checks set."""
+
+    def test_checkless_success_is_checkless_confirmed_never_verified_external_state(self):
+        env = _run(_bootstrap_adapter(FakeGitHub(floor_met=False, rulesets=[]), checkless=True))
+        self.assertEqual(env["handoff"]["kind"], "checkless-confirmed")
+        self.assertIs(env["handoff"]["point_in_time"], True)
+        self.assertEqual(env["handoff"]["observed_at"], _FROZEN_CLOCK)
+
+    def test_checkless_and_verified_are_distinct_terminals(self):
+        checkless = _run(_bootstrap_adapter(FakeGitHub(floor_met=False, rulesets=[]), checkless=True))
+        checked = _run(_bootstrap_adapter(FakeGitHub(floor_met=False, rulesets=[]), checkless=False))
+        self.assertEqual(checkless["handoff"]["kind"], "checkless-confirmed")
+        self.assertEqual(checked["handoff"]["kind"], "verified-external-state")
+
+    def test_exactly_one_production_caller_enables_checkless(self):
+        # The one-caller invariant, as a standing source check: only the arrival path (instantiator.arrive)
+        # may enable checkless protection in production code. A second caller passing checkless/control_checkless
+        # True fails here, before it can quietly widen who may defer the engine's own checks.
+        enabling = []
+        for name in os.listdir(_TOOLS_DIR):
+            if not name.endswith(".py") or name.startswith("test_"):
+                continue
+            with open(os.path.join(_TOOLS_DIR, name), encoding="utf-8") as fh:
+                text = fh.read()
+            if "checkless=True" in text or "control_checkless=True" in text:
+                enabling.append(name)
+        self.assertEqual(set(enabling), {"instantiator.py"},
+                         "checkless protection may be enabled only by the arrival path")
+
+
+class TestControlPlaneDegradedMatrix(unittest.TestCase):
+    """Obligation: every degraded outcome keeps its own recovery. The full eight-cause matrix, exercised: a
+    'refuse' cause stops cleanly as a typed refusal; a 'degraded' cause is an honest warning handoff."""
+
+    def _applied(self, status, cause, *, missing=None, labels_ok=True, mode="created", checkless=False):
+        result = bootstrap.Result(status, "main", missing or [], cause, labels_ok, mode=mode)
+        return {"result": result, "observed_at": _FROZEN_CLOCK, "branch": "main", "checkless": checkless}
+
+    def test_refuse_causes_stop_cleanly_with_their_own_next_actions(self):
+        adapter = controlplane_adapter.ControlPlaneBootstrap()
+        args = _AdapterArgs()
+        for cause in (bootstrap.CAUSE_NOT_ADMIN, bootstrap.CAUSE_ORG_POLICY, bootstrap.CAUSE_DIDNT_SAVE,
+                      bootstrap.CAUSE_UNSUPPORTED_PLATFORM, bootstrap.CAUSE_WORKFLOWS_ABSENT):
+            self.assertEqual(controlplane_adapter._RECOVERY[cause][0], "refuse", cause)
+            with self.assertRaises(transaction.TransactionRefused) as ctx:
+                adapter._refuse(cause, result=bootstrap.Result("degraded", "main", [], cause))
+            self.assertEqual(ctx.exception.code, cause)
+            self.assertTrue(ctx.exception.next_actions)
+
+    def test_degraded_causes_are_honest_warning_handoffs_never_verified(self):
+        adapter = controlplane_adapter.ControlPlaneBootstrap()
+        args = _AdapterArgs()
+        for cause, mode in ((bootstrap.CAUSE_VERIFY_FAILED, "created"),
+                            (bootstrap.CAUSE_VERIFY_UNREADABLE, "created"),
+                            (bootstrap.CAUSE_PRESERVE_FAILED, "augmented")):
+            self.assertEqual(controlplane_adapter._RECOVERY[cause][0], "degraded", cause)
+            status = "unverified" if cause == bootstrap.CAUSE_VERIFY_UNREADABLE else "degraded"
+            applied = self._applied(status, cause, missing=["a pull request is not required"], mode=mode)
+            handoff = adapter.handoff(args, applied, adapter.verify(args, applied))
+            self.assertEqual(handoff["kind"], "manual-follow-up", cause)
+            self.assertNotEqual(handoff["kind"], "verified-external-state")
+
+    def test_only_the_platform_limitation_names_accept_unprotected(self):
+        # accept-unprotected is offered on unsupported-platform ONLY, and it states the concrete consequence
+        # of running unprotected in the same breath.
+        for cause in bootstrap.CONTROL_PLANE_CAUSES:
+            joined = " ".join(controlplane_adapter._RECOVERY[cause][1]).lower()
+            if cause == bootstrap.CAUSE_UNSUPPORTED_PLATFORM:
+                self.assertIn("accept-unprotected", joined)
+                self.assertIn("without", joined)   # names the consequence of running unprotected
+            else:
+                self.assertNotIn("accept-unprotected", joined, cause)
+
+    def test_platform_limitation_refuses_before_any_write_when_detectable(self):
+        # A plan-limitation 403 on the read is a pre-mutation refusal: nothing is attempted, and it names
+        # accept-unprotected.
+        class PlanLimited(FakeGitHub):
+            def transport(self, method, path, body=None):
+                if method == "GET" and path == f"/repos/{REPO}/rules/branches/main":
+                    return 403, {"message": "Upgrade to GitHub Team to use repository rulesets"}, {}
+                return super().transport(method, path, body)
+        fake = PlanLimited(floor_met=False)
+        refused = _run(controlplane_adapter.ControlPlaneBootstrap(
+            control_plane=_bootstrap_cp(fake), clock=lambda: _FROZEN_CLOCK))
+        self.assertIsInstance(refused, transaction.TransactionRefused)
+        self.assertEqual(refused.code, bootstrap.CAUSE_UNSUPPORTED_PLATFORM)
+        self.assertEqual([c for c in fake.calls if c[0] in ("POST", "PUT")], [])   # nothing written
+
+
+class TestControlPlaneConsentDigest(unittest.TestCase):
+    """Obligation: the bootstrap/finalize handles bind target, branch, choices and read state, and EXCLUDE
+    token scopes and raw GitHub error bodies."""
+
+    def _plan(self, fake, *, checkless=False):
+        adapter = _bootstrap_adapter(fake, checkless=checkless)
+        facts, plan = transaction._planned(adapter, _AdapterArgs())
+        return facts, plan
+
+    def test_the_plan_binds_target_branch_tier_mode_and_read_state(self):
+        _facts, plan = self._plan(FakeGitHub(floor_met=False, rulesets=[]))
+        self.assertEqual(plan["inputs"]["repo"], REPO)
+        self.assertEqual(plan["inputs"]["branch"], "main")
+        self.assertIn("tier", plan["inputs"])
+        self.assertIn("checkless", plan["inputs"])
+        self.assertIn("floor_before", plan["inputs"])
+
+    def test_the_digest_excludes_the_token_and_raw_error_bodies(self):
+        secret_body = {"message": "ghp_supersecrettoken_leaked_in_a_body"}
+        fake = FakeGitHub(floor_met=False, rulesets=[], deny_writes=1, deny_body=secret_body)
+        _facts, plan = self._plan(fake)
+        blob = transaction.envelope.canonical(plan)
+        self.assertNotIn("tok", json.dumps(plan["inputs"]))       # the token never enters the plan
+        self.assertNotIn("ghp_supersecret", blob)                 # nor any GitHub error body
+
+    def test_the_handle_is_stable_for_an_unchanged_world_and_moves_with_the_branch(self):
+        _f1, p_main = self._plan(FakeGitHub(floor_met=False, rulesets=[]))
+        _f2, p_main2 = self._plan(FakeGitHub(floor_met=False, rulesets=[]))
+        self.assertEqual(p_main["consent_handle"], p_main2["consent_handle"])
+        adapter = _bootstrap_adapter(FakeGitHub(floor_met=False, rulesets=[]))
+        _f3, p_other = transaction._planned(adapter, _AdapterArgs(branch="release"))
+        self.assertNotEqual(p_main["consent_handle"], p_other["consent_handle"])
+
+    def test_checkless_and_checked_plans_have_different_handles(self):
+        _f1, checked = self._plan(FakeGitHub(floor_met=False, rulesets=[]), checkless=False)
+        _f2, checkless = self._plan(FakeGitHub(floor_met=False, rulesets=[]), checkless=True)
+        self.assertNotEqual(checked["consent_handle"], checkless["consent_handle"])
+
+
+class TestControlPlaneNeverWritesPosture(unittest.TestCase):
+    """Obligation: no protocol path writes the protection posture (a standing check). Only the explicit
+    operator door bootstrap.cmd_accept_unprotected records it."""
+
+    def test_the_adapter_module_never_writes_protection_posture(self):
+        with open(os.path.join(_TOOLS_DIR, "transaction_adapters_controlplane.py"), encoding="utf-8") as fh:
+            source = fh.read()
+        for forbidden in ("_persist_protection_posture", "_write_manifest", "protection_posture"):
+            self.assertNotIn(forbidden, source,
+                             "the typed adapter must never write the protection posture")
+
+    def test_posture_is_written_only_by_the_explicit_operator_door(self):
+        writers = []
+        for name in os.listdir(_TOOLS_DIR):
+            if not name.endswith(".py") or name.startswith("test_"):
+                continue
+            with open(os.path.join(_TOOLS_DIR, name), encoding="utf-8") as fh:
+                text = fh.read()
+            if "_persist_protection_posture(" in text:
+                writers.append(name)
+        # Only bootstrap.py defines and calls it (from cmd_accept_unprotected); no adapter or protocol module.
+        self.assertEqual(set(writers), {"bootstrap.py"})
+
+
+class TestReversalMarkerUnion(unittest.TestCase):
+    """Obligation: the exact reversal-marker union — its two and only two shapes — pinned by test here,
+    before any runbook prose describing it is cut."""
+
+    def test_there_are_exactly_two_marker_modes(self):
+        self.assertEqual(bootstrap.REVERSAL_MARKER_MODES, ("created", "augmented"))
+
+    def test_created_shape_from_a_greenfield_apply(self):
+        fake = FakeGitHub(floor_met=False, rulesets=[])
+        result = _bootstrap_cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(result.marker,
+                         {"ruleset_mode": "created", "augmented_ruleset_id": None, "added": None})
+
+    def test_augmented_shape_from_a_product_augment(self):
+        fake = AugmentGitHub(products=[product_ruleset()])
+        result = _bootstrap_cp(fake).apply(branch="main", announce=quiet)
+        self.assertEqual(result.marker["ruleset_mode"], "augmented")
+        self.assertEqual(result.marker["augmented_ruleset_id"], 9)
+        self.assertIn("checks", result.marker["added"])
+        self.assertIn("rules", result.marker["added"])
+
+    def test_every_marker_mode_a_success_produces_is_in_the_union(self):
+        for fake in (FakeGitHub(floor_met=False, rulesets=[]), AugmentGitHub(products=[product_ruleset()])):
+            result = _bootstrap_cp(fake).apply(branch="main", announce=quiet)
+            if result.marker is not None:
+                self.assertIn(result.marker["ruleset_mode"], bootstrap.REVERSAL_MARKER_MODES)
+
+
+class TestControlPlaneFinalizeAdapter(unittest.TestCase):
+    """Finalize as a typed transaction: refuses workflows-absent (the arrival PR hasn't merged), and returns
+    verified-external-state once the checks bind."""
+
+    def _finalize_fake(self, workflows_present):
+        outer = self
+
+        class FinalizeFake(FakeGitHub):
+            def transport(self, method, path, body=None):
+                if method == "GET" and "/contents/.github/workflows/" in path:
+                    return (200, {"sha": "x"}, {}) if workflows_present else (404, None, {})
+                return super().transport(method, path, body)
+        return FinalizeFake(floor_met=False, rulesets=[])
+
+    def test_finalize_refuses_when_the_workflows_are_not_on_the_branch(self):
+        cp = bootstrap.ControlPlane(REPO, "tok", transport=self._finalize_fake(False).transport,
+                                    refresh_fn=lambda s: True, issues=FakeIssues())
+        refused = _run(controlplane_adapter.ControlPlaneFinalize(control_plane=cp, clock=lambda: _FROZEN_CLOCK))
+        self.assertIsInstance(refused, transaction.TransactionRefused)
+        self.assertEqual(refused.code, bootstrap.CAUSE_WORKFLOWS_ABSENT)
+
+    def test_finalize_binds_the_checks_and_confirms_external_state(self):
+        cp = bootstrap.ControlPlane(REPO, "tok", transport=self._finalize_fake(True).transport,
+                                    refresh_fn=lambda s: True, issues=FakeIssues())
+        env = _run(controlplane_adapter.ControlPlaneFinalize(control_plane=cp, clock=lambda: _FROZEN_CLOCK))
+        self.assertEqual(env["outcome"], "ok")
+        self.assertEqual(env["handoff"]["kind"], "verified-external-state")
+
+    def test_finalize_refuses_a_checkless_control_plane(self):
+        cp = bootstrap.ControlPlane(REPO, "tok", transport=self._finalize_fake(True).transport,
+                                    refresh_fn=lambda s: True, issues=FakeIssues(), checkless=True)
+        refused = _run(controlplane_adapter.ControlPlaneFinalize(control_plane=cp, clock=lambda: _FROZEN_CLOCK))
+        self.assertIsInstance(refused, transaction.TransactionRefused)
+        self.assertEqual(refused.code, "finalize-needs-checks")
 
 
 if __name__ == "__main__":

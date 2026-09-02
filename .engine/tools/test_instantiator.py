@@ -25,6 +25,9 @@ import license_seeds  # noqa: E402
 import module_coherence  # noqa: E402
 import self_map  # noqa: E402  (the retire-time map re-derive, #513)
 import validate  # noqa: E402
+import transaction  # noqa: E402  (the typed protocol the arrival adapter runs through)
+import transaction_adapters_arrival as arrival_adapter  # noqa: E402
+import transaction_handoff  # noqa: E402  (the verified opener imports this lazily; patch the module directly)
 
 
 def _module(root, mid, status, version="1.0.0"):
@@ -4120,6 +4123,307 @@ class ApplyControlPlaneSandboxAwareTests(unittest.TestCase):
         self.assertEqual(res["status"], "degraded")
         self.assertIn("REPO-COPY", out)
         self.assertNotIn("does not by itself mean", out)
+
+
+# ==================================================================================================
+# Part B / node b2 — the typed arrival adapter's consent surface, and the Python 3.9 floor audit.
+# ==================================================================================================
+
+
+class TestArrivalFloorAudit(unittest.TestCase):
+    """Obligation: arrival provably works on 3.9 — the reachable module set is declared checked data, and the
+    audit reads it and covers 3.11-only stdlib reaches and the future-import rule in the new adapter files."""
+
+    def test_the_audit_is_clean_on_the_current_floor(self):
+        self.assertEqual(arrival_adapter.audit_arrival_floor(), [])
+
+    def test_the_live_closure_matches_the_declared_manifest(self):
+        # A module entering or leaving the arrival floor is a deliberate, reviewed change to the declared
+        # manifest — never a silent drift.
+        self.assertEqual(arrival_adapter.arrival_floor_closure(),
+                         set(arrival_adapter.ARRIVAL_REACHABLE_MODULES))
+
+    def test_the_new_adapter_files_are_on_the_floor_and_carry_future_import(self):
+        for name in ("transaction_adapters_arrival", "transaction_adapters_controlplane"):
+            self.assertIn(name, arrival_adapter.ARRIVAL_REACHABLE_MODULES)
+            _local, _forbidden, has_future = arrival_adapter._scan_module(name, arrival_adapter._tools_dir())
+            self.assertTrue(has_future, name)
+
+    def test_an_unguarded_3_11_stdlib_reach_is_caught(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "floor_probe.py"), "w") as fh:
+                fh.write("import tomllib\nx = 1\n")   # unguarded load-time reach, no future-import
+            local, forbidden, has_future = arrival_adapter._scan_module("floor_probe", d)
+            self.assertIn("tomllib", forbidden)
+            self.assertFalse(has_future)
+
+    def test_a_guarded_3_11_stdlib_reach_is_not_flagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "floor_probe.py"), "w") as fh:
+                fh.write("from __future__ import annotations\n"
+                         "try:\n    import tomllib\nexcept ModuleNotFoundError:\n    tomllib = None\n")
+            _local, forbidden, has_future = arrival_adapter._scan_module("floor_probe", d)
+            self.assertEqual(forbidden, set())    # the compat guard makes it 3.9-safe
+            self.assertTrue(has_future)
+
+    def test_a_lazy_import_inside_a_function_is_not_on_the_load_time_floor(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "floor_probe.py"), "w") as fh:
+                fh.write("from __future__ import annotations\n"
+                         "def f():\n    import tomllib\n    return tomllib\n")
+            _local, forbidden, _future = arrival_adapter._scan_module("floor_probe", d)
+            self.assertEqual(forbidden, set())    # deferred — only runs if the function runs
+
+
+def _arrival_adapter(target, release, *, keep=None, declined=None, tier=None, decisions=None):
+    fakes = _arrive_fakes()
+    return arrival_adapter.EngineArrival(
+        target_root=target, release_tree=release, keep=keep, declined=declined, tier=tier,
+        decisions=decisions, gh_api=fakes["gh_api"], control_repo=fakes["control_repo"],
+        control_transport=fakes["control_transport"], control_issues=fakes["control_issues"],
+        control_token=fakes["control_token"], gh_refresh=fakes["gh_refresh"],
+        home_reader=fakes["home_reader"], uv_present=fakes["uv_present"],
+        uv_installer=fakes["uv_installer"], uv_runner=fakes["uv_runner"], consent=fakes["consent"])
+
+
+class TestArrivalAdapterConsent(unittest.TestCase):
+    """Obligation: arrival mints no consent handle until every required collision and module choice is
+    resolved; the handle binds release/target/collisions/decisions/tier/modules and excludes the token."""
+
+    def _collision_ids(self, target, release):
+        adapter = _arrival_adapter(target, release)
+        facts = adapter.inspect(object())
+        return facts, [c["id"] for c in facts["collisions"]]
+
+    def test_inspect_surfaces_collisions_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            facts, ids = self._collision_ids(target, release)
+            self.assertTrue(ids)
+            self.assertFalse(os.path.isdir(os.path.join(target, ".engine")))   # read-only
+            self.assertIn("release", facts["fingerprints"])
+            self.assertIn("target_head", facts["fingerprints"])
+
+    def test_plan_refuses_while_a_collision_is_undecided(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            adapter = _arrival_adapter(target, release)   # no decisions
+            with self.assertRaises(transaction.TransactionRefused) as ctx:
+                transaction._planned(adapter, object())
+            self.assertEqual(ctx.exception.code, "unresolved-choice")
+
+    def test_plan_mints_a_handle_once_every_choice_is_resolved(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _facts, ids = self._collision_ids(target, release)
+            adapter = _arrival_adapter(target, release, decisions={cid: "accept" for cid in ids})
+            _facts2, plan = transaction._planned(adapter, object())
+            self.assertTrue(plan["consent_handle"].startswith("sha256:"))
+            self.assertEqual(set(plan["inputs"]["collision_decisions"].values()), {"accept"})
+            self.assertIn("release", plan["inputs"])
+            self.assertIn("target_head", plan["inputs"])
+
+    def test_contradictory_keep_and_decline_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _facts, ids = self._collision_ids(target, release)
+            adapter = _arrival_adapter(target, release, keep=["x"], declined=["x"],
+                                       decisions={cid: "accept" for cid in ids})
+            with self.assertRaises(transaction.TransactionRefused) as ctx:
+                transaction._planned(adapter, object())
+            self.assertEqual(ctx.exception.code, "contradictory-module-choice")
+
+    def test_the_digest_excludes_the_token_and_the_manual_step_stays_prose(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _facts, ids = self._collision_ids(target, release)
+            adapter = _arrival_adapter(target, release, decisions={cid: "accept" for cid in ids})
+            _facts2, plan = transaction._planned(adapter, object())
+            blob = transaction.envelope.canonical(plan)
+            self.assertNotIn("demo-token", blob)                       # the token never enters the digest
+            manual = " ".join(plan.get("manual_steps") or []).lower()
+            self.assertIn("pinned engine release", manual)             # the one manual step stays prose
+            self.assertIn("finalize", manual)                          # and points at the post-merge finalize
+
+    def test_a_moved_target_head_invalidates_the_handle(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            _facts, ids = self._collision_ids(target, release)
+            decisions = {cid: "accept" for cid in ids}
+            a1 = _arrival_adapter(target, release, decisions=decisions)
+            _f1, p1 = transaction._planned(a1, object())
+            # A different reviewer tier is a different consented change -> a different handle (drift on any bound input).
+            a2 = _arrival_adapter(target, release, tier="team", decisions=decisions)
+            _f2, p2 = transaction._planned(a2, object())
+            self.assertNotEqual(p1["consent_handle"], p2["consent_handle"])
+
+
+class TestArrivalOpenerRepoint(unittest.TestCase):
+    """Obligation: the arrival opener is repointed onto Part A's verified, selectively-staged seam — a base
+    that has moved is refused before any push, and only the engine's own files are staged (never git add -A)."""
+
+    def test_the_verified_opener_refuses_a_stale_base_before_any_push(self):
+        calls = {"opened": False}
+
+        def fake_open_upgrade_pr(*a, **k):
+            calls["opened"] = True
+            return {"number": 1}
+
+        with mock.patch.object(transaction_handoff, "refuse_if_stale_base",
+                               side_effect=transaction.TransactionRefused(
+                                   "behind-origin", "the base moved", ["update and retry"])), \
+             mock.patch.object(inst.module_manager, "_open_upgrade_pr", fake_open_upgrade_pr):
+            with self.assertRaises(transaction.TransactionRefused):
+                inst._open_verified_arrival_pr(branch="engine-arrival", title="t", body="b",
+                                               repo="o/r", paths=[".engine/x"], target_root="/tmp/x")
+        self.assertFalse(calls["opened"])   # nothing pushed once the base is refused
+
+    def test_the_verified_opener_stages_selectively_never_add_all(self):
+        seen = {}
+
+        def fake_open_upgrade_pr(branch, title, body, repo=None, token=None, paths=None, **k):
+            seen["paths"] = paths
+            return {"number": 2}
+
+        with mock.patch.object(transaction_handoff, "refuse_if_stale_base", return_value=None), \
+             mock.patch.object(inst.module_manager, "_open_upgrade_pr", fake_open_upgrade_pr):
+            inst._open_verified_arrival_pr(branch="engine-arrival", title="t", body="b", repo="o/r",
+                                           paths=[".engine/tools/x.py", "CLAUDE.md"], target_root="/tmp/x")
+        self.assertEqual(seen["paths"], [".engine/tools/x.py", "CLAUDE.md"])   # exactly the engine's files
+        self.assertIsNotNone(seen["paths"])                                    # never None -> never git add -A
+
+    def test_arrive_threads_the_selective_engine_paths_and_target_root_to_the_opener(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            captured = {}
+            opener = lambda **k: captured.update(k) or {"number": 3}
+            res = inst.arrive(target_root=target, release_tree=release, engine_release="v0.5.0", tier="solo",
+                              handle="you", apply_changes=True, decide=lambda c: "accept",
+                              announce=lambda t: None, opener=opener, **_arrive_fakes())
+            self.assertTrue(res["proceeded"])
+            self.assertEqual(captured["target_root"], target)         # the opener judges the TARGET's base
+            self.assertIn("paths", captured)
+            self.assertTrue(captured["paths"])                        # a selective set, not git add -A
+            self.assertIn(inst._ROOT_CLAUDE_REL, captured["paths"])   # the instruction floor is staged
+
+
+# ==================================================================================================
+# Part B / node b3 — arrival EXECUTION through the typed protocol: the reviewed pull request, the
+# control-plane-finalize follow-up (never precomputed), and every degraded outcome carried honestly.
+# ==================================================================================================
+
+
+def _execution_adapter(target, release, *, decisions=None, opener=None, gate=None, consent=None,
+                       engine_release="v0.5.0", tier="solo", handle="you"):
+    fakes = _arrive_fakes()
+    if consent is not None:
+        fakes["consent"] = consent
+    return arrival_adapter.EngineArrival(
+        target_root=target, release_tree=release, engine_release=engine_release, tier=tier, handle=handle,
+        decisions=decisions, opener=opener, gate=gate, **{k: fakes[k] for k in fakes})
+
+
+def _accept_all_ids(target, release):
+    a0 = arrival_adapter.EngineArrival(target_root=target, release_tree=release,
+                                       gh_api=_arrive_fakes()["gh_api"], control_repo="you/your-project")
+    return {c["id"]: "accept" for c in a0.inspect(object())["collisions"]}
+
+
+class TestArrivalExecution(unittest.TestCase):
+    def _run(self, adapter):
+        _f, plan = transaction._planned(adapter, object())
+        return transaction.do_run(adapter, object(), plan["consent_handle"])
+
+    def test_arrival_runs_end_to_end_and_hands_off_a_reviewed_pull_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: prs.append(k) or {"number": 7})
+            env = self._run(adapter)
+            self.assertEqual(env["outcome"], "ok")
+            self.assertEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(env["handoff"].get("reference"), "7")
+            self.assertEqual(len(prs), 1)
+
+    def test_the_finalize_follow_up_is_named_but_never_precomputed(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: {"number": 1})
+            env = self._run(adapter)
+            follow_up = env["handoff"]["follow_up"]
+            self.assertEqual(follow_up["operation"], "control-plane-finalize")
+            self.assertIn("after you merge", follow_up["when"])
+            # No consent handle is precomputed — the merge changes the state finalize must inspect.
+            for forbidden in ("handle", "consent_handle", "digest"):
+                self.assertNotIn(forbidden, follow_up)
+
+    def test_the_embedded_control_plane_outcome_is_surfaced_verbatim(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: {"number": 1})
+            env = self._run(adapter)
+            cp = next((r for r in env["verification"] if "control-plane" in r["check"]), None)
+            self.assertIsNotNone(cp)
+            self.assertEqual(cp["result"], "passed")   # checkless protection went on
+
+    def test_a_hard_index_finding_forbids_a_clean_pull_request_handoff(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            # A gate that reports a hard index-drift finding: the arrival must NOT open a clean PR over it.
+            adapter = _execution_adapter(
+                target, release, decisions=_accept_all_ids(target, release),
+                opener=lambda **k: prs.append(k) or {"number": 1},
+                gate=lambda: [validate.finding("hard", "the generated knowledge index drifted")])
+            env = self._run(adapter)
+            self.assertNotEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(env["handoff"]["kind"], "manual-follow-up")
+            self.assertEqual(prs, [])                  # nothing opened for review over an inconsistency
+            idx = next(r for r in env["verification"] if "index" in r["check"])
+            self.assertEqual(idx["result"], "failed")
+
+    def test_an_aborted_overlap_is_a_degraded_handoff_never_a_pull_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            ids = _accept_all_ids(target, release)
+            first = sorted(ids)[0]
+            ids[first] = "abort"                       # the operator stops at one overlap
+            adapter = _execution_adapter(target, release, decisions=ids,
+                                         opener=lambda **k: prs.append(k) or {"number": 1})
+            env = self._run(adapter)
+            self.assertNotEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(prs, [])                  # nothing written, nothing opened
+
+    def test_a_tool_runtime_consent_halt_is_a_local_recovery_not_a_pull_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            target, release = os.path.join(d, "p"), os.path.join(d, "r")
+            os.makedirs(target); inst._build_arrival_product(target); inst._build_fixture(release)
+            prs = []
+            # Declining the tool-runtime install halts setup mid-way: the engine's files are in place but
+            # setup did not finish -> a local recovery to resume, never a reviewed pull request.
+            adapter = _execution_adapter(target, release, decisions=_accept_all_ids(target, release),
+                                         opener=lambda **k: prs.append(k) or {"number": 1},
+                                         consent=lambda kind: False)
+            env = self._run(adapter)
+            self.assertIn(env["handoff"]["kind"], ("local-recovery", "manual-follow-up"))
+            self.assertNotEqual(env["handoff"]["kind"], "pull-request")
+            self.assertEqual(prs, [])
 
 
 if __name__ == "__main__":
