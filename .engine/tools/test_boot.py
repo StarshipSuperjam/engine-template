@@ -1403,6 +1403,20 @@ class TestMcpAvailabilitySurfacing(unittest.TestCase):
                 p.stop()
         self.assertIn(boot.EXPLICIT_STATUS_PULL_TRIGGER, pack)
 
+    def test_engine_status_docstring_restates_the_targeted_contract(self):
+        # #742 pull-gating (verify): boot single-homes EXPLICIT_STATUS_PULL_TRIGGER, and the trigger's own
+        # comment promises engine_status.py's docstring RESTATES the tightened targeted contract rather than
+        # re-deriving it, "so the two floors and the tool's own contract cannot silently drift apart". Nothing
+        # tested that restatement, so a future edit to engine_status could quietly drop the targeted rule while
+        # boot still advertises single-homing. Pin it: engine_status must carry both the explicit-pull
+        # phrasings and the narrow-stays-targeted rule (whitespace-normalised so a line wrap cannot hide drift).
+        import re
+        import engine_status
+        doc = re.sub(r"\s+", " ", engine_status.__doc__ or "")
+        for needle in ("give me the full status", "where do things stand?", "/engine-status",
+                       "stays TARGETED", "must never trigger this full dashboard"):
+            self.assertIn(needle, doc)
+
     def test_codex_pack_carries_session_economy_guidance_claude_does_not(self):
         # StarshipSuperjam/engine-template#1187: Claude relies on its wired PreToolUse gate (session_economy.py); Codex has no
         # tool-layer enforcement for the same two rules (not registered in .codex/hooks.json), so the guidance
