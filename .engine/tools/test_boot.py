@@ -407,6 +407,70 @@ class TestReadoutAndGateHonesty(unittest.TestCase):
         self.assertNotIn("unreviewed", pushed)
 
 
+class TestActionFirstLayout(unittest.TestCase):
+    """#742: the dashboard is ACTION-FIRST — "Needs your attention" renders BEFORE the inventory/facts block
+    (What merged last / Your open issues / Engine findings) and before "Recently shipped", so the operator
+    sees what needs a decision before the reference facts. The pinned governance notices still lead the
+    whole card in every case."""
+
+    def test_attention_precedes_the_facts_and_shipped_sections(self):
+        dash = boot.render_dashboard(_signals(att_lines=["do the thing"], shipped=["#1 — a change"]))
+        attention_at = dash.index("### Needs your attention")
+        self.assertLess(attention_at, dash.index("What merged last"),
+                         "attention must render before the facts/inventory block")
+        self.assertLess(attention_at, dash.index("Your open issues") if "Your open issues" in dash
+                         else dash.index("Engine findings"),
+                         "attention must render before the operator's own open-issue/engine-findings facts")
+        self.assertLess(attention_at, dash.index("### Recently shipped"),
+                         "attention must render before recently-shipped")
+
+    def test_ordering_holds_with_operator_backlog_and_findings_present(self):
+        # Exercise the fuller facts block (both counts present) so the ordering assertion isn't vacuous over
+        # the default empty fixture.
+        dash = boot.render_dashboard(_signals(
+            att_lines=["review the open PR"], shipped=["#2 — another change"],
+            finding_count=3, operator_backlog_count=2, operator_backlog_register="https://example/issues"))
+        attention_at = dash.index("### Needs your attention")
+        self.assertLess(attention_at, dash.index("Your open issues"))
+        self.assertLess(attention_at, dash.index("Engine findings"))
+        self.assertLess(attention_at, dash.index("### Recently shipped"))
+
+    def test_ordering_holds_without_a_pinned_notice(self):
+        # No governance alarm pinned: the card opens with the calm backlog headline (or nothing), then
+        # attention still comes before the facts.
+        dash = boot.render_dashboard(_signals(att_lines=["fix the thing"]))
+        self.assertNotIn(">", dash.splitlines()[1] if len(dash.splitlines()) > 1 else "")
+        self.assertLess(dash.index("### Needs your attention"), dash.index("What merged last"))
+
+    def test_ordering_holds_with_a_pinned_notice(self):
+        # A governance alarm (gate off) pins a `> ...` notice at the very top. It must still lead the whole
+        # card, AND attention must still precede the facts block that follows it.
+        dash = boot.render_dashboard(_signals(
+            gate="off", reason="branch protection not found", att_lines=["turn the gate back on"]))
+        self.assertLess(dash.index("turn my safety gate back on"), dash.index("### Needs your attention"),
+                         "the pinned governance notice must still lead the whole card")
+        self.assertLess(dash.index("### Needs your attention"), dash.index("What merged last"),
+                         "attention must still precede the facts block even with a pinned notice")
+
+    def test_pinned_notice_completeness_still_leads_over_attention_and_facts(self):
+        # A pinned notice must render as a `> ` quoted line at the very top (right after the header), still
+        # precede BOTH the attention section and the facts, and the backlog lead line must not appear (pinned
+        # and the calm lead line are mutually exclusive).
+        dash = boot.render_dashboard(_signals(
+            gate="off", reason="branch protection not found", att_lines=["turn the gate back on"]))
+        lines = dash.splitlines()
+        self.assertEqual(lines[0], f"## {boot.PRESENT_MARKER}")
+        self.assertTrue(lines[1].startswith("> "), "the pinned notice must render as a quoted line right "
+                                                     "after the header")
+        header_at = dash.index(f"## {boot.PRESENT_MARKER}")
+        pinned_at = dash.index("> ⛔")
+        attention_at = dash.index("### Needs your attention")
+        facts_at = dash.index("What merged last")
+        self.assertLess(header_at, pinned_at)
+        self.assertLess(pinned_at, attention_at)
+        self.assertLess(attention_at, facts_at)
+
+
 class TestSetupLandedConfirmation(unittest.TestCase):
     """#810: the one-time post-landing 'Setup is now complete' confirmation renders when the signal is present,
     renders nothing otherwise, is not a governance must-relay, and _relay_lines clears the marker (show-once)."""

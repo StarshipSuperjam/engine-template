@@ -2546,6 +2546,26 @@ def render_dashboard(s: dict) -> str:
     if pinned or lead:
         out.append("")
 
+    # ACTION-FIRST layout (StarshipSuperjam/engine-template#742): "Needs your attention" is project-wide priority —
+    # what needs a decision anywhere in the project, not just "your next task" — and renders immediately after
+    # the pinned notices / backlog headline, BEFORE the inventory/facts block below. The facts (what merged,
+    # milestone, open issues, engine findings, and any "couldn't refresh" degrade notices) are reference
+    # material once the operator already knows what's blocking; they no longer have to be read first to reach it.
+    out.append("")
+    out.append("### Needs your attention")
+    attention = list(s["att_lines"])
+    # The self-review freshness advisory, relayed read-only from audit_digest's own
+    # detection. A SOFT, never-blocking nudge naming the one re-arming action — it sits here in the attention
+    # body (surfaced by the pack's step-3 instruction so the assistant raises it when it matters), and is
+    # DELIBERATELY never pinned / present-marker / must_push: a never-armed repo still reads "all clear" and
+    # this never becomes a forced every-session alarm. A `note` (current) digest adds nothing — its silence is
+    # the healthy signal. No recency line is rendered for a current digest.
+    stale = s["audit_stale"]
+    if stale and stale["severity"] == "soft":
+        attention.append(stale["message"])
+    out.extend(f"- {line}" for line in attention) if attention else out.append(
+        "- Nothing is blocking right now.")
+
     if s["refused"]:
         out.append(
             "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
@@ -2772,21 +2792,6 @@ def render_dashboard(s: dict) -> str:
     if degraded:
         out.append("")
         out.extend(f"_{line}_" for line in degraded)
-
-    out.append("")
-    out.append("### Needs your attention")
-    attention = list(s["att_lines"])
-    # The self-review freshness advisory, relayed read-only from audit_digest's own
-    # detection. A SOFT, never-blocking nudge naming the one re-arming action — it sits here in the attention
-    # body (surfaced by the pack's step-3 instruction so the assistant raises it when it matters), and is
-    # DELIBERATELY never pinned / present-marker / must_push: a never-armed repo still reads "all clear" and
-    # this never becomes a forced every-session alarm. A `note` (current) digest adds nothing — its silence is
-    # the healthy signal. No recency line is rendered for a current digest.
-    stale = s["audit_stale"]
-    if stale and stale["severity"] == "soft":
-        attention.append(stale["message"])
-    out.extend(f"- {line}" for line in attention) if attention else out.append(
-        "- Nothing is blocking right now.")
 
     out.append("")
     out.append("### Recently shipped")
