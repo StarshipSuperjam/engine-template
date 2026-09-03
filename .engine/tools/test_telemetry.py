@@ -1936,6 +1936,35 @@ class TestSessionPassSerialization(unittest.TestCase):
         lock.assert_not_called()
 
 
+class TestCaptureMarkerMessageHonesty(unittest.TestCase):
+    """The capture-degraded operator line says what the engine can honestly stand behind: it recorded what
+    failed and can be asked to look. It must NOT diagnose a cause it does not know (a runtime storage change)
+    or prescribe a remedy that is not the fix (waiting for an engine update), and it stays content-free."""
+
+    def test_the_sentence_is_honest_and_free_of_the_old_cause_and_remedy(self):
+        msg = telemetry._capture_marker_message()
+        # What it now honestly says: the engine recorded the failure and can be asked to look.
+        self.assertIn("recorded what went wrong", msg)
+        self.assertIn("ask me to look into why capture is failing", msg)
+        # The reassurance the operator needs is kept.
+        self.assertIn("Nothing in the project is lost", msg)
+        self.assertIn("working from what it already remembers", msg)
+        # The old false cause-and-remedy is gone.
+        for banned in ("runtime changed", "stores session records", "engine update",
+                       "watch the engine", "check for one"):
+            self.assertNotIn(banned, msg)
+        # Content-free: no backstage vocabulary reaches the operator.
+        for backstage in ("marker", "spool", "transcript", "source_id"):
+            self.assertNotIn(backstage, msg.lower())
+
+    def test_the_message_and_resolution_note_are_consistent_on_diagnosability(self):
+        # Both credit the RECORDING with diagnosability; neither promises a future engine update.
+        note = telemetry._capture_resolution_note()
+        self.assertIn("record of what failed", note)
+        self.assertNotIn("engine update", note)
+        self.assertNotIn("engine update", telemetry._capture_marker_message())
+
+
 class TestCaptureRecoveryResolve(unittest.TestCase):
     """#774: the dedicated live-derived resolve pass for memory/capture-degraded. Clearance is
     REPO-WIDE (the marker is per-tree, the Issue per-repo): the pass closes the stuck Issue only when

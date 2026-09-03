@@ -1333,10 +1333,6 @@ class TestUntrackedSurfaceGuard(unittest.TestCase):
         self.assertEqual(rule["params"]["script"], ".engine/tools/untracked_surface_check.py")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestEnvironmentGatedWireDoesNotContradictItself(unittest.TestCase):
     """StarshipSuperjam/engine-template#893 — two remedies that sent the operator in a circle.
 
@@ -1377,3 +1373,7 @@ class TestEnvironmentGatedWireDoesNotContradictItself(unittest.TestCase):
     def test_four_element_entries_still_work(self):
         """The status tuple grew; callers that supply the old arity must not break."""
         self.assertEqual(validate.wiring_findings([("core", "mcp", ".mcp.json", True)], "hard", "m"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

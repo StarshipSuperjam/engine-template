@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -323,6 +324,15 @@ class CaptureSeamSafetyTests(unittest.TestCase):
     relay does `import memory; memory.capture_turn_delta(payload)`, so capture must be exposed on the
     package AND must be fail-soft — a bad/empty payload is a clean no-op return, never a raise, so
     capture can never gate close (which additionally wraps the call in `try/except Exception`)."""
+
+    def setUp(self):
+        # Hermeticity: the fail-soft test below drives the real capture path with a transcript-less
+        # payload, which writes the status marker and failure history. Redirect both off the production
+        # cache files (StarshipSuperjam/engine-template#1193); cleanups run LIFO so restore precedes rmtree.
+        from memory import capture
+        directory = tempfile.mkdtemp(prefix="engine-test-ledger-capture-")
+        self.addCleanup(shutil.rmtree, directory, True)
+        self.addCleanup(capture.restore_health_paths, capture.redirect_health_paths(directory))
 
     def test_memory_exposes_capture_turn_delta(self):
         import memory

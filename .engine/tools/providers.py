@@ -74,6 +74,25 @@ def detect(payload: dict | None = None) -> str:
     return CLAUDE
 
 
+def detect_signal(payload: dict | None = None) -> str:
+    """Which SIGNAL decides `detect`'s answer, as a content-free token: `env` (ENGINE_PROVIDER is set),
+    `turn_id` (a Codex-only payload field), `tool_name` (a Codex tool name), or `default` (none of those
+    — `detect` returns claude). A PURE READ that mirrors `detect`'s precedence exactly and changes its
+    answer for no one; it exists so a capture marker can record WHY a transcript was routed, making a
+    future provider misroute diagnosable rather than silent. It is deliberately NOT consulted on any
+    gate path — only `detect` is."""
+    env = (os.environ.get(PROVIDER_ENV) or "").strip().lower()
+    if env in (CLAUDE, CODEX):
+        return "env"
+    if isinstance(payload, dict):
+        if "turn_id" in payload:
+            return "turn_id"
+        tool = payload.get("tool_name")
+        if tool == CODEX_EDIT_TOOL or tool in CODEX_SHELL_TOOLS:
+            return "tool_name"
+    return "default"
+
+
 def _patch_file_paths(tool_input) -> list:
     """Every file path named in an apply_patch envelope, in order, de-duplicated. The payload field
     carrying the envelope is not a stable contract, so the envelope is FOUND by its own markers: the

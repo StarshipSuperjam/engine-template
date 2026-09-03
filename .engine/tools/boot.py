@@ -344,22 +344,21 @@ def record_envelope_assembly_failure(exc: BaseException, *, crash_path: str | No
     fail-open. `crash_path`/`spool_path` default to the real sinks, resolved at CALL time so a test can
     redirect them.
 
-    Returns `{"crash_log": bool}` — whether the crash-log write attempt COMPLETED WITHOUT RAISING, the one
-    sink whose outcome boot can honestly observe: in production there is no no-op path, so a clean return
-    means the traceback landed and a raise means it did not. The benign finding is emitted best-effort but its
-    landing is deliberately NOT reported — `telemetry.emit_finding` is fire-and-forget: it never raises and
-    returns falsy on the benign spool path whether or not the append lands (it swallows OSError internally),
-    so boot cannot honestly know, and must never claim, that the finding was captured.
+    Returns `{"crash_log": bool}` — whether the traceback ACTUALLY LANDED in the crash-debug log, the one sink
+    whose outcome boot can honestly observe. It is now `_record_crash_debug`'s own report of whether it wrote:
+    True only after a real append, False on its hermetic test-harness no-op (and False on a raise). The benign
+    finding is emitted best-effort but its landing is deliberately NOT reported — `telemetry.emit_finding` is
+    fire-and-forget: it never raises and returns falsy on the benign spool path whether or not the append lands
+    (it swallows OSError internally), so boot cannot honestly know, and must never claim, that the finding was
+    captured.
 
-    The crash signal is "did not raise", NOT a re-encoding of `_record_crash_debug`'s own hermetic test-harness
-    guard. Under `unittest` with the default path that guard no-ops, and this then reports True without a
-    write — a harmless test-only artifact (production has no no-op, and a test that asserts the entry passes an
-    explicit `crash_path`, which takes the real write path). The cleaner fix — `_record_crash_debug` returning
-    whether it actually wrote — is a follow-up outside this change's scope, which does not touch hooks.py."""
+    Because the signal is now the recorder's real write outcome rather than "did not raise", the former
+    test-only artifact is gone: under `unittest` with the default path the recorder no-ops AND reports False,
+    so boot makes no false crash-log claim. A test that asserts the entry still passes an explicit `crash_path`,
+    which takes the real write path and reports True."""
     crash_logged = False
     try:
-        hooks._record_crash_debug(_ENVELOPE_ASSEMBLY_EVENT, exc, path=crash_path)
-        crash_logged = True
+        crash_logged = bool(hooks._record_crash_debug(_ENVELOPE_ASSEMBLY_EVENT, exc, path=crash_path))
     except Exception:  # noqa: BLE001 — a raising sink must not break the other, nor the fail-open
         crash_logged = False
     try:

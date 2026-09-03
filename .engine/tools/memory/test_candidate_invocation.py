@@ -319,5 +319,29 @@ class CandidateInvocationTests(unittest.TestCase):
         self.assertNotIn("future_authorization\": {", candidate_source)
 
 
+class TypedStalenessInvocationCompatTests(unittest.TestCase):
+    """The typed staleness subclasses n3 introduces stay inside the ContextError family, so every existing
+    `except ContextError` boundary on the candidate and invocation paths keeps catching them unchanged — the
+    'existing handlers still catch the subclasses' guarantee, checked directly rather than through a fixture."""
+
+    def test_every_typed_staleness_is_a_context_error(self):
+        for cls in (execution_context.ExpectedStateStale, execution_context.ActivationStale,
+                    execution_context.AcceptedTreeStale, execution_context.StoreIdentityStale,
+                    execution_context.BackupPointerStale, execution_context.ArtifactUnreadable):
+            with self.subTest(cls.__name__):
+                self.assertTrue(issubclass(cls, execution_context.ContextError))
+                with self.assertRaises(execution_context.ContextError):
+                    raise cls("typed staleness caught by a base handler")
+
+    def test_only_expected_state_stale_is_the_refreshable_class(self):
+        # The write path keys its one-shot re-seal on exactly this type; every sibling must NOT be a subtype of
+        # it, or a genuine binding change would be mistaken for a refreshable fingerprint drift.
+        for cls in (execution_context.ActivationStale, execution_context.AcceptedTreeStale,
+                    execution_context.StoreIdentityStale, execution_context.BackupPointerStale,
+                    execution_context.ArtifactUnreadable):
+            with self.subTest(cls.__name__):
+                self.assertFalse(issubclass(cls, execution_context.ExpectedStateStale))
+
+
 if __name__ == "__main__":
     unittest.main()

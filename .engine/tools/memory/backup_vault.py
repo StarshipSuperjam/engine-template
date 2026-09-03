@@ -350,14 +350,20 @@ def _should_push(now: int) -> bool:
     return (now - last) >= BACKUP_INTERVAL_HOURS * _HOUR
 
 
-def _record_state(*, now: int, success: bool, privacy_ok: bool) -> None:
+def _record_state(*, now: int, success: bool, privacy_ok: bool, deadline_stage: "str | None" = None) -> None:
     """Best-effort stamp: last_success_ts advances ONLY on a real success (the throttle key); last_attempt_ts and
-    last_privacy_ok always record (the latter makes the privacy-flip warning fire once, not every session)."""
+    last_privacy_ok always record (the latter makes the privacy-flip warning fire once, not every session).
+    `last_deadline_stage` is written on a deadline outcome and CLEARED on every other attempt, so the sidecar
+    only ever names the stage of the MOST RECENT deadline, never a stale one behind a later clean attempt."""
     state = _read_state()
     state["last_attempt_ts"] = int(now)
     state["last_privacy_ok"] = bool(privacy_ok)
     if success:
         state["last_success_ts"] = int(now)
+    if deadline_stage:
+        state["last_deadline_stage"] = deadline_stage
+    else:
+        state.pop("last_deadline_stage", None)
     try:
         os.makedirs(ledger.ledger_dir(), exist_ok=True)
         with open(_state_path(), "w", encoding="utf-8") as fh:
@@ -819,8 +825,15 @@ def _migration_manifest(*, ledger_path, now, engine_version, migration_id) -> di
     return m
 
 
+def _deadline_result(stage_holder: "dict | None") -> dict:
+    """The structured deadline outcome, carrying the stage the deadline fell in (None if none recorded)."""
+    return {"ok": False, "error": "deadline", "pushed": False, "namespace": None,
+            "stage": (stage_holder or {}).get("stage")}
+
+
 def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
-                             engine_version: "str | None" = None, deadline, deadline_guard=None) -> dict:
+                             engine_version: "str | None" = None, deadline, deadline_guard=None,
+                             stage_holder: "dict | None" = None) -> dict:
     """Push the latest ledger + snapshot manifest to the configured vault. Requires setup (a pointer). CHEAP-PROBE
     FIRST: a single repo GET re-verifies the repo is still PRIVATE (and confirms reachability) before any blob work —
     so a public flip or a dead host costs one bounded call, never the full sequence. On a public flip it DECLINES to
@@ -840,21 +853,30 @@ def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
         return {"ok": False, "error": "no-token", "pushed": False, "namespace": None}
     owner, repo, branch, namespace = pointer["owner"], pointer["repo"], pointer["branch"], pointer["namespace"]
 
+    def _stage(name):
+        # One hop of internal state: the last stage entered, read back on any deadline outcome (including the
+        # SIGALRM interrupt caught in push_now). It never leaves the result and the sidecar.
+        if stage_holder is not None:
+            stage_holder["stage"] = name
+
+    _stage("probe")
     repo_obj = _get(gh, f"/repos/{owner}/{repo}", deadline=deadline, deadline_state=deadline_state)
     if repo_obj is None:
         if deadline_state["expired"]:
-            return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+            return _deadline_result(stage_holder)
         return {"ok": False, "error": "unreachable", "pushed": False, "namespace": None}
     if repo_obj.get("private") is not True:
         return {"ok": False, "error": "public", "pushed": False, "namespace": None}
 
     lpath = ledger.ledger_path()
     try:
+        _stage("read")
         ledger_bytes = _read_ledger_bytes(lpath, deadline=deadline, deadline_state=deadline_state)
+        _stage("encode")
         snapshot = snapshot_format.encode(ledger_bytes, deadline=deadline)
     except snapshot_format.SnapshotDeadlineError:
         deadline_state["expired"] = True
-        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+        return _deadline_result(stage_holder)
     except snapshot_format.SnapshotLimitError:
         return {"ok": False, "error": "snapshot-too-large", "pushed": False, "namespace": None}
     except snapshot_format.SnapshotError:
@@ -862,13 +884,15 @@ def _push_now_under_deadline(*, transport=None, now: "int | None" = None,
     # The rolling publication preserves the legacy ledger metadata.  It shares
     # a top-level manifest with the independent multipart v2 fields; the two
     # version numbers deliberately describe different things.
+    _stage("manifest")
     snapshot["manifest"].update(build_manifest(ledger_path=lpath, now=when, engine_version=engine_version))
     if time.monotonic() >= deadline:
-        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+        return _deadline_result(stage_holder)
+    _stage("publish")
     if not _publish_snapshot(gh, owner, repo, branch, namespace, snapshot, deadline=deadline,
                              deadline_state=deadline_state):
         if deadline_state["expired"]:
-            return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+            return _deadline_result(stage_holder)
         return {"ok": False, "error": "push-failed", "pushed": False, "namespace": None}
     if deadline_guard is not None:
         deadline_guard.suspend()  # the ref is current; prevent a late alarm from claiming the prior ref remains
@@ -882,14 +906,18 @@ def push_now(*, transport=None, now: "int | None" = None, engine_version: "str |
         deadline = time.monotonic() + max(0.0, float(deadline_seconds))
     except (TypeError, ValueError):
         deadline = time.monotonic()
+    # Created here so the SIGALRM interrupt, which unwinds out of `_push_now_under_deadline` into the handler
+    # below, can still report the stage the alarm fell in.
+    stage_holder = {"stage": None}
     try:
         with _hard_deadline(deadline) as deadline_guard:
             return _push_now_under_deadline(transport=transport, now=now, engine_version=engine_version,
-                                            deadline=deadline, deadline_guard=deadline_guard)
+                                            deadline=deadline, deadline_guard=deadline_guard,
+                                            stage_holder=stage_holder)
     except HardDeadlineUnavailable:
         return {"ok": False, "error": "deadline-unavailable", "pushed": False, "namespace": None}
     except snapshot_format.SnapshotDeadlineError:
-        return {"ok": False, "error": "deadline", "pushed": False, "namespace": None}
+        return _deadline_result(stage_holder)
 
 
 def snapshot_for_migration(store, engine_version, *, migration_id=None, reversibility_floor=False,
@@ -1131,10 +1159,55 @@ _HEADS_UP_PUSH_FAILED = (
     "thing to try: when you have a steady internet connection, ask me to \"back up memory now\", and I'll bring it "
     "up to date.")
 
+# The publication stages a deadline can fall in, in execution order. These INTERNAL names travel only in the
+# push result and the sidecar (`last_deadline_stage`); the operator sees only the plain-words phrasing below.
+_DEADLINE_STAGES = ("probe", "read", "encode", "manifest", "publish")
+
+# stage -> (where the time went, in ordinary words; the next step that stage implies). Both the SessionStart
+# relay and the foreground message build their stage clause from this, so a deadline says where it stopped and
+# what to do — never the internal stage word.
+_DEADLINE_STAGE_PHRASING = {
+    "probe": ("while checking that your backup repository on GitHub was reachable and still private",
+              "a slow or unreachable connection to GitHub is the likely cause — ask me to retry once your "
+              "connection is steady"),
+    "read": ("while reading this project's saved memory from this computer",
+             "ask me to retry, or to inspect and compact saved memory if it has grown large"),
+    "encode": ("while packaging this project's memory for upload",
+               "ask me to inspect and compact saved memory before backing it up again if it has grown large"),
+    "manifest": ("while preparing the backup's index",
+                 "ask me to retry the backup"),
+    "publish": ("while uploading the backup to your repository on GitHub",
+                "a slow or unreachable connection to GitHub is the likely cause — ask me to retry once your "
+                "connection is steady"),
+}
+
+
+def _deadline_stage_clause(stage: "str | None") -> str:
+    """The plain-words 'where it stopped, and what to try' clause for a deadline at `stage`, or '' when the
+    stage is unknown (a deadline recorded with no stage — e.g. the guard refused before any stage began)."""
+    phrasing = _DEADLINE_STAGE_PHRASING.get(stage)
+    if not phrasing:
+        return ""
+    where, next_step = phrasing
+    return f" It stopped {where}; {next_step}."
+
+
 _HEADS_UP_DEADLINE = (
     "INFORM THE USER, in plain language: the memory backup stopped at its 10-second session-start limit, so the "
     "prior complete backup remains current and the session could continue. Your memory on this computer is safe "
     "and complete. One thing to try: ask me to \"back up memory now\" for the longer foreground attempt.")
+
+_HEADS_UP_DEADLINE_STAGE_ANCHOR = " One thing to try:"
+
+
+def _heads_up_deadline(stage: "str | None" = None) -> str:
+    """The SessionStart relay for a 10-second-limit deadline, naming its stage in plain words. Builds on the
+    stage-less `_HEADS_UP_DEADLINE` base, inserting the stage clause before its 'one thing to try' tail."""
+    clause = _deadline_stage_clause(stage)
+    if not clause:
+        return _HEADS_UP_DEADLINE
+    return _HEADS_UP_DEADLINE.replace(
+        _HEADS_UP_DEADLINE_STAGE_ANCHOR, clause + _HEADS_UP_DEADLINE_STAGE_ANCHOR, 1)
 
 _HEADS_UP_DEADLINE_UNAVAILABLE = (
     "INFORM THE USER, in plain language: this runtime could not safely enforce the memory backup's time limit, so "
@@ -1383,7 +1456,8 @@ def setup(*, scope: "str | None" = None, transport=None, consent: "str | None" =
     pointer = write_pointer(owner, repo, branch, namespace, now=when)
     pointer_commit = commit_pointer_to_project(gh, project.split("/")[0], project_name, pointer)
     result = push_now(transport=transport, now=when)
-    _record_state(now=when, success=result.get("ok", False), privacy_ok=result.get("error") != "public")
+    _record_state(now=when, success=result.get("ok", False), privacy_ok=result.get("error") != "public",
+                  deadline_stage=result.get("stage"))
     msg = _setup_done_msg(owner, repo, first_push=result.get("ok", False))
     if not result.get("ok"):
         msg += " " + _now_message(result)
@@ -1415,14 +1489,15 @@ def _session_start_handler(payload, *, now: "int | None" = None) -> dict:
         result = push_now(now=when, deadline_seconds=_SESSION_START_DEADLINE_SECONDS)
         err = result.get("error")
         privacy_ok_now = err != "public"
-        _record_state(now=when, success=result.get("ok", False), privacy_ok=privacy_ok_now)
+        _record_state(now=when, success=result.get("ok", False), privacy_ok=privacy_ok_now,
+                      deadline_stage=result.get("stage"))
         msg = None
         if not result.get("ok"):
             if err == "public":
                 if prev.get("last_privacy_ok", True):       # newly public -> tell once
                     msg = _heads_up_public()
             elif err == "deadline":
-                msg = _HEADS_UP_DEADLINE
+                msg = _heads_up_deadline(result.get("stage"))
             elif err == "deadline-unavailable":
                 msg = _HEADS_UP_DEADLINE_UNAVAILABLE
             elif err == "snapshot-too-large":
@@ -1456,9 +1531,14 @@ def _now_message(result: dict) -> str:
         return ("I couldn't update the backup just now — your memory on this computer is safe and complete. "
                 + boot.gh_unreachable_note())
     if err == "deadline":
-        return ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains current, "
-                "and your memory on this computer is safe and complete. Ask me to diagnose what consumed the time "
-                "and retry the backup.")
+        base = ("I stopped the foreground backup at its 180-second limit. The prior complete backup remains "
+                "current, and your memory on this computer is safe and complete.")
+        clause = _deadline_stage_clause(result.get("stage"))
+        # A recorded stage already carries its own 'what to try' next step; the generic diagnose-and-retry
+        # tail is only for a deadline with no recorded stage, so the operator never gets two competing asks.
+        if clause:
+            return base + clause
+        return base + " Ask me to diagnose what consumed the time and retry the backup."
     if err == "deadline-unavailable":
         return ("This runtime could not safely enforce the backup's wall-clock limit, so I refused before starting. "
                 "Ask me to retry from the main Engine session without another process timer active.")

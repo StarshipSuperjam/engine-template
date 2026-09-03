@@ -48,8 +48,12 @@ class _DrainBase(unittest.TestCase):
         ]
         for patch in self._patches:
             patch.start()
+        # Hermeticity: these tests drive the real capture path, so redirect the status marker and
+        # failure history off the production cache files (StarshipSuperjam/engine-template#1193).
+        self._saved_health = capture.redirect_health_paths(os.path.join(self.root, "health"))
 
     def tearDown(self):
+        capture.restore_health_paths(self._saved_health)
         for patch in reversed(self._patches):
             patch.stop()
         self._tmp.cleanup()

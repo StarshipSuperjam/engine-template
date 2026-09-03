@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -450,15 +451,26 @@ class LockedAuthorityTests(unittest.TestCase):
         ledger.append({"body": "qualified"}, path=target)
         self.assertEqual(ledger.read(path=target).records, [{"body": "qualified"}])
 
-    def test_a_second_outer_write_with_the_stale_context_refuses_without_appending(self):
+    def test_a_second_outer_write_heals_the_self_inflicted_fingerprint_drift_and_lands(self):
+        # The first append advances the store, so the cached context's observed fingerprint is now stale by
+        # the second append — but the store identity, activation and pointer all still hold, so this is the
+        # one refreshable class. Before n3 the second write refused; n3 re-observes under the lock once and
+        # lets it land. The re-seal preserved the binding and its single cost was measured.
         target = os.path.join(self.fixture.memory, "ledger.ndjson")
         ledger.append({"body": "first"}, path=target)
-        before = Path(target).read_bytes()
-        with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "stale"):
-            ledger.append({"body": "second"}, path=target)
-        self.assertEqual(Path(target).read_bytes(), before)
+        ledger.append({"body": "second"}, path=target)
+        self.assertEqual(ledger.read(path=target).records, [{"body": "first"}, {"body": "second"}])
+        reseal = mutation_authority.last_reseal()
+        self.assertIsNotNone(reseal)
+        self.assertTrue(reseal["binding_preserved"])
+        self.assertEqual(reseal["before"], reseal["after"])
+        self.assertIsInstance(reseal["cost_seconds"], float)
+        self.assertGreaterEqual(reseal["cost_seconds"], 0.0)
 
-    def test_drift_injected_after_lock_acquisition_refuses_before_payload_write(self):
+    def test_fingerprint_drift_injected_after_lock_acquisition_heals_and_lands(self):
+        # A ledger-meta change is an observed-state (fingerprint) drift while the binding holds: the one
+        # refreshable class. Injected after the lock, it is re-observed once under the lock and the write
+        # lands, rather than refusing.
         target = os.path.join(self.fixture.memory, "ledger.ndjson")
         meta = os.path.join(self.fixture.memory, "ledger-meta.json")
 
@@ -466,9 +478,63 @@ class LockedAuthorityTests(unittest.TestCase):
             Path(meta).write_text('{"generation":7,"index_epoch":0}\n', encoding="utf-8")
 
         mutation_authority.set_after_lock_test_hook(drift)
-        with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "under-lock.*stale"):
+        ledger.append({"body": "lands after one re-seal"}, path=target)
+        self.assertEqual(ledger.read(path=target).records, [{"body": "lands after one re-seal"}])
+        self.assertTrue(mutation_authority.last_reseal()["binding_preserved"])
+
+    def test_binding_drift_injected_after_lock_acquisition_refuses_content_free_before_payload_write(self):
+        # An activation change under the lock is NOT the refreshable class: it re-raises through the re-seal
+        # and refuses. The payload never lands, and the refusal names no path, commit or fingerprint.
+        target = os.path.join(self.fixture.memory, "ledger.ndjson")
+        activation = os.path.join(self.fixture.common, "engine", "accepted-hooks", "activation.json")
+        moved_commit = "c" * 40
+
+        def drift():
+            record = json.loads(Path(activation).read_text(encoding="utf-8"))
+            record["commit"] = moved_commit
+            Path(activation).write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+
+        mutation_authority.set_after_lock_test_hook(drift)
+        with self.assertRaises(mutation_authority.MutationAuthorityError) as caught:
             ledger.append({"body": "must not land"}, path=target)
+        message = str(caught.exception)
+        self.assertIn("restart", message)
+        self.assertNotIn(moved_commit, message)
+        self.assertNotIn(self.fixture.base, message)
+        self.assertNotIn("fingerprint", message)
         self.assertFalse(os.path.exists(target))
+
+    def test_a_reseal_that_moves_the_binding_refuses_and_does_not_write(self):
+        # The under-lock re-seal must only refresh observed state, never move the store binding. The
+        # `if before != after` guard defends the future refactor that breaks that invariant. Drive the
+        # refreshable path (a fingerprint drift under the lock) and stub the re-seal to hand back a context
+        # whose binding identity differs, so the guard fires: the refusal is content-free and nothing lands.
+        target = os.path.join(self.fixture.memory, "ledger.ndjson")
+        meta = os.path.join(self.fixture.memory, "ledger-meta.json")
+
+        def drift():
+            Path(meta).write_text('{"generation":7,"index_epoch":0}\n', encoding="utf-8")
+
+        original_reseal = execution_context.reseal_for_stale_state
+        moved = object()  # a stand-in "re-sealed" context whose binding reads as different
+
+        def reseal_moves_binding(context):
+            original_reseal(context)  # run the real refresh for its validation, then discard it
+            return moved
+
+        def binding_of(context):
+            return {"store_identity": "moved" if context is moved else "original"}
+
+        mutation_authority.set_after_lock_test_hook(drift)
+        with mock.patch.object(execution_context, "reseal_for_stale_state", reseal_moves_binding), \
+                mock.patch.object(execution_context, "binding_identity", binding_of):
+            with self.assertRaises(mutation_authority.MutationAuthorityError) as caught:
+                ledger.append({"body": "must not land"}, path=target)
+        message = str(caught.exception)
+        self.assertIn("binding shifted", message)
+        self.assertNotIn(self.fixture.base, message)
+        self.assertFalse(os.path.exists(target))
+        self.assertFalse(mutation_authority.last_reseal()["binding_preserved"])
 
     def test_explicit_path_outside_the_bound_store_refuses(self):
         escaped = os.path.join(self.fixture.base, "escaped.ndjson")
@@ -631,6 +697,124 @@ class AttendedWithholdRestoreEndToEndTests(unittest.TestCase):
         # Restore reverses it — the record re-enters live_records.
         forget.restore(record_id=rid)
         self.assertIn(rid, self._live_ids())
+
+
+class RevalidationTaxonomyTests(unittest.TestCase):
+    """Every staleness the revalidation path can observe raises its own typed ContextError subclass, and only
+    the fingerprint class is refreshable. These drive `revalidate_context` directly, so they need no lock or
+    capture adapter — they pin the classification at its source."""
+
+    def setUp(self):
+        self.fixture = _QualifiedFixture()
+        self.fixture.install()
+        self.activation = os.path.join(
+            self.fixture.common, "engine", "accepted-hooks", "activation.json")
+        self.store_identity = os.path.join(self.fixture.memory, "store-identity.json")
+        self.pointer = self.fixture.pointer
+        self.dispatcher = os.path.join(
+            self.fixture.accepted, ".engine", "tools", "accepted_hook_dispatch.py")
+
+    def tearDown(self):
+        self.fixture.cleanup()
+
+    def test_activation_move_is_typed_activation_stale(self):
+        record = json.loads(Path(self.activation).read_text(encoding="utf-8"))
+        record["commit"] = "c" * 40
+        Path(self.activation).write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
+        with self.assertRaises(execution_context.ActivationStale):
+            execution_context.revalidate_context(self.fixture.context)
+
+    def test_missing_accepted_tree_is_typed_accepted_tree_stale(self):
+        os.remove(self.dispatcher)
+        with self.assertRaises(execution_context.AcceptedTreeStale):
+            execution_context.revalidate_context(self.fixture.context)
+
+    def test_store_identity_change_is_typed_store_identity_stale(self):
+        identity = json.loads(Path(self.store_identity).read_text(encoding="utf-8"))
+        identity["store_id"] = "0" * 32
+        Path(self.store_identity).write_text(json.dumps(identity, sort_keys=True) + "\n", encoding="utf-8")
+        with self.assertRaises(execution_context.StoreIdentityStale):
+            execution_context.revalidate_context(self.fixture.context)
+
+    def test_backup_pointer_bytes_change_is_typed_backup_pointer_stale(self):
+        # Same parsed content, different bytes — so the pointer identity holds but its digest moves, which is
+        # exactly the backup-pointer staleness the class names.
+        Path(self.pointer).write_text('{"schema_version": 1, "configured": false}\n', encoding="utf-8")
+        with self.assertRaises(execution_context.BackupPointerStale):
+            execution_context.revalidate_context(self.fixture.context)
+
+    def test_expected_state_fingerprint_drift_is_typed_expected_state_stale_and_is_the_only_refreshable(self):
+        Path(os.path.join(self.fixture.memory, "ledger-meta.json")).write_text(
+            '{"generation":9,"index_epoch":0}\n', encoding="utf-8")
+        with self.assertRaises(execution_context.ExpectedStateStale):
+            execution_context.revalidate_context(self.fixture.context)
+        # The refreshable class re-seals cleanly from the same document and its binding is preserved.
+        refreshed = execution_context.reseal_for_stale_state(self.fixture.context)
+        self.assertEqual(execution_context.binding_identity(self.fixture.context),
+                         execution_context.binding_identity(refreshed))
+
+    def test_unreadable_artifact_is_typed_artifact_unreadable(self):
+        blocked = os.path.join(self.fixture.memory, "blocked.json")
+        Path(blocked).write_text("{}", encoding="utf-8")
+        os.chmod(blocked, 0)
+
+        def _restore():
+            try:  # the fixture's temp dir may already be gone; restoring perms is best-effort
+                os.chmod(blocked, 0o600)
+            except FileNotFoundError:
+                pass
+
+        self.addCleanup(_restore)
+        try:
+            with open(blocked, "rb"):
+                pass
+        except OSError:
+            readable = False
+        else:
+            readable = True
+        if readable:  # some CI runs as a user that bypasses the mode bits; the classification still holds
+            self.skipTest("filesystem does not enforce unreadable mode for this user")
+        with self.assertRaises(execution_context.ArtifactUnreadable):
+            execution_context._file_digest(blocked)
+
+
+class RaiseSiteTaxonomyEnumerationTests(unittest.TestCase):
+    """Every `raise` in execution_context names a class inside the sanctioned taxonomy — no bare exception, and
+    nothing outside the ContextError family for a boundary failure. This is the executable form of the node's
+    'enumerated against every site': a future untyped divergence fails here instead of leaking to a caller."""
+
+    # The ContextError family: a boundary/staleness failure must raise one of these.
+    _FAMILY = frozenset({
+        "ContextError", "ExpectedStateStale", "ActivationStale", "AcceptedTreeStale",
+        "StoreIdentityStale", "BackupPointerStale", "ArtifactUnreadable",
+    })
+    # Standard exceptions the module raises for non-boundary reasons: the immutability protocol
+    # (AttributeError), the CLI's exit code (SystemExit), and the embedded self-test's own checks
+    # (AssertionError). A NEW class name outside both sets fails the test, forcing whoever adds it to
+    # classify it deliberately.
+    _ALLOWED_STDLIB = frozenset({"AttributeError", "SystemExit", "AssertionError"})
+
+    def test_every_raise_site_uses_a_sanctioned_class(self):
+        import ast
+
+        source = Path(execution_context.__file__).read_text(encoding="utf-8")
+        offenders = []
+        family = 0
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Raise) or node.exc is None:
+                continue
+            # Only construction sites (`raise Class(...)`) are classified; `raise exc` / bare `raise`
+            # re-raise a caught exception and carry no class name to check.
+            if not isinstance(node.exc, ast.Call) or not isinstance(node.exc.func, ast.Name):
+                continue
+            name = node.exc.func.id
+            if name in self._FAMILY:
+                family += 1
+            elif name not in self._ALLOWED_STDLIB:
+                offenders.append((node.lineno, name))
+        self.assertEqual(offenders, [], f"unsanctioned raise classes: {offenders}")
+        # Guard the guard: if a refactor stopped the family from being raised, this must not pass vacuously.
+        self.assertGreater(family, 30)
 
 
 if __name__ == "__main__":

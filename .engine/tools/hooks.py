@@ -450,7 +450,7 @@ def _emit_finding(err, severity: str, event: str, kind: str, message: str, promo
     err.write(f["message"] + "\n")
 
 
-def _record_crash_debug(event: str, exc: BaseException, path: str | None = None) -> None:
+def _record_crash_debug(event: str, exc: BaseException, path: str | None = None) -> bool:
     """Append a compact DIAGNOSTIC entry for a fail-open handler crash to the engine-only debug FILE — for
     the engine's OWN later debugging, NEVER operator-facing. It captures the exception (type + message) and
     the last traceback frame (file:line), so a transient crash (e.g. a mid-edit NameError that fires the
@@ -464,14 +464,17 @@ def _record_crash_debug(event: str, exc: BaseException, path: str | None = None)
     exception type. The sink is telemetry's gitignored cache (the crash is promoted as a telemetry
     finding, so its backstage detail belongs beside telemetry's cache); telemetry is lazy-imported here,
     exactly as the fail-open promotion path already does. Best-effort and fully swallowed by the caller:
-    recording a crash must never re-break fail-open."""
+    recording a crash must never re-break fail-open. Returns True only after the append actually lands, and
+    False on the hermetic test-harness early return — so a caller (boot's envelope-assembly diagnostic) can
+    tell an honest write from the no-op and never claim a crash log exists when none was written. Callers that
+    ignore the return are unaffected."""
     if "unittest" in sys.modules and path is None:
         # The hermetic backstop its siblings already carry (telemetry.emit_finding, providers'
         # live-session write): the test suite exercises crashing handlers by the hundred, and without
         # this guard every run appends test-harness noise to the PRODUCTION crash log — the pollution
         # that made tonight's real-crash archaeology harder (StarshipSuperjam/engine-template#520/StarshipSuperjam/engine-template#522 investigation). An explicit
-        # `path` (the unit tests' own temp file) still writes.
-        return
+        # `path` (the unit tests' own temp file) still writes. Returns False: nothing was recorded.
+        return False
     if path is None:
         import telemetry  # noqa: E402 — lazy, on the fail-open branch only (as _do_promote_fail_open is)
         path = telemetry.HOOK_CRASH_DEBUG_PATH
@@ -482,6 +485,7 @@ def _record_crash_debug(event: str, exc: BaseException, path: str | None = None)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(f"{stamp} {event} handler crash: {type(exc).__name__}: {exc}{where}\n")
+    return True
 
 
 def run_hook(event: str, handler, *, stdin=None, stdout=None, stderr=None, promote=None,

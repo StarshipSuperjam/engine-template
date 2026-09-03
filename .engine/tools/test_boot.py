@@ -1631,6 +1631,19 @@ class TestEnvelopeAssemblyDiagnostic(unittest.TestCase):
             # the finding was still emitted despite the crash sink failing
             self.assertTrue(os.path.exists(spool))
 
+    def test_default_path_noop_under_unittest_reports_no_crash_log_written(self):
+        # The value-proven honesty case: with NO explicit crash_path, `_record_crash_debug` takes its hermetic
+        # test-harness no-op and now REPORTS that it wrote nothing, so boot claims crash_log=False rather than
+        # the former test-only artifact of True-without-a-write. The grounding note then points at nothing.
+        with tempfile.TemporaryDirectory() as d:
+            spool = os.path.join(d, "findings-inbox.ndjson")
+            try:
+                raise ValueError(self._SECRET)
+            except ValueError as exc:
+                recorded = boot.record_envelope_assembly_failure(exc, spool_path=spool)
+            self.assertEqual(recorded, {"crash_log": False})
+            self.assertEqual(boot._envelope_assembly_grounding_note(recorded), "")
+
     def test_the_grounding_note_names_only_the_crash_log_never_the_finding(self):
         note = boot._envelope_assembly_grounding_note({"crash_log": True})
         self.assertIn("## DIAGNOSTIC", note)
