@@ -2543,15 +2543,15 @@ def render_dashboard(s: dict) -> str:
     lead = None if pinned else _backlog_lead_line(s)
     if lead:
         out.append(lead)
-    if pinned or lead:
-        out.append("")
-
     # ACTION-FIRST layout (StarshipSuperjam/engine-template#742): "Needs your attention" is project-wide priority —
     # what needs a decision anywhere in the project, not just "your next task" — and renders immediately after
     # the pinned notices / backlog headline, BEFORE the inventory/facts block below. The facts (what merged,
     # milestone, open issues, engine findings, and any "couldn't refresh" degrade notices) are reference
     # material once the operator already knows what's blocking; they no longer have to be read first to reach it.
-    out.append("")
+    # Exactly one blank line separates the header block from the heading either way: the pinned/lead branch
+    # above already appended one when either fired, so this only adds one when neither did.
+    if not (pinned or lead):
+        out.append("")
     out.append("### Needs your attention")
     attention = list(s["att_lines"])
     # The self-review freshness advisory, relayed read-only from audit_digest's own

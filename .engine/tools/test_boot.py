@@ -470,6 +470,37 @@ class TestActionFirstLayout(unittest.TestCase):
         self.assertLess(pinned_at, attention_at)
         self.assertLess(attention_at, facts_at)
 
+    def test_attention_reads_as_project_wide_never_a_session_assignment(self):
+        # #679 (finding PI-2): "Needs your attention" is the most prominent section on the card now that it
+        # leads. It must read as PROJECT-WIDE priority — what needs a decision anywhere in the project — and
+        # never as an implied assignment of the CURRENT session's task. Regression guard scoped to the
+        # attention section itself (heading through its bullet items, up to the facts block that follows it):
+        # none of these session-assignment phrasings may appear there.
+        #
+        # Scoped rather than whole-card: the facts block legitimately says "as of THIS SESSION, source:
+        # GitHub Issues" as a freshness timestamp on "Your open issues" / "Engine findings" (unrelated to
+        # PI-2 — that is a read-provenance note, not a task assignment) — banning the phrase card-wide would
+        # false-positive on that correct, already-covered copy. What PI-2 actually guards against is the
+        # LEADING section itself reading like a to-do handed to the current session, so the check is scoped
+        # to that section's own text.
+        dash = boot.render_dashboard(_signals(
+            att_lines=["review the open PR", "regenerate the stale map"],
+            shipped=["#3 — a change"], finding_count=1, operator_backlog_count=1,
+            operator_backlog_register="https://example/issues"))
+        heading = "### Needs your attention"
+        self.assertIn(heading, dash)
+        start = dash.index(heading)
+        end = dash.index("**What merged last:**", start)
+        section = dash[start:end].lower()
+        for phrase in ("your next task", "this session", "you are building",
+                       "your task this session", "what to work on next"):
+            self.assertNotIn(phrase, section,
+                              f"the leading attention section must never imply a session-assigned task via "
+                              f"{phrase!r} (#679 PI-2)")
+        # The heading itself stays project-framed, not session- or task-framed.
+        self.assertIn("needs your attention", heading.lower())
+        self.assertNotIn("your task", heading.lower())
+
 
 class TestSetupLandedConfirmation(unittest.TestCase):
     """#810: the one-time post-landing 'Setup is now complete' confirmation renders when the signal is present,
