@@ -2621,11 +2621,11 @@ def render_dashboard(s: dict) -> str:
         if s.get("operator_backlog_count") is not None:
             reg = s.get("operator_backlog_register")
             tail = f" → {reg}" if reg else ""
-            out.append(f"**Your open issues:** {s['operator_backlog_count']} _(as of this session, source: "
-                       f"GitHub Issues)_ — your own filed work{tail}")
+            out.append(f"**Project issues:** {s['operator_backlog_count']} _(as of this session, source: "
+                       f"GitHub Issues)_ — open issues filed in this project{tail}")
         elif s.get("operator_backlog_degraded"):
-            out.append("**Your open issues:** _I couldn't read your issue backlog from GitHub this session, "
-                       "so I'm not showing a count — re-ground before you rely on it._")
+            out.append("**Project issues:** _I couldn't read the project's issue backlog from GitHub this "
+                       "session, so I'm not showing a count — re-ground before you rely on it._")
         # The engine's OWN findings — its housekeeping, the lowest priority — render BELOW the operator's own
         # issues and quietly (no ⚠; the count is folded into the whole-backlog headline above). The live
         # register first, else the committed offline shadow rendered loud-if-stale (degrade-loud) so a number
@@ -2794,7 +2794,7 @@ def render_dashboard(s: dict) -> str:
         out.extend(f"_{line}_" for line in degraded)
 
     out.append("")
-    out.append("### Recently shipped")
+    out.append("### Recently merged")
     # The digest owns its own absence copy (_shipped_lines): only that read knows whether there are no recent
     # merges or whether it simply is not showing them, and this render must not guess between the two.
     out.extend(f"- {line}" for line in s["shipped"])

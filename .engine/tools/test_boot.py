@@ -84,7 +84,7 @@ def _floor_text() -> str:
 
 def _offline():
     """Patch boot so no network is touched: no repo/token, a stable empty attention result, a fixed
-    recently-shipped digest, and an offline checkout snapshot. Returns a list of started patchers the caller
+    recently-merged digest, and an offline checkout snapshot. Returns a list of started patchers the caller
     stops.
 
     The checkout-snapshot patch closes a real hole: gather_signals() calls checkout_health.checkout_snapshot(),
@@ -95,7 +95,7 @@ def _offline():
     patchers = [
         mock.patch.object(boot, "repo_slug", return_value=None),
         mock.patch.object(boot, "gh_token", return_value=None),
-        # The recently-shipped digest is now the ranked recent_decisions partition (#394): pin the merged-PR
+        # The recently-merged digest is now the ranked recent_decisions partition (#394): pin the merged-PR
         # read both attention (for the candidates) and boot (for their titles) run, so the digest is stable and
         # no offline test shells out to real git.
         mock.patch.object(boot.work_record, "read_recent_decisions",
@@ -409,7 +409,7 @@ class TestReadoutAndGateHonesty(unittest.TestCase):
 
 class TestActionFirstLayout(unittest.TestCase):
     """#742: the dashboard is ACTION-FIRST — "Needs your attention" renders BEFORE the inventory/facts block
-    (What merged last / Your open issues / Engine findings) and before "Recently shipped", so the operator
+    (What merged last / Project issues / Engine findings) and before "Recently merged", so the operator
     sees what needs a decision before the reference facts. The pinned governance notices still lead the
     whole card in every case."""
 
@@ -418,11 +418,11 @@ class TestActionFirstLayout(unittest.TestCase):
         attention_at = dash.index("### Needs your attention")
         self.assertLess(attention_at, dash.index("What merged last"),
                          "attention must render before the facts/inventory block")
-        self.assertLess(attention_at, dash.index("Your open issues") if "Your open issues" in dash
+        self.assertLess(attention_at, dash.index("Project issues") if "Project issues" in dash
                          else dash.index("Engine findings"),
                          "attention must render before the operator's own open-issue/engine-findings facts")
-        self.assertLess(attention_at, dash.index("### Recently shipped"),
-                         "attention must render before recently-shipped")
+        self.assertLess(attention_at, dash.index("### Recently merged"),
+                         "attention must render before recently-merged")
 
     def test_ordering_holds_with_operator_backlog_and_findings_present(self):
         # Exercise the fuller facts block (both counts present) so the ordering assertion isn't vacuous over
@@ -431,9 +431,9 @@ class TestActionFirstLayout(unittest.TestCase):
             att_lines=["review the open PR"], shipped=["#2 — another change"],
             finding_count=3, operator_backlog_count=2, operator_backlog_register="https://example/issues"))
         attention_at = dash.index("### Needs your attention")
-        self.assertLess(attention_at, dash.index("Your open issues"))
+        self.assertLess(attention_at, dash.index("Project issues"))
         self.assertLess(attention_at, dash.index("Engine findings"))
-        self.assertLess(attention_at, dash.index("### Recently shipped"))
+        self.assertLess(attention_at, dash.index("### Recently merged"))
 
     def test_ordering_holds_without_a_pinned_notice(self):
         # No governance alarm pinned: the card opens with the calm backlog headline (or nothing), then
@@ -478,7 +478,7 @@ class TestActionFirstLayout(unittest.TestCase):
         # none of these session-assignment phrasings may appear there.
         #
         # Scoped rather than whole-card: the facts block legitimately says "as of THIS SESSION, source:
-        # GitHub Issues" as a freshness timestamp on "Your open issues" / "Engine findings" (unrelated to
+        # GitHub Issues" as a freshness timestamp on "Project issues" / "Engine findings" (unrelated to
         # PI-2 — that is a read-provenance note, not a task assignment) — banning the phrase card-wide would
         # false-positive on that correct, already-covered copy. What PI-2 actually guards against is the
         # LEADING section itself reading like a to-do handed to the current session, so the check is scoped
@@ -955,27 +955,27 @@ class TestOperatorBacklogLine(unittest.TestCase):
         dash = boot.render_dashboard(_signals(
             operator_backlog_count=40,
             operator_backlog_register="https://github.com/o/r/issues?q=is:open+is:issue+-label:engine"))
-        self.assertIn("**Your open issues:** 40", dash)
+        self.assertIn("**Project issues:** 40", dash)
         self.assertIn("as of this session, source: GitHub Issues", dash)
-        self.assertIn("your own filed work", dash)   # names ownership; "Engine findings" above carries the contrast
+        self.assertIn("open issues filed in this project", dash)   # project-framed, not "your own filed work"
         self.assertIn("issues?q=is:open+is:issue+-label:engine", dash)   # the count is actionable
 
     def test_a_genuine_zero_backlog_reads_as_checked_none(self):
         dash = boot.render_dashboard(_signals(operator_backlog_count=0,
                                               operator_backlog_register="https://github.com/o/r/issues"))
-        self.assertIn("**Your open issues:** 0", dash)   # a live 0 is shown, never suppressed
+        self.assertIn("**Project issues:** 0", dash)   # a live 0 is shown, never suppressed
 
     def test_a_read_that_failed_with_access_says_so_never_silently_vanishes(self):
         # The solo-operator-read-failure case the shared-outage att_degraded notice does NOT cover: say it
         # plainly rather than dropping the line the operator has learned to expect.
         dash = boot.render_dashboard(_signals(operator_backlog_count=None, operator_backlog_degraded=True))
-        self.assertIn("**Your open issues:**", dash)
-        self.assertIn("couldn't read your issue backlog", dash)
-        self.assertNotIn("Your open issues:** 0", dash)   # a failed read is NEVER a false 0
+        self.assertIn("**Project issues:**", dash)
+        self.assertIn("couldn't read the project's issue backlog", dash)
+        self.assertNotIn("Project issues:** 0", dash)   # a failed read is NEVER a false 0
 
     def test_no_github_access_suppresses_the_line_entirely(self):
         dash = boot.render_dashboard(_signals(operator_backlog_count=None, operator_backlog_degraded=False))
-        self.assertNotIn("Your open issues", dash)   # no token -> silent, like every GitHub-derived line
+        self.assertNotIn("Project issues", dash)   # no token -> silent, like every GitHub-derived line
 
     def test_the_backlog_total_leads_the_marker_calmly_never_as_an_alarm(self):
         # The whole-backlog total leads the marker now (deliberately reversing #564's "backlog never on the
@@ -4637,7 +4637,7 @@ class TestBriefingBudget(unittest.TestCase):
         # with a controlled signal set (no pinned alerts), so it holds in ANY repo shape, home or deployed.
         budget = boot._briefing_values()["dashboard_chars_max"]
         heavy = _signals(finding_count=40, unrated_count=12, operator_backlog_count=40,
-                         shipped=[f"#{i} — a fairly wordy recently-shipped pull request title {i}" for i in range(15)],
+                         shipped=[f"#{i} — a fairly wordy recently-merged pull request title {i}" for i in range(15)],
                          att_lines=[f"- attention item {i} that needs a decision this session" for i in range(6)],
                          att_degraded=["memory recall is degraded", "fast search unavailable"])
         self.assertLessEqual(len(boot.render_dashboard(heavy)), budget,
@@ -5682,6 +5682,65 @@ class TestTypedEnvelopeCutover(unittest.TestCase):
                 p.stop()
         self.assertIn("safety gate is off", pack)             # the gate-off governance alarm
         self.assertIn("half-finished", pack)                  # the staged-update recovery offer — both, together
+
+
+class TestIssue742EvidenceHonestCopy(unittest.TestCase):
+    """#742 (evidence-honest-copy node): the dashboard's own copy must tell the truth about what it can
+    actually evidence — multi-contributor project issues (not an operator's personal backlog), merged (not
+    shipped/deployed) history, honest GitHub-sourced milestone provenance, and unrated findings read as
+    unknown rather than a false urgency of zero. This node is copy-only: it must not touch the calm
+    "Nothing is blocking right now" marker line, which is #740's."""
+
+    def test_project_issues_replaces_operator_owned_open_issues_wording(self):
+        # Multi-contributor semantics: a project's issue backlog is not the operator's personal filed work.
+        dash = boot.render_dashboard(_signals(
+            operator_backlog_count=5, operator_backlog_register="https://example/issues"))
+        self.assertIn("**Project issues:** 5", dash)
+        self.assertIn("open issues filed in this project", dash)
+        self.assertNotIn("Your open issues", dash)
+        self.assertNotIn("your own filed work", dash)
+
+    def test_project_issues_degraded_line_is_project_framed_not_operator_framed(self):
+        dash = boot.render_dashboard(_signals(operator_backlog_degraded=True))
+        self.assertIn("**Project issues:**", dash)
+        self.assertIn("the project's issue backlog", dash)
+        self.assertNotIn("your issue backlog", dash)
+        self.assertNotIn("Your open issues", dash)
+
+    def test_recently_merged_replaces_recently_shipped_heading(self):
+        # "Shipped" implies deployment; a merged pull request is a historical fact, not a release claim.
+        dash = boot.render_dashboard(_signals(shipped=["#1 — a change"]))
+        self.assertIn("### Recently merged", dash)
+        self.assertNotIn("Recently shipped", dash)
+
+    def test_milestone_line_is_honest_github_provenance_when_present(self):
+        # A present milestone is named plainly, sourced from GitHub-supplied data, with no ownership framing
+        # (never "your milestone" or an implied build-plan commitment).
+        dash = boot.render_dashboard(_signals(live_standing={"milestone": "Beta", "phase": "P"}))
+        self.assertIn("**Milestone:** Beta", dash)
+        self.assertNotIn("your milestone", dash.lower())
+
+    def test_milestone_line_is_honest_when_none_open(self):
+        dash = boot.render_dashboard(_signals(live_standing={"milestone": None, "phase": "P"}))
+        self.assertIn("**Milestone:** No milestone is open", dash)
+
+    def test_unrated_finding_severity_renders_as_unknown_not_a_number_or_urgency(self):
+        # Untriaged urgency must read as unknown, never as an implied "checked and it's low/zero" urgency.
+        dash = boot.render_dashboard(_signals(finding_count=3, unrated_count=3))
+        self.assertIn("**Engine findings:** 3", dash)
+        self.assertIn("None of these carries an urgency rating", dash)
+        self.assertIn("no one has rated them", dash)
+
+    def test_partially_unrated_findings_name_the_count_not_rated(self):
+        dash = boot.render_dashboard(_signals(finding_count=5, unrated_count=2))
+        self.assertIn("2 of these carry no urgency rating", dash)
+
+    def test_copy_honesty_changes_do_not_touch_the_blocking_marker_line(self):
+        # Guard: this node is copy-only on the issues/merged/milestone/urgency lines. The dashboard's own
+        # calm line and the present-marker's "all clear" wording belong to #740 and must be untouched here.
+        dash = boot.render_dashboard(_signals())
+        self.assertIn("Nothing is blocking right now.", dash)
+        self.assertNotIn("all clear", dash)
 
 
 if __name__ == "__main__":
