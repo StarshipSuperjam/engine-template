@@ -8,6 +8,9 @@ interpreter from the activated materialization.  No memory module is imported on
 Trust boundary: this closes accidental candidate/stale-code execution against canonical durable memory.  It is
 operational provenance, not protection from malicious code running as the same user: such code can rewrite the
 launcher, Git common metadata, or the cache.  Stronger same-user isolation belongs to the future mediator work.
+In the same spirit, the accepted interpreter is handed the project venv's installed package directory (see
+``_site_paths``), which is NOT verified against uv.lock or any manifest: same-user code able to write the venv
+can influence what the accepted lane imports.  That is the existing provenance boundary, not a new exposure.
 
 Automatic callers may use only ``run`` or ``inspect``.  ``candidate`` is a separate attended lane: accepted
 code creates a fresh non-aliasing disposable target, gives selected candidate code authority only for one
@@ -955,7 +958,49 @@ def _relative_script(root: str, script: str) -> str:
     return rel
 
 
+def _venv_site_packages(executable: str | None = None, *,
+                        version_info: object | None = None,
+                        os_name: str | None = None) -> str | None:
+    """The site-packages directory of the venv that owns ``executable``, or None if it is not in one.
+
+    Isolation-flag safe.  Under ``-I -S`` the accepted interpreter runs with no ``site`` module, so a virtual
+    environment is invisible and sysconfig reports the *base* interpreter's packages instead; the engine's own
+    dependencies (jsonschema, imported by the session relay) then cannot be found and boot's grounding
+    assembly crashes.  This computes the venv's package directory from the interpreter path alone, without
+    importing ``site`` or trusting sysconfig: the venv root is two directories above the interpreter and is
+    marked by a ``pyvenv.cfg``; its package directory is ``lib/python<major>.<minor>/site-packages`` on POSIX
+    or ``Lib/site-packages`` on Windows.
+
+    The interpreter path is used WITHOUT resolving symlinks: a venv's ``bin/python`` is typically a symlink to
+    the base interpreter, and sys.executable deliberately keeps the venv path so the root is reachable.  A
+    missing package directory returns None so the caller falls back to the ordinary scan rather than inventing
+    a path that does not exist.
+    """
+    executable = sys.executable if executable is None else executable
+    if not executable:
+        return None
+    version_info = sys.version_info if version_info is None else version_info
+    os_name = os.name if os_name is None else os_name
+    venv_root = os.path.dirname(os.path.dirname(os.path.abspath(executable)))
+    if not os.path.isfile(os.path.join(venv_root, "pyvenv.cfg")):
+        return None
+    if os_name == "nt":
+        candidate = os.path.join(venv_root, "Lib", "site-packages")
+    else:
+        candidate = os.path.join(
+            venv_root, "lib", f"python{version_info[0]}.{version_info[1]}", "site-packages")
+    if os.path.isdir(candidate):
+        return os.path.realpath(candidate)
+    return None
+
+
 def _site_paths() -> list[str]:
+    # Prefer the venv derivation: under -I -S it is the only path that finds the engine's own packages, and
+    # when it succeeds it is returned ALONE so the base interpreter's site-packages cannot outrank it.  The
+    # sysconfig/sys.path scan is kept only as the fallback for a non-venv interpreter.
+    venv_site = _venv_site_packages()
+    if venv_site is not None:
+        return [venv_site]
     paths = []
     try:
         import sysconfig

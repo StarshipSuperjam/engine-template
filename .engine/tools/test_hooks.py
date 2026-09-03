@@ -1900,6 +1900,85 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result["coverage"]["total"], 2)
 
 
+class TestSitePathDerivation(unittest.TestCase):
+    """W1: under -I -S the accepted interpreter must find the project venv's packages, not the base
+    interpreter's, or boot's grounding envelope cannot import jsonschema and crashes every session."""
+
+    def _module(self):
+        import accepted_hook_dispatch
+        return accepted_hook_dispatch
+
+    def _make_venv(self, root, *, cfg=True, posix=True, version=(3, 12), make_site=True):
+        root = Path(root)
+        bindir = root / ("bin" if posix else "Scripts")
+        bindir.mkdir(parents=True, exist_ok=True)
+        exe = bindir / ("python" if posix else "python.exe")
+        exe.write_text("", encoding="utf-8")
+        if cfg:
+            (root / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+        site = None
+        if make_site:
+            if posix:
+                site = root / "lib" / f"python{version[0]}.{version[1]}" / "site-packages"
+            else:
+                site = root / "Lib" / "site-packages"
+            site.mkdir(parents=True, exist_ok=True)
+            site = str(site.resolve())
+        return str(exe), site
+
+    def test_posix_layout_is_derived_from_the_interpreter_alone(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, site = self._make_venv(Path(td) / "venv", posix=True, version=(3, 11))
+            self.assertEqual(d._venv_site_packages(exe, version_info=(3, 11), os_name="posix"), site)
+
+    def test_windows_layout_uses_Lib_site_packages(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, site = self._make_venv(Path(td) / "venv", posix=False)
+            self.assertEqual(d._venv_site_packages(exe, version_info=(3, 12), os_name="nt"), site)
+
+    def test_no_pyvenv_cfg_is_not_a_venv_and_returns_none(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, _ = self._make_venv(Path(td) / "venv", cfg=False, posix=True)
+            self.assertIsNone(d._venv_site_packages(exe, version_info=(3, 12), os_name="posix"))
+
+    def test_missing_site_packages_dir_returns_none_to_force_fallback(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, _ = self._make_venv(Path(td) / "venv", make_site=False, posix=True)
+            self.assertIsNone(d._venv_site_packages(exe, version_info=(3, 12), os_name="posix"))
+
+    def test_site_paths_returns_the_venv_alone_and_drops_the_fallback_scan(self):
+        d = self._module()
+        with mock.patch.object(d, "_venv_site_packages", return_value="/x/site-packages"):
+            self.assertEqual(d._site_paths(), ["/x/site-packages"])
+
+    def test_site_paths_falls_back_to_the_scan_only_when_not_in_a_venv(self):
+        d = self._module()
+        with mock.patch.object(d, "_venv_site_packages", return_value=None):
+            result = d._site_paths()
+            self.assertIsInstance(result, list)
+            self.assertEqual(result, sorted(set(result)))
+
+    def test_live_venv_makes_jsonschema_importable_under_isolated_flags(self):
+        venv_python = _ACCEPTED_TOOLS.parent / ".venv" / "bin" / "python"
+        if not venv_python.exists():
+            self.skipTest(".engine/.venv absent on this machine")
+        program = (
+            "import sys; sys.path.insert(0, %r);"
+            "import accepted_hook_dispatch as d;"
+            "sp = d._site_paths(); sys.path[:0] = sp;"
+            "import jsonschema;"
+            "print('OK', len(sp) == 1 and any('site-packages' in p for p in sp))" % str(_ACCEPTED_TOOLS)
+        )
+        proc = subprocess.run([str(venv_python), "-I", "-S", "-c", program],
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("OK True", proc.stdout)
+
+
 # The unittest runner MUST stay the last statement in this file. Under the engine's canonical
 # `unittest discover` run a mid-file runner is harmless — discovery imports the module and collects every
 # TestCase regardless of position — but a developer running this file DIRECTLY (`python tools/test_hooks.py`)
