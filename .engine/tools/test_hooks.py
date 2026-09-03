@@ -1900,6 +1900,190 @@ class TestAmbientActivationLifecycle(unittest.TestCase):
         self.assertEqual(result["coverage"]["total"], 2)
 
 
+class TestSitePathDerivation(unittest.TestCase):
+    """W1: under -I -S the accepted interpreter must find the project venv's packages, not the base
+    interpreter's, or boot's grounding envelope cannot import jsonschema and crashes every session."""
+
+    def _module(self):
+        import accepted_hook_dispatch
+        return accepted_hook_dispatch
+
+    def _make_venv(self, root, *, cfg=True, posix=True, version=(3, 12), make_site=True):
+        root = Path(root)
+        bindir = root / ("bin" if posix else "Scripts")
+        bindir.mkdir(parents=True, exist_ok=True)
+        exe = bindir / ("python" if posix else "python.exe")
+        exe.write_text("", encoding="utf-8")
+        if cfg:
+            (root / "pyvenv.cfg").write_text("home = /usr\n", encoding="utf-8")
+        site = None
+        if make_site:
+            if posix:
+                site = root / "lib" / f"python{version[0]}.{version[1]}" / "site-packages"
+            else:
+                site = root / "Lib" / "site-packages"
+            site.mkdir(parents=True, exist_ok=True)
+            site = str(site.resolve())
+        return str(exe), site
+
+    def test_posix_layout_is_derived_from_the_interpreter_alone(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, site = self._make_venv(Path(td) / "venv", posix=True, version=(3, 11))
+            self.assertEqual(d._venv_site_packages(exe, version_info=(3, 11), os_name="posix"), site)
+
+    def test_windows_layout_uses_Lib_site_packages(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, site = self._make_venv(Path(td) / "venv", posix=False)
+            self.assertEqual(d._venv_site_packages(exe, version_info=(3, 12), os_name="nt"), site)
+
+    def test_no_pyvenv_cfg_is_not_a_venv_and_returns_none(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, _ = self._make_venv(Path(td) / "venv", cfg=False, posix=True)
+            self.assertIsNone(d._venv_site_packages(exe, version_info=(3, 12), os_name="posix"))
+
+    def test_missing_site_packages_dir_returns_none_to_force_fallback(self):
+        d = self._module()
+        with tempfile.TemporaryDirectory() as td:
+            exe, _ = self._make_venv(Path(td) / "venv", make_site=False, posix=True)
+            self.assertIsNone(d._venv_site_packages(exe, version_info=(3, 12), os_name="posix"))
+
+    def test_site_paths_returns_the_venv_alone_and_drops_the_fallback_scan(self):
+        d = self._module()
+        with mock.patch.object(d, "_venv_site_packages", return_value="/x/site-packages"):
+            self.assertEqual(d._site_paths(), ["/x/site-packages"])
+
+    def test_site_paths_falls_back_to_the_scan_only_when_not_in_a_venv(self):
+        d = self._module()
+        with mock.patch.object(d, "_venv_site_packages", return_value=None):
+            result = d._site_paths()
+            self.assertIsInstance(result, list)
+            self.assertEqual(result, sorted(set(result)))
+
+    def test_live_venv_makes_jsonschema_importable_under_isolated_flags(self):
+        venv_python = _ACCEPTED_TOOLS.parent / ".venv" / "bin" / "python"
+        if not venv_python.exists():
+            self.skipTest(".engine/.venv absent on this machine")
+        program = (
+            "import sys; sys.path.insert(0, %r);"
+            "import accepted_hook_dispatch as d;"
+            "sp = d._site_paths(); sys.path[:0] = sp;"
+            "import jsonschema;"
+            "print('OK', len(sp) == 1 and any('site-packages' in p for p in sp))" % str(_ACCEPTED_TOOLS)
+        )
+        proc = subprocess.run([str(venv_python), "-I", "-S", "-c", program],
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("OK True", proc.stdout)
+
+
+class TestAcceptedTreeBytecodeHygiene(unittest.TestCase):
+    """W2: no lane descended from a dispatch may write bytecode into the self-attesting accepted tree, or
+    its content digest no longer matches and every later dispatch rebuilds it, refusing concurrent starts."""
+
+    def setUp(self):
+        self.repo = _AcceptedDispatchRepo()
+        self.repo.activate()
+
+    def tearDown(self):
+        self.repo.cleanup()
+
+    def _tree_path(self):
+        cache_root = self.repo.common_dir() / "engine" / "accepted-hooks" / "trees"
+        return cache_root / f"{self.repo.commit}-{self.repo.tree}"
+
+    def _marker_path(self):
+        cache_root = self.repo.common_dir() / "engine" / "accepted-hooks" / "trees"
+        return cache_root / f"{self.repo.commit}-{self.repo.tree}.json"
+
+    def _pycache_dirs(self, tree):
+        found = []
+        for cur, dirs, _files in os.walk(tree):
+            for name in dirs:
+                if name == "__pycache__":
+                    found.append(os.path.relpath(os.path.join(cur, name), tree))
+        return sorted(found)
+
+    def _valid(self):
+        import accepted_hook_dispatch as d
+        return d._valid_materialization(
+            str(self.repo.home), {"commit": self.repo.commit, "tree": self.repo.tree})
+
+    def test_automatic_lane_leaves_no_bytecode_and_the_tree_stays_valid(self):
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [],
+                         "the automatic dispatch wrote __pycache__ into the trusted tree")
+        self.assertIsNotNone(self._valid(), "the tree is no longer a valid materialization")
+
+    def test_attended_lane_leaves_no_bytecode_and_the_tree_stays_valid(self):
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        self.assertIsNotNone(self._valid())
+
+    def test_a_polluted_tree_is_rebuilt_once_then_stays_stable(self):
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        marker = self._marker_path()
+        seeded = self._tree_path() / ".engine/tools/__pycache__"
+        seeded.mkdir(parents=True, exist_ok=True)
+        (seeded / "poison.cpython-000.pyc").write_bytes(b"\x00\x01poison")
+        self.assertIsNone(self._valid(), "a tree polluted with __pycache__ must be judged invalid")
+        # The next dispatch rebuilds it clean once.
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        self.assertIsNotNone(self._valid())
+        rebuilt = os.stat(marker)
+        # A following dispatch finds a valid tree and does not rebuild: the marker file is untouched
+        # (an atomic rewrite would replace the inode).
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        after = os.stat(marker)
+        self.assertEqual((after.st_ino, after.st_mtime_ns), (rebuilt.st_ino, rebuilt.st_mtime_ns),
+                         "the tree was rebuilt again, so pollution recurred")
+
+    def test_two_concurrent_attended_launches_against_a_clean_tree_both_succeed(self):
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.repo.run_attended) for _ in range(2)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        for result in results:
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class TestBytecodeBeltScope(unittest.TestCase):
+    """W2 repair: the bytecode belt is scoped to the INNER accepted-dispatch process. Importing this module
+    as a library — as boot.py does at session start to reach ensure_activation_ambient — must NOT flip the
+    process-global sys.dont_write_bytecode, or boot's own later imports lose caching on every session start.
+    The inner-run commands still arm the belt so an OLD outer (no -B) launching this NEW inner writes no
+    bytecode into the digest-attested accepted tree."""
+
+    def _flag_after(self, body):
+        program = ("import sys; sys.path.insert(0, %r)\n" % str(_ACCEPTED_TOOLS)) + body + \
+                  "\nprint('FLAG', sys.dont_write_bytecode)"
+        env = {key: value for key, value in os.environ.items() if key != "PYTHONDONTWRITEBYTECODE"}
+        proc = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True,
+                              env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip().rsplit("FLAG", 1)[1].strip()
+
+    def test_importing_as_a_library_leaves_bytecode_writing_enabled(self):
+        self.assertEqual(self._flag_after("import accepted_hook_dispatch"), "False")
+
+    def test_the_inner_run_command_arms_the_belt_even_without_dash_b(self):
+        body = ("import accepted_hook_dispatch as d\n"
+                "d.main(['_run-accepted', '--tree', '/nonexistent-tree', '--script', 'foo.py',"
+                " '--site-path', '/tmp', '--'])")
+        self.assertEqual(self._flag_after(body), "True")
+
+    def test_the_belt_is_not_a_module_top_global(self):
+        source = (_ACCEPTED_TOOLS / "accepted_hook_dispatch.py").read_text(encoding="utf-8")
+        self.assertIn('if args.command in ("_run-accepted", "_run-attended", "_run-candidate"):', source)
+        self.assertNotIn("from urllib.parse import quote\n\nsys.dont_write_bytecode = True", source)
+
+
 # The unittest runner MUST stay the last statement in this file. Under the engine's canonical
 # `unittest discover` run a mid-file runner is harmless — discovery imports the module and collects every
 # TestCase regardless of position — but a developer running this file DIRECTLY (`python tools/test_hooks.py`)

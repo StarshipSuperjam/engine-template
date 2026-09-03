@@ -8,6 +8,9 @@ interpreter from the activated materialization.  No memory module is imported on
 Trust boundary: this closes accidental candidate/stale-code execution against canonical durable memory.  It is
 operational provenance, not protection from malicious code running as the same user: such code can rewrite the
 launcher, Git common metadata, or the cache.  Stronger same-user isolation belongs to the future mediator work.
+In the same spirit, the accepted interpreter is handed the project venv's installed package directory (see
+``_site_paths``), which is NOT verified against uv.lock or any manifest: same-user code able to write the venv
+can influence what the accepted lane imports.  That is the existing provenance boundary, not a new exposure.
 
 Automatic callers may use only ``run`` or ``inspect``.  ``candidate`` is a separate attended lane: accepted
 code creates a fresh non-aliasing disposable target, gives selected candidate code authority only for one
@@ -955,7 +958,49 @@ def _relative_script(root: str, script: str) -> str:
     return rel
 
 
+def _venv_site_packages(executable: str | None = None, *,
+                        version_info: object | None = None,
+                        os_name: str | None = None) -> str | None:
+    """The site-packages directory of the venv that owns ``executable``, or None if it is not in one.
+
+    Isolation-flag safe.  Under ``-I -S`` the accepted interpreter runs with no ``site`` module, so a virtual
+    environment is invisible and sysconfig reports the *base* interpreter's packages instead; the engine's own
+    dependencies (jsonschema, imported by the session relay) then cannot be found and boot's grounding
+    assembly crashes.  This computes the venv's package directory from the interpreter path alone, without
+    importing ``site`` or trusting sysconfig: the venv root is two directories above the interpreter and is
+    marked by a ``pyvenv.cfg``; its package directory is ``lib/python<major>.<minor>/site-packages`` on POSIX
+    or ``Lib/site-packages`` on Windows.
+
+    The interpreter path is used WITHOUT resolving symlinks: a venv's ``bin/python`` is typically a symlink to
+    the base interpreter, and sys.executable deliberately keeps the venv path so the root is reachable.  A
+    missing package directory returns None so the caller falls back to the ordinary scan rather than inventing
+    a path that does not exist.
+    """
+    executable = sys.executable if executable is None else executable
+    if not executable:
+        return None
+    version_info = sys.version_info if version_info is None else version_info
+    os_name = os.name if os_name is None else os_name
+    venv_root = os.path.dirname(os.path.dirname(os.path.abspath(executable)))
+    if not os.path.isfile(os.path.join(venv_root, "pyvenv.cfg")):
+        return None
+    if os_name == "nt":
+        candidate = os.path.join(venv_root, "Lib", "site-packages")
+    else:
+        candidate = os.path.join(
+            venv_root, "lib", f"python{version_info[0]}.{version_info[1]}", "site-packages")
+    if os.path.isdir(candidate):
+        return os.path.realpath(candidate)
+    return None
+
+
 def _site_paths() -> list[str]:
+    # Prefer the venv derivation: under -I -S it is the only path that finds the engine's own packages, and
+    # when it succeeds it is returned ALONE so the base interpreter's site-packages cannot outrank it.  The
+    # sysconfig/sys.path scan is kept only as the fallback for a non-venv interpreter.
+    venv_site = _venv_site_packages()
+    if venv_site is not None:
+        return [venv_site]
     paths = []
     try:
         import sysconfig
@@ -1000,9 +1045,10 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
         "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
         "ENGINE_ACCEPTED_HOOK_CONTEXT": json.dumps(context, sort_keys=True, separators=(",", ":")),
     })
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # belt for any non-isolated descendant; -B below covers the child
     accepted_dispatch = os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")
     argv = [
-        sys.executable, "-I", "-S", accepted_dispatch, "_run-accepted",
+        sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-accepted",
         "--tree", accepted_tree, "--script", rel,
     ]
     for site_path in _site_paths():
@@ -1089,9 +1135,10 @@ def dispatch_attended(root: str, script: str, operation: str, target_args: list[
         "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
         "ENGINE_ACCEPTED_HOOK_CONTEXT": json.dumps(context, sort_keys=True, separators=(",", ":")),
     })
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # belt for any non-isolated descendant; -B below covers the child
     accepted_dispatch = os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")
     argv = [
-        sys.executable, "-I", "-S", accepted_dispatch, "_run-attended",
+        sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-attended",
         "--tree", accepted_tree, "--script", rel, "--operation", operation,
     ]
     for site_path in _site_paths():
@@ -1117,8 +1164,9 @@ def dispatch_candidate(args: argparse.Namespace) -> None:
         }
     }
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # belt for any non-isolated descendant; -B below covers the child
     argv = [
-        sys.executable, "-I", "-S", accepted_dispatch, "_run-candidate", "--tree", accepted_tree,
+        sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-candidate", "--tree", accepted_tree,
         "--root", root, "--candidate-root", args.candidate_root, "--script", args.script,
         "--target-root", args.target_root, "--operation", args.operation,
         "--provider", args.provider, "--timeout", str(args.timeout),
@@ -1548,10 +1596,11 @@ def run_candidate(args: argparse.Namespace) -> int:
         provider_authority = _provider_authority(accepted_tree)
         env.update({
             "PYTHONNOUSERSITE": "1", provider_authority.PROVIDER_ENV: args.provider,
+            "PYTHONDONTWRITEBYTECODE": "1",  # belt for any non-isolated descendant; -B below covers the child
             "ENGINE_PERSISTENT_EXECUTION_CONTEXT": context.to_json(),
         })
         argv = [
-            sys.executable, "-I", "-S", helper, "--candidate-root", candidate["project_root"],
+            sys.executable, "-I", "-S", "-B", helper, "--candidate-root", candidate["project_root"],
             "--script", candidate["script_path"], "--target-root", target_root,
         ]
         for site_path in args.site_path:
@@ -1682,6 +1731,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if hasattr(args, "target_args") and args.target_args[:1] == ["--"]:
         args.target_args = args.target_args[1:]
+    # Bytecode-hygiene belt, scoped to the INNER accepted-dispatch process. The child launched for an
+    # inner run already carries -B (see dispatch/dispatch_attended/dispatch_candidate), so this only bites
+    # in the rollout window where an OLDER outer (without -B) launches this NEWER inner: it stops the inner
+    # writing __pycache__ into the digest-attested accepted tree, whose content digest _tree_inventory
+    # certifies. It is set HERE, not at module import, so importing this module as a LIBRARY — as boot.py
+    # does at session start to reach ensure_activation_ambient — never disables bytecode caching for the
+    # importer's own later imports (the session-start hot path this change exists to keep reliable).
+    if args.command in ("_run-accepted", "_run-attended", "_run-candidate"):
+        sys.dont_write_bytecode = True
     try:
         if args.command == "activate":
             print(json.dumps(activate(args), sort_keys=True))
