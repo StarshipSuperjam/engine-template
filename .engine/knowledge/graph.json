@@ -12413,7 +12413,7 @@
       },
       "slug": "hooks_path_health",
       "source": {
-        "fingerprint": "sha256:7e27b04d1788cda436f8c4f70da9629d4f5e7e515a5aa7649c86fa4a5358c973",
+        "fingerprint": "sha256:79fc83f354d99f02cf52dd6f35d46fd1a7b3b1dbff67cf6f594d7322cb4708d4",
         "path": ".engine/tools/hooks_path_health.py"
       },
       "status": "active",
