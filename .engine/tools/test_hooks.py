@@ -1979,6 +1979,80 @@ class TestSitePathDerivation(unittest.TestCase):
         self.assertIn("OK True", proc.stdout)
 
 
+class TestAcceptedTreeBytecodeHygiene(unittest.TestCase):
+    """W2: no lane descended from a dispatch may write bytecode into the self-attesting accepted tree, or
+    its content digest no longer matches and every later dispatch rebuilds it, refusing concurrent starts."""
+
+    def setUp(self):
+        self.repo = _AcceptedDispatchRepo()
+        self.repo.activate()
+
+    def tearDown(self):
+        self.repo.cleanup()
+
+    def _tree_path(self):
+        cache_root = self.repo.common_dir() / "engine" / "accepted-hooks" / "trees"
+        return cache_root / f"{self.repo.commit}-{self.repo.tree}"
+
+    def _marker_path(self):
+        cache_root = self.repo.common_dir() / "engine" / "accepted-hooks" / "trees"
+        return cache_root / f"{self.repo.commit}-{self.repo.tree}.json"
+
+    def _pycache_dirs(self, tree):
+        found = []
+        for cur, dirs, _files in os.walk(tree):
+            for name in dirs:
+                if name == "__pycache__":
+                    found.append(os.path.relpath(os.path.join(cur, name), tree))
+        return sorted(found)
+
+    def _valid(self):
+        import accepted_hook_dispatch as d
+        return d._valid_materialization(
+            str(self.repo.home), {"commit": self.repo.commit, "tree": self.repo.tree})
+
+    def test_automatic_lane_leaves_no_bytecode_and_the_tree_stays_valid(self):
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [],
+                         "the automatic dispatch wrote __pycache__ into the trusted tree")
+        self.assertIsNotNone(self._valid(), "the tree is no longer a valid materialization")
+
+    def test_attended_lane_leaves_no_bytecode_and_the_tree_stays_valid(self):
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        self.assertIsNotNone(self._valid())
+
+    def test_a_polluted_tree_is_rebuilt_once_then_stays_stable(self):
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        marker = self._marker_path()
+        seeded = self._tree_path() / ".engine/tools/__pycache__"
+        seeded.mkdir(parents=True, exist_ok=True)
+        (seeded / "poison.cpython-000.pyc").write_bytes(b"\x00\x01poison")
+        self.assertIsNone(self._valid(), "a tree polluted with __pycache__ must be judged invalid")
+        # The next dispatch rebuilds it clean once.
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        self.assertIsNotNone(self._valid())
+        rebuilt = os.stat(marker)
+        # A following dispatch finds a valid tree and does not rebuild: the marker file is untouched
+        # (an atomic rewrite would replace the inode).
+        self.assertEqual(self.repo.run_direct().returncode, 0)
+        after = os.stat(marker)
+        self.assertEqual((after.st_ino, after.st_mtime_ns), (rebuilt.st_ino, rebuilt.st_mtime_ns),
+                         "the tree was rebuilt again, so pollution recurred")
+
+    def test_two_concurrent_attended_launches_against_a_clean_tree_both_succeed(self):
+        self.assertEqual(self.repo.run_attended().returncode, 0)
+        self.assertEqual(self._pycache_dirs(self._tree_path()), [])
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(self.repo.run_attended) for _ in range(2)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        for result in results:
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+
 # The unittest runner MUST stay the last statement in this file. Under the engine's canonical
 # `unittest discover` run a mid-file runner is harmless — discovery imports the module and collects every
 # TestCase regardless of position — but a developer running this file DIRECTLY (`python tools/test_hooks.py`)

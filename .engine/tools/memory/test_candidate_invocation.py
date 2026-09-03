@@ -343,5 +343,61 @@ class TypedStalenessInvocationCompatTests(unittest.TestCase):
                 self.assertFalse(issubclass(cls, execution_context.ExpectedStateStale))
 
 
+class TestCandidateLaneBytecodeHygiene(unittest.TestCase):
+    """W2: the candidate helper the dispatcher launches from the accepted tree must not write __pycache__
+    into that tree, or its content digest changes and the materialization is judged invalid."""
+
+    def setUp(self):
+        self.fixture = CandidateFixture()
+
+    def tearDown(self):
+        self.fixture.cleanup()
+
+    def _pycache(self, root):
+        found = []
+        for cur, dirs, _files in os.walk(root):
+            for name in dirs:
+                if name == "__pycache__":
+                    found.append(os.path.relpath(os.path.join(cur, name), root))
+        return sorted(found)
+
+    def _run_helper(self, *, dash_b):
+        target = self.fixture.new_target()
+        context = self.fixture.context(target)
+        helper = self.fixture.accepted / ".engine/tools/memory/candidate_invocation.py"
+        env = {
+            key: value for key, value in os.environ.items()
+            if key not in {
+                "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE", "PYTHONSTARTUP",
+                "ENGINE_MEMORY_DIR", "ENGINE_PROJECT_ROOT", "ENGINE_PERSISTENT_EXECUTION_CONTEXT",
+            }
+        }
+        env["ENGINE_PERSISTENT_EXECUTION_CONTEXT"] = context.to_json()
+        flags = ["-I", "-S", "-B"] if dash_b else ["-I", "-S"]
+        return subprocess.run(
+            [sys.executable, *flags, str(helper), "--candidate-root", str(self.fixture.candidate),
+             "--script", str(self.fixture.script), "--target-root", str(target), "--"],
+            capture_output=True, env=env, timeout=30)
+
+    def test_helper_launched_with_dash_b_leaves_the_accepted_tree_clean(self):
+        # This is how run_candidate now launches the helper (see the argv source assertion below).
+        result = self._run_helper(dash_b=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(self._pycache(self.fixture.accepted), [],
+                         "the candidate helper wrote __pycache__ into the accepted tree under -B")
+
+    def test_without_dash_b_the_helper_poisons_the_tree_so_the_dash_b_test_is_not_vacuous(self):
+        # A standing witness that the hazard is real: without -B the same run drops __pycache__ into the
+        # accepted tree. It is exactly this write that -B (and the module-level guard) suppress.
+        result = self._run_helper(dash_b=False)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(".engine/tools/memory/__pycache__", self._pycache(self.fixture.accepted))
+
+    def test_the_candidate_launch_sites_carry_dash_b(self):
+        source = (TOOLS / "accepted_hook_dispatch.py").read_text(encoding="utf-8")
+        # dispatch_candidate re-execs the accepted dispatcher; run_candidate launches the helper.
+        self.assertIn('sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-candidate"', source)
+        self.assertIn('sys.executable, "-I", "-S", "-B", helper, "--candidate-root"', source)
+
 if __name__ == "__main__":
     unittest.main()

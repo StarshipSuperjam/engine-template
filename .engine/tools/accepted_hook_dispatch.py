@@ -38,6 +38,16 @@ import time
 from contextlib import contextmanager
 from urllib.parse import quote
 
+# Bytecode hygiene for the memory trust root: this module runs as the OUTER dispatcher from the live
+# checkout and, once activated, as the INNER dispatcher from the self-attesting accepted tree.  On the
+# inner side any __pycache__ written beside the tree's modules changes the content digest _tree_inventory
+# attests, so the materialization is judged invalid and every later dispatch rebuilds it, refusing a
+# process that starts in the rebuild window (the memory server's CONNECTION_CLOSED).  Setting this before
+# any accepted module is imported stops the writes at the source; -B on every child the dispatcher
+# launches is the belt that covers a child from its first instruction, even when an OLDER outer (without
+# this line) launched a newer inner.
+sys.dont_write_bytecode = True
+
 
 SCHEMA_VERSION = "accepted-hook-activation.v1"
 CONTEXT_VERSION = "accepted-hook-context.v1"
@@ -1045,9 +1055,10 @@ def dispatch(root: str, script: str, target_args: list[str]) -> None:
         "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
         "ENGINE_ACCEPTED_HOOK_CONTEXT": json.dumps(context, sort_keys=True, separators=(",", ":")),
     })
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # belt for any non-isolated descendant; -B below covers the child
     accepted_dispatch = os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")
     argv = [
-        sys.executable, "-I", "-S", accepted_dispatch, "_run-accepted",
+        sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-accepted",
         "--tree", accepted_tree, "--script", rel,
     ]
     for site_path in _site_paths():
@@ -1134,9 +1145,10 @@ def dispatch_attended(root: str, script: str, operation: str, target_args: list[
         "ENGINE_BOOT_CACHE_DIR": os.path.join(canonical["project_root"], ".engine", "telemetry", ".cache"),
         "ENGINE_ACCEPTED_HOOK_CONTEXT": json.dumps(context, sort_keys=True, separators=(",", ":")),
     })
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # belt for any non-isolated descendant; -B below covers the child
     accepted_dispatch = os.path.join(accepted_tree, ".engine", "tools", "accepted_hook_dispatch.py")
     argv = [
-        sys.executable, "-I", "-S", accepted_dispatch, "_run-attended",
+        sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-attended",
         "--tree", accepted_tree, "--script", rel, "--operation", operation,
     ]
     for site_path in _site_paths():
@@ -1162,8 +1174,9 @@ def dispatch_candidate(args: argparse.Namespace) -> None:
         }
     }
     env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"  # belt for any non-isolated descendant; -B below covers the child
     argv = [
-        sys.executable, "-I", "-S", accepted_dispatch, "_run-candidate", "--tree", accepted_tree,
+        sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-candidate", "--tree", accepted_tree,
         "--root", root, "--candidate-root", args.candidate_root, "--script", args.script,
         "--target-root", args.target_root, "--operation", args.operation,
         "--provider", args.provider, "--timeout", str(args.timeout),
@@ -1593,10 +1606,11 @@ def run_candidate(args: argparse.Namespace) -> int:
         provider_authority = _provider_authority(accepted_tree)
         env.update({
             "PYTHONNOUSERSITE": "1", provider_authority.PROVIDER_ENV: args.provider,
+            "PYTHONDONTWRITEBYTECODE": "1",  # belt for any non-isolated descendant; -B below covers the child
             "ENGINE_PERSISTENT_EXECUTION_CONTEXT": context.to_json(),
         })
         argv = [
-            sys.executable, "-I", "-S", helper, "--candidate-root", candidate["project_root"],
+            sys.executable, "-I", "-S", "-B", helper, "--candidate-root", candidate["project_root"],
             "--script", candidate["script_path"], "--target-root", target_root,
         ]
         for site_path in args.site_path:
