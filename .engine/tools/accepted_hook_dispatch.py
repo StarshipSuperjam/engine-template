@@ -38,16 +38,6 @@ import time
 from contextlib import contextmanager
 from urllib.parse import quote
 
-# Bytecode hygiene for the memory trust root: this module runs as the OUTER dispatcher from the live
-# checkout and, once activated, as the INNER dispatcher from the self-attesting accepted tree.  On the
-# inner side any __pycache__ written beside the tree's modules changes the content digest _tree_inventory
-# attests, so the materialization is judged invalid and every later dispatch rebuilds it, refusing a
-# process that starts in the rebuild window (the memory server's CONNECTION_CLOSED).  Setting this before
-# any accepted module is imported stops the writes at the source; -B on every child the dispatcher
-# launches is the belt that covers a child from its first instruction, even when an OLDER outer (without
-# this line) launched a newer inner.
-sys.dont_write_bytecode = True
-
 
 SCHEMA_VERSION = "accepted-hook-activation.v1"
 CONTEXT_VERSION = "accepted-hook-context.v1"
@@ -1741,6 +1731,15 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if hasattr(args, "target_args") and args.target_args[:1] == ["--"]:
         args.target_args = args.target_args[1:]
+    # Bytecode-hygiene belt, scoped to the INNER accepted-dispatch process. The child launched for an
+    # inner run already carries -B (see dispatch/dispatch_attended/dispatch_candidate), so this only bites
+    # in the rollout window where an OLDER outer (without -B) launches this NEWER inner: it stops the inner
+    # writing __pycache__ into the digest-attested accepted tree, whose content digest _tree_inventory
+    # certifies. It is set HERE, not at module import, so importing this module as a LIBRARY — as boot.py
+    # does at session start to reach ensure_activation_ambient — never disables bytecode caching for the
+    # importer's own later imports (the session-start hot path this change exists to keep reliable).
+    if args.command in ("_run-accepted", "_run-attended", "_run-candidate"):
+        sys.dont_write_bytecode = True
     try:
         if args.command == "activate":
             print(json.dumps(activate(args), sort_keys=True))

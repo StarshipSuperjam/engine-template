@@ -2053,6 +2053,37 @@ class TestAcceptedTreeBytecodeHygiene(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class TestBytecodeBeltScope(unittest.TestCase):
+    """W2 repair: the bytecode belt is scoped to the INNER accepted-dispatch process. Importing this module
+    as a library — as boot.py does at session start to reach ensure_activation_ambient — must NOT flip the
+    process-global sys.dont_write_bytecode, or boot's own later imports lose caching on every session start.
+    The inner-run commands still arm the belt so an OLD outer (no -B) launching this NEW inner writes no
+    bytecode into the digest-attested accepted tree."""
+
+    def _flag_after(self, body):
+        program = ("import sys; sys.path.insert(0, %r)\n" % str(_ACCEPTED_TOOLS)) + body + \
+                  "\nprint('FLAG', sys.dont_write_bytecode)"
+        env = {key: value for key, value in os.environ.items() if key != "PYTHONDONTWRITEBYTECODE"}
+        proc = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True,
+                              env=env, timeout=30)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        return proc.stdout.strip().rsplit("FLAG", 1)[1].strip()
+
+    def test_importing_as_a_library_leaves_bytecode_writing_enabled(self):
+        self.assertEqual(self._flag_after("import accepted_hook_dispatch"), "False")
+
+    def test_the_inner_run_command_arms_the_belt_even_without_dash_b(self):
+        body = ("import accepted_hook_dispatch as d\n"
+                "d.main(['_run-accepted', '--tree', '/nonexistent-tree', '--script', 'foo.py',"
+                " '--site-path', '/tmp', '--'])")
+        self.assertEqual(self._flag_after(body), "True")
+
+    def test_the_belt_is_not_a_module_top_global(self):
+        source = (_ACCEPTED_TOOLS / "accepted_hook_dispatch.py").read_text(encoding="utf-8")
+        self.assertIn('if args.command in ("_run-accepted", "_run-attended", "_run-candidate"):', source)
+        self.assertNotIn("from urllib.parse import quote\n\nsys.dont_write_bytecode = True", source)
+
+
 # The unittest runner MUST stay the last statement in this file. Under the engine's canonical
 # `unittest discover` run a mid-file runner is harmless — discovery imports the module and collects every
 # TestCase regardless of position — but a developer running this file DIRECTLY (`python tools/test_hooks.py`)
