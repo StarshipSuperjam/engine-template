@@ -8888,7 +8888,7 @@
       },
       "slug": "accepted_hook_dispatch",
       "source": {
-        "fingerprint": "sha256:a23395c84a4034dd5d340219aa89e177e9ba419e5c14d1a3115dec299c9d4f7a",
+        "fingerprint": "sha256:090b32e897c524e0b47ddf94f5afe4821a7ae1c0fadd5728fe5598474fb80268",
         "path": ".engine/tools/accepted_hook_dispatch.py"
       },
       "status": "active",
@@ -17318,7 +17318,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:953a5a3bdfb6e0251ea0d1dd997ad9c4fb16893961f5a33a94dbea2f2bb8782f",
+        "fingerprint": "sha256:8c7f0aedb13975edcff92e472d7f3892c2789fbdc75f73654d6dbf69444af265",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
