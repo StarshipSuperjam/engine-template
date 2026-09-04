@@ -4367,6 +4367,279 @@ def superset_check() -> "tuple[bool, frozenset]":
     return (not missing), missing
 
 
+# ---- AVAILABILITY-SUBSTRATE NODE (availability-substrate): version-availability knowledge + cache --------
+#
+# Build #743 (quiet deployed-version availability advisories), first leaf. THIS NODE IS DATA ONLY: it builds
+# the knowledge + cross-session cache a later node renders (an advisory line, a dashboard version line). It
+# renders nothing itself and is not wired into `assemble_pack`.
+#
+# Three cold-review findings this section exists to satisfy, exactly:
+#   1. NEVER `module_manager.plan_upgrade` at boot. It only short-circuits when already current; on a newer
+#      version it falls through to `_fetch_release_tree` — a tarball DOWNLOAD. Instead this resolves the
+#      latest tag via `release_source._resolve_release_ref` (a ref lookup, no download) and reads the
+#      installed version from `engine.json` via `module_coherence.load_engine_manifest()["engine_release"]`.
+#   2. CACHE-ONLY AT BOOT. The boot/grounding read (`version_availability`) touches only the local cache —
+#      no synchronous network call on the critical path. The one network call
+#      (`_resolve_latest_available_tag`, wrapping `_resolve_release_ref`'s `urlopen(timeout=60)`) is reached
+#      ONLY from `refresh_version_availability`, an explicit OFF-boot-path refresh (e.g. the pulled
+#      full-status path), never from `version_availability` itself.
+#   3. CROSS-SESSION CACHE under `.engine/boot/.cache/`, the EXACT pattern `boot_alarm_ledger.py` establishes:
+#      git-common-root resolution (`boot_alarm_ledger.ledger_dir`, ENV_DIR-overridable, so this shares that
+#      ledger's directory rather than re-deriving it), atomic replace-on-write, and a non-blocking exclusive
+#      lock around the read-modify-write (`boot_alarm_ledger._acquire`/`_release`, reused rather than
+#      re-implemented — one lock primitive, not two). The file itself is a DISTINCT filename with its own
+#      schema (not a shared key in the alarm ledger — a different lifecycle, a different writer cadence).
+#      `.engine/boot/.cache/` is already gitignored (the `core-boot-presentation-ledger` block in `.gitignore`
+#      covers the whole directory, not just the alarm ledger's own filename), so this new file needs no
+#      separate ignore entry.
+#   4. HOME-GATED, the CHECK itself (not just display). `detect_home_workshop` is strict-positive: it returns
+#      a dict ONLY on a confirmed origin==home match, and None both for a genuinely deployed project AND for
+#      an unresolvable identity — the same None either way. Gating a "should I check" decision on bare
+#      truthiness of that value would let a genuinely-undetermined identity read as "must be deployed" and
+#      check anyway, which is the wrong fail direction for a substrate that starts making network calls.
+#      `_should_check_availability` therefore independently re-derives a CONFIRMED-deployed verdict for the
+#      None case, using boot's own already-offline `repo_slug()` (this checkout's origin) against
+#      `module_coherence.home_repository()` (the recorded home) via `module_coherence.is_downstream_copy` —
+#      the same strict-positive primitive `detect_home_workshop` itself is built on. Any part of that re-
+#      derivation that fails to resolve (no origin, no recorded home, a malformed manifest) closes the gate:
+#      undetermined identity stays silent, exactly like the home case, never defaulting open.
+#   5. DEFANGED/VALIDATED. The tag is remote-supplied (a GitHub release name). `_STRICT_VERSION_TAG` is a
+#      closed `vX.Y.Z` / `X.Y.Z` pattern (`re.fullmatch`, ASCII digits and dots only); anything else — a
+#      prompt-fence marker, injected instruction text, a tag with extra segments — is dropped before it ever
+#      becomes cached or returned state, mirroring `validate.defang_prompt_fence_markers`'s job for the same
+#      remote-supplied-text class (boot.py's dashboard render, elsewhere in this file).
+#   6. BOUNDED CADENCE + FAILURE HANDLING. `VERSION_CHECK_INTERVAL_HOURS` (24h, mirroring
+#      `backup_vault.BACKUP_INTERVAL_HOURS`'s recorded ~24h build-spec leaf) throttles `refresh_...`: a cache
+#      hit inside the window never re-resolves. `checked_at` is stamped on every refresh attempt, including a
+#      FAILED one (network error, malformed response, `_NoPublishedRelease`) — an outage degrades to "nothing
+#      newer known" for the rest of the window rather than a per-boot retry storm. Well under the
+#      unauthenticated GitHub budget (60/hr): at most once per 24h is ~0.04/hr.
+
+import module_coherence  # noqa: E402  (load_engine_manifest / home_repository / is_downstream_copy — the identity + manifest primitives this node reads)
+import release_source    # noqa: E402  (_resolve_release_ref — the ONE injectable ref-resolution network boundary; never _fetch_release_tree)
+
+# Build-spec leaf (recorded, this node): how often `refresh_version_availability` may re-resolve. Mirrors
+# `memory.backup_vault.BACKUP_INTERVAL_HOURS`'s recorded ~24h choice; comfortably under GitHub's
+# unauthenticated 60/hr budget.
+VERSION_CHECK_INTERVAL_HOURS = 24
+
+# A remote-supplied release tag, defanged: a closed `vX.Y.Z` / `X.Y.Z` shape only (ASCII digits + dots),
+# fullmatch so nothing can ride in before/after (a prompt-fence marker, whitespace, extra path segments). A
+# non-matching tag is dropped at the boundary (never cached, never returned) rather than surfaced — the same
+# posture `validate.defang_prompt_fence_markers` takes for remote-supplied text elsewhere in this file.
+_STRICT_VERSION_TAG = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+_VERSION_CACHE_FILENAME = "version-availability.json"
+
+
+def _version_cache_path(cwd: str | None = None, path: str | None = None) -> str:
+    """The cache file's full path: an explicit `path` wins (tests); else `boot_alarm_ledger`'s own resolved
+    cache DIRECTORY (git-common-root / ENV_DIR override — reused, not re-derived) with this node's own
+    filename. Shares the directory with the alarm ledger; owns a distinct file so the two writers' schemas
+    and cadences never collide."""
+    if path:
+        return path
+    return os.path.join(boot_alarm_ledger.ledger_dir(cwd), _VERSION_CACHE_FILENAME)
+
+
+def _read_version_cache(path: str) -> dict | None:
+    """The raw cache dict, or None on absent/unreadable/malformed — never raises."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — absent / unreadable / malformed -> None (treated as "nothing cached")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_version_cache(path: str, data: dict) -> bool:
+    """Atomically write the cache — temp file in the same directory, then `os.replace`. Never raises; a
+    failed write degrades to 'no cache next time', never a crash on this best-effort local write."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, separators=(",", ":"), sort_keys=True)
+        os.replace(tmp, path)
+        return True
+    except Exception:  # noqa: BLE001 — degrade to no cache, never a crash
+        return False
+
+
+def _installed_engine_version() -> str | None:
+    """This checkout's own installed engine version, read from the committed `engine.json` manifest (the
+    `engine_release` field) via `module_coherence.load_engine_manifest()`. None on any read failure or an
+    absent/malformed manifest — never raises to a boot-path caller."""
+    try:
+        manifest = module_coherence.load_engine_manifest()
+        version = (manifest or {}).get("engine_release")
+        return version if isinstance(version, str) and version.strip() else None
+    except Exception:  # noqa: BLE001 — a malformed manifest degrades this one signal, never the caller
+        return None
+
+
+def _valid_version_tag(tag) -> str | None:
+    """`tag` if it is a well-formed `vX.Y.Z`/`X.Y.Z` release tag, else None (dropped, never surfaced) — the
+    defang boundary for this remote-supplied value (requirement 5)."""
+    return tag if isinstance(tag, str) and _STRICT_VERSION_TAG.fullmatch(tag) else None
+
+
+def _should_check_availability(home_workshop) -> bool:
+    """The home gate on the CHECK itself (requirement 4), not merely its display. `home_workshop` is the same
+    value boot's own `s["home_workshop"]` carries (`first_run_health.detect_home_workshop()`'s result):
+      - truthy (a confirmed home-workshop dict) -> gate CLOSED. This is the engine's own home; it publishes
+        releases and has no reason to check itself for a newer one.
+      - falsy (None) -> `detect_home_workshop` collapses "confirmed deployed" and "identity unresolvable" to
+        the same None, so re-derive a CONFIRMED-deployed verdict independently here, offline, using the same
+        strict-positive primitive `detect_home_workshop` is itself built on
+        (`module_coherence.is_downstream_copy`) — but fed THIS function's own origin/home reads rather than
+        `first_run_health`'s cwd-scoped ones, since this node touches only `boot.py`. Gate OPEN only on a
+        confirmed mismatch (own resolved, home resolved, and they differ); any resolution failure (no origin,
+        no recorded home, a malformed manifest) closes the gate — undetermined identity stays silent, the
+        same conservative direction as the confirmed-home case, never defaulting open."""
+    if home_workshop:
+        return False
+    try:
+        own = repo_slug()
+        if not own:
+            return False
+        home = module_coherence.home_repository()
+        if not home:
+            return False
+        return module_coherence.is_downstream_copy(own, home)
+    except Exception:  # noqa: BLE001 — any identity-read failure closes the gate (undetermined -> silent)
+        return False
+
+
+def version_availability(*, home_workshop=None, cwd: str | None = None, path: str | None = None) -> dict | None:
+    """THE BOOT-PATH READ. CACHE-ONLY — makes no network call, ever (requirement 2); returns whatever the
+    cross-session cache already holds, or None. Returns None when: the home gate is closed (requirement 4 —
+    in the home repo, or identity is undetermined), the cache is absent/unreadable, or the cache holds no
+    usable data (nothing checked yet).
+
+    On a usable cache, returns:
+        {"installed": <str|None>, "available": <str|None>, "has_newer": bool, "checked_at": <str|None>,
+         "announced": bool}
+    `available` is the cached tag AFTER defang-validation (requirement 5) — a malformed cached tag reads as
+    no-available-version, not a crash. `has_newer` compares `available` against the installed version via
+    `validate._ver_tuple` (the tuple comparator this codebase already uses for version-key comparisons); False
+    whenever either side is unresolvable. `announced` is whether THIS available version's per-version snooze
+    marker is already set (so a later render node can decide to show the advisory at most once per version)."""
+    if not _should_check_availability(home_workshop):
+        return None
+    cache = _read_version_cache(_version_cache_path(cwd, path))
+    if not cache:
+        return None
+    installed = _installed_engine_version()
+    available = _valid_version_tag(cache.get("available_tag"))
+    has_newer = bool(
+        installed and available
+        and validate._ver_tuple(available) > validate._ver_tuple(installed)
+    )
+    announced = bool(available and isinstance(cache.get("announced_versions"), dict)
+                      and cache["announced_versions"].get(available))
+    checked_at = cache.get("checked_at")
+    return {
+        "installed": installed,
+        "available": available if has_newer else None,
+        "has_newer": has_newer,
+        "checked_at": checked_at if isinstance(checked_at, str) else None,
+        "announced": announced,
+    }
+
+
+def _resolve_latest_available_tag(*, repo: str | None = None, token: str | None = None) -> str | None:
+    """THE ONE NETWORK CALL this substrate makes — a ref LOOKUP, never a download. Delegates to
+    `release_source._resolve_release_ref(None, ...)`, which resolves `None`/"latest" via the GitHub releases
+    API (`urlopen(timeout=60)`) and returns a tag, never a tarball fetch (`_fetch_release_tree` is not
+    reachable from this path — requirement 1). None on any failure (no repo, no published release, a
+    transport error) — never raises to the refresh caller, which must still stamp `checked_at`."""
+    try:
+        return release_source._resolve_release_ref(None, repo=repo, token=token)
+    except Exception:  # noqa: BLE001 — network/API failure degrades to "nothing resolved this attempt"
+        return None
+
+
+def refresh_version_availability(*, home_workshop=None, cwd: str | None = None, path: str | None = None,
+                                  force: bool = False, now: str | None = None, repo: str | None = None,
+                                  token: str | None = None) -> dict:
+    """THE OFF-BOOT-PATH REFRESH (requirement 2 — never called from the boot/grounding read itself; a caller
+    such as the pulled full-status path reaches this explicitly). Home-gated the same as the boot read
+    (requirement 4) — a closed gate is a no-op that touches neither the network nor the cache and returns
+    `{"checked": False, "reason": "gated"}`.
+
+    CADENCE (requirement 6): within `VERSION_CHECK_INTERVAL_HOURS` of the cache's `checked_at`, this is a
+    no-op cache hit — no network call — unless `force`. Outside the window (or on a missing/malformed cache,
+    or `force`), it resolves the latest tag over the network via `_resolve_latest_available_tag` and rewrites
+    the cache. `checked_at` is stamped on every attempt that reaches this far — including a FAILED resolve —
+    so an outage degrades to a stale-but-not-retried cache for the rest of the window, never a per-boot retry
+    loop. Elapsed time is computed via `moment.epoch()` (tolerant on the way in, per moment's own law) rather
+    than a hand-rolled ISO parse; an UNPARSEABLE prior stamp reads as stale (-> resolve below), matching
+    `backup_vault._should_push`'s 'a corrupt stamp never sticks the throttle off' direction. `now` is an
+    injectable trailing-Z wire moment (tests); real callers omit it (`moment.utc_now()`, the wall clock).
+
+    Returns `{"checked": bool, "resolved": <tag|None>}` — `checked` is False for a throttled-within-window
+    no-op (no network reached) or a closed gate, True whenever a resolve attempt was made (successful or
+    not)."""
+    if not _should_check_availability(home_workshop):
+        return {"checked": False, "reason": "gated"}
+    target = _version_cache_path(cwd, path)
+    cache = _read_version_cache(target) or {}
+    now_z = now or moment.utc_now()
+    if not force:
+        prior_epoch = moment.epoch(cache.get("checked_at"))
+        now_epoch = moment.epoch(now_z)
+        if prior_epoch is not None and now_epoch is not None:
+            elapsed_hours = (now_epoch - prior_epoch) / 3600.0
+            if 0 <= elapsed_hours < VERSION_CHECK_INTERVAL_HOURS:
+                return {"checked": False, "resolved": _valid_version_tag(cache.get("available_tag"))}
+    fd = boot_alarm_ledger._acquire(target + ".lock")
+    if fd is None:
+        # Contention: another writer holds the lock this instant. Skip this attempt rather than block a
+        # SessionStart-adjacent caller; the next cadence window tries again.
+        return {"checked": False, "reason": "contended"}
+    try:
+        tag = _resolve_latest_available_tag(repo=repo, token=token)
+        valid = _valid_version_tag(tag)
+        new_cache = dict(cache)
+        new_cache["checked_at"] = now_z  # stamped on EVERY attempt, success or failure (requirement 6)
+        if valid:
+            new_cache["available_tag"] = valid
+            announced = new_cache.get("announced_versions")
+            if not isinstance(announced, dict):
+                new_cache["announced_versions"] = {}
+        else:
+            new_cache["available_tag"] = None
+        _write_version_cache(target, new_cache)
+        return {"checked": True, "resolved": valid}
+    finally:
+        boot_alarm_ledger._release(fd)
+
+
+def mark_version_announced(tag: str, *, cwd: str | None = None, path: str | None = None) -> bool:
+    """Record the per-version announcement snooze marker for `tag` — a later render node's 'shown once per
+    version' bookkeeping. Read-modify-write under the same lock; refuses a tag that fails the strict pattern
+    (requirement 5) so a malformed value can never enter the cache through this path either. Returns whether
+    the write happened; never raises."""
+    valid = _valid_version_tag(tag)
+    if not valid:
+        return False
+    target = _version_cache_path(cwd, path)
+    fd = boot_alarm_ledger._acquire(target + ".lock")
+    if fd is None:
+        return False
+    try:
+        cache = _read_version_cache(target) or {}
+        announced = cache.get("announced_versions")
+        if not isinstance(announced, dict):
+            announced = {}
+        announced[valid] = True
+        cache["announced_versions"] = announced
+        return _write_version_cache(target, cache)
+    finally:
+        boot_alarm_ledger._release(fd)
+
+
 # ---- the hook handler + CLI -----------------------------------------------------------------
 
 #: Set to "1" to stop `ambient_qualification` reaching GitHub and writing activation state.
