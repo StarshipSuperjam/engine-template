@@ -6236,7 +6236,7 @@ class TestVersionAvailabilitySubstrate(unittest.TestCase):
         status = boot._version_status_line(avail)
         self.assertIsNotNone(status)
         self.assertNotIn("up to date", status)  # never a false freshness claim off a failed check
-        self.assertIn("couldn't reach", status)
+        self.assertIn("couldn't confirm", status)  # cause-agnostic (DH-R1): unreachable OR empty/invalid tag
         self.assertIn("v9.9.9", status)  # the last-known newer version is still surfaced, not hidden
 
     def test_boot_read_reflects_a_no_reresolve_cache_hit_across_sessions(self):
@@ -6591,6 +6591,33 @@ class TestVersionStatusDisclosure(unittest.TestCase):
                 "announced": False}
         base.update(over)
         return base
+
+    # ---- repair re-review nits (US-R1, US-R3) --------------------------------------------------------
+
+    def test_unparseable_checked_at_reads_as_unknown_not_an_earlier_session(self):
+        # US-R1: a corrupted/unparseable checked_at must NOT borrow `_relative_moment`'s session-card fallback
+        # ("an earlier session"), a non-sequitur for a version check. It reads as availability-unknown instead.
+        line = boot._version_status_line(self._avail(checked_at="not-a-timestamp", last_success_at=None))
+        self.assertIsNotNone(line)
+        self.assertIn("availability unknown", line)
+        self.assertNotIn("an earlier session", line)
+        self.assertNotIn("up to date", line)
+
+    def test_a_result_row_missing_last_success_at_is_read_as_confirmed(self):
+        # US-R3 forward-compatibility belt: a cache row carrying a result (available_tag + checked_at) but no
+        # last_success_at plainly came from a real resolve; version_availability backfills
+        # last_success_at=checked_at so a future schema change can't make a genuine success read as a failure.
+        import json as _json, tempfile as _tf, os as _os
+        p = _os.path.join(_tf.mkdtemp(), "version-availability.json")
+        with open(p, "w", encoding="utf-8") as fh:
+            _json.dump({"available_tag": "v3.0.0", "checked_at": "2026-06-01T00:00:00Z"}, fh)
+        with mock.patch.object(boot, "_should_check_availability", return_value=True), \
+                mock.patch.object(boot, "_installed_engine_version", return_value="1.0.0"):
+            avail = boot.version_availability(path=p)
+        self.assertEqual(avail["last_success_at"], "2026-06-01T00:00:00Z")  # backfilled, not None
+        line = boot._version_status_line(avail)
+        self.assertNotIn("couldn't confirm", line)  # read as a real success, never a false failure
+        self.assertIn("v3.0.0", line)
 
     # ---- the rendered line itself, across states -----------------------------------------------------
 

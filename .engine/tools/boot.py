@@ -4620,6 +4620,14 @@ def version_availability(*, home_workshop=None, cwd: str | None = None, path: st
                       and cache["announced_versions"].get(available))
     checked_at = cache.get("checked_at")
     last_success_at = cache.get("last_success_at")
+    # US-R3 (forward-compatibility belt): a row that carries a result — an `available_tag` AND a `checked_at`
+    # — but no `last_success_at` plainly reflects a genuine past resolve, so treat it as confirmed rather than
+    # letting `_version_status_line` report it as a failed check. This cannot arise from this substrate's own
+    # writer (which always pairs the two); it only guards against a future schema change reintroducing the
+    # exact dishonest-status class finding 1 fixed, from the opposite direction (a real success read as a
+    # failure) on an un-backfilled legacy row.
+    if not last_success_at and isinstance(checked_at, str) and cache.get("available_tag"):
+        last_success_at = checked_at
     return {
         "installed": installed,
         "available": available if has_newer else None,
@@ -4825,21 +4833,30 @@ def _version_status_line(avail: dict | None) -> str | None:
     if not installed:
         return None
     checked_at = avail.get("checked_at")
-    if not checked_at:
+    checked_moment = moment.epoch(checked_at) if checked_at else None
+    if checked_moment is None:
+        # No usable "when": no cache yet, the first pull before any refresh, OR a corrupted/unparseable
+        # timestamp. Say plainly that availability is unknown, rather than borrow `_relative_moment`'s
+        # session-card fallback ("an earlier session"), which is a non-sequitur for a version check (US-R1).
         return (f"**Engine version:** running `{installed}` — I haven't checked for a newer release yet "
                 f"(availability unknown).")
     last_success_at = avail.get("last_success_at")
     confirmed = bool(last_success_at) and last_success_at == checked_at
-    when_checked = _relative_moment(moment.epoch(checked_at))
+    when_checked = _relative_moment(checked_moment)
     if not confirmed:
-        line = (f"**Engine version:** running `{installed}` — I couldn't reach the release source to check "
-                f"for a newer version (last checked {when_checked}).")
+        # Cause-agnostic (DH-R1): the last attempt did not CONFIRM the release state — whether the source was
+        # unreachable or reachable-but-empty/invalid — so we never assert a specific cause, and never claim
+        # "up to date" off a failed attempt (finding 1).
+        line = (f"**Engine version:** running `{installed}` — I couldn't confirm the latest release "
+                f"(last tried {when_checked}).")
         if avail.get("has_newer") and avail.get("available"):
-            when_confirmed = (_relative_moment(moment.epoch(last_success_at)) if last_success_at
-                               else "an earlier check")
-            line += (f" As of the last successful check ({when_confirmed}), a newer version "
-                      f"(`{avail['available']}`) was available — say **upgrade my engine** or run "
-                      f"`/engine-upgrade` whenever you're ready.")
+            last_moment = moment.epoch(last_success_at) if last_success_at else None
+            when_confirmed = _relative_moment(last_moment) if last_moment is not None else "an earlier check"
+            # Distinct phrasing for the two moments (US-R2): "last tried" is the failed attempt above;
+            # "last confirmed available" is the older success that first saw this newer version.
+            line += (f" A newer version (`{avail['available']}`) was last confirmed available "
+                      f"{when_confirmed}. Say **upgrade my engine** or run `/engine-upgrade` whenever "
+                      f"you're ready.")
         return line
     if avail.get("has_newer") and avail.get("available"):
         return (f"**Engine version:** running `{installed}` — a newer version (`{avail['available']}`) is "
