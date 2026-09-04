@@ -2850,7 +2850,8 @@ def render_dashboard(s: dict) -> str:
     # DEDUPE the newest merge out of this list when "What merged last" above already named it (StarshipSuperjam/engine-template#742):
     # the two sections are two independent reads of the SAME underlying merges, so the freshest one can land in
     # both. Keyed on the leading "#<number>" (never the title text, which the two sources can render
-    # differently for the identical PR) — a `\D|$` boundary so "#1" cannot falsely swallow "#12". Absence-copy
+    # differently for the identical PR) — a `\D|$` boundary so a shorter number cannot prefix-match a longer
+    # one (the number 1 must not swallow the number 12). Absence-copy
     # lines (the parenthesised "(no recent merges found)" etc.) never start with "#" and so are never touched.
     shipped_lines = s["shipped"]
     if last_merged_pr_number is not None:
