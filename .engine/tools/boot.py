@@ -71,6 +71,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -493,13 +494,19 @@ def open_operator_count(repo: str | None, token: str | None) -> tuple[int | None
 
 # ---- attention (consume the ranked partition; resolve member ids to plain language) ---------
 
-def _resolve_member(member_id: str, state: dict | None, titles: dict | None = None) -> str:
+def _resolve_member(member_id: str, state: dict | None, titles: dict | None = None,
+                     pr_meta: dict | None = None) -> str:
     """Resolve one attention member id (a reference, not content) to a plain-language line. Boot
     resolves; it does not re-rank. Unknown ids fall back to the id itself so nothing is silently lost.
 
     `titles` re-joins the ranked member ids with the human names `rank()` strips (it reduces every member to
     {id, rank}) — the same channel the shipped digest and the knowledge neighbourhood need, for the same
-    reason. Without it a register of open findings renders as lines identical but for a number."""
+    reason. Without it a register of open findings renders as lines identical but for a number.
+
+    `pr_meta` is the same re-join for an open in-flight pull request (StarshipSuperjam/engine-template#742):
+    {"pr:<n>": {"title": str, "is_draft": bool|None}}, from `work_record.read_open_pr_state`. Its title is
+    rendered defanged, same as a finding's; `is_draft` names the PR draft/ready — never invented when the
+    source didn't say (None renders no state word at all, rather than guessing "ready")."""
     if member_id == "state:standing-situation":
         # NOT surfaced as an action line. The card already shows "What merged last" live in the facts block above
         # (fresh each session), and when that live read fails it carries its own stale-warning right there — so
@@ -532,7 +539,16 @@ def _resolve_member(member_id: str, state: dict | None, titles: dict | None = No
                         f"piles on top.")
             return f"❗ Engine finding #{slug} is open and blocking — clear it before new work piles on top."
         if kind == "pr":         # an open pull request in flight (the work record's GitHub layer)
-            return f"Pull request #{slug} is open and in flight — pick it back up, or close it if it's done."
+            meta = (pr_meta or {}).get(member_id) or {}
+            title = validate.defang_prompt_fence_markers(meta.get("title") or "")
+            named = f" — {title}" if title else ""
+            is_draft = meta.get("is_draft")
+            # Never invented: only True/False (a real read of the PR's own `draft` flag) earns a state word;
+            # an absent/unread flag (None) renders no state rather than a guessed "ready".
+            state_word = "draft" if is_draft is True else ("ready" if is_draft is False else None)
+            state_txt = f" ({state_word})" if state_word else ""
+            return (f"Pull request #{slug}{named}{state_txt} is open and in flight — pick it back up, or "
+                    f"close it if it's done.")
         if kind == "branch":     # the working branch in flight (the work record's local-git floor)
             return f"You have unmerged work on branch '{slug}' — carry it forward or set it down deliberately."
         return f"Related: {slug} ({kind}) — query and verify before relying on it."
@@ -667,12 +683,26 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
     # below caps per-kind, but the never-shed relay and its collapse fingerprint must reflect the TRUE blocking
     # set, not the capped display slice. {number, title} each, the title defanged at render (relay/action line).
     blocking_findings: list = []
+    pr_in_flight = False
     for entry in result.get("partition", []):
         for member in (entry.get("members") or []):
             mid = member.get("id", "")
             if mid.startswith("finding:"):
                 blocking_findings.append({"number": mid.split(":", 1)[1],
                                           "title": finding_titles.get(mid) or ""})
+            elif mid.startswith("pr:"):
+                pr_in_flight = True
+    # The re-join for an in-flight PR's title/draft-ready state (StarshipSuperjam/engine-template#742) — same
+    # channel as `finding_titles` and the shipped digest above, for the same reason (`rank()` strips them). Only
+    # attempted when there is an actual `pr:` member to resolve, and only when a reader is live (the offline
+    # floor has no PR metadata to fetch); best-effort — a failure here degrades to no title/state on the PR
+    # line, never a broken dashboard.
+    pr_meta: dict = {}
+    if pr_in_flight and gh is not None:
+        try:
+            pr_meta = work_record.read_open_pr_state(gh)
+        except Exception:  # noqa: BLE001 — display-only re-join; degrade to bare "#N" on failure
+            pr_meta = {}
     lines: list = []
     for entry in result.get("partition", []):
         if entry.get("category") == "structural_neighbors":
@@ -687,7 +717,7 @@ def needs_attention(state: dict | None, *, gh=None, live_findings: list | None =
         # nothing is shed here. NEEDS_ATTENTION_CAP is only the defensive floor for a budget-less result.
         cap = entry.get("budget_size", NEEDS_ATTENTION_CAP)
         for member in (entry.get("members") or [])[:cap]:
-            line = _resolve_member(member.get("id", ""), state, finding_titles)
+            line = _resolve_member(member.get("id", ""), state, finding_titles, pr_meta)
             if line:                       # skip an id-less member rather than render a blank bullet
                 lines.append(line)
     # The focused knowledge read's render channel (StarshipSuperjam/engine-template#37): a per-(member, relationship) summary that
@@ -2086,7 +2116,11 @@ def _backlog_lead_line(s: dict) -> str | None:
     noun = "issue" if total == 1 else "issues"
     share = f" ({engine} {'is' if engine == 1 else 'are'} engine-health)" if engine else ""
     reg = s.get("all_open_register")
-    tail = f": {reg}" if reg else ""
+    # A labelled Markdown link, never a bare URL (StarshipSuperjam/engine-template#742) — a raw
+    # "https://github.com/..." rendered into the model-visible dashboard is harder to read at a glance and, more
+    # to the point, is exactly the kind of interpolated text this pack's other links (findings, backlog) are
+    # already labelled to avoid stranding as noise. The URL itself is unchanged — only its presentation.
+    tail = f": [open issues]({reg})" if reg else ""
     return f"> **{total} open {noun}**{share}{tail}"
 
 
@@ -2566,6 +2600,14 @@ def render_dashboard(s: dict) -> str:
     out.extend(f"- {line}" for line in attention) if attention else out.append(
         "- Nothing is blocking right now.")
 
+    # The PR number "What merged last" names below, if any — used ONLY to dedupe it out of "Recently merged"
+    # (StarshipSuperjam/engine-template#742): the two sections read from different sources (the standing-situation
+    # phase vs. the ranked recent-decisions digest) and can both land on the SAME newest merge, so the newest
+    # merged PR must not read as two separate items. Keyed on the PR NUMBER, never the title — the two sources
+    # can carry different title text for the identical PR (a stale offline cache, a since-edited title), and only
+    # the number is the stable identity both share. None when nothing merged is named (a refused read, or a
+    # phase that isn't PR-format).
+    last_merged_pr_number: str | None = None
     if s["refused"]:
         out.append(
             "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
@@ -2587,6 +2629,12 @@ def render_dashboard(s: dict) -> str:
         # the cache. A live read is always PR-format (derive_last_merged), so this only touches the stale case.
         if live is None and raw_phase and "(PR #" not in raw_phase:
             raw_phase = ""
+        # The dedup key (see above): a plain digit extraction, matching derive_last_merged's own "(PR #N)"
+        # format exactly — read before the defang below, which only scrubs fence-marker text and never touches
+        # digits, so reading raw vs. defanged text makes no difference here; raw is simplest.
+        _last_merged_match = re.search(r"\(PR #(\d+)\)", raw_phase)
+        if _last_merged_match:
+            last_merged_pr_number = _last_merged_match.group(1)
         # Defanged: the PR title is operator- or (on the external-contribution path) remote-supplied and renders
         # into the model-visible briefing, so it gets the same guard as the product slug below.
         phase = validate.defang_prompt_fence_markers(raw_phase) or "nothing merged yet"
@@ -2620,7 +2668,9 @@ def render_dashboard(s: dict) -> str:
         # access at all (stay silent, like every other GitHub-derived line when there is no token).
         if s.get("operator_backlog_count") is not None:
             reg = s.get("operator_backlog_register")
-            tail = f" → {reg}" if reg else ""
+            # Labelled Markdown link, never a bare URL (StarshipSuperjam/engine-template#742) — same
+            # presentation fix as the backlog headline above; the URL is unchanged.
+            tail = f" — [open issues]({reg})" if reg else ""
             out.append(f"**Project issues:** {s['operator_backlog_count']} _(as of this session, source: "
                        f"GitHub Issues)_ — open issues filed in this project{tail}")
         elif s.get("operator_backlog_degraded"):
@@ -2797,7 +2847,16 @@ def render_dashboard(s: dict) -> str:
     out.append("### Recently merged")
     # The digest owns its own absence copy (_shipped_lines): only that read knows whether there are no recent
     # merges or whether it simply is not showing them, and this render must not guess between the two.
-    out.extend(f"- {line}" for line in s["shipped"])
+    # DEDUPE the newest merge out of this list when "What merged last" above already named it (StarshipSuperjam/engine-template#742):
+    # the two sections are two independent reads of the SAME underlying merges, so the freshest one can land in
+    # both. Keyed on the leading "#<number>" (never the title text, which the two sources can render
+    # differently for the identical PR) — a `\D|$` boundary so "#1" cannot falsely swallow "#12". Absence-copy
+    # lines (the parenthesised "(no recent merges found)" etc.) never start with "#" and so are never touched.
+    shipped_lines = s["shipped"]
+    if last_merged_pr_number is not None:
+        shipped_lines = [ln for ln in shipped_lines
+                         if not re.match(rf"^#{re.escape(last_merged_pr_number)}(\D|$)", ln)]
+    out.extend(f"- {line}" for line in shipped_lines)
 
     # The set-aside readout (StarshipSuperjam/engine-template#413): what memory has set aside from recall, with a handle per note.
     # render_set_aside returns [] when there is nothing set aside or the store was not read — no block then.
@@ -2844,16 +2903,21 @@ def render_dashboard(s: dict) -> str:
     # whose bound rides this startup view (an authored field in it would break exact-match regeneration),
     # so the line lives here, not in the raw graph. Light because the limit is near self-evident and the
     # real gate (the merge review) is named elsewhere in this briefing.
+    #
+    # COLLAPSED to one line (StarshipSuperjam/engine-template#742): this used to be two full-paragraph appends
+    # rendered every session unconditionally — recurring philosophy the operator has already read, not fresh
+    # context. Folded into a single line with every clause intact (the check-proof taxonomy, the "your merge is
+    # the real gate" framing, the unverified-on-no-run caveat) — nothing here was dropped, only joined.
     out.append("")
-    out.append("_This view is an automated readout: a clear status shows the checks the engine can run "
-               "came back clean — not that everything is correct. Your merge is the real gate._")
-    out.append("_About those checks: only the one that runs when a change is proposed for merge can stop a "
-               "risky one — anything that ran while I worked is early advice. The engine's checks are proven "
-               "against deliberately broken examples they must catch — the custom ones each against their own, "
-               "the standard kinds against one shared example — so a passing check can't be one that quietly "
-               "did nothing; a few are openly-noted exceptions where that kind of proof doesn't apply. Either "
-               "way that speaks to the check, not to whether the change is right. And a check that could not "
-               "run leaves that area unverified._")
+    out.append("_This view is an automated readout: a clear status shows the checks the engine can run came "
+               "back clean — not that everything is correct. Your merge is the real gate. About those checks: "
+               "only the one that runs when a change is proposed for merge can stop a risky one — anything "
+               "that ran while I worked is early advice. The engine's checks are proven against deliberately "
+               "broken examples they must catch — the custom ones each against their own, the standard kinds "
+               "against one shared example — so a passing check can't be one that quietly did nothing; a few "
+               "are openly-noted exceptions where that kind of proof doesn't apply. Either way that speaks to "
+               "the check, not to whether the change is right. And a check that could not run leaves that area "
+               "unverified._")
 
     return "\n".join(out)
 
