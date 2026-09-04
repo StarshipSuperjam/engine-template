@@ -129,7 +129,15 @@ def _branch_is_merged(run, default: str) -> bool:
 
 
 def _open_prs(gh, *, window: int) -> list[tuple]:
-    """The repo's open pull requests via the injected reader, as (number, title, updated_at, head_ref) tuples.
+    """The repo's open pull requests via the injected reader, as (number, title, updated_at, head_ref,
+    is_draft) tuples. `is_draft` is the PR's own `draft` flag, carried straight through from the SAME list
+    response this already reads (GitHub's open-PRs list includes it, so this costs no extra call) — True/False
+    when the field is present, None when it is absent (an older/atypical response shape), so a caller degrades
+    gracefully rather than inventing a ready/draft state the source never gave it (StarshipSuperjam/engine-template#742).
+    Checks/mergeability state is deliberately NOT read here: that lives on the single-PR endpoint (or a
+    separate check-runs call), not this list response, and fetching it per-PR would add a call per open PR to
+    every cold boot — a cost this read-only, best-effort listing does not take on.
+
     Raises WorkRecordUnavailable on a read failure (HTTP >= 400 / non-list body, OR an unreachable host —
     the transport's `URLError`) — never read as "no PRs". `read_in_flight` catches that and degrades to the
     local-git floor, which is why an unreachable host must arrive here as WorkRecordUnavailable, not a raw
@@ -147,8 +155,25 @@ def _open_prs(gh, *, window: int) -> list[tuple]:
             continue
         head = pr.get("head")
         head_ref = head.get("ref") if isinstance(head, dict) else None
-        out.append((pr["number"], (pr.get("title") or "").strip(), pr.get("updated_at"), head_ref))
+        is_draft = pr.get("draft") if isinstance(pr.get("draft"), bool) else None
+        out.append((pr["number"], (pr.get("title") or "").strip(), pr.get("updated_at"), head_ref, is_draft))
     return out
+
+
+def read_open_pr_state(gh, *, window: int = _PR_WINDOW) -> dict:
+    """The render-side companion to `read_in_flight`'s `pr:<n>` in-flight ids: a one-shot {"pr:<n>": {"title":
+    str, "is_draft": bool|None}} map, keyed to match those ids exactly, so a caller resolving an in-flight PR
+    member to plain language can name its title and draft/ready state without a second attention-shaped read.
+    `rank()` reduces every in-flight member to {id, rank} — the same reason `_shipped_lines` re-reads merged-PR
+    titles below — so this is that re-read for open PRs. Same SOURCE `_open_prs` already reads (one list call,
+    no per-PR fetch), so `is_draft` is exactly what that read could tell: True/False when GitHub's list
+    response carried the flag, None when it did not — never guessed. Checks/mergeability state is not carried
+    here for the same reason `_open_prs` does not read it: it is not on this list response, and resolving it
+    would cost a call per open PR. Raises WorkRecordUnavailable exactly as `_open_prs` does; callers wanting a
+    best-effort read should catch it themselves (boot.py's dashboard render is display-only and never blocks
+    on this)."""
+    return {f"pr:{num}": {"title": title, "is_draft": is_draft}
+            for num, title, _updated, _head, is_draft in _open_prs(gh, window=window)}
 
 
 def read_in_flight(gh=None, *, run=_run_git, window: int = _PR_WINDOW, cap: int = _CAP) -> list[dict]:
@@ -170,7 +195,7 @@ def read_in_flight(gh=None, *, run=_run_git, window: int = _PR_WINDOW, cap: int 
     gh_ok = False
     if gh is not None:
         try:
-            for num, title, updated, head in _open_prs(gh, window=window):
+            for num, title, updated, head, _is_draft in _open_prs(gh, window=window):
                 if head:
                     pr_head_refs.add(head)
                 records.append({"id": f"pr:{num}", "category": "in_flight",

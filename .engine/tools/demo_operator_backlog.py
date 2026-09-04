@@ -16,7 +16,7 @@ no token, no edits.
 It shows, and CHECKS (so this demo can FAIL — it is a falsification, not a showcase):
   * ONE HEADLINE TOTAL — an engine read finding 2 self-health items and an operator read finding 3 backlog
     items lead the card as "5 open issues (2 are engine-health)" — the whole backlog, the engine share named;
-  * TWO DISTINCT LINES BELOW — the same two counts render as their own lines ("Your open issues: 3" above
+  * TWO DISTINCT LINES BELOW — the same two counts render as their own lines ("Project issues: 3" above
     "Engine findings: 2"), your own work first, each with its own clickable filtered register;
   * AN HONEST FAILURE, NOT A SILENT VANISH — when only the backlog read fails, the line says it couldn't be
     read this session rather than disappearing (and never shows a false 0);
@@ -136,10 +136,10 @@ def main():
         failures.append("the card must lead with the whole-backlog total, the engine share named")
     if "**Engine findings:** 2" not in dash:
         failures.append("the card must keep the engine findings as its own line")
-    if "**Your open issues:** 3" not in dash:
+    if "**Project issues:** 3" not in dash:
         failures.append("the card must keep the operator backlog as its own distinct line")
     # your own work leads the two subset lines (the engine's own findings are the lower priority)
-    if dash.index("**Your open issues:**") > dash.index("**Engine findings:**"):
+    if dash.index("**Project issues:**") > dash.index("**Engine findings:**"):
         failures.append("your own open issues must render ABOVE the engine findings")
     if register is None or register not in dash:
         failures.append("the backlog line must carry its clickable filtered register")
@@ -154,9 +154,9 @@ def main():
     print(dash2 + "\n")
     if ocount is not None:
         failures.append("a failed backlog read must degrade to None, never a number")
-    if "couldn't read your issue backlog" not in dash2:
+    if "couldn't read the project's issue backlog" not in dash2:
         failures.append("a failed backlog read must SAY so, not silently vanish")
-    if "Your open issues:** 0" in dash2:
+    if "Project issues:** 0" in dash2:
         failures.append("a failed read must never render a false 0")
     if "**Engine findings:** 1" not in dash2:
         failures.append("the engine line must still render when only the backlog read failed (independent)")
@@ -169,7 +169,7 @@ def main():
     print(dash3 + "\n")
     if ncount is not None:
         failures.append("no repo/token must return None (no read attempted)")
-    if "Your open issues" in dash3:
+    if "Project issues" in dash3:
         failures.append("with no access the backlog line must be suppressed entirely")
 
     print("=== A calm marker, never a ⚠ alarm — the whole-backlog total leads the top marker ===")
