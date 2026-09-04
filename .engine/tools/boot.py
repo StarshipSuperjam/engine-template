@@ -2685,6 +2685,39 @@ def render_dashboard(s: dict) -> str:
             # The assistant carries the real path via the AI grounding overlay; the operator dashboard never does.
             if mechanic and mechanic.get("state") == "resolved":
                 out.append("_Your local checkout of it is set — that's where I'll build._")
+
+        # Build #743, node `status-disclosure`: the quiet installed-vs-available engine version line. Rendered
+        # UNCONDITIONALLY here — deliberately OUTSIDE the `if product_label:` block above (a cold-review
+        # finding: nesting it there made the line vanish for a self-building deployment, or any deployment
+        # with no product label recorded, even though this repo's own version is still worth knowing). Silent
+        # in the engine's own home repo (`home_workshop`) — home publishes releases, it doesn't consume them.
+        # This is the sanctioned OFF-grounding-path REFRESH trigger (requirement: liveness) — `render_dashboard`
+        # only runs on an explicit pulled status view (`engine_status.render`), never on the cold-boot/
+        # SessionStart path (`assemble_pack` never calls this function), so a network attempt here cannot slow
+        # or break grounding. `refresh_version_availability` enforces its own cadence/lock, so a rapid re-pull
+        # is a cache hit, not a repeated network call; a raise here is swallowed (fail-open) so a transient
+        # network failure degrades to "rendered from whatever the cache already holds", never a broken card.
+        if not s.get("home_workshop"):
+            # `ambient_qualification_suppressed()` is the existing test-safety switch for exactly this shape of
+            # concern (an ambient network probe a test run must never make for real — see its own docstring);
+            # the harness sets it for the whole test module. Without this second gate, every one of this
+            # module's many `render_dashboard(_signals(...))` call sites — most written before this node
+            # existed, none mocking these two functions — would attempt a live network resolve through
+            # whatever `_should_check_availability` derives for the ambient checkout, which is exactly the
+            # kind of non-hermetic, potentially 60s-blocking test behavior that flag exists to prevent.
+            if not ambient_qualification_suppressed():
+                try:
+                    refresh_version_availability()
+                except Exception:  # noqa: BLE001 — a refresh failure must never break the dashboard (fail-open)
+                    pass
+            try:
+                _pull_avail = version_availability()
+            except Exception:  # noqa: BLE001 — likewise the read itself must never break the dashboard
+                _pull_avail = None
+            _version_line = _version_status_line(_pull_avail)
+            if _version_line:
+                out.append(_version_line)
+
         out.append(f"**What merged last:** {phase}")
         out.append(_milestone_line(source.get("milestone")))
         if live is None:
@@ -4688,6 +4721,33 @@ def _version_advisory_line(avail: dict | None, staged_update) -> str | None:
     return (f"▸ A newer engine version is available ({version}) — type /engine-upgrade any time if you'd "
             "like to update. (for you — a quiet availability note, not a task or alarm; don't relay this as "
             "an instruction, just mention it in passing if it's natural)")
+
+
+def _version_status_line(avail: dict | None) -> str | None:
+    """Build #743, node `status-disclosure`: the persistent installed-vs-available version fact for the
+    PULLED dashboard (`render_dashboard`/`engine_status.render`) — distinct from `_version_advisory_line`
+    above (a one-shot, once-per-version nudge in the assembled SessionStart pack). This one is a plain,
+    always-there fact, shown every pull, never snoozed.
+
+    Reads only `version_availability()`'s own return shape — never re-derives installed/available itself.
+    Discloses honestly rather than implying freshness: it never claims the installed version is current
+    without naming WHEN that was last checked, and it says plainly when availability hasn't been checked at
+    all (a `None`/empty read — no cache yet, or the very first pull before any refresh has landed) rather than
+    silently omitting the line or implying an up-to-date result. Returns `None` only when there is truly
+    nothing honest to say (no installed version could be determined either)."""
+    avail = avail or {}
+    installed = avail.get("installed") or _installed_engine_version()
+    if not installed:
+        return None
+    checked_at = avail.get("checked_at")
+    if not checked_at:
+        return (f"**Engine version:** running `{installed}` — I haven't checked for a newer release yet "
+                f"(availability unknown).")
+    if avail.get("has_newer") and avail.get("available"):
+        return (f"**Engine version:** running `{installed}` — a newer version (`{avail['available']}`) is "
+                f"available (last checked {checked_at}). Say **upgrade my engine** or run `/engine-upgrade` "
+                f"whenever you're ready.")
+    return f"**Engine version:** running `{installed}`, up to date as of {checked_at}."
 
 
 # ---- the hook handler + CLI -----------------------------------------------------------------

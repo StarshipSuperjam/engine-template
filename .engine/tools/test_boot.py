@@ -594,7 +594,10 @@ class TestAttentionNeverFalseCalm(unittest.TestCase):
         self.assertEqual(lines[bullet_idx + 1], "",
                           "exactly one blank line must separate the last attention bullet from the facts block")
         self.assertTrue(lines[bullet_idx + 2].startswith("**What merged last:**")
-                        or lines[bullet_idx + 2].startswith("**What this engine builds:**"))
+                        or lines[bullet_idx + 2].startswith("**What this engine builds:**")
+                        # Build #743, node `status-disclosure`: the quiet version line can now be the very
+                        # first line of the facts block too, when no product label is recorded.
+                        or lines[bullet_idx + 2].startswith("**Engine version:**"))
 
     def test_blank_line_separator_holds_on_the_refused_path_too(self):
         # A refused state cursor skips the live/cached "What merged last" facts entirely (US-1), so the very
@@ -614,7 +617,10 @@ class TestAttentionNeverFalseCalm(unittest.TestCase):
         bullet_idx = lines.index("- turn the gate back on")
         self.assertEqual(lines[bullet_idx + 1], "")
         self.assertTrue(lines[bullet_idx + 2].startswith("**What merged last:**")
-                        or lines[bullet_idx + 2].startswith("**What this engine builds:**"))
+                        or lines[bullet_idx + 2].startswith("**What this engine builds:**")
+                        # Build #743, node `status-disclosure`: the quiet version line can now be the very
+                        # first line of the facts block too, when no product label is recorded.
+                        or lines[bullet_idx + 2].startswith("**Engine version:**"))
 
 
 class TestSetupLandedConfirmation(unittest.TestCase):
@@ -6430,6 +6436,146 @@ class TestVersionAdvisoryRelay(unittest.TestCase):
 
     def test_no_line_when_already_announced(self):
         self.assertIsNone(boot._version_advisory_line(self._avail(announced=True), None))
+
+
+class TestVersionStatusDisclosure(unittest.TestCase):
+    """Build #743, node `status-disclosure`: the persistent installed-vs-available version FACT on the pulled
+    dashboard (`render_dashboard` / `engine_status.render`) — distinct from node 2's one-shot advisory — plus
+    the liveness wiring: `render_dashboard` (the explicit status PULL, never the cold-boot path) triggers
+    `refresh_version_availability` so the cache actually gets populated end-to-end."""
+
+    def _avail(self, **over):
+        base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
+                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+        base.update(over)
+        return base
+
+    # ---- the rendered line itself, across states -----------------------------------------------------
+
+    def test_line_renders_up_to_date(self):
+        with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability",
+                                   return_value=self._avail(has_newer=False, available=None)):
+            dash = boot.render_dashboard(_signals())
+        self.assertIn("**Engine version:**", dash)
+        self.assertIn("1.0.0", dash)
+        self.assertIn("up to date", dash)
+        self.assertIn("2026-01-01T00:00:00Z", dash)  # last-checked disclosure, not a bare "current" claim
+
+    def test_line_renders_newer_available(self):
+        with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability", return_value=self._avail()):
+            dash = boot.render_dashboard(_signals())
+        self.assertIn("**Engine version:**", dash)
+        self.assertIn("1.0.0", dash)
+        self.assertIn("v2.0.0", dash)
+        self.assertIn("2026-01-01T00:00:00Z", dash)
+
+    def test_line_discloses_a_stale_check_rather_than_implying_freshness(self):
+        # An old checked_at is shown verbatim rather than folded into an unqualified "up to date" — the
+        # honesty requirement: the line says WHEN it last looked, never just "current".
+        with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability",
+                                   return_value=self._avail(has_newer=False, available=None,
+                                                             checked_at="2020-01-01T00:00:00Z")):
+            dash = boot.render_dashboard(_signals())
+        self.assertIn("2020-01-01T00:00:00Z", dash)
+
+    def test_line_discloses_unavailable_when_nothing_has_ever_been_checked(self):
+        with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability", return_value=None), \
+                mock.patch.object(boot, "_installed_engine_version", return_value="1.0.0"):
+            dash = boot.render_dashboard(_signals())
+        self.assertIn("**Engine version:**", dash)
+        self.assertIn("1.0.0", dash)
+        self.assertIn("haven't checked", dash)
+
+    def test_line_renders_with_no_product_label_set(self):
+        # The cold-review regression: nesting the line inside `if product_label:` made it vanish for a
+        # self-building deployment / any deployment with no product recorded. Assert both no-mechanic and
+        # no-product_repository still show the line.
+        with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability", return_value=self._avail()):
+            dash = boot.render_dashboard(_signals(mechanic=None, product_repository=None))
+        self.assertNotIn("What this engine builds", dash)
+        self.assertIn("**Engine version:**", dash)
+
+    # ---- home-silence (display) ------------------------------------------------------------------------
+
+    def test_silent_in_the_home_repo(self):
+        home = {"present": True, "main": "/x", "home": "a/b", "own": "a/b"}
+        with mock.patch.object(boot, "refresh_version_availability",
+                                side_effect=AssertionError("must not refresh in the home repo")), \
+                mock.patch.object(boot, "version_availability",
+                                   side_effect=AssertionError("must not read availability in the home repo")):
+            dash = boot.render_dashboard(_signals(home_workshop=home))
+        self.assertNotIn("**Engine version:**", dash)
+
+    # ---- inheritance through engine_status.render --------------------------------------------------------
+
+    def test_appears_via_engine_status_render(self):
+        # engine_status.render() calls boot.gather_signals() for real (its own I/O boundary); pin it to a
+        # controlled, non-home signals dict so this test exercises the INHERITANCE (render_dashboard's new
+        # line survives engine_status's wrapping), not this ambient checkout's own real identity.
+        import engine_status
+        with mock.patch.object(boot, "gather_signals", return_value=_signals()), \
+                mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability", return_value=self._avail()):
+            rendered = engine_status.render()
+        self.assertIn("**Engine version:**", rendered)
+        self.assertIn("v2.0.0", rendered)
+
+    # ---- liveness: render_dashboard is the sanctioned off-boot-path refresh trigger ------------------------
+
+    # These three exercise the refresh TRIGGER itself, so they unsuppress the module-wide ambient-network
+    # guard (set ON for the whole test module in setUpModule, precisely to stop the many OTHER
+    # `render_dashboard(_signals(...))` call sites in this file — written before this node existed and
+    # mocking neither of these two functions — from ever reaching a live network resolve). With the guard
+    # lifted, `refresh_version_availability` itself is still mocked, so nothing here ever touches the wire.
+
+    def test_render_dashboard_triggers_a_refresh(self):
+        with mock.patch.object(boot, "ambient_qualification_suppressed", return_value=False), \
+                mock.patch.object(boot, "refresh_version_availability",
+                                   return_value={"checked": True}) as refresh, \
+                mock.patch.object(boot, "version_availability", return_value=self._avail()):
+            boot.render_dashboard(_signals())
+        refresh.assert_called_once_with()  # no force=True — the call itself carries no throttle override
+
+    def test_refresh_is_home_gated(self):
+        home = {"present": True, "main": "/x", "home": "a/b", "own": "a/b"}
+        with mock.patch.object(boot, "ambient_qualification_suppressed", return_value=False), \
+                mock.patch.object(boot, "refresh_version_availability",
+                                   side_effect=AssertionError("refresh must not run in the home repo")):
+            boot.render_dashboard(_signals(home_workshop=home))  # must not raise
+
+    def test_refresh_failure_fails_open_the_dashboard_still_renders(self):
+        with mock.patch.object(boot, "ambient_qualification_suppressed", return_value=False), \
+                mock.patch.object(boot, "refresh_version_availability",
+                                   side_effect=RuntimeError("network is down")), \
+                mock.patch.object(boot, "version_availability", return_value=self._avail()):
+            dash = boot.render_dashboard(_signals())
+        self.assertIn("Project status", dash)
+        self.assertIn("**Engine version:**", dash)  # still rendered from whatever the cache holds
+
+    def test_availability_read_failure_also_fails_open(self):
+        with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
+                mock.patch.object(boot, "version_availability", side_effect=RuntimeError("cache unreadable")):
+            dash = boot.render_dashboard(_signals())
+        self.assertIn("Project status", dash)  # dashboard still renders; version line simply withheld
+
+    def test_assemble_pack_cold_boot_never_calls_refresh(self):
+        # assemble_pack is the cold-boot/SessionStart path; it must never reach render_dashboard, and so must
+        # never trigger the refresh — a real network call has no business on the grounding path.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()), \
+                    mock.patch.object(boot, "refresh_version_availability",
+                                       side_effect=AssertionError(
+                                           "cold boot must never trigger the availability refresh")):
+                boot.assemble_pack(use_ledger=True)
+        finally:
+            for p in patchers:
+                p.stop()
 
 
 if __name__ == "__main__":
