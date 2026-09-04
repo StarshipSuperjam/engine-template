@@ -505,8 +505,8 @@ def _resolve_member(member_id: str, state: dict | None, titles: dict | None = No
 
     `pr_meta` is the same re-join for an open in-flight pull request (StarshipSuperjam/engine-template#742):
     {"pr:<n>": {"title": str, "is_draft": bool|None}}, from `work_record.read_open_pr_state`. Its title is
-    rendered defanged, same as a finding's; `is_draft` names the PR draft/ready — never invented when the
-    source didn't say (None renders no state word at all, rather than guessing "ready")."""
+    rendered defanged, same as a finding's; `is_draft` names the PR draft/open-for-review state — never
+    invented when the source didn't say (None renders no state word at all, rather than guessing one)."""
     if member_id == "state:standing-situation":
         # NOT surfaced as an action line. The card already shows "What merged last" live in the facts block above
         # (fresh each session), and when that live read fails it carries its own stale-warning right there — so
@@ -544,8 +544,10 @@ def _resolve_member(member_id: str, state: dict | None, titles: dict | None = No
             named = f" — {title}" if title else ""
             is_draft = meta.get("is_draft")
             # Never invented: only True/False (a real read of the PR's own `draft` flag) earns a state word;
-            # an absent/unread flag (None) renders no state rather than a guessed "ready".
-            state_word = "draft" if is_draft is True else ("ready" if is_draft is False else None)
+            # an absent/unread flag (None) renders no state rather than a guessed word. Check state (CI, review
+            # approval) is deliberately never read here, so a non-draft PR is worded "open for review" rather
+            # than "ready" (US-3 repair) — "ready" reads as "checks passed", which this line never verified.
+            state_word = "draft" if is_draft is True else ("open for review" if is_draft is False else None)
             state_txt = f" ({state_word})" if state_word else ""
             return (f"Pull request #{slug}{named}{state_txt} is open and in flight — pick it back up, or "
                     f"close it if it's done.")
@@ -2120,7 +2122,13 @@ def _backlog_lead_line(s: dict) -> str | None:
     # "https://github.com/..." rendered into the model-visible dashboard is harder to read at a glance and, more
     # to the point, is exactly the kind of interpolated text this pack's other links (findings, backlog) are
     # already labelled to avoid stranding as noise. The URL itself is unchanged — only its presentation.
-    tail = f": [open issues]({reg})" if reg else ""
+    # Anchor text reads "all open issues" (US-4 repair) — distinct from the "Project issues" line's own link
+    # below, which points at a DIFFERENT, narrower query (operator issues only, engine-labelled ones excluded);
+    # this one is the whole open backlog this headline's own count describes, so the two must not share text.
+    # Defanged (DH-2): this URL is register-interpolated, model-visible text, the same guard every other
+    # interpolated link in this pack carries.
+    reg = validate.defang_prompt_fence_markers(reg) if reg else reg
+    tail = f": [all open issues]({reg})" if reg else ""
     return f"> **{total} open {noun}**{share}{tail}"
 
 
@@ -2582,8 +2590,11 @@ def render_dashboard(s: dict) -> str:
     # the pinned notices / backlog headline, BEFORE the inventory/facts block below. The facts (what merged,
     # milestone, open issues, engine findings, and any "couldn't refresh" degrade notices) are reference
     # material once the operator already knows what's blocking; they no longer have to be read first to reach it.
-    # Exactly one blank line separates the header block from the heading either way: the pinned/lead branch
-    # above already appended one when either fired, so this only adds one when neither did.
+    # A blank line before the heading only when NEITHER a pinned alarm nor the calm backlog headline just
+    # rendered above it (both leave the preceding line non-blank) — when one of them DID fire, this would be a
+    # second consecutive blank, which Markdown collapses anyway, so skipping it there is cosmetic only, not a
+    # correctness fix (unlike the separator below, added unconditionally because skipping it there folds the
+    # facts block into the last bullet).
     if not (pinned or lead):
         out.append("")
     out.append("### Needs your attention")
@@ -2597,8 +2608,27 @@ def render_dashboard(s: dict) -> str:
     stale = s["audit_stale"]
     if stale and stale["severity"] == "soft":
         attention.append(stale["message"])
-    out.extend(f"- {line}" for line in attention) if attention else out.append(
-        "- Nothing is blocking right now.")
+    # StarshipSuperjam/engine-template#742 repair (US-1): a caveat that says the read underneath this list can't be trusted must
+    # never be preceded — or replaced — by the calm "Nothing is blocking right now." fallback. So the fallback
+    # renders ONLY when there both is nothing to show AND nothing casts doubt on that being complete; a refused
+    # state cursor or a failed attention-ranking read each get their own caveat bullet in this same list instead,
+    # ahead of (or in place of) the calm line.
+    ranking_incomplete = "attention" in (s["att_degraded"] or [])
+    if s["refused"]:
+        attention = ["I couldn't read where the project stands this session, so I'm not showing a priority "
+                     "list — don't trust it as 'nothing is blocking'. Re-ground before you rely on it."] + attention
+    elif ranking_incomplete:
+        attention = ["I couldn't reach your work-priority ranking this session, so this list may be "
+                     "incomplete — re-ground before you rely on it."] + attention
+    if attention:
+        out.extend(f"- {line}" for line in attention)
+    else:
+        out.append("- Nothing is blocking right now.")
+    # DH-1 repair: exactly one blank line separates this section from the facts block that follows (the
+    # refused caveat or the "What merged last" block) in every case — pinned, lead, or neither above, and
+    # whether or not the attention list itself is populated. Without it Markdown treats the facts block as a
+    # lazy continuation of the last bullet, running both together as one list item.
+    out.append("")
 
     # The PR number "What merged last" names below, if any — used ONLY to dedupe it out of "Recently merged"
     # (StarshipSuperjam/engine-template#742): the two sections read from different sources (the standing-situation
@@ -2609,9 +2639,11 @@ def render_dashboard(s: dict) -> str:
     # phase that isn't PR-format).
     last_merged_pr_number: str | None = None
     if s["refused"]:
-        out.append(
-            "**I couldn't read where the project stands**, so I'm treating project status as unknown. "
-            "Don't trust a status summary until the engine re-grounds.")
+        # US-1 repair: the untrusted-read caveat already rendered as the FIRST line of "Needs your attention"
+        # above (ahead of any bullet, and in place of the calm "Nothing is blocking" fallback) — this branch
+        # only suppresses the live/cached "What merged last" facts below, which would be meaningless when the
+        # state cursor itself couldn't be read. Nothing else to render here.
+        pass
     else:
         # "What merged last" (the most-recently-merged PR) and "Milestone" (the larger plan marker) are two
         # self-explanatory lines, from ONE source — live-or-cached, never both. When the live GitHub derive
@@ -2669,8 +2701,12 @@ def render_dashboard(s: dict) -> str:
         if s.get("operator_backlog_count") is not None:
             reg = s.get("operator_backlog_register")
             # Labelled Markdown link, never a bare URL (StarshipSuperjam/engine-template#742) — same
-            # presentation fix as the backlog headline above; the URL is unchanged.
-            tail = f" — [open issues]({reg})" if reg else ""
+            # presentation fix as the backlog headline above; the URL is unchanged. Anchor text reads "open
+            # issues (excluding engine)" (US-4 repair) — this query excludes engine-labelled issues, unlike the
+            # backlog headline's "all open issues" link above, so the two must read as visibly different
+            # queries rather than sharing text. Defanged (DH-2), same guard as every other interpolated link.
+            reg = validate.defang_prompt_fence_markers(reg) if reg else reg
+            tail = f" — [open issues (excluding engine)]({reg})" if reg else ""
             out.append(f"**Project issues:** {s['operator_backlog_count']} _(as of this session, source: "
                        f"GitHub Issues)_ — open issues filed in this project{tail}")
         elif s.get("operator_backlog_degraded"):
@@ -2717,14 +2753,18 @@ def render_dashboard(s: dict) -> str:
 
     out.append(f"**Stance:** {s['stance']}")
 
-    if s["att_degraded"]:
+    # US-1 repair: "attention" (the ranker itself failing) is EXCLUDED here — it already got its own
+    # ranking-incomplete caveat inside "Needs your attention" above (ranking_incomplete), ahead of the
+    # attention bullets rather than only down here after the calm-looking "Nothing is blocking" could have
+    # rendered. Naming it again here would just duplicate that caveat, not add information.
+    _non_attention_degraded = [name for name in (s["att_degraded"] or []) if name != "attention"]
+    if _non_attention_degraded:
         # Name the actual input(s) the ranking couldn't reach this session, in plain words — so this notice
         # fires ONLY on a real read failure (an outage / no GitHub access), never as standing scaffolding, and
         # tells the operator WHAT was unreachable rather than an internal name. With the live debt register now
         # read each session, a healthy boot leaves this empty (the old "expected on a new engine" framing is
         # gone — it would be false here). EVERY value att_degraded can carry must map to a plain phrase: the
-        # four substrate names AND "attention" (needs_attention reports ["attention"] when the ranker itself
-        # failed), so no internal noun ever reaches operator copy (the leak guard).
+        # four substrate names (the fifth, "attention", is handled separately above).
         _UNREACHABLE = {"telemetry": "your open-problems list from GitHub",
                         # `git` answers for in-flight work AND what shipped recently, and degrades as a
                         # whole, so this names the substrate rather than one of its halves. It does NOT name
@@ -2736,9 +2776,8 @@ def render_dashboard(s: dict) -> str:
                         # another missing thing.
                         "git": "the record of your work in this project folder",
                         "knowledge": "your project map",
-                        "state": "your saved project state",
-                        "attention": "your work-priority ranking"}
-        missing = _and_list([_UNREACHABLE.get(name, name) for name in s["att_degraded"]])
+                        "state": "your saved project state"}
+        missing = _and_list([_UNREACHABLE.get(name, name) for name in _non_attention_degraded])
         degraded.append(
             f"I couldn't reach {missing} this session, so the priority order below may be incomplete — "
             f"re-ground before you rely on it.")
@@ -2857,7 +2896,15 @@ def render_dashboard(s: dict) -> str:
     if last_merged_pr_number is not None:
         shipped_lines = [ln for ln in shipped_lines
                          if not re.match(rf"^#{re.escape(last_merged_pr_number)}(\D|$)", ln)]
-    out.extend(f"- {line}" for line in shipped_lines)
+    # US-2 repair: the dedupe above can empty out a list that WASN'T empty before it ran (the only merge
+    # `_shipped_lines` had to show was the newest one, already named by "What merged last" above) — in that
+    # case the heading must not render bare. Say so explicitly rather than leaving nothing under it; this is
+    # distinct from `_shipped_lines`' own "(no recent merges found)" absence copy, which covers the case where
+    # there was never anything to dedupe in the first place.
+    if shipped_lines:
+        out.extend(f"- {line}" for line in shipped_lines)
+    else:
+        out.append("- (no other recent merges)")
 
     # The set-aside readout (StarshipSuperjam/engine-template#413): what memory has set aside from recall, with a handle per note.
     # render_set_aside returns [] when there is nothing set aside or the store was not read — no block then.

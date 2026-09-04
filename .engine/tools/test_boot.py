@@ -470,6 +470,46 @@ class TestActionFirstLayout(unittest.TestCase):
         self.assertLess(pinned_at, attention_at)
         self.assertLess(attention_at, facts_at)
 
+    def test_other_pinned_notice_categories_still_lead_after_the_reorder(self):
+        # SC-2 repair: the completeness test above pinned only the gate-off alarm. All pinned-notice
+        # categories share the SAME generic `pinned` render path, so a parametrized sweep over one
+        # representative fixture per category is enough to confirm each still renders AND still leads over
+        # both the attention section and the facts block after the #742 reorder.
+        cases = {
+            "first-run setup": (
+                {"first_run": {"present": True, "main": "/proj", "home": "StarshipSuperjam/engine-template",
+                               "own": "acme/widgets"}},
+                "set up my project"),
+            "off-main checkout": (
+                {"off_main": {"state": "off-main", "main": "/p", "branch": "feature-x", "main_branch": "main"}},
+                "side line of work"),
+            "behind-origin checkout": (
+                {"off_main": {"state": "off-main", "main": "/p", "branch": "main", "main_branch": "main"},
+                 "behind_origin": {"state": "behind", "main": "/p", "current": "feature-x", "on_default": False,
+                                   "behind_commits": 7, "missing_merges": 4, "presentation": "warning",
+                                   "latest": "2026-06-28", "advisory": "carries-work"}},
+                "missing"),
+            "stuck PR": (
+                {"pr_conflict": {"pr": 7, "title": "My pull request"}},
+                "can't be merged"),
+            "foreign license": (
+                {"foreign_license": {"present": True, "fingerprint": "22e2c095376d", "pr_open": False}},
+                "license file"),
+            "memory restore": (
+                {"restore_offer": {"configured": True}},
+                "restore my memory"),
+        }
+        for name, (extra, needle) in cases.items():
+            with self.subTest(category=name):
+                dash = boot.render_dashboard(_signals(att_lines=["do the thing"], **extra)).lower()
+                self.assertIn(needle, dash, f"{name}: the pinned notice must still render")
+                pinned_at = dash.index(needle)
+                attention_at = dash.index("### needs your attention")
+                facts_at = dash.index("what merged last")
+                self.assertLess(pinned_at, attention_at, f"{name}: the pinned notice must still lead attention")
+                self.assertLess(attention_at, facts_at,
+                                f"{name}: attention must still precede the facts block")
+
     def test_attention_reads_as_project_wide_never_a_session_assignment(self):
         # #679 (finding PI-2): "Needs your attention" is the most prominent section on the card now that it
         # leads. It must read as PROJECT-WIDE priority — what needs a decision anywhere in the project — and
@@ -500,6 +540,81 @@ class TestActionFirstLayout(unittest.TestCase):
         # The heading itself stays project-framed, not session- or task-framed.
         self.assertIn("needs your attention", heading.lower())
         self.assertNotIn("your task", heading.lower())
+
+
+class TestAttentionNeverFalseCalm(unittest.TestCase):
+    """US-1 repair: after the #742 reorder put "Needs your attention" ahead of the facts block, its calm
+    "Nothing is blocking right now." fallback could render AHEAD of (or instead of) an honesty caveat that
+    says the read underneath it can't be trusted — a refused state cursor, or a failed attention-ranking read.
+    Neither caveat may be preceded, or replaced, by the calm line."""
+
+    def test_refused_state_shows_the_untrusted_read_caveat_not_the_calm_fallback(self):
+        dash = boot.render_dashboard(_signals(refused=True, att_lines=[]))
+        heading_at = dash.index("### Needs your attention")
+        section_end = dash.index("**Stance:**")
+        section = dash[heading_at:section_end]
+        self.assertIn("couldn't read where the project stands", section.lower())
+        self.assertNotIn("nothing is blocking right now", section.lower(),
+                          "a refused read must never render as the calm 'nothing is blocking' line")
+        # The caveat is the FIRST bullet under the heading — never appended below a calm line that already ran.
+        lines = section.splitlines()
+        first_bullet = next(ln for ln in lines if ln.startswith("- "))
+        self.assertIn("couldn't read where the project stands", first_bullet.lower())
+
+    def test_ranking_incomplete_caveat_surfaces_within_the_attention_section(self):
+        # needs_attention() reports degraded_inputs == ["attention"] when the ranker itself failed — this must
+        # reach the operator INSIDE "Needs your attention", not only later in the facts block's consolidated
+        # "I couldn't reach ..." notice, which a reader may never scroll to after seeing a calm-looking list.
+        dash = boot.render_dashboard(_signals(att_lines=[], att_degraded=["attention"]))
+        heading_at = dash.index("### Needs your attention")
+        facts_at = dash.index("**Stance:**")
+        section = dash[heading_at:facts_at].lower()
+        self.assertIn("couldn't reach your work-priority ranking", section)
+        self.assertNotIn("nothing is blocking right now", section)
+
+    def test_ranking_incomplete_with_real_bullets_still_leads_with_the_caveat(self):
+        dash = boot.render_dashboard(_signals(att_lines=["fix the thing"], att_degraded=["attention"]))
+        heading_at = dash.index("### Needs your attention")
+        caveat_at = dash.lower().index("couldn't reach your work-priority ranking")
+        bullet_at = dash.index("- fix the thing")
+        self.assertLess(heading_at, caveat_at)
+        self.assertLess(caveat_at, bullet_at, "the ranking-incomplete caveat must lead the bullets it qualifies")
+
+    def test_calm_fallback_still_renders_when_genuinely_nothing_is_blocking(self):
+        # The fallback must not disappear entirely — only when a real doubt-casting signal is present.
+        dash = boot.render_dashboard(_signals(att_lines=[]))
+        self.assertIn("- Nothing is blocking right now.", dash)
+
+    def test_exactly_one_blank_line_separates_attention_from_the_facts_block(self):
+        # DH-1 repair: without a blank line here, Markdown folds the facts block into the last attention
+        # bullet as a lazy continuation, running both together as one list item.
+        dash = boot.render_dashboard(_signals(att_lines=["fix the thing"]))
+        lines = dash.splitlines()
+        bullet_idx = lines.index("- fix the thing")
+        self.assertEqual(lines[bullet_idx + 1], "",
+                          "exactly one blank line must separate the last attention bullet from the facts block")
+        self.assertTrue(lines[bullet_idx + 2].startswith("**What merged last:**")
+                        or lines[bullet_idx + 2].startswith("**What this engine builds:**"))
+
+    def test_blank_line_separator_holds_on_the_refused_path_too(self):
+        # A refused state cursor skips the live/cached "What merged last" facts entirely (US-1), so the very
+        # next line after the blank separator is "**Stance:**" — the separator must still be exactly one line.
+        dash = boot.render_dashboard(_signals(refused=True, att_lines=["fix the thing"]))
+        lines = dash.splitlines()
+        bullet_idx = lines.index("- fix the thing")
+        self.assertEqual(lines[bullet_idx + 1], "")
+        self.assertTrue(lines[bullet_idx + 2].startswith("**Stance:**"))
+
+    def test_blank_line_separator_holds_with_a_pinned_notice_and_a_lead_line(self):
+        # Exercises DH-1's "pinned, lead, and neither" cases together: a pinned governance alarm (which also
+        # suppresses the calm lead line) must not disturb the one-blank-line separator below attention.
+        dash = boot.render_dashboard(_signals(
+            gate="off", reason="branch protection not found", att_lines=["turn the gate back on"]))
+        lines = dash.splitlines()
+        bullet_idx = lines.index("- turn the gate back on")
+        self.assertEqual(lines[bullet_idx + 1], "")
+        self.assertTrue(lines[bullet_idx + 2].startswith("**What merged last:**")
+                        or lines[bullet_idx + 2].startswith("**What this engine builds:**"))
 
 
 class TestSetupLandedConfirmation(unittest.TestCase):
@@ -5776,9 +5891,23 @@ class TestDedupeLatestMerge(unittest.TestCase):
             shipped=["(no recent merges found)"]))
         self.assertIn("(no recent merges found)", dash)
 
+    def test_deduping_the_only_shipped_entry_does_not_leave_a_bare_heading(self):
+        # US-2 repair: when the ONLY line "Recently merged" had to show is the same PR "What merged last"
+        # already named, the dedupe above empties the list — the heading must not then render with nothing
+        # under it, which reads as broken rendering rather than "nothing else recent".
+        dash = boot.render_dashboard(_signals(
+            live_standing={"phase": "Add checkout flow (PR #99)"},
+            shipped=["#99 — Add checkout flow"]))
+        lines = dash.splitlines()
+        heading_idx = lines.index("### Recently merged")
+        self.assertNotEqual(lines[heading_idx + 1], "",
+                            "the heading must be followed by explicit content, never a blank/bare heading")
+        self.assertEqual(lines[heading_idx + 1], "- (no other recent merges)")
+        self.assertEqual(dash.count("#99"), 1)   # still named exactly once, in "What merged last"
+
 
 class TestOpenPrDetailRendering(unittest.TestCase):
-    """#742: an open in-flight PR's action line names its title and draft/ready state (from
+    """#742: an open in-flight PR's action line names its title and draft/open-for-review state (from
     `work_record.read_open_pr_state`'s `pr_meta` re-join), and degrades gracefully — never inventing a state —
     when that detail could not be read."""
 
@@ -5788,10 +5917,13 @@ class TestOpenPrDetailRendering(unittest.TestCase):
         self.assertIn("draft", line)
         self.assertNotIn("ready", line)
 
-    def test_ready_state_renders(self):
+    def test_open_for_review_state_renders(self):
+        # US-3 repair: a non-draft PR is worded "open for review", never "ready" — check state (CI, review
+        # approval) is deliberately never read here, and "ready" would misleadingly imply it passed.
         line = boot._resolve_member("pr:13", None, {}, {"pr:13": {"title": "Add other", "is_draft": False}})
         self.assertIn("Add other", line)
-        self.assertIn("ready", line)
+        self.assertIn("open for review", line)
+        self.assertNotIn("ready", line)
         self.assertNotIn("draft", line)
 
     def test_unknown_draft_state_degrades_without_inventing_one(self):
@@ -5819,22 +5951,82 @@ class TestOpenPrDetailRendering(unittest.TestCase):
         self.assertNotIn(boot.RELAY_MARKER, line)
 
 
+class TestOpenPrDetailWiring(unittest.TestCase):
+    """SC-1 repair: `_resolve_member`'s draft/open-for-review formatting was tested directly, but the wiring
+    that actually FEEDS it — `needs_attention()` re-joining an in-flight `pr:<n>` member through
+    `work_record.read_open_pr_state` — had no end-to-end coverage. Drives `needs_attention()` itself with a
+    mocked `gh` and a mocked `read_open_pr_state`."""
+
+    def setUp(self):
+        p = mock.patch.object(boot.boot_slice, "read", return_value=None)   # hermetic: no real .cache read
+        p.start()
+        self.addCleanup(p.stop)
+
+    @staticmethod
+    def _partition():
+        return {"partition": [
+            {"category": "in_flight", "precedence_rank": 2, "members": [{"id": "pr:42", "rank": 1}]},
+        ], "degraded_inputs": []}
+
+    def test_title_and_state_reach_the_rendered_line(self):
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
+                mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
+                mock.patch.object(boot.work_record, "read_open_pr_state",
+                                  return_value={"pr:42": {"title": "Add thing", "is_draft": False}}):
+            lines, _, _, _, _ = boot.needs_attention({}, gh=object())
+        self.assertEqual(len(lines), 1)
+        self.assertIn("#42", lines[0])
+        self.assertIn("Add thing", lines[0])
+        self.assertIn("open for review", lines[0])
+
+    def test_draft_state_reaches_the_rendered_line(self):
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
+                mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
+                mock.patch.object(boot.work_record, "read_open_pr_state",
+                                  return_value={"pr:42": {"title": "Add thing", "is_draft": True}}):
+            lines, _, _, _, _ = boot.needs_attention({}, gh=object())
+        self.assertIn("draft", lines[0])
+        self.assertNotIn("open for review", lines[0])
+
+    def test_read_open_pr_state_failure_fails_soft_to_the_bare_line(self):
+        # A raised WorkRecordUnavailable (or anything else) from the re-join must never break the dashboard —
+        # it degrades to the bare "#N" PR line, exactly as when there is no reader at all.
+        with mock.patch.object(boot.attention, "derive_focus", return_value=([], 0)), \
+                mock.patch.object(boot.attention, "rank_live", return_value=self._partition()), \
+                mock.patch.object(boot.work_record, "read_open_pr_state", side_effect=Exception("boom")):
+            lines, _, _, _, _ = boot.needs_attention({}, gh=object())
+        self.assertEqual(
+            lines, ["Pull request #42 is open and in flight — pick it back up, or close it if it's done."])
+
+
 class TestLabelledRegisterLinks(unittest.TestCase):
     """#742: a register URL rendered into the dashboard is a labelled Markdown link, not a bare
-    `→ https://...` — the URL itself is unchanged, only its presentation."""
+    `→ https://...` — the URL itself is unchanged, only its presentation. US-4 repair: the two links point at
+    DIFFERENT queries (one excludes engine-labelled issues, one doesn't), so they must carry DISTINCT anchor
+    text rather than both reading "[open issues](...)"."""
 
     def test_project_issues_register_is_a_labelled_link(self):
         dash = boot.render_dashboard(_signals(
             operator_backlog_count=3, operator_backlog_register="https://github.com/o/r/issues"))
-        self.assertIn("[open issues](https://github.com/o/r/issues)", dash)
+        self.assertIn("[open issues (excluding engine)](https://github.com/o/r/issues)", dash)
         self.assertNotIn("→ https://github.com/o/r/issues", dash)
 
     def test_backlog_headline_register_is_a_labelled_link(self):
         dash = boot.render_dashboard(_signals(
             finding_count=2, operator_backlog_count=3,
             all_open_register="https://github.com/o/r/issues?q=all"))
-        self.assertIn("[open issues](https://github.com/o/r/issues?q=all)", dash)
+        self.assertIn("[all open issues](https://github.com/o/r/issues?q=all)", dash)
         self.assertNotIn(": https://github.com/o/r/issues?q=all", dash)
+
+    def test_the_two_register_links_have_distinct_anchor_text(self):
+        # US-4: rendered together, the two links must not share anchor text even though both literally say
+        # "open issues" somewhere in their label — a reader distinguishing them by label alone must be able to.
+        dash = boot.render_dashboard(_signals(
+            finding_count=2, operator_backlog_count=3,
+            operator_backlog_register="https://github.com/o/r/issues",
+            all_open_register="https://github.com/o/r/issues?q=all"))
+        self.assertIn("[all open issues](https://github.com/o/r/issues?q=all)", dash)
+        self.assertIn("[open issues (excluding engine)](https://github.com/o/r/issues)", dash)
 
 
 class TestArtifactWarrantCollapse(unittest.TestCase):
