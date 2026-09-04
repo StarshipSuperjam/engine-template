@@ -95,7 +95,7 @@ class TestRenderReusesBootSeam(unittest.TestCase):
     def test_render_carries_the_operator_dashboard_markers(self):
         with mock.patch.object(boot, "gather_signals", return_value=test_boot._signals()):
             out = es.render()
-        for marker in (f"## {boot.PRESENT_MARKER}", "What merged last", "Needs your attention", "Recently shipped"):
+        for marker in (f"## {boot.PRESENT_MARKER}", "What merged last", "Needs your attention", "Recently merged"):
             self.assertIn(marker, out, f"the pulled dashboard must carry the '{marker}' section")
 
     def test_render_appends_degraded_qualification_health(self):
