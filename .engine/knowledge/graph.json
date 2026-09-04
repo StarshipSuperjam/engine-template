@@ -9278,7 +9278,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:aa9fbb9b57d1d7c0e503cc6678fce8e01c8bfe37a03c65e16c0ef08648b17aa1",
+        "fingerprint": "sha256:ba8e481d781f9c9cfac596524ad975d94b1825521e05af50d0e56f30520d4dd9",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -13554,7 +13554,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:06eb2439b3382de2f1c57e50143536060d8deec20f3c075364766526a52a88f1",
+        "fingerprint": "sha256:9e5991cfacf7e2145f640118e6c604683f9a5806067130cf72bb49c3091e6b50",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",

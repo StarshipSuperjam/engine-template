@@ -2686,7 +2686,7 @@ def render_dashboard(s: dict) -> str:
             if mechanic and mechanic.get("state") == "resolved":
                 out.append("_Your local checkout of it is set — that's where I'll build._")
 
-        # Build #743, node `status-disclosure`: the quiet installed-vs-available engine version line. Rendered
+        # Build StarshipSuperjam/engine-template#743, node `status-disclosure`: the quiet installed-vs-available engine version line. Rendered
         # UNCONDITIONALLY here — deliberately OUTSIDE the `if product_label:` block above (a cold-review
         # finding: nesting it there made the line vanish for a self-building deployment, or any deployment
         # with no product label recorded, even though this repo's own version is still worth knowing). Silent
@@ -3893,7 +3893,7 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                "The typed write-gate contract is in the envelope above.)")
     out.append("")
 
-    # Build #743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice.
+    # Build StarshipSuperjam/engine-template#743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice.
     # CACHE-ONLY (requirement 4) — `version_availability()` is the boot-path read; it makes no network call.
     # A SEPARATE briefing line (requirement 1), never a branch of `present_marker_line` (rendered above,
     # unchanged), and never a task/binding/receipt/alarm (requirement 3) — appended here in the never-shed
@@ -4426,7 +4426,7 @@ def superset_check() -> "tuple[bool, frozenset]":
 
 # ---- AVAILABILITY-SUBSTRATE NODE (availability-substrate): version-availability knowledge + cache --------
 #
-# Build #743 (quiet deployed-version availability advisories), first leaf. THIS NODE IS DATA ONLY: it builds
+# Build StarshipSuperjam/engine-template#743 (quiet deployed-version availability advisories), first leaf. THIS NODE IS DATA ONLY: it builds
 # the knowledge + cross-session cache a later node renders (an advisory line, a dashboard version line). It
 # renders nothing itself and is not wired into `assemble_pack`.
 #
@@ -4698,7 +4698,7 @@ def mark_version_announced(tag: str, *, cwd: str | None = None, path: str | None
 
 
 def _version_advisory_line(avail: dict | None, staged_update) -> str | None:
-    """Build #743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice for
+    """Build StarshipSuperjam/engine-template#743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice for
     the assembled pack. A pure renderer over the substrate's own cache-only read (`version_availability`) — it
     makes no network call and consumes no other boot state. Returns `None` (nothing to show) when: there is no
     usable availability data, no newer version is available, this available version was already announced
@@ -4724,7 +4724,7 @@ def _version_advisory_line(avail: dict | None, staged_update) -> str | None:
 
 
 def _version_status_line(avail: dict | None) -> str | None:
-    """Build #743, node `status-disclosure`: the persistent installed-vs-available version fact for the
+    """Build StarshipSuperjam/engine-template#743, node `status-disclosure`: the persistent installed-vs-available version fact for the
     PULLED dashboard (`render_dashboard`/`engine_status.render`) — distinct from `_version_advisory_line`
     above (a one-shot, once-per-version nudge in the assembled SessionStart pack). This one is a plain,
     always-there fact, shown every pull, never snoozed.
