@@ -6265,5 +6265,172 @@ class TestVersionAvailabilitySubstrate(unittest.TestCase):
         self.assertFalse(boot.mark_version_announced("not-a-version", path=self.cache_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
+
+class TestVersionAdvisoryRelay(unittest.TestCase):
+    """Build #743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice in
+    the assembled pack. Pins the five cold-review hard requirements: `present_marker_line` byte-unchanged,
+    once-per-version + snooze across sessions, task_binding unchanged, suppressed while a staged update is
+    pending, and never rendered in the receipt/alarm/warning tier."""
+
+    def _avail(self, **over):
+        base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
+                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+        base.update(over)
+        return base
+
+    # ---- requirement 1: present_marker_line is a byte-unchanged, separate line -------------------------
+
+    def test_present_marker_line_byte_unchanged_regardless_of_a_newer_version(self):
+        # present_marker_line takes only the signals dict `s` — it has no version-availability input at all,
+        # so its output cannot depend on whether a newer version is cached. Pin that byte-identity directly,
+        # so a future change that tried to thread version data into it (or branch on it) would break this.
+        s = _signals()
+        without = boot.present_marker_line(s)
+        with_newer = boot.present_marker_line(s)  # same signals; version data never reaches this function
+        self.assertEqual(without, with_newer)
+        # And the advisory line itself is never produced by present_marker_line's own vocabulary.
+        self.assertNotIn("engine version is available", without)
+
+    def test_advisory_line_is_a_separate_briefing_section_not_inside_the_marker(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        _assert_ai_briefing(self, pack)
+        self.assertIn("A newer engine version is available (v2.0.0)", pack)
+        # The advisory text is its own quiet paragraph, never folded into the present-marker instruction line.
+        marker_line = next(l for l in pack.splitlines() if l.startswith(f"1. Open your reply with this"))
+        self.assertNotIn("engine version is available", marker_line)
+
+    # ---- requirement 2: once per version, then snooze (keyed on version, not checked_at) ----------------
+
+    def test_announces_once_then_silent_for_the_same_version_a_later_session_reads(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail(announced=False)), \
+                    mock.patch.object(boot, "mark_version_announced") as marked:
+                first = boot.assemble_pack(use_ledger=True)
+            marked.assert_called_once_with("v2.0.0")
+            # A later session where the cache now reflects the snooze (announced=True) for the SAME version.
+            with mock.patch.object(boot, "version_availability", return_value=self._avail(announced=True)), \
+                    mock.patch.object(boot, "mark_version_announced") as marked2:
+                second = boot.assemble_pack(use_ledger=True)
+            marked2.assert_not_called()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("A newer engine version is available (v2.0.0)", first)
+        self.assertNotIn("A newer engine version is available", second)
+
+    def test_a_newer_available_version_announces_again(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability",
+                                    return_value=self._avail(available="v3.0.0", announced=False)), \
+                    mock.patch.object(boot, "mark_version_announced") as marked:
+                pack = boot.assemble_pack(use_ledger=True)
+            marked.assert_called_once_with("v3.0.0")
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("A newer engine version is available (v3.0.0)", pack)
+
+    def test_snooze_is_not_advanced_off_the_real_sessionstart_path(self):
+        # The debug `pack` CLI / read-only status pull both call with use_ledger=False; the one-shot
+        # announcement must not be consumed on the operator's behalf from either.
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail(announced=False)), \
+                    mock.patch.object(boot, "mark_version_announced") as marked:
+                pack = boot.assemble_pack(use_ledger=False)
+            marked.assert_not_called()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("A newer engine version is available (v2.0.0)", pack)
+
+    # ---- requirement 3: never a task/binding/receipt/alarm; unbound stays unbound ------------------------
+
+    def test_binding_unchanged_an_unbound_session_stays_none_with_the_advisory_present(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("## TASK_BINDING\nstate=none", pack)
+        self.assertIn("A newer engine version is available (v2.0.0)", pack)
+
+    def test_advisory_never_renders_in_the_receipt_alarm_or_warning_tier(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        # Not inside the rendered receipt/alarms envelope block — it sits after the frame's numbered
+        # instructions and stance line, as its own quiet paragraph.
+        self.assertNotIn("## ALARMS", pack.split("A newer engine version is available")[0][-200:])
+        # Never phrased with the alarm glyph or as an action-forcing instruction.
+        line = next(l for l in pack.splitlines() if "A newer engine version is available" in l)
+        self.assertTrue(line.startswith("▸"))
+        self.assertNotIn("⚠", line)
+
+    def test_advisory_line_offers_upgrade_as_availability_not_as_an_instruction(self):
+        line = boot._version_advisory_line(self._avail(), None)
+        self.assertIsNotNone(line)
+        self.assertIn("/engine-upgrade", line)
+        self.assertIn("available", line)
+        self.assertNotIn("⚠", line)
+
+    # ---- requirement 4: cache-only — never calls refresh_version_availability from this path ---------------
+
+    def test_assemble_pack_never_calls_refresh_version_availability(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()), \
+                    mock.patch.object(boot, "refresh_version_availability",
+                                       side_effect=AssertionError("boot must never refresh at render time")):
+                boot.assemble_pack(use_ledger=True)
+        finally:
+            for p in patchers:
+                p.stop()
+
+    # ---- requirement 5: suppressed while a staged/half-finished update is pending -------------------------
+
+    def test_suppressed_while_a_staged_update_is_pending(self):
+        self.assertIsNone(boot._version_advisory_line(self._avail(), True))
+
+        # Exercise the real staged_update signal path through gather_signals: patch the module-level probe it
+        # reads (`module_manager.staged_upgrade_announced`) so `s["staged_update"]` is genuinely True, then
+        # assert the advisory does not compete with present_marker_line's own staged_update recovery offer.
+        patchers = _offline()
+        try:
+            with mock.patch("module_manager.staged_upgrade_announced", return_value=True), \
+                    mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("engine update looks half-finished", pack)      # present_marker_line's own offer fires
+        self.assertNotIn("A newer engine version is available", pack)  # the quiet advisory yields to it
+
+    # ---- pure-renderer edge cases -------------------------------------------------------------------------
+
+    def test_no_line_when_no_availability_data(self):
+        self.assertIsNone(boot._version_advisory_line(None, None))
+
+    def test_no_line_when_not_has_newer(self):
+        self.assertIsNone(boot._version_advisory_line(self._avail(has_newer=False, available=None), None))
+
+    def test_no_line_when_already_announced(self):
+        self.assertIsNone(boot._version_advisory_line(self._avail(announced=True), None))
+
+
 if __name__ == "__main__":
     unittest.main()

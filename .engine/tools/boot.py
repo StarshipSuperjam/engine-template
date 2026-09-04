@@ -3860,6 +3860,30 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                "The typed write-gate contract is in the envelope above.)")
     out.append("")
 
+    # Build #743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice.
+    # CACHE-ONLY (requirement 4) — `version_availability()` is the boot-path read; it makes no network call.
+    # A SEPARATE briefing line (requirement 1), never a branch of `present_marker_line` (rendered above,
+    # unchanged), and never a task/binding/receipt/alarm (requirement 3) — appended here in the never-shed
+    # governance block, alongside the receipt, never inside it. `_version_advisory_line` itself withholds the
+    # line while a staged/half-finished update is pending (requirement 5), so it never competes with that
+    # recovery offer. The per-version snooze (requirement 2) is only ADVANCED on the real SessionStart path
+    # (`use_ledger`) — matching the other use_ledger-gated side effects above (refused-cursor finding) — so the
+    # debug `pack` CLI and the read-only status pull, both use_ledger=False, never consume the one-shot
+    # announcement on the operator's behalf.
+    try:
+        _avail = version_availability()
+    except Exception:  # noqa: BLE001 — an availability read must never break SessionStart (fail-open)
+        _avail = None
+    advisory = _version_advisory_line(_avail, s.get("staged_update"))
+    if advisory:
+        out.append(advisory)
+        out.append("")
+        if use_ledger:
+            try:
+                mark_version_announced(_avail["available"])
+            except Exception:  # noqa: BLE001 — the snooze write is best-effort; never break SessionStart
+                pass
+
     # The home-workshop grounding (StarshipSuperjam/engine-template#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
     # own home repo (origin == recorded home); a deployed project never sees it. It carries the operative
     # development discipline inline — not merely a pointer — so a home session grounds on it even before opening
@@ -4638,6 +4662,32 @@ def mark_version_announced(tag: str, *, cwd: str | None = None, path: str | None
         return _write_version_cache(target, cache)
     finally:
         boot_alarm_ledger._release(fd)
+
+
+def _version_advisory_line(avail: dict | None, staged_update) -> str | None:
+    """Build #743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice for
+    the assembled pack. A pure renderer over the substrate's own cache-only read (`version_availability`) — it
+    makes no network call and consumes no other boot state. Returns `None` (nothing to show) when: there is no
+    usable availability data, no newer version is available, this available version was already announced
+    (the per-version snooze — requirement 2, keyed on the version string, never `checked_at`), or a
+    staged/half-finished update is pending (requirement 5 — the advisory must never compete with that
+    recovery offer, which `present_marker_line` already renders at higher priority).
+
+    Deliberately NOT a branch of `present_marker_line` (requirement 1) — this is a separate, quiet briefing
+    line the caller (`assemble_pack`) appends alongside the receipt, never inside it; and NEVER a task,
+    binding, receipt, or alarm (requirement 3) — it uses the calm `▸` marker, never `⚠`, carries no `##
+    ALARMS` framing, and never touches `task_binding`. It may name `/engine-upgrade` as an optional,
+    availability-worded action, never as an instruction or next task."""
+    if staged_update:
+        return None
+    if not avail or not avail.get("has_newer") or avail.get("announced"):
+        return None
+    version = avail.get("available")
+    if not version:
+        return None
+    return (f"▸ A newer engine version is available ({version}) — type /engine-upgrade any time if you'd "
+            "like to update. (for you — a quiet availability note, not a task or alarm; don't relay this as "
+            "an instruction, just mention it in passing if it's natural)")
 
 
 # ---- the hook handler + CLI -----------------------------------------------------------------
