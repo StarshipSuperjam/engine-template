@@ -12091,7 +12091,7 @@
       },
       "slug": "execution_context",
       "source": {
-        "fingerprint": "sha256:d8844799ef7584382b0e183f090d79f601de454339258b757d3ab1a0ae739488",
+        "fingerprint": "sha256:a59d180740cc9ba323575ff139c3b4b962aeaad0b526cd331e3188f6e0d6a233",
         "path": ".engine/tools/memory/execution_context.py"
       },
       "status": "active",
