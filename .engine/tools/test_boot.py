@@ -20,6 +20,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -6137,8 +6138,52 @@ class TestVersionAvailabilitySubstrate(unittest.TestCase):
         self.assertEqual(self._read_cache()["available_tag"], "v2.0.0")
         self.assertEqual(self._read_cache()["checked_at"], now)
 
+    # ---- bounded resolve latency: cold-review finding 3 -------------------------------------------------
+
+    def test_a_hung_resolve_does_not_block_past_the_bound_and_reads_as_a_failed_check(self):
+        # `_resolve_release_ref` hardcodes `urlopen(timeout=60)` with no override boot.py can pass in, so the
+        # bound is enforced HERE via `_bounded_resolve_latest_available_tag`'s background-thread wrapper. Pin
+        # the bound tiny for the test (the real default is single-digit seconds) and make the underlying
+        # resolver hang well past it; the refresh call itself must still return promptly, and — since the hang
+        # is treated as a failed attempt (fix 1) — must preserve rather than clear a previously-known tag.
+        self._write_cache(available_tag="v1.0.0", checked_at="2025-12-01T00:00:00Z",
+                           last_success_at="2025-12-01T00:00:00Z")
+        hang_seconds = 5.0
+        bound_seconds = 0.05
+
+        def _hangs(**_kw):
+            time.sleep(hang_seconds)
+            return "v2.0.0"  # never reached within the bound
+
+        with mock.patch.object(boot, "VERSION_CHECK_TIMEOUT_SECONDS", bound_seconds), \
+                mock.patch.object(boot, "_resolve_latest_available_tag", side_effect=_hangs), \
+                mock.patch.object(boot, "repo_slug", return_value="operator/deployed-repo"), \
+                mock.patch.object(module_coherence, "home_repository", return_value="home/engine"), \
+                mock.patch.object(module_coherence, "is_downstream_copy", return_value=True):
+            started = time.monotonic()
+            result = boot.refresh_version_availability(home_workshop=None, path=self.cache_path,
+                                                          now="2026-01-02T01:00:00Z")
+            elapsed = time.monotonic() - started
+        # Bounded well under the hang duration — proves the wait was actually cut off, not merely fast today.
+        self.assertLess(elapsed, hang_seconds / 2)
+        self.assertTrue(result["checked"])
+        self.assertIsNone(result["resolved"])  # the hang reads as a failed attempt, not a success
+        cache = self._read_cache()
+        self.assertEqual(cache["checked_at"], "2026-01-02T01:00:00Z")
+        self.assertEqual(cache["available_tag"], "v1.0.0")  # preserved — a timeout must never erase this
+        self.assertEqual(cache["last_success_at"], "2025-12-01T00:00:00Z")  # not advanced by the hang
+
+    def test_bounded_resolve_returns_the_real_result_when_it_completes_in_time(self):
+        with mock.patch.object(boot, "_resolve_latest_available_tag", return_value="v4.0.0"):
+            self.assertEqual(boot._bounded_resolve_latest_available_tag(timeout_seconds=5.0), "v4.0.0")
+
     def test_checked_at_stamped_even_on_a_failed_resolve_no_retry_storm(self):
-        self._write_cache(available_tag="v1.0.0", checked_at="2026-01-01T00:00:00Z")
+        # Repair for cold-review finding 1: a failed resolve must NOT erase a previously-cached newer tag or
+        # let a fresh failure timestamp masquerade as a fresh confirmation. `available_tag` (and
+        # `last_success_at`) are PRESERVED on failure; only `checked_at` — the attempt stamp the no-retry-storm
+        # cadence gate reads — advances.
+        self._write_cache(available_tag="v1.0.0", checked_at="2025-12-01T00:00:00Z",
+                           last_success_at="2025-12-01T00:00:00Z")
         now = "2026-01-02T01:00:00Z"
         with mock.patch.object(boot, "_resolve_latest_available_tag", return_value=None), \
                 mock.patch.object(boot, "repo_slug", return_value="operator/deployed-repo"), \
@@ -6148,8 +6193,9 @@ class TestVersionAvailabilitySubstrate(unittest.TestCase):
         self.assertTrue(result["checked"])
         self.assertIsNone(result["resolved"])
         cache = self._read_cache()
-        self.assertEqual(cache["checked_at"], now)  # stamped despite the failure
-        self.assertIsNone(cache["available_tag"])
+        self.assertEqual(cache["checked_at"], now)  # the attempt stamp advances despite the failure
+        self.assertEqual(cache["available_tag"], "v1.0.0")  # the last-known tag survives the failed attempt
+        self.assertEqual(cache["last_success_at"], "2025-12-01T00:00:00Z")  # the last CONFIRMED time is untouched
         # A second attempt immediately after must NOT re-resolve — the failure stamp still throttles.
         with mock.patch.object(boot, "_resolve_latest_available_tag",
                                 side_effect=AssertionError("must not retry within the window after a failure")), \
@@ -6158,6 +6204,40 @@ class TestVersionAvailabilitySubstrate(unittest.TestCase):
                 mock.patch.object(module_coherence, "is_downstream_copy", return_value=True):
             again = boot.refresh_version_availability(home_workshop=None, path=self.cache_path, now=now)
         self.assertFalse(again["checked"])
+
+    def test_failed_refresh_end_to_end_never_claims_up_to_date_or_loses_a_known_newer_version(self):
+        # Repair for cold-review finding 1, driven end to end through refresh -> the boot read -> the status
+        # line: a failed refresh must render as an honest "couldn't reach" disclosure, never as an unqualified
+        # "up to date" claim, and a previously-CONFIRMED newer version must still surface rather than vanish.
+        self._write_cache(available_tag="v9.9.9", checked_at="2025-12-01T00:00:00Z",
+                           last_success_at="2025-12-01T00:00:00Z")
+        now = "2026-01-02T01:00:00Z"
+        identity = [
+            mock.patch.object(boot, "repo_slug", return_value="operator/deployed-repo"),
+            mock.patch.object(module_coherence, "home_repository", return_value="home/engine"),
+            mock.patch.object(module_coherence, "is_downstream_copy", return_value=True),
+        ]
+        for p in identity:
+            p.start()
+        try:
+            with mock.patch.object(boot, "_resolve_latest_available_tag", return_value=None):
+                result = boot.refresh_version_availability(home_workshop=None, path=self.cache_path, now=now)
+            self.assertTrue(result["checked"])
+            self.assertIsNone(result["resolved"])
+            with mock.patch.object(module_coherence, "load_engine_manifest",
+                                    return_value={"engine_release": "1.0.0"}):
+                avail = boot.version_availability(home_workshop=None, path=self.cache_path)
+        finally:
+            for p in identity:
+                p.stop()
+        self.assertIsNotNone(avail)
+        self.assertTrue(avail["has_newer"])
+        self.assertEqual(avail["available"], "v9.9.9")  # the known-newer fact survives the failed attempt
+        status = boot._version_status_line(avail)
+        self.assertIsNotNone(status)
+        self.assertNotIn("up to date", status)  # never a false freshness claim off a failed check
+        self.assertIn("couldn't reach", status)
+        self.assertIn("v9.9.9", status)  # the last-known newer version is still surfaced, not hidden
 
     def test_boot_read_reflects_a_no_reresolve_cache_hit_across_sessions(self):
         # Simulate "session 1" refreshed the cache; "session 2" (a fresh process, same cache file) reads it
@@ -6212,6 +6292,21 @@ class TestVersionAvailabilitySubstrate(unittest.TestCase):
                 mock.patch.object(module_coherence, "is_downstream_copy", return_value=True):
             result = boot.version_availability(home_workshop=None, path=self.cache_path)
         self.assertIsNotNone(result)
+
+    def test_silent_when_home_workshop_is_none_but_own_and_home_slugs_match(self):
+        # Cold-review nit (finding 5): the previously-untested branch of the offline home re-derivation — a
+        # `home_workshop=None` (unresolvable via the cwd-scoped detector) whose OWN and RECORDED-HOME slugs
+        # nonetheless resolve to the SAME repository. `is_downstream_copy` correctly reports False for a
+        # same-slug pair (this IS the home repo, just not detected as such through home_workshop), so the gate
+        # must stay CLOSED here too — mutating this branch to always-open would fire the check inside the
+        # engine's own home repository.
+        self._write_cache(available_tag="v9.9.9", checked_at="2026-01-01T00:00:00Z")
+        with mock.patch.object(boot, "repo_slug", return_value="StarshipSuperjam/engine-template"), \
+                mock.patch.object(module_coherence, "home_repository",
+                                   return_value="StarshipSuperjam/engine-template"), \
+                mock.patch.object(module_coherence, "is_downstream_copy", return_value=False):
+            result = boot.version_availability(home_workshop=None, path=self.cache_path)
+        self.assertIsNone(result)
 
     def test_refresh_is_also_home_gated(self):
         with mock.patch.object(boot, "_resolve_latest_available_tag",
@@ -6279,8 +6374,12 @@ class TestVersionAdvisoryRelay(unittest.TestCase):
     pending, and never rendered in the receipt/alarm/warning tier."""
 
     def _avail(self, **over):
+        # `last_success_at` defaults to the SAME moment as `checked_at` — this helper's default shape is a
+        # confirmed, successful check (repair for cold-review finding 1: the two only diverge when the last
+        # attempt failed). Tests exercising the failure state override `last_success_at` explicitly.
         base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
-                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+                "checked_at": "2026-01-01T00:00:00Z", "last_success_at": "2026-01-01T00:00:00Z",
+                "announced": False}
         base.update(over)
         return base
 
@@ -6407,6 +6506,45 @@ class TestVersionAdvisoryRelay(unittest.TestCase):
             for p in patchers:
                 p.stop()
 
+    # ---- repair (cold-review finding 4): the AUTHORITATIVE home signal reaches version_availability ---------
+
+    def test_assemble_pack_threads_the_authoritative_home_workshop_into_a_real_version_availability(self):
+        # Cold-review finding 4: `assemble_pack` used to call `version_availability()` with no args, relying
+        # on the substrate's own OFFLINE re-derivation of home identity rather than the already-computed
+        # authoritative `s["home_workshop"]` gather_signals() carries (the same signal `render_dashboard`
+        # already threads through). Drive this end to end with a REAL (non-stubbed) `version_availability`
+        # against a real cache holding a newer version, and a genuinely CONFIRMED home_workshop signal — if
+        # the home signal reaches the substrate, the gate is closed and no advisory renders; if assemble_pack
+        # were still calling `version_availability()` bare, the substrate's own offline re-derivation (here
+        # left unmocked / free to resolve differently) could open the gate and leak the advisory.
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cache_path = os.path.join(tmp.name, "version-availability.json")
+        with open(cache_path, "w", encoding="utf-8") as fh:
+            json.dump({"available_tag": "v9.9.9", "checked_at": "2026-01-01T00:00:00Z",
+                       "last_success_at": "2026-01-01T00:00:00Z"}, fh)
+        home = {"present": True, "main": "/x", "home": "a/b", "own": "a/b"}
+
+        patchers = _offline()
+        try:
+            # Deliberately make the OFFLINE re-derivation `_should_check_availability` falls back to (when
+            # `home_workshop` is falsy) resolve to a CONFIRMED-deployed/open gate — so this test actually
+            # distinguishes "the fix threads s['home_workshop'] through" from "the gate happened to be closed
+            # anyway": if assemble_pack regressed to calling `version_availability()` bare, this identity setup
+            # would open the gate and leak the advisory below.
+            with mock.patch.object(boot, "repo_slug", return_value="operator/deployed-repo"), \
+                    mock.patch.object(module_coherence, "home_repository", return_value="home/engine"), \
+                    mock.patch.object(module_coherence, "is_downstream_copy", return_value=True), \
+                    mock.patch.object(boot, "_version_cache_path", return_value=cache_path), \
+                    mock.patch.object(boot, "gather_signals",
+                                       return_value=dict(_signals(), home_workshop=home)):
+                pack = boot.assemble_pack(use_ledger=True)
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertNotIn("A newer engine version is available", pack)
+        self.assertNotIn("v9.9.9", pack)
+
     # ---- requirement 5: suppressed while a staged/half-finished update is pending -------------------------
 
     def test_suppressed_while_a_staged_update_is_pending(self):
@@ -6445,14 +6583,20 @@ class TestVersionStatusDisclosure(unittest.TestCase):
     `refresh_version_availability` so the cache actually gets populated end-to-end."""
 
     def _avail(self, **over):
+        # `last_success_at` defaults to the SAME moment as `checked_at` — this helper's default shape is a
+        # confirmed, successful check (repair for cold-review finding 1: the two only diverge when the last
+        # attempt failed). Tests exercising the failure state override `last_success_at` explicitly.
         base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
-                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+                "checked_at": "2026-01-01T00:00:00Z", "last_success_at": "2026-01-01T00:00:00Z",
+                "announced": False}
         base.update(over)
         return base
 
     # ---- the rendered line itself, across states -----------------------------------------------------
 
     def test_line_renders_up_to_date(self):
+        # Repair for cold-review finding 2: the raw ISO wire timestamp never appears — it is routed through
+        # `_relative_moment` so the line reads in words a person uses.
         with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
                 mock.patch.object(boot, "version_availability",
                                    return_value=self._avail(has_newer=False, available=None)):
@@ -6460,7 +6604,9 @@ class TestVersionStatusDisclosure(unittest.TestCase):
         self.assertIn("**Engine version:**", dash)
         self.assertIn("1.0.0", dash)
         self.assertIn("up to date", dash)
-        self.assertIn("2026-01-01T00:00:00Z", dash)  # last-checked disclosure, not a bare "current" claim
+        self.assertNotIn("2026-01-01T00:00:00Z", dash)  # never the raw wire timestamp
+        expected = boot._relative_moment(boot.moment.epoch("2026-01-01T00:00:00Z"))
+        self.assertIn(expected, dash)  # last-checked disclosure, humanized rather than a bare "current" claim
 
     def test_line_renders_newer_available(self):
         with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
@@ -6469,17 +6615,25 @@ class TestVersionStatusDisclosure(unittest.TestCase):
         self.assertIn("**Engine version:**", dash)
         self.assertIn("1.0.0", dash)
         self.assertIn("v2.0.0", dash)
-        self.assertIn("2026-01-01T00:00:00Z", dash)
+        self.assertNotIn("2026-01-01T00:00:00Z", dash)
+        expected = boot._relative_moment(boot.moment.epoch("2026-01-01T00:00:00Z"))
+        self.assertIn(expected, dash)
 
     def test_line_discloses_a_stale_check_rather_than_implying_freshness(self):
-        # An old checked_at is shown verbatim rather than folded into an unqualified "up to date" — the
-        # honesty requirement: the line says WHEN it last looked, never just "current".
+        # An old checked_at is shown humanized rather than folded into an unqualified "up to date" — the
+        # honesty requirement: the line says WHEN it last looked, never just "current". Still a CONFIRMED
+        # (successful) check — last_success_at matches — so this pins staleness disclosure distinct from the
+        # failed-check disclosure covered elsewhere.
         with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
                 mock.patch.object(boot, "version_availability",
                                    return_value=self._avail(has_newer=False, available=None,
-                                                             checked_at="2020-01-01T00:00:00Z")):
+                                                             checked_at="2020-01-01T00:00:00Z",
+                                                             last_success_at="2020-01-01T00:00:00Z")):
             dash = boot.render_dashboard(_signals())
-        self.assertIn("2020-01-01T00:00:00Z", dash)
+        self.assertNotIn("2020-01-01T00:00:00Z", dash)
+        expected = boot._relative_moment(boot.moment.epoch("2020-01-01T00:00:00Z"))
+        self.assertIn(expected, dash)
+        self.assertIn("up to date", dash)
 
     def test_line_discloses_unavailable_when_nothing_has_ever_been_checked(self):
         with mock.patch.object(boot, "refresh_version_availability", return_value=None), \
@@ -6601,8 +6755,12 @@ class TestVersionSurfaceRecoveryPrecedenceGuards(unittest.TestCase):
     lookup, never `_fetch_release_tree`). This class is pure proof, not a guard addition."""
 
     def _avail(self, **over):
+        # `last_success_at` defaults to the SAME moment as `checked_at` — this helper's default shape is a
+        # confirmed, successful check (repair for cold-review finding 1: the two only diverge when the last
+        # attempt failed). Tests exercising the failure state override `last_success_at` explicitly.
         base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
-                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+                "checked_at": "2026-01-01T00:00:00Z", "last_success_at": "2026-01-01T00:00:00Z",
+                "announced": False}
         base.update(over)
         return base
 
@@ -6751,8 +6909,12 @@ class TestVersionSurfaceMatrix(unittest.TestCase):
     every earlier node's tests unnoticed. This class adds no production code; boot.py is untouched."""
 
     def _avail(self, **over):
+        # `last_success_at` defaults to the SAME moment as `checked_at` — this helper's default shape is a
+        # confirmed, successful check (repair for cold-review finding 1: the two only diverge when the last
+        # attempt failed). Tests exercising the failure state override `last_success_at` explicitly.
         base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
-                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+                "checked_at": "2026-01-01T00:00:00Z", "last_success_at": "2026-01-01T00:00:00Z",
+                "announced": False}
         base.update(over)
         return base
 

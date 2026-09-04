@@ -75,6 +75,7 @@ import re
 import stat
 import subprocess
 import sys
+import threading
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -3904,7 +3905,13 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
     # debug `pack` CLI and the read-only status pull, both use_ledger=False, never consume the one-shot
     # announcement on the operator's behalf.
     try:
-        _avail = version_availability()
+        # Repair (StarshipSuperjam/engine-template#743 cold review, finding 4): pass the ALREADY-COMPUTED authoritative home signal
+        # (`s["home_workshop"]`, `first_run_health.detect_home_workshop()`'s result) rather than relying on
+        # `_should_check_availability`'s independent offline re-derivation — the same signal `render_dashboard`
+        # already threads through to this substrate. The re-derivation stays as the fallback it was designed
+        # to be for a genuinely undetermined `home_workshop`, never the primary source when boot has already
+        # resolved it.
+        _avail = version_availability(home_workshop=s.get("home_workshop"))
     except Exception:  # noqa: BLE001 — an availability read must never break SessionStart (fail-open)
         _avail = None
     advisory = _version_advisory_line(_avail, s.get("staged_update"))
@@ -4480,6 +4487,13 @@ import release_source    # noqa: E402  (_resolve_release_ref — the ONE injecta
 # unauthenticated 60/hr budget.
 VERSION_CHECK_INTERVAL_HOURS = 24
 
+# Repair (StarshipSuperjam/engine-template#743 cold review, finding 3): the pulled-view refresh must never block a status pull anywhere near
+# `release_source._resolve_release_ref`'s hardcoded `urlopen(timeout=60)` — a single-digit bound instead, so a
+# slow/dropping network degrades to a fast FAILED attempt (fix 1's honest failure state) rather than a ~60s
+# stall on a status pull. `_resolve_release_ref` accepts no timeout override of its own (checked: its only
+# knobs are `repo`/`token`), so the bound is enforced by boot.py itself via `_bounded_resolve_latest_available_tag`.
+VERSION_CHECK_TIMEOUT_SECONDS = 5.0
+
 # A remote-supplied release tag, defanged: a closed `vX.Y.Z` / `X.Y.Z` shape only (ASCII digits + dots),
 # fullmatch so nothing can ride in before/after (a prompt-fence marker, whitespace, extra path segments). A
 # non-matching tag is dropped at the boundary (never cached, never returned) rather than surfaced — the same
@@ -4576,12 +4590,21 @@ def version_availability(*, home_workshop=None, cwd: str | None = None, path: st
 
     On a usable cache, returns:
         {"installed": <str|None>, "available": <str|None>, "has_newer": bool, "checked_at": <str|None>,
-         "announced": bool}
+         "last_success_at": <str|None>, "announced": bool}
     `available` is the cached tag AFTER defang-validation (requirement 5) — a malformed cached tag reads as
     no-available-version, not a crash. `has_newer` compares `available` against the installed version via
     `validate._ver_tuple` (the tuple comparator this codebase already uses for version-key comparisons); False
     whenever either side is unresolvable. `announced` is whether THIS available version's per-version snooze
-    marker is already set (so a later render node can decide to show the advisory at most once per version)."""
+    marker is already set (so a later render node can decide to show the advisory at most once per version).
+
+    Repair for cold-review finding 1: `checked_at` is the last ATTEMPT (success or failure — see
+    `refresh_version_availability`'s cadence stamp), while `last_success_at` is the last attempt that actually
+    CONFIRMED something (a real resolve, valid tag or not). The two differ exactly when the last attempt
+    failed; a render layer that wants to say "up to date" honestly must check `checked_at == last_success_at`
+    (`_version_status_line` does), never `checked_at` alone — a fresh failure timestamp is not a fresh
+    confirmation. `available`/`has_newer` are read straight off whatever `available_tag` the cache holds
+    regardless of whether the LAST attempt succeeded, so a previously-confirmed newer version is never hidden
+    just because a later check happened to fail."""
     if not _should_check_availability(home_workshop):
         return None
     cache = _read_version_cache(_version_cache_path(cwd, path))
@@ -4596,11 +4619,13 @@ def version_availability(*, home_workshop=None, cwd: str | None = None, path: st
     announced = bool(available and isinstance(cache.get("announced_versions"), dict)
                       and cache["announced_versions"].get(available))
     checked_at = cache.get("checked_at")
+    last_success_at = cache.get("last_success_at")
     return {
         "installed": installed,
         "available": available if has_newer else None,
         "has_newer": has_newer,
         "checked_at": checked_at if isinstance(checked_at, str) else None,
+        "last_success_at": last_success_at if isinstance(last_success_at, str) else None,
         "announced": announced,
     }
 
@@ -4614,6 +4639,42 @@ def _resolve_latest_available_tag(*, repo: str | None = None, token: str | None 
     try:
         return release_source._resolve_release_ref(None, repo=repo, token=token)
     except Exception:  # noqa: BLE001 — network/API failure degrades to "nothing resolved this attempt"
+        return None
+
+
+def _bounded_resolve_latest_available_tag(*, repo: str | None = None, token: str | None = None,
+                                            timeout_seconds: float | None = None) -> str | None:
+    """`_resolve_latest_available_tag`, but never lets the CALLER wait past `timeout_seconds` — repair for
+    cold-review finding 3: `_resolve_release_ref`'s own socket call hardcodes `urlopen(timeout=60)` with no
+    override this module can pass in, so a slow/dropping network could otherwise stall a status pull for close
+    to a minute. Runs the real resolve on a background daemon thread and joins with the bound; a thread still
+    alive past the bound is ABANDONED (Python has no safe cross-thread abort — the socket call may keep
+    blocking in the background until its own 60s timeout fires) and this call returns None immediately, which
+    `refresh_version_availability` then treats as a FAILED attempt — preserving any previously-cached tag
+    rather than fabricating a clean result (fix 1). Fails open on any wrapping error too (thread construction,
+    a stdlib fault) — this seam must never itself raise into or block the boot/pull path.
+
+    `timeout_seconds` defaults to the CURRENT value of the module-level `VERSION_CHECK_TIMEOUT_SECONDS` —
+    read inside the call rather than bound as a function-default at definition time, so a test can patch the
+    module constant directly and see it take effect."""
+    if timeout_seconds is None:
+        timeout_seconds = VERSION_CHECK_TIMEOUT_SECONDS
+    outcome: list = [None]
+
+    def _run() -> None:
+        try:
+            outcome[0] = _resolve_latest_available_tag(repo=repo, token=token)
+        except Exception:  # noqa: BLE001 — defensive; _resolve_latest_available_tag already swallows its own faults
+            outcome[0] = None
+
+    try:
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        worker.join(timeout_seconds)
+        if worker.is_alive():
+            return None  # still running past the bound -> this attempt reads as failed, not successful
+        return outcome[0]
+    except Exception:  # noqa: BLE001 — fail open: never block or raise out of the boot/pull path
         return None
 
 
@@ -4656,17 +4717,32 @@ def refresh_version_availability(*, home_workshop=None, cwd: str | None = None, 
         # SessionStart-adjacent caller; the next cadence window tries again.
         return {"checked": False, "reason": "contended"}
     try:
-        tag = _resolve_latest_available_tag(repo=repo, token=token)
+        tag = _bounded_resolve_latest_available_tag(repo=repo, token=token)
         valid = _valid_version_tag(tag)
         new_cache = dict(cache)
-        new_cache["checked_at"] = now_z  # stamped on EVERY attempt, success or failure (requirement 6)
+        new_cache["checked_at"] = now_z  # the last ATTEMPT, success or failure (requirement 6 — no retry storm)
         if valid:
+            # A SUCCESSFUL resolve: this is the one case allowed to update what's cached and to advance
+            # `last_success_at` — the honest "confirmed" timestamp `_version_status_line` keys off (repair
+            # for cold-review finding 1). A resolve that came back empty/malformed (no published release, a
+            # tag that fails defang validation) is treated the same as a network failure below — neither
+            # case is a CONFIRMED look at the real release state.
             new_cache["available_tag"] = valid
+            new_cache["last_success_at"] = now_z
             announced = new_cache.get("announced_versions")
             if not isinstance(announced, dict):
                 new_cache["announced_versions"] = {}
         else:
-            new_cache["available_tag"] = None
+            # A FAILED (or non-resolving) attempt: deliberately DO NOT overwrite `available_tag` or
+            # `last_success_at` — repair for cold-review finding 1. The prior code unconditionally cleared
+            # `available_tag` to None here, which both erased a previously-known newer version and let
+            # `_version_status_line` misread the fresh `checked_at` stamp as a confirmed "up to date" result.
+            # `setdefault` only fills the key in when there was truly nothing cached before (first-ever
+            # attempt) — an EXISTING value, including a previously-confirmed tag, carries forward untouched.
+            # Only `checked_at` advances, so the cadence gate above still throttles the next attempt (no retry
+            # storm) while `last_success_at` keeps recording the last time this substrate actually confirmed
+            # anything.
+            new_cache.setdefault("available_tag", None)
         _write_version_cache(target, new_cache)
         return {"checked": True, "resolved": valid}
     finally:
@@ -4734,7 +4810,16 @@ def _version_status_line(avail: dict | None) -> str | None:
     without naming WHEN that was last checked, and it says plainly when availability hasn't been checked at
     all (a `None`/empty read — no cache yet, or the very first pull before any refresh has landed) rather than
     silently omitting the line or implying an up-to-date result. Returns `None` only when there is truly
-    nothing honest to say (no installed version could be determined either)."""
+    nothing honest to say (no installed version could be determined either).
+
+    Repair for cold-review finding 1: `checked_at` alone is never enough to claim "up to date" — that is also
+    the stamp a FAILED attempt advances (no-retry-storm cadence). Only when `checked_at` equals
+    `last_success_at` did the last attempt actually confirm the release state; when they differ, the last
+    attempt failed, and the line says so plainly rather than borrowing the fresh failure timestamp as if it
+    were a fresh confirmation — while still surfacing a previously-CONFIRMED newer version rather than hiding
+    it (`available`/`has_newer` themselves are already failure-proof — see `version_availability`'s own
+    docstring). Repair for cold-review finding 2: every timestamp shown is routed through `_relative_moment`
+    (via `moment.epoch`) instead of the raw ISO wire string, so the line reads in words a person uses."""
     avail = avail or {}
     installed = avail.get("installed") or _installed_engine_version()
     if not installed:
@@ -4743,11 +4828,24 @@ def _version_status_line(avail: dict | None) -> str | None:
     if not checked_at:
         return (f"**Engine version:** running `{installed}` — I haven't checked for a newer release yet "
                 f"(availability unknown).")
+    last_success_at = avail.get("last_success_at")
+    confirmed = bool(last_success_at) and last_success_at == checked_at
+    when_checked = _relative_moment(moment.epoch(checked_at))
+    if not confirmed:
+        line = (f"**Engine version:** running `{installed}` — I couldn't reach the release source to check "
+                f"for a newer version (last checked {when_checked}).")
+        if avail.get("has_newer") and avail.get("available"):
+            when_confirmed = (_relative_moment(moment.epoch(last_success_at)) if last_success_at
+                               else "an earlier check")
+            line += (f" As of the last successful check ({when_confirmed}), a newer version "
+                      f"(`{avail['available']}`) was available — say **upgrade my engine** or run "
+                      f"`/engine-upgrade` whenever you're ready.")
+        return line
     if avail.get("has_newer") and avail.get("available"):
         return (f"**Engine version:** running `{installed}` — a newer version (`{avail['available']}`) is "
-                f"available (last checked {checked_at}). Say **upgrade my engine** or run `/engine-upgrade` "
+                f"available (last checked {when_checked}). Say **upgrade my engine** or run `/engine-upgrade` "
                 f"whenever you're ready.")
-    return f"**Engine version:** running `{installed}`, up to date as of {checked_at}."
+    return f"**Engine version:** running `{installed}`, up to date as of {when_checked}."
 
 
 # ---- the hook handler + CLI -----------------------------------------------------------------
