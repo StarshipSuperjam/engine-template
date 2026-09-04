@@ -599,18 +599,18 @@ def revalidate_context(context: ExecutionContext) -> ExecutionContext:
     """Match a decoded context to the live canonical namespace before authorizing it in this module.
 
     Total for the I/O read-fault class, fail-loud for everything else. The individual checks raise their
-    own precise ContextError subclasses (ActivationStale, StoreIdentityStale, ArtifactUnreadable, ...);
-    this wrapper backstops any UNWRAPPED filesystem read anywhere in the matched body — a stat/open on the
-    project root, the Git common directory, the store identity, or a health file that fails under ordinary
-    drift. The confirmed case is a bare OSError from _path_identity's os.stat (execution_context reads the
-    root and Git common directory there); another is _read_identity, which caught only FileNotFoundError.
-    Any such OSError becomes a typed ArtifactUnreadable, so the ContextError-only handlers do their job —
-    reads degrade and answer, writes refuse cleanly (mutation_authority._stale_refusal), a fresh session
-    retries the read. A NON-OSError from the body (a KeyError/AttributeError/TypeError from a logic bug in
-    revalidation itself, a genuine corruption) is deliberately NOT caught: it propagates and surfaces
-    rather than being masked as a benign 'restart' refusal, because a silently-malfunctioning write-
-    authority check is more dangerous than a visible crash. This scope is the reviewed decision (the plan's
-    W2 'an unrelated in-body exception still propagates' bound); masked-crash observability stays PI-5."""
+    own precise ContextError subclasses (ActivationStale, StoreIdentityStale, ArtifactUnreadable, ...), and
+    most reads in the matched body already type their own OSError before returning (_read_identity catches
+    (OSError, ValueError); the pointer/meta/snapshot readers likewise). The one genuinely UNWRAPPED read is
+    _path_identity's os.stat on the project root and the Git common directory, which under ordinary drift
+    raises a bare OSError. This wrapper backstops that gap: an OSError reaching it becomes a typed
+    ArtifactUnreadable, so the ContextError-only handlers do their job — reads degrade and answer, writes
+    refuse cleanly (mutation_authority._stale_refusal), a fresh session retries the read. A NON-OSError from
+    the body (a KeyError/AttributeError/TypeError from a logic bug in revalidation itself, a genuine
+    corruption) is deliberately NOT caught: it propagates and surfaces rather than being masked as a benign
+    'restart' refusal, because a silently-malfunctioning write-authority check is more dangerous than a
+    visible crash. This scope is the reviewed decision (the W2 'an unrelated in-body exception still
+    propagates' bound)."""
     if not isinstance(context, ExecutionContext):
         raise ContextError("execution context has an unsupported runtime type")
     try:
