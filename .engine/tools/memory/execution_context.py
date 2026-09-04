@@ -598,23 +598,30 @@ def _is_authorized_context(context: ExecutionContext) -> bool:
 def revalidate_context(context: ExecutionContext) -> ExecutionContext:
     """Match a decoded context to the live canonical namespace before authorizing it in this module.
 
-    Total by contract: every failure to complete revalidation leaves as a typed ContextError, never a bare
-    OSError or other exception. The individual checks raise their own precise ContextError subclasses
-    (ActivationStale, StoreIdentityStale, ArtifactUnreadable, ...); this wrapper is the backstop for any
-    unwrapped read — a stat/open on the project root, the Git common directory, the store identity or a
-    health file that fails under ordinary drift. Before it, such a raw exception (the confirmed case: a
-    bare OSError from _path_identity's os.stat) escaped untyped and crashed every memory read and write
-    that revalidates. Typed, it is caught by the ContextError-only handlers: reads degrade and answer,
-    writes refuse cleanly (mutation_authority._stale_refusal), and a fresh session restores writing."""
+    Total for the I/O read-fault class, fail-loud for everything else. The individual checks raise their
+    own precise ContextError subclasses (ActivationStale, StoreIdentityStale, ArtifactUnreadable, ...);
+    this wrapper backstops any UNWRAPPED filesystem read anywhere in the matched body — a stat/open on the
+    project root, the Git common directory, the store identity, or a health file that fails under ordinary
+    drift. The confirmed case is a bare OSError from _path_identity's os.stat (execution_context reads the
+    root and Git common directory there); another is _read_identity, which caught only FileNotFoundError.
+    Any such OSError becomes a typed ArtifactUnreadable, so the ContextError-only handlers do their job —
+    reads degrade and answer, writes refuse cleanly (mutation_authority._stale_refusal), a fresh session
+    retries the read. A NON-OSError from the body (a KeyError/AttributeError/TypeError from a logic bug in
+    revalidation itself, a genuine corruption) is deliberately NOT caught: it propagates and surfaces
+    rather than being masked as a benign 'restart' refusal, because a silently-malfunctioning write-
+    authority check is more dangerous than a visible crash. This scope is the reviewed decision (the plan's
+    W2 'an unrelated in-body exception still propagates' bound); masked-crash observability stays PI-5."""
     if not isinstance(context, ExecutionContext):
         raise ContextError("execution context has an unsupported runtime type")
     try:
         return _revalidate_matched(context)
     except ContextError:
         raise
-    except Exception as exc:  # noqa: BLE001 — deliberately total: type ANY unwrapped read failure so the
-        # ContextError-only handlers catch it (reads degrade, writes refuse) rather than a crash escaping.
-        raise ContextError("execution context could not be revalidated against the store") from exc
+    except OSError as exc:
+        # A filesystem read anywhere in the matched body failed under drift. Type it (rather than let the
+        # raw OSError escape untyped and crash every read/write that revalidates) as the precise store-on-
+        # disk class, so it keeps the ArtifactUnreadable refusal/caveat semantics the module maintains.
+        raise ArtifactUnreadable("a store path could not be read during context revalidation") from exc
 
 
 def _revalidate_matched(context: ExecutionContext) -> ExecutionContext:

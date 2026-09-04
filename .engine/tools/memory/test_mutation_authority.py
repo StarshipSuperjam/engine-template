@@ -729,20 +729,26 @@ class RevalidationTaxonomyTests(unittest.TestCase):
         with self.assertRaises(execution_context.AcceptedTreeStale):
             execution_context.revalidate_context(self.fixture.context)
 
-    def test_unstattable_root_is_typed_context_error_not_raw_oserror(self):
+    def test_unstattable_root_is_typed_artifact_unreadable_not_raw_oserror(self):
         # The residual crash #1199 missed: revalidate_context reads the project root and Git common
         # directory through _path_identity -> os.stat, which was UNWRAPPED. Under drift either can fail to
         # stat (moved/replaced/permission), and the bare OSError escaped revalidate_context untyped —
         # crashing every memory read and write that revalidates rather than being caught by the
-        # ContextError-only handlers (reads degrade, writes refuse). revalidate_context's total wrapper now
-        # types it as a ContextError so those handlers do their job.
+        # ContextError-only handlers (reads degrade, writes refuse). revalidate_context now types any
+        # OSError from the matched body as ArtifactUnreadable (a ContextError) so those handlers do their
+        # job and it reads as the store-on-disk problem it is.
         with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
-            with self.assertRaises(execution_context.ContextError):
+            with self.assertRaises(execution_context.ArtifactUnreadable):
                 execution_context.revalidate_context(self.fixture.context)
-        # Total by contract: ANY unexpected non-ContextError from a revalidation read is typed, not only
-        # OSError — so a future unwrapped read cannot reintroduce the untyped-escape crash.
+
+    def test_unrelated_in_body_exception_propagates_rather_than_masking(self):
+        # The backstop is deliberately NOT total: it types the I/O read-fault class (OSError) but lets a
+        # genuine logic bug or corruption inside revalidation (a non-OSError) PROPAGATE and surface, rather
+        # than mask it as a benign "restart" refusal. A silently-malfunctioning write-authority trust root
+        # is more dangerous than a visible crash. This pins the plan's W2 "unrelated in-body exception still
+        # propagates" bound so a future refactor cannot quietly widen the catch back to `except Exception`.
         with mock.patch.object(execution_context, "_path_identity", side_effect=ValueError("boom")):
-            with self.assertRaises(execution_context.ContextError):
+            with self.assertRaises(ValueError):
                 execution_context.revalidate_context(self.fixture.context)
 
     def test_store_identity_change_is_typed_store_identity_stale(self):
