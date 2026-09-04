@@ -9253,6 +9253,7 @@
           "tool:ledger_health",
           "tool:license_health",
           "tool:modes",
+          "tool:module_coherence",
           "tool:module_manager",
           "tool:moment",
           "tool:mutation_authority",
@@ -9262,6 +9263,7 @@
           "tool:protection_guard",
           "tool:providers",
           "tool:recall",
+          "tool:release_source",
           "tool:repo_identity",
           "tool:restore_vault",
           "tool:session_relay",
@@ -9276,7 +9278,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:8d5ab626f83c972b59cf69624367dc425b136deb04df71120ab26f3f9a2c1a44",
+        "fingerprint": "sha256:e6534c04cf4b57d8b34ed751322128a306989ed53340506eff2d0661e1e8d826",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -13552,7 +13554,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:06eb2439b3382de2f1c57e50143536060d8deec20f3c075364766526a52a88f1",
+        "fingerprint": "sha256:9e5991cfacf7e2145f640118e6c604683f9a5806067130cf72bb49c3091e6b50",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -15804,6 +15806,7 @@
           "tool:knowledge_index",
           "tool:modes",
           "tool:module_coherence",
+          "tool:module_manager",
           "tool:repo_identity",
           "tool:restore_vault",
           "tool:validate"
@@ -15811,7 +15814,7 @@
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:d62b0a40d14a6706793cc71a8a96cbc591b189b7932c618f454599ffa5b01499",
+        "fingerprint": "sha256:f83e8a64693e53be567b62035a6e0bd53ed6f89bfe0981983ffc5b4921197ddf",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",

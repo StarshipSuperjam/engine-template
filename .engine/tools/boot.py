@@ -75,6 +75,7 @@ import re
 import stat
 import subprocess
 import sys
+import threading
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -2685,6 +2686,39 @@ def render_dashboard(s: dict) -> str:
             # The assistant carries the real path via the AI grounding overlay; the operator dashboard never does.
             if mechanic and mechanic.get("state") == "resolved":
                 out.append("_Your local checkout of it is set — that's where I'll build._")
+
+        # Build StarshipSuperjam/engine-template#743, node `status-disclosure`: the quiet installed-vs-available engine version line. Rendered
+        # UNCONDITIONALLY here — deliberately OUTSIDE the `if product_label:` block above (a cold-review
+        # finding: nesting it there made the line vanish for a self-building deployment, or any deployment
+        # with no product label recorded, even though this repo's own version is still worth knowing). Silent
+        # in the engine's own home repo (`home_workshop`) — home publishes releases, it doesn't consume them.
+        # This is the sanctioned OFF-grounding-path REFRESH trigger (requirement: liveness) — `render_dashboard`
+        # only runs on an explicit pulled status view (`engine_status.render`), never on the cold-boot/
+        # SessionStart path (`assemble_pack` never calls this function), so a network attempt here cannot slow
+        # or break grounding. `refresh_version_availability` enforces its own cadence/lock, so a rapid re-pull
+        # is a cache hit, not a repeated network call; a raise here is swallowed (fail-open) so a transient
+        # network failure degrades to "rendered from whatever the cache already holds", never a broken card.
+        if not s.get("home_workshop"):
+            # `ambient_qualification_suppressed()` is the existing test-safety switch for exactly this shape of
+            # concern (an ambient network probe a test run must never make for real — see its own docstring);
+            # the harness sets it for the whole test module. Without this second gate, every one of this
+            # module's many `render_dashboard(_signals(...))` call sites — most written before this node
+            # existed, none mocking these two functions — would attempt a live network resolve through
+            # whatever `_should_check_availability` derives for the ambient checkout, which is exactly the
+            # kind of non-hermetic, potentially 60s-blocking test behavior that flag exists to prevent.
+            if not ambient_qualification_suppressed():
+                try:
+                    refresh_version_availability()
+                except Exception:  # noqa: BLE001 — a refresh failure must never break the dashboard (fail-open)
+                    pass
+            try:
+                _pull_avail = version_availability()
+            except Exception:  # noqa: BLE001 — likewise the read itself must never break the dashboard
+                _pull_avail = None
+            _version_line = _version_status_line(_pull_avail)
+            if _version_line:
+                out.append(_version_line)
+
         out.append(f"**What merged last:** {phase}")
         out.append(_milestone_line(source.get("milestone")))
         if live is None:
@@ -3860,6 +3894,36 @@ def assemble_pack(session_id: str | None = None, *, use_ledger: bool = False, pa
                "The typed write-gate contract is in the envelope above.)")
     out.append("")
 
+    # Build StarshipSuperjam/engine-template#743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice.
+    # CACHE-ONLY (requirement 4) — `version_availability()` is the boot-path read; it makes no network call.
+    # A SEPARATE briefing line (requirement 1), never a branch of `present_marker_line` (rendered above,
+    # unchanged), and never a task/binding/receipt/alarm (requirement 3) — appended here in the never-shed
+    # governance block, alongside the receipt, never inside it. `_version_advisory_line` itself withholds the
+    # line while a staged/half-finished update is pending (requirement 5), so it never competes with that
+    # recovery offer. The per-version snooze (requirement 2) is only ADVANCED on the real SessionStart path
+    # (`use_ledger`) — matching the other use_ledger-gated side effects above (refused-cursor finding) — so the
+    # debug `pack` CLI and the read-only status pull, both use_ledger=False, never consume the one-shot
+    # announcement on the operator's behalf.
+    try:
+        # Repair (StarshipSuperjam/engine-template#743 cold review, finding 4): pass the ALREADY-COMPUTED authoritative home signal
+        # (`s["home_workshop"]`, `first_run_health.detect_home_workshop()`'s result) rather than relying on
+        # `_should_check_availability`'s independent offline re-derivation — the same signal `render_dashboard`
+        # already threads through to this substrate. The re-derivation stays as the fallback it was designed
+        # to be for a genuinely undetermined `home_workshop`, never the primary source when boot has already
+        # resolved it.
+        _avail = version_availability(home_workshop=s.get("home_workshop"))
+    except Exception:  # noqa: BLE001 — an availability read must never break SessionStart (fail-open)
+        _avail = None
+    advisory = _version_advisory_line(_avail, s.get("staged_update"))
+    if advisory:
+        out.append(advisory)
+        out.append("")
+        if use_ledger:
+            try:
+                mark_version_announced(_avail["available"])
+            except Exception:  # noqa: BLE001 — the snooze write is best-effort; never break SessionStart
+                pass
+
     # The home-workshop grounding (StarshipSuperjam/engine-template#323), AI-facing, in Tier 0 so it is never shed. Fires ONLY in the engine's
     # own home repo (origin == recorded home); a deployed project never sees it. It carries the operative
     # development discipline inline — not merely a pointer — so a home session grounds on it even before opening
@@ -4365,6 +4429,440 @@ def superset_check() -> "tuple[bool, frozenset]":
     pure check over the two ledger-derived sets above; called by the ledger completeness test."""
     missing = _NEVER_SHED_TODAY - _NEVER_SHED_V1
     return (not missing), missing
+
+
+# ---- AVAILABILITY-SUBSTRATE NODE (availability-substrate): version-availability knowledge + cache --------
+#
+# Build StarshipSuperjam/engine-template#743 (quiet deployed-version availability advisories), first leaf. THIS NODE IS DATA ONLY: it builds
+# the knowledge + cross-session cache a later node renders (an advisory line, a dashboard version line). It
+# renders nothing itself and is not wired into `assemble_pack`.
+#
+# Three cold-review findings this section exists to satisfy, exactly:
+#   1. NEVER `module_manager.plan_upgrade` at boot. It only short-circuits when already current; on a newer
+#      version it falls through to `_fetch_release_tree` — a tarball DOWNLOAD. Instead this resolves the
+#      latest tag via `release_source._resolve_release_ref` (a ref lookup, no download) and reads the
+#      installed version from `engine.json` via `module_coherence.load_engine_manifest()["engine_release"]`.
+#   2. CACHE-ONLY AT BOOT. The boot/grounding read (`version_availability`) touches only the local cache —
+#      no synchronous network call on the critical path. The one network call
+#      (`_resolve_latest_available_tag`, wrapping `_resolve_release_ref`'s `urlopen(timeout=60)`) is reached
+#      ONLY from `refresh_version_availability`, an explicit OFF-boot-path refresh (e.g. the pulled
+#      full-status path), never from `version_availability` itself.
+#   3. CROSS-SESSION CACHE under `.engine/boot/.cache/`, the EXACT pattern `boot_alarm_ledger.py` establishes:
+#      git-common-root resolution (`boot_alarm_ledger.ledger_dir`, ENV_DIR-overridable, so this shares that
+#      ledger's directory rather than re-deriving it), atomic replace-on-write, and a non-blocking exclusive
+#      lock around the read-modify-write (`boot_alarm_ledger._acquire`/`_release`, reused rather than
+#      re-implemented — one lock primitive, not two). The file itself is a DISTINCT filename with its own
+#      schema (not a shared key in the alarm ledger — a different lifecycle, a different writer cadence).
+#      `.engine/boot/.cache/` is already gitignored (the `core-boot-presentation-ledger` block in `.gitignore`
+#      covers the whole directory, not just the alarm ledger's own filename), so this new file needs no
+#      separate ignore entry.
+#   4. HOME-GATED, the CHECK itself (not just display). `detect_home_workshop` is strict-positive: it returns
+#      a dict ONLY on a confirmed origin==home match, and None both for a genuinely deployed project AND for
+#      an unresolvable identity — the same None either way. Gating a "should I check" decision on bare
+#      truthiness of that value would let a genuinely-undetermined identity read as "must be deployed" and
+#      check anyway, which is the wrong fail direction for a substrate that starts making network calls.
+#      `_should_check_availability` therefore independently re-derives a CONFIRMED-deployed verdict for the
+#      None case, using boot's own already-offline `repo_slug()` (this checkout's origin) against
+#      `module_coherence.home_repository()` (the recorded home) via `module_coherence.is_downstream_copy` —
+#      the same strict-positive primitive `detect_home_workshop` itself is built on. Any part of that re-
+#      derivation that fails to resolve (no origin, no recorded home, a malformed manifest) closes the gate:
+#      undetermined identity stays silent, exactly like the home case, never defaulting open.
+#   5. DEFANGED/VALIDATED. The tag is remote-supplied (a GitHub release name). `_STRICT_VERSION_TAG` is a
+#      closed `vX.Y.Z` / `X.Y.Z` pattern (`re.fullmatch`, ASCII digits and dots only); anything else — a
+#      prompt-fence marker, injected instruction text, a tag with extra segments — is dropped before it ever
+#      becomes cached or returned state, mirroring `validate.defang_prompt_fence_markers`'s job for the same
+#      remote-supplied-text class (boot.py's dashboard render, elsewhere in this file).
+#   6. BOUNDED CADENCE + FAILURE HANDLING. `VERSION_CHECK_INTERVAL_HOURS` (24h, mirroring
+#      `backup_vault.BACKUP_INTERVAL_HOURS`'s recorded ~24h build-spec leaf) throttles `refresh_...`: a cache
+#      hit inside the window never re-resolves. `checked_at` is stamped on every refresh attempt, including a
+#      FAILED one (network error, malformed response, `_NoPublishedRelease`) — an outage degrades to "nothing
+#      newer known" for the rest of the window rather than a per-boot retry storm. Well under the
+#      unauthenticated GitHub budget (60/hr): at most once per 24h is ~0.04/hr.
+
+import module_coherence  # noqa: E402  (load_engine_manifest / home_repository / is_downstream_copy — the identity + manifest primitives this node reads)
+import release_source    # noqa: E402  (_resolve_release_ref — the ONE injectable ref-resolution network boundary; never _fetch_release_tree)
+
+# Build-spec leaf (recorded, this node): how often `refresh_version_availability` may re-resolve. Mirrors
+# `memory.backup_vault.BACKUP_INTERVAL_HOURS`'s recorded ~24h choice; comfortably under GitHub's
+# unauthenticated 60/hr budget.
+VERSION_CHECK_INTERVAL_HOURS = 24
+
+# Repair (StarshipSuperjam/engine-template#743 cold review, finding 3): the pulled-view refresh must never block a status pull anywhere near
+# `release_source._resolve_release_ref`'s hardcoded `urlopen(timeout=60)` — a single-digit bound instead, so a
+# slow/dropping network degrades to a fast FAILED attempt (fix 1's honest failure state) rather than a ~60s
+# stall on a status pull. `_resolve_release_ref` accepts no timeout override of its own (checked: its only
+# knobs are `repo`/`token`), so the bound is enforced by boot.py itself via `_bounded_resolve_latest_available_tag`.
+VERSION_CHECK_TIMEOUT_SECONDS = 5.0
+
+# A remote-supplied release tag, defanged: a closed `vX.Y.Z` / `X.Y.Z` shape only (ASCII digits + dots),
+# fullmatch so nothing can ride in before/after (a prompt-fence marker, whitespace, extra path segments). A
+# non-matching tag is dropped at the boundary (never cached, never returned) rather than surfaced — the same
+# posture `validate.defang_prompt_fence_markers` takes for remote-supplied text elsewhere in this file.
+_STRICT_VERSION_TAG = re.compile(r"^v?\d+\.\d+\.\d+$")
+
+_VERSION_CACHE_FILENAME = "version-availability.json"
+
+
+def _version_cache_path(cwd: str | None = None, path: str | None = None) -> str:
+    """The cache file's full path: an explicit `path` wins (tests); else `boot_alarm_ledger`'s own resolved
+    cache DIRECTORY (git-common-root / ENV_DIR override — reused, not re-derived) with this node's own
+    filename. Shares the directory with the alarm ledger; owns a distinct file so the two writers' schemas
+    and cadences never collide."""
+    if path:
+        return path
+    return os.path.join(boot_alarm_ledger.ledger_dir(cwd), _VERSION_CACHE_FILENAME)
+
+
+def _read_version_cache(path: str) -> dict | None:
+    """The raw cache dict, or None on absent/unreadable/malformed — never raises."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — absent / unreadable / malformed -> None (treated as "nothing cached")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_version_cache(path: str, data: dict) -> bool:
+    """Atomically write the cache — temp file in the same directory, then `os.replace`. Never raises; a
+    failed write degrades to 'no cache next time', never a crash on this best-effort local write."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, separators=(",", ":"), sort_keys=True)
+        os.replace(tmp, path)
+        return True
+    except Exception:  # noqa: BLE001 — degrade to no cache, never a crash
+        return False
+
+
+def _installed_engine_version() -> str | None:
+    """This checkout's own installed engine version, read from the committed `engine.json` manifest (the
+    `engine_release` field) via `module_coherence.load_engine_manifest()`. None on any read failure or an
+    absent/malformed manifest — never raises to a boot-path caller."""
+    try:
+        manifest = module_coherence.load_engine_manifest()
+        version = (manifest or {}).get("engine_release")
+        return version if isinstance(version, str) and version.strip() else None
+    except Exception:  # noqa: BLE001 — a malformed manifest degrades this one signal, never the caller
+        return None
+
+
+def _valid_version_tag(tag) -> str | None:
+    """`tag` if it is a well-formed `vX.Y.Z`/`X.Y.Z` release tag, else None (dropped, never surfaced) — the
+    defang boundary for this remote-supplied value (requirement 5)."""
+    return tag if isinstance(tag, str) and _STRICT_VERSION_TAG.fullmatch(tag) else None
+
+
+def _should_check_availability(home_workshop) -> bool:
+    """The home gate on the CHECK itself (requirement 4), not merely its display. `home_workshop` is the same
+    value boot's own `s["home_workshop"]` carries (`first_run_health.detect_home_workshop()`'s result):
+      - truthy (a confirmed home-workshop dict) -> gate CLOSED. This is the engine's own home; it publishes
+        releases and has no reason to check itself for a newer one.
+      - falsy (None) -> `detect_home_workshop` collapses "confirmed deployed" and "identity unresolvable" to
+        the same None, so re-derive a CONFIRMED-deployed verdict independently here, offline, using the same
+        strict-positive primitive `detect_home_workshop` is itself built on
+        (`module_coherence.is_downstream_copy`) — but fed THIS function's own origin/home reads rather than
+        `first_run_health`'s cwd-scoped ones, since this node touches only `boot.py`. Gate OPEN only on a
+        confirmed mismatch (own resolved, home resolved, and they differ); any resolution failure (no origin,
+        no recorded home, a malformed manifest) closes the gate — undetermined identity stays silent, the
+        same conservative direction as the confirmed-home case, never defaulting open."""
+    if home_workshop:
+        return False
+    try:
+        own = repo_slug()
+        if not own:
+            return False
+        home = module_coherence.home_repository()
+        if not home:
+            return False
+        return module_coherence.is_downstream_copy(own, home)
+    except Exception:  # noqa: BLE001 — any identity-read failure closes the gate (undetermined -> silent)
+        return False
+
+
+def version_availability(*, home_workshop=None, cwd: str | None = None, path: str | None = None) -> dict | None:
+    """THE BOOT-PATH READ. CACHE-ONLY — makes no network call, ever (requirement 2); returns whatever the
+    cross-session cache already holds, or None. Returns None when: the home gate is closed (requirement 4 —
+    in the home repo, or identity is undetermined), the cache is absent/unreadable, or the cache holds no
+    usable data (nothing checked yet).
+
+    On a usable cache, returns:
+        {"installed": <str|None>, "available": <str|None>, "has_newer": bool, "checked_at": <str|None>,
+         "last_success_at": <str|None>, "announced": bool}
+    `available` is the cached tag AFTER defang-validation (requirement 5) — a malformed cached tag reads as
+    no-available-version, not a crash. `has_newer` compares `available` against the installed version via
+    `validate._ver_tuple` (the tuple comparator this codebase already uses for version-key comparisons); False
+    whenever either side is unresolvable. `announced` is whether THIS available version's per-version snooze
+    marker is already set (so a later render node can decide to show the advisory at most once per version).
+
+    Repair for cold-review finding 1: `checked_at` is the last ATTEMPT (success or failure — see
+    `refresh_version_availability`'s cadence stamp), while `last_success_at` is the last attempt that actually
+    CONFIRMED something (a real resolve, valid tag or not). The two differ exactly when the last attempt
+    failed; a render layer that wants to say "up to date" honestly must check `checked_at == last_success_at`
+    (`_version_status_line` does), never `checked_at` alone — a fresh failure timestamp is not a fresh
+    confirmation. `available`/`has_newer` are read straight off whatever `available_tag` the cache holds
+    regardless of whether the LAST attempt succeeded, so a previously-confirmed newer version is never hidden
+    just because a later check happened to fail."""
+    if not _should_check_availability(home_workshop):
+        return None
+    cache = _read_version_cache(_version_cache_path(cwd, path))
+    if not cache:
+        return None
+    installed = _installed_engine_version()
+    available = _valid_version_tag(cache.get("available_tag"))
+    has_newer = bool(
+        installed and available
+        and validate._ver_tuple(available) > validate._ver_tuple(installed)
+    )
+    announced = bool(available and isinstance(cache.get("announced_versions"), dict)
+                      and cache["announced_versions"].get(available))
+    checked_at = cache.get("checked_at")
+    last_success_at = cache.get("last_success_at")
+    # US-R3 (forward-compatibility belt): a row that carries a result — an `available_tag` AND a `checked_at`
+    # — but no `last_success_at` plainly reflects a genuine past resolve, so treat it as confirmed rather than
+    # letting `_version_status_line` report it as a failed check. This cannot arise from this substrate's own
+    # writer (which always pairs the two); it only guards against a future schema change reintroducing the
+    # exact dishonest-status class finding 1 fixed, from the opposite direction (a real success read as a
+    # failure) on an un-backfilled legacy row.
+    if not last_success_at and isinstance(checked_at, str) and cache.get("available_tag"):
+        last_success_at = checked_at
+    return {
+        "installed": installed,
+        "available": available if has_newer else None,
+        "has_newer": has_newer,
+        "checked_at": checked_at if isinstance(checked_at, str) else None,
+        "last_success_at": last_success_at if isinstance(last_success_at, str) else None,
+        "announced": announced,
+    }
+
+
+def _resolve_latest_available_tag(*, repo: str | None = None, token: str | None = None) -> str | None:
+    """THE ONE NETWORK CALL this substrate makes — a ref LOOKUP, never a download. Delegates to
+    `release_source._resolve_release_ref(None, ...)`, which resolves `None`/"latest" via the GitHub releases
+    API (`urlopen(timeout=60)`) and returns a tag, never a tarball fetch (`_fetch_release_tree` is not
+    reachable from this path — requirement 1). None on any failure (no repo, no published release, a
+    transport error) — never raises to the refresh caller, which must still stamp `checked_at`."""
+    try:
+        return release_source._resolve_release_ref(None, repo=repo, token=token)
+    except Exception:  # noqa: BLE001 — network/API failure degrades to "nothing resolved this attempt"
+        return None
+
+
+def _bounded_resolve_latest_available_tag(*, repo: str | None = None, token: str | None = None,
+                                            timeout_seconds: float | None = None) -> str | None:
+    """`_resolve_latest_available_tag`, but never lets the CALLER wait past `timeout_seconds` — repair for
+    cold-review finding 3: `_resolve_release_ref`'s own socket call hardcodes `urlopen(timeout=60)` with no
+    override this module can pass in, so a slow/dropping network could otherwise stall a status pull for close
+    to a minute. Runs the real resolve on a background daemon thread and joins with the bound; a thread still
+    alive past the bound is ABANDONED (Python has no safe cross-thread abort — the socket call may keep
+    blocking in the background until its own 60s timeout fires) and this call returns None immediately, which
+    `refresh_version_availability` then treats as a FAILED attempt — preserving any previously-cached tag
+    rather than fabricating a clean result (fix 1). Fails open on any wrapping error too (thread construction,
+    a stdlib fault) — this seam must never itself raise into or block the boot/pull path.
+
+    `timeout_seconds` defaults to the CURRENT value of the module-level `VERSION_CHECK_TIMEOUT_SECONDS` —
+    read inside the call rather than bound as a function-default at definition time, so a test can patch the
+    module constant directly and see it take effect."""
+    if timeout_seconds is None:
+        timeout_seconds = VERSION_CHECK_TIMEOUT_SECONDS
+    outcome: list = [None]
+
+    def _run() -> None:
+        try:
+            outcome[0] = _resolve_latest_available_tag(repo=repo, token=token)
+        except Exception:  # noqa: BLE001 — defensive; _resolve_latest_available_tag already swallows its own faults
+            outcome[0] = None
+
+    try:
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        worker.join(timeout_seconds)
+        if worker.is_alive():
+            return None  # still running past the bound -> this attempt reads as failed, not successful
+        return outcome[0]
+    except Exception:  # noqa: BLE001 — fail open: never block or raise out of the boot/pull path
+        return None
+
+
+def refresh_version_availability(*, home_workshop=None, cwd: str | None = None, path: str | None = None,
+                                  force: bool = False, now: str | None = None, repo: str | None = None,
+                                  token: str | None = None) -> dict:
+    """THE OFF-BOOT-PATH REFRESH (requirement 2 — never called from the boot/grounding read itself; a caller
+    such as the pulled full-status path reaches this explicitly). Home-gated the same as the boot read
+    (requirement 4) — a closed gate is a no-op that touches neither the network nor the cache and returns
+    `{"checked": False, "reason": "gated"}`.
+
+    CADENCE (requirement 6): within `VERSION_CHECK_INTERVAL_HOURS` of the cache's `checked_at`, this is a
+    no-op cache hit — no network call — unless `force`. Outside the window (or on a missing/malformed cache,
+    or `force`), it resolves the latest tag over the network via `_resolve_latest_available_tag` and rewrites
+    the cache. `checked_at` is stamped on every attempt that reaches this far — including a FAILED resolve —
+    so an outage degrades to a stale-but-not-retried cache for the rest of the window, never a per-boot retry
+    loop. Elapsed time is computed via `moment.epoch()` (tolerant on the way in, per moment's own law) rather
+    than a hand-rolled ISO parse; an UNPARSEABLE prior stamp reads as stale (-> resolve below), matching
+    `backup_vault._should_push`'s 'a corrupt stamp never sticks the throttle off' direction. `now` is an
+    injectable trailing-Z wire moment (tests); real callers omit it (`moment.utc_now()`, the wall clock).
+
+    Returns `{"checked": bool, "resolved": <tag|None>}` — `checked` is False for a throttled-within-window
+    no-op (no network reached) or a closed gate, True whenever a resolve attempt was made (successful or
+    not)."""
+    if not _should_check_availability(home_workshop):
+        return {"checked": False, "reason": "gated"}
+    target = _version_cache_path(cwd, path)
+    cache = _read_version_cache(target) or {}
+    now_z = now or moment.utc_now()
+    if not force:
+        prior_epoch = moment.epoch(cache.get("checked_at"))
+        now_epoch = moment.epoch(now_z)
+        if prior_epoch is not None and now_epoch is not None:
+            elapsed_hours = (now_epoch - prior_epoch) / 3600.0
+            if 0 <= elapsed_hours < VERSION_CHECK_INTERVAL_HOURS:
+                return {"checked": False, "resolved": _valid_version_tag(cache.get("available_tag"))}
+    fd = boot_alarm_ledger._acquire(target + ".lock")
+    if fd is None:
+        # Contention: another writer holds the lock this instant. Skip this attempt rather than block a
+        # SessionStart-adjacent caller; the next cadence window tries again.
+        return {"checked": False, "reason": "contended"}
+    try:
+        tag = _bounded_resolve_latest_available_tag(repo=repo, token=token)
+        valid = _valid_version_tag(tag)
+        new_cache = dict(cache)
+        new_cache["checked_at"] = now_z  # the last ATTEMPT, success or failure (requirement 6 — no retry storm)
+        if valid:
+            # A SUCCESSFUL resolve: this is the one case allowed to update what's cached and to advance
+            # `last_success_at` — the honest "confirmed" timestamp `_version_status_line` keys off (repair
+            # for cold-review finding 1). A resolve that came back empty/malformed (no published release, a
+            # tag that fails defang validation) is treated the same as a network failure below — neither
+            # case is a CONFIRMED look at the real release state.
+            new_cache["available_tag"] = valid
+            new_cache["last_success_at"] = now_z
+            announced = new_cache.get("announced_versions")
+            if not isinstance(announced, dict):
+                new_cache["announced_versions"] = {}
+        else:
+            # A FAILED (or non-resolving) attempt: deliberately DO NOT overwrite `available_tag` or
+            # `last_success_at` — repair for cold-review finding 1. The prior code unconditionally cleared
+            # `available_tag` to None here, which both erased a previously-known newer version and let
+            # `_version_status_line` misread the fresh `checked_at` stamp as a confirmed "up to date" result.
+            # `setdefault` only fills the key in when there was truly nothing cached before (first-ever
+            # attempt) — an EXISTING value, including a previously-confirmed tag, carries forward untouched.
+            # Only `checked_at` advances, so the cadence gate above still throttles the next attempt (no retry
+            # storm) while `last_success_at` keeps recording the last time this substrate actually confirmed
+            # anything.
+            new_cache.setdefault("available_tag", None)
+        _write_version_cache(target, new_cache)
+        return {"checked": True, "resolved": valid}
+    finally:
+        boot_alarm_ledger._release(fd)
+
+
+def mark_version_announced(tag: str, *, cwd: str | None = None, path: str | None = None) -> bool:
+    """Record the per-version announcement snooze marker for `tag` — a later render node's 'shown once per
+    version' bookkeeping. Read-modify-write under the same lock; refuses a tag that fails the strict pattern
+    (requirement 5) so a malformed value can never enter the cache through this path either. Returns whether
+    the write happened; never raises."""
+    valid = _valid_version_tag(tag)
+    if not valid:
+        return False
+    target = _version_cache_path(cwd, path)
+    fd = boot_alarm_ledger._acquire(target + ".lock")
+    if fd is None:
+        return False
+    try:
+        cache = _read_version_cache(target) or {}
+        announced = cache.get("announced_versions")
+        if not isinstance(announced, dict):
+            announced = {}
+        announced[valid] = True
+        cache["announced_versions"] = announced
+        return _write_version_cache(target, cache)
+    finally:
+        boot_alarm_ledger._release(fd)
+
+
+def _version_advisory_line(avail: dict | None, staged_update) -> str | None:
+    """Build StarshipSuperjam/engine-template#743, node `advisory-relay`: the quiet, once-per-version deployed-version availability notice for
+    the assembled pack. A pure renderer over the substrate's own cache-only read (`version_availability`) — it
+    makes no network call and consumes no other boot state. Returns `None` (nothing to show) when: there is no
+    usable availability data, no newer version is available, this available version was already announced
+    (the per-version snooze — requirement 2, keyed on the version string, never `checked_at`), or a
+    staged/half-finished update is pending (requirement 5 — the advisory must never compete with that
+    recovery offer, which `present_marker_line` already renders at higher priority).
+
+    Deliberately NOT a branch of `present_marker_line` (requirement 1) — this is a separate, quiet briefing
+    line the caller (`assemble_pack`) appends alongside the receipt, never inside it; and NEVER a task,
+    binding, receipt, or alarm (requirement 3) — it uses the calm `▸` marker, never `⚠`, carries no `##
+    ALARMS` framing, and never touches `task_binding`. It may name `/engine-upgrade` as an optional,
+    availability-worded action, never as an instruction or next task."""
+    if staged_update:
+        return None
+    if not avail or not avail.get("has_newer") or avail.get("announced"):
+        return None
+    version = avail.get("available")
+    if not version:
+        return None
+    return (f"▸ A newer engine version is available ({version}) — type /engine-upgrade any time if you'd "
+            "like to update. (for you — a quiet availability note, not a task or alarm; don't relay this as "
+            "an instruction, just mention it in passing if it's natural)")
+
+
+def _version_status_line(avail: dict | None) -> str | None:
+    """Build StarshipSuperjam/engine-template#743, node `status-disclosure`: the persistent installed-vs-available version fact for the
+    PULLED dashboard (`render_dashboard`/`engine_status.render`) — distinct from `_version_advisory_line`
+    above (a one-shot, once-per-version nudge in the assembled SessionStart pack). This one is a plain,
+    always-there fact, shown every pull, never snoozed.
+
+    Reads only `version_availability()`'s own return shape — never re-derives installed/available itself.
+    Discloses honestly rather than implying freshness: it never claims the installed version is current
+    without naming WHEN that was last checked, and it says plainly when availability hasn't been checked at
+    all (a `None`/empty read — no cache yet, or the very first pull before any refresh has landed) rather than
+    silently omitting the line or implying an up-to-date result. Returns `None` only when there is truly
+    nothing honest to say (no installed version could be determined either).
+
+    Repair for cold-review finding 1: `checked_at` alone is never enough to claim "up to date" — that is also
+    the stamp a FAILED attempt advances (no-retry-storm cadence). Only when `checked_at` equals
+    `last_success_at` did the last attempt actually confirm the release state; when they differ, the last
+    attempt failed, and the line says so plainly rather than borrowing the fresh failure timestamp as if it
+    were a fresh confirmation — while still surfacing a previously-CONFIRMED newer version rather than hiding
+    it (`available`/`has_newer` themselves are already failure-proof — see `version_availability`'s own
+    docstring). Repair for cold-review finding 2: every timestamp shown is routed through `_relative_moment`
+    (via `moment.epoch`) instead of the raw ISO wire string, so the line reads in words a person uses."""
+    avail = avail or {}
+    installed = avail.get("installed") or _installed_engine_version()
+    if not installed:
+        return None
+    checked_at = avail.get("checked_at")
+    checked_moment = moment.epoch(checked_at) if checked_at else None
+    if checked_moment is None:
+        # No usable "when": no cache yet, the first pull before any refresh, OR a corrupted/unparseable
+        # timestamp. Say plainly that availability is unknown, rather than borrow `_relative_moment`'s
+        # session-card fallback ("an earlier session"), which is a non-sequitur for a version check (US-R1).
+        return (f"**Engine version:** running `{installed}` — I haven't checked for a newer release yet "
+                f"(availability unknown).")
+    last_success_at = avail.get("last_success_at")
+    confirmed = bool(last_success_at) and last_success_at == checked_at
+    when_checked = _relative_moment(checked_moment)
+    if not confirmed:
+        # Cause-agnostic (DH-R1): the last attempt did not CONFIRM the release state — whether the source was
+        # unreachable or reachable-but-empty/invalid — so we never assert a specific cause, and never claim
+        # "up to date" off a failed attempt (finding 1).
+        line = (f"**Engine version:** running `{installed}` — I couldn't confirm the latest release "
+                f"(last tried {when_checked}).")
+        if avail.get("has_newer") and avail.get("available"):
+            last_moment = moment.epoch(last_success_at) if last_success_at else None
+            when_confirmed = _relative_moment(last_moment) if last_moment is not None else "an earlier check"
+            # Distinct phrasing for the two moments (US-R2): "last tried" is the failed attempt above;
+            # "last confirmed available" is the older success that first saw this newer version.
+            line += (f" A newer version (`{avail['available']}`) was last confirmed available "
+                      f"{when_confirmed}. Say **upgrade my engine** or run `/engine-upgrade` whenever "
+                      f"you're ready.")
+        return line
+    if avail.get("has_newer") and avail.get("available"):
+        return (f"**Engine version:** running `{installed}` — a newer version (`{avail['available']}`) is "
+                f"available (last checked {when_checked}). Say **upgrade my engine** or run `/engine-upgrade` "
+                f"whenever you're ready.")
+    return f"**Engine version:** running `{installed}`, up to date as of {when_checked}."
 
 
 # ---- the hook handler + CLI -----------------------------------------------------------------
