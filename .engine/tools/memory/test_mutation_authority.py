@@ -729,6 +729,21 @@ class RevalidationTaxonomyTests(unittest.TestCase):
         with self.assertRaises(execution_context.AcceptedTreeStale):
             execution_context.revalidate_context(self.fixture.context)
 
+    def test_unstattable_root_is_typed_context_error_not_raw_oserror(self):
+        # The residual crash #1199 missed: revalidate_context reads the project root and Git common
+        # directory through _path_identity -> os.stat, which was UNWRAPPED. Under drift either can fail to
+        # stat (moved/replaced/permission), and the bare OSError escaped revalidate_context untyped —
+        # crashing every memory read and write that revalidates rather than being caught by the
+        # ContextError-only handlers (reads degrade, writes refuse). The identity read must raise a typed
+        # ContextError (ArtifactUnreadable) so those handlers do their job.
+        with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
+            with self.assertRaises(execution_context.ContextError):
+                execution_context.revalidate_context(self.fixture.context)
+        # And specifically the unreadable-artifact class, so it reads as a store-on-disk problem.
+        with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
+            with self.assertRaises(execution_context.ArtifactUnreadable):
+                execution_context.revalidate_context(self.fixture.context)
+
     def test_store_identity_change_is_typed_store_identity_stale(self):
         identity = json.loads(Path(self.store_identity).read_text(encoding="utf-8"))
         identity["store_id"] = "0" * 32
