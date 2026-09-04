@@ -2590,9 +2590,9 @@ def render_dashboard(s: dict) -> str:
     # the pinned notices / backlog headline, BEFORE the inventory/facts block below. The facts (what merged,
     # milestone, open issues, engine findings, and any "couldn't refresh" degrade notices) are reference
     # material once the operator already knows what's blocking; they no longer have to be read first to reach it.
-    # A blank line before the heading only when NEITHER a pinned alarm nor the calm backlog headline just
-    # rendered above it (both leave the preceding line non-blank) — when one of them DID fire, this would be a
-    # second consecutive blank, which Markdown collapses anyway, so skipping it there is cosmetic only, not a
+    # A blank line before the heading only when NEITHER a pinned alarm nor the calm backlog headline rendered
+    # above it — those branches already append their own trailing blank, so adding one here would be a second
+    # consecutive blank (which Markdown collapses anyway), which is why skipping it there is cosmetic only, not a
     # correctness fix (unlike the separator below, added unconditionally because skipping it there folds the
     # facts block into the last bullet).
     if not (pinned or lead):
