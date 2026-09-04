@@ -6578,5 +6578,169 @@ class TestVersionStatusDisclosure(unittest.TestCase):
                 p.stop()
 
 
+class TestVersionSurfaceRecoveryPrecedenceGuards(unittest.TestCase):
+    """Build #743, node `recovery-precedence-guards`. A GUARD/TEST node, not new precedence logic: rev-4 of
+    the plan found the staged-update deferral is already a property of node 2's insertion point
+    (`_version_advisory_line` returns None on a truthy `staged_update`, and `present_marker_line` is not
+    threaded with version data at all — see `TestVersionAdvisoryRelay` above). This class proves the
+    remaining safety invariants the earlier nodes' tests did not yet pin as a single defect CLASS:
+
+      1. staged_update precedence in BOTH directions at once (no advisory AND the recovery offer keeps its
+         own prominence) from one real `assemble_pack` render.
+      2. NO AUTO-UPGRADE anywhere in the #743 surface — the operator-only boundary (#679's core rule). Every
+         real apply/PR-opening call site (`module_manager.plan_upgrade`, `module_manager.upgrade`,
+         `module_manager._open_upgrade_pr`, `release_source._fetch_release_tree`) is patched to explode, and
+         both #743 entry points (`assemble_pack`'s cold boot, `render_dashboard`'s pulled view) are exercised
+         end to end through that guard. A static source sweep backs the dynamic guard, so a future call
+         site added to the #743 render/refresh functions without a direct call (e.g. via getattr/partial)
+         cannot slip past the dynamic patch unnoticed.
+
+    No new production code is added for this node: every invariant here already held in `boot.py` (node 1
+    never imports `module_manager`; nodes 2/3 call only `version_availability`/`refresh_version_availability`/
+    `_resolve_latest_available_tag`, which itself calls only `release_source._resolve_release_ref` — a ref
+    lookup, never `_fetch_release_tree`). This class is pure proof, not a guard addition."""
+
+    def _avail(self, **over):
+        base = {"installed": "1.0.0", "available": "v2.0.0", "has_newer": True,
+                "checked_at": "2026-01-01T00:00:00Z", "announced": False}
+        base.update(over)
+        return base
+
+    def _upgrade_apply_guards(self):
+        """Patch every real apply/PR-opening call site the #743 surface must never reach, each raising if
+        called. Returns unstarted patchers; the caller starts/stops them around the exercised path."""
+        import module_manager
+        return [
+            mock.patch.object(module_manager, "plan_upgrade",
+                               side_effect=AssertionError("#743 must never call module_manager.plan_upgrade")),
+            mock.patch.object(module_manager, "upgrade",
+                               side_effect=AssertionError("#743 must never call module_manager.upgrade")),
+            mock.patch.object(module_manager, "_open_upgrade_pr",
+                               side_effect=AssertionError("#743 must never open an upgrade PR")),
+            mock.patch.object(boot.release_source, "_fetch_release_tree",
+                               side_effect=AssertionError("#743 must never fetch a release tarball")),
+        ]
+
+    # ---- invariant 1: staged_update precedence, both directions in one render ---------------------------
+
+    def test_staged_update_defers_the_advisory_while_keeping_its_own_recovery_prominence(self):
+        # Direction B first, as a pure-renderer pin: present_marker_line's own staged_update recovery offer,
+        # by itself, unaffected by anything version-related (it takes no version-availability input at all).
+        direct_marker = boot.present_marker_line(_signals(staged_update=True))
+        self.assertIn("engine update looks half-finished", direct_marker)
+
+        # Direction A: through the REAL staged_update signal (module_manager.staged_upgrade_announced), a
+        # full assemble_pack render shows that same recovery offer and withholds the quiet advisory.
+        patchers = _offline()
+        try:
+            with mock.patch("module_manager.staged_upgrade_announced", return_value=True), \
+                    mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertNotIn("A newer engine version is available", pack)
+        self.assertIn("engine update looks half-finished", pack)
+
+    # ---- invariant 2: no auto-upgrade anywhere in the #743 surface (operator-only boundary, #679) ---------
+
+    def test_cold_boot_never_reaches_any_upgrade_apply_or_pr_path(self):
+        patchers = _offline()  # already started
+        guards = self._upgrade_apply_guards()
+        for p in guards:
+            p.start()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                boot.assemble_pack(use_ledger=True)
+        finally:
+            for p in patchers + guards:
+                p.stop()
+
+    def test_dashboard_pull_never_reaches_any_upgrade_apply_or_pr_path(self):
+        guards = self._upgrade_apply_guards()
+        for p in guards:
+            p.start()
+        try:
+            with mock.patch.object(boot, "ambient_qualification_suppressed", return_value=False), \
+                    mock.patch.object(boot, "refresh_version_availability",
+                                       return_value={"checked": True}), \
+                    mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                boot.render_dashboard(_signals())
+        finally:
+            for p in guards:
+                p.stop()
+
+    def test_dashboard_pull_with_a_pending_staged_update_still_reaches_no_upgrade_path(self):
+        # staged_update also drives render_dashboard's own (pre-existing, unchanged) recovery-offer block —
+        # confirm that combined rendering path is equally clean of any apply/PR call.
+        guards = self._upgrade_apply_guards()
+        for p in guards:
+            p.start()
+        try:
+            with mock.patch.object(boot, "ambient_qualification_suppressed", return_value=False), \
+                    mock.patch.object(boot, "refresh_version_availability",
+                                       return_value={"checked": True}), \
+                    mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                boot.render_dashboard(_signals(staged_update=True))
+        finally:
+            for p in guards:
+                p.stop()
+
+    def test_source_sweep_the_743_functions_never_spell_a_forbidden_call_site(self):
+        # Static backstop for the dynamic guards above: enumerates every #743 function that could plausibly
+        # reach an apply/PR path (the substrate's own read/refresh/resolve, and both render-layer consumers)
+        # and asserts none of their EXECUTABLE source (docstrings/comments stripped, since those legitimately
+        # name these functions to explain why they're unreachable — see e.g. `_resolve_latest_available_tag`'s
+        # own docstring) spells a forbidden CALL — catching an indirect call (getattr, a stored reference)
+        # that a direct `mock.patch.object` guard could miss.
+        import ast
+        import inspect as _inspect
+        forbidden = {"plan_upgrade", "upgrade", "_open_upgrade_pr", "_fetch_release_tree"}
+        called = set()
+        for fn in (boot.version_availability, boot.refresh_version_availability,
+                   boot._resolve_latest_available_tag, boot.mark_version_announced,
+                   boot._version_advisory_line, boot._version_status_line):
+            tree = ast.parse(_inspect.getsource(fn))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    target = node.func
+                    name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", None)
+                    if name in forbidden:
+                        called.add(name)
+        self.assertEqual(called, set())
+
+    # ---- invariant 3: boot stays cache-only (re-asserted at this level; substrate/relay already cover it) --
+
+    def test_cold_boot_makes_no_network_call_even_with_a_newer_version_cached(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()), \
+                    mock.patch("urllib.request.urlopen",
+                               side_effect=AssertionError("cold boot must never touch the network")), \
+                    mock.patch.object(boot, "_resolve_latest_available_tag",
+                                       side_effect=AssertionError(
+                                           "cold boot must never resolve a release ref")):
+                pack = boot.assemble_pack(use_ledger=True)
+        finally:
+            for p in patchers:
+                p.stop()
+        self.assertIn("A newer engine version is available (v2.0.0)", pack)
+
+    # ---- invariant 4: the advisory never renders in the grounding-receipt / alarm / warning tier -----------
+
+    def test_advisory_never_shares_a_line_with_an_alarm_glyph_or_alarms_block(self):
+        patchers = _offline()
+        try:
+            with mock.patch.object(boot, "version_availability", return_value=self._avail()):
+                pack = boot.assemble_pack()
+        finally:
+            for p in patchers:
+                p.stop()
+        line = next(l for l in pack.splitlines() if "A newer engine version is available" in l)
+        self.assertTrue(line.startswith("▸"))
+        self.assertNotIn("⚠", line)
+        self.assertNotIn("ALARMS", line)
+
+
 if __name__ == "__main__":
     unittest.main()
