@@ -192,22 +192,6 @@ def _path_identity(path: str) -> dict:
     return {"device": info.st_dev, "inode": info.st_ino}
 
 
-def _identity_or_unreadable(path: str, label: str) -> dict:
-    """`_path_identity`, but a filesystem error becomes a typed ContextError rather than a bare OSError.
-
-    Revalidation reads the project root and Git common directory to confirm a running context still
-    matches its qualified namespace. Either can momentarily fail to `stat` under ordinary drift — moved,
-    replaced, or briefly unreadable. Before this, that raw ``OSError`` escaped ``revalidate_context``
-    untyped and crashed every memory read and write that revalidates, instead of being caught by the
-    ContextError-only handlers (reads degrade and answer, writes refuse cleanly). ``_path_identity`` stays
-    a plain stat for the seal-time callers; only the revalidation identity reads route through here. The
-    label names which path, without embedding the path itself, so the refusal stays content-free."""
-    try:
-        return _path_identity(path)
-    except OSError as exc:
-        raise ArtifactUnreadable(f"{label} could not be read during context revalidation") from exc
-
-
 def _snapshot_file(path: str, *, hash_content: bool = False) -> dict:
     try:
         info = os.lstat(path)
@@ -612,16 +596,35 @@ def _is_authorized_context(context: ExecutionContext) -> bool:
 
 
 def revalidate_context(context: ExecutionContext) -> ExecutionContext:
-    """Match a decoded context to the live canonical namespace before authorizing it in this module."""
+    """Match a decoded context to the live canonical namespace before authorizing it in this module.
+
+    Total by contract: every failure to complete revalidation leaves as a typed ContextError, never a bare
+    OSError or other exception. The individual checks raise their own precise ContextError subclasses
+    (ActivationStale, StoreIdentityStale, ArtifactUnreadable, ...); this wrapper is the backstop for any
+    unwrapped read — a stat/open on the project root, the Git common directory, the store identity or a
+    health file that fails under ordinary drift. Before it, such a raw exception (the confirmed case: a
+    bare OSError from _path_identity's os.stat) escaped untyped and crashed every memory read and write
+    that revalidates. Typed, it is caught by the ContextError-only handlers: reads degrade and answer,
+    writes refuse cleanly (mutation_authority._stale_refusal), and a fresh session restores writing."""
     if not isinstance(context, ExecutionContext):
         raise ContextError("execution context has an unsupported runtime type")
+    try:
+        return _revalidate_matched(context)
+    except ContextError:
+        raise
+    except Exception as exc:  # noqa: BLE001 — deliberately total: type ANY unwrapped read failure so the
+        # ContextError-only handlers catch it (reads degrade, writes refuse) rather than a crash escaping.
+        raise ContextError("execution context could not be revalidated against the store") from exc
+
+
+def _revalidate_matched(context: ExecutionContext) -> ExecutionContext:
     document = context.to_document()
     project, target = document["project"], document["target"]
     root = _strict_absolute(project["root"], "context project root", directory=True)
     common = _strict_absolute(project["git_common_dir"], "context Git common directory", directory=True)
-    if project["root_identity"] != _identity_or_unreadable(root, "context project root"):
+    if project["root_identity"] != _path_identity(root):
         raise ContextError("execution context project identity no longer matches")
-    if project["git_common_identity"] != _identity_or_unreadable(common, "context Git common directory"):
+    if project["git_common_identity"] != _path_identity(common):
         raise ContextError("execution context Git common-directory identity no longer matches")
     expected_lifecycle = _lifecycle(root, target["memory_dir"], common)
     if target["kind"] == "disposable":

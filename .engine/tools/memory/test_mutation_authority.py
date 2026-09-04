@@ -734,14 +734,15 @@ class RevalidationTaxonomyTests(unittest.TestCase):
         # directory through _path_identity -> os.stat, which was UNWRAPPED. Under drift either can fail to
         # stat (moved/replaced/permission), and the bare OSError escaped revalidate_context untyped —
         # crashing every memory read and write that revalidates rather than being caught by the
-        # ContextError-only handlers (reads degrade, writes refuse). The identity read must raise a typed
-        # ContextError (ArtifactUnreadable) so those handlers do their job.
+        # ContextError-only handlers (reads degrade, writes refuse). revalidate_context's total wrapper now
+        # types it as a ContextError so those handlers do their job.
         with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
             with self.assertRaises(execution_context.ContextError):
                 execution_context.revalidate_context(self.fixture.context)
-        # And specifically the unreadable-artifact class, so it reads as a store-on-disk problem.
-        with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
-            with self.assertRaises(execution_context.ArtifactUnreadable):
+        # Total by contract: ANY unexpected non-ContextError from a revalidation read is typed, not only
+        # OSError — so a future unwrapped read cannot reintroduce the untyped-escape crash.
+        with mock.patch.object(execution_context, "_path_identity", side_effect=ValueError("boom")):
+            with self.assertRaises(execution_context.ContextError):
                 execution_context.revalidate_context(self.fixture.context)
 
     def test_store_identity_change_is_typed_store_identity_stale(self):

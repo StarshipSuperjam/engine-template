@@ -633,9 +633,11 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
     def test_unstattable_root_reads_answer_and_write_refuses_cleanly(self):
         # The residual crash #1199 missed: when revalidate_context's identity reads (_path_identity ->
         # os.stat on the project root / Git common directory) fail under drift, the raw OSError used to
-        # escape untyped and crash every read and write. Typed as ArtifactUnreadable it now routes through
-        # the SAME degrade/refuse path as any stale binding — reads answer with the restart caveat, a
-        # write refuses cleanly with no path leaked.
+        # escape untyped and crash every read and write. revalidate_context's total wrapper now types it as
+        # a ContextError, so it routes through the SAME degrade/refuse path as any stale binding — reads
+        # answer with the restart caveat, a write refuses cleanly (the generic "context could not be
+        # confirmed" refusal, since an unstattable root is not one of the named staleness classes) with no
+        # path leaked.
         from unittest import mock
 
         with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
@@ -651,7 +653,8 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
             with self.assertRaises(ToolError) as caught:
                 srv.pin("must not be written while the root is unreadable")
             message = str(caught.exception)
-            self.assertIn("restart", message)
+            self.assertIn("writing is held", message)  # refused cleanly — nothing was changed
+            self.assertIn("fresh session", message)  # names how the operator recovers
             self.assertNotIn(self.fixture.base, message)  # content-free: no path leaks to the caller
 
     def test_recall_window_and_recall_by_meaning_carry_the_caveat_while_stale(self):
