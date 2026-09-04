@@ -596,9 +596,35 @@ def _is_authorized_context(context: ExecutionContext) -> bool:
 
 
 def revalidate_context(context: ExecutionContext) -> ExecutionContext:
-    """Match a decoded context to the live canonical namespace before authorizing it in this module."""
+    """Match a decoded context to the live canonical namespace before authorizing it in this module.
+
+    Total for the I/O read-fault class, fail-loud for everything else. The individual checks raise their
+    own precise ContextError subclasses (ActivationStale, StoreIdentityStale, ArtifactUnreadable, ...), and
+    most reads in the matched body already type their own OSError before returning (_read_identity catches
+    (OSError, ValueError); the pointer/meta/snapshot readers likewise). The one genuinely UNWRAPPED read is
+    _path_identity's os.stat on the project root and the Git common directory, which under ordinary drift
+    raises a bare OSError. This wrapper backstops that gap: an OSError reaching it becomes a typed
+    ArtifactUnreadable, so the ContextError-only handlers do their job — reads degrade and answer, writes
+    refuse cleanly (mutation_authority._stale_refusal), a fresh session retries the read. A NON-OSError from
+    the body (a KeyError/AttributeError/TypeError from a logic bug in revalidation itself, a genuine
+    corruption) is deliberately NOT caught: it propagates and surfaces rather than being masked as a benign
+    'restart' refusal, because a silently-malfunctioning write-authority check is more dangerous than a
+    visible crash. This scope is the reviewed decision (the W2 'an unrelated in-body exception still
+    propagates' bound)."""
     if not isinstance(context, ExecutionContext):
         raise ContextError("execution context has an unsupported runtime type")
+    try:
+        return _revalidate_matched(context)
+    except ContextError:
+        raise
+    except OSError as exc:
+        # A filesystem read anywhere in the matched body failed under drift. Type it (rather than let the
+        # raw OSError escape untyped and crash every read/write that revalidates) as the precise store-on-
+        # disk class, so it keeps the ArtifactUnreadable refusal/caveat semantics the module maintains.
+        raise ArtifactUnreadable("a store path could not be read during context revalidation") from exc
+
+
+def _revalidate_matched(context: ExecutionContext) -> ExecutionContext:
     document = context.to_document()
     project, target = document["project"], document["target"]
     root = _strict_absolute(project["root"], "context project root", directory=True)

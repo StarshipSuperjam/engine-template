@@ -630,6 +630,45 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
         execution_context._CURRENT_CONTEXT = self.fixture.context
         self.assertNotIn("memory_caveat", srv.list_pins())
 
+    def test_unstattable_root_reads_answer_and_write_refuses_cleanly(self):
+        # The residual crash #1199 missed: when revalidate_context's identity reads (_path_identity ->
+        # os.stat on the project root / Git common directory) fail under drift, the raw OSError used to
+        # escape untyped and crash every read and write. revalidate_context now types any OSError from the
+        # matched body as ArtifactUnreadable (a ContextError), so it routes through the SAME degrade/refuse
+        # path as any stale binding — reads answer with the restart caveat, and a write refuses cleanly with
+        # the store-on-disk refusal and no path leaked.
+        from unittest import mock
+
+        # Seed a real record so the degraded read is shown to return actual content via the ledger-scan
+        # fallback, not merely an empty-but-caveated shell.
+        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                       "session_id": "s-unstat", "ts": int(time.time()), "seq": 0, "speaker": "user",
+                       "text": "a line recalled while the root is unreadable", "tags": ["transcript", "stop"]})
+
+        with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
+            pins = srv.list_pins()
+            self.assertIn("memory_caveat", pins)
+            self.assertIn("restart", pins["memory_caveat"])
+            self.assertEqual(pins["pins"], [])  # the read answers, it is not an error
+
+            found = srv.search("anything")
+            self.assertIn("results", found)
+            self.assertIn("restart", found["memory_caveat"])
+
+            # Real content still comes back through the degraded recall path (the ledger scan), proving the
+            # read genuinely answers rather than silently returning nothing under the escape.
+            window = srv.recall_window("s-unstat")
+            self.assertIn("restart", window["memory_caveat"])
+            self.assertTrue(any("unreadable" in str(turn) for turn in window.get("turns", [])),
+                            "degraded recall must return the seeded turn, not an empty answer")
+
+            with self.assertRaises(ToolError) as caught:
+                srv.pin("must not be written while the root is unreadable")
+            message = str(caught.exception)
+            self.assertIn("writing is held", message)  # refused cleanly — nothing was changed
+            self.assertIn("fresh session", message)  # names how the operator recovers
+            self.assertNotIn(self.fixture.base, message)  # content-free: no path leaks to the caller
+
     def test_recall_window_and_recall_by_meaning_carry_the_caveat_while_stale(self):
         # Obligation 4 end-to-end for the other two read tools. The headline test above proves list-pins and
         # search; this proves recall-window and recall-by-meaning against the SAME real moved-commit staleness
