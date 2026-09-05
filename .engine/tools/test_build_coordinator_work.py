@@ -1092,7 +1092,7 @@ class MidBuildRevision(WorkCase):
 
     def _adopt(self, successor, **over):
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decision="Yes, continue on the corrected plan.")
+                                  operator_decided=True)
         for key, value in over.items():
             setattr(args, key, value)
         with mock.patch.object(bc, "_sealed_plan",
@@ -1125,6 +1125,7 @@ class MidBuildRevision(WorkCase):
         record = {"intake": {"predecessors": [f"{PLAN_ID} — a plan"]},
                   "approval": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
                                "depth": "thorough", "at": "2026-08-25T00:00:00Z"},
+                  "consent": [{"gate": "seal", "at": "2026-08-25T00:00:00Z"}],
                   "current": {"revision": 1}}
         library = mock.MagicMock()
         library.resolve.return_value = "successor-slug"
@@ -1136,7 +1137,7 @@ class MidBuildRevision(WorkCase):
         library.update_record.side_effect = apply_mutator
 
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decision="Yes, continue on the corrected plan.")
+                                  operator_decided=True)
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
                 mock.patch.object(bc, "_library", return_value=library), \
@@ -1147,7 +1148,7 @@ class MidBuildRevision(WorkCase):
                 bc.cmd_plan_adopt(args, self.store)
         self.assertIsNone(record.get("build_binding"),
                           "the successor must not stay marked bound to a Build that never switched")
-        self.assertFalse(record.get("consent"),
+        self.assertEqual(record.get("consent"), [{"gate": "seal", "at": "2026-08-25T00:00:00Z"}],
                          "the trail must not attest an adoption that was refused")
 
     def test_an_interrupt_during_the_rollback_still_discloses_and_reraises(self):
@@ -1158,6 +1159,7 @@ class MidBuildRevision(WorkCase):
         record = {"intake": {"predecessors": [f"{PLAN_ID} — a plan"]},
                   "approval": {"revision": 1, "plan_digest": "sha256:" + "a" * 64,
                                "depth": "thorough", "at": "2026-08-25T00:00:00Z"},
+                  "consent": [{"gate": "seal", "at": "2026-08-25T00:00:00Z"}],
                   "current": {"revision": 1}}
         library = mock.MagicMock()
         library.resolve.return_value = "successor-slug"
@@ -1173,7 +1175,7 @@ class MidBuildRevision(WorkCase):
 
         library.update_record.side_effect = update
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decision="Yes, continue on the corrected plan.")
+                                  operator_decided=True)
         err = io.StringIO()
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, successor)), \
@@ -1265,13 +1267,16 @@ class MidBuildRevision(WorkCase):
         self._adopt(self._successor())
         escalation = self.state()["plan_change_escalations"][-1]
         self.assertIn(self.SUCCESSOR, escalation["operator_change"])
-        self.assertIn("Yes, continue on the corrected plan.", escalation["operator_change"])
+        # Event-only: the entry names the adopted successor, whose own approval, review and seal
+        # are the authority, and carries nothing the operator typed.
+        self.assertIn(self.SUCCESSOR, escalation["operator_change"])
+        self.assertNotIn("Yes, continue", escalation["operator_change"])
 
     # -- the refusals --
 
     def test_a_successor_that_does_not_name_the_bound_plan_is_refused(self):
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decision="Go.")
+                                  operator_decided=True)
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, self._successor())), \
                 self._library(predecessors=("pln_999999999999",)), \
@@ -1282,14 +1287,14 @@ class MidBuildRevision(WorkCase):
 
     def test_adoption_without_the_operator_s_decision_is_refused(self):
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(self.plan_path),
-                                  operator_decision=None)
+                                  operator_decided=False)
         with self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_plan_adopt(args, self.store)
         self.assertIn("no recorded operator decision", str(caught.exception))
 
     def test_adopting_the_plan_already_bound_is_refused(self):
         args = argparse.Namespace(successor=PLAN_ID, input=str(self.plan_path),
-                                  operator_decision="Go.")
+                                  operator_decided=True)
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(PLAN_ID, SEALED, self.plan_value)), \
                 self.assertRaises(bc.CoordinatorError) as caught:
@@ -1300,7 +1305,7 @@ class MidBuildRevision(WorkCase):
         other = Path(self.temp.name) / "other.json"
         other.write_text(json.dumps(plan_v2(objective="Something else")), encoding="utf-8")
         args = argparse.Namespace(successor=self.SUCCESSOR, input=str(other),
-                                  operator_decision="Go.")
+                                  operator_decided=True)
         with mock.patch.object(bc, "_sealed_plan",
                                return_value=(self.SUCCESSOR, "sha256:" + "f" * 64, self._successor())), \
                 self._library(), self.assertRaises(bc.CoordinatorError) as caught:

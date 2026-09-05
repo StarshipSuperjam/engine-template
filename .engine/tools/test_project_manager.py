@@ -365,7 +365,7 @@ class _Governed(_Surface):
     def _to_reviewed(self, findings=(), depth="standard", lenses=None, **over):
         slug, document = self._plan(**over)
         self.run_command("preview", slug)
-        self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decision", "yes, at that depth")[0], 0)
+        self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decided")[0], 0)
         argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
         for lens in (lenses if lenses is not None else self._covering_lenses(depth)):
             argv += ["--lens", lens]
@@ -379,21 +379,21 @@ class _Governed(_Surface):
             self.assertEqual(self.present(slug)[0], 0)
         return slug, document
 
-    def present(self, slug, decision="I read every finding and its disposition"):
-        return self.run_command("present-findings", slug, "--operator-decision", decision)
+    def present(self, slug):
+        return self.run_command("present-findings", slug, "--operator-decided")
 
 
 class Approval(_Surface):
     def test_approval_is_refused_before_the_plan_is_presented(self):
         slug, _ = self._plan()
-        code, _, err = self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        code, _, err = self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("has not been presented", err)
 
     def test_approval_binds_the_revision_and_its_digest(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        code, out, _ = self.run_command("approve", slug, "--depth", "thorough", "--operator-decision", "yes, at that depth")
+        code, out, _ = self.run_command("approve", slug, "--depth", "thorough", "--operator-decided")
         self.assertEqual(code, 0)
         approval = self.lib.read_record(slug)["approval"]
         self.assertEqual(approval["depth"], "thorough")
@@ -428,7 +428,7 @@ class OneReviewPerPlan(_Governed):
     def test_a_packet_names_the_digest_it_rendered(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         code, out, err = self.run_command("review", "packet", slug)
         self.assertEqual(code, 0)
         self.assertIn("Packet digest: sha256:", out)
@@ -438,7 +438,7 @@ class OneReviewPerPlan(_Governed):
     def test_a_packet_is_refused_on_a_stale_approval(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
         code, _, err = self.run_command("review", "packet", slug)
         self.assertEqual(code, 2)
@@ -454,7 +454,7 @@ class SealRefusals(_Governed):
 
     def test_a_clean_reviewed_plan_seals(self):
         slug, _ = self._to_reviewed()
-        code, out, _ = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, out, _ = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 0)
         self.assertIn("sealed", out)
         seal = self.lib.read_record(slug)["seal"]
@@ -466,10 +466,10 @@ class SealRefusals(_Governed):
         document["deliberation"]["unresolved_decisions"] = ["Who owns retention?"]
         slug = self.lib.create(document)
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         digest = self.lib.read_record(slug)["current"]["plan_digest"]
         self.run_command("review", "record", slug, "--lens", "architecture", "--packet-digest", digest)
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("unresolved", err)
         self.assertIsNone(self.lib.read_record(slug)["seal"])
@@ -479,30 +479,30 @@ class SealRefusals(_Governed):
         document["build_plan"]["assumptions"] = [{"claim": "The disk is durable.", "status": "unresolved"}]
         slug = self.lib.create(document)
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         digest = self.lib.read_record(slug)["current"]["plan_digest"]
         self.run_command("review", "record", slug, "--lens", "architecture", "--packet-digest", digest)
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("The disk is durable.", err)
 
     def test_a_missing_review_refuses_the_seal(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("no cold plan review", err)
 
     def test_a_missing_approval_refuses_the_seal(self):
         slug, _ = self._plan()
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("has not been approved", err)
 
     def test_an_undispositioned_finding_refuses_the_seal(self):
         slug, _ = self._to_reviewed(findings=(self._blocking(),))
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("no disposition", err)
         self.assertIn("ARCH-B1", err)
@@ -510,9 +510,9 @@ class SealRefusals(_Governed):
     def test_a_stale_approval_refuses_the_seal(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         self.lib.append_revision(slug, _document(revision=2), expected_revision=1)
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("changed before it was ever reviewed", err)
 
@@ -528,21 +528,21 @@ class SealRefusals(_Governed):
                             for item in v1["work_items"]]
         second = _document(revision=2, build_plan=v1)
         self.lib.append_revision(slug, second, expected_revision=record["current"]["revision"])
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("only build-plan.v2 can be sealed", err)
 
     def test_all_refusals_are_reported_together(self):
         slug, _ = self._plan()
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("has not been approved", err)
         # With no approval there is no depth, so no roster to demand — the review refusal is keyed on
         # the approved depth's roster now, and reporting a coverage gap for a depth nobody chose would
         # be noise. Approve, and the missing review is named alongside everything else still in the way.
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("no cold plan review has been recorded", err)
         for lens in self._covering_lenses():
@@ -555,7 +555,7 @@ class SealIsTerminal(_Governed):
         slug, _ = self._to_reviewed(findings=({"id": "RISK-B1", "lens": "risk-governance",
                                                "severity": "blocking",
                                                "summary": "The library is the only copy."},))
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 1)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 1)
         record = self.lib.read_record(slug)
         self.assertIsNone(record["seal"])
         self.assertEqual(plan_store.derived_status(record), "review-recorded")
@@ -565,23 +565,23 @@ class SealIsTerminal(_Governed):
 
     def test_sealing_twice_is_refused(self):
         slug, _ = self._to_reviewed()
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("already sealed", err)
         self.assertIn("clone", err)
 
     def test_a_sealed_plan_cannot_be_approved_again(self):
         slug, _ = self._to_reviewed()
-        self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("seal", slug, "--operator-decided")
         self.run_command("preview", slug)
-        code, _, err = self.run_command("approve", slug, "--depth", "quick", "--operator-decision", "yes, at that depth")
+        code, _, err = self.run_command("approve", slug, "--depth", "quick", "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("terminal", err)
 
     def test_a_seal_cannot_be_reopened(self):
         slug, _ = self._to_reviewed()
-        self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("seal", slug, "--operator-decided")
         self.run_command("retire", slug, "--reason", "trying to escape the seal")
         code, _, err = self.run_command("reopen", slug)
         self.assertEqual(code, 2)
@@ -598,7 +598,7 @@ class DeltaJudgment(_Governed):
 
     def test_a_changed_plan_needs_one_proportional_judgment(self):
         slug = self._reviewed_then_revised()
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("delta needs one proportional judgment", err)
         self.assertIn("diff", err)
@@ -607,7 +607,7 @@ class DeltaJudgment(_Governed):
     def test_the_judgment_seals_and_the_delta_is_recorded_for_disclosure(self):
         slug = self._reviewed_then_revised()
         code, out, _ = self.run_command("seal", slug, "--delta-judgment", "scoped",
-                                        "--delta-rationale", "One failure mode added; nothing else moved.", "--operator-decision", "seal it")
+                                        "--delta-rationale", "One failure mode added; nothing else moved.", "--operator-decided")
         self.assertEqual(code, 0)
         seal = self.lib.read_record(slug)["seal"]
         self.assertNotEqual(seal["reviewed_digest"], seal["sealed_digest"])
@@ -617,13 +617,13 @@ class DeltaJudgment(_Governed):
 
     def test_a_scoped_judgment_needs_a_rationale(self):
         slug = self._reviewed_then_revised()
-        code, _, err = self.run_command("seal", slug, "--delta-judgment", "scoped", "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--delta-judgment", "scoped", "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("needs a rationale", err)
 
     def test_an_unchanged_plan_needs_no_judgment(self):
         slug, _ = self._to_reviewed()
-        code, out, _ = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, out, _ = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 0)
         self.assertIn("unchanged since review", out)
 
@@ -681,8 +681,8 @@ class Dispositions(_Governed):
         the merge surface looking like something read before the plan was locked."""
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.assertEqual(self.run_command("approve", slug, "--depth", "quick", "--operator-decision", "yes, at that depth")[0], 0)
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick", "--operator-decided")[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
         self.assertIsNone(self.lib.read_record(slug).get("plan_review"))
         code, _, err = self.run_command("review", "record", slug, "--packet-digest",
                                         self._packet_digest(slug), "--lens", "architecture")
@@ -696,12 +696,12 @@ class Dispositions(_Governed):
         pull request then tells the operator a cold panel read the plan. The review cannot be dropped to
         make room either — exactly one per plan is what stops the re-review spiral — so depth holds."""
         slug, _ = self._to_reviewed(depth="standard")
-        code, _, err = self.run_command("approve", slug, "--depth", "quick", "--operator-decision", "yes, at that depth")
+        code, _, err = self.run_command("approve", slug, "--depth", "quick", "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("cannot be re-approved", err)
         self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "standard")
         # Re-approving at the SAME depth stays legal: nothing about the question changed.
-        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")[0], 0)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard", "--operator-decided")[0], 0)
 
     def test_a_seal_freezes_the_dispositions_the_pull_request_will_publish(self):
         """The Build reads this review live from the record, so an editable record is an editable PR.
@@ -716,7 +716,7 @@ class Dispositions(_Governed):
             "finding", "dispose", slug, "--id", "A1", "--disposition", "accepted-tracked",
             "--rationale", "Carried to the successor plan.", "--blocks-this-pr")[0], 0)
         self.assertEqual(self.present(slug)[0], 0)
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
         code, _, err = self.run_command(
             "finding", "dispose", slug, "--id", "A1", "--disposition", "rejected",
             "--rationale", "On reflection, no.", "--does-not-block-this-pr",
@@ -795,7 +795,7 @@ class Revise(_Governed):
 
     def test_revising_a_sealed_plan_is_refused_and_points_at_clone(self):
         slug, _ = self._to_reviewed()
-        self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("seal", slug, "--operator-decided")
         code, _, err = self.run_command("revise", slug, "--document",
                                         self._write_document(_document(revision=2)))
         self.assertEqual(code, 2)
@@ -811,7 +811,7 @@ class Revise(_Governed):
     def test_revising_before_a_review_says_the_approval_no_longer_speaks(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         out = self.run_command("revise", slug, "--document",
                                self._write_document(_document(revision=2)))[1]
         self.assertIn("approve again", out)
@@ -833,7 +833,7 @@ class Revise(_Governed):
 class Clone(_Governed):
     def test_a_clone_carries_no_approval_review_or_seal(self):
         slug, document = self._to_reviewed()
-        self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("seal", slug, "--operator-decided")
         code, out, _ = self.run_command("clone", slug, "--reason", "the shape needs rethinking")
         self.assertEqual(code, 0)
         new_slug = next(s for s in self.lib.slugs() if s != slug)
@@ -1056,7 +1056,7 @@ class SingleMintedGatesUnderConcurrency(_Governed):
     def test_a_second_review_is_refused_even_when_both_readers_saw_none(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         digest = self._packet_digest(slug)
         # Both sessions read a record with no review; A records first, B must still be refused.
         self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
@@ -1240,7 +1240,7 @@ class ErrorLegibility(_Governed):
         # reported the whole object as "not valid under any of the given schemas".
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         findings = Path(self._tmp.name) / "bad-findings.json"
         findings.write_text(json.dumps([{"id": "A1", "lens": "architecture",
                                          "severity": "major", "summary": "s"}]), encoding="utf-8")
@@ -1255,7 +1255,7 @@ class ErrorLegibility(_Governed):
     def test_a_malformed_digest_names_the_digest_field(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
                                         "--packet-digest", "sha256:abc")
         self.assertEqual(code, 2)
@@ -1286,11 +1286,23 @@ class ErrorLegibility(_Governed):
         self.assertIn("not sealable yet", out)
         self.assertIn("has not been approved at any revision", out)
 
+    def test_the_gates_echo_no_decision_text_and_show_lists_gate_and_moment(self):
+        slug, _ = self._to_reviewed()
+        _, out, _ = self.run_command("seal", slug, "--operator-decided")
+        self.assertNotIn("on the operator's decision", out)
+        _, out, _ = self.run_command("show", slug)
+        self.assertIn("operator decisions recorded (gate and moment):", out)
+        listed = out.split("operator decisions recorded (gate and moment):")[1]
+        lines = [line.strip() for line in listed.splitlines() if " at 20" in line]
+        self.assertEqual([line.split(" at ")[0] for line in lines],
+                         ["approve", "findings-presented", "seal"])
+        self.assertNotIn("“", out)
+
     def test_resume_on_a_sealed_plan_states_the_bind_command(self):
         # The counterpart of the honesty this case used to enforce: the handoff DOES ship now, so the
         # next step names the exact command rather than steering the operator to clone.
         slug, document = self._to_reviewed()
-        self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.run_command("seal", slug, "--operator-decided")
         out = self.run_command("resume", slug)[1]
         self.assertIn("plan bind --plan " + document["plan_id"], out)
         self.assertIn("--repository <owner/repo> --pr <number>", out)
@@ -1621,7 +1633,7 @@ class ThePanelMovedHere(_Governed):
         # The hole this closes: "a sealed plan is reviewed by definition" was an assumption. A single lens
         # could seal a plan approved at thorough, and nothing said otherwise.
         slug, _ = self._to_reviewed(depth="thorough", lenses=["architecture"])
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("missing", err)
         for lens in self._covering_lenses("thorough"):
@@ -1630,7 +1642,7 @@ class ThePanelMovedHere(_Governed):
 
     def test_a_covering_review_seals(self):
         slug, _ = self._to_reviewed(depth="thorough")
-        code, out, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        code, out, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 0, err)
         self.assertIn("sealed", out)
 
@@ -1639,14 +1651,14 @@ class ThePanelMovedHere(_Governed):
         # review anyway would make the depth unusable; the demand is keyed on the roster the depth requires.
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.assertEqual(self.run_command("approve", slug, "--depth", "quick", "--operator-decision", "yes, at that depth")[0], 0)
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "seal it")
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick", "--operator-decided")[0], 0)
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 0, err)
 
     def test_a_receipt_naming_a_packet_nobody_cut_is_refused(self):
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "yes, at that depth")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         code, _, err = self.run_command("review", "record", slug, "--lens", "architecture",
                                         "--packet-digest", "sha256:" + "4" * 64)
         self.assertEqual(code, 2)
@@ -1711,7 +1723,7 @@ class ThePanelMovedHere(_Governed):
         # Both panels count: with no reviewers on EITHER side, thorough runs what quick runs.
         with mock.patch.object(project_manager, "installed_lenses", return_value=[]), \
                 mock.patch.object(project_manager, "installed_deliverable_lenses", return_value=[]):
-            code, _, err = self.run_command("approve", slug, "--depth", "thorough", "--operator-decision", "yes, at that depth")
+            code, _, err = self.run_command("approve", slug, "--depth", "thorough", "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("not offered here", err)
 
@@ -1869,7 +1881,7 @@ class DepthSelectsReviewersAndNothingElse(_Surface):
     def _approved_at(self, depth):
         slug, document = self._plan(plan_id=f"pln_{'0' * 11}{project_manager.DEPTH_ORDER.index(depth)}")
         self.run_command("preview", slug)
-        self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decision", "yes, at that depth")[0], 0)
+        self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decided")[0], 0)
         return slug, self.lib.head(slug), self.lib.read_record(slug)
 
     def test_the_document_and_its_payload_are_byte_identical_at_every_depth(self):
@@ -2185,12 +2197,24 @@ class TestSealHandback(unittest.TestCase):
         self.assertIn("this runtime", text)     # relay the one spelling the operator can actually type
         self.assertIn("wait", text.lower())
 
-    def test_it_carries_the_plan_id_and_the_consent_placeholder_into_the_bind_it_suggests(self):
-        # The placeholder is where the operator's own go is captured; trimming it under line
-        # pressure would leave a session recording a bare command token as the decision.
+    def test_it_carries_the_plan_id_and_keeps_the_switch_off_the_bind_it_suggests(self):
+        # The printed command is deliberately incomplete: a complete, runnable consent command in the
+        # session's own context before the operator has been asked is the ask-nobody shape the gates
+        # exist to answer. The switch is named, as the thing added only after their go.
         text = self.text()
         self.assertIn("--plan pln_0123456789ab", text)
-        self.assertIn('--operator-decision "<their go>"', text)
+        self.assertIn("--operator-decided only after their go", text)
+        command = [line for line in text.splitlines() if "--repository" in line]
+        self.assertEqual(len(command), 1)
+        self.assertNotIn("--operator-decided", command[0])
+        self.assertNotIn("<their go>", text)
+
+    def test_it_says_the_work_rides_the_pull_request_from_the_one_constant(self):
+        # #1091: the no-intake rule arrives from the ceremony itself, and from ONE sentence that the
+        # bind prints too, so the two cannot drift apart.
+        import plan_lifecycle
+        self.assertIn(plan_lifecycle.CARRIER_RULE, self.text())
+        self.assertIn("no Issue is filed for it", plan_lifecycle.CARRIER_RULE)
 
     def test_the_typed_start_precedes_the_bind(self):
         # Two acts in order: the operator enters Build by typing the verb; the bind then records
@@ -2240,7 +2264,7 @@ class MarkerFollowsTheLifecycle(_Governed):
 
     def _sealed(self, plan_id="pln_aaaaaaaaaaa4"):
         slug, _ = self._to_reviewed(plan_id=plan_id)
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
         return slug
 
     def _bound(self):
@@ -2322,16 +2346,16 @@ class MarkerFollowsTheLifecycle(_Governed):
         slug, _ = self._plan()
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
-                                          "--operator-decision", "yes, at that depth")[0], 0)
+                                          "--operator-decided")[0], 0)
         self._marker(slug).unlink()
         code, _, err = self.run_command("approve", slug, "--depth", "thorough",
-                                        "--operator-decision", "deeper, please")
+                                        "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("preview", err)          # the remedy it names must actually work:
         self.assertEqual(self.run_command("preview", slug)[0], 0)
         self.assertTrue(self._marker(slug).exists())
         self.assertEqual(self.run_command("approve", slug, "--depth", "thorough",
-                                          "--operator-decision", "deeper, please")[0], 0)
+                                          "--operator-decided")[0], 0)
         self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "thorough")
 
     def test_the_readers_refuse_a_post_boundary_plan_with_its_state_never_with_preview(self):
@@ -2340,7 +2364,7 @@ class MarkerFollowsTheLifecycle(_Governed):
             if marker.exists():
                 marker.unlink()                # the missing-marker case is the one that used to loop
             for argv in (("depths", slug),
-                         ("approve", slug, "--depth", "standard", "--operator-decision", "yes")):
+                         ("approve", slug, "--depth", "standard", "--operator-decided")):
                 code, _, err = self.run_command(*argv)
                 self.assertEqual(code, 2, f"{state} {argv[0]}")
                 self.assertIn(state, err, f"{state} {argv[0]}: {err}")
@@ -2416,7 +2440,7 @@ class ProjectionLink(_Governed):
 
     def test_show_and_resume_hand_over_the_link_on_sealed_history_too(self):
         slug, _ = self._to_reviewed()
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
         for verb in ("show", "resume"):
             code, out, _ = self.run_command(verb, slug)
             self.assertEqual(code, 0, verb)
@@ -2439,7 +2463,7 @@ class ProjectionLink(_Governed):
         self.assertIn("awaiting-approval", plan_md.read_text(encoding="utf-8"))
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
-                                          "--operator-decision", "yes, at that depth")[0], 0)
+                                          "--operator-decided")[0], 0)
         self.assertIn("awaiting-review", plan_md.read_text(encoding="utf-8"))
         argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
         for lens in self._covering_lenses("standard"):

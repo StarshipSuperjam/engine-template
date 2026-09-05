@@ -15,6 +15,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import re
 import unittest
 
 import program_manager
@@ -68,7 +69,7 @@ class _Ceremony(unittest.TestCase):
         slug = self.plan(**over)
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", depth,
-                                          "--operator-decision", "Approve at " + depth)[0], 0)
+                                          "--operator-decided")[0], 0)
         return slug
 
     def covering(self, depth="standard"):
@@ -250,7 +251,7 @@ class D4FreezeMoments(_Ceremony):
     def test_the_approval_freezes_at_the_first_review_which_pins_the_depth(self):
         slug = self.reviewed()
         code, _, err = self.run_command("approve", slug, "--depth", "quick",
-                                        "--operator-decision", "Actually, quick.")
+                                        "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("pins the approved depth", err)
         self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "standard")
@@ -260,8 +261,8 @@ class D4FreezeMoments(_Ceremony):
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
-        self.run_command("present-findings", slug, "--operator-decision", "I read it.")
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal it.")[0], 0)
+        self.run_command("present-findings", slug, "--operator-decided")
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
         for argv in (("review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
                       "--lens", "feasibility", "--reason", "After the seal."),
                      ("finding", "amend", slug, "--id", "ARCH-1", "--severity", "nit",
@@ -293,7 +294,7 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         stages = []
         stages.append(self.run_command("resume", slug)[1])
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "Yes.")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         stages.append(self.run_command("resume", slug)[1])
         argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
         for lens in self.covering():
@@ -339,7 +340,7 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         the guidance prints at each stage is replayed here."""
         slug = self.plan()
         self.run_command("preview", slug)
-        self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "Yes.")
+        self.run_command("approve", slug, "--depth", "standard", "--operator-decided")
         # Stage one: awaiting-review. `review packet` is replayed, then the printed `review record`.
         printed = [line.strip() for line in self.run_command("resume", slug)[1].splitlines()
                    if line.strip().startswith("project_manager.py ")]
@@ -417,7 +418,7 @@ class D8ApproveRefusesToOrphanAReview(_Ceremony):
         self.lib.append_revision(slug, document, expected_revision=1)
         self.run_command("preview", slug)
         code, _, err = self.run_command("approve", slug, "--depth", "standard",
-                                        "--operator-decision", "Approve the new revision.")
+                                        "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("would orphan it", err)
         self.assertIn("--delta-judgment scoped", err)
@@ -435,7 +436,7 @@ class D9ShowAndSealDeriveFromOneRefusalSet(_Ceremony):
 
     def test_a_plan_with_nothing_in_the_way_reads_as_ready(self):
         slug = self.reviewed()
-        self.run_command("present-findings", slug, "--operator-decision", "Nothing was found.")
+        self.run_command("present-findings", slug, "--operator-decided")
         self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
         self.assertIn("ready to seal", self.run_command("show", slug)[1])
 
@@ -461,8 +462,8 @@ class D10TheOrphanedApprovalWedgeHasAnInCliRepair(_Ceremony):
                 "--rationale", "Answered in the deliberation.",
                 "--does-not-block-this-pr")[0], 0)
         self.assertEqual(self.run_command(
-            "present-findings", slug, "--operator-decision", "Read both.")[0], 0)
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal it.")[0], 0)
+            "present-findings", slug, "--operator-decided")[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
         self.assertIsNotNone(self.lib.read_record(slug)["seal"])
 
 
@@ -470,59 +471,196 @@ class ConsentGates(_Ceremony):
     """The silent thirty-two-minute ceremony of 2026-08-25, reproduced and refused."""
 
     def test_approve_refuses_without_the_operator_s_recorded_decision(self):
+        # The refusal is the GATE's, not argparse's: it says what the operator is being asked, and
+        # a parser that exited first would leave that sentence unreachable.
         slug = self.plan()
         self.run_command("preview", slug)
-        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-            project_manager.build_parser().parse_args(["approve", slug, "--depth", "standard"])
-
-    def test_an_empty_decision_is_refused_as_firmly_as_a_missing_one(self):
-        slug = self.plan()
-        self.run_command("preview", slug)
-        code, _, err = self.run_command("approve", slug, "--depth", "standard",
-                                        "--operator-decision", "   ")
+        code, _, err = self.run_command("approve", slug, "--depth", "standard")
         self.assertEqual(code, 2)
         self.assertIn("nothing shows the operator was asked", err)
+        self.assertIn("approving this plan and choosing the review depth", err)
+        self.assertIn("--operator-decided", err)
         self.assertIsNone(self.lib.read_record(slug)["approval"])
+
+    def test_every_plan_side_gate_refuses_without_the_switch(self):
+        slug = self.reviewed(self.finding())
+        self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
+        code, _, err = self.run_command("present-findings", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("being shown the panel's outcome", err)
+        self.run_command("present-findings", slug, "--operator-decided")
+        code, _, err = self.run_command("seal", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("sealing this plan, which is terminal", err)
+        self.assertIsNone(self.lib.read_record(slug)["seal"])
+
+    def test_the_retired_words_flag_is_refused_by_the_parser(self):
+        # No verb takes the operator's words any more. A session working from an old runbook meets
+        # argparse, not a gate that quietly records whatever it typed.
+        for argv in (["approve", "x", "--depth", "standard", "--operator-decision", "yes"],
+                     ["present-findings", "x", "--operator-decision", "yes"],
+                     ["seal", "x", "--operator-decision", "yes"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                project_manager.build_parser().parse_args(argv)
 
     def test_seal_refuses_until_the_panel_s_outcome_was_presented(self):
         slug = self.reviewed(self.finding())
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
-        code, _, err = self.run_command("seal", slug, "--operator-decision", "Seal it.")
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
         self.assertEqual(code, 1)
         self.assertIn("has not been presented to the operator", err)
         self.assertIsNone(self.lib.read_record(slug)["seal"])
 
     def test_the_presentation_cannot_precede_the_dispositions_it_reports(self):
         slug = self.reviewed(self.finding())
-        code, _, err = self.run_command("present-findings", slug, "--operator-decision", "Read it.")
+        code, _, err = self.run_command("present-findings", slug, "--operator-decided")
         self.assertEqual(code, 2)
         self.assertIn("Outstanding: ARCH-1", err)
 
-    def test_the_whole_trail_is_recorded_in_the_operator_s_own_words(self):
+    def test_the_whole_trail_is_recorded_as_gate_and_moment(self):
         slug = self.reviewed(self.finding())
         self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
                          "--disposition", "rejected", "--rationale", "No.",
                          "--does-not-block-this-pr")
-        self.run_command("present-findings", slug, "--operator-decision", "I read the one finding.")
-        self.run_command("seal", slug, "--operator-decision", "Ship it.")
+        _, out, _ = self.run_command("present-findings", slug, "--operator-decided")
+        self.assertNotIn("words", out)
+        _, out, _ = self.run_command("seal", slug, "--operator-decided")
+        self.assertNotIn("decision:", out)
         record = self.lib.read_record(slug)
         self.assertEqual([c["gate"] for c in record["consent"]],
                          ["approve", "findings-presented", "seal"])
-        self.assertEqual(record["consent"][-1]["decision"], "Ship it.")
-        trail = plan_lifecycle.consent_trail(record)
-        self.assertTrue(any("Ship it." in line for line in trail))
+        for entry in record["consent"]:
+            self.assertEqual(set(entry), {"gate", "at"})
+        lines = plan_lifecycle.consent_lines(record)
+        self.assertEqual([line.split(" at ")[0] for line in lines],
+                         ["approve", "findings-presented", "seal"])
+        # The presentation has a subject: the review it showed, not only that something was shown.
+        shown = record["findings_presented"]
+        self.assertEqual(shown["packet_digest"], record["plan_review"]["packet_digest"])
+        self.assertEqual(shown["revision"], record["plan_review"]["revision"])
+
+    def test_the_seal_refuses_when_the_approve_gate_left_no_record(self):
+        # The chain checks itself: a record whose approval carries no decision event is one the
+        # approve verb did not write, whatever the approval block says.
+        slug = self.approved("quick")
+        self.lib.update_record(slug, lambda current: current.pop("consent", None))
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
+        self.assertEqual(code, 1)
+        self.assertIn("needs the approve gate's recorded decision first", err)
+        self.assertIsNone(self.lib.read_record(slug)["seal"])
+
+    def test_the_seal_refuses_a_presentation_that_named_a_different_packet(self):
+        slug = self.reviewed(self.finding())
+        self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
+        self.run_command("present-findings", slug, "--operator-decided")
+        self.lib.update_record(
+            slug, lambda current: current["findings_presented"].update(packet_digest="sha256:" + "0" * 64))
+        code, _, err = self.run_command("seal", slug, "--operator-decided")
+        self.assertEqual(code, 1)
+        self.assertIn("does not name the packet this review read", err)
+
+    def test_a_record_written_with_the_operators_words_still_loads_and_seals(self):
+        # Records from before 2026-09-05 carry the text. It is never edited away, never shown, and
+        # never in the way.
+        slug = self.approved("quick")
+        def add_words(current):
+            for entry in current["consent"]:
+                entry["decision"] = "Yes, at that depth, said the operator."
+        self.lib.update_record(slug, add_words)
+        code, out, _ = self.run_command("show", slug)
+        self.assertEqual(code, 0)
+        self.assertIn("operator decisions recorded (gate and moment):", out)
+        self.assertIn("approve at 20", out)
+        self.assertNotIn("said the operator", out)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        record = self.lib.read_record(slug)
+        self.assertEqual(record["consent"][0]["decision"], "Yes, at that depth, said the operator.")
+        self.assertEqual(set(record["consent"][-1]), {"gate", "at"})
+
+    def test_an_exported_bundle_carrying_retired_fields_still_imports(self):
+        # `import` used to validate the raw bundle record before writing, so a bundle exported before
+        # any field retirement was refused outright — and bundles are the operator's only transport
+        # for a plan. It now forward-migrates first, the way the store's own read does.
+        slug = self.reviewed()
+        path = self.tmp / "bundle.json"
+        self.assertEqual(self.run_command("export", slug, "--output", str(path))[0], 0)
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+        bundle["record"]["plan_review"]["delivered_efforts"] = {"architecture": "high"}
+        bundle["record"]["consent"][0]["decision"] = "Approve at standard."
+        bundle["bundle_digest"] = project_manager.core.digest(
+            {"record": bundle["record"], "revisions": bundle["revisions"]})
+        path.write_text(json.dumps(bundle), encoding="utf-8")
+        other = self.tmp / "other-plans"
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = project_manager.main(["--library", str(other), "import", "--bundle", str(path)])
+        self.assertEqual(code, 0, err.getvalue())
+        record = plan_store.PlanLibrary(other).read_record(slug)
+        self.assertNotIn("delivered_efforts", record["plan_review"])
+        self.assertEqual(record["consent"][0]["decision"], "Approve at standard.")
 
     def test_a_depth_with_no_cold_lenses_is_not_asked_to_present_a_panel_that_never_ran(self):
         slug = self.approved("quick")
         self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal it.")[0], 0)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
 
     def test_the_gate_states_plainly_that_it_records_rather_than_proves(self):
         message = plan_lifecycle.missing_consent({}, "seal")
         self.assertIn("a record, not a proof", message)
-        self.assertIn("published in the pull request", message)
+        self.assertIn("--operator-decided", message)
+        self.assertIn("plan show", message)
+        self.assertNotIn("pull request", message)
+
+    def test_an_attestation_is_the_gate_and_the_moment(self):
+        self.assertEqual(plan_lifecycle.attestation("seal", at="2026-09-05T00:00:00Z"),
+                         {"gate": "seal", "at": "2026-09-05T00:00:00Z"})
+        with self.assertRaises(TypeError):
+            plan_lifecycle.attestation("seal", "Ship it.", at="2026-09-05T00:00:00Z")
+
+
+CONSENT_VOCABULARY_SURFACES = (
+    "tools/project_manager.py", "tools/build_coordinator.py", "tools/plan_lifecycle.py",
+    "tools/build_coordinator_contract.py", "operations/build-orchestration.md",
+    "operations/plan-orchestration.md",
+)
+RETIRED_CONSENT_TOKENS = ("--operator-decision", re.compile(r"\boperator_decision\b"),
+                          "actual words", "in their own words")
+
+
+class TheRetiredConsentVocabularyIsGone(unittest.TestCase):
+    """No surface that instructs a session still asks for the operator's words at a gate: the two
+    tools' source (which is where the printed next-step strings argparse never sees live), the two
+    orchestration runbooks, and the templates and conduct files. Keyed on the exact retired tokens
+    rather than on ordinary words, so unrelated prose that says "verbatim" is not a false alarm."""
+
+    def _surfaces(self):
+        engine = Path(project_manager.__file__).resolve().parents[1]
+        paths = [engine / rel for rel in CONSENT_VOCABULARY_SURFACES]
+        paths += sorted((engine / "templates").glob("*.md")) + sorted((engine / "conduct").glob("*.md"))
+        return paths
+
+    def test_no_retired_consent_token_survives(self):
+        hits = []
+        for path in self._surfaces():
+            text = path.read_text(encoding="utf-8")
+            for token in RETIRED_CONSENT_TOKENS:
+                found = token.search(text) if hasattr(token, "search") else (token in text)
+                if found:
+                    hits.append((path.name, getattr(token, "pattern", token)))
+        self.assertEqual(hits, [])
+
+    def test_the_switch_and_the_carrier_rule_are_what_survive(self):
+        engine = Path(project_manager.__file__).resolve().parents[1]
+        for rel in ("operations/build-orchestration.md", "operations/plan-orchestration.md"):
+            text = (engine / rel).read_text(encoding="utf-8")
+            self.assertIn("--operator-decided", text, rel)
+        self.assertIn(plan_lifecycle.CARRIER_RULE, project_manager.seal_handback("pln_0123456789ab"))
 
 
 class D11TheReviewRecordCarriesLensesAndNothingAboutEffort(_Ceremony):
@@ -607,7 +745,7 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
 
     def _sealable(self):
         slug = self.reviewed()
-        self.run_command("present-findings", slug, "--operator-decision", "Nothing was found.")
+        self.run_command("present-findings", slug, "--operator-decided")
         return slug
 
     def test_a_standalone_plan_seals_while_an_unrelated_record_is_unparseable(self):
@@ -617,7 +755,7 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
         self._corrupt(programs, program_slug, "{not json at all")
         self.assertEqual(project_manager.seal_refusals(self.lib, victim), [],
                          "a plan in no program must not be held hostage by someone else's record")
-        code, _, err = self.run_command("seal", victim, "--operator-decision", "Seal")
+        code, _, err = self.run_command("seal", victim, "--operator-decided")
         self.assertEqual(code, 0)
         self.assertIn("worth knowing", err)
         # An unparseable record gets the honest wording: nothing can be read out of it, so whether it
@@ -632,7 +770,7 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
         record["schema_version"] = "engine-program.v99"
         self._corrupt(programs, program_slug, json.dumps(record))
         self.assertEqual(project_manager.seal_refusals(self.lib, victim), [])
-        self.assertEqual(self.run_command("seal", victim, "--operator-decision", "Seal")[0], 0)
+        self.assertEqual(self.run_command("seal", victim, "--operator-decided")[0], 0)
 
     def test_the_owning_plan_still_refuses_when_its_record_fails_its_schema(self):
         slug = self._sealable()
@@ -647,7 +785,7 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
         refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertTrue(refusals, "the plan's OWN broken program must still stop its seal")
         self.assertIn("cannot be read", " ".join(refusals))
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal")[0], 1)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 1)
 
     def test_the_owning_plan_still_refuses_when_its_record_will_not_parse(self):
         # The fail-open. Nothing in the record can say whose it is, so membership rests entirely on
@@ -658,7 +796,7 @@ class D12OneBrokenProgramRecordFrozeEveryPlansSeal(_Ceremony):
         refusals = project_manager.seal_refusals(self.lib, slug)
         self.assertTrue(refusals, "a plan whose own program cannot be parsed must not seal in silence")
         self.assertIn("declares that it belongs to program", " ".join(refusals))
-        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "Seal")[0], 1)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 1)
 
     def test_the_legacy_gap_is_disclosed_rather_than_resolved(self):
         # A child added before the back-link was required, under a record that will not parse, is

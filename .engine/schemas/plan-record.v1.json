@@ -36,6 +36,7 @@
     "approval": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/approval"}]},
     "plan_review": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/plan_review"}]},
     "seal": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/seal"}]},
+    "findings_presented": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/findings_presented"}]},
     "build_binding": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/build_binding"}]},
     "closure": {
       "oneOf": [{"type": "null"}, {"$ref": "#/$defs/closure"}],
@@ -54,7 +55,7 @@
     "consent": {
       "type": "array",
       "items": {"$ref": "#/$defs/attestation"},
-      "description": "The operator decisions recorded at this plan's consent gates, in the order they were made. Additive by construction: an attestation is never edited or removed, because the trail is what the pull request publishes and a trail that could be rewritten would say nothing. It is a RECORD, not a proof — a session that would fabricate one could, and what the gate changes is that silence becomes a discrete published lie rather than an omission nobody can see. Un-forgeability is issue 914's residual. One narrow exception, and only one: a command that itself appended an attestation and then REFUSED to perform the act it attested removes exactly that entry as part of failing — an attested non-event is not a trail entry, and the removal is guarded to touch nothing any other writer recorded."
+      "description": "The operator decisions recorded at this plan's consent gates, in the order they were made, each an event: the gate and the moment. Additive by construction: an attestation is never edited or removed, and a gate checks the gate before it left its entry. Entries written before 2026-09-05 may carry a `decision` text; nothing writes or renders it."
     },
     "amendments": {
       "type": "array",
@@ -99,6 +100,17 @@
       },
       "description": "Bound to a DIGEST, not to the plan: revising the plan retires the approval by construction, because the thing approved no longer exists."
     },
+    "findings_presented": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "packet_digest", "at"],
+      "properties": {
+        "revision": {"type": "integer", "minimum": 1},
+        "packet_digest": {"$ref": "#/$defs/digest"},
+        "at": {"$ref": "#/$defs/timestamp"}
+      },
+      "description": "What the operator was shown at the findings-presented gate: the reviewed revision and the packet the panel read. The gate's decision is the matching `consent` entry; this is its subject, the way `approval` carries the depth."
+    },
     "plan_review": {
       "type": "object",
       "additionalProperties": false,
@@ -135,12 +147,12 @@
     "attestation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["gate", "decision", "at"],
+      "required": ["gate", "at"],
       "properties": {
         "gate": {"enum": ["approve", "findings-presented", "seal", "bind"]},
-        "decision": {"type": "string", "minLength": 1,
-                     "description": "The operator's actual words. Not a checkbox and not a paraphrase: the pull request publishes this verbatim, and a paraphrase is where a consent that was never given starts to look like one that was."},
-        "at": {"$ref": "#/$defs/timestamp"}
+        "at": {"$ref": "#/$defs/timestamp"},
+        "decision": {"type": "string",
+                     "description": "Legacy. Until 2026-09-05 each gate recorded the operator's words here and the pull request republished them; that ceremony was retired (StarshipSuperjam/engine-template#1125). Entries written before then keep the text because an attestation is never edited; nothing writes or renders it now."}
       }
     },
     "amendment": {
