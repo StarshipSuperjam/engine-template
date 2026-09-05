@@ -15,7 +15,7 @@ treated as all of those at once. mcp_test_support.py sits outside the prefix for
 
 WHICH "INSTALLED" THIS ANSWERS. `installed_module_ids` reads presence on disk via the module manifests
 (installed-means-present): a deployment that DECLINED an optional module removes its subtree, so its id
-drops out — the roster-aware signal a test uses to skip a leg that assumes the module is there (#646).
+drops out — the roster-aware signal a test uses to skip a leg that assumes the module is there (StarshipSuperjam/engine-template#646).
 module_surfaces._installed_module_ids and engine_help._installed_module_ids answer a different question —
 what engine.json's `packages` records — and are not copies of this one; do not unify them by name.
 
@@ -41,7 +41,7 @@ NESTED_ENV = "ENGINE_NESTED_SELFTEST"
 # True only where a case may assert against the REAL ambient repo: the construction (home) repo, and not
 # inside a nested or projected run. The deployment gate re-collects test modules inside a projected deployed
 # tree (foreign origin, or an add-on declined), and a case that judges the home repo's own shape must skip
-# there rather than go red against a shape it was never meant to judge (#646). Evaluated once at import,
+# there rather than go red against a shape it was never meant to judge (StarshipSuperjam/engine-template#646). Evaluated once at import,
 # like every copy it replaced: nothing mutates the marker in-process, and the repo identity is fixed for
 # the life of the process.
 CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get(NESTED_ENV)
