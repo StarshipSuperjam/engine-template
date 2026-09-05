@@ -1,10 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "model-bindings.v1 — capability-tier → model/effort bindings for engine personas",
-  "description": "The single committed file that maps a persona's capability tier (model-tier: judgment or mechanical — the name-free demand vocabulary the personas already declare) to the model alias and reasoning effort that realize it, with per-persona overrides. This is how the engine selects models without naming a model in any persona file: personas stay capability-shaped, and which model realizes a tier is the evolving judgment kept HERE, in one place, so retuning for a new model landscape is one file edit re-rendered across every persona. Model values are durable aliases only (opus, sonnet, fable, …), never a versioned id that rots — the pattern rejects digits so a pinned dated id cannot be committed, while the engine names no closed set of aliases (a new model is adopted by changing a value, never the grammar). The per-persona overrides express a mixed-by-lens scheme — a deep or adversarial lens on a stronger model, a systematic lens a tier down — as the operator's tuning. Retuning is the operator's own act: edit this file and re-run agent_bindings.py render.",
+  "title": "model-bindings.v1 \u2014 capability-tier \u2192 model/effort bindings for engine personas",
+  "description": "The single committed file that maps a persona's capability tier (model-tier: judgment or mechanical \u2014 the name-free demand vocabulary the personas already declare) to the model alias and reasoning effort that realize it, with per-persona overrides. This is how the engine selects models without naming a model in any persona file: personas stay capability-shaped, and which model realizes a tier is the evolving judgment kept HERE, in one place, so retuning for a new model landscape is one file edit re-rendered across every persona. Model values are durable aliases only (opus, sonnet, fable, \u2026), never a versioned id that rots \u2014 the pattern rejects digits so a pinned dated id cannot be committed, while the engine names no closed set of aliases (a new model is adopted by changing a value, never the grammar). The per-persona overrides express a mixed-by-lens scheme \u2014 a deep or adversarial lens on a stronger model, a systematic lens a tier down \u2014 as the operator's tuning. Retuning is the operator's own act: edit this file and re-run agent_bindings.py render.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "tiers"],
+  "required": [
+    "schema_version",
+    "tiers"
+  ],
   "properties": {
     "schema_version": {
       "description": "Which version of this file's shape this is. Today the only valid value is 1.",
@@ -14,61 +17,78 @@
       "description": "The default binding for each capability tier. Both tiers are always present: judgment (careful reasoning) and mechanical (bounded work). A persona with no override inherits its tier's binding.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["judgment", "mechanical"],
+      "required": [
+        "judgment",
+        "mechanical"
+      ],
       "properties": {
-        "judgment": { "$ref": "#/$defs/binding" },
-        "mechanical": { "$ref": "#/$defs/binding" }
+        "judgment": {
+          "$ref": "#/$defs/binding"
+        },
+        "mechanical": {
+          "$ref": "#/$defs/binding"
+        }
       }
     },
     "overrides": {
-      "description": "Per-persona bindings, keyed by the persona's name (its .claude/agents/<name>.md slug). An override wins over the persona's tier default — this is how a specific lens is tuned to a stronger or cheaper model without changing its declared capability tier. A key that names no installed persona is a stale override, caught by the agent-bindings coherence test.",
+      "description": "Per-persona bindings, keyed by the persona's name (its .claude/agents/<name>.md slug). An override wins over the persona's tier default \u2014 this is how a specific lens is tuned to a stronger or cheaper model without changing its declared capability tier. A key that names no installed persona is a stale override, caught by the agent-bindings coherence test.",
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/override_binding" }
-    },
-    "implementation_classes": {
-      "description": "Per-provider model/effort bindings for the DAG Build's DISPATCHED worker classes — the source of truth the coordinator renders into a worker's route and into the worker personas. This is a SEPARATE axis from the review `tiers`: reviewer personas resolve a name-free demand tier (judgment|mechanical) to one model, while a dispatched worker resolves its implementation class (builder|bounded) to a per-PROVIDER model+effort, because Claude and Codex realize the same class with different frontier/efficient models. The `integrator` class is never dispatched (it is the current senior session, so it carries no fixed binding here). A worker model alias MAY carry digits/dots (a provider-native family name like gpt-5.6-terra), so it uses its own grammar — the review `binding` anti-rot pattern is deliberately left untouched. Optional: a deployment with no DAG worker packs need not declare it.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "builder": { "$ref": "#/$defs/implementation_binding" },
-        "bounded": { "$ref": "#/$defs/implementation_binding" }
+      "additionalProperties": {
+        "$ref": "#/$defs/override_binding"
       }
     },
-    "review_depths": {
-      "description": "The per-depth reviewer EFFORT the operator's review-depth choice scales — the single depth dial (StarshipSuperjam/engine-template#677). Each present depth carries ONE effort applied uniformly to the reviewers that depth runs; there is deliberately NO model dimension here, because depth scales effort (thoroughness/token spend) while MODEL stays matched per-lens to each lens's nature via `tiers`+`overrides`, stable across depths — stepping both at once would double-cut the middle tier toward Quick. `quick` carries no entry (it runs no cold reviewers). `thorough` is the anchor (high, so it is a zero-regression identity with today's stamped effort); `standard` steps effort down. On Claude the depth effort is realized by the session --effort governing the un-pinned reviewer roles; on Codex by spawning each cold reviewer as a non-full-history fork (fork_turns=\"none\") with reasoning_effort set from the depth (the un-pinned twin bakes no model_reasoning_effort). Optional: absent, the depth passes no effort, so reviewers run at their un-pinned default (Claude Code's session default; the Codex fork carries none). Operators retune these values through the preserved operator-review-effort override, which survives an engine update.",
+    "implementation_classes": {
+      "description": "Per-provider model/effort bindings for the DAG Build's DISPATCHED worker classes \u2014 the source of truth the coordinator renders into a worker's route and into the worker personas. This is a SEPARATE axis from the review `tiers`: reviewer personas resolve a name-free demand tier (judgment|mechanical) to one model, while a dispatched worker resolves its implementation class (builder|bounded) to a per-PROVIDER model+effort, because Claude and Codex realize the same class with different frontier/efficient models. The `integrator` class is never dispatched (it is the current senior session, so it carries no fixed binding here). A worker model alias MAY carry digits/dots (a provider-native family name like gpt-5.6-terra), so it uses its own grammar \u2014 the review `binding` anti-rot pattern is deliberately left untouched. Optional: a deployment with no DAG worker packs need not declare it.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "standard": { "$ref": "#/$defs/depth_effort" },
-        "thorough": { "$ref": "#/$defs/depth_effort" }
+        "builder": {
+          "$ref": "#/$defs/implementation_binding"
+        },
+        "bounded": {
+          "$ref": "#/$defs/implementation_binding"
+        }
       }
     }
   },
   "$defs": {
     "override_binding": {
-      "description": "One persona's override. The MODEL is required; the effort is OPTIONAL, and the three reviewer overrides deliberately omit it. A reviewer persona carries no effort frontmatter by design \u2014 the operator's review-depth choice scales reviewer effort at launch \u2014 so an effort named here had nothing to ride on, and the bindings file was asserting something the Claude arm could not deliver (StarshipSuperjam/engine-template#1067). Where an effort IS genuinely stamped, an override that omits one falls back to the persona's tier effort rather than un-pinning it.",
+      "description": "One persona's override. The MODEL is required; the effort is OPTIONAL, and the three reviewer overrides deliberately omit it: a reviewer persona carries no effort frontmatter because effort is not part of the review contract, so an effort here would have nothing to ride on. An override without an effort keeps its tier's effort (workers).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["model"],
+      "required": [
+        "model"
+      ],
       "properties": {
-        "model": { "$ref": "#/$defs/binding/properties/model" },
-        "effort": { "$ref": "#/$defs/binding/properties/effort" }
+        "model": {
+          "$ref": "#/$defs/binding/properties/model"
+        },
+        "effort": {
+          "$ref": "#/$defs/binding/properties/effort"
+        }
       }
     },
     "binding": {
       "description": "One model + effort pairing that realizes a capability demand.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["model", "effort"],
+      "required": [
+        "model",
+        "effort"
+      ],
       "properties": {
         "model": {
-          "description": "A durable model alias — lowercase letters and hyphens only, NO digits, so a versioned id that rots (claude-opus-4-20250101) cannot be committed while any durable alias (opus, sonnet, haiku, fable) is accepted. The engine names no closed set of aliases.",
+          "description": "A durable model alias \u2014 lowercase letters and hyphens only, NO digits, so a versioned id that rots (claude-opus-4-20250101) cannot be committed while any durable alias (opus, sonnet, haiku, fable) is accepted. The engine names no closed set of aliases.",
           "type": "string",
           "pattern": "^[a-z]+(-[a-z]+)*$"
         },
         "effort": {
           "description": "The reasoning-effort level that, with the model, realizes the tier. A bounded platform concept.",
-          "enum": ["low", "medium", "high"]
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
         }
       }
     },
@@ -76,38 +96,40 @@
       "description": "One implementation class's bindings, one per provider. Both providers are present so a class renders explicitly for Claude and Codex from a single source, rather than one provider silently inheriting a frontier default.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["claude", "codex"],
+      "required": [
+        "claude",
+        "codex"
+      ],
       "properties": {
-        "claude": { "$ref": "#/$defs/provider_binding" },
-        "codex": { "$ref": "#/$defs/provider_binding" }
+        "claude": {
+          "$ref": "#/$defs/provider_binding"
+        },
+        "codex": {
+          "$ref": "#/$defs/provider_binding"
+        }
       }
     },
     "provider_binding": {
       "description": "One provider-native model + effort pairing for a dispatched worker class. Unlike the review `binding`, the model alias MAY carry digits/dots so a provider-native family name (gpt-5.6-terra) is expressible; it remains an operator-tunable alias, not a dated snapshot id.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["model", "effort"],
+      "required": [
+        "model",
+        "effort"
+      ],
       "properties": {
         "model": {
-          "description": "A provider-native model alias — lowercase alphanumerics separated by hyphen or dot (e.g. sonnet, haiku, gpt-5.6-terra). Digits are permitted here, unlike the review binding grammar.",
+          "description": "A provider-native model alias \u2014 lowercase alphanumerics separated by hyphen or dot (e.g. sonnet, haiku, gpt-5.6-terra). Digits are permitted here, unlike the review binding grammar.",
           "type": "string",
           "pattern": "^[a-z0-9]+([.-][a-z0-9]+)*$"
         },
         "effort": {
           "description": "The reasoning-effort level for this worker class.",
-          "enum": ["low", "medium", "high"]
-        }
-      }
-    },
-    "depth_effort": {
-      "description": "One review depth's reasoning effort — the single value the depth applies to the reviewers it runs. No model dimension (model stays the per-lens tiers+overrides at every depth). The enum is the review effort range; xhigh/max are deliberately not offered here — the three depths need no more, and holding to low/medium/high keeps the value valid as a Codex model_reasoning_effort too.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["effort"],
-      "properties": {
-        "effort": {
-          "description": "The reasoning-effort level this depth runs its reviewers at.",
-          "enum": ["low", "medium", "high"]
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
         }
       }
     }

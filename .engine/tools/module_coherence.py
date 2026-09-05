@@ -161,14 +161,10 @@ OPERATOR_CONFIG = {".engine/operator-overrides.json", ".engine/operator-guarded-
                    # provides and survives overlays: an explicit opt-out is the operator's durable choice, and
                    # a malformed file fails closed in checkout_auto_update rather than falling back to enabled.
                    ".engine/operator-checkout.json",
-                   # Per-deployment review-depth EFFORT retune (.engine/operator-review-effort.json, read by
-                   # operator_review_effort.py — StarshipSuperjam/engine-template#677). Preserved by being outside
-                   # every module's `provides`, so a deployment's depth-effort tuning survives an engine update
-                   # while the shipped `review_depths` defaults still upgrade. DELIBERATELY carries NO dedicated
-                   # engine/check/operator-* shape gate, unlike operator-guarded-paths / operator-local-references:
-                   # its reader degrades a malformed slice to the SHIPPED default (the strong anchor), the safe
-                   # direction, so a missing shape check cannot silently weaken review — same rationale as
-                   # operator-overrides.json, which likewise carries none.
+                   # A preserved operator-authored file that nothing reads: a deployment that once retuned a
+                   # review depth through it still carries it. It stays registered here so it is neither an
+                   # orphan to the ownership leg, nor clobbered by the update overlay, nor classified as
+                   # public by the contribution filter. It carries no shape gate; nothing consumes it.
                    ".engine/operator-review-effort.json",
                    ".engine/conduct/operator.md",
                    ".engine/provisioning/conduct-seed.md", ".engine/provisioning/security-seed.md",
