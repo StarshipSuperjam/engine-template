@@ -1,0 +1,5 @@
+{
+  "env": {
+    "ENGINE_MODEL_ROUTING_PATH": ".engine/_fixtures/model-routing/malformed-routing.json"
+  }
+}

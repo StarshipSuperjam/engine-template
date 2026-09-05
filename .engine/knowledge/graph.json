@@ -536,6 +536,34 @@
       "type": "check"
     },
     {
+      "id": "check:build-protocol",
+      "kind": "custom/script",
+      "name": ".engine/check/build-protocol.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:build_protocol_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "build-protocol",
+      "source": {
+        "fingerprint": "sha256:5d50b611b3fa6afe8f9552471314d6150bfd235d69696563368b7056882b0e43",
+        "path": ".engine/check/build-protocol.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:catalog-completeness",
       "kind": "custom/script",
       "name": ".engine/check/catalog-completeness.json",
@@ -1509,6 +1537,34 @@
       "type": "check"
     },
     {
+      "id": "check:lane-removed",
+      "kind": "custom/script",
+      "name": ".engine/check/lane-removed.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:lane_removed_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "lane-removed",
+      "source": {
+        "fingerprint": "sha256:ba2cd125eb3799838376408a7705511cdbebb7e86449e333316ed732762757d2",
+        "path": ".engine/check/lane-removed.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
       "id": "check:lens-consumption",
       "kind": "custom/script",
       "name": ".engine/check/lens-consumption.json",
@@ -1526,7 +1582,7 @@
       },
       "slug": "lens-consumption",
       "source": {
-        "fingerprint": "sha256:de152ab442e2a9efb0939252967e0e806d4cdce6ebd81383641f45128eeb68f7",
+        "fingerprint": "sha256:a6fec3eae1eb88c95e67a92c8a0efb449b72144ffcdcb41feffa3b4ad2fe453e",
         "path": ".engine/check/lens-consumption.json"
       },
       "status": "active",
@@ -1667,6 +1723,34 @@
       "source": {
         "fingerprint": "sha256:8f9639a99dd35a98c3e275fceb55fb63835b3f1543225d5cf08f2b8fcbbe9af0",
         "path": ".engine/check/model-bindings-schema.json"
+      },
+      "status": "active",
+      "suites": [
+        "CI"
+      ],
+      "tier": "hard",
+      "type": "check"
+    },
+    {
+      "id": "check:model-routing",
+      "kind": "custom/script",
+      "name": ".engine/check/model-routing.json",
+      "owner": "validators-core",
+      "predicates": {
+        "enforced_by": [
+          "tool:model_routing_check"
+        ],
+        "governed_by": [
+          "schema:check.v1"
+        ],
+        "provided_by": [
+          "module:validators-core"
+        ]
+      },
+      "slug": "model-routing",
+      "source": {
+        "fingerprint": "sha256:efab6b7b5aad06afff8a3976095adfbcbe14a8387cf9554630172805c69c31ee",
+        "path": ".engine/check/model-routing.json"
       },
       "status": "active",
       "suites": [
@@ -1891,7 +1975,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:e057813111a626c0b9809789ddf096cc42713145402b63065b625a6fd526c24c",
+        "fingerprint": "sha256:c5816dad6a4114dcb029f1b45d9a7530b5d90bf6455af5b8b5aa31a4dc3e6c3b",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5161,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:ffc687e78658014e5311abd6c619021fcf802ac15aebeb8d3b8fc8f0570e8a05",
+        "fingerprint": "sha256:7f0841c85958c7256e6e484b7c54a76d5a79e800522ea5931d35a84c769aadce",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5402,7 +5486,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2254f5a71a9c8baf048bee33cbeb87c9c178368774ae0c0fa1899bd7e3e0999e",
+        "fingerprint": "sha256:f0e3b7ca9b5a67f1f0fec3ed81f1e743a22f79692181f9ca7a50ef047e8b612f",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5612,7 +5696,7 @@
       },
       "slug": "validators-core",
       "source": {
-        "fingerprint": "sha256:02d1fcd804cc361947831732bbd945f0ad90140f4be461e3ca900ee12f28135e",
+        "fingerprint": "sha256:0e8fcd1c64ad4e8a1fedce23a067af8db97ef5e320f0ad1d2b0f1ec470923057",
         "path": ".engine/modules/validators-core/manifest.json"
       },
       "status": "required",
@@ -5673,7 +5757,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:3c39cc6848ddf218aa5140d005eddf2b077ec36d2b68c81c3733a62fa4f9898e",
+        "fingerprint": "sha256:20ba477cafbc3f79847359155910d980c85e41219cb73adc6aa944f0afcc2ada",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -5733,7 +5817,7 @@
       },
       "slug": "build-work-dispatch",
       "source": {
-        "fingerprint": "sha256:31393fba2a159ebb977dfdca596c71e2bd10319bef87bc754f2ed2a8af3d2771",
+        "fingerprint": "sha256:82e947a3fd6e0ac6ffda558bd6dbc9c6df21ec0445b09cdc9195378e721b1f2d",
         "path": ".engine/operations/build-work-dispatch.md"
       },
       "status": "active",
@@ -5813,7 +5897,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:f90b8cf8df208e6661dfd1fd9d9f9dad28f896e4d04143d920ddbb6534c67b7c",
+        "fingerprint": "sha256:4555e1d68250d9108b0fd3b4d6a8a0471acbca4a1b259fc5b852d3098bf15dfb",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -5913,7 +5997,7 @@
       },
       "slug": "engine-development",
       "source": {
-        "fingerprint": "sha256:adae6eb42f8afb1d9b205da5e45e88ae2ec45102f7be8b4e1ed3d6208c8916b5",
+        "fingerprint": "sha256:6d128832c5430bf086520bb43601538d73c732dacdecc2ec69d1e2d8326b408b",
         "path": ".engine/operations/engine-development.md"
       },
       "status": "active",
@@ -6033,7 +6117,7 @@
       },
       "slug": "external-contribution-submit",
       "source": {
-        "fingerprint": "sha256:dbf6776f16b6c4627eca749356b8d048947dc9efa18687968ae4ae127e959225",
+        "fingerprint": "sha256:4e9e220e3ef51bc7c7c42da1b6feabead39ba5653ea4149f7cbab11f65bcdcea",
         "path": ".engine/operations/external-contribution-submit.md"
       },
       "status": "active",
@@ -6053,7 +6137,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:499d9a27016e00059e89e404d6f82b736932b52787353229229431b6f3fe9568",
+        "fingerprint": "sha256:dbc57861cb39ae763690ac360255386ea7e3a10197afde3ec09dc7687006f4e8",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -6113,7 +6197,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:9fb3ec6ccbe16427e623561fa6bcec7e6ef28c1f940132cce5b5acf8cf2b1edf",
+        "fingerprint": "sha256:c9990201e55cc7b72dec7b7f05819454fd666fb370af49f877dc005411c493c0",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -6273,7 +6357,7 @@
       },
       "slug": "program-orchestration",
       "source": {
-        "fingerprint": "sha256:764f3a3390a0e1e1b470d7cfb801674f01fc5bbaaf10d3d8047b7b60e6736373",
+        "fingerprint": "sha256:bc98f42e7a3c6e8409a151ac804595362cbf8f3442cd2786c04c79e24f0a32da",
         "path": ".engine/operations/program-orchestration.md"
       },
       "status": "active",
@@ -6560,11 +6644,31 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:156a3651697e8188a450dd05df32b24bd676872b8d88c36d79449b0a4a0104e5",
+        "fingerprint": "sha256:35714e3b622463577b91efb2bb6544ac5448a6ec16d74a839576ce16144beaa8",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
       "title": "Model routing and execution posture",
+      "type": "policy"
+    },
+    {
+      "id": "policy:model-routing-postures",
+      "name": ".engine/policies/model-routing-postures.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model-routing-postures",
+      "source": {
+        "fingerprint": "sha256:9c69e9ea62d2f3556d436c2a4374877c5ddab8399025cdca23b3963c6cc8554e",
+        "path": ".engine/policies/model-routing-postures.json"
+      },
+      "status": "active",
       "type": "policy"
     },
     {
@@ -6869,7 +6973,7 @@
       },
       "slug": "build-protocol.v1",
       "source": {
-        "fingerprint": "sha256:d05156983cc1de87856397d1b7fc76d3e89389a68ba0dc448336b7ebd682ac52",
+        "fingerprint": "sha256:f8470d2655ef498fd37665bafe8e8aa26f76271cdaa6e8ecd525ee34ce216fe7",
         "path": ".engine/schemas/build-protocol.v1.json"
       },
       "status": "active",
@@ -6920,7 +7024,7 @@
       },
       "slug": "check.v1",
       "source": {
-        "fingerprint": "sha256:da2776bea46ea527ea44db3c39e8b25b46923571a624826be24fe10cb1f0c71a",
+        "fingerprint": "sha256:b24b913cd5a7b74fac64e5213476f34556d042ff0f16e8068851c408a5e087e6",
         "path": ".engine/schemas/check.v1.json"
       },
       "status": "active",
@@ -7245,6 +7349,23 @@
       "source": {
         "fingerprint": "sha256:fb5e97d6c775e5d8582711cdca9b49cc5314be7dbc956c5de01c1d56fb52518b",
         "path": ".engine/schemas/model-bindings.v1.json"
+      },
+      "status": "active",
+      "type": "schema"
+    },
+    {
+      "id": "schema:model-routing.v1",
+      "name": ".engine/schemas/model-routing.v1.json",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model-routing.v1",
+      "source": {
+        "fingerprint": "sha256:42dcbc95cf7d230ea6d1336a93154cc7dc06bfac89d3699e75e944c1c1b9f85f",
+        "path": ".engine/schemas/model-routing.v1.json"
       },
       "status": "active",
       "type": "schema"
@@ -9140,34 +9261,6 @@
       "type": "tool"
     },
     {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:audit_soft_promote",
-      "name": ".engine/tools/audit_soft_promote.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:issue_author",
-          "tool:knowledge_query",
-          "tool:module_coherence",
-          "tool:moment",
-          "tool:telemetry",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "audit_soft_promote",
-      "source": {
-        "fingerprint": "sha256:e4e7e496f657798140f57b22bbc47382090daade251be648ce09256ee83b1802",
-        "path": ".engine/tools/audit_soft_promote.py"
-      },
-      "status": "active",
-      "summary": "Promote a standing length-budget soft finding to a tracked engine Issue (issue StarshipSuperjam/engine-template#273 half 2).",
-      "type": "tool"
-    },
-    {
       "entrypoint": "hook",
       "guarded": false,
       "id": "tool:backup_vault",
@@ -9277,7 +9370,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e6534c04cf4b57d8b34ed751322128a306989ed53340506eff2d0661e1e8d826",
+        "fingerprint": "sha256:462eae9f27eb2674498408db6c3d74575e9b98df942e151e73a36c7ad1a0805e",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -9381,6 +9474,7 @@
           "tool:build_coordinator_review",
           "tool:build_coordinator_spec",
           "tool:build_coordinator_work",
+          "tool:build_protocol",
           "tool:build_review_range",
           "tool:build_state_store",
           "tool:ci_gatekeeper",
@@ -9405,7 +9499,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:1c57d184a1957d6a5fac4d77d3259b8590ea38a3054173686136c3ed2cfeea9c",
+        "fingerprint": "sha256:65c95bd434958486d0eb5db712b5a8ce5dab91ed9b6e7860c846544e713b59be",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9597,6 +9691,55 @@
       },
       "status": "active",
       "summary": "Attempt machinery for the DAG Build coordinator: bounded packets, claims, results, routing.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:build_protocol",
+      "name": ".engine/tools/build_protocol.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:project_manager",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_protocol",
+      "source": {
+        "fingerprint": "sha256:43bebf06cd3c0bae6eab1afbf29b93e364c196edead3daf16407de5005e0ce31",
+        "path": ".engine/tools/build_protocol.py"
+      },
+      "status": "active",
+      "summary": "build_protocol.py — the ONE loader for `.engine/build-protocol.json`, and the projection of its",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:build_protocol_check",
+      "name": ".engine/tools/build_protocol_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:agent_coherence_check",
+          "tool:build_protocol",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "build_protocol_check",
+      "source": {
+        "fingerprint": "sha256:6f45f9587aa06e26e33706181944b4fdd23fb0be32cfbe160e96ec8bf41439ff",
+        "path": ".engine/tools/build_protocol_check.py"
+      },
+      "status": "active",
+      "summary": "build_protocol_check.py — the custom/script entry for engine/check/build-protocol.",
       "type": "tool"
     },
     {
@@ -9855,7 +9998,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:b9b4dcd1981d1d3ff7f1fb73f16d030b3be6f158d6b1185220f7fc9c7daec51a",
+        "fingerprint": "sha256:64227439c814749d6daf586df9e870c822ed392e344d18be29c913577f860b52",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10174,7 +10317,6 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:audit_soft_promote",
           "tool:github_client",
           "tool:issue_author",
           "tool:moment",
@@ -10189,7 +10331,7 @@
       },
       "slug": "conformance_sweep",
       "source": {
-        "fingerprint": "sha256:09477282786f1f5fa2bebda8e9e91816021346ca214fef74b43e43ae9c2ce46d",
+        "fingerprint": "sha256:bd3be4f6d78a9be634e8825dfada472bb36a21b0a68571bff6ecdf515edaa7cb",
         "path": ".engine/tools/conformance_sweep.py"
       },
       "status": "active",
@@ -10684,31 +10826,6 @@
       },
       "status": "active",
       "summary": "Behavioral demo (issue #273 half 2): prove the audit soft-findings FEED surfaces a real firing",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
-      "id": "tool:demo_audit_soft_promote",
-      "name": ".engine/tools/demo_audit_soft_promote.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:audit_soft_promote",
-          "tool:telemetry",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_audit_soft_promote",
-      "source": {
-        "fingerprint": "sha256:9bd26fca1ee2814f270088b315243667b439f6dc0457a52ef6d6536f58802147",
-        "path": ".engine/tools/demo_audit_soft_promote.py"
-      },
-      "status": "active",
-      "summary": "Behavioral demo for the soft-finding promoter (issue #273 half 2): a STANDING length-budget",
       "type": "tool"
     },
     {
@@ -12115,7 +12232,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:352592ab6f85cc4f121fa10935c852aba05c21b8840e153fedc07e4a0ad040f0",
+        "fingerprint": "sha256:55bc44ca0518e5dd0c9c46e6919f8d0ad37d30599d67513018b40725236b7f62",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -12501,7 +12618,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:25ff8e71048390417e9c5897a1bdf14e87270803b8f9d335415b7a3bbace3e5c",
+        "fingerprint": "sha256:6f944ff651dd135f87cb223a04492275d429938278c211cb41a626e0a6d1d237",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12893,6 +13010,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:lane_removed_check",
+      "name": ".engine/tools/lane_removed_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:agent_coherence_check",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "lane_removed_check",
+      "source": {
+        "fingerprint": "sha256:526441e13806e27d82a6bbf2771647c7bc68d172c19a0e07366586d085db5abd",
+        "path": ".engine/tools/lane_removed_check.py"
+      },
+      "status": "active",
+      "summary": "lane_removed_check.py — the custom/script entry for engine/check/lane-removed.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:ledger",
@@ -12994,6 +13135,7 @@
       "predicates": {
         "imports": [
           "tool:agent_coherence_check",
+          "tool:build_protocol",
           "tool:validate"
         ],
         "provided_by": [
@@ -13002,7 +13144,7 @@
       },
       "slug": "lens_consumption_check",
       "source": {
-        "fingerprint": "sha256:884397ddd3a536815512ced0a6f48528b2e95d73a3ee69fe44b97a692f122cff",
+        "fingerprint": "sha256:456ced50a080f5c0fbfa71c55997badd1385352739949f9a3c1a63f2255cbcf0",
         "path": ".engine/tools/lens_consumption_check.py"
       },
       "status": "active",
@@ -13294,6 +13436,31 @@
       },
       "status": "active",
       "summary": "Emit a project's build phases as native GitHub Milestones, from a product-design build order.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "ci",
+      "guarded": true,
+      "id": "tool:model_routing_check",
+      "name": ".engine/tools/model_routing_check.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:agent_coherence_check",
+          "tool:execution_environment",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model_routing_check",
+      "source": {
+        "fingerprint": "sha256:ada270af6390bb769f75993091f40063d0ee981c222ef95b1b7994e2f9951e5c",
+        "path": ".engine/tools/model_routing_check.py"
+      },
+      "status": "active",
+      "summary": "model_routing_check.py — the custom/script entry for engine/check/model-routing.",
       "type": "tool"
     },
     {
@@ -15451,7 +15618,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:087022f033626f9d428265f2344057f94d87b2280441812c029470b27b8aeb7b",
+        "fingerprint": "sha256:e0691146d0c81e24e2a3feb3c8385dfcf98a0558186782961a9c0a4da828d294",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -15702,7 +15869,7 @@
       },
       "slug": "test_audit_prep",
       "source": {
-        "fingerprint": "sha256:b0c43a93f8b0f42bdb7185fcf81abaa52d3a77943a97a5806a8605cba41427a0",
+        "fingerprint": "sha256:e3ea1efb8b9b2a867d8180df36b0524845caa170bcd031e319cce783bdbb59b8",
         "path": ".engine/tools/test_audit_prep.py"
       },
       "status": "active",
@@ -15731,33 +15898,6 @@
       },
       "status": "active",
       "summary": "Self-tests for the audit soft-findings feed (issue #273 half 2): it renders the currently-",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_audit_soft_promote",
-      "name": ".engine/tools/test_audit_soft_promote.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:audit_soft_promote",
-          "tool:module_coherence",
-          "tool:quiet_call",
-          "tool:telemetry",
-          "tool:validate"
-        ]
-      },
-      "slug": "test_audit_soft_promote",
-      "source": {
-        "fingerprint": "sha256:80e5d038bcc119e9f5f2c82d90090929d5c1b7a0aff784dbbe931c00f67f973e",
-        "path": ".engine/tools/test_audit_soft_promote.py"
-      },
-      "status": "active",
-      "summary": "Self-tests for the soft-finding promoter (issue #273 half 2): it turns a STANDING length-budget",
       "type": "tool"
     },
     {
@@ -16169,6 +16309,31 @@
       },
       "status": "active",
       "summary": "Tests for the DAG work verbs: packets, claims, results, and provider routing.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_build_protocol",
+      "name": ".engine/tools/test_build_protocol.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:build_protocol",
+          "tool:build_protocol_check",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_build_protocol",
+      "source": {
+        "fingerprint": "sha256:3290299ff256d9c7ed7601e8f73eeaa2ade0d6e84279cdf9c367573c5dd8ebb0",
+        "path": ".engine/tools/test_build_protocol.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the Build protocol loader (build_protocol.py) and its merge check (build_protocol_check.py):",
       "type": "tool"
     },
     {
@@ -17108,12 +17273,13 @@
         "tests": [
           "tool:boot",
           "tool:execution_environment",
+          "tool:model_routing_check",
           "tool:validate"
         ]
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:433ef19d88c378bd4ff00963d7981acfb6335ec0990f2975c550b3d541436a65",
+        "fingerprint": "sha256:e7a481f31c67f2549936d28e777daf539638e40d48d0b4a785c04d308463d0aa",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
@@ -17341,7 +17507,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:4e1136444118d34bc79b1ec5b6bcdd344d9ba1f45144fa5413a8b3694fcd8f31",
+        "fingerprint": "sha256:94ea3fd78535a43010c54180270ddfcbed5a186cf55265345b4881c4f2c890b0",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -17842,6 +18008,32 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_lane_removed_check",
+      "name": ".engine/tools/test_lane_removed_check.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:conformance_sweep",
+          "tool:lane_removed_check",
+          "tool:telemetry",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_lane_removed_check",
+      "source": {
+        "fingerprint": "sha256:db49d9ecc15b8b20fc6cbedbb407f552df3c41f0486997b2db9c511ae991577f",
+        "path": ".engine/tools/test_lane_removed_check.py"
+      },
+      "status": "active",
+      "summary": "Tests for engine/check/lane-removed (typed-lifecycle part C, StarshipSuperjam/engine-template#821): the length-budget promotion",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_launch_contract",
       "name": ".engine/tools/test_launch_contract.py",
       "owner": "core",
@@ -17950,13 +18142,14 @@
         ],
         "tests": [
           "tool:agent_coherence_check",
+          "tool:build_protocol",
           "tool:lens_consumption_check",
           "tool:validate"
         ]
       },
       "slug": "test_lens_consumption",
       "source": {
-        "fingerprint": "sha256:8f8cb69042e8da4fdb33e2215e288d42a0e7f40c4bace00b9a28acd62b34a9a8",
+        "fingerprint": "sha256:addbf542974caa148bb5109c15d766d1eaa3f16bb49135697534d6555897df9e",
         "path": ".engine/tools/test_lens_consumption.py"
       },
       "status": "active",
@@ -18335,7 +18528,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:1b4394ed41ea41b5fa3f328262f360910a143ee8df2144a5707e03ebf0fb2016",
+        "fingerprint": "sha256:4eb9ce0962b1ab0df34dc5e601c7d842d26137d8d217fa23c150640b0e89132e",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18492,11 +18685,34 @@
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:5ea61bd4c47cc9454267f43e98bde4f23ccdf87eaf3c8a9434e38bd8630cdbc5",
+        "fingerprint": "sha256:56764ea00ea38f1e8ccd0ff6a0359c8ce1e83905cd8e9bf4ca159e801c44fdb8",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
       "summary": "Self-tests for the operation surface: the operation.v1 runbook-frontmatter grammar, the",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_operation_length",
+      "name": ".engine/tools/test_operation_length.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:validate"
+        ]
+      },
+      "slug": "test_operation_length",
+      "source": {
+        "fingerprint": "sha256:958560eb28fce4f01a619b3df55800bc3ada09378bb4ab680c23dae1a7492df5",
+        "path": ".engine/tools/test_operation_length.py"
+      },
+      "status": "active",
+      "summary": "Line-budget conformance for the operation runbooks under .engine/operations/ (the length tier that the",
       "type": "tool"
     },
     {
@@ -19112,12 +19328,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_protocol",
           "tool:validate"
         ]
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:1437bc49a38aff580255e87f0020c4fd225b348703c7f1857b8c1b9f8155de61",
+        "fingerprint": "sha256:3be79cf6dcc0a852cb1c3c22464fb37eb7af005193170cbfef80975fdabd9f19",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
@@ -20815,13 +21032,15 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_protocol",
+          "tool:execution_environment",
           "tool:github_client",
           "tool:validate"
         ]
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:36e6bdd7f1b639f442125e115b77e20cedd0bb3583b75ce3091a21b2aa68e1aa",
+        "fingerprint": "sha256:ef75daf0f69cb08f4ae0a582d21cf707b5ccc960876d5e125add589aec5f1e1e",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -21218,7 +21437,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:a5de6602f253f4c68928a16d7a466e41ea0575acf7c62b9d1c861c610be0b0f2",
+        "fingerprint": "sha256:d57da7a839637590ceb03468d5e8d96c7d393cbe71a52886f4d2235bb7cc996e",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

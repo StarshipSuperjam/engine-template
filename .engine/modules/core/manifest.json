@@ -119,6 +119,7 @@
       ".engine/policies/escalation.md",
       ".engine/policies/finding-disposition.md",
       ".engine/policies/model-bindings.json",
+      ".engine/policies/model-routing-postures.json",
       ".engine/policies/model-routing.md",
       ".engine/policies/session-economy.md",
       ".engine/policies/supported-upgrade-matrix.md",

@@ -11,6 +11,7 @@ These tests prove (1) `import validate` and its path constants work with yaml+js
 (2) when the packages ARE present the lazy symbols and the frontmatter/schema paths behave exactly as before.
 """
 import contextlib
+import glob
 import io
 import json
 import os
@@ -546,6 +547,167 @@ class TestAmbientWriter(unittest.TestCase):
             d = validate._accept_handler(edit)
         cap.assert_called_once()                                            # the ambient relay fired
         self.assertEqual(d.get("action"), "proceed")                       # ...and it stays proceed/inject only
+
+
+class TestShapeLengthTier(unittest.TestCase):
+    """The shape kind's LENGTH budget bites at the rule's `length_tier` — soft unless the rule opts in — counts
+    prose only (frontmatter, closed fences and closed REGISTERED generated regions excluded; anything that only
+    looks like an exclusion counts and is a hard finding), and interpolates the budget and the tier into the
+    rule's message from their sources (typed-lifecycle part C, StarshipSuperjam/engine-template#821; the
+    registry and the anomalies answer the deliverable review's finding that an unregistered or unclosed marker
+    could switch the budget off from inside the governed file)."""
+
+    PARAMS = {"required_sections": ["Purpose", "Steps", "Done when"], "allowed_sections": ["Notes"],
+              "length_budget": 4}
+    OK = "## Purpose\n\n## Steps\n\n## Done when\n"                      # 5 prose lines: over a 4-line budget
+    FENCED = ("---\ntitle: t\n---\n## Purpose\n```text\nfence one\nfence two\nfence three\n```\n"
+              "## Steps\n## Done when\n")
+    REGISTERED_REL = ".engine/operations/build-orchestration.md"                # carries the build-protocol region
+    PADDED = (FENCED[:-len("## Steps\n## Done when\n")]
+              + "<!-- generated: build-protocol review-consumers (build_protocol.py render) -->\ngen one\ngen two\n"
+              "<!-- /generated: build-protocol review-consumers -->\n## Steps\n## Done when\n")
+
+    def _rule(self, **extra):
+        rule = {"id": "engine/check/t", "target": {"path": "x"}, "kind": "shape", "tier": "hard",
+                "suites": [], "params": dict(self.PARAMS), "message": "M"}
+        rule.update(extra)
+        return rule
+
+    def _run(self, rule, files):
+        with mock.patch.object(validate, "target_files", return_value=list(files)):
+            return validate.kind_shape(rule, {})
+
+    def _file(self, d, name, body):
+        path = os.path.join(d, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        return path
+
+    def test_prose_line_count_excludes_frontmatter_fences_and_registered_generated_regions(self):
+        # "## Purpose", "## Steps", "## Done when" plus the blank the frontmatter close leaves behind are the
+        # only prose lines left; the three fenced lines and their fence markers are not counted, and the two
+        # generated lines and their markers are not counted ONLY for the file that registers that region.
+        self.assertEqual(validate.prose_line_count(self.FENCED), 4)
+        self.assertEqual(validate.prose_line_count(self.PADDED, self.REGISTERED_REL), 4)
+        self.assertEqual(validate.prose_line_anomalies(self.PADDED, self.REGISTERED_REL), [])
+        self.assertEqual(validate.prose_line_count(self.PADDED), 8)          # unregistered: all four lines count
+        self.assertEqual(validate.prose_line_count(self.PADDED, "some/other.md"), 8)
+        self.assertEqual(validate.prose_line_count("a\nb\n"), 2)         # no frontmatter: unchanged
+
+    def test_markers_that_do_not_close_or_are_not_registered_count_and_are_named(self):
+        unclosed_fence = "## Purpose\n```text\none\ntwo\n"
+        self.assertEqual(validate.prose_line_count(unclosed_fence), 4)
+        self.assertIn("never closes", validate.prose_line_anomalies(unclosed_fence)[0])
+        unclosed_region = ("## Purpose\n<!-- generated: build-protocol review-consumers (x) -->\none\ntwo\n")
+        self.assertEqual(validate.prose_line_count(unclosed_region, self.REGISTERED_REL), 4)
+        self.assertIn("never closes", validate.prose_line_anomalies(unclosed_region, self.REGISTERED_REL)[0])
+        unregistered = self.PADDED
+        [anomaly] = validate.prose_line_anomalies(unregistered)
+        self.assertIn("not one a renderer owns", anomaly)
+        twice = self.PADDED + self.PADDED[self.PADDED.index("<!-- generated:"):]     # a second, identical pair
+        self.assertEqual(validate.prose_line_count(twice, self.REGISTERED_REL), 4 + 4 + 2)
+        [dup] = validate.prose_line_anomalies(twice, self.REGISTERED_REL)
+        self.assertIn("appears a second time", dup)
+        wrong_close = self.PADDED.replace("<!-- /generated: build-protocol review-consumers -->",
+                                          "<!-- /generated: something-else -->")
+        problems = validate.prose_line_anomalies(wrong_close, self.REGISTERED_REL)
+        self.assertTrue(any("does not close it" in p for p in problems), problems)
+        self.assertTrue(any("never closes" in p for p in problems), problems)
+
+    def test_an_unregistered_or_unclosed_marker_is_a_hard_finding_of_the_shape_check(self):
+        # A file cannot switch its budget off: the region counts (over budget) AND the marker itself is named.
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(length_tier="hard"), [self._file(d, "a.md", self.PADDED)])
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" and "not one a renderer owns" in f["message"] for f in found), found)
+        self.assertTrue(any("over its 4-line budget" in f["message"] for f in found), found)
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(), [self._file(d, "a.md", "## Purpose\n```\nx\n")])
+        self.assertFalse(passed)      # even a soft-tier rule: the marker anomaly is hard, the budget is soft
+        self.assertTrue(any(f["severity"] == "hard" and "never closes" in f["message"] for f in found), found)
+
+    def test_the_registry_names_exactly_the_renderers_regions_and_the_live_files_are_clean(self):
+        import build_protocol as bp
+        import execution_environment as ee
+        def name(marker):
+            return validate.GENERATED_REGION_BEGIN_RE.match(marker).group(1)
+        self.assertEqual(validate.GENERATED_REGION_OWNERS, {
+            bp.RUNBOOK_REL: {name(bp.GENERATED_BEGIN)},
+            ee._POLICY_REL: {name(ee.POSTURE_REGION_BEGIN)}})
+        self.assertEqual(validate.GENERATED_REGION_END_RE.match(bp.GENERATED_END).group(1), name(bp.GENERATED_BEGIN))
+        self.assertEqual(validate.GENERATED_REGION_END_RE.match(ee.POSTURE_REGION_END).group(1),
+                         name(ee.POSTURE_REGION_BEGIN))
+        for rel in validate.GENERATED_REGION_OWNERS:
+            text = validate.read(os.path.join(validate.ROOT, rel))
+            self.assertEqual(validate.prose_line_anomalies(text, rel), [], rel)
+            self.assertLess(validate.prose_line_count(text, rel), validate.prose_line_count(text), rel)
+
+    def test_a_rule_that_does_not_opt_in_stays_a_soft_nudge(self):
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(), [self._file(d, "a.md", self.OK)])
+        self.assertTrue(passed)
+        over = [f for f in found if "over its 4-line budget" in f["message"]]
+        self.assertEqual([f["severity"] for f in over], ["soft"])
+        self.assertIn("a nudge to trim, never a block", over[0]["message"])
+
+    def test_an_opted_in_rule_fails_at_the_hard_tier(self):
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(length_tier="hard"), [self._file(d, "a.md", self.OK)])
+        self.assertFalse(passed)
+        over = [f for f in found if "over its 4-line budget" in f["message"]]
+        self.assertEqual([f["severity"] for f in over], ["hard"])
+        self.assertIn("blocks the merge", over[0]["message"])
+
+    def test_padding_that_is_not_prose_does_not_reach_the_budget(self):
+        # Three prose lines under a 4-line budget, however much closed fenced text surrounds them.
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(length_tier="hard"), [self._file(d, "a.md", self.FENCED)])
+        self.assertTrue(passed)
+        self.assertEqual([f for f in found if "budget" in f["message"]], [])
+
+    def test_message_interpolates_budget_and_tier_from_their_sources(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = self._file(d, "a.md", self.OK)
+            b = self._file(d, "b.md", self.OK + "\n".join(["x"] * 9) + "\n")     # over even a 9-line ceiling
+            rel_b = os.path.relpath(b, validate.ROOT)
+            rule = self._rule(length_tier="hard",
+                              message="default {default_budget}; here {effective_budget}; tier {length_tier}.")
+            rule["params"]["length_budget_overrides"] = {rel_b: {"budget": 9, "why": "recorded"}}
+            passed, found = self._run(rule, [a, b])
+        self.assertFalse(passed)
+        by_file = {os.path.basename(f["location"]["file"]): f["message"] for f in found if "over its" in f["message"]}
+        self.assertIn("default 4; here 4; tier hard.", by_file["a.md"])
+        self.assertIn("default 4; here 9; tier hard.", by_file["b.md"])
+        self.assertIn("over its 9-line budget", by_file["b.md"])
+
+    def test_render_rule_message_fills_the_rule_level_facts_for_the_catalogue(self):
+        # ci-assurance.md renders rules through this: a shape rule's tokens are filled from the sources the
+        # check reads, so the catalogue never shows a raw `{length_tier}` (deliverable review, SG-5).
+        rule = validate.load_json(os.path.join(validate.CHECK_DIR, "operation-shape.json"))
+        default_budget, tier = validate.shape_rule_facts(rule)
+        rendered = validate.render_rule_message(rule)
+        self.assertEqual(tier, "hard")
+        self.assertIsInstance(default_budget, int)
+        self.assertNotIn("{", rendered)
+        self.assertIn(str(default_budget), rendered)
+        self.assertIn("hard", rendered)
+        plain = {"kind": "custom", "message": "left {alone}"}
+        self.assertEqual(validate.render_rule_message(plain), "left {alone}")
+
+    def test_the_schema_admits_only_hard_or_soft_for_length_tier(self):
+        from jsonschema import Draft202012Validator
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+        base = {"id": "engine/check/t", "target": {"path": "x"}, "kind": "shape", "tier": "hard",
+                "suites": [], "params": {}, "message": "m"}
+        for ok in ("hard", "soft"):
+            self.assertEqual(list(Draft202012Validator(schema).iter_errors(dict(base, length_tier=ok))), [])
+        self.assertTrue(list(Draft202012Validator(schema).iter_errors(dict(base, length_tier="loud"))))
+
+    def test_only_the_operation_rule_opts_in(self):
+        # The obligation: ONLY operation-shape carries the hard length tier; every other shape family nudges.
+        opted = sorted(os.path.basename(p) for p in glob.glob(os.path.join(validate.CHECK_DIR, "*.json"))
+                       if validate.load_json(p).get("length_tier") == "hard")
+        self.assertEqual(opted, ["operation-shape.json"])
 
 
 def _write_kind(base: str, module: str, name: str, body: str) -> None:

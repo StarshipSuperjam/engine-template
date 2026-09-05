@@ -113,11 +113,10 @@ engine couldn't resolve on its own was put to you as a plain "I need a decision 
   request's live state and tells you plainly whether it's still an open proposal, landed, or was declined (and
   if it can't reach the project right then, it says so rather than guess). There's no separate tracker running
   in the background; you ask, it looks, it answers.
-- **The engine only proposes.** It opens a pull request and nothing more — it never changes the upstream's
-  settings, never merges for the maintainers, and the upstream never depends on your engine.
-- **If the upstream is unreachable,** nothing is lost: the work is committed on your fork, and the engine
-  drafts the submission so it can be filed once the project is reachable (or you can open it yourself with
-  your own `gh`).
-- **The live step runs when you submit.** Every part of this except the final open-the-pull-request step is tested
-  offline; the live `gh pr create` runs the first time you make a real submission, the way any released feature's
-  live path runs the first time it's used. Treat your first contribution as the shake-out of that last step.
+- **The engine only proposes, and an unreachable upstream loses nothing.** It opens a pull request and nothing
+  more — it never changes the upstream's settings, never merges for the maintainers, and the upstream never
+  depends on your engine. If the upstream can't be reached, the work is committed on your fork and the engine
+  drafts the submission to file once the project is reachable (or open it yourself with your own `gh`).
+- **The live step runs when you submit.** Everything but the final open-the-pull-request step is tested offline;
+  the live `gh pr create` runs the first time you make a real submission, the way any released feature's live
+  path runs the first time it's used — treat your first contribution as the shake-out of that last step.

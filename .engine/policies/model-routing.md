@@ -23,22 +23,28 @@ The engine loads the *qualified* posture only for a `matched` environment; every
 conservative default. The running model's identity is not reliably observable to the engine, so no posture
 ever treats the live model as guaranteed — the bindings are intent, not a proof of which model answered.
 
-The two posture blocks below are operator-tunable. Each is the fenced `text` block immediately after its
-`posture:` marker; keep the marker and the fence intact when editing, because a malformed block falls back to
-the engine's built-in conservative default rather than failing loudly.
+The posture lines are operator-tunable data: edit `.engine/policies/model-routing-postures.json` (schema-checked at
+merge; a missing or malformed file falls back to the engine's built-in conservative default rather than failing
+loudly), then regenerate the projection below with `uv run --directory .engine -- python
+tools/execution_environment.py render-postures`.
 
-<!-- posture:qualified -->
+<!-- generated: model-routing postures (execution_environment.py render-postures; never hand-edit) -->
+The posture lines the engine loads, from `.engine/policies/model-routing-postures.json`:
+
+**qualified** — loaded only for a `matched` environment:
 ```text
 This execution environment matches the qualification recorded for this repository — no drift from the qualified snapshot.
 The review personas run on the models bound to their capability tiers in .engine/policies/model-bindings.json.
 This does not license reduced ceremony: operate with your normal care. The running model's identity is not verified by the engine.
 ```
 
-<!-- posture:conservative-default -->
+**conservative-default** — loaded for every other posture, and the built-in floor when the data is absent:
 ```text
 Execution environment is not a verified qualified match here — run your full, careful ceremony.
 Make no model-dependent shortcuts; the running model's identity is not verified by the engine.
 ```
+
+<!-- /generated: model-routing postures -->
 
 The qualification act is the operator's: `uv run --directory .engine -- python tools/execution_environment.py
 record <env>` stamps a proposed baseline, and merging that diff is what qualifies the environment. The engine never qualifies itself. Because the

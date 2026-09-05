@@ -280,32 +280,15 @@ class TestAuditPrepShape(unittest.TestCase):
         text = self._text()
         self.assertIn("CURRENTLY-FIRING SOFT FINDINGS: could not be read this run (the fetch step failed)", text)
 
-    def test_promote_step_tracks_standing_budget_findings_as_issues(self):
-        # #273 half 2: after the persona reads the firing soft findings, the workflow durably tracks
-        # a STANDING length-budget one as a deduped, lane-aware engine issue, so it reaches boot + the tracker
-        # and not just this week's digest.
+    def test_the_retired_length_budget_promote_lane_is_gone(self):
+        # Typed-lifecycle part C (StarshipSuperjam/engine-template#821) removed the promotion lane: the length budget now blocks at
+        # merge (operation-shape's hard length tier), so there is no standing soft budget finding to track as an
+        # issue, and the workflow carries no promote step for it. The soft-findings FEED step stays (the
+        # persona still reads what is firing); engine/check/lane-removed guards the whole tree for a revival.
         text = self._text()
-        self.assertIn("audit_soft_promote.py", text)
-
-    def test_promote_step_uses_the_own_repo_token_never_the_claude_token(self):
-        # The promote step writes engine issues with the OWN-repo GitHub token (issues:write), never the Claude
-        # OAuth token (which only auths the persona run). Slice the step and pin its creds so a future edit
-        # can't hand it the wrong token or drop the GitHub one it needs.
-        text = self._text()
-        start = text.index("Track standing length-budget findings as engine issues")
-        step = text[start:text.index("- name:", start)]
-        self.assertIn("audit_soft_promote.py", step)                 # sanity: this is the promote step
-        self.assertIn("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}", step)
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", step)            # never the persona's Claude token
-
-    def test_promote_step_cannot_block_the_digest_pull_request(self):
-        # The promoter is fail-open, and the step additionally guards with `|| true` so this best-effort side
-        # action can never fail the run and strand the digest PR. Pin both the guard and that the promote step
-        # runs before the seal/PR steps (so a non-`|| true` rewrite that aborts can't silently block them).
-        text = self._text()
-        self.assertIn("audit_soft_promote.py || true", text)
-        self.assertLess(text.index("audit_soft_promote.py"), text.index("Seal the digest"))
-
+        self.assertNotIn("audit_soft_" + "promote", text)    # split so this test is not itself a lane reference
+        self.assertNotIn("Track standing " + "length-budget findings", text)
+        self.assertIn("audit_soft_findings.py", text)
 
 if __name__ == "__main__":
     unittest.main()

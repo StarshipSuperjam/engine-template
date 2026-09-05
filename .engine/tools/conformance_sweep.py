@@ -59,7 +59,6 @@ import issue_author      # noqa: E402  the shared engine-Issue body contract
 import spec_referent     # noqa: E402  CORE lock-status reader (never the product-design parser)
 import github_client     # noqa: E402  the commits/contents API for the matrix's own recent history
 import repo_identity      # noqa: E402  resolve_default_branch — the baseline read must key off the repo's real default
-from audit_soft_promote import _neutralize  # noqa: E402  the shared author-text neutraliser
 
 # ---- constants ------------------------------------------------------------------------------
 
@@ -471,9 +470,9 @@ def _render_divergence(item: dict) -> tuple:
     body carries the artifact-warrant honesty: this is judgement with no behavioural check, a prompt to
     look, adjudicated at the reconcile merge."""
     doc = item.get("doc", "")
-    where = _neutralize(doc)
-    criterion = _neutralize(item.get("criterion", "") or "")
-    note = _neutralize(item.get("note", "") or "")
+    where = telemetry.neutralize_author_text(doc)
+    criterion = telemetry.neutralize_author_text(item.get("criterion", "") or "")
+    note = telemetry.neutralize_author_text(item.get("note", "") or "")
     title = f"Spec conformance: the build may have drifted from a settled criterion in {doc}"
     what_this_is = (
         "During its standing self-review, the engine read one of your SETTLED acceptance criteria and the code "
@@ -497,7 +496,7 @@ def _render_degraded(root: str) -> tuple:
     """(title, body_core) for the spec-locked-but-matrix-missing gap — one deduped issue, the one step that
     closes it, plain language."""
     docs = locked_docs(root)
-    listed = ", ".join(f"`{_neutralize(d)}`" for d in docs[:5]) or "(a settled document)"
+    listed = ", ".join(f"`{telemetry.neutralize_author_text(d)}`" for d in docs[:5]) or "(a settled document)"
     more = "" if len(docs) <= 5 else f" (and {len(docs) - 5} more)"
     title = "Spec conformance: your settled spec has no record for the standing review to check"
     what_this_is = (
@@ -536,7 +535,7 @@ def conformance_records(items: list, root: str) -> list:
         records.append({
             "source_id": source_id,
             "severity": telemetry.PERSISTENT_BENIGN,
-            "message": _neutralize(item.get("note", "") or "the built code may have drifted from a settled criterion"),
+            "message": telemetry.neutralize_author_text(item.get("note", "") or "the built code may have drifted from a settled criterion"),
             "location": {"file": doc},
             "title": title,
             "body_core": body_core,

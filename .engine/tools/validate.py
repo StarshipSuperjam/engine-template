@@ -695,24 +695,182 @@ def kind_schema(rule, ctx):
 
 # ---- kind: shape -----------------------------------------------------------
 
+GENERATED_REGION_BEGIN_RE = re.compile(r"^\s*<!-- generated: ([^\s(]+(?: [^\s(]+)*)")   # `<!-- generated: <name> (...)`
+GENERATED_REGION_END_RE = re.compile(r"^\s*<!-- /generated: ([^\s]+(?: [^\s]+)*?)\s*-->")   # `<!-- /generated: <name> -->`
+
+# The generated regions a renderer in this tree OWNS, keyed by the file that carries them. A length budget
+# leaves a generated region out of its count ONLY when the region is registered here for that file AND
+# closed: an unregistered `<!-- generated:` line, or one with no closing marker, is a way to switch a
+# hard budget off from inside the file it governs, so those lines count as prose and the shape check
+# reports the marker as a hard finding. A registered region is excluded ONCE per file: a second copy of the
+# same marker pair counts as prose and is a hard finding, because the renderers' drift checks read one region
+# and a duplicate would be a place to hide prose behind a name they guard (repair round 2). Registering a
+# region means a renderer emits it and a drift check guards it; test_validate pins this table against the
+# renderers' own marker constants.
+GENERATED_REGION_OWNERS = {
+    ".engine/operations/build-orchestration.md": {"build-protocol review-consumers"},   # build_protocol.py render
+    ".engine/policies/model-routing.md": {"model-routing postures"},                     # execution_environment.py render-postures
+}
+
+
+def _prose_scan(text: str, rel: str | None = None) -> tuple:
+    """(prose line count, anomalies) for a prose body. Frontmatter is excluded. A fenced block (``` or ~~~)
+    is excluded when it closes; an unclosed fence counts as prose and is an anomaly. A generated region is
+    excluded when it is registered for `rel` in GENERATED_REGION_OWNERS, closes, and is the first copy of that
+    name in the file; an unregistered, unclosed, or second-copy region counts as prose and is an anomaly.
+    Anomalies are plain sentences naming the line."""
+    allowed = GENERATED_REGION_OWNERS.get(rel or "", set())
+    seen = set()                                       # registered regions already excluded in this file
+    count, anomalies = 0, []
+    in_fence, fence_line, held = False, 0, 0          # held: lines skipped inside the open construct
+    in_region, region_line, region_name, region_ok = False, 0, None, False
+    for n, line in enumerate(_body_without_frontmatter(text).splitlines(), 1):
+        m = GENERATED_REGION_BEGIN_RE.match(line)
+        if m and not in_fence:
+            if in_region:
+                anomalies.append(f"line {n}: a generated region opens inside the open region "
+                                 f"'{region_name}' (line {region_line}); regions do not nest")
+                count += 1
+                continue
+            in_region, region_line, region_name = True, n, m.group(1)
+            region_ok = region_name in allowed and region_name not in seen
+            if region_name in allowed and region_name in seen:
+                anomalies.append(f"line {n}: generated region '{region_name}' appears a second time; a renderer "
+                                 f"emits it once, so this copy's lines count as prose")
+                count += 1
+            elif not region_ok:
+                anomalies.append(f"line {n}: generated region '{region_name}' is not one a renderer owns for "
+                                 f"this file (registered: {sorted(allowed) or 'none'}); its lines count as prose")
+                count += 1
+            else:
+                seen.add(region_name)
+            held = 0
+            continue
+        if in_region:
+            em = GENERATED_REGION_END_RE.match(line)
+            if em and em.group(1) == region_name:
+                in_region = False
+                if not region_ok:
+                    count += 1
+                continue
+            if em:
+                anomalies.append(f"line {n}: a closing marker names '{em.group(1)}' inside the open region "
+                                 f"'{region_name}' (line {region_line}); it does not close it")
+                count += 1
+                continue
+            if region_ok:
+                held += 1
+            else:
+                count += 1
+            continue
+        if FENCE_RE.match(line):
+            if in_fence:
+                in_fence = False
+            else:
+                in_fence, fence_line, held = True, n, 0
+            continue
+        if in_fence:
+            held += 1
+            continue
+        count += 1
+    if in_fence:
+        anomalies.append(f"line {fence_line}: a code fence opens here and never closes; its {held} lines count as prose")
+        count += held + 1
+    if in_region:
+        anomalies.append(f"line {region_line}: generated region '{region_name}' opens here and never closes; "
+                         f"its lines count as prose")
+        if region_ok:
+            count += held + 1
+    return count, anomalies
+
+
+def prose_line_count(text: str, rel: str | None = None) -> int:
+    """The prose-body line count a length budget measures: the lines after the YAML frontmatter, with
+    closed fenced code blocks (``` or ~~~) and closed, REGISTERED generated regions
+    (`<!-- generated: <name> ... -->` ... `<!-- /generated: <name> -->`, see GENERATED_REGION_OWNERS) left
+    out. Neither is prose an author wrote or a cold reader reads as the runbook's own instruction: a fence
+    carries a command or a data literal, and a registered generated region is owned by the renderer that
+    emits it (its drift check, not a line budget, governs it). Anything else that looks like an exclusion —
+    an unclosed fence, an unregistered or unclosed region, a second copy of a registered region — counts as
+    prose, so the count cannot be switched off from inside the file (`prose_line_anomalies` names each such
+    marker). `rel` is the file's
+    repo-relative path, which decides which regions are registered for it. The count is shared with the
+    tests that pin per-file baselines (test_operation_length.py), so the validator and the pins read one number."""
+    return _prose_scan(text, rel)[0]
+
+
+def prose_line_anomalies(text: str, rel: str | None = None) -> list:
+    """The markers `prose_line_count` refused to honour: unclosed fences; unregistered, unclosed, or duplicated
+    generated regions (a registered region is honoured once per file)."""
+    return _prose_scan(text, rel)[1]
+
+
+_SHAPE_MESSAGE_TOKENS = ("{default_budget}", "{effective_budget}", "{length_tier}")
+
+
+def shape_rule_facts(rule: dict) -> tuple:
+    """(default_budget, length_tier) for a shape rule, read from the sources the check reads: the template of the
+    rule's first targeted file (or the rule's own inlined spec) and the rule's `length_tier` (soft by default)."""
+    params = rule.get("params") or {}
+    spec = None
+    for path in target_files(rule):
+        spec = _template_shape_spec(os.path.relpath(path, ROOT))
+        break
+    if spec is None:
+        spec = params
+    return spec.get("length_budget"), (rule.get("length_tier") or "soft")
+
+
+def render_rule_message(rule: dict) -> str:
+    """A rule's operator-facing message with its rule-level facts filled in — what a catalogue or a
+    listing should show. A shape rule's {default_budget} and {length_tier} come from `shape_rule_facts`;
+    the per-file {effective_budget} has no rule-level value and is rendered as the default budget with a
+    note. Any other rule's message is returned unchanged."""
+    if rule.get("kind") != "shape":
+        return rule.get("message", "")
+    default_budget, length_tier = shape_rule_facts(rule)
+    return _shape_message(rule, default_budget, f"{default_budget} unless a recorded override raises it",
+                          length_tier)
+
+
+def _shape_message(rule: dict, default_budget, effective_budget, length_tier: str) -> str:
+    """The rule's operator-facing message with its length facts interpolated from their sources —
+    the template's default budget, the file's effective budget (default or recorded override), and
+    the rule's length tier — so the prose never restates a number or a severity by hand that the
+    data can change underneath it. Plain token replacement, not str.format: other rule messages
+    legitimately carry braces."""
+    msg = rule["message"]
+    for token, value in zip(_SHAPE_MESSAGE_TOKENS, (default_budget, effective_budget, length_tier)):
+        msg = msg.replace(token, str(value))
+    return msg
+
+
 def kind_shape(rule, ctx):
     """A prose instance matches a template's shape-spec: the required sections are
     present and in the declared order, no section falls outside required+allowed, and
-    the body stays within a soft length budget. Section STRUCTURE is the control —
-    a missing required or an out-of-allowed section is the rule's tier (hard for a
-    governance-critical surface, soft for a lighter one). LENGTH only nudges — over
-    the budget is always SOFT, never the rule's hard tier. The
+    the body stays within its length budget. Section STRUCTURE is always the rule's tier —
+    a missing required or an out-of-allowed section is hard for a governance-critical surface,
+    soft for a lighter one. LENGTH bites at the rule's `length_tier`: soft by default (a nudge
+    to trim that never blocks), hard only where the rule opts in — the operation runbooks do,
+    so an over-budget runbook there fails at the merge gate the way a broken section does. The
     shape-spec (required_sections, allowed_sections, length_budget) is read from the
     surface's TEMPLATE frontmatter via the catalog (catalog -> template -> shape -> instance),
     so the thing the AI authors from is the thing the validator checks and the two cannot
-    drift. The frontmatter and any fenced code block are excluded from both section detection
-    and the length count — templates govern the prose body only. An optional
+    drift. The length counted is `prose_line_count`: frontmatter, closed fenced code blocks and
+    closed REGISTERED generated regions (GENERATED_REGION_OWNERS, honoured once per file) are excluded from
+    the count — an unclosed fence, an unregistered/unclosed region, or a second copy of a registered region
+    counts as prose and is a hard finding, so the budget cannot be switched off from inside the file — and
+    frontmatter and fences from section
+    detection; templates govern the prose body only. An optional
     params.length_budget_overrides {rel: {budget, why}} stays on the (guarded) rule, not the
     template, and carries a recorded, consented higher ceiling for one named operation (raising
     a budget stays a deliberate act needing the operator's sign-off); an entry that is malformed
     (no integer budget, no recorded why) or names a file that no longer exists fails at the
-    rule's tier, so a stale or unexplained override cannot rot into a silent grant."""
+    rule's tier, so a stale or unexplained override cannot rot into a silent grant. The rule's
+    message may carry {default_budget}, {effective_budget} and {length_tier}; they are filled
+    from the template, the override table and the rule, never typed by hand."""
     tier = rule["tier"]
+    length_tier = rule.get("length_tier") or "soft"
     params = rule.get("params") or {}
     overrides = params.get("length_budget_overrides") or {}
     findings = []
@@ -727,42 +885,56 @@ def kind_shape(rule, ctx):
         if spec is None:
             spec = params
         required = spec.get("required_sections")
+        budget = spec.get("length_budget")
+        ov = overrides.get(rel)
+        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
+        file_budget = ov_budget if _is_pos_int(ov_budget) else budget
+        message = _shape_message(rule, budget, file_budget, length_tier)
         if required is None:
             findings.append(finding(tier, f"'{rel}' cannot be shape-checked: its surface names no template in the "
-                            f"catalog and the rule carries no inlined shape-spec. {rule['message']}", loc(path)))
+                            f"catalog and the rule carries no inlined shape-spec. {message}", loc(path)))
             continue
         allowed = set(required) | set(spec.get("allowed_sections", []))
-        budget = spec.get("length_budget")
-        body = _body_without_frontmatter(read(path))
+        text = read(path)
+        body = _body_without_frontmatter(text)
         present = section_order(body)
         present_set = set(present)
         # required present
         for name in required:
             if name not in present_set:
                 findings.append(finding(tier, f"'{rel}' is missing the required section "
-                                f"'## {name}'. {rule['message']}", loc(path)))
+                                f"'## {name}'. {message}", loc(path)))
         # required ordering: the required sections that ARE present must keep their order
         seen = [n for n in present if n in required]
         if seen != [n for n in required if n in present_set]:
             findings.append(finding(tier, f"'{rel}' has its required sections out of order; "
-                            f"expected the order {required}. {rule['message']}", loc(path)))
+                            f"expected the order {required}. {message}", loc(path)))
         # no section outside required+allowed
         for name in present:
             if name not in allowed:
                 findings.append(finding(tier, f"'{rel}' has section '## {name}', which the "
-                                f"template does not allow. {rule['message']}", loc(path)))
-        # length budget — a soft nudge only, regardless of the rule's tier. A per-file
+                                f"template does not allow. {message}", loc(path)))
+        # length budget — at the rule's length_tier (soft unless the rule opted in). A per-file
         # override (a recorded, consented higher ceiling for one named operation) replaces
         # the rule-wide budget for its file; absent or malformed, the rule-wide budget
         # applies (a malformed override is caught as a hard finding below).
-        ov = overrides.get(rel)
-        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
-        file_budget = ov_budget if _is_pos_int(ov_budget) else budget
+        for anomaly in prose_line_anomalies(text, rel):
+            findings.append(finding(tier, f"'{rel}' {anomaly}. A fence or a generated-region marker that does "
+                            f"not close, or a region no renderer owns for this file, would otherwise let the "
+                            f"length budget be switched off from inside the file; close it, or delete it. "
+                            f"{message}", loc(path)))
         if file_budget is not None:
-            lines = len(body.splitlines())
+            lines = prose_line_count(text, rel)
             if lines > file_budget:
-                findings.append(finding("soft", f"'{rel}' is {lines} lines, over its "
-                                f"{file_budget}-line budget — a nudge to trim, never a block.", loc(path)))
+                if length_tier == "hard":
+                    consequence = ("this rule's length tier is hard, so this blocks the merge: trim the prose "
+                                   "to fit, or record a reasoned ceiling for this file in "
+                                   "length_budget_overrides with the operator's sign-off.")
+                else:
+                    consequence = "a nudge to trim, never a block."
+                findings.append(finding(length_tier, f"'{rel}' is {lines} prose lines (closed fences and closed, "
+                                f"registered generated regions excluded), over its {file_budget}-line budget — "
+                                f"{consequence} {message}", loc(path)))
     # Each override must be well-formed and live: an integer `budget` (the line ceiling) and a
     # recorded `why` (StarshipSuperjam/engine-template#273's recorded-rationale, made mechanical so a budget cannot be raised
     # without a stated reason), keyed to a file that still exists. A malformed entry, or a key
@@ -1362,7 +1534,7 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
     orchestration consumes): that is a SEPARATE pure leg, `dangling_lens_findings` (below), driven
     by the lens-consumption consumer (`lens_consumption_check.py`) that discovers the personas and
-    reads build-orchestration's consumed-review-lenses set. This leg owns only persona-internal
+    reads the consumed-lens set from the Build protocol's review_consumers (build_protocol.py). This leg owns only persona-internal
     coherence; the closed sets live HERE, NOT as agent.v1 enums: agent.v1 governs role/model-tier/lens
     as well-formed strings and this leg owns membership, so each set is defined in one place (the
     locked grammar routes membership through the coherence kind, not the schema). `lens` stays an
@@ -1428,8 +1600,8 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
 def dangling_lens_findings(agents: list, consumed: set, tier: str, message: str) -> list:
     """Pure lens-consumption coherence — the realization of the agents surface's dangling-lens
     posture (the dangling-check-kind). Given the present personas'
-    parsed frontmatter and the CONSUMED lens set a build stage records (build-orchestration's
-    consumed-review-lenses block, read by the lens-consumption consumer), return a finding for each
+    parsed frontmatter and the CONSUMED lens set the Build protocol records (its review_consumers
+    rosters, resolved by build_protocol.consumed_lenses for the lens-consumption consumer), return a finding for each
     INSTALLED review lens that no stage consumes: an installed-yet-unconsumed review lens is a
     coherence finding, disclosed — never a check-only signal the operator may never run.
 

@@ -1,0 +1,14 @@
+{
+  "schema_version": "model-routing.v1",
+  "postures": {
+    "qualified": [
+      "This execution environment matches the qualification recorded for this repository — no drift from the qualified snapshot.",
+      "The review personas run on the models bound to their capability tiers in .engine/policies/model-bindings.json.",
+      "This does not license reduced ceremony: operate with your normal care. The running model's identity is not verified by the engine."
+    ],
+    "conservative-default": [
+      "Execution environment is not a verified qualified match here — run your full, careful ceremony.",
+      "Make no model-dependent shortcuts; the running model's identity is not verified by the engine."
+    ]
+  }
+}
