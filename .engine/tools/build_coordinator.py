@@ -1038,10 +1038,11 @@ def _library() -> "plan_store.PlanLibrary":
 # --- the seal-to-build hand-off -----------------------------------------------
 #
 # Sealing a plan and building it are different jobs, and they often want different settings. The seal
-# renders a hand-back (project_manager.seal_handback) offering the operator the pause: settle what
-# lives only in the conversation, compact (never clear), choose the model and effort for the BUILD. All
-# it is an offer. The bind's own --operator-decision consent — required below — is the operator's
-# agreement to begin, and nothing mechanical checks the hand-back's steps.
+# renders a hand-back (project_manager.seal_handback) for the session: settle what lives only in the
+# conversation, suggest a model and effort for the BUILD (context management is the operator's own —
+# it prescribes no runtime control), and name the operator-typed engine-start as the only entry into
+# the Build stance. All of it is an offer. The bind's own --operator-decision consent — required below
+# — is the operator's agreement to begin THIS Build, and nothing mechanical checks the hand-back's steps.
 #
 # WHAT WAS TRIED AND REMOVED, so it is not re-attempted. Two gates were built here and cut on the
 # operator's direction. First a boundary DETECTOR: bind refused unless it could prove the

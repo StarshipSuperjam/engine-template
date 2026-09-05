@@ -2128,31 +2128,47 @@ class TestSealHandback(unittest.TestCase):
     The operator's ruling, after living with the long form: a hand-back that needs paragraphs of
     meta-commentary to explain the next step is a poorly designed step. So what these pin is the
     SHORTNESS as much as the content — the brevity cap is a real requirement, not a style note —
-    plus the two hard content rules: never /clear (the one session that cleared at this boundary is
-    the one that lost its thread), and no gate vocabulary (the pause is an offer).
+    plus the content rules: no context control prescribed (the /compact-never-/clear rule was a
+    Claude Code rule printed into every runtime; the operator lifted it on 2026-09-04,
+    StarshipSuperjam/engine-template#1112), the typed engine-start named as the only Build entry
+    ahead of the bind's consent, and no gate vocabulary (the pause is an offer).
     """
 
     def text(self):
         return project_manager.seal_handback("pln_0123456789ab")
 
     def test_it_is_brief(self):
-        # Six lines of substance. A hand-back that grows past this is becoming a manual again.
+        # Six lines of substance, and a character ceiling beside the line cap: a hand-back can grow
+        # back into a manual by lengthening its lines just as surely as by adding them.
         self.assertLessEqual(len([l for l in self.text().splitlines() if l.strip()]), 6)
+        self.assertLessEqual(len(self.text()), 600)
 
     def test_it_names_every_required_element(self):
         text = self.text()
         self.assertIn("Settle", text)
-        self.assertIn("/compact", text)
-        self.assertIn("model and effort", text)
-        self.assertIn("Wait", text)
+        self.assertIn("suggest a model and effort", text)
+        self.assertIn("/engine-start or $engine-start", text)
+        self.assertIn("wait", text.lower())
 
-    def test_it_carries_the_plan_id_into_the_bind_it_suggests(self):
-        self.assertIn("--plan pln_0123456789ab", self.text())
+    def test_it_carries_the_plan_id_and_the_consent_placeholder_into_the_bind_it_suggests(self):
+        # The placeholder is where the operator's own go is captured; trimming it under line
+        # pressure would leave a session recording a bare command token as the decision.
+        text = self.text()
+        self.assertIn("--plan pln_0123456789ab", text)
+        self.assertIn('--operator-decision "<their go>"', text)
 
-    def test_it_never_suggests_clear(self):
-        # The only build session that lost its thread is the one that ran /clear here instead of
-        # /compact: a cleared session keeps nothing to re-ground from. Not guidance to ever revive.
-        self.assertNotIn("/clear", self.text())
+    def test_the_typed_start_precedes_the_bind(self):
+        # Two acts in order: the operator enters Build by typing the verb; the bind then records
+        # their consent for this Build. A session that binds first has skipped the stance gate.
+        text = self.text()
+        self.assertLess(text.index("/engine-start"), text.index("plan bind"))
+
+    def test_it_prescribes_no_context_control(self):
+        # Context management is the operator's own, on every runtime. The old rule and its incident
+        # live on in seal_handback's docstring as history, never as an instruction.
+        text = self.text()
+        for control in ("/compact", "/clear", "/autocompact"):
+            self.assertNotIn(control, text)
 
     def test_it_claims_no_teeth_and_teaches_no_flag(self):
         text = self.text()
@@ -2162,11 +2178,18 @@ class TestSealHandback(unittest.TestCase):
 
     def test_it_does_not_lecture(self):
         # The recurring recommendations and provider disclosures live in the runbook, read when
-        # orchestrating — not re-printed at every seal into every session.
+        # orchestrating — not re-printed at every seal into every session. Naming both spellings of
+        # the start command is not a disclosure, so the text can stay free of the runtime's name.
         text = self.text()
-        self.assertNotIn("/autocompact", text)
         self.assertNotIn("/hooks", text)
         self.assertNotIn("Codex", text)
+
+    def test_its_docstring_keeps_the_incident_and_the_dated_reversal(self):
+        # The rule this replaced was set in person after a real incident. Reversing it must not
+        # erase why it existed or when it was lifted.
+        doc = project_manager.seal_handback.__doc__
+        self.assertIn("lost its thread", doc)
+        self.assertIn("2026-09-04", doc)
 
 
 class MarkerFollowsTheLifecycle(_Governed):

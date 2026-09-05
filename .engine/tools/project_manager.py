@@ -1440,28 +1440,35 @@ def cmd_seal(args) -> int:
 
 
 def seal_handback(plan_id: str) -> str:
-    """The plan-to-build hand-back: stop, settle, offer, wait.
+    """The plan-to-build hand-back: stop, settle, suggest, wait for the typed start, then bind.
 
     SIX LINES, ADDRESSED TO THE SESSION. This prints into the session's context, not onto the
     operator's screen, so it is instructions for the assistant's next move — not operator training.
     The operator ruled the long form out: a hand-back that needs paragraphs of meta-commentary to
     explain the next step is a poorly designed step. The settle summary the session then gives the
-    operator is conversational and build-specific; the readiness line at its end is the offer.
+    operator is conversational and build-specific, and it tells them, in their own runtime's
+    spelling, the command that begins the Build.
 
-    /compact, NEVER /clear. The one build session that lost its thread — the incident this whole
-    spine exists to prevent — is the one that cleared instead of compacting. A cleared session keeps
-    nothing to re-ground from; a compacted one keeps the summary plus everything settled below.
+    PROVIDER-AWARE, AND SO IT PRESCRIBES NO CONTEXT CONTROL (StarshipSuperjam/engine-template#1112).
+    Until 2026-09-04 this line prescribed /compact and forbade /clear, because one build session had
+    lost its thread by clearing at this boundary (2026-08-25); that was a Claude Code rule printed
+    into every runtime, and Codex has neither control. The operator lifted it on #1112 and again at
+    the 2026-09-04 shape discussion: context management is the operator's own on every runtime, and
+    the session's job is to judge the Build ahead and SUGGEST a model and effort for the harness in
+    use — never to ask the operator to state or record one. The incident stays here as history.
 
-    An offer, not a gate: the bind's own --operator-decision consent is the agreement to begin, and
-    nothing mechanical checks any of this. The one-time /autocompact recommendation lives in the
-    runbook, not here — repeating it at every seal is nagging, not guidance.
+    Two acts, in order, and the hand-back names both. The operator's typed engine-start is the ONLY
+    entry into the Build stance (operating-modes.md: an operator-only verb no hook or model can
+    invoke), and it is printed in both spellings because a plain command cannot tell the runtimes
+    apart reliably. Then the bind's own --operator-decision consent is the agreement to begin THIS
+    Build. An offer, not a gate: nothing mechanical checks any of this.
     """
     return "\n".join([
         "",
         "The plan is sealed and read-only. Stop building context here.",
-        "Settle into the record anything that still lives only in this conversation, then offer",
-        "the operator a /compact and their model and effort choice for the build phase. Wait.",
-        "Their go begins the Build:",
+        "Settle into the record anything that still lives only in this conversation.",
+        "Judge the Build ahead and suggest a model and effort for this harness; their context is theirs to manage.",
+        "Build begins only when the operator types /engine-start or $engine-start: wait for it, then bind with their go:",
         f"  build_coordinator.py plan bind --plan {plan_id} \\",
         "    --repository <owner/repo> --pr <number> --operator-decision \"<their go>\"",
     ])
