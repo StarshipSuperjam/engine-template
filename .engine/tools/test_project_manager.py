@@ -2169,5 +2169,87 @@ class TestSealHandback(unittest.TestCase):
         self.assertNotIn("Codex", text)
 
 
+class ProjectionLink(_Governed):
+    """Every verb that shows or mints a plan ENDS by handing over the projection
+    (StarshipSuperjam/engine-template#1121), and the file it hands over is current.
+
+    The show stop is the operator reading the plan; a verb that prints the folder, or nothing, leaves
+    them to ask for the link. One helper spells the line, and these tests pin the LAST non-blank line
+    rather than a substring, because three of the verbs print trailing guidance after the natural
+    insertion point and a link buried mid-output is the failure the issue names.
+    """
+
+    def _link(self, slug):
+        return f"read it at {self.lib.plan_dir(slug) / plan_projection.PLAN_MD}"
+
+    @staticmethod
+    def _last_line(out):
+        return [line for line in out.splitlines() if line.strip()][-1]
+
+    def test_every_showing_verb_ends_with_the_projection_link(self):
+        code, out, _ = self.run_command("init", "--document", self._write_document(_document()))
+        self.assertEqual(code, 0)
+        slug = self.lib.slugs()[0]
+        self.assertEqual(self._last_line(out), self._link(slug))
+        for verb in ("show", "preview", "resume"):
+            code, out, _ = self.run_command(verb, slug)
+            self.assertEqual(code, 0, verb)
+            self.assertEqual(self._last_line(out), self._link(slug), verb)
+        code, out, _ = self.run_command("revise", slug, "--document",
+                                        self._write_document(_document(revision=2)))
+        self.assertEqual(code, 0)
+        self.assertEqual(self._last_line(out), self._link(slug))
+        code, out, _ = self.run_command("clone", slug, "--reason", "a fresh start")
+        self.assertEqual(code, 0)
+        cloned = [s for s in self.lib.slugs() if s != slug]
+        self.assertEqual(len(cloned), 1)
+        # The NEW plan's projection — the one the operator reads next — never the source's.
+        self.assertEqual(self._last_line(out), self._link(cloned[0]))
+
+    def test_show_and_resume_hand_over_the_link_on_sealed_history_too(self):
+        slug, _ = self._to_reviewed()
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        for verb in ("show", "resume"):
+            code, out, _ = self.run_command(verb, slug)
+            self.assertEqual(code, 0, verb)
+            self.assertEqual(self._last_line(out), self._link(slug), verb)
+
+    def test_the_line_has_exactly_one_home(self):
+        # A second spelling anywhere is the drift this helper exists to prevent.
+        source = Path(project_manager.__file__).read_text(encoding="utf-8")
+        self.assertEqual(source.count('"read it at '), 1)
+        self.assertEqual(source.count("read it at {"), 1)
+
+    def test_the_projection_is_current_after_every_record_write(self):
+        # PLAN.md's header carries the derived status. Before this, only revision-minting verbs
+        # re-projected, so after `approve` the file the link points at still said the plan was
+        # awaiting approval while the tool said awaiting review. Every record write re-projects now.
+        # Minted through the tool (the fixture's direct create projects nothing), so PLAN.md exists.
+        self.assertEqual(self.run_command("init", "--document", self._write_document(_document()))[0], 0)
+        slug = self.lib.slugs()[0]
+        plan_md = self.lib.plan_dir(slug) / plan_projection.PLAN_MD
+        self.assertIn("awaiting-approval", plan_md.read_text(encoding="utf-8"))
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
+                                          "--operator-decision", "yes, at that depth")[0], 0)
+        self.assertIn("awaiting-review", plan_md.read_text(encoding="utf-8"))
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug),
+                "--delivered-effort", "high"]
+        for lens in self._covering_lenses("standard"):
+            argv += ["--lens", lens]
+        argv += ["--findings", self._findings(
+            {"id": "ARCH-1", "lens": "architecture", "severity": "nit", "summary": "tidy"})]
+        self.assertEqual(self.run_command(*argv)[0], 0)
+        self.assertIn("review-recorded", plan_md.read_text(encoding="utf-8"))
+        self.assertEqual(self.run_command(
+            "finding", "dispose", slug, "--id", "ARCH-1", "--disposition", "accepted-fixed",
+            "--rationale", "done", "--does-not-block-this-pr")[0], 0)
+        self.assertEqual(self.present(slug)[0], 0)
+        # Still current, and still a projection: the header names the same revision the record holds.
+        text = plan_md.read_text(encoding="utf-8")
+        self.assertIn("review-recorded", text)
+        self.assertIn(f"revision {self.lib.read_record(slug)['current']['revision']}", text)
+
+
 if __name__ == "__main__":
     unittest.main()

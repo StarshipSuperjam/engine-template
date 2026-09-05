@@ -296,6 +296,20 @@ def status_of(library: plan_store.PlanLibrary, slug: str) -> tuple[str, dict, di
     return plan_store.derived_status(record, head_blockers=blockers), record, document, blockers
 
 
+def _projection_line(library: plan_store.PlanLibrary, slug: str) -> str:
+    """The one spelling of the link a verb hands over when it shows or mints a plan.
+
+    Every verb that presents a plan ends its output with this line
+    (StarshipSuperjam/engine-template#1121): the projection is what the operator actually reads, and
+    a show stop that does not hand it over is not a show stop. One helper, so the wording cannot
+    drift between verbs. The path is deliberately ABSOLUTE and uncontracted: the operator asked for
+    a clickable link, and a terminal opens an absolute path where it would not open a tilde one. The
+    library is workstation-local and never published, so the path belongs on the operator's own
+    screen — never in a pull request body, an issue comment, or a handoff.
+    """
+    return f"read it at {library.plan_dir(slug) / plan_projection.PLAN_MD}"
+
+
 def cmd_init(args) -> int:
     library = _library(args)
     document = json.loads(core.input_text(args.document))
@@ -303,7 +317,7 @@ def cmd_init(args) -> int:
     slug = library.create(document, intake=intake)
     plan_projection.project_library(library)
     print(f"created {document['plan_id']} at {library.plan_dir(slug)}")
-    print(f"read it at {library.plan_dir(slug) / plan_projection.PLAN_MD}")
+    print(_projection_line(library, slug))
     warning = plan_store.volume_warning(library.root)
     if warning:
         print(f"\nwarning: {warning}", file=sys.stderr)
@@ -371,6 +385,7 @@ def cmd_show(args) -> int:
         # Beside the refusals, never inside them: what the operator should know but which is not a
         # reason to stop. `show` prints exactly what `seal` refuses AND exactly what it discloses.
         _print_disclosures(seal_disclosures(library, slug), stream=sys.stdout)
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -385,7 +400,6 @@ def cmd_resume(args) -> int:
     slug = _select(library, args.plan)
     status, record, document, blockers = status_of(library, slug)
     print(f"{record['title']}  ({record['plan_id']}, revision {record['current']['revision']}, {status})")
-    print(f"  {library.plan_dir(slug) / plan_projection.PLAN_MD}")
     if document:
         print(f"\nlast revision note: {document.get('revision_note', '—')}")
     problems = library.verify_chain(slug)
@@ -393,8 +407,10 @@ def cmd_resume(args) -> int:
         print("\nthis plan needs attention before anything else:")
         for problem in problems:
             print(f"  - {problem}")
+        print(f"\n{_projection_line(library, slug)}")
         return 1
     print(f"\nnext: {_next_step(status, record, blockers)}")
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -468,6 +484,7 @@ def cmd_preview(args) -> int:
     document = library.head(slug)
     print(plan_projection.render_plan(document, record))
     _mark_previewed(library, slug, record["current"]["plan_digest"])
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -713,6 +730,11 @@ def cmd_approve(args) -> int:
         current.setdefault("consent", []).append(consent)
 
     library.update_record(slug, approve, expected_revision=revision)
+    # Re-project after every record write, so the projection a verb links to says what the record
+    # says. The status in PLAN.md's header is derived from the record, and a file that lagged the
+    # approval read "awaiting-approval" while the tool read "awaiting-review" — the exact confusion
+    # a link to a stale file hands the operator. Read verbs stay write-free; only writers re-project.
+    plan_projection.project_library(library)
     covering = required_lenses(args.depth, roster)
     print(f"approved revision {revision} of {record['plan_id']} at {args.depth} depth")
     print(f"  on the operator's decision: “{consent['decision']}”")
@@ -887,6 +909,7 @@ def cmd_review_record(args) -> int:
         current["plan_review"] = review
 
     library.update_record(slug, record_review)
+    plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in findings if f["severity"] == "blocking"]
     print(f"recorded a {len(args.lens)}-lens review of revision {approval['revision']}: "
           f"{len(findings)} finding(s), {len(blocking)} blocking")
@@ -963,6 +986,7 @@ def cmd_review_amend(args) -> int:
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
+    plan_projection.project_library(library)   # the projection follows every record write
     updated = library.read_record(slug)["plan_review"]
     print(f"amended the review: +{len(added_lenses)} lens(es), +{len(added)} finding(s)")
     print(f"  lenses now: {', '.join(updated['lenses'])}")
@@ -1037,6 +1061,7 @@ def cmd_present_findings(args) -> int:
         current.setdefault("consent", []).append(consent)
 
     library.update_record(slug, attest)
+    plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in review.get("findings", []) if f["severity"] == "blocking"]
     print(f"recorded that the operator was shown the panel's outcome: {len(review.get('findings', []))} "
           f"finding(s), {len(blocking)} blocking, all dispositioned")
@@ -1100,6 +1125,7 @@ def cmd_finding_dispose(args) -> int:
                 if args.operator_summary:
                     finding["operator_summary"] = args.operator_summary
     library.update_record(slug, change)
+    plan_projection.project_library(library)   # the projection follows every record write
     outstanding = [f["id"] for f in library.read_record(slug)["plan_review"]["findings"]
                    if not f.get("disposition")]
     print(f"{args.id}: {args.disposition}")
@@ -1644,6 +1670,7 @@ def cmd_revise(args) -> int:
     elif updated.get("plan_review"):
         print("\nthis revision folds a fix in after the review. The panel does NOT re-run; the seal "
               "will ask for one proportional judgment of the delta.")
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -1687,6 +1714,7 @@ def cmd_clone(args) -> int:
               "released describe work that does not exist.")
         print(f"Complete the supersession with `program supersede <program> {args.supersedes} "
               f"--with {document['plan_id']} --reason \"...\"`.")
+    print(f"\n{_projection_line(library, new_slug)}")
     return 0
 
 
