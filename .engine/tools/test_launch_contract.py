@@ -424,6 +424,8 @@ class TestModuleIntegrityTests(unittest.TestCase):
     #: regression here; this guard is what does. The list must only ever SHRINK: fix a module by adding
     #: `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))` ahead of its sibling imports and
     #: remove it here — the companion test fails if it is fixed and the allowance is left behind.
+    #: Only that bare module-level statement, placed AHEAD of the sibling imports, counts: a call inside a
+    #: function, below the imports, or wrapped in a conditional is deliberately not recognised.
     KNOWN_PATH_BLIND: frozenset = frozenset({
         "test_boot.py",
         "test_boot_alarm_ledger.py",
