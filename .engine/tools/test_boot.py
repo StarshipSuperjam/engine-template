@@ -32,7 +32,6 @@ import hooks
 import modes
 import module_coherence
 import validate
-import repo_identity
 
 ROOT_CLAUDE = os.path.join(validate.ROOT, "CLAUDE.md")
 SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")

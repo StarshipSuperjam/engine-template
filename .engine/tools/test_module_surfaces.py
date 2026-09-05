@@ -11,7 +11,6 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import validate            # noqa: E402
 import module_surfaces as ms  # noqa: E402
 import derived_state       # noqa: E402
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)

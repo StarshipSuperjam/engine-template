@@ -20,9 +20,10 @@ module_surfaces._installed_module_ids and engine_help._installed_module_ids answ
 what engine.json's `packages` records — and are not copies of this one; do not unify them by name.
 
 THE ENV-VAR NAME IS A VALUE, NOT AN IMPORT. selftest.py and release_gate.py each define the nested-run
-marker by value, and test_boot.py recorded the choice to copy the name rather than import the launcher into
-a test module's import graph. The three homes are pinned equal by a case in test_launch_contract.py, so
-they cannot drift apart silently.
+marker by value, and this module does too: a test module's import graph stays light, so the launcher is not
+imported here just to read one string (the choice the copies made before they were consolidated). The three
+homes are pinned equal by a case in test_launch_contract.py — the one deliberate place that imports both
+selftest and release_gate, precisely to compare their values — so they cannot drift apart silently.
 """
 from __future__ import annotations
 

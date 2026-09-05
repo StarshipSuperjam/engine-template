@@ -850,7 +850,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
         # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
         # a deployment's required self-tests for declining an add-on it was offered at setup.
-        installed = {m.get("id") for _p, m in module_coherence.discover_manifests()}
+        installed = selftest_support.installed_module_ids()
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["product-design"]),
                          [".engine/docs/product-design.md"] if "product-design" in installed else [],
                          "product-design owns exactly its orientation doc when it is installed")

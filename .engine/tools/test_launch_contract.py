@@ -665,8 +665,8 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
     never runs them. `selftest_support.py` sits outside the `test_*.py` pattern on purpose, so it is not
     in the population this guard scans (and must not be renamed into it: see its docstring)."""
 
-    #: Names the consolidation removed, and the single home's public spellings — none may be bound at
-    #: module level in a test module, under either spelling.
+    #: Names the consolidation removed, and the single home's public spellings — no test module may DEFINE
+    #: its own under either spelling (an assignment or a def at module level; importing them is the point).
     BANNED_NAMES = frozenset({
         "_CONSTRUCTION", "CONSTRUCTION",
         "_installed_module_ids", "installed_module_ids",
@@ -768,8 +768,9 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
 
     def test_the_nested_run_marker_has_one_value_across_its_homes(self):
         """The marker's name is held by value in three places on purpose (the launcher, the release gate,
-        and the support module — test_boot.py recorded the choice not to import the launcher into a test
-        module's import graph); this is what keeps the three from drifting apart."""
+        and the support module: a test module's import graph stays light, so the support module does not
+        import the launcher just to read one string). This case is the one deliberate exception — it imports
+        both to compare their values — and is what keeps the three from drifting apart."""
         import release_gate
         import selftest
         import selftest_support
