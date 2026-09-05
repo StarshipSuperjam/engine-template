@@ -329,27 +329,40 @@ def automatic_hook_wiring_failures(document: dict, provider: str) -> list[str]:
 
 
 # ---- the event-inventory drift checkers (pure; the shape of automatic_hook_wiring_failures) ----------
-# Both legs judge ONLY the engine's own registrations — a command carrying ENGINE_COMMAND_MARKER whose
-# first `.engine/tools/...` token names a script that EXISTS in this checkout — and let every foreign entry
-# pass unjudged: .claude/settings.json and .codex/hooks.json are OPERATOR-SHARED files (wiring applies iff
-# absent and reverses only the engine-identified entry), so an operator's own command is never a finding
-# here — even one that merely mentions a path under .engine/tools/ that is not a real engine script. (A
-# command that genuinely runs an existing engine script IS judged, whoever wrote it: the script's
-# behaviour is the engine's.) Both fail LOUD when they extract no engine binding at all: a registration
-# file the grammar cannot read must red, never pass vacuously (the provider-parity canary precedent).
+# Both legs judge ONLY the engine's own registrations and let every foreign entry pass unjudged:
+# .claude/settings.json and .codex/hooks.json are OPERATOR-SHARED files (wiring applies iff absent and
+# reverses only the engine-identified entry), so an operator's own command is never a finding here. The
+# identity rule has two halves. A command that rides the engine launcher (hook-runner.sh /
+# codex-hook-runner.sh) is the engine's REGARDLESS of whether its script still exists — a launcher entry
+# left pointing at a deleted or renamed script is exactly the silent failure the forward leg must name,
+# so existence is a finding there, never an identity test. A command that does NOT ride the launcher is
+# the engine's only when its first `.engine/tools/...` token names a script that EXISTS in the checkout —
+# so an operator's own command that merely mentions a path under .engine/tools/ is not mistaken for the
+# engine's, while one that genuinely runs an engine script IS judged, whoever wrote it (the script's
+# behaviour is the engine's). Both legs fail LOUD when they extract no engine binding at all: a
+# registration file the grammar cannot read must red, never pass vacuously (the provider-parity canary
+# precedent).
+
+def _script_exists(script: str, root: "str | None" = None) -> bool:
+    """Whether a repo-relative engine script path names a file under `root` (this checkout by default)."""
+    return os.path.isfile(os.path.join(root or validate.ROOT, script))
+
 
 def _engine_script(command, root: "str | None" = None) -> "str | None":
     """The engine script a hook command runs (repo-relative, under .engine/tools/), or None for a command
     that is not the engine's. The launcher tokens (hook-runner.sh, codex-hook-runner.sh) are skipped so
-    the SCRIPT is returned, not the shim that runs it — and the token must name a file that exists under
-    `root` (this checkout by default), so a foreign command that merely mentions an .engine/tools/ path
-    is not mistaken for the engine's."""
+    the SCRIPT is returned, not the shim that runs it. A command riding the launcher is the engine's
+    whether or not the script exists (a dangling registration is the forward leg's finding, not a
+    reason to look away); a command that does not ride it must name a file that exists under `root`, so
+    a foreign command that merely mentions an .engine/tools/ path is not mistaken for the engine's."""
     if not isinstance(command, str) or ENGINE_COMMAND_MARKER not in command:
         return None
-    for token in _ENGINE_SCRIPT_RE.findall(command):
+    tokens = _ENGINE_SCRIPT_RE.findall(command)
+    rides_launcher = any(t.endswith("hook-runner.sh") for t in tokens)
+    for token in tokens:
         if token.endswith("hook-runner.sh"):
             continue
-        return token if os.path.isfile(os.path.join(root or validate.ROOT, token)) else None
+        return token if rides_launcher or _script_exists(token, root) else None
     return None
 
 
@@ -364,7 +377,8 @@ def owner_of_script(script: str) -> "str | None":
 def engine_bindings(document, root: "str | None" = None) -> list:
     """Every engine-owned hook binding in a parsed registration document, as (event, script, where)
     triples; a malformed container contributes nothing (the provider's shape/schema check owns it).
-    `root` is the checkout the scripts must exist in (this one by default)."""
+    `root` is the checkout scripts are looked for in (this one by default); a launcher-ridden binding
+    is listed even when its script is missing, so the legs can name it."""
     out = []
     hooks_doc = document.get("hooks") if isinstance(document, dict) else None
     if not isinstance(hooks_doc, dict):
@@ -395,6 +409,11 @@ def inventory_forward_failures(document, provider: str, root: "str | None" = Non
                 f"recognizes — nothing to judge, so the check cannot pass"]
     failures = []
     for event, script, where in bindings:
+        if not _script_exists(script, root):
+            failures.append(f"{provider}:{where} runs {script} through the engine launcher, but no such file "
+                            f"exists in this checkout — a registration left behind by a deleted or renamed "
+                            f"script, so the hook fails silently on every fire")
+            continue
         if event not in EVENT_INVENTORY:
             failures.append(f"{provider}:{where} binds engine script {script} on {event}, an event the "
                             f"inventory does not govern — add the row (with its owners) or move the hook")
@@ -409,23 +428,24 @@ def inventory_forward_failures(document, provider: str, root: "str | None" = Non
     return failures
 
 
-def inventory_reverse_failures(documents: dict, installed_modules, root: "str | None" = None) -> list:
+def inventory_reverse_failures(documents: dict, installed=None, root: "str | None" = None) -> list:
     """The REVERSE leg (the StarshipSuperjam/engine-template#816 direction — named with nothing behind it), over the UNION of the runtimes'
     documents ({provider: document}) so a provider-only binding (a recorded provider exception) still
     satisfies its owner: every inventoried event carries at least one engine binding somewhere, every
     owner it names is either bound there or a declared DELEGATED owner whose delegate is bound there,
-    and an owner belonging to an optional module absent from `installed_modules` is skipped rather than
-    reddening a deployment that declined the module."""
+    and an owner belonging to an optional module absent from `installed` (the module ids present under
+    `root`, read from disk when not given) is skipped rather than reddening a deployment that declined
+    the module. A binding whose script is missing satisfies nothing — it is the forward leg's finding."""
     bound: dict = {}
     for provider, document in documents.items():
         for event, script, _where in engine_bindings(document, root):
             owner = owner_of_script(script)
-            if owner is not None:
+            if owner is not None and _script_exists(script, root):
                 bound.setdefault(event, set()).add(owner)
     if not bound:
         return ["no engine-owned hook command was found in any runtime's registration — nothing to judge, "
                 "so the check cannot pass"]
-    installed = set(installed_modules)
+    installed = set(installed) if installed is not None else installed_modules(root)
     failures = []
     for event, meta in EVENT_INVENTORY.items():
         owners_here = bound.get(event, set())

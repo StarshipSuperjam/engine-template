@@ -115,9 +115,6 @@ class TestEventInventory(unittest.TestCase):
         # DECLARED data — the checkers honour it, they cannot detect it.
         self.assertEqual(hooks.DELEGATED_OWNERS, {"PostToolUse": {"telemetry": "validation"},
                                                   "Stop": {"telemetry": "close"}})
-        # close's Stop handler promotes a logged finding through telemetry.promote_finding — the same
-        # delegated shape on the turn-close event.
-        self.assertEqual(set(hooks.EVENT_INVENTORY["Stop"]["owners"]), {"close", "telemetry"})
         for event, delegations in hooks.DELEGATED_OWNERS.items():
             self.assertIn(event, hooks.EVENTS)
             for owner, delegate in delegations.items():
@@ -125,14 +122,26 @@ class TestEventInventory(unittest.TestCase):
                 self.assertIn(delegate, hooks.EVENT_INVENTORY[event]["owners"])
                 self.assertNotEqual(owner, delegate)
 
+    def test_stop_names_close_and_a_delegated_telemetry(self):
+        # close's Stop handler promotes a logged finding through telemetry.promote_finding — the same
+        # delegated shape as PostToolUse, on the turn-close event.
+        self.assertEqual(set(hooks.EVENT_INVENTORY["Stop"]["owners"]), {"close", "telemetry"})
+        self.assertEqual(hooks.DELEGATED_OWNERS["Stop"], {"telemetry": "close"})
+
     def test_every_owner_by_script_target_is_an_inventoried_owner(self):
         named = {o for meta in hooks.EVENT_INVENTORY.values() for o in meta["owners"]}
         for prefix, owner in hooks.OWNER_BY_SCRIPT:
             self.assertTrue(prefix.startswith(".engine/tools/"), prefix)
             self.assertIn(owner, named, f"{prefix} maps to {owner}, which no inventory row names")
         self.assertLessEqual(set(hooks.OWNER_MODULE), named)
-        # A mistyped module id would make the reverse leg skip that owner forever, silently.
-        self.assertLessEqual(set(hooks.OWNER_MODULE.values()), hooks.installed_modules())
+        # A mistyped module id would make the reverse leg skip that owner forever, silently. The roster
+        # is the module CATALOG — every module the engine knows, kept whether or not this deployment
+        # installed it — not the modules present on disk, so a project that declined an optional add-on
+        # (a supported setup) does not red its own self-test.
+        import module_catalog
+        catalog_ids = {entry["id"] for entry in module_catalog.entries()}
+        self.assertTrue(catalog_ids, "the module catalog is empty or unreadable")
+        self.assertLessEqual(set(hooks.OWNER_MODULE.values()), catalog_ids)
 
     def test_posttooluse_may_inject_and_stays_non_blocking(self):
         # modes' intake adapter injects the arrival report (additionalContext) after importing an
@@ -2222,12 +2231,58 @@ class TestInventoryDriftCheckers(unittest.TestCase):
 
     def test_a_foreign_command_merely_mentioning_an_engine_path_is_not_judged(self):
         # The operator's own script that happens to name a non-existent path under .engine/tools/ is
-        # not the engine's — only a command running an EXISTING engine script is judged.
+        # not the engine's — off the launcher, only a command running an EXISTING engine script is judged.
         doc = self._doc("SessionEnd", "sh /Users/me/mytidy.sh --log .engine/tools/mylog.txt")
         doc["hooks"]["Stop"] = [{"hooks": [{"type": "command",
                                             "command": hooks.hook_command(".engine/tools/close.py", provider="claude")}]}]
         self.assertEqual(hooks.inventory_forward_failures(doc, "claude"), [])
         self.assertIsNone(hooks._engine_script("sh /Users/me/mytidy.sh --log .engine/tools/mylog.txt"))
+
+    def test_forward_leg_reds_a_launcher_entry_pointing_at_a_missing_script(self):
+        # The dangling registration: an engine launcher entry left behind by a deleted or renamed script.
+        # It is still the engine's (identity rides the launcher), and the missing file is its own finding
+        # — a file-must-exist identity test would make the leg look away from exactly this case.
+        for provider in ("claude", "codex"):
+            cmd = hooks.hook_command(".engine/tools/gone_since_a_rename.py", provider=provider)
+            self.assertEqual(hooks._engine_script(cmd), ".engine/tools/gone_since_a_rename.py")
+            doc = self._doc("Stop", cmd)
+            failures = hooks.inventory_forward_failures(doc, provider)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("no such file", failures[0])
+        # And it satisfies nothing on the reverse leg: close's Stop hook replaced by the dangling entry
+        # leaves the Stop row a claim with nothing behind it.
+        docs = {}
+        for provider, document in self._live().items():
+            swapped = json.loads(json.dumps(document))
+            for group in swapped["hooks"]["Stop"]:
+                for h in group["hooks"]:
+                    h["command"] = h["command"].replace("close.py", "gone_since_a_rename.py")
+            docs[provider] = swapped
+        failures = hooks.inventory_reverse_failures(docs, hooks.installed_modules())
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("governs Stop", failures[0])
+
+    def test_root_points_both_legs_at_another_checkout(self):
+        # `root` is a real seam, not decoration: a non-launcher command is the engine's only where its
+        # script exists, and the reverse leg reads that checkout's installed modules by default.
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, ".engine", "tools"))
+            os.makedirs(os.path.join(tmp, ".engine", "modules", "core"))
+            Path(tmp, ".engine", "tools", "only_here.py").write_text("", encoding="utf-8")
+            Path(tmp, ".engine", "modules", "core", "manifest.json").write_text("{}", encoding="utf-8")
+            cmd = "python3 .engine/tools/only_here.py"
+            self.assertEqual(hooks._engine_script(cmd, root=tmp), ".engine/tools/only_here.py")
+            self.assertIsNone(hooks._engine_script(cmd))
+            doc = self._doc("SessionStart", cmd, matcher="startup")
+            failures = hooks.inventory_forward_failures(doc, "claude", root=tmp)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("no owning system", failures[0])
+            self.assertIn("nothing to judge", hooks.inventory_forward_failures(doc, "claude")[0])
+            self.assertEqual(hooks.installed_modules(root=tmp), {"core"})
+            # The live registrations judged against the temporary root: every launcher entry is still the
+            # engine's, and every script is missing there — the reverse leg has nothing behind any row.
+            failures = hooks.inventory_reverse_failures(self._live(), root=tmp)
+            self.assertTrue(all("nothing to judge" in f for f in failures), failures)
 
     def test_forward_leg_reds_an_owner_its_event_does_not_name(self):
         # The #784 shape exactly: a known engine script bound on an event whose row omits its owner.
