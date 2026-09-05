@@ -49,16 +49,45 @@ import validate  # noqa: E402
 
 # ---- the closed event inventory -------------------------
 # The Engine governs a SUBSET of the Claude Code hook events: the platform exposes many more
-# (SubagentStart/Stop, PostCompact, PermissionRequest, StopFailure, Notification, ...) — the set
-# the Engine binds is an end-state decision, not the platform's full list, and it grows additively
-# like the surface catalog. This is NOT a claim that only seven events exist.
+# (SessionEnd, SubagentStart/Stop, PostCompact, PermissionRequest, StopFailure, Notification, ...) —
+# the set the Engine binds is an end-state decision, not the platform's full list. This is NOT a
+# claim that only six events exist. The table grows additively like the surface catalog, with one
+# stated exception: a row that has NEVER carried behaviour is a claim, not a reservation, and a claim
+# may be withdrawn (SessionEnd was declared hooks-owned for its whole life with nothing running on it
+# on either runtime, directly or by delegation — and hooks ships no handler by its own law above — so
+# the row was retracted, StarshipSuperjam/engine-template#816); a row whose event carries behaviour is
+# governed and is only ever added to.
 #   blocks  — may this event HARD-BLOCK? Only PreToolUse and Stop (the block-budget law).
 #   injects — may this event inject `additionalContext`?
-#   owners  — the system(s) that own the behavior on this event. PostToolUse has THREE owners
-#             (validation's local nudge + telemetry's ambient capture + modes' Claude native-plan
-#             intake adapter coexist on one event); it MAY inject — modes' adapter injects the
-#             arrival report (additionalContext) after importing an accepted plan — while staying
-#             non-blocking; SessionEnd is hooks-owned (cleanup/flush, cannot block).
+#   owners  — every system whose BEHAVIOUR runs on this event. That is a behaviour relation, not a
+#             registration count: an owner either registers its own hook command on the event, or
+#             RIDES another owner's registered hook (a DELEGATED owner — telemetry's ambient capture
+#             on PostToolUse runs inside validation's accept-hook, and is declared as such in
+#             DELEGATED_OWNERS below, never inferred). The owners are written as a tuple for
+#             readability and asserted as a SET: the two runtimes register the same owners in
+#             different orders, so there is no single "registration order" to pin. Order is asserted
+#             only where it is load-bearing and single-valued — UserPromptSubmit's boot-then-modes.
+#             SessionStart has FIVE owners: boot's orientation pack; memory's own session-start work
+#             (the cross-session erasure observer and the backup push); the optional
+#             github-projects-sync board refresh, present only while that module is installed (the
+#             entry names every system that MAY own the event); telemetry's ambient triage and inbox
+#             drain on the startup and resume matchers (StarshipSuperjam/engine-template#784); and
+#             build-coordinator's post-compaction re-grounding, the only owner keyed to the `compact`
+#             matcher — boot deliberately does NOT run its full pack after a compaction, which is what
+#             leaves a compacted session with no orientation at all, and this owner fills exactly that
+#             gap with a narrow Build pointer; it cannot contend with boot because they fire on
+#             disjoint matchers. PreCompact stays memory-only: it cannot inject, so it could never
+#             have carried the re-grounding, and its single-fire housekeeping is unchanged.
+#             PreToolUse has SIX owners — the systems whose commands are actually bound there: modes'
+#             explore write-gate (the block-eligible invariant, plus the engine-Issue reroute and the
+#             protected-merge nudge), the knowledge-graph and self-map commit-boundary regens, the
+#             optional product-design obligation-matrix regen, validation's local pre-commit nudge, and
+#             session-economy's subagent-spend gate (Claude-only, a recorded provider exception). The
+#             row used to name a placeholder, "invariant-owner", which under-reported all six.
+#             PostToolUse has THREE owners (validation's local nudge + telemetry's ambient capture,
+#             delegated + modes' Claude native-plan intake adapter); it MAY inject — modes' adapter
+#             injects the arrival report (additionalContext) after importing an accepted plan — while
+#             staying non-blocking.
 #             UserPromptSubmit has TWO owners in a DEFINED ORDER: boot's per-prompt scent, then
 #             modes' Codex native-plan intake adapter. That second owner is a deliberate amendment of
 #             this table, and it is a REGISTERED owner, not a drifting writer: this hook table refuses writers
@@ -67,27 +96,59 @@ import validate  # noqa: E402
 #             the prompt's content, modes reads the prompt and acts only on an acceptance envelope at
 #             byte zero, and modes writes no stance signal and no file the scent touches. The adapter
 #             lives on this event only on Codex, which has no plan-exit signal to key on.
-#             SessionStart has FOUR owners: boot's orientation pack + memory's own session-start work
-#             (the cross-session erasure observer and the backup push)
-#             + the optional github-projects-sync board refresh, which coexist on one event by keyed
-#             registration (the PostToolUse multi-owner precedent). The board-sync owner is present only
-#             while that optional module is installed; the entry names every system that may own the event.
-#             The fourth is build-coordinator's post-compaction re-grounding, and it is the only owner
-#             keyed to the `compact` matcher: boot deliberately does NOT run its full pack after a
-#             compaction, which is what leaves a compacted session with no orientation at all, and this
-#             owner fills exactly that gap with a narrow Build pointer. The two cannot contend — they
-#             fire on disjoint matchers. PreCompact stays memory-only: it cannot inject, so it could
-#             never have carried this, and its single-fire housekeeping is unchanged by the new owner.
+# The table is kept true MECHANICALLY by the two-direction drift checkers below
+# (inventory_forward_failures / inventory_reverse_failures), which test_hooks runs over both runtimes'
+# live registration files: an engine command bound on an uninventoried event, or whose script maps to
+# no owner named on its event, reds the forward leg; an inventoried event with no engine binding, or a
+# named owner nothing satisfies, reds the reverse leg. That is detection at check time, not refusal at
+# write time (wiring writes a directive's event through) — and a delegated owner is DECLARED data the
+# checkers honour, never something they can detect.
 EVENT_INVENTORY = {
-    "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync", "build-coordinator"), "blocks": False, "injects": True},
-    "PreToolUse":       {"owners": ("invariant-owner",),         "blocks": True,  "injects": True},
+    "SessionStart":     {"owners": ("boot", "memory", "github-projects-sync", "telemetry", "build-coordinator"), "blocks": False, "injects": True},
+    "PreToolUse":       {"owners": ("modes", "knowledge", "self-map", "validation", "product-design", "session-economy"), "blocks": True, "injects": True},
     "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": True},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},
     "Stop":             {"owners": ("close",),                   "blocks": True,  "injects": False},
-    "SessionEnd":       {"owners": ("hooks",),                   "blocks": False, "injects": False},
     "UserPromptSubmit": {"owners": ("boot", "modes"),            "blocks": False, "injects": True},
 }
 EVENTS = frozenset(EVENT_INVENTORY)
+
+# DELEGATED owners: {event: {owner: the owner whose registered hook it rides}}. A delegated owner has no
+# hook command of its own on that event; its behaviour runs inside another owner's handler. The reverse
+# checker requires the DELEGATE to be bound there instead of the delegated owner.
+DELEGATED_OWNERS = {
+    "PostToolUse": {"telemetry": "validation"},   # validate._accept_handler relays into telemetry.capture_touched_fires
+}
+
+# OWNER_BY_SCRIPT: the owning system of each engine hook script, by repo-relative path prefix (a
+# directory prefix covers every script under it). This is the second home of a fact whose first home is
+# the owners tuples above — kept beside them on purpose, so the two cannot drift apart unnoticed: the
+# checkers join the two, and a script mapped to an owner its event does not name reds the forward leg.
+# What the table proves is that every engine command has a NAMED owner; that the named owner is the
+# RIGHT one is a reader's judgment.
+OWNER_BY_SCRIPT = (
+    (".engine/tools/boot.py", "boot"),
+    (".engine/tools/scent.py", "boot"),                       # the per-prompt scent is boot's
+    (".engine/tools/memory/", "memory"),
+    (".engine/tools/projects_sync/", "github-projects-sync"),
+    (".engine/tools/telemetry.py", "telemetry"),
+    (".engine/tools/build_coordinator.py", "build-coordinator"),
+    (".engine/tools/modes.py", "modes"),
+    (".engine/tools/knowledge_gen.py", "knowledge"),
+    (".engine/tools/self_map.py", "self-map"),
+    (".engine/tools/product_design/", "product-design"),
+    (".engine/tools/validate.py", "validation"),
+    (".engine/tools/session_economy.py", "session-economy"),
+    (".engine/tools/close.py", "close"),
+)
+# Owners that belong to an OPTIONAL module: absent from a deployment that declined the module, so the
+# reverse checker skips them when that module is not installed rather than reddening a required self-test.
+OWNER_MODULE = {"github-projects-sync": "github-projects-sync", "product-design": "product-design"}
+# The engine-identity marker of a hook command — the SAME string wiring.ENGINE_DIR_MARKER keys apply and
+# reverse on, pinned equal by test_hooks (hooks keeps its import surface to the stdlib seams above, so
+# the literal is repeated here rather than imported).
+ENGINE_COMMAND_MARKER = ".engine/"
+_ENGINE_SCRIPT_RE = re.compile(r"\.engine/tools/[^\"'\s]+")
 # The block budget: the closed set of events that MAY hard-block. The platform would let PreCompact,
 # UserPromptSubmit, and SubagentStop block too; the Engine declines — a local hard-block buys
 # friction without proportional trust. The one unbypassable gate stays the
@@ -261,6 +322,135 @@ def automatic_hook_wiring_failures(document: dict, provider: str) -> list[str]:
                     failures.append(
                         f"{where} does not use the exact shared accepted-dispatch launcher form")
     return failures
+
+
+# ---- the event-inventory drift checkers (pure; the shape of automatic_hook_wiring_failures) ----------
+# Both legs judge ONLY the engine's own registrations — a command carrying ENGINE_COMMAND_MARKER whose
+# script resolves under .engine/tools/ — and let every foreign entry pass unjudged: .claude/settings.json
+# and .codex/hooks.json are OPERATOR-SHARED files (wiring applies iff absent and reverses only the
+# engine-identified entry), so an operator's own hook, on any event, is never a finding here. Both fail
+# LOUD when they extract no engine binding at all: a registration file the grammar cannot read must red,
+# never pass vacuously (the provider-parity canary precedent).
+
+def _engine_script(command) -> "str | None":
+    """The engine script a hook command runs (repo-relative, under .engine/tools/), or None for a command
+    that is not the engine's. The launcher tokens (hook-runner.sh, codex-hook-runner.sh) are skipped so
+    the SCRIPT is returned, not the shim that runs it."""
+    if not isinstance(command, str) or ENGINE_COMMAND_MARKER not in command:
+        return None
+    for token in _ENGINE_SCRIPT_RE.findall(command):
+        if not token.endswith("hook-runner.sh"):
+            return token
+    return None
+
+
+def owner_of_script(script: str) -> "str | None":
+    """The owning system OWNER_BY_SCRIPT names for an engine script path, or None when it names none."""
+    for prefix, owner in OWNER_BY_SCRIPT:
+        if script == prefix or (prefix.endswith("/") and script.startswith(prefix)):
+            return owner
+    return None
+
+
+def engine_bindings(document) -> list:
+    """Every engine-owned hook binding in a parsed registration document, as (event, script, where)
+    triples; a malformed container contributes nothing (the provider's shape/schema check owns it)."""
+    out = []
+    hooks_doc = document.get("hooks") if isinstance(document, dict) else None
+    if not isinstance(hooks_doc, dict):
+        return out
+    for event, groups in hooks_doc.items():
+        if not isinstance(groups, list):
+            continue
+        for group_index, group in enumerate(groups):
+            entries = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(entries, list):
+                continue
+            for hook_index, entry in enumerate(entries):
+                script = _engine_script(entry.get("command") if isinstance(entry, dict) else None)
+                if script is not None:
+                    out.append((event, script, f"{event}[{group_index}].hooks[{hook_index}]"))
+    return out
+
+
+def inventory_forward_failures(document, provider: str) -> list:
+    """The FORWARD leg (the #784 direction — bound but unnamed): every engine command in `document` sits
+    on an event the inventory governs, and its script maps via OWNER_BY_SCRIPT to an owner named on that
+    event. Returns plain-language failures; empty means the document's engine wiring is inside the table."""
+    if provider not in {"claude", "codex"}:
+        raise ValueError("provider must be claude or codex")
+    bindings = engine_bindings(document)
+    if not bindings:
+        return [f"{provider} hook registration carries no engine-owned hook command the checker "
+                f"recognizes — nothing to judge, so the check cannot pass"]
+    failures = []
+    for event, script, where in bindings:
+        if event not in EVENT_INVENTORY:
+            failures.append(f"{provider}:{where} binds engine script {script} on {event}, an event the "
+                            f"inventory does not govern — add the row (with its owners) or move the hook")
+            continue
+        owner = owner_of_script(script)
+        if owner is None:
+            failures.append(f"{provider}:{where} binds engine script {script}, which OWNER_BY_SCRIPT maps to "
+                            f"no owning system — name its owner in the table")
+        elif owner not in EVENT_INVENTORY[event]["owners"]:
+            failures.append(f"{provider}:{where} binds {script} (owner {owner}) on {event}, but the "
+                            f"inventory names no such owner there — the {event} row under-reports")
+    return failures
+
+
+def inventory_reverse_failures(documents: dict, installed_modules) -> list:
+    """The REVERSE leg (the #816 direction — named with nothing behind it), over the UNION of the runtimes'
+    documents ({provider: document}) so a provider-only binding (a recorded provider exception) still
+    satisfies its owner: every inventoried event carries at least one engine binding somewhere, every
+    owner it names is either bound there or a declared DELEGATED owner whose delegate is bound there,
+    and an owner belonging to an optional module absent from `installed_modules` is skipped rather than
+    reddening a deployment that declined the module."""
+    bound: dict = {}
+    for provider, document in documents.items():
+        for event, script, _where in engine_bindings(document):
+            owner = owner_of_script(script)
+            if owner is not None:
+                bound.setdefault(event, set()).add(owner)
+    if not bound:
+        return ["no engine-owned hook command was found in any runtime's registration — nothing to judge, "
+                "so the check cannot pass"]
+    installed = set(installed_modules)
+    failures = []
+    for event, meta in EVENT_INVENTORY.items():
+        owners_here = bound.get(event, set())
+        if not owners_here:
+            failures.append(f"the inventory governs {event} but no engine hook is registered on it in any "
+                            f"runtime — the row is a claim with nothing behind it")
+            continue
+        delegated = DELEGATED_OWNERS.get(event, {})
+        for owner in meta["owners"]:
+            module = OWNER_MODULE.get(owner)
+            if module and module not in installed:
+                continue
+            if owner in delegated:
+                if delegated[owner] not in owners_here:
+                    failures.append(f"{owner} rides {delegated[owner]}'s hook on {event}, but {delegated[owner]} "
+                                    f"is not bound there in any runtime")
+                continue
+            if owner not in owners_here:
+                failures.append(f"the inventory names {owner} on {event}, but no engine command mapped to "
+                                f"{owner} is bound there in any runtime — the row over-reports")
+    return failures
+
+
+def installed_modules(root: "str | None" = None) -> set:
+    """The ids of the modules present in this checkout (a manifest under .engine/modules/<id>/), read from
+    disk for the reverse checker's optional-module skip."""
+    modules_dir = os.path.join(root or validate.ROOT, ".engine", "modules")
+    found = set()
+    try:
+        for name in os.listdir(modules_dir):
+            if os.path.exists(os.path.join(modules_dir, name, "manifest.json")):
+                found.add(name)
+    except OSError:
+        pass
+    return found
 
 
 # ---- shared payload classifier: is this tool call a `git commit`? ------------------------------
