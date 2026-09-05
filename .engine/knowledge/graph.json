@@ -17323,7 +17323,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:baabadce45974cfcd720e4ce7e1ded581e3759fda18573cf7a53baacc963cba3",
+        "fingerprint": "sha256:d573332c21baacb1e769641356ae464630e2942e0e5fbc06fa72a9e487e592a3",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
