@@ -399,5 +399,426 @@ class TestCandidateLaneBytecodeHygiene(unittest.TestCase):
         self.assertIn('sys.executable, "-I", "-S", "-B", accepted_dispatch, "_run-candidate"', source)
         self.assertIn('sys.executable, "-I", "-S", "-B", helper, "--candidate-root"', source)
 
+# ======================================================================================================
+# C1 node 2 (program prg_d15d7dc8f3df): a BEST-EFFORT reproduction of the recall failure in a disposable
+# clone, honest about what it is and is not.
+#
+# WHAT IT IS. A fresh `git clone --no-hardlinks` of this repository into a sandbox with its own git common
+# directory, launched through the SHIPPED launchers (.mcp.json for Claude, .codex/config.toml for Codex)
+# with a scrubbed environment, seeded with synthetic records, and driven through the real MCP client:
+# search, recall-by-meaning, recall-window. Every observation is classified by a fixed rule that refuses
+# the three counterfeit "reproductions", and the desired-behavior acceptance probe is PRESERVED with its
+# actual result — never asserted, never skipped.
+#
+# WHAT IT IS NOT. A fresh clone has no accepted activation and a local-path origin, so the dispatcher falls
+# to the DEGRADED launch (live checkout, no execution context). The operator's failing server ran the
+# ATTENDED launch from a materialized accepted tree. That launcher difference is recorded on every run as a
+# MECHANISM-REMOVING difference; nothing here claims production faithfulness, and the real attended-path
+# trace is carried forward to be captured by the merged stranding log after deployment.
+#
+# ISOLATION. The clone is accepted only if `execution_context.validate_disposable_target` (the audited
+# alias/inode/shared-git-metadata refusal) accepts it against the canonical checkout. The launch env drops
+# every GIT_*, ENGINE_*, CLAUDE_*, CODEX_*, PYTHON* and UV_* variable (a leaked GIT_DIR from a build worktree
+# would make `git -C <clone>` resolve the CANONICAL common directory and the degraded launch would bind the
+# operator's real memory — the dispatcher scrubs nothing itself), then sets HOME/TMPDIR/CLAUDE_PROJECT_DIR
+# inside the sandbox. The clone runs against THIS checkout's already-provisioned dependency environment
+# (UV_PROJECT_ENVIRONMENT + UV_NO_SYNC; the same frozen lock), UV_CACHE_DIR and UV_PYTHON_INSTALL_DIR are
+# pinned to the real locations so the HOME override cannot trigger a download, and UV_OFFLINE=1 makes any
+# attempt to fetch fail loudly. So the reproduction needs NO network: the one assumption is that the engine's
+# own environment is synced (any run of its selftest guarantees it). Sharing the dependency environment is a
+# recorded, mechanism-PRESERVING difference — dependencies are not the engine's code, and every engine module
+# the launched server imports comes from the clone (the dispatcher puts the clone's tools root on PYTHONPATH).
+# ======================================================================================================
+
+import asyncio  # noqa: E402
+import re  # noqa: E402
+import time  # noqa: E402
+import tomllib  # noqa: E402
+
+from memory import records as _records  # noqa: E402
+
+_GENERIC_TOOL_ERROR = re.compile(r"Error executing tool [a-z0-9\-]+")
+_SCRUB_PREFIXES = ("GIT_", "ENGINE_", "CLAUDE_", "CODEX_", "PYTHON", "UV_", "VIRTUAL_ENV", "XDG_")
+_KEEP_KEYS = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "SHELL", "USER", "LOGNAME")
+
+# The committed finding of this node, checked against reality on every run: the class the best-effort
+# reproduction ACTUALLY yields on each shipped launcher. If a clone ever reproduces the failure, the
+# reproduction test fails loudly here rather than silently changing the record — and if it never does, the
+# record says so, in the launcher's own terms, without manufacturing a failure to fill an evidence label.
+DISPOSITION = {
+    "real_attended_cause": "NOT-YET-CAPTURED — observable only by the merged stranding log inside a deployed "
+                           "attended server (INSTRUMENT-DEPLOYMENT-RECEIPT, MATCHED-PRODUCTION-REPRODUCTION).",
+    "launcher_actually_run": "degraded (live checkout, no execution context): a fresh clone has no accepted "
+                             "activation — a MECHANISM-REMOVING difference from the attended production launch.",
+    "expected_class": {"claude": "not-reproduced", "codex": "not-reproduced"},
+    "expected_label": {"claude": "semantic-unavailable-keyword-ok", "codex": "semantic-unavailable-keyword-ok"},
+    "mechanism_removing_differences": [
+        "launcher: degraded (live checkout, no execution context) instead of attended (materialized accepted "
+        "tree with an installed context) — the recall path under investigation runs behind the guard's "
+        "qualified branch, which the clone never enters.",
+        "meaning recall: reports itself unavailable ('not qualified to build the meaning index') instead of "
+        "reconciling the semantic store — the exact operation suspected in the production failure never runs.",
+        "derived caches: the keyword-index rebuild is refused unqualified and recall falls through to a "
+        "ledger scan, so no cache is reconciled or written — the cache-trust seam (C3) is not exercised.",
+        "authority: no activation, so no activation-advance can happen under the running server — the "
+        "operator's moved-commit scenario cannot occur here.",
+    ],
+}
+
+
+def _run(argv, *, env=None, cwd=None, timeout=60) -> str:
+    done = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout, check=False)
+    if done.returncode != 0:
+        raise AssertionError(f"{' '.join(argv)} failed ({done.returncode}): {(done.stderr or done.stdout)[:400]}")
+    return done.stdout.strip()
+
+
+def _real_home() -> str:
+    try:
+        import pwd
+        return pwd.getpwuid(os.getuid()).pw_dir
+    except (ImportError, KeyError, OSError):
+        return os.path.expanduser("~")
+
+
+class DisposableClone:
+    """One sandboxed clone of this repository, its scrubbed launch environment, and the shipped launchers."""
+
+    def __init__(self):
+        self.source = str(ROOT)
+        self.branch = _run(["git", "-C", self.source, "rev-parse", "--abbrev-ref", "HEAD"])
+        canonical = _run(["git", "-C", self.source, "worktree", "list", "--porcelain"]).split("\n\n", 1)[0]
+        self.canonical_root = os.path.realpath(
+            next(line[len("worktree "):] for line in canonical.splitlines() if line.startswith("worktree ")))
+        common = _run(["git", "-C", self.source, "rev-parse", "--git-common-dir"])
+        self.canonical_common = os.path.realpath(common if os.path.isabs(common) else os.path.join(self.source, common))
+        self.canonical_memory = os.path.join(self.canonical_root, ".engine", "memory")
+        self.sandbox = os.path.realpath(tempfile.mkdtemp(prefix="engine-repro-clone-"))
+        self.root = os.path.join(self.sandbox, "repo")
+        self.home = os.path.join(self.sandbox, "home")
+        self.tmp = os.path.join(self.sandbox, "tmp")
+        os.makedirs(self.home)
+        os.makedirs(self.tmp)
+        _run(["git", "clone", "--no-hardlinks", "--quiet", "--branch", self.branch, self.canonical_root, self.root],
+             timeout=300)
+        self.head = _run(["git", "-C", self.root, "rev-parse", "HEAD"])
+        # The audited refusal: a clone that aliased the canonical project, memory, or git metadata is rejected
+        # here, before anything is launched against it.
+        execution_context.validate_disposable_target(
+            self.root, canonical_project_root=self.canonical_root, canonical_memory_dir=self.canonical_memory,
+            canonical_git_common_dir=self.canonical_common)
+        pointer = os.path.join(self.root, ".engine", "memory-backup", "pointer.json")
+        document = json.loads(Path(pointer).read_text(encoding="utf-8"))
+        if document.get("configured") is not False:
+            Path(pointer).write_text('{"schema_version": 1, "configured": false}\n', encoding="utf-8")
+        self.memory = os.path.join(self.root, ".engine", "memory")
+        self.nonce = f"repro-{secrets.token_hex(6)}"
+        self.uv_cache = _run(["uv", "cache", "dir"])
+        self.seed_records()
+
+    def seed_records(self):
+        """Synthetic records that preserve the relationship under investigation — a captured conversation the
+        session should be able to recall by meaning — with a nonce no real record could share."""
+        os.makedirs(self.memory, exist_ok=True)
+        now = int(time.time())
+        lines = []
+        for seq, text in enumerate((
+            f"The build pipeline's flaky deploy step was traced to a stale cache ({self.nonce}).",
+            f"We decided to clear the deploy cache on every release, tagging it {self.nonce}.",
+            f"Follow-up: the cache-clearing step is now part of the release checklist ({self.nonce}).",
+        ), start=1):
+            lines.append(json.dumps({
+                "ts": now - 100 + seq, "role": "observation", "tags": ["repro"], "text": text,
+                "session_id": f"synthetic-{self.nonce}", "seq": seq, "speaker": "user",
+                _records.RECORD_ID_KEY: _records.new_record_id(),
+            }, sort_keys=True))
+        Path(os.path.join(self.memory, "ledger.ndjson")).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def env(self, base=None) -> dict:
+        """The launch environment: everything that could bind the launched server to the canonical checkout is
+        dropped, everything that would make uv reach the network is pinned."""
+        source = dict(os.environ if base is None else base)
+        kept = {key: value for key, value in source.items()
+                if key in _KEEP_KEYS or not key.startswith(_SCRUB_PREFIXES)}
+        for key in list(kept):
+            if key.startswith(_SCRUB_PREFIXES) or key in ("HOME", "TMPDIR", "TMP", "TEMP"):
+                kept.pop(key)
+        kept.update({
+            "HOME": self.home, "TMPDIR": self.tmp, "CLAUDE_PROJECT_DIR": self.root,
+            "UV_CACHE_DIR": self.uv_cache,
+            "UV_PYTHON_INSTALL_DIR": os.path.join(_real_home(), ".local", "share", "uv", "python"),
+            "UV_PROJECT_ENVIRONMENT": os.path.realpath(os.path.join(self.source, ".engine", ".venv")),
+            "UV_NO_SYNC": "1", "UV_OFFLINE": "1", "PYTHONNOUSERSITE": "1",
+        })
+        return kept
+
+    def launcher(self, kind: str) -> tuple[str, list[str], str]:
+        """The shipped launcher's command, argv and working directory, parsed from the clone's own copy of the
+        config — never hand-written, so the reproduction runs what the deployment runs."""
+        if kind == "claude":
+            block = json.loads(Path(os.path.join(self.root, ".mcp.json")).read_text(encoding="utf-8"))
+            entry = block["mcpServers"]["engine-memory"]
+            args = [item.replace("${CLAUDE_PROJECT_DIR:-.}", self.root) for item in entry["args"]]
+            return entry["command"], args, self.root
+        if kind == "codex":
+            block = tomllib.loads(Path(os.path.join(self.root, ".codex", "config.toml")).read_text(encoding="utf-8"))
+            entry = block["mcp_servers"]["engine-memory"]
+            return entry["command"], list(entry["args"]), self.root
+        raise ValueError(kind)
+
+    def resolved_launch_paths(self, env: dict) -> dict:
+        """What the dispatcher's degraded launch would bind, computed the way it computes them (`git -C
+        <root>` for the common dir and the main checkout) under a GIVEN environment — so the same question can
+        be asked with a hostile environment and with the scrubbed one."""
+        common = _run(["git", "-C", self.root, "rev-parse", "--git-common-dir"], env=env)
+        common = os.path.realpath(common if os.path.isabs(common) else os.path.join(self.root, common))
+        first = _run(["git", "-C", self.root, "worktree", "list", "--porcelain"], env=env).split("\n\n", 1)[0]
+        main = os.path.realpath(next(line[len("worktree "):] for line in first.splitlines()
+                                     if line.startswith("worktree ")))
+        return {
+            "project_root": main, "git_common_dir": common,
+            "memory_dir": os.path.realpath(os.path.join(main, ".engine", "memory")),
+            "activation": os.path.join(common, "engine", "accepted-hooks", "activation.json"),
+        }
+
+    def containment(self, paths: dict) -> dict:
+        return {key: execution_context._within(os.path.realpath(value), self.sandbox)
+                for key, value in paths.items()}
+
+    def cleanup(self):
+        shutil.rmtree(self.sandbox, ignore_errors=True)
+
+
+async def drive_launcher(clone: DisposableClone, kind: str) -> dict:
+    """Launch the clone's server through one shipped launcher and observe the three read tools. Returns
+    the observation: the launcher label the server itself reports, the dispatcher's stderr line, and each
+    tool's raw outcome (error or payload)."""
+    from mcp import ClientSession, StdioServerParameters, stdio_client
+
+    command, args, cwd = clone.launcher(kind)
+    params = StdioServerParameters(command=command, args=args, env=clone.env(), cwd=cwd)
+    stderr_path = os.path.join(clone.sandbox, f"{kind}-server-stderr.txt")
+    observation = {"launcher": kind, "command": [command, *args], "cwd": cwd, "tools": {}}
+
+    async def call(session, name, arguments):
+        result = await session.call_tool(name, arguments)
+        text = result.content[0].text if result.content else ""
+        entry = {"is_error": bool(result.is_error), "text": text[:2000]}
+        if not result.is_error:
+            try:
+                entry["payload"] = json.loads(text)
+            except ValueError:
+                entry["payload"] = None
+        return entry
+
+    with open(stderr_path, "w", encoding="utf-8") as errlog:
+        async with stdio_client(params, errlog=errlog) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                observation["tool_names"] = sorted(tool.name for tool in (await session.list_tools()).tools)
+                observation["tools"]["health"] = await call(session, "health", {})
+                observation["tools"]["search"] = await call(session, "search", {"query": clone.nonce, "limit": 5})
+                if "recall-by-meaning" in observation["tool_names"]:
+                    observation["tools"]["recall-by-meaning"] = await call(
+                        session, "recall-by-meaning",
+                        {"query": "why did the deployment step keep failing and what did we change", "limit": 5})
+                hits = (observation["tools"]["search"].get("payload") or {}).get("results") or []
+                if hits:
+                    observation["tools"]["recall-window"] = await call(
+                        session, "recall-window", {"session_id": hits[0]["session_id"], "anchor_seq": hits[0]["seq"]})
+    observation["stderr"] = Path(stderr_path).read_text(encoding="utf-8")[:2000]
+    health = (observation["tools"]["health"].get("payload") or {}).get("diagnostics") or {}
+    observation["qualification_reported"] = health.get("qualification")
+    observation["diagnostics_armed"] = health.get("armed")
+    return observation
+
+
+def classify_outcome(observation: dict) -> dict:
+    """The fixed rule: a reproduction is a read tool answering with the GENERIC boundary error — the flattened
+    crash the operator saw. Everything else is NOT a reproduction, and the three known counterfeits are named
+    so they can never be mistaken for one: a clean stale-context caveat is a designed degradation; keyword
+    recall working while meaning recall reports itself unavailable is a designed degradation; a generic
+    error on some other tool without the recall mechanism engaged is a different fault."""
+    tools = observation.get("tools", {})
+    for name in ("recall-by-meaning", "search", "recall-window"):
+        entry = tools.get(name)
+        if entry and entry.get("is_error") and _GENERIC_TOOL_ERROR.search(entry.get("text", "")):
+            return {"class": "reproduced", "label": f"generic-boundary-error:{name}"}
+    for name, entry in tools.items():
+        if entry.get("is_error") and _GENERIC_TOOL_ERROR.search(entry.get("text", "")):
+            return {"class": "not-reproduced", "label": f"generic-error-without-recall-mechanism:{name}"}
+    meaning = tools.get("recall-by-meaning")
+    search = tools.get("search")
+    if "recall-by-meaning" not in observation.get("tool_names", []):
+        return {"class": "not-reproduced", "label": "semantic-tool-absent"}
+    if meaning and not meaning.get("is_error") and (meaning.get("payload") or {}).get("unavailable") \
+            and search and not search.get("is_error"):
+        return {"class": "not-reproduced", "label": "semantic-unavailable-keyword-ok"}
+    if any((entry.get("payload") or {}).get("memory_caveat") for entry in tools.values() if entry):
+        return {"class": "not-reproduced", "label": "caveat-only"}
+    if any(entry.get("is_error") for entry in tools.values()):
+        return {"class": "not-reproduced", "label": "other-error"}
+    return {"class": "not-reproduced", "label": "healthy"}
+
+
+def recall_acceptance_probe(observation: dict, nonce: str) -> dict:
+    """The DESIRED behavior — meaning-based recall returns the seeded conversation — evaluated and RECORDED
+    with its actual result. This is the probe the fix child will run as its acceptance test; here it is
+    preserved, never asserted and never skipped."""
+    entry = observation.get("tools", {}).get("recall-by-meaning")
+    if entry is None:
+        return {"passed": False, "detail": "recall-by-meaning was not offered by the launched server"}
+    if entry.get("is_error"):
+        return {"passed": False, "detail": "recall-by-meaning answered with an error"}
+    payload = entry.get("payload") or {}
+    if payload.get("unavailable"):
+        return {"passed": False, "detail": f"recall-by-meaning reported itself unavailable: {payload['unavailable'][:120]}"}
+    found = any(nonce in (hit.get("passage") or hit.get("text") or "") for hit in payload.get("results", []))
+    return {"passed": found, "detail": "the seeded conversation was recalled by meaning" if found
+            else "recall-by-meaning answered but did not return the seeded conversation"}
+
+
+class CounterfeitReproductionTests(unittest.TestCase):
+    """The classifier's fixed rule, pinned: exactly one shape counts as a reproduction."""
+
+    def _observation(self, **tools):
+        return {"tool_names": ["health", "search", "recall-by-meaning", "recall-window"],
+                "tools": {"health": {"is_error": False, "payload": {"status": "ok"}}, **tools}}
+
+    def test_only_the_generic_boundary_error_on_a_recall_tool_is_a_reproduction(self):
+        seen = classify_outcome(self._observation(
+            **{"search": {"is_error": False, "payload": {"results": []}},
+               "recall-by-meaning": {"is_error": True, "text": "Error executing tool recall-by-meaning"}}))
+        self.assertEqual(seen, {"class": "reproduced", "label": "generic-boundary-error:recall-by-meaning"})
+
+    def test_a_clean_stale_context_caveat_is_not_a_reproduction(self):
+        seen = classify_outcome(self._observation(
+            **{"search": {"is_error": False, "payload": {"results": [], "memory_caveat": "restart"}},
+               "recall-by-meaning": {"is_error": False, "payload": {"results": [], "memory_caveat": "restart"}}}))
+        self.assertEqual(seen, {"class": "not-reproduced", "label": "caveat-only"})
+
+    def test_keyword_ok_with_meaning_unavailable_is_not_a_reproduction(self):
+        seen = classify_outcome(self._observation(
+            **{"search": {"is_error": False, "payload": {"results": [{"text": "x"}]}},
+               "recall-by-meaning": {"is_error": False, "payload": {"results": [], "unavailable": "not-qualified"}}}))
+        self.assertEqual(seen, {"class": "not-reproduced", "label": "semantic-unavailable-keyword-ok"})
+
+    def test_a_generic_error_off_the_recall_mechanism_is_not_a_reproduction(self):
+        seen = classify_outcome(self._observation(
+            **{"search": {"is_error": False, "payload": {"results": []}},
+               "recall-by-meaning": {"is_error": False, "payload": {"results": []}},
+               "pin": {"is_error": True, "text": "Error executing tool pin"}}))
+        self.assertEqual(seen["class"], "not-reproduced")
+        self.assertTrue(seen["label"].startswith("generic-error-without-recall-mechanism"))
+
+    def test_the_probe_is_recorded_with_its_actual_result_in_every_branch(self):
+        nonce = "repro-abc"
+        self.assertFalse(recall_acceptance_probe({"tools": {}}, nonce)["passed"])
+        self.assertFalse(recall_acceptance_probe(
+            {"tools": {"recall-by-meaning": {"is_error": False, "payload": {"unavailable": "not-qualified"}}}},
+            nonce)["passed"])
+        self.assertTrue(recall_acceptance_probe(
+            {"tools": {"recall-by-meaning": {"is_error": False, "payload": {"results": [{"passage": f"x {nonce} y"}]}}}},
+            nonce)["passed"])
+
+
+class DisposableCloneIsolationTests(unittest.TestCase):
+    """The clone is a sandbox, proven against the launched server's OWN resolution — including the hostile
+    case a build worktree makes real (a leaked GIT_DIR)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.clone = DisposableClone()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.clone.cleanup()
+
+    def test_the_clone_is_accepted_by_the_audited_disposable_target_check_and_is_seeded(self):
+        self.assertTrue(os.path.isdir(os.path.join(self.clone.root, ".git")))
+        self.assertNotEqual(os.path.realpath(self.clone.root), self.clone.canonical_root)
+        self.assertNotEqual(self.clone.resolved_launch_paths(self.clone.env())["git_common_dir"],
+                            self.clone.canonical_common)
+        self.assertTrue(os.path.exists(os.path.join(self.clone.memory, "ledger.ndjson")))
+        self.assertEqual(json.loads(Path(os.path.join(self.clone.root, ".engine", "memory-backup",
+                                                      "pointer.json")).read_text())["configured"], False)
+
+    def test_the_launch_env_is_scrubbed_and_pinned(self):
+        hostile = dict(os.environ, GIT_DIR=self.clone.canonical_common, GIT_WORK_TREE=self.clone.canonical_root,
+                       ENGINE_MEMORY_DIR=self.clone.canonical_memory, UV_INDEX_URL="https://example.invalid")
+        env = self.clone.env(hostile)
+        self.assertFalse([key for key in env if key.startswith(("GIT_", "ENGINE_", "CODEX_", "UV_INDEX"))], env)
+        self.assertEqual(env["CLAUDE_PROJECT_DIR"], self.clone.root)
+        self.assertTrue(env["HOME"].startswith(self.clone.sandbox))
+        self.assertTrue(env["TMPDIR"].startswith(self.clone.sandbox))
+        self.assertEqual(env["UV_OFFLINE"], "1")
+        self.assertEqual(env["UV_CACHE_DIR"], self.clone.uv_cache)
+        self.assertIn("PATH", env)
+
+    def test_a_leaked_git_dir_would_bind_canonical_and_the_scrub_prevents_it(self):
+        hostile = dict(os.environ, GIT_DIR=self.clone.canonical_common)
+        # The hazard is real: under the leaked variable the clone resolves the CANONICAL git metadata and
+        # main checkout — exactly what the degraded launch would then bind memory to.
+        leaked = self.clone.resolved_launch_paths(hostile)
+        self.assertEqual(leaked["git_common_dir"], self.clone.canonical_common)
+        self.assertEqual(leaked["project_root"], self.clone.canonical_root)
+        self.assertFalse(any(self.clone.containment(leaked).values()))
+        # Under the scrubbed environment every resolved write destination is inside the sandbox.
+        resolved = self.clone.resolved_launch_paths(self.clone.env(hostile))
+        self.assertEqual(resolved["project_root"], os.path.realpath(self.clone.root))
+        self.assertEqual(resolved["memory_dir"], os.path.realpath(self.clone.memory))
+        self.assertTrue(all(self.clone.containment(resolved).values()), resolved)
+        self.assertFalse(os.path.exists(resolved["activation"]))   # no activation: the degraded launch is forced
+
+
+class DisposableCloneReproductionTests(unittest.IsolatedAsyncioTestCase):
+    """The best-effort reproduction itself, on both shipped launchers, labeled and classified — the
+    committed DISPOSITION is checked against what actually happened."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.clone = DisposableClone()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.clone.cleanup()
+
+    async def test_both_shipped_launchers_run_degraded_and_the_disposition_matches_reality(self):
+        report = {"clone_head": self.clone.head, "sandbox": self.clone.sandbox, "launchers": {}}
+        for kind in ("claude", "codex"):
+            with self.subTest(launcher=kind):
+                observation = await asyncio.wait_for(drive_launcher(self.clone, kind), timeout=300)
+                outcome = classify_outcome(observation)
+                probe = recall_acceptance_probe(observation, self.clone.nonce)
+                report["launchers"][kind] = {"observation": observation, "outcome": outcome, "probe": probe}
+                # The launcher the server ACTUALLY ran, in its own words — the mechanism-removing difference.
+                self.assertEqual(observation["qualification_reported"], "degraded", observation["stderr"])
+                self.assertIn("running unqualified", observation["stderr"])
+                self.assertIs(observation["diagnostics_armed"], True)
+                self.assertFalse(observation["tools"]["health"]["is_error"])
+                self.assertFalse(observation["tools"]["search"]["is_error"], observation["tools"]["search"]["text"])
+                hits = observation["tools"]["search"]["payload"]["results"]
+                self.assertTrue(any(self.clone.nonce in hit["text"] for hit in hits), hits)   # keyword recall reaches the seed
+                self.assertIn("recall-window", observation["tools"])
+                # The committed finding equals the observed class and label — or this test fails loudly.
+                self.assertEqual(outcome["class"], DISPOSITION["expected_class"][kind], outcome)
+                self.assertEqual(outcome["label"], DISPOSITION["expected_label"][kind], outcome)
+                self.assertIn("passed", probe)                      # preserved with its actual result
+        # Containment, stated as what actually happened: a DEGRADED launch refuses the derived-index rebuild
+        # (index-rebuild is not degraded-allowed; keyword recall falls through to a ledger scan), so the reads
+        # wrote NOTHING — the sandbox's memory directory holds exactly what this harness seeded, and no
+        # derived cache exists to have landed anywhere. That is itself a recorded mechanism-removing
+        # difference from the attended launch, which reconciles its caches on the way past.
+        self.assertEqual(sorted(os.listdir(self.clone.memory)), ["ledger.ndjson"])
+        report["derived_cache_written"] = False
+        report["mechanism_removing_differences"] = DISPOSITION["mechanism_removing_differences"]
+        report_path = os.path.join(self.clone.sandbox, "reproduction-report.json")
+        Path(report_path).write_text(json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8")
+        print(f"\nreproduction report: {report_path}\n" + json.dumps(
+            {kind: {"outcome": value["outcome"], "probe": value["probe"],
+                    "qualification": value["observation"]["qualification_reported"]}
+             for kind, value in report["launchers"].items()}, indent=2))
+
+
 if __name__ == "__main__":
     unittest.main()
