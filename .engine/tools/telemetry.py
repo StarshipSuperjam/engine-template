@@ -1878,10 +1878,11 @@ def _demo_walkthrough(scratch: str) -> int:
           f"{nf_scoped_ok}")
     print(f"    the feed frames it escalate-or-ignore (a question, not a retire verdict): {nf_framing_ok}")
 
-    print("\n(12) The findings INBOX — the drain core the SessionStart pass runs. A producer hands off ONE")
-    print("    benign finding and is done: it is spooled (capture, not tracking) and promoted only once it")
-    print("    persists across drains, and a drain NEVER touches an unrelated item. Walked on the demo's own")
-    print("    temporary spool and counter, never the live inbox:")
+    print("\n(12) The findings INBOX — the drain core the SessionStart pass runs. A producer re-emits ONE benign")
+    print("    finding afresh each session and is done: each emit is spooled (capture, not tracking), each drain")
+    print("    consumes the spool, and the finding is promoted only once it has persisted across drains — a")
+    print("    drain NEVER touches an unrelated item. Walked on the demo's own temporary spool and counter,")
+    print("    never the live inbox:")
     inbox_fake = _FakeGitHub()
     inbox_gh = GitHubIssues("you/your-project", "demo-token", transport=inbox_fake.transport)
     inbox_spool = os.path.join(scratch, "inbox", "findings-inbox.ndjson")
@@ -1894,17 +1895,17 @@ def _demo_walkthrough(scratch: str) -> int:
     inbox_oob_open = lambda: any(i["state"] == "open" and "fail-open" in i["body"] for i in inbox_fake.issues.values())
     spooled = _rec("demo/inbox/degraded-start", PERSISTENT_BENIGN,
                    "The engine started in a degraded state (a demo fixture, not a real finding).")
-    inbox_open = lambda: any(i["state"] == "open" and "demo/inbox/degraded-start" in i["body"]
-                             for i in inbox_fake.issues.values())
+    inbox_count = lambda: sum(1 for i in inbox_fake.issues.values()
+                              if i["state"] == "open" and "demo/inbox/degraded-start" in i["body"])
     inbox_seen = []
     for k in range(3):                                                # a producer emits it FRESHLY before each drain
         _append_inbox(spooled, path=inbox_spool)                      # the unguarded spool primitive (emit-and-done)
         drain_inbox(inbox_gh, cache=inbox_cache, thresholds=th, now=iclock[k], spool_path=inbox_spool)
-        inbox_seen.append(inbox_open())
-    print(f"    spooled then drained across 3 passes -> tracked only once it persists: {inbox_seen}   "
-          f"(unrelated item untouched: {inbox_oob_open()})")
+        inbox_seen.append(inbox_count())
+    print(f"    re-emitted afresh, spooled and drained across 3 passes -> open Issues for it after each pass: "
+          f"{inbox_seen} (tracked once, only once it persists)   (unrelated item untouched: {inbox_oob_open()})")
     print(f"    the demo's spool and counter are its own temporary files, never the live inbox: {paths_ok}")
-    inbox_ok = (inbox_seen == [False, False, True] and inbox_oob_open() and paths_ok)
+    inbox_ok = (inbox_seen == [0, 0, 1] and inbox_oob_open() and paths_ok)
 
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
@@ -1920,14 +1921,15 @@ def _demo_walkthrough(scratch: str) -> int:
     # its counts and is not a conjunct — a known gap, not an oversight.) The verdict is a REAL failure: main()
     # dispatches `demo` outside the fail-open catch, so a false conjunct — or a crash on the way here —
     # exits non-zero instead of being swallowed as success.
-    conjuncts = {
-        "open2": open2 == 1, "open3": open3 == 1, "open4": open4 == 2, "degraded_line": bool(r6.degraded_line),
-        "ci_ok": ci_ok, "amb_ok": amb_ok, "dup_ok": dup_ok, "nf_ok": nf_ok, "inbox_ok": inbox_ok,
-    }
-    failed = [name for name, held in conjuncts.items() if not held]
+    conjuncts = [  # (name, the section that printed its counts, held) — in on-screen order
+        ("open2", 2, open2 == 1), ("open3", 3, open3 == 1), ("open4", 4, open4 == 2),
+        ("degraded_line", 6, bool(r6.degraded_line)), ("ci_ok", 8, ci_ok), ("dup_ok", 9, dup_ok),
+        ("amb_ok", 10, amb_ok), ("nf_ok", 11, nf_ok), ("inbox_ok", 12, inbox_ok),
+    ]
+    failed = [f"{name} (section {section})" for name, section, held in conjuncts if not held]
     if failed:
         print("\nDEMO UNEXPECTED: these self-checks did not hold: " + ", ".join(failed)
-              + " — the section printed above with that name shows the counts that went wrong.", file=sys.stderr)
+              + " — re-read the section named beside each; it prints the counts that went wrong.", file=sys.stderr)
         return 1
     return 0
 
@@ -2341,7 +2343,9 @@ def main(argv: list) -> int:
     try:
         return handler(argv[1:])
     except Exception as exc:  # noqa: BLE001 — a verdict command's crash IS its verdict: report it, exit 1
-        print(f"TELEMETRY {verb} FAILED: {exc}", file=sys.stderr)
+        print(f"TELEMETRY {verb} FAILED: this diagnostic hit an internal error and is reporting it rather than "
+              f"passing silently ({exc}). The traceback below is the local diagnostic; the exit code (1) is the "
+              f"verdict.", file=sys.stderr)
         traceback.print_exc()
         return 1
 

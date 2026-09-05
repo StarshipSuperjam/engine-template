@@ -1146,7 +1146,8 @@ class TestFailureContracts(unittest.TestCase):
         with mock.patch.object(telemetry, "_engine_issues_cli", _raise):
             code, err = self._main(["engine-issues"])
         self.assertEqual(code, 1)                                # a swallowed crash would read as an empty backlog
-        self.assertIn("TELEMETRY engine-issues FAILED: boom", err)
+        self.assertIn("TELEMETRY engine-issues FAILED:", err)
+        self.assertIn("reporting it rather than passing silently (boom)", err)   # plain framing before the trace
         self.assertIn("Traceback", err)
         self.assertNotIn("self-monitoring hit an unexpected error", err)
 
@@ -1154,7 +1155,9 @@ class TestFailureContracts(unittest.TestCase):
         with mock.patch.object(telemetry, "_demo", _raise):
             code, err = self._main(["demo"])
         self.assertEqual(code, 1)
-        self.assertIn("TELEMETRY demo FAILED: boom", err)
+        self.assertIn("TELEMETRY demo FAILED:", err)
+        self.assertIn("(boom)", err)
+        self.assertIn("Traceback", err)
 
     def test_an_unknown_or_missing_verb_prints_usage_and_exits_two(self):
         for argv in ([], ["bogus"]):
@@ -1185,7 +1188,8 @@ class TestDemoVerdict(unittest.TestCase):
             sentinel = os.path.join(d, "findings-inbox.ndjson")
             with open(sentinel, "w", encoding="utf-8") as fh:
                 fh.write(json.dumps(rec("real/pending-finding")) + "\n")
-            seeded = open(sentinel, encoding="utf-8").read()
+            with open(sentinel, encoding="utf-8") as fh:
+                seeded = fh.read()
             with mock.patch.object(telemetry, "INBOX_SPOOL_PATH", sentinel), \
                     mock.patch.object(telemetry, "DEFAULT_INBOX_STREAMS_PATH", os.path.join(d, "inbox-streams.json")), \
                     mock.patch.object(boot, "gh_token", _raise), mock.patch.object(boot, "repo_slug", _raise):
@@ -1194,9 +1198,10 @@ class TestDemoVerdict(unittest.TestCase):
                     self.assertEqual(code, 0, (attempt, err))
                     self.assertEqual(err, "", attempt)                   # no soft finding, no failure line
                     self.assertIn("(12) The findings INBOX", out)
-                    self.assertIn("tracked only once it persists: [False, False, True]", out)
+                    self.assertIn("open Issues for it after each pass: [0, 0, 1]", out)
                     self.assertIn("never the live inbox: True", out)
-            self.assertEqual(open(sentinel, encoding="utf-8").read(), seeded)
+            with open(sentinel, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), seeded)
             self.assertFalse(os.path.exists(os.path.join(d, "inbox-streams.json")))
         after = sorted(os.listdir(live_dir)) if os.path.isdir(live_dir) else None
         self.assertEqual(after, before)                                  # nothing new under the live cache dir
@@ -1209,9 +1214,9 @@ class TestDemoVerdict(unittest.TestCase):
         with mock.patch.object(telemetry, "drain_inbox", lambda *a, **k: None):
             code, out, err = self._run_demo()
         self.assertEqual(code, 1)
-        self.assertIn("DEMO UNEXPECTED: these self-checks did not hold: inbox_ok", err)
+        self.assertIn("DEMO UNEXPECTED: these self-checks did not hold: inbox_ok (section 12)", err)
         self.assertNotIn("nf_ok", err)
-        self.assertIn("tracked only once it persists: [False, False, False]", out)
+        self.assertIn("open Issues for it after each pass: [0, 0, 0]", out)
 
 
 class TestThresholdsRead(unittest.TestCase):
