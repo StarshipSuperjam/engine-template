@@ -88,11 +88,14 @@ import validate  # noqa: E402
 #             delegated + modes' Claude native-plan intake adapter); it MAY inject — modes' adapter
 #             injects the arrival report (additionalContext) after importing an accepted plan — while
 #             staying non-blocking.
+#             Stop has TWO owners: close's finding-disposition gate and ambient-capture trigger, and
+#             telemetry — delegated, because close's Stop handler promotes a logged finding through
+#             telemetry.promote_finding (close.py's 'log it' relay); telemetry registers nothing on Stop.
 #             UserPromptSubmit has TWO owners in a DEFINED ORDER: boot's per-prompt scent, then
 #             modes' Codex native-plan intake adapter. That second owner is a deliberate amendment of
 #             this table, and it is a REGISTERED owner, not a drifting writer: this hook table refuses writers
-#             of undefined order, and PostToolUse has carried three owners in defined order
-#             since it was written. The two cannot contend — boot injects orientation without reading
+#             of undefined order, and PostToolUse has carried three owners, added one at a time,
+#             since it was written (their order is not load-bearing; they are asserted as a set). The two cannot contend — boot injects orientation without reading
 #             the prompt's content, modes reads the prompt and acts only on an acceptance envelope at
 #             byte zero, and modes writes no stance signal and no file the scent touches. The adapter
 #             lives on this event only on Codex, which has no plan-exit signal to key on.
@@ -108,7 +111,7 @@ EVENT_INVENTORY = {
     "PreToolUse":       {"owners": ("modes", "knowledge", "self-map", "validation", "product-design", "session-economy"), "blocks": True, "injects": True},
     "PostToolUse":      {"owners": ("validation", "telemetry", "modes"), "blocks": False, "injects": True},
     "PreCompact":       {"owners": ("memory",),                  "blocks": False, "injects": False},
-    "Stop":             {"owners": ("close",),                   "blocks": True,  "injects": False},
+    "Stop":             {"owners": ("close", "telemetry"),      "blocks": True,  "injects": False},
     "UserPromptSubmit": {"owners": ("boot", "modes"),            "blocks": False, "injects": True},
 }
 EVENTS = frozenset(EVENT_INVENTORY)
@@ -118,6 +121,7 @@ EVENTS = frozenset(EVENT_INVENTORY)
 # checker requires the DELEGATE to be bound there instead of the delegated owner.
 DELEGATED_OWNERS = {
     "PostToolUse": {"telemetry": "validation"},   # validate._accept_handler relays into telemetry.capture_touched_fires
+    "Stop":        {"telemetry": "close"},        # close._promote relays a logged finding into telemetry.promote_finding
 }
 
 # OWNER_BY_SCRIPT: the owning system of each engine hook script, by repo-relative path prefix (a
@@ -326,21 +330,26 @@ def automatic_hook_wiring_failures(document: dict, provider: str) -> list[str]:
 
 # ---- the event-inventory drift checkers (pure; the shape of automatic_hook_wiring_failures) ----------
 # Both legs judge ONLY the engine's own registrations — a command carrying ENGINE_COMMAND_MARKER whose
-# script resolves under .engine/tools/ — and let every foreign entry pass unjudged: .claude/settings.json
-# and .codex/hooks.json are OPERATOR-SHARED files (wiring applies iff absent and reverses only the
-# engine-identified entry), so an operator's own hook, on any event, is never a finding here. Both fail
-# LOUD when they extract no engine binding at all: a registration file the grammar cannot read must red,
-# never pass vacuously (the provider-parity canary precedent).
+# first `.engine/tools/...` token names a script that EXISTS in this checkout — and let every foreign entry
+# pass unjudged: .claude/settings.json and .codex/hooks.json are OPERATOR-SHARED files (wiring applies iff
+# absent and reverses only the engine-identified entry), so an operator's own command is never a finding
+# here — even one that merely mentions a path under .engine/tools/ that is not a real engine script. (A
+# command that genuinely runs an existing engine script IS judged, whoever wrote it: the script's
+# behaviour is the engine's.) Both fail LOUD when they extract no engine binding at all: a registration
+# file the grammar cannot read must red, never pass vacuously (the provider-parity canary precedent).
 
-def _engine_script(command) -> "str | None":
+def _engine_script(command, root: "str | None" = None) -> "str | None":
     """The engine script a hook command runs (repo-relative, under .engine/tools/), or None for a command
     that is not the engine's. The launcher tokens (hook-runner.sh, codex-hook-runner.sh) are skipped so
-    the SCRIPT is returned, not the shim that runs it."""
+    the SCRIPT is returned, not the shim that runs it — and the token must name a file that exists under
+    `root` (this checkout by default), so a foreign command that merely mentions an .engine/tools/ path
+    is not mistaken for the engine's."""
     if not isinstance(command, str) or ENGINE_COMMAND_MARKER not in command:
         return None
     for token in _ENGINE_SCRIPT_RE.findall(command):
-        if not token.endswith("hook-runner.sh"):
-            return token
+        if token.endswith("hook-runner.sh"):
+            continue
+        return token if os.path.isfile(os.path.join(root or validate.ROOT, token)) else None
     return None
 
 
@@ -352,9 +361,10 @@ def owner_of_script(script: str) -> "str | None":
     return None
 
 
-def engine_bindings(document) -> list:
+def engine_bindings(document, root: "str | None" = None) -> list:
     """Every engine-owned hook binding in a parsed registration document, as (event, script, where)
-    triples; a malformed container contributes nothing (the provider's shape/schema check owns it)."""
+    triples; a malformed container contributes nothing (the provider's shape/schema check owns it).
+    `root` is the checkout the scripts must exist in (this one by default)."""
     out = []
     hooks_doc = document.get("hooks") if isinstance(document, dict) else None
     if not isinstance(hooks_doc, dict):
@@ -367,19 +377,19 @@ def engine_bindings(document) -> list:
             if not isinstance(entries, list):
                 continue
             for hook_index, entry in enumerate(entries):
-                script = _engine_script(entry.get("command") if isinstance(entry, dict) else None)
+                script = _engine_script(entry.get("command") if isinstance(entry, dict) else None, root)
                 if script is not None:
                     out.append((event, script, f"{event}[{group_index}].hooks[{hook_index}]"))
     return out
 
 
-def inventory_forward_failures(document, provider: str) -> list:
+def inventory_forward_failures(document, provider: str, root: "str | None" = None) -> list:
     """The FORWARD leg (the StarshipSuperjam/engine-template#784 direction — bound but unnamed): every engine command in `document` sits
     on an event the inventory governs, and its script maps via OWNER_BY_SCRIPT to an owner named on that
     event. Returns plain-language failures; empty means the document's engine wiring is inside the table."""
     if provider not in {"claude", "codex"}:
         raise ValueError("provider must be claude or codex")
-    bindings = engine_bindings(document)
+    bindings = engine_bindings(document, root)
     if not bindings:
         return [f"{provider} hook registration carries no engine-owned hook command the checker "
                 f"recognizes — nothing to judge, so the check cannot pass"]
@@ -399,7 +409,7 @@ def inventory_forward_failures(document, provider: str) -> list:
     return failures
 
 
-def inventory_reverse_failures(documents: dict, installed_modules) -> list:
+def inventory_reverse_failures(documents: dict, installed_modules, root: "str | None" = None) -> list:
     """The REVERSE leg (the StarshipSuperjam/engine-template#816 direction — named with nothing behind it), over the UNION of the runtimes'
     documents ({provider: document}) so a provider-only binding (a recorded provider exception) still
     satisfies its owner: every inventoried event carries at least one engine binding somewhere, every
@@ -408,7 +418,7 @@ def inventory_reverse_failures(documents: dict, installed_modules) -> list:
     reddening a deployment that declined the module."""
     bound: dict = {}
     for provider, document in documents.items():
-        for event, script, _where in engine_bindings(document):
+        for event, script, _where in engine_bindings(document, root):
             owner = owner_of_script(script)
             if owner is not None:
                 bound.setdefault(event, set()).add(owner)

@@ -113,7 +113,11 @@ class TestEventInventory(unittest.TestCase):
         # telemetry registers no PostToolUse hook of its own: validate's accept-hook relays each edit into
         # telemetry.capture_touched_fires. "Owner" is a behaviour relation, and a delegated owner is
         # DECLARED data — the checkers honour it, they cannot detect it.
-        self.assertEqual(hooks.DELEGATED_OWNERS, {"PostToolUse": {"telemetry": "validation"}})
+        self.assertEqual(hooks.DELEGATED_OWNERS, {"PostToolUse": {"telemetry": "validation"},
+                                                  "Stop": {"telemetry": "close"}})
+        # close's Stop handler promotes a logged finding through telemetry.promote_finding — the same
+        # delegated shape on the turn-close event.
+        self.assertEqual(set(hooks.EVENT_INVENTORY["Stop"]["owners"]), {"close", "telemetry"})
         for event, delegations in hooks.DELEGATED_OWNERS.items():
             self.assertIn(event, hooks.EVENTS)
             for owner, delegate in delegations.items():
@@ -127,6 +131,8 @@ class TestEventInventory(unittest.TestCase):
             self.assertTrue(prefix.startswith(".engine/tools/"), prefix)
             self.assertIn(owner, named, f"{prefix} maps to {owner}, which no inventory row names")
         self.assertLessEqual(set(hooks.OWNER_MODULE), named)
+        # A mistyped module id would make the reverse leg skip that owner forever, silently.
+        self.assertLessEqual(set(hooks.OWNER_MODULE.values()), hooks.installed_modules())
 
     def test_posttooluse_may_inject_and_stays_non_blocking(self):
         # modes' intake adapter injects the arrival report (additionalContext) after importing an
@@ -140,8 +146,8 @@ class TestEventInventory(unittest.TestCase):
 
         What makes a second owner admissible here, and why the amendment is not the drift the table
         exists to catch. The hook table refuses writers of UNDEFINED order — writers that race, whose
-        relative sequence nothing states — not registered owners; PostToolUse has carried three owners
-        in a stated order since it was written, and this is that shape, not a new one. The two owners
+        relative sequence nothing states — not registered owners; PostToolUse has carried three owners,
+        added one at a time, since it was written (asserted as a set), and this is that shape, not a new one. The two owners
         cannot contend: boot's per-prompt scent injects a constant orientation cue without reading the
         prompt's content, while modes reads the prompt's opening bytes and acts only on an acceptance
         envelope at byte zero. They share no file and no signal — modes writes no stance — so neither
@@ -279,7 +285,6 @@ class TestHookCommandWaitWrapper(unittest.TestCase):
     def test_per_os_form_carries_its_own_venv_interpreter(self):
         self.assertIn(".engine/.venv/bin/python",
                       hooks.hook_command(".engine/tools/boot.py", "posix"))
-
         self.assertIn(".engine/.venv/Scripts/python.exe",
                       hooks.hook_command(".engine/tools/boot.py", "nt"))
 
@@ -2143,8 +2148,6 @@ class TestBytecodeBeltScope(unittest.TestCase):
 # module that defines a TestCase after its runner. (An earlier comment here claimed #1153's activation suite
 # "ran never" because it sat below the runner; that was wrong — it was collected and ran under discovery, and
 # #1153 shipped broken because its tests never exercised the fresh-clone path.)
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestInventoryDriftCheckers(unittest.TestCase):
@@ -2210,11 +2213,21 @@ class TestInventoryDriftCheckers(unittest.TestCase):
             self.assertIn("does not govern", failures[0])
 
     def test_forward_leg_reds_an_engine_command_mapping_to_no_owner(self):
-        doc = self._doc("SessionStart", hooks.hook_command(".engine/tools/nobody.py", provider="claude"),
+        # A REAL engine script (moment.py exists) that OWNER_BY_SCRIPT does not map.
+        doc = self._doc("SessionStart", hooks.hook_command(".engine/tools/moment.py", provider="claude"),
                         matcher="startup")
         failures = hooks.inventory_forward_failures(doc, "claude")
         self.assertEqual(len(failures), 1, failures)
         self.assertIn("no owning system", failures[0])
+
+    def test_a_foreign_command_merely_mentioning_an_engine_path_is_not_judged(self):
+        # The operator's own script that happens to name a non-existent path under .engine/tools/ is
+        # not the engine's — only a command running an EXISTING engine script is judged.
+        doc = self._doc("SessionEnd", "sh /Users/me/mytidy.sh --log .engine/tools/mylog.txt")
+        doc["hooks"]["Stop"] = [{"hooks": [{"type": "command",
+                                            "command": hooks.hook_command(".engine/tools/close.py", provider="claude")}]}]
+        self.assertEqual(hooks.inventory_forward_failures(doc, "claude"), [])
+        self.assertIsNone(hooks._engine_script("sh /Users/me/mytidy.sh --log .engine/tools/mylog.txt"))
 
     def test_forward_leg_reds_an_owner_its_event_does_not_name(self):
         # The #784 shape exactly: a known engine script bound on an event whose row omits its owner.
@@ -2287,3 +2300,6 @@ class TestInventoryDriftCheckers(unittest.TestCase):
         self.assertEqual([f for f in claude_only if "over-reports" in f],
                          ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "
                           "is bound there in any runtime — the row over-reports"])
+
+if __name__ == "__main__":
+    unittest.main()
