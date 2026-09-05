@@ -604,6 +604,10 @@ class TestShapeLengthTier(unittest.TestCase):
         unregistered = self.PADDED
         [anomaly] = validate.prose_line_anomalies(unregistered)
         self.assertIn("not one a renderer owns", anomaly)
+        twice = self.PADDED + self.PADDED[self.PADDED.index("<!-- generated:"):]     # a second, identical pair
+        self.assertEqual(validate.prose_line_count(twice, self.REGISTERED_REL), 4 + 4 + 2)
+        [dup] = validate.prose_line_anomalies(twice, self.REGISTERED_REL)
+        self.assertIn("appears a second time", dup)
         wrong_close = self.PADDED.replace("<!-- /generated: build-protocol review-consumers -->",
                                           "<!-- /generated: something-else -->")
         problems = validate.prose_line_anomalies(wrong_close, self.REGISTERED_REL)

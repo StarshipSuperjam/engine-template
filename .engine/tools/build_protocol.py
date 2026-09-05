@@ -130,10 +130,11 @@ def render(protocol: dict) -> str:
 
 def _split_runbook(text: str) -> tuple:
     """(before, region, after) around the generated region; region is None when the markers are absent
-    or malformed (a begin without an end, or in the wrong order)."""
+    or malformed (a begin without an end, in the wrong order, or either marker appearing more than once —
+    a duplicate pair would be a place to hide prose behind a name this check guards)."""
     b = text.find(GENERATED_BEGIN)
     e = text.find(GENERATED_END)
-    if b < 0 or e < 0 or e < b:
+    if b < 0 or e < 0 or e < b or text.count(GENERATED_BEGIN) > 1 or text.count(GENERATED_END) > 1:
         return text, None, ""
     end = e + len(GENERATED_END)
     return text[:b], text[b:end], text[end:]

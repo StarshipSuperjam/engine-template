@@ -118,6 +118,21 @@ class TestProjection(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    def test_a_second_copy_of_the_region_is_drift_not_a_match(self):
+        # A duplicate marker pair would be a place to hide prose behind the name this check guards (repair
+        # round 2 of typed-lifecycle part C): the split refuses it, so the check reports the runbook as drifted.
+        tmp = _scratch_tree()
+        try:
+            path = os.path.join(tmp, bp.RUNBOOK_REL)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            before, region, after = bp._split_runbook(text)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(before + region + after + "\n" + region.replace("\n", "\nhidden prose\n", 1) + "\n")
+            self.assertIsNone(bp.projection_status(tmp)[1])
+        finally:
+            shutil.rmtree(tmp)
+
 
 class TestCheck(unittest.TestCase):
     def _run(self, env: dict | None = None) -> list:

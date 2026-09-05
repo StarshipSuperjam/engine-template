@@ -506,6 +506,19 @@ class TestRoutingData(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
+    def test_a_second_copy_of_the_posture_region_is_drift_not_a_match(self):
+        tmp = self._scratch()
+        try:
+            page = os.path.join(tmp, ee._POLICY_REL)
+            with open(page, encoding="utf-8") as fh:
+                text = fh.read()
+            before, region, after = ee._split_policy(text)
+            with open(page, "w", encoding="utf-8") as fh:
+                fh.write(before + region + after + "\n" + region.replace("\n", "\nhidden prose\n", 1) + "\n")
+            self.assertIsNone(ee.posture_projection_status(tmp)[1])
+        finally:
+            shutil.rmtree(tmp)
+
     def test_derive_stays_total_when_the_data_is_gone(self):
         tmp = self._scratch()
         try:

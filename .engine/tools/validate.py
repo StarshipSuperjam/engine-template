@@ -702,8 +702,11 @@ GENERATED_REGION_END_RE = re.compile(r"^\s*<!-- /generated: ([^\s]+(?: [^\s]+)*?
 # leaves a generated region out of its count ONLY when the region is registered here for that file AND
 # closed: an unregistered `<!-- generated:` line, or one with no closing marker, is a way to switch a
 # hard budget off from inside the file it governs, so those lines count as prose and the shape check
-# reports the marker as a hard finding. Registering a region means a renderer emits it and a drift check
-# guards it; test_validate pins this table against the renderers' own marker constants.
+# reports the marker as a hard finding. A registered region is excluded ONCE per file: a second copy of the
+# same marker pair counts as prose and is a hard finding, because the renderers' drift checks read one region
+# and a duplicate would be a place to hide prose behind a name they guard (repair round 2). Registering a
+# region means a renderer emits it and a drift check guards it; test_validate pins this table against the
+# renderers' own marker constants.
 GENERATED_REGION_OWNERS = {
     ".engine/operations/build-orchestration.md": {"build-protocol review-consumers"},   # build_protocol.py render
     ".engine/policies/model-routing.md": {"model-routing postures"},                     # execution_environment.py render-postures
@@ -716,6 +719,7 @@ def _prose_scan(text: str, rel: str | None = None) -> tuple:
     excluded when it is registered for `rel` in GENERATED_REGION_OWNERS and closes; an unregistered or unclosed
     region counts as prose and is an anomaly. Anomalies are plain sentences naming the line."""
     allowed = GENERATED_REGION_OWNERS.get(rel or "", set())
+    seen = set()                                       # registered regions already excluded in this file
     count, anomalies = 0, []
     in_fence, fence_line, held = False, 0, 0          # held: lines skipped inside the open construct
     in_region, region_line, region_name, region_ok = False, 0, None, False
@@ -728,11 +732,17 @@ def _prose_scan(text: str, rel: str | None = None) -> tuple:
                 count += 1
                 continue
             in_region, region_line, region_name = True, n, m.group(1)
-            region_ok = region_name in allowed
-            if not region_ok:
+            region_ok = region_name in allowed and region_name not in seen
+            if region_name in allowed and region_name in seen:
+                anomalies.append(f"line {n}: generated region '{region_name}' appears a second time; a renderer "
+                                 f"emits it once, so this copy's lines count as prose")
+                count += 1
+            elif not region_ok:
                 anomalies.append(f"line {n}: generated region '{region_name}' is not one a renderer owns for "
                                  f"this file (registered: {sorted(allowed) or 'none'}); its lines count as prose")
                 count += 1
+            else:
+                seen.add(region_name)
             held = 0
             continue
         if in_region:
@@ -918,8 +928,8 @@ def kind_shape(rule, ctx):
                                    "length_budget_overrides with the operator's sign-off.")
                 else:
                     consequence = "a nudge to trim, never a block."
-                findings.append(finding(length_tier, f"'{rel}' is {lines} prose lines (fenced blocks and "
-                                f"generated regions excluded), over its {file_budget}-line budget — "
+                findings.append(finding(length_tier, f"'{rel}' is {lines} prose lines (closed fences and closed, "
+                                f"registered generated regions excluded), over its {file_budget}-line budget — "
                                 f"{consequence} {message}", loc(path)))
     # Each override must be well-formed and live: an integer `budget` (the line ceiling) and a
     # recorded `why` (StarshipSuperjam/engine-template#273's recorded-rationale, made mechanical so a budget cannot be raised

@@ -74,8 +74,6 @@ _BASELINE_REL = os.path.join(".engine", "state", "execution.json")
 _POLICY_REL = os.path.join(".engine", "policies", "model-routing.md")          # the page; carries a generated projection
 _ROUTING_REL = os.path.join(".engine", "policies", "model-routing-postures.json")        # the data the engine loads
 _ROUTING_SCHEMA_REL = os.path.join(".engine", "schemas", "model-routing.v1.json")
-#: Input-substitution seam for the negative-fixture meta-check (unset in production): points the loader at a
-#: seeded bad routing file so engine/check/model-routing is witnessed biting.
 #: The generated region's delimiters in model-routing.md — the projection of the JSON the engine actually
 #: loads. Rendered by `execution_environment.py render-postures`; drift is a hard finding at merge.
 POSTURE_REGION_BEGIN = "<!-- generated: model-routing postures (execution_environment.py render-postures; never hand-edit) -->"
@@ -315,9 +313,11 @@ def render_postures(routing: dict) -> str:
 
 
 def _split_policy(text: str) -> tuple:
+    """(before, region, after); region is None when the markers are absent, malformed, or duplicated (a second
+    pair would be a place to hide prose behind a name this check guards)."""
     b = text.find(POSTURE_REGION_BEGIN)
     e = text.find(POSTURE_REGION_END)
-    if b < 0 or e < 0 or e < b:
+    if b < 0 or e < 0 or e < b or text.count(POSTURE_REGION_BEGIN) > 1 or text.count(POSTURE_REGION_END) > 1:
         return text, None, ""
     end = e + len(POSTURE_REGION_END)
     return text[:b], text[b:end], text[end:]

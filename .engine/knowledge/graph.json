@@ -1975,7 +1975,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:23d3465976bea615793cc03885575aeb0e794d6780034802edb05ac18bebe76f",
+        "fingerprint": "sha256:c5816dad6a4114dcb029f1b45d9a7530b5d90bf6455af5b8b5aa31a4dc3e6c3b",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5245,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:6b3693f57377729efc4b659b6d3680f618c9d49bb73013e61dda45542baa0e36",
+        "fingerprint": "sha256:7f0841c85958c7256e6e484b7c54a76d5a79e800522ea5931d35a84c769aadce",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -9710,7 +9710,7 @@
       },
       "slug": "build_protocol",
       "source": {
-        "fingerprint": "sha256:e3c87bbf3c00851f933e54e7688d9396f9c9196b565f10b3d1d2ef7ec97e33f9",
+        "fingerprint": "sha256:b85af9350ef26a4267c81922db011ea192725c6afc2f5871771dcbdd854beb0e",
         "path": ".engine/tools/build_protocol.py"
       },
       "status": "active",
@@ -12232,7 +12232,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:1a1a208e1cdfe6481b7089b544ffca25ac30b3cc82ce9e9b08d21640a8877edf",
+        "fingerprint": "sha256:08b99faf30e21dc754cfbe3e1c1870714ea210871bc81cc36b17dcc01ffe1d93",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -16328,7 +16328,7 @@
       },
       "slug": "test_build_protocol",
       "source": {
-        "fingerprint": "sha256:374c2262196153ab5ad63c3596b67ff57081c50f0d8318bd0063ab77017b669e",
+        "fingerprint": "sha256:4ee0f4df7aa75fa0812c7251c390f543218caaa5d8f5bd9e0dfe09733973cc58",
         "path": ".engine/tools/test_build_protocol.py"
       },
       "status": "active",
@@ -17278,7 +17278,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:613c2399471d2a49b2402c1243aa69d1e7b96ff31b0998155d71b75ce4564c9b",
+        "fingerprint": "sha256:06b1e261046ca7f13e61ab67e7b667ba0eeba9429e79e904f3102543a3620eea",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
@@ -21038,7 +21038,7 @@
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:7a0378046b4c3f6aa92676f75f0cf4c62316605819c70b36fdcb3466c94bd828",
+        "fingerprint": "sha256:ef75daf0f69cb08f4ae0a582d21cf707b5ccc960876d5e125add589aec5f1e1e",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -21435,7 +21435,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:f4a1a3702d33c23804cfe960d7bb7f2736c239e3756ab6f04837317dfe56a238",
+        "fingerprint": "sha256:6f6db49cbc49914da0dde7fc2c0ca84e0390e0c24b9fded736f901225a2ba8e5",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",
