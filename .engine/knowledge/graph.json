@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:4ed54c75cd86de3b68c61ee1191aa35bc93e4d03662177a8acdab5d1a9f291b4",
+        "fingerprint": "sha256:9d8a18b8f613b06779d04200cf48a619efb390cecf68a666554c2fce6f92ad66",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -15004,6 +15004,31 @@
     {
       "entrypoint": "library",
       "guarded": false,
+      "id": "tool:selftest_support",
+      "name": ".engine/tools/selftest_support.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:repo_identity",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "selftest_support",
+      "source": {
+        "fingerprint": "sha256:202ea2e97b3b7e74fafcf74d6a8556746dae362fd3f11220268283154224a281",
+        "path": ".engine/tools/selftest_support.py"
+      },
+      "status": "active",
+      "summary": "selftest_support.py — the ONE place the self-test suite's guard helpers live.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
       "id": "tool:semantic.__init__",
       "name": ".engine/tools/memory/semantic/__init__.py",
       "owner": "memory-semantic-recall",
@@ -15808,14 +15833,13 @@
           "tool:modes",
           "tool:module_coherence",
           "tool:module_manager",
-          "tool:repo_identity",
           "tool:restore_vault",
           "tool:validate"
         ]
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:f83e8a64693e53be567b62035a6e0bd53ed6f89bfe0981983ffc5b4921197ddf",
+        "fingerprint": "sha256:b3b1b3e4eda25ce1b6459d48f1aea6c6418f405d45088640da9ea954fc055820",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -15925,11 +15949,11 @@
           "tool:checkout_health",
           "tool:derived_state",
           "tool:hooks",
-          "tool:module_coherence",
           "tool:plan_contract",
           "tool:plan_store",
           "tool:project_manager",
           "tool:repair_divergence",
+          "tool:selftest_support",
           "tool:spec_referent",
           "tool:test_build_coordinator_contract",
           "tool:test_plan_store"
@@ -15937,7 +15961,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:5f2ef29e0230c9f728c2c854bcca579d9fa9327686dafd67f5082663f05b2924",
+        "fingerprint": "sha256:b6b5ae0eae4c45c2ebd2a0901b75671a16de35bfc5e816b5da95870b0c15efbb",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16085,14 +16109,14 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_review",
-          "tool:module_coherence",
           "tool:project_manager",
+          "tool:selftest_support",
           "tool:test_build_coordinator"
         ]
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:205fdca8c874d4efcebc53b456074c83973a7435d27c0ccfcf2a14bb7692e5ec",
+        "fingerprint": "sha256:0a17bff24dddb20519889498ac32b6f4321a76f79ad0c1b53ccdd1dd5485306c",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16711,12 +16735,13 @@
           "tool:module_manager",
           "tool:pr_reconcile",
           "tool:self_map",
+          "tool:selftest_support",
           "tool:setup_route_gen"
         ]
       },
       "slug": "test_derived_state",
       "source": {
-        "fingerprint": "sha256:f2a5db1f790217b238c47364d21acc10b8a9d53167c1097476f4fd204a90ba5d",
+        "fingerprint": "sha256:dfee8de982c51f1e9cfeae5745490f919b7eba57137a0553b019795c8971b22e",
         "path": ".engine/tools/test_derived_state.py"
       },
       "status": "active",
@@ -17293,7 +17318,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:22c4e8438cd0832fb39da45e454763efdbf88c63b3dc2be411c8d30ce2dacdaa",
+        "fingerprint": "sha256:4e1136444118d34bc79b1ec5b6bcdd344d9ba1f45144fa5413a8b3694fcd8f31",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -17727,13 +17752,13 @@
         "tests": [
           "tool:hooks",
           "tool:knowledge_gen",
-          "tool:repo_identity",
+          "tool:selftest_support",
           "tool:validate"
         ]
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:03b567cacf102ce93371748241fbe7a5797d47321baaca0f7e0dbb636229b2e3",
+        "fingerprint": "sha256:a54fa27f25b08c5a536c9779a0a9eff56726840db0bf1c7754c96acee743b8a7",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -17800,11 +17825,16 @@
       "predicates": {
         "provided_by": [
           "module:core"
+        ],
+        "tests": [
+          "tool:release_gate",
+          "tool:selftest",
+          "tool:selftest_support"
         ]
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:2421f4688ad60a8bd394303f11c814131d1123a49c74d7fc848e5642784895d2",
+        "fingerprint": "sha256:b20565110939e481d7535b2d2017dbba7cfe3bce62e4cc7e6b17eb052c7c81d4",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -18218,6 +18248,7 @@
           "tool:release_impact_check",
           "tool:release_source",
           "tool:restore_vault",
+          "tool:selftest_support",
           "tool:telemetry",
           "tool:validate",
           "tool:wiring"
@@ -18225,7 +18256,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:04245310714bdb4fbace8508fb8b29b08b180c3145620ba1393ee417b0dad553",
+        "fingerprint": "sha256:3e0203399e190213ca098e5563e3230bc0ff3fb32533d5366057c8da1020761d",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -18245,13 +18276,12 @@
         "tests": [
           "tool:derived_state",
           "tool:module_surfaces",
-          "tool:repo_identity",
-          "tool:validate"
+          "tool:selftest_support"
         ]
       },
       "slug": "test_module_surfaces",
       "source": {
-        "fingerprint": "sha256:fd7d04e2036079fbf2e8cd27144d1c1fca5cb9430120b1e7622c544102532f80",
+        "fingerprint": "sha256:e00b79cc62156a2138c9145e12be310505a750c685e8ae0143a51eefb6b01955",
         "path": ".engine/tools/test_module_surfaces.py"
       },
       "status": "active",
@@ -18273,6 +18303,7 @@
           "tool:knowledge_gen",
           "tool:module_coherence",
           "tool:release_cut",
+          "tool:selftest_support",
           "tool:untracked_surface_check",
           "tool:validate",
           "tool:wiring"
@@ -18280,7 +18311,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4c22b1e55c964ce31e9b28324adbd7a1697e383deaf720a6c3bd7953d627cbbe",
+        "fingerprint": "sha256:3f3131dd36892264c69f04664b361acfb5f00dcce951fc17ba60afdb27b5a73c",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -19213,13 +19244,14 @@
           "tool:module_manager",
           "tool:release_gate",
           "tool:restore_vault",
+          "tool:selftest_support",
           "tool:snapshot_format",
           "tool:validate"
         ]
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:78c3343d4e8afd52e5cd95fb223b10f35eca96b40dfcd583ae79bb24a75418a4",
+        "fingerprint": "sha256:e3f8a70916b53810922f27a24fbfe301a1fe79f76d058a0b4d9e09b3089da71d",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -19933,15 +19965,15 @@
         "tests": [
           "tool:bootstrap",
           "tool:github_client",
-          "tool:module_coherence",
           "tool:protection_guard",
+          "tool:selftest_support",
           "tool:validate",
           "tool:weakening_guard"
         ]
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:2898f2fd0ca645b799720080e49b14a405afc183cab16f928bb316e98e585fe6",
+        "fingerprint": "sha256:c2364bc07f05ace578ff6c792d6efbfd9736509806b7934991cc45c0c4b81898",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
