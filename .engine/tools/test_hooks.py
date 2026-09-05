@@ -39,6 +39,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -135,9 +136,11 @@ class TestEventInventory(unittest.TestCase):
             self.assertIn(owner, named, f"{prefix} maps to {owner}, which no inventory row names")
         self.assertLessEqual(set(hooks.OWNER_MODULE), named)
         # A mistyped module id would make the reverse leg skip that owner forever, silently. The roster
-        # is the module CATALOG — every module the engine knows, kept whether or not this deployment
-        # installed it — not the modules present on disk, so a project that declined an optional add-on
-        # (a supported setup) does not red its own self-test.
+        # is the module CATALOG — the offerable add-ons (optional / default-on / experimental), kept
+        # whether or not this deployment installed them; required modules have no entry — which is the
+        # right roster precisely because OWNER_MODULE only ever names optional modules. It is not the
+        # modules present on disk, so a project that declined an add-on (a supported setup) does not red
+        # its own self-test.
         import module_catalog
         catalog_ids = {entry["id"] for entry in module_catalog.entries()}
         self.assertTrue(catalog_ids, "the module catalog is empty or unreadable")
@@ -2210,6 +2213,15 @@ class TestInventoryDriftCheckers(unittest.TestCase):
             docs[provider] = stripped
         installed = hooks.installed_modules() - {"github-projects-sync", "product-design"}
         self.assertEqual(hooks.inventory_reverse_failures(docs, installed), [])
+        # With the installed list left to the checker, it reads THIS checkout's modules: every optional
+        # add-on installed here is then a named owner with nothing behind it in the stripped documents.
+        # This pins the default — a checker that assumed nothing installed would pass the line above
+        # vacuously — and it reds exactly the add-ons present, so a deployment that declined one stays green.
+        derived = hooks.inventory_reverse_failures(docs)
+        for owner in {"github-projects-sync", "product-design"} & hooks.installed_modules():
+            self.assertTrue(any(f"names {owner} on" in f and "over-reports" in f for f in derived), (owner, derived))
+        self.assertEqual([f for f in derived if "names" in f and "over-reports" in f
+                          and not any(o in f for o in {"github-projects-sync", "product-design"})], [])
         for provider, document in docs.items():
             self.assertEqual(hooks.inventory_forward_failures(document, provider), [])
 
@@ -2249,18 +2261,24 @@ class TestInventoryDriftCheckers(unittest.TestCase):
             failures = hooks.inventory_forward_failures(doc, provider)
             self.assertEqual(len(failures), 1, failures)
             self.assertIn("no such file", failures[0])
-        # And it satisfies nothing on the reverse leg: close's Stop hook replaced by the dangling entry
-        # leaves the Stop row a claim with nothing behind it.
+        # And it satisfies nothing on the reverse leg. The renamed path must STILL map to its owner (the
+        # memory/ directory prefix does; memory is a required module, present in every deployment), so
+        # the only thing that can red memory on SessionStart is the missing-file guard — a name no owner
+        # maps to would be discarded one step earlier for a different reason and prove nothing.
         docs = {}
         for provider, document in self._live().items():
             swapped = json.loads(json.dumps(document))
-            for group in swapped["hooks"]["Stop"]:
+            for group in swapped["hooks"]["SessionStart"]:
                 for h in group["hooks"]:
-                    h["command"] = h["command"].replace("close.py", "gone_since_a_rename.py")
+                    h["command"] = re.sub(r"\.engine/tools/memory/[^\s\"']+",
+                                          ".engine/tools/memory/gone_since_a_rename.py", h["command"])
             docs[provider] = swapped
+        self.assertEqual(hooks._engine_script(hooks.hook_command(".engine/tools/memory/gone_since_a_rename.py")),
+                         ".engine/tools/memory/gone_since_a_rename.py")
+        self.assertEqual(hooks.owner_of_script(".engine/tools/memory/gone_since_a_rename.py"), "memory")
         failures = hooks.inventory_reverse_failures(docs, hooks.installed_modules())
         self.assertEqual(len(failures), 1, failures)
-        self.assertIn("governs Stop", failures[0])
+        self.assertIn("names memory on SessionStart", failures[0])
 
     def test_root_points_both_legs_at_another_checkout(self):
         # `root` is a real seam, not decoration: a non-launcher command is the engine's only where its
