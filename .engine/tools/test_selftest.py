@@ -27,6 +27,8 @@ import time
 import unittest
 from unittest import mock
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # importable standalone, whatever loaded first
+
 import selftest
 
 _SELFTEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "selftest.py")
@@ -210,11 +212,19 @@ class SelftestLauncher(_LauncherCase):
         """)})
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
         beacon = os.path.join(tmp, "sigint-disposition.txt")
-        proc = subprocess.Popen(
-            [sys.executable, _SELFTEST, "--start-dir", tmp, "--cwd", tmp,
-             "--heartbeat-interval", "0.1", "--log-path", os.path.join(tmp, "run.log")],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
+        # Construct the ADVERSE premise here rather than inheriting it from however this run was started:
+        # start the launcher with SIGINT already ignored — exactly what a shell hands a `cmd &` job — so
+        # the beacon can read 'default' only if the launcher installed its own handler before spawning the
+        # child. That makes the test bite in a foreground run and on CI, not only when backgrounded.
+        inherited = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, _SELFTEST, "--start-dir", tmp, "--cwd", tmp,
+                 "--heartbeat-interval", "0.1", "--log-path", os.path.join(tmp, "run.log")],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+        finally:
+            signal.signal(signal.SIGINT, inherited)
         self.addCleanup(proc.stdout.close)
         self.addCleanup(_stop_launcher, proc)
 

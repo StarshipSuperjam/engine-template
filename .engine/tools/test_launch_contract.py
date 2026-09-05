@@ -413,8 +413,9 @@ class TestModuleIntegrityTests(unittest.TestCase):
         """If one is fixed, this fails and the allowance must be removed with it — so the list cannot rot."""
         still_dead = {path.name for path in sorted((ROOT / ".engine/tools").rglob("test_*.py"))
                       if self._dead_classes(path)}
-        self.assertEqual(still_dead & self.KNOWN_DEAD_TAILS, self.KNOWN_DEAD_TAILS,
-                         "a known dead tail was fixed; remove it from KNOWN_DEAD_TAILS")
+        fixed = sorted(self.KNOWN_DEAD_TAILS - still_dead)
+        self.assertEqual(fixed, [], f"these known dead tails were fixed; remove them from KNOWN_DEAD_TAILS: "
+                                    f"{', '.join(fixed)}")
 
     #: Test modules that import a sibling tool WITHOUT putting their own directory on sys.path first, so
     #: they import only when some module loaded earlier happened to set the path — the standalone dotted
@@ -466,18 +467,22 @@ class TestModuleIntegrityTests(unittest.TestCase):
 
     def _path_blind_imports(self, path: Path, tools: set) -> list:
         """The sibling tools `path` imports bare (top-level `import x` / `from x import ...` where x is a
-        module in .engine/tools) when the module never inserts or appends to sys.path itself."""
+        module in .engine/tools) BEFORE any module-level `sys.path.insert(...)` / `sys.path.append(...)`.
+        Only a module-level call that precedes the import counts: a call inside a function, or below the
+        imports it was meant to enable, does nothing for the import that already failed."""
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        sets_path = any(
-            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-            and node.func.attr in ("insert", "append")
-            and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "path"
-            and isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "sys"
-            for node in ast.walk(tree))
-        if sets_path:
-            return []
+
+        def _sets_path(node) -> bool:
+            call = node.value if isinstance(node, ast.Expr) else None
+            return (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                    and call.func.attr in ("insert", "append")
+                    and isinstance(call.func.value, ast.Attribute) and call.func.value.attr == "path"
+                    and isinstance(call.func.value.value, ast.Name) and call.func.value.value.id == "sys")
+
         bare = []
         for node in tree.body:
+            if _sets_path(node):
+                break
             if isinstance(node, ast.Import):
                 bare += [alias.name for alias in node.names if alias.name in tools]
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in tools:
@@ -501,8 +506,9 @@ class TestModuleIntegrityTests(unittest.TestCase):
         tools = self._sibling_tools()
         still_blind = {path.name for path in sorted((ROOT / ".engine/tools").rglob("test_*.py"))
                        if self._path_blind_imports(path, tools)}
-        self.assertEqual(still_blind & self.KNOWN_PATH_BLIND, self.KNOWN_PATH_BLIND,
-                         "a path-blind test module was fixed; remove it from KNOWN_PATH_BLIND")
+        fixed = sorted(self.KNOWN_PATH_BLIND - still_blind)
+        self.assertEqual(fixed, [], f"these path-blind test modules were fixed; remove them from "
+                                    f"KNOWN_PATH_BLIND: {', '.join(fixed)}")
 
     def test_the_activation_suite_this_guard_exists_for_is_collected(self):
         source = (ROOT / ".engine/tools/test_hooks.py").read_text(encoding="utf-8")
