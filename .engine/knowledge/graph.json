@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:9d8a18b8f613b06779d04200cf48a619efb390cecf68a666554c2fce6f92ad66",
+        "fingerprint": "sha256:191d29c1c2e9e84b03b7ded32f5e2907367d4b8f086b27893d6e298613d29e69",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -15477,7 +15477,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:7353d9cc287b257f5cfe357efc82db82b6a7c2acc1eb475d9be49de5fdada908",
+        "fingerprint": "sha256:7d8acbc9ba828949ac7e99810a6291110c1d07e586212a040c2e58d32f5984dc",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -20567,7 +20567,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:d02e85a0bb48bdc5d9824bc63d8a60352b50494f84b139da0fd44d06fae7c691",
+        "fingerprint": "sha256:0cbccdca6d1104c3755fddfadb084ca1269a21292c547f383b8b059ae2b0df9b",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
