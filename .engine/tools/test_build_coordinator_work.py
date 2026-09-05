@@ -1291,6 +1291,8 @@ class MidBuildRevision(WorkCase):
         with self.assertRaises(bc.CoordinatorError) as caught:
             bc.cmd_plan_adopt(args, self.store)
         self.assertIn("no recorded operator decision", str(caught.exception))
+        self.assertIn("continuing this Build on a sealed successor", str(caught.exception))
+        self.assertNotIn("starting the Build", str(caught.exception))
 
     def test_adopting_the_plan_already_bound_is_refused(self):
         args = argparse.Namespace(successor=PLAN_ID, input=str(self.plan_path),

@@ -735,6 +735,22 @@ class TestSealedPlanEntry(CoordinatorCase):
         self.assertIsNone(record.get("build_binding"))
         self.assertNotIn("consent", record)
 
+    def test_an_adoption_records_its_own_gate_and_looks_back_to_the_seal(self):
+        """A Build continuing onto a corrected successor is recorded as `adopt`, so a reader of the
+        successor's record can tell it from a Build that started there; and like the bind it refuses
+        a sealed record that carries no seal decision."""
+        seal = self.seal_it()
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"],
+                                 {"gate": "adopt", "at": "2026-08-29T10:00:00Z"})
+        entries = self.library.read_record(self.slug)["consent"]
+        self.assertEqual([entry["gate"] for entry in entries], ["seal", "adopt"])
+        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
+        with self.assertRaisesRegex(bc.CoordinatorError, "adopt gate needs the seal gate"):
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
+                                     seal["sealed_digest"], seal["build_plan_digest"],
+                                     {"gate": "adopt", "at": "2026-08-29T11:00:00Z"})
+
     def test_the_rollback_restores_only_what_this_command_wrote(self):
         """The rollback is the one write on its path that used to carry no precondition, and a
         reviewer drove the consequence: a concurrent bind landing in the window was erased —

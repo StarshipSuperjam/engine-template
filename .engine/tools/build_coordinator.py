@@ -999,10 +999,10 @@ def _record_build_binding(plan_id: str, repository: str, pr: int, sealed_digest:
                     existing.get(key) == binding.get(key)
                     for key in ("repository", "pull_request", "sealed_digest", "build_plan_digest"))
             entries = current.get("consent") or []
-            if consent and consent.get("gate") == "bind":
-                # The bind looks back to the seal: a sealed plan whose record carries no seal
-                # decision is a record the seal did not write, whatever `seal` says.
-                prior = plan_lifecycle.missing_prior_consent(current, "bind")
+            if consent and consent.get("gate") in plan_lifecycle.PRIOR_GATE:
+                # Bind and adopt both look back to the seal: a sealed plan whose record carries no
+                # seal decision is a record the seal did not write, whatever `seal` says.
+                prior = plan_lifecycle.missing_prior_consent(current, consent["gate"])
                 if prior:
                     raise CoordinatorError(prior)
             already_attested = consent and same_binding(current.get("build_binding")) and any(
@@ -1376,7 +1376,7 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     import moment
     import plan_lifecycle
     if not getattr(args, "operator_decided", False):
-        raise CoordinatorError(plan_lifecycle.missing_consent({}, "bind"))
+        raise CoordinatorError(plan_lifecycle.missing_consent({}, "adopt"))
     state = store.read()
     bound_id = state["plan"]["plan_id"]
     successor_id, sealed_digest, successor = _sealed_plan(args.successor)
@@ -1398,7 +1398,9 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
         raise CoordinatorError(
             "--input must be the plan this Build is currently executing, so the two can be compared "
             f"node by node; this one digests to {_digest(bound_plan)}, not {state['plan']['digest']}")
-    consent = plan_lifecycle.attestation("bind", at=moment.utc_now())
+    # Its own gate, not the bind's: a reader of the successor's record can then tell a Build that
+    # continued onto it from a Build that started on it, and the refusal above names the right act.
+    consent = plan_lifecycle.attestation("adopt", at=moment.utc_now())
     keep = _unchanged_nodes(bound_plan, successor)
 
     # Resolved BEFORE the mutation, so a specification that cannot be resolved refuses the adoption

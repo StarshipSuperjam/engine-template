@@ -1298,6 +1298,26 @@ class ErrorLegibility(_Governed):
                          ["approve", "findings-presented", "seal"])
         self.assertNotIn("“", out)
 
+    def test_no_printed_next_step_carries_the_switch(self):
+        # A runnable consent command in the session's context before the operator is asked is the
+        # ask-nobody shape; every printed next step names the switch as the thing added after.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        surfaces = [self.run_command("resume", slug)[1]]                       # awaiting approval
+        self.assertEqual(self.run_command("approve", slug, "--depth", "quick", "--operator-decided")[0], 0)
+        surfaces.append(self.run_command("resume", slug)[1])                   # ready to seal
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+        surfaces.append(self.run_command("resume", slug)[1])                   # sealed: the bind
+        for text in surfaces:
+            commands = [line for line in text.splitlines()
+                        if "project_manager.py " in line or "build_coordinator.py " in line]
+            self.assertTrue(commands, text)
+            for line in commands:
+                self.assertNotRegex(line, r"(?<!add )--operator-decided", line)
+        # The two states whose next step IS a consent gate name the switch as the thing added after.
+        self.assertIn("add --operator-decided", surfaces[0])
+        self.assertIn("add --operator-decided", surfaces[-1])
+
     def test_resume_on_a_sealed_plan_states_the_bind_command(self):
         # The counterpart of the honesty this case used to enforce: the handoff DOES ship now, so the
         # next step names the exact command rather than steering the operator to clone.

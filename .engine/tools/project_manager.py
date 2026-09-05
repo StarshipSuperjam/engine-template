@@ -361,7 +361,8 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         return (f"this plan is sealed and read-only, and a sealed plan is now the only thing a Build "
                 f"runs on. Open a draft pull request for the work, then hand this plan to it:\n"
                 f"    build_coordinator.py plan bind --plan {plan} "
-                f"--repository <owner/repo> --pr <number> --operator-decided\n"
+                f"--repository <owner/repo> --pr <number>\n"
+                f"    (add --operator-decided to it only after the operator's go)\n"
                 f"  To keep working on the idea instead:\n"
                 f"    project_manager.py clone {plan} --reason \"<why a new plan>\"")
     if status == "review-recorded":
@@ -381,9 +382,9 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         if not plan_lifecycle.consent_for(record, "findings-presented"):
             return (f"show the operator what the panel found and what was done about each, then record "
                     f"that you did:\n    project_manager.py present-findings {plan} "
-                    "--operator-decided")
+                    "(add --operator-decided only after the operator's go)")
         return (f"seal the plan — it is reviewed and nothing outstanding blocks it:\n"
-                f"    project_manager.py seal {plan} --operator-decided")
+                f"    project_manager.py seal {plan} (add --operator-decided only after the operator's go)")
     if status == "awaiting-review":
         return (f"run the one cold plan review against the approved revision:\n"
                 f"    project_manager.py review packet {plan} --output <packet.md>\n"
@@ -398,7 +399,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                 f"and these two are listed here only so you know where they are —\n"
                 f"    project_manager.py depths {plan}\n"
                 f"    project_manager.py approve {plan} --depth <quick|standard|thorough> "
-                "--operator-decided")
+                "(add --operator-decided only after the operator's go)")
     lead = ("revise to clear: " + "; ".join(blockers)) if blockers else "revise, then preview and approve"
     return (f"{lead}:\n    project_manager.py revise {plan} --document <revision.json> "
             f"--expect-revision {record['current']['revision']}")
@@ -656,7 +657,7 @@ def cmd_approve(args) -> int:
             "that is the expected shape — do not re-approve. Seal it and let the delta judgment cover "
             f"the change:\n    project_manager.py seal {args.plan} --delta-judgment scoped "
             "--delta-rationale \"<what changed and why it is still the reviewed plan>\" "
-            "--operator-decided\n"
+            "(add --operator-decided only after the operator's go)\n"
             f"  If the change is too large for that, clone: `clone {args.plan} --reason \"<why>\"`.")
     roster = installed_lenses()
     if args.depth not in available_depths(roster):
@@ -998,7 +999,7 @@ def cmd_present_findings(args) -> int:
     print(f"recorded that the operator was shown the panel's outcome: {len(review.get('findings', []))} "
           f"finding(s), {len(blocking)} blocking, all dispositioned")
     print(f"\nnext: seal it:\n    project_manager.py seal {args.plan} "
-          "--operator-decided")
+          "(add --operator-decided only after the operator's go)")
     return 0
 
 
@@ -1140,12 +1141,16 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
                 f"the panel's outcome has not been presented to the operator. {len(review.get('findings', []))} "
                 "finding(s) were recorded and dispositioned, and a seal is the last moment anyone can "
                 "act on them. Show the operator what was found and what was done about each, then:\n"
-                "      project_manager.py present-findings <plan> --operator-decided")
-        elif (record.get("findings_presented") or {}).get("packet_digest") != review.get("packet_digest"):
+                "      project_manager.py present-findings <plan> (add --operator-decided only after the operator's go)")
+        # A presentation recorded before 2026-09-05 carries the decision entry and no subject block;
+        # it is accepted as it stands. Only a block that names a DIFFERENT packet is a presentation
+        # of the wrong panel.
+        elif record.get("findings_presented") and \
+                record["findings_presented"].get("packet_digest") != review.get("packet_digest"):
             refusals.append(
                 "the presentation on record does not name the packet this review read, so nothing shows "
                 "the operator saw THIS panel's outcome; present it again:\n"
-                "      project_manager.py present-findings <plan> --operator-decided")
+                "      project_manager.py present-findings <plan> (add --operator-decided only after the operator's go)")
     refusals.extend(_program_check(library, record, document)[0])
     return refusals
 
@@ -1930,7 +1935,11 @@ def cmd_import(args) -> int:
     if existing:
         # A collision is only benign when the content is genuinely identical. Otherwise two different
         # plans share an id, and every later reference to that id becomes ambiguous.
-        if build_bundle(library, existing)["bundle_digest"] == bundle["bundle_digest"]:
+        # Compared on the MIGRATED incoming record as well as the raw one: the local bundle is built
+        # from a record the store already forward-migrated, so a legacy bundle imported twice is the
+        # same plan, not a collision.
+        incoming = core.digest({"record": record, "revisions": revisions})
+        if build_bundle(library, existing)["bundle_digest"] in (bundle["bundle_digest"], incoming):
             print(f"{record['plan_id']} is already here and identical; nothing to do.")
             return 0
         raise ProjectManagerError(

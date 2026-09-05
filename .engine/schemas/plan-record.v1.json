@@ -149,7 +149,7 @@
       "additionalProperties": false,
       "required": ["gate", "at"],
       "properties": {
-        "gate": {"enum": ["approve", "findings-presented", "seal", "bind"]},
+        "gate": {"enum": ["approve", "findings-presented", "seal", "bind", "adopt"]},
         "at": {"$ref": "#/$defs/timestamp"},
         "decision": {"type": "string",
                      "description": "Legacy. Until 2026-09-05 each gate recorded the operator's words here and the pull request republished them; that ceremony was retired (StarshipSuperjam/engine-template#1125). Entries written before then keep the text because an attestation is never edited; nothing writes or renders it now."}

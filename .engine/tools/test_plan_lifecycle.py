@@ -583,6 +583,34 @@ class ConsentGates(_Ceremony):
         self.assertEqual(record["consent"][0]["decision"], "Yes, at that depth, said the operator.")
         self.assertEqual(set(record["consent"][-1]), {"gate", "at"})
 
+    def test_a_reviewed_record_presented_under_the_old_tool_still_seals(self):
+        # Before 2026-09-05 present-findings wrote only its decision entry. Such a record is a
+        # genuine presentation and seals as it stands; only a subject block naming a DIFFERENT
+        # packet is refused. Two cold lenses found the first cut refusing this case.
+        slug = self.reviewed(self.finding())
+        self.run_command("finding", "dispose", slug, "--id", "ARCH-1",
+                         "--disposition", "rejected", "--rationale", "No.",
+                         "--does-not-block-this-pr")
+        self.run_command("present-findings", slug, "--operator-decided")
+        self.lib.update_record(slug, lambda current: current.pop("findings_presented", None))
+        self.assertEqual(project_manager.seal_refusals(self.lib, slug), [])
+        self.assertEqual(self.run_command("seal", slug, "--operator-decided")[0], 0)
+
+    def test_the_adopt_gate_is_its_own_act(self):
+        # A Build continuing onto a corrected successor is not a Build starting: its refusal names
+        # that act, its entry is distinguishable in the record, and it looks back to the seal.
+        self.assertIn("continuing this Build on a sealed successor", plan_lifecycle.GATES["adopt"])
+        self.assertEqual(plan_lifecycle.PRIOR_GATE["adopt"], "seal")
+        self.assertEqual(plan_lifecycle.attestation("adopt", at="2026-09-05T00:00:00Z"),
+                         {"gate": "adopt", "at": "2026-09-05T00:00:00Z"})
+        self.assertIn("continuing this Build", plan_lifecycle.missing_consent({}, "adopt"))
+        record = {"consent": [{"gate": "seal", "at": "2026-09-05T00:00:00Z"},
+                              {"gate": "adopt", "at": "2026-09-05T00:01:00Z"}]}
+        self.assertEqual(plan_lifecycle.consent_lines(record),
+                         ["seal at 2026-09-05T00:00:00Z", "adopt at 2026-09-05T00:01:00Z"])
+        self.assertIsNone(plan_lifecycle.missing_prior_consent(record, "adopt"))
+        self.assertIn("needs the seal gate", plan_lifecycle.missing_prior_consent({"consent": []}, "adopt"))
+
     def test_an_exported_bundle_carrying_retired_fields_still_imports(self):
         # `import` used to validate the raw bundle record before writing, so a bundle exported before
         # any field retirement was refused outright — and bundles are the operator's only transport
@@ -604,6 +632,12 @@ class ConsentGates(_Ceremony):
         record = plan_store.PlanLibrary(other).read_record(slug)
         self.assertNotIn("delivered_efforts", record["plan_review"])
         self.assertEqual(record["consent"][0]["decision"], "Approve at standard.")
+        # The same legacy bundle a second time is the same plan, already migrated — not a collision.
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = project_manager.main(["--library", str(other), "import", "--bundle", str(path)])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("already here and identical", out.getvalue())
 
     def test_a_depth_with_no_cold_lenses_is_not_asked_to_present_a_panel_that_never_ran(self):
         slug = self.approved("quick")

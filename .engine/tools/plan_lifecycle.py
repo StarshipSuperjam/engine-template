@@ -96,6 +96,7 @@ GATES = {
                           "before the plan locks",
     "seal": "sealing this plan, which is terminal, and authorising the Build it enters",
     "bind": "starting the Build that executes this sealed plan",
+    "adopt": "continuing this Build on a sealed successor plan that corrects the one it is executing",
 }
 
 
@@ -197,7 +198,7 @@ def consent_lines(record: dict) -> list[str]:
 
 # The gate each gate looks back to: a seal without an approval's record, or a bind without a
 # seal's, is a chain with a link missing — a record a tool did not write, whatever else it says.
-PRIOR_GATE = {"seal": "approve", "bind": "seal"}
+PRIOR_GATE = {"seal": "approve", "bind": "seal", "adopt": "seal"}
 
 
 def missing_prior_consent(record: dict, gate: str) -> str | None:
