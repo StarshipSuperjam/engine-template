@@ -447,8 +447,14 @@ _KEEP_KEYS = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "SHELL", "USER", "LO
 # reproduction test fails loudly here rather than silently changing the record — and if it never does, the
 # record says so, in the launcher's own terms, without manufacturing a failure to fill an evidence label.
 DISPOSITION = {
-    "real_attended_cause": "NOT-YET-CAPTURED — observable only by the merged stranding log inside a deployed "
-                           "attended server (INSTRUMENT-DEPLOYMENT-RECEIPT, MATCHED-PRODUCTION-REPRODUCTION).",
+    "real_attended_cause": "CAPTURED by the deployed stranding log (2026-09-05, program prg_d15d7dc8f3df C1 -> "
+                           "C2): the FIRST context resolution in a memory-server process raised the typed "
+                           "staleness (ActivationStale; ExpectedStateStale) before caching, the read caveat "
+                           "swallowed it once, and ledger_dir()'s second resolution re-raised it unhandled - "
+                           "frames wrapper -> guarded -> ledger.ledger_dir -> execution_context.current_context "
+                           "-> revalidate_context -> _revalidate_matched. C2 fixes it in-process (the read seam; "
+                           "test_mcp_server.ReadDegradationMatrixTests). THIS harness still cannot exercise it: a "
+                           "degraded launch installs no context, so no first resolution can be stale here.",
     "launcher_actually_run": "degraded (live checkout, no execution context): a fresh clone has no accepted "
                              "activation — a MECHANISM-REMOVING difference from the attended production launch.",
     "expected_class": {"claude": "not-reproduced", "codex": "not-reproduced"},
@@ -710,8 +716,9 @@ def classify_outcome(observation: dict) -> dict:
     if meaning and not meaning.get("is_error") and (meaning.get("payload") or {}).get("unavailable") \
             and search and not search.get("is_error"):
         return {"class": "not-reproduced", "label": "semantic-unavailable-keyword-ok"}
-    if any((entry.get("payload") or {}).get("memory_caveat") for entry in tools.values() if entry):
-        return {"class": "not-reproduced", "label": "caveat-only"}
+    if any(((entry.get("payload") or {}).get("outcome") or {}).get("binding") in ("moved", "unbound")
+           for entry in tools.values() if entry):
+        return {"class": "not-reproduced", "label": "caveat-only"}   # a disclosed degradation (C2's outcome)
     if any(entry.get("is_error") for entry in tools.values()):
         return {"class": "not-reproduced", "label": "other-error"}
     return {"class": "not-reproduced", "label": "healthy"}
@@ -738,8 +745,12 @@ class CounterfeitReproductionTests(unittest.TestCase):
 
     def test_a_clean_stale_context_caveat_is_not_a_reproduction(self):
         seen = classify_outcome(self._observation(
-            **{"search": {"is_error": False, "payload": {"results": [], "memory_caveat": "restart"}},
-               "recall-by-meaning": {"is_error": False, "payload": {"results": [], "memory_caveat": "restart"}}}))
+            **{"search": {"is_error": False, "payload": {"results": [], "outcome": {
+                   "binding": "moved", "completeness": "incomplete", "reason": "ActivationStale",
+                   "restart_clears": True, "note": "restart"}}},
+               "recall-by-meaning": {"is_error": False, "payload": {"results": [], "outcome": {
+                   "binding": "moved", "completeness": "incomplete", "reason": "ActivationStale",
+                   "restart_clears": True, "note": "restart"}}}}))
         self.assertEqual(seen, {"class": "not-reproduced", "label": "caveat-only"})
 
     def test_keyword_ok_with_meaning_unavailable_is_not_a_reproduction(self):
