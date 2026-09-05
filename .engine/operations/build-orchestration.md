@@ -256,12 +256,10 @@ has marked the draft ready for the operator. Nothing merged automatically.
 
 ## Notes
 
-<!-- generated: build-protocol review-consumers — do not edit by hand; render with `uv run --directory .engine --frozen -- python tools/build_protocol.py render` -->
-Which review lenses each Build stage consumes, from `.engine/build-protocol.json` (`review_consumers`):
+<!-- generated: build-protocol review-consumers (build_protocol.py render; never hand-edit) -->
+Review lenses each Build stage consumes (`review_consumers` in `.engine/build-protocol.json`):
 
-- **plan-review gate** — product-intent, architecture, feasibility, risk-governance (the Project Manager's plan-review roster).
-- **product-design spec lock** — product-intent, architecture, feasibility, risk-governance (the Project Manager's plan-review roster).
-- **pre-submission gate** — spec-conformance, divergence-hunter, usability, technical-integrity, security-governance (the deliverable review at its widest depth).
-
-The coordinator still derives actual coverage from the installed roster and the approved depth; this record keeps every installed review connected to a stage (engine/check/lens-consumption).
+- **plan-review gate** — product-intent, architecture, feasibility, risk-governance
+- **product-design spec lock** — product-intent, architecture, feasibility, risk-governance
+- **pre-submission gate** — spec-conformance, divergence-hunter, usability, technical-integrity, security-governance
 <!-- /generated: build-protocol review-consumers -->

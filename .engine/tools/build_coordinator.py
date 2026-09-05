@@ -165,7 +165,7 @@ def _protocol() -> dict:
     Historical preservation traceability is validated by Engine-home checks, not by
     normal Build commands.
     """
-    return build_protocol.load(str(ROOT))
+    return build_protocol.load(path=str(PROTOCOL_PATH))
 
 
 def _run(argv: list[str], *, cwd: Path = ROOT, input_text: str | None = None) -> subprocess.CompletedProcess:

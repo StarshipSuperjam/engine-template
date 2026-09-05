@@ -44,11 +44,10 @@ ENV_OVERRIDE = "ENGINE_BUILD_PROTOCOL_PATH"
 #: The generated region's delimiters in the runbook. The begin line names the renderer so a reader who
 #: meets the block knows not to hand-edit it; the end line closes the region for the drift check and for
 #: the operation length count, which excludes generated regions (they are data, not runbook prose).
-GENERATED_BEGIN = ("<!-- generated: build-protocol review-consumers — do not edit by hand; "
-                   "render with `uv run --directory .engine --frozen -- python tools/build_protocol.py render` -->")
+GENERATED_BEGIN = "<!-- generated: build-protocol review-consumers (build_protocol.py render; never hand-edit) -->"
 GENERATED_END = "<!-- /generated: build-protocol review-consumers -->"
 
-#: Where each roster's lens list lives, in the projection's own words.
+#: Where each roster's lens list lives.
 ROSTER_SOURCE = {
     "plan-review": "the Project Manager's plan-review roster",
     "deliverable-review": "the deliverable review at its widest depth",
@@ -63,9 +62,11 @@ def protocol_path(root: str | None = None) -> str:
     return validate.env_override_path(ENV_OVERRIDE, os.path.join(root or validate.ROOT, PROTOCOL_REL))
 
 
-def load(root: str | None = None) -> dict:
-    """The protocol, validated against build-protocol.v1. Raises ProtocolError on any miss."""
-    path = protocol_path(root)
+def load(root: str | None = None, path: str | None = None) -> dict:
+    """The protocol, validated against build-protocol.v1. Raises ProtocolError on any miss. `path` names
+    the file directly (the Build Coordinator passes its own constant, so a test that re-roots the coordinator
+    still reads the real protocol); otherwise it is resolved under `root`."""
+    path = path or protocol_path(root)
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -120,13 +121,10 @@ def consumed_lenses(protocol: dict | None = None, root: str | None = None) -> se
 def render(protocol: dict) -> str:
     """The generated region, markers included, exactly as the runbook must carry it."""
     lines = [GENERATED_BEGIN,
-             f"Which review lenses each Build stage consumes, from `{PROTOCOL_REL}` (`review_consumers`):",
-             ""]
+             f"Review lenses each Build stage consumes (`review_consumers` in `{PROTOCOL_REL}`):", ""]
     for entry in consumers(protocol):
-        lines.append(f"- **{entry['stage']}** — {', '.join(entry['lenses'])} ({ROSTER_SOURCE[entry['roster']]}).")
-    lines += ["", "The coordinator still derives actual coverage from the installed roster and the approved depth; "
-                  "this record keeps every installed review connected to a stage (engine/check/lens-consumption).",
-              GENERATED_END]
+        lines.append(f"- **{entry['stage']}** — {', '.join(entry['lenses'])}")
+    lines.append(GENERATED_END)
     return "\n".join(lines)
 
 
