@@ -1440,6 +1440,37 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertIn("_released_", lines[1])
         self.assertIn("The corpus is stale", lines[1])
 
+    def test_a_closing_keyword_quoted_in_sealed_plan_prose_cannot_arm_a_close(self):
+        """PR #1229: a carried obligation restated C1's accident as "C1's wording auto-closed #1210 on merge",
+        and GitHub read the quotation as a close of #1210. Every renderer of plan-library prose breaks the
+        keyword from the reference with the one word "issue"; the close-linkage preflight's own pattern
+        must then find nothing in the rendered line, so what is broken and what is flagged cannot drift."""
+        import close_linkage_preflight
+        document = {"program": {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
+            {"id": "OB-WRITE-AUTHORITY", "state": "carried",
+             "statement": "The write-authority issues #1210 and #1167 are C4's to resolve.",
+             "reason": "Restated without a closing keyword: C1's wording auto-closed #1210 on merge. "
+                       "Fixes #1167; resolves owner/repo#5, #6."}]}}
+        with self._with_plan_document(document):
+            lines = bc._plan_obligation_lines(self.state())
+        self.assertIn("auto-closed issue #1210 on merge", lines[0])
+        self.assertIn("Fixes issue #1167", lines[0])
+        self.assertIn("resolves issue owner/repo#5, #6", lines[0])
+        self.assertIn("issues #1210 and #1167 are C4's", lines[0])        # a bare reference is untouched
+        self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(lines[0]), lines[0])
+        review = {"findings": [
+            {"id": "PF-1", "lens": "product-intent", "severity": "serious", "disposition": "escalated",
+             "blocks_this_pr": True, "summary": "x", "operator_summary": "The remedy closes #77 by hand."},
+            {"id": "PF-2", "lens": "risk-governance", "severity": "blocking", "disposition": "rejected",
+             "blocks_this_pr": False, "summary": "y", "operator_summary": "Fixed #78 elsewhere."}]}
+        with self._with_plan_review(review):
+            finding_lines = bc._plan_finding_lines(self.state())
+            disagreement = bc._plan_disagreement_lines(self.state())
+        self.assertTrue(any("closes issue #77" in line for line in finding_lines), finding_lines)
+        self.assertTrue(any("Fixed issue #78" in line for line in disagreement), disagreement)
+        for line in finding_lines + disagreement:
+            self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(line), line)
+
     def test_a_standalone_plan_carries_no_obligations(self):
         # A plan belongs to no program unless someone deliberately put it in one, so the ordinary case
         # is an empty list — never an invented heading over nothing.

@@ -4698,6 +4698,29 @@ def _sealed_plan_review(state: dict) -> dict | None:
     return (record or {}).get("plan_review")
 
 
+def _break_closing_keywords(text: str) -> str:
+    """Keep sealed-plan prose from arming a close the operator never wrote.
+
+    A plan may QUOTE a closing keyword beside an issue reference — C2's carried obligation restated C1's
+    accident as "C1's wording auto-closed #1210 on merge" — and GitHub honours the pair wherever it lands
+    in a pull-request body, so composing that sentence verbatim would close #1210 again on merge
+    (StarshipSuperjam/engine-template#1229). The composed contract cannot be hand-edited and the sealed
+    plan cannot be revised, so the break happens here: the one word "issue" is inserted between the
+    keyword and the reference. What the sentence says is unchanged; GitHub's parser no longer sees a
+    close. The pattern is the close-linkage preflight's own, so what this breaks and what that check
+    would flag cannot drift apart. Single-homed for every renderer that emits plan-library prose."""
+    tools = str(ROOT / ".engine" / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import close_linkage_preflight
+
+    def split(match):
+        whole, refs = match.group(0), match.group(1)
+        return whole[: len(whole) - len(refs)] + "issue " + refs
+
+    return close_linkage_preflight._CLOSE_LIST_RE.sub(split, text)
+
+
 def _plan_obligation_lines(state: dict) -> list[str]:
     """What this plan owed a predecessor, and what it did about each — for the merge surface.
 
@@ -4722,10 +4745,10 @@ def _plan_obligation_lines(state: dict) -> list[str]:
         return []
     lines = []
     for obligation in ((document.get("program") or {}).get("carried_obligations") or []):
-        reason = (obligation.get("reason") or "").strip()
+        reason = _break_closing_keywords((obligation.get("reason") or "").strip())
         tail = f" {reason}" if reason else ""
         lines.append(f"- **{obligation['id']}** — _{obligation['state']}_. "
-                     f"{obligation['statement']}{tail}")
+                     f"{_break_closing_keywords(obligation['statement'])}{tail}")
     return lines
 
 
@@ -4919,7 +4942,7 @@ def _plan_finding_lines(state: dict) -> list[str]:
         lines.append("- **Plan findings you must still weigh.**")
         for finding in full:
             disposition = finding.get("disposition") or "undispositioned"
-            summary = finding.get("operator_summary") or finding["summary"]
+            summary = _break_closing_keywords(finding.get("operator_summary") or finding["summary"])
             blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
             lines.append(f"  - **`{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
                          f"{disposition}){blocks}. {summary}")
@@ -4938,7 +4961,8 @@ def _plan_disagreement_lines(state: dict) -> list[str]:
     lines = []
     for finding in (plan_review or {}).get("findings", []):
         if finding["severity"] == "blocking" and not finding.get("blocks_this_pr"):
-            summary = finding.get("operator_summary") or "[no operator-safe summary recorded]"
+            summary = _break_closing_keywords(finding.get("operator_summary")
+                                              or "[no operator-safe summary recorded]")
             lines.append(f"- Plan-review disagreement `{finding['id']}`: {summary}")
     return lines
 
