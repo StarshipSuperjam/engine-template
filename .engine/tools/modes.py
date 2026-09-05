@@ -65,6 +65,7 @@ CLI (the operator-runnable demo; the live gates are what the wired hooks invoke)
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -493,34 +494,209 @@ _MERGE_DENIAL = ("I won't merge that — or schedule a merge of it. Merging the 
                  "best-effort, so the real guarantee is your own merge, not this refusal.)")
 
 
-# ---- the plan-mode artifact carve-out -----------------------------------------
-# Claude Code's NATIVE plan file (the file the platform writes when a plan is accepted) is *planning,
-# not building*, so the gate allows it even though it is a Write/Edit — denying it would regress a
-# Claude Code basic the Explore stance exists to support, leaving the non-engineer worse off than plain
-# Claude Code. It is recognized by the platform's OWN plan-mode MARKER, NOT a
-# path: the plan file's location is operator-configurable (`plansDirectory`) and can resolve INSIDE the
-# repo, exactly where a path match would wrongly re-trip the gate. The marker is the session's
-# `permission_mode == "plan"` — the signal Claude Code's built-in plan-mode permission itself uses to
-# write the file (and `tool_input.is_plan_file`, honored too if a platform sets it). The carve-out is
-# the plan artifact SPECIFICALLY: it never exempts a commit/branch/PR, and every other `~/.claude/`
-# write (settings, hooks) carries no marker → stays denied (it has no protected-branch merge to back it
-# up). The exact field is a build-spec leaf verified against current Claude Code.
+# ---- the plan-mode artifact carve-out (StarshipSuperjam/engine-template#64, narrowed by StarshipSuperjam/engine-template#775) -----------------
+# Claude Code's NATIVE plan file is *planning, not building*, so the gate allows it even though it is a
+# Write/Edit — denying it would regress a Claude Code basic the Explore stance exists to support, leaving
+# the non-engineer worse off than plain Claude Code. The carve-out is the plan ARTIFACT specifically, keyed
+# on two things together: the session's plan-mode marker (`permission_mode == "plan"` — the only per-call
+# signal the platform sends; `tool_input.is_plan_file` is honored too if a platform ever sets it) AND the
+# written path resolving inside the platform's plans folder. Plan mode alone is NOT enough: it is a
+# session-wide state, so before StarshipSuperjam/engine-template#775 any write made during plan mode — the operator's `~/.claude/`
+# settings, a hook, engine source — passed this gate, which the platform's own plan-mode block was the only
+# thing backing up. The shape is OBSERVED, not assumed: on this platform the plan file is an ordinary
+# Write/Edit carrying an absolute `file_path` under the plans folder (1,072 such writes in this
+# workstation's session transcripts, none through any other tool), so a pathless plan-mode write is a
+# fixture, never a plan save.
+# The plans folder is operator-configurable (`plansDirectory`) and may sit INSIDE the repo, which is why
+# the original carve-out avoided paths; the answer is to READ the configured folder rather than assume the
+# default: the first VALID `plansDirectory` in the managed settings file, the user's own
+# ~/.claude/settings.json, then the workspace's .claude/settings.local.json and .claude/settings.json —
+# user before workspace, deliberately — else the platform default ~/.claude/plans. A value is valid only
+# if it is a non-empty string whose resolved real path passes CONTAINMENT: never the filesystem root, the
+# home directory, an ancestor of the home or the workspace root, the workspace root itself, anything
+# under the workspace's .engine/, .claude/ or .git/, nor anything under ~/.claude except the platform's
+# own ~/.claude/plans. Settings files ship inside repositories, so without containment a cloned repo
+# could name "." or "~/.claude" and open this gate for whoever opens it in plan mode; with it, a repo can
+# name at most one ordinary folder inside itself. A rejected value falls through to the next source.
+# The workspace root is the nearest ancestor of the session's cwd holding .claude/ or .git (the platform's
+# project directory — a worktree's own root for a worktree session), and a relative value resolves from
+# it; without an absolute cwd the workspace files and relative values are skipped and the managed/user
+# files and the default still apply. Both the folder and the written path are realpath-resolved before
+# comparison (fail-closed, like the notebook carve-out below: any doubt keeps the deny). The settings
+# lookup and the user home are seams the tests point at temporary trees. The exact fields and the
+# managed-settings paths are build-spec leaves verified against current Claude Code.
 _PLAN_MODE = "plan"
+_PLANS_DIRECTORY_SETTING = "plansDirectory"
+_MANAGED_SETTINGS_PATHS = (
+    "/Library/Application Support/ClaudeCode/managed-settings.json",   # macOS
+    "/etc/claude-code/managed-settings.json",                          # Linux / WSL
+    r"C:\Program Files\ClaudeCode\managed-settings.json",              # Windows
+)
 
 
-def is_plan_artifact(tool_name: str, tool_input, permission_mode, provider: str = "claude") -> bool:
-    """True iff this call is Claude Code's plan-mode artifact write: a file-mutating tool while the
-    platform reports plan mode (`permission_mode == "plan"`), or a tool_input the platform flags as the
-    plan file (`is_plan_file`). Keyed on the marker, never a path. Anything outside plan mode carries no
-    marker → not the artifact → stays subject to the gate. PROVIDER-CONFINED: plan mode is Claude
-    Code's feature, so on any other runtime this carve-out is inert BY RULE, not by hoping the other
-    platform never reuses the field values — a Codex payload reporting `permission_mode: "plan"`
-    (its vocabulary is unverified) must not open the Explore write-gate."""
+def _user_home() -> str:
+    """The real (symlink-resolved) home directory — a seam the tests can point elsewhere."""
+    return os.path.realpath(os.path.expanduser("~"))
+
+
+def _expand_user(path: str) -> str:
+    """`~` and `~/…` expanded against _user_home() (so the seam holds for tilde values too); `~user`
+    forms are left as they are."""
+    if path == "~":
+        return _user_home()
+    if path.startswith("~/") or path.startswith("~\\"):
+        return os.path.join(_user_home(), path[2:])
+    return path
+
+
+def _workspace_root(cwd) -> "str | None":
+    """The platform's project directory for a session: the nearest ancestor of `cwd` (including cwd)
+    that holds a `.claude/` directory or a `.git` entry — a worktree's own root for a worktree session —
+    else cwd itself; None without an absolute cwd (a hand-built payload, an older session)."""
+    if not isinstance(cwd, str) or not os.path.isabs(cwd):
+        return None
+    start = os.path.realpath(cwd)
+    probe = start
+    while True:
+        if os.path.isdir(os.path.join(probe, ".claude")) or os.path.exists(os.path.join(probe, ".git")):
+            return probe
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            return start
+        probe = parent
+
+
+def _plans_settings_files(root) -> list:
+    """The settings files consulted for `plansDirectory`, in precedence order — a seam the tests can point
+    elsewhere: the managed (administrator-installed) file, the user's own file, then — only with a
+    workspace root — the workspace's local and project files."""
+    files = list(_MANAGED_SETTINGS_PATHS) + [os.path.join(_user_home(), ".claude", "settings.json")]
+    if root:
+        files += [os.path.join(root, ".claude", "settings.local.json"),
+                  os.path.join(root, ".claude", "settings.json")]
+    return files
+
+
+def _read_plans_directory_setting(path: str) -> "str | None":
+    """The `plansDirectory` value in one settings file, or None when the file is absent, unreadable,
+    not an object, or the value is not a non-blank string — every failure falls through to the next file."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001 — an unreadable or malformed file is skipped, never fatal
+        return None
+    value = data.get(_PLANS_DIRECTORY_SETTING) if isinstance(data, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
+
+
+def _is_within(path: str, folder: str) -> bool:
+    """True iff the real path `path` is `folder` itself or strictly inside it."""
+    rel = os.path.relpath(path, folder)
+    return rel == "." or not (rel == ".." or rel.startswith(".." + os.sep))
+
+
+def _plans_folder_contained(folder: str, root) -> bool:
+    """The containment rule a configured plans folder must pass before it is honored (see the section
+    comment). Fail-closed: anything undecidable is not contained."""
+    try:
+        home = _user_home()
+        if folder in (os.path.realpath(os.sep), home):
+            return False
+        for target in [home] + ([root] if root else []):
+            if _is_within(target, folder):            # folder IS target or an ancestor of it
+                return False
+        home_claude = os.path.join(home, ".claude")
+        if _is_within(folder, home_claude) and not _is_within(folder, os.path.join(home_claude, "plans")):
+            return False                               # inside ~/.claude, except the platform's own plans area
+        if root:
+            for zone in (".engine", ".claude", ".git"):
+                if _is_within(folder, os.path.join(root, zone)):
+                    return False
+        return True
+    except Exception:  # noqa: BLE001 — undecidable (e.g. different drives) fails CLOSED
+        return False
+
+
+def _resolve_plans_value(value: str, root) -> "str | None":
+    """A configured `plansDirectory` value resolved to a real, contained folder — or None when it is
+    relative with no workspace root to resolve from, or fails containment."""
+    expanded = _expand_user(value)
+    if not os.path.isabs(expanded):
+        if not root:
+            return None
+        expanded = os.path.join(root, expanded)
+    folder = os.path.realpath(expanded)
+    return folder if _plans_folder_contained(folder, root) else None
+
+
+def _plans_directory(cwd) -> str:
+    """The real path of the plans folder this session's plan file lands in: the first VALID configured
+    value in precedence order, else the platform default ~/.claude/plans."""
+    root = _workspace_root(cwd)
+    for path in _plans_settings_files(root):
+        value = _read_plans_directory_setting(path)
+        if value is None:
+            continue
+        folder = _resolve_plans_value(value, root)
+        if folder is not None:
+            return folder
+    return os.path.realpath(os.path.join(_user_home(), ".claude", "plans"))
+
+
+def _under_plans_directory(tool_input, cwd) -> bool:
+    """True iff EVERY path this file-mutating call touches resolves strictly inside the plans folder —
+    the notebook carve-out's discipline: absolute after expansion, real-path-resolved, never the folder
+    itself, never outside it; a pathless call and anything undecidable fail CLOSED."""
+    if not isinstance(tool_input, dict):
+        return False
+    paths = [tool_input.get("file_path") or tool_input.get("notebook_path") or ""]
+    extra = tool_input.get("file_paths")
+    if isinstance(extra, list):
+        paths += [p for p in extra if isinstance(p, str)]
+    paths = [p for p in paths if isinstance(p, str) and p]
+    if not paths:
+        return False
+    try:
+        folder = _plans_directory(cwd)
+        for p in paths:
+            expanded = _expand_user(p)
+            if not os.path.isabs(expanded):
+                return False
+            rel = os.path.relpath(os.path.realpath(expanded), folder)
+            if rel == "." or rel == ".." or rel.startswith(".." + os.sep):
+                return False
+        return True
+    except Exception:  # noqa: BLE001 — an undecidable path fails CLOSED: keep the deny
+        return False
+
+
+def is_plan_artifact(tool_name: str, tool_input, permission_mode, cwd=None, provider: str = "claude") -> bool:
+    """True iff this call is Claude Code's plan-mode artifact write: a tool_input the platform flags as
+    the plan file (`is_plan_file`), or a file-mutating tool while the platform reports plan mode
+    (`permission_mode == "plan"`) whose every path resolves inside the plans folder (see
+    _plans_directory; `cwd` is the session's working directory the folder is resolved for). Plan mode
+    alone never qualifies: a settings, hook, engine-source or pathless write in plan mode stays subject
+    to the gate. PROVIDER-CONFINED: plan mode is Claude Code's feature, so on any other runtime this
+    carve-out is inert BY RULE — a Codex payload reporting `permission_mode: "plan"` (its vocabulary is
+    unverified) must not open the Explore write-gate."""
     if provider != "claude" or tool_name not in _MUTATING_TOOLS:
         return False
     if isinstance(tool_input, dict) and tool_input.get("is_plan_file") is True:
         return True
-    return permission_mode == _PLAN_MODE
+    return permission_mode == _PLAN_MODE and _under_plans_directory(tool_input, cwd)
+
+
+def _plan_mode_denial(cwd) -> str:
+    """The PLAN-MODE denial relay (StarshipSuperjam/engine-template#775) — message choice only, the decision is unchanged. A write denied
+    while the session is in plan mode is most often a plan save the gate could not place, so the generic
+    _DENIAL ("tell me to build it…") would send the person the wrong way; this names the folder the gate
+    resolved and the setting that moves it."""
+    return (f"I didn't make that change — in plan mode I can save only your plan file, and that write was "
+            f"not inside your plans folder ({_plans_directory(cwd)}); everything else waits until you tell "
+            f"me to build. If your plans live somewhere else, set `plansDirectory` in your own "
+            f"~/.claude/settings.json (or the project's .claude/settings.local.json) and I'll follow it.")
 
 
 # ---- the harness auto-memory carve-out (StarshipSuperjam/engine-template#766) -----------------------------------------------
@@ -723,15 +899,19 @@ def handler(payload: dict) -> dict:
     permission_mode = payload.get("permission_mode") if isinstance(payload, dict) else None
     import providers  # lazy: keep modes importable stand-alone in tests that stub the seam
     provider = providers.detect(payload)
+    cwd = payload.get("cwd") if isinstance(payload, dict) else None
     if is_building_action(tool_name, tool_input) \
-            and not is_plan_artifact(tool_name, tool_input, permission_mode, provider) \
-            and not is_harness_memory_write(tool_name, tool_input,
-                                            payload.get("cwd") if isinstance(payload, dict) else None,
-                                            provider):
+            and not is_plan_artifact(tool_name, tool_input, permission_mode, cwd, provider) \
+            and not is_harness_memory_write(tool_name, tool_input, cwd, provider):
         # Same DECISION (deny) for everything still in the building set; only the relayed reason differs —
-        # a denied memory-shaped write earns the honest memory line (StarshipSuperjam/engine-template#257/StarshipSuperjam/engine-template#766), every other write the
-        # generic build-set denial.
-        reason = _MEMORY_DENIAL if is_memory_target(tool_name, tool_input) else _DENIAL
+        # a denied memory-shaped write earns the honest memory line (StarshipSuperjam/engine-template#257/StarshipSuperjam/engine-template#766), a denied file write
+        # made in plan mode the plan-mode line (StarshipSuperjam/engine-template#775), every other write the generic build-set denial.
+        if is_memory_target(tool_name, tool_input):
+            reason = _MEMORY_DENIAL
+        elif provider == "claude" and permission_mode == _PLAN_MODE and tool_name in _MUTATING_TOOLS:
+            reason = _plan_mode_denial(cwd)
+        else:
+            reason = _DENIAL
         return hooks.decide("deny", reason)
     return hooks.proceed()      # reads, tests, greps, an unlabelled/conforming gh issue, subagents, the plan file
 
@@ -863,32 +1043,37 @@ def _decision_line(decision: dict) -> str:
 
 
 def _classify(argv: list) -> int:
-    """`classify <Tool> [command...] [--session S] [--pm MODE] [--plan-file]` — run the REAL handler over
-    a synthetic payload and print what the gate decides, so the operator can vary the tool/command/mode
-    and confirm the behavior (e.g. a Write under `--pm plan` is the plan artifact → ALLOW; the same write
-    without it → DENY in Explore)."""
+    """`classify <Tool> [command...] [--session S] [--pm MODE] [--file PATH] [--cwd DIR] [--plan-file]` —
+    run the REAL handler over a synthetic payload and print what the gate decides, so the operator can
+    vary the tool/command/mode/path and confirm the behavior (e.g. a Write under `--pm plan` to a file
+    inside the plans folder → ALLOW; the same write to ~/.claude/settings.json, or with no --file → DENY
+    in Explore). `--cwd` defaults to the process working directory; the resolved plans folder is echoed."""
     session = _arg(argv, "--session")
     pm = _arg(argv, "--pm")
+    file_path = _arg(argv, "--file")
+    cwd = _arg(argv, "--cwd") or os.getcwd()
     plan_file = "--plan-file" in argv
-    skip = {"--session", session, "--pm", pm, "--plan-file"}
+    skip = {"--session", session, "--pm", pm, "--file", file_path, "--cwd", _arg(argv, "--cwd"), "--plan-file"}
     rest = [a for a in argv if a not in skip]
     if not rest:
-        print("usage: modes.py classify <Tool> [command] [--session S] [--pm MODE] [--plan-file]",
-              file=sys.stderr)
+        print("usage: modes.py classify <Tool> [command] [--session S] [--pm MODE] [--file PATH] [--cwd DIR] "
+              "[--plan-file]", file=sys.stderr)
         return 2
     tool_name = rest[0]
     command = " ".join(rest[1:])
     tool_input = {}
     if command:
         tool_input["command"] = command
+    if file_path:
+        tool_input["file_path"] = file_path
     if plan_file:
         tool_input["is_plan_file"] = True
     payload = {"session_id": session, "tool_name": tool_name,
-               "tool_input": tool_input, "permission_mode": pm}
+               "tool_input": tool_input, "permission_mode": pm, "cwd": cwd}
     decision = handler(payload)
     stance = current_stance(session)
-    print(f"stance={stance}  tool={tool_name!r}  command={command!r}  permission_mode={pm!r}"
-          f"{'  is_plan_file=True' if plan_file else ''}")
+    print(f"stance={stance}  tool={tool_name!r}  command={command!r}  file={file_path!r}  permission_mode={pm!r}"
+          f"{'  is_plan_file=True' if plan_file else ''}  plans_folder={_plans_directory(cwd)!r}")
     print(f"  -> {_decision_line(decision)}")
     return 0
 
@@ -899,11 +1084,14 @@ def _demo(_argv: list) -> int:
     sid = "engine-demo-session"
     clear_stance(sid)
 
+    demo_cwd = os.getcwd()
+
     def gate(tool, cmd="", pm=None, tool_input=None):
         ti = dict(tool_input or {})
         if cmd:
             ti["command"] = cmd
-        return handler({"session_id": sid, "tool_name": tool, "tool_input": ti, "permission_mode": pm})
+        return handler({"session_id": sid, "tool_name": tool, "tool_input": ti, "permission_mode": pm,
+                        "cwd": demo_cwd})
 
     print("The Explore write-gate — what it decides for each action (this runs the real gate, not a "
           "mock-up):\n")
@@ -914,12 +1102,15 @@ def _demo(_argv: list) -> int:
                              ("read a file", "Read", "")]:
         print(f"  {label:42} {tool:5} -> {_decision_line(gate(tool, cmd))}")
 
-    print("\nThe plan-file carve-out (#64) — Claude Code's own plan file is planning, not building, so it "
-          "is allowed (recognized by the platform's own plan-mode signal, never the folder location):")
+    plans_folder = _plans_directory(demo_cwd)
+    print("\nThe plan-file carve-out (#64, narrowed by #775) — Claude Code's own plan file is planning, not "
+          "building, so it is allowed: the session's plan-mode signal AND a write landing inside the plans "
+          f"folder the platform is configured to use (here {plans_folder}); any other write made in plan "
+          "mode stays denied:")
     for label, pm, ti in [
-            ("the plan file, saved while in plan mode",       "plan",    None),
-            ("the plan file, with its folder moved INTO repo", "plan",   {"file_path": ".engine/plans/x.md"}),
+            ("the plan file, saved while in plan mode",       "plan",    {"file_path": os.path.join(plans_folder, "demo-plan.md")}),
             ("the plan file, flagged as such by the platform", None,     {"is_plan_file": True}),
+            ("a write to ~/.claude/settings.json IN plan mode", "plan",  {"file_path": "~/.claude/settings.json"}),
             ("a NON-plan write to ~/.claude/settings.json",   "default", {"file_path": "~/.claude/settings.json"})]:
         print(f"  {label:49} Write -> {_decision_line(gate('Write', pm=pm, tool_input=ti))}")
 
