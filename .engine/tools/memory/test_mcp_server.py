@@ -572,10 +572,10 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
                              "attended-semantic-mcp-search")
 
 
-class ReadCaveatWiringTests(_ServerBase):
-    """All four read tools attach the stale-context caveat when the probe reports one and omit it when the probe
-    is silent — driven through the real in-memory client path with `_memory_read_caveat` stubbed, so this pins
-    the wiring independently of how staleness is detected."""
+class ReadSeamWiringTests(_ServerBase):
+    """Every read tool's answer passes through the ONE read seam and carries exactly one `outcome` object -
+    driven through the real in-memory client path with `read_binding` stubbed, so this pins the wiring
+    independently of how staleness is detected (the staleness rows live in ReadDegradationMatrixTests)."""
 
     def _seed_conversation(self):
         ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
@@ -583,36 +583,74 @@ class ReadCaveatWiringTests(_ServerBase):
                        "text": "a searchable line about widgets"})
         index.rebuild()
 
-    async def test_each_read_tool_attaches_the_caveat_when_the_probe_reports_one(self):
-        self._seed_conversation()
-        sentinel = "STALE-CONTEXT-SENTINEL"
-        calls = [("search", {"query": "widgets"}),
-                 ("recall-window", {"session_id": "s1"}),
-                 ("list-pins", {})]
+    def _calls(self):
+        calls = [("search", {"query": "widgets"}), ("recall-window", {"session_id": "s1"}),
+                 ("list-pins", {}), ("list-withheld", {})]
         if srv._semantic_installed():
             calls.append(("recall-by-meaning", {"query": "widgets"}))
-        with mock.patch.object(srv, "_memory_read_caveat", return_value=sentinel):
-            for name, args in calls:
-                with self.subTest(name):
-                    out = await self._call(name, args)
-                    self.assertEqual(out.get("memory_caveat"), sentinel)
+        return calls
 
-    async def test_no_read_tool_attaches_a_caveat_when_the_probe_is_silent(self):
+    async def test_every_read_tool_carries_one_outcome_object_and_no_caveat_key(self):
         self._seed_conversation()
-        with mock.patch.object(srv, "_memory_read_caveat", return_value=None):
-            for name, args in (("search", {"query": "widgets"}),
-                               ("recall-window", {"session_id": "s1"}),
-                               ("list-pins", {})):
+        for name, args in self._calls():
+            with self.subTest(name):
+                out = await self._call(name, args)
+                self.assertNotIn("memory_caveat", out)
+                self.assertEqual(set(out["outcome"]),
+                                 {"binding", "completeness", "reason", "restart_clears", "note"})
+                self.assertEqual(out["outcome"]["binding"], "absent")   # no context is installed here
+                self.assertEqual(out["outcome"]["reason"], "none-installed")
+                self.assertFalse(out["outcome"]["restart_clears"])
+
+    async def test_a_moved_binding_is_attached_by_every_read_tool(self):
+        self._seed_conversation()
+        moved = execution_context.ReadBinding("moved", "ActivationStale", True, self.tmp, None)
+        with mock.patch.object(execution_context, "read_binding", return_value=moved):
+            for name, args in self._calls():
                 with self.subTest(name):
                     out = await self._call(name, args)
-                    self.assertNotIn("memory_caveat", out)
+                    self.assertEqual(out["outcome"]["binding"], "moved")
+                    self.assertEqual(out["outcome"]["reason"], "ActivationStale")
+                    self.assertTrue(out["outcome"]["restart_clears"])
+                    self.assertIn("quit Claude Desktop completely", out["outcome"]["note"])
+                    self.assertIn("/engine-status", out["outcome"]["note"])
+
+    async def test_an_unbound_binding_returns_no_content_from_any_read_tool(self):
+        self._seed_conversation()
+        unbound = execution_context.ReadBinding("unbound", "StoreIdentityStale", True, None, None)
+        with mock.patch.object(execution_context, "read_binding", return_value=unbound):
+            for name, args in self._calls():
+                with self.subTest(name):
+                    out = await self._call(name, args)
+                    self.assertEqual(out["outcome"]["binding"], "unbound")
+                    self.assertEqual(out["outcome"]["completeness"], "none")
+                    for key in ("results", "turns", "pins", "notes", "sessions"):
+                        self.assertEqual(out.get(key, []), [])
+                    self.assertIn("nothing was read", out["outcome"]["note"])
+
+    async def test_every_live_answer_validates_against_its_declared_schema(self):
+        """The contract requires `outcome` and rejects any field beside the declared ones on BOTH files."""
+        import json as _json
+        import jsonschema
+
+        self._seed_conversation()
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        declared = {}
+        for name in ("search.json", "memory-control.json"):
+            with open(os.path.join(root, ".engine", "interfaces", name), encoding="utf-8") as fh:
+                for op in _json.load(fh)["operations"]:
+                    declared[op["name"]] = op["output_schema"]
+        for name, args in self._calls():
+            with self.subTest(name):
+                jsonschema.validate(await self._call(name, args), declared[name])
 
 
 class OperatorMovedCommitReadTests(unittest.TestCase):
     """The headline recovery scenario. A commit lands under a running memory server, so its bound context is
-    stale. Every read tool still answers — carrying one plain restart caveat — while a mutating verb refuses in
-    plain words that name no path or commit; clearing the drift (the restart re-accepting the commit) removes
-    the caveat. Runs against a REAL installed context, so it exercises the production authority path."""
+    stale. Every read tool still answers - carrying the `moved` outcome with the restart note - while a
+    mutating verb refuses in plain words that name no path or commit; clearing the drift (the restart
+    re-accepting the commit) restores `healthy`. Runs against a REAL installed context, so it exercises the
+    production authority path."""
 
     def setUp(self):
         from memory import test_mutation_authority as tma
@@ -631,24 +669,25 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
         record["commit"] = commit
         Path(self.activation).write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
 
-    def test_reads_answer_with_a_restart_caveat_while_a_write_refuses_and_a_restart_clears_it(self):
-        # Healthy: the reads carry no caveat.
-        self.assertNotIn("memory_caveat", srv.list_pins())
-        self.assertNotIn("memory_caveat", srv.search("anything"))
+    def test_reads_answer_moved_while_a_write_refuses_and_a_restart_clears_it(self):
+        # Healthy: the reads say so.
+        self.assertEqual(srv.list_pins()["outcome"]["binding"], "healthy")
+        self.assertEqual(srv.search("anything")["outcome"]["binding"], "healthy")
 
         # A commit lands under the running server: the binding is now stale.
         self._set_commit("c" * 40)
 
         pins = srv.list_pins()
-        self.assertIn("memory_caveat", pins)
-        self.assertIn("restart", pins["memory_caveat"])
+        self.assertEqual(pins["outcome"]["binding"], "moved")
+        self.assertEqual(pins["outcome"]["reason"], "ActivationStale")
+        self.assertIn("restart", pins["outcome"]["note"])
         self.assertEqual(pins["pins"], [])  # the read still answers, it is not an error
 
         found = srv.search("anything")
         self.assertIn("results", found)
-        self.assertIn("restart", found["memory_caveat"])
+        self.assertEqual(found["outcome"]["binding"], "moved")
 
-        # A mutating verb refuses in plain words — no path, commit or fingerprint reaches the caller.
+        # A mutating verb refuses in plain words - no path, commit or fingerprint reaches the caller.
         with self.assertRaises(ToolError) as caught:
             srv.pin("must not be written while stale")
         message = str(caught.exception)
@@ -657,78 +696,50 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
         self.assertNotIn(self.fixture.base, message)
         self.assertNotIn("fingerprint", message)
 
-        # The restart re-accepts the current commit: the caveat is gone and writes would resume.
+        # The restart re-accepts the current commit: healthy again and writes would resume.
         Path(self.activation).write_text(self._original, encoding="utf-8")
         execution_context._CURRENT_CONTEXT = self.fixture.context
-        self.assertNotIn("memory_caveat", srv.list_pins())
+        self.assertEqual(srv.list_pins()["outcome"]["binding"], "healthy")
 
-    def test_unstattable_root_reads_answer_and_write_refuses_cleanly(self):
+    def test_unstattable_root_reads_answer_unbound_and_write_refuses_cleanly(self):
         # The residual crash #1199 missed: when revalidate_context's identity reads (_path_identity ->
         # os.stat on the project root / Git common directory) fail under drift, the raw OSError used to
-        # escape untyped and crash every read and write. revalidate_context now types any OSError from the
-        # matched body as ArtifactUnreadable (a ContextError), so it routes through the SAME degrade/refuse
-        # path as any stale binding — reads answer with the restart caveat, and a write refuses cleanly with
-        # the store-on-disk refusal and no path leaked.
+        # escape untyped and crash every read and write. revalidate_context types it as ArtifactUnreadable,
+        # and C2 maps that class to `unbound`: the reads ANSWER (no crash) but return no content, because a
+        # store whose own paths cannot be read is not one this session can vouch for; a write refuses cleanly
+        # with the store-on-disk refusal and no path leaked.
         from unittest import mock
 
-        # Seed a real record so the degraded read is shown to return actual content via the ledger-scan
-        # fallback, not merely an empty-but-caveated shell.
         ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
                        "session_id": "s-unstat", "ts": int(time.time()), "seq": 0, "speaker": "user",
                        "text": "a line recalled while the root is unreadable", "tags": ["transcript", "stop"]})
 
         with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
             pins = srv.list_pins()
-            self.assertIn("memory_caveat", pins)
-            self.assertIn("restart", pins["memory_caveat"])
-            self.assertEqual(pins["pins"], [])  # the read answers, it is not an error
+            self.assertEqual(pins["outcome"]["binding"], "unbound")
+            self.assertEqual(pins["outcome"]["reason"], "ArtifactUnreadable")
+            self.assertEqual(pins["pins"], [])
 
             found = srv.search("anything")
-            self.assertIn("results", found)
-            self.assertIn("restart", found["memory_caveat"])
+            self.assertEqual(found["results"], [])
+            self.assertEqual(found["outcome"]["completeness"], "none")
 
-            # Real content still comes back through the degraded recall path (the ledger scan), proving the
-            # read genuinely answers rather than silently returning nothing under the escape.
             window = srv.recall_window("s-unstat")
-            self.assertIn("restart", window["memory_caveat"])
-            self.assertTrue(any("unreadable" in str(turn) for turn in window.get("turns", [])),
-                            "degraded recall must return the seeded turn, not an empty answer")
+            self.assertEqual(window["turns"], [])
+            self.assertEqual(window["outcome"]["binding"], "unbound")
+            self.assertNotIn(self.fixture.base, json.dumps(window))
 
             with self.assertRaises(ToolError) as caught:
                 srv.pin("must not be written while the root is unreadable")
             message = str(caught.exception)
-            self.assertIn("writing is held", message)  # refused cleanly — nothing was changed
-            self.assertIn("fresh session", message)  # names how the operator recovers
-            self.assertNotIn(self.fixture.base, message)  # content-free: no path leaks to the caller
+            self.assertIn("writing is held", message)  # refused cleanly - nothing was changed
+class _Unconvertible:
+    """A return value no serializer can render: every textual fallback raises."""
 
-    def test_recall_window_and_recall_by_meaning_carry_the_caveat_while_stale(self):
-        # Obligation 4 end-to-end for the other two read tools. The headline test above proves list-pins and
-        # search; this proves recall-window and recall-by-meaning against the SAME real moved-commit staleness
-        # (not a stubbed probe), so all four read tools' real staleness-to-caveat path is covered. recall-by-
-        # meaning exists only where the semantic add-on is installed, so it is exercised conditionally.
-        semantic = srv._semantic_installed()
-        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
-                       "session_id": "s-live", "ts": int(time.time()), "seq": 0, "speaker": "user",
-                       "text": "a line to recall", "tags": ["transcript", "stop"]})
+    def __repr__(self):
+        raise ValueError("cannot be rendered " + _SECRET)
 
-        # Healthy: the reads carry no caveat.
-        self.assertNotIn("memory_caveat", srv.recall_window("s-live"))
-        if semantic:
-            self.assertNotIn("memory_caveat", srv.recall_by_meaning("anything"))
-
-        # A commit lands under the running server: the binding is now stale.
-        self._set_commit("c" * 40)
-
-        window = srv.recall_window("s-live")
-        self.assertIn("memory_caveat", window)
-        self.assertIn("restart", window["memory_caveat"])
-        self.assertIn("turns", window)  # the read still answers; it is not an error
-
-        if semantic:
-            meaning = srv.recall_by_meaning("anything")
-            self.assertIn("memory_caveat", meaning)
-            self.assertIn("restart", meaning["memory_caveat"])
-            self.assertIn("results", meaning)
+    __str__ = __repr__
 
 
 from memory import stranding_log as _stranding_log  # noqa: E402 — the in-server diagnostic under test below
@@ -1185,37 +1196,40 @@ class StrandingLogServerWiringTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_module_server_is_the_recording_kind(self):
         self.assertIsInstance(srv.server, srv._RecordingServer)
 
-    def test_the_read_caveat_records_the_typed_staleness_and_not_a_refreshable_drift(self):
-        context = object()
+    def test_the_read_seam_records_one_trace_per_staleness_class_and_tool_and_none_when_healthy(self):
         srv._READ_DEGRADED_NOTED.clear()
         self.addCleanup(srv._READ_DEGRADED_NOTED.clear)
-        with mock.patch.object(execution_context, "current_context", return_value=context), \
-             mock.patch.object(execution_context, "revalidate_context",
-                               side_effect=execution_context.ActivationStale("moved")), \
-             mock.patch.object(srv._stranding_log, "record_stranding", return_value=True) as recorded:
-            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
-            # A stale session reads many times; the trace is written ONCE per staleness type per process,
-            # so the routine caveat can never rotate the rare crash record out of the bounded sink.
-            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
-            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
-        recorded.assert_called_once()
-        self.assertIs(recorded.call_args.args[0], _stranding_log.Event.READ_DEGRADED)
-        self.assertIsInstance(recorded.call_args.args[1], execution_context.ActivationStale)
+        moved = execution_context.ReadBinding("moved", "ActivationStale", True, None, None)
+        with mock.patch.object(srv._stranding_log, "record_stranding", return_value=True) as recorded:
+            # A stale session reads many times; the trace is written ONCE per (class, tool) per process, so
+            # the routine disclosure can never rotate the rare crash record out of the bounded sink - and the
+            # tool is part of the key, so the post-merge evidence shows WHICH tools degraded.
+            for _ in range(3):
+                srv._read_degraded_trace(moved.reason, "search")
+            srv._read_degraded_trace(moved.reason, "list-pins")
+        self.assertEqual(recorded.call_count, 2)
+        first, second = recorded.call_args_list
+        self.assertIs(first.args[0], _stranding_log.Event.READ_DEGRADED)
+        self.assertIsInstance(first.args[1], execution_context.ActivationStale)
+        self.assertEqual(first.kwargs["tool"], "search")
+        self.assertEqual(second.kwargs["tool"], "list-pins")
+        self.assertEqual(str(first.args[1]), "read degraded")   # the instance carries no message content
         # A miss is not counted: the next read tries once more.
         srv._READ_DEGRADED_NOTED.clear()
-        with mock.patch.object(execution_context, "current_context", return_value=context), \
-             mock.patch.object(execution_context, "revalidate_context",
-                               side_effect=execution_context.ActivationStale("moved")), \
-             mock.patch.object(srv._stranding_log, "record_stranding", return_value=False) as missed:
-            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
-            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
+        with mock.patch.object(srv._stranding_log, "record_stranding", return_value=False) as missed:
+            srv._read_degraded_trace("StoreIdentityStale", "search")
+            srv._read_degraded_trace("StoreIdentityStale", "search")
         self.assertEqual(missed.call_count, 2)
-        with mock.patch.object(execution_context, "current_context", return_value=context), \
-             mock.patch.object(execution_context, "revalidate_context",
-                               side_effect=execution_context.ExpectedStateStale("healed")), \
-             mock.patch.object(srv._stranding_log, "record_stranding", return_value=True) as recorded:
-            self.assertIsNone(srv._memory_read_caveat())
-        recorded.assert_not_called()
+        # An unknown or base class records as the base ContextError; healthy and absent record nothing.
+        with mock.patch.object(srv._stranding_log, "record_stranding", return_value=True) as recorded:
+            srv._read_degraded_trace("unknown", "search")
+            self.assertIsInstance(recorded.call_args.args[1], execution_context.ContextError)
+            healthy = execution_context.ReadBinding("healthy", None, False, None, None)
+            with mock.patch.object(execution_context, "read_binding", return_value=healthy):
+                out = srv._read_seam("list-pins", lambda _d, _b: ({"pins": [], "total": 0}, "complete"),
+                                     empty=srv._EMPTY_ANSWERS["list-pins"])
+            self.assertEqual(out["outcome"]["binding"], "healthy")
+        self.assertEqual(recorded.call_count, 1)
 
 
 if __name__ == "__main__":
