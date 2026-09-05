@@ -6540,7 +6540,7 @@
       },
       "slug": "model-bindings",
       "source": {
-        "fingerprint": "sha256:7d4978d8ac68633dd1c7dbe7ac6e28cbdca1c1fd9fae79d7d2fdd201cd7012d9",
+        "fingerprint": "sha256:9a540b5e96441aa2bdab002719e3cec80479b968f2dcec90989bfa5a5d1be7d6",
         "path": ".engine/policies/model-bindings.json"
       },
       "status": "active",
@@ -7243,7 +7243,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:2d6fe00dbd42935255d3c9aa6a572a35016879c26dbf5fb2cb0a75632d823e91",
+        "fingerprint": "sha256:15baacd6ddc6a39ee2b85de2be3289f0353392367a40da8ac65eda5f6b319def",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -8952,7 +8952,6 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:operator_review_effort",
           "tool:repo_identity"
         ],
         "provided_by": [
@@ -8961,7 +8960,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:41dac0522cdb5fa9d09bb2dce8f3cc725dfb9d1eff71d8ab24e1165138deb749",
+        "fingerprint": "sha256:0f3c43c56d64b2a6db84f8bdc210b8b2289c5bf9049907ac5def30ae4381aaaa",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -10060,7 +10059,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:b593235fca1022a4d8ec26d1a9325253259978047d9aec90c1f6b08b8456c7ba",
+        "fingerprint": "sha256:135202b5bee39f9cd95e8623566f0bf359c7126bdc241a727c1a91c90b97c790",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -13394,7 +13393,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:ae18643fad87a6c1ade6e5b21184783f82ffef5f869181134ee0cd31555fa01e",
+        "fingerprint": "sha256:1f1c838e9681f037195be7ce9d47a215c5004aaae58eee477891a149fa05a002",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -13701,29 +13700,6 @@
       },
       "status": "active",
       "summary": "The operator policy-override FILE reader — the single home for reading the",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
-      "id": "tool:operator_review_effort",
-      "name": ".engine/tools/operator_review_effort.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "operator_review_effort",
-      "source": {
-        "fingerprint": "sha256:877b26c887c01b854fc0b9dea22f6aa76b22e649bfd01ac0baf366ead7f4e859",
-        "path": ".engine/tools/operator_review_effort.py"
-      },
-      "status": "active",
-      "summary": "The operator per-depth review-EFFORT override FILE reader — the single home for reading the",
       "type": "tool"
     },
     {
@@ -15623,7 +15599,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:11f3d370409203e03716f967782946ee3201a36a87464c456163837ec286ad71",
+        "fingerprint": "sha256:f915c4cefca2af0d3f24a5f82b1b90dbf620a531a6e9236a728b141d5889cb20",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -16522,7 +16498,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:701aef83504c2cc07b76b2b77e43fecbe884033bc7118f978500cf916a6e48ae",
+        "fingerprint": "sha256:9799cff92481585e5dcdb86ff773772c7baa804bd8d62cb99729c22f7b6a69aa",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -18358,7 +18334,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:3f3131dd36892264c69f04664b361acfb5f00dcce951fc17ba60afdb27b5a73c",
+        "fingerprint": "sha256:1b4394ed41ea41b5fa3f328262f360910a143ee8df2144a5707e03ebf0fb2016",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18591,30 +18567,6 @@
       },
       "status": "active",
       "summary": "Tests for the operator-override file reader + its ownership carve-out.",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
-      "id": "tool:test_operator_review_effort",
-      "name": ".engine/tools/test_operator_review_effort.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:module_coherence",
-          "tool:operator_review_effort"
-        ]
-      },
-      "slug": "test_operator_review_effort",
-      "source": {
-        "fingerprint": "sha256:e3c00ed5a750c33d4a07a1eb3097c7cf131151ee68c5b39d278d1e02362e3c17",
-        "path": ".engine/tools/test_operator_review_effort.py"
-      },
-      "status": "active",
-      "summary": "Self-tests for the operator per-depth review-effort override reader (StarshipSuperjam/engine-template#677).",
       "type": "tool"
     },
     {
@@ -19662,7 +19614,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:10e6bc5d4aae466cd6d517b7773a0feda07ac436310dafdb86ea310e086e737d",
+        "fingerprint": "sha256:95372e503a04a1a1b47e976a2b0a8ab83be92ecfd220a0344973ade1af32855d",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
