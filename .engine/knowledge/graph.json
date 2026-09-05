@@ -9407,7 +9407,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:908757a3a26849b351837e8645ad77d4792ea77925583f37fd791997a45f5964",
+        "fingerprint": "sha256:265eeb07cd95dcf5457f6406ff618ad4d9c47d9b6dff131a19330e3234f80597",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -13848,7 +13848,7 @@
       },
       "slug": "plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:c52fb9a5bb8ab9b0a637ac732430cee899d3c688db752644dcd0f7d7e57d2d85",
+        "fingerprint": "sha256:bd36018ad9e8f43b03af7881ef4aed73a766bc7c85df4af7205723ab00e44f20",
         "path": ".engine/tools/plan_lifecycle.py"
       },
       "status": "active",
@@ -14101,7 +14101,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:dd8313d3ec3d25138bc280c502e7233a6a65f22faf5c529da9712019ed35229a",
+        "fingerprint": "sha256:6f97d175ab78b2c61fc6ee455fcb9a7cb9408200ae84ff7a42f97be78cc11979",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -18716,7 +18716,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:edbe0b3c2c58186fc83a30629fed99cf7f5091f1976b8380eb16db810b049934",
+        "fingerprint": "sha256:6fb458eb969cd730c0374509b6c21ce9f086c6c2c8565c4131ef53d0612c0e05",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -18979,7 +18979,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:0f4a0c915cbe015820ce0f9a2478cbd673130d7fb9122d0475fd4070b6461d3a",
+        "fingerprint": "sha256:1891031470e9035e857e1f3db2d1c4e84e9db60b663d7fb8c12d716b32b79c0f",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
