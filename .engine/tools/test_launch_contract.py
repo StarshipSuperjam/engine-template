@@ -427,14 +427,12 @@ class TestModuleIntegrityTests(unittest.TestCase):
     #: Only that bare module-level statement, placed AHEAD of the sibling imports, counts: a call inside a
     #: function, below the imports, or wrapped in a conditional is deliberately not recognised.
     KNOWN_PATH_BLIND: frozenset = frozenset({
-        "test_boot.py",
         "test_boot_alarm_ledger.py",
         "test_build_coordinator_contract.py",
         "test_build_state_store.py",
         "test_checkout_auto_update.py",
         "test_checkout_health.py",
         "test_ci_assurance.py",
-        "test_derived_state.py",
         "test_first_run_health.py",
         "test_integration_queue_backend.py",
         "test_issue_gate.py",

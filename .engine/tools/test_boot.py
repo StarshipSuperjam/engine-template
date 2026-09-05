@@ -24,7 +24,8 @@ import time
 import unittest
 from unittest import mock
 
-import audit_digest
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import audit_digest  # noqa: E402
 import boot
 import boot_alarm_ledger
 import hooks
@@ -36,13 +37,6 @@ import repo_identity
 ROOT_CLAUDE = os.path.join(validate.ROOT, "CLAUDE.md")
 SETTINGS_PATH = os.path.join(validate.ROOT, ".claude", "settings.json")
 
-# The home/construction gate for cases that assert against the REAL ambient repo. When the deployment gate's
-# Arm A re-collects this file inside a projected deployed tree (foreign origin -> is_home_repo False), such a
-# case skips rather than red against a shape it was never meant to judge. The env-var name is shared with
-# release_gate.py / selftest.py (the nested-run marker they set on every projected suite run); it is copied here
-# rather than imported to keep test_boot's import graph light.
-_CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get("ENGINE_NESTED_SELFTEST")
-_SKIP_DEPLOYED = "runs in the construction/home repo (not a deployed projection, where fresh-copy alerts fire)"
 
 # Pin the saved-memory store to a throwaway dir for the whole module. Several boot paths (session cards, the
 # where-we-left-off block, pins) read ENGINE_MEMORY_DIR through gather_signals()/assemble_pack(); left unset it

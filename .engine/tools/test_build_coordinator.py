@@ -17,6 +17,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import build_coordinator as bc  # noqa: E402
 import build_state_store  # noqa: E402
 import hooks  # noqa: E402
@@ -3789,21 +3790,6 @@ status: locked
         self.assertEqual(json.loads(out.getvalue())["spec"], canonical)
 
 
-def _installed_module_ids() -> set:
-    """The module ids present in this tree. Mirrors the helper of the same name in test_seed.py."""
-    import module_coherence
-    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
-
-
-def _needs_modules(case, *ids) -> None:
-    """Skip when a named module is not installed here. These cases read files the module DELIVERS, so in a
-    deployment that declined it there is no subject to assert over — the absence is the module's contract."""
-    missing = sorted(set(ids) - _installed_module_ids())
-    if missing:
-        case.skipTest(f"{', '.join(missing)} is not installed in this repository, so the file this case reads "
-                      f"is legitimately absent here")
-
-
 class TestHistoricalScenarioCorpus(unittest.TestCase):
     def test_consumed_review_lenses_remain_connected(self):
         text = (bc.ROOT / ".engine" / "operations" / "build-orchestration.md").read_text()
@@ -3825,7 +3811,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             self.assertIn(phrase, owned)
         for phrase in ("recognized automation", "fail-open", "mcp_availability_check", "unresolved-conversation", "operator-runnable demonstration"):
             self.assertIn(phrase, evidence)
-        if "external-contribution" in _installed_module_ids():
+        if "external-contribution" in selftest_support.installed_module_ids():
             external = (bc.ROOT / ".engine/operations/external-contribution-submit.md").read_text()
             self.assertIn("no draft PR is", external)
 
@@ -3995,7 +3981,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # Each reviewer module delivers a fixed set, so pin the count PER MODULE against what is installed —
         # a deployment that declined one still proves the other's set is complete, which a single all-or-
         # nothing count would drop entirely.
-        ids = _installed_module_ids()
+        ids = selftest_support.installed_module_ids()
         expected = (4 if "design-review" in ids else 0) + (5 if "qa-review" in ids else 0)
         self.assertEqual(len(agents), expected)
         for agent in agents:
@@ -4011,7 +3997,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
             self.assertIn("orchestrator", text, agent.name)
 
     def test_no_spec_keeps_both_plan_derived_conformance_lenses(self):
-        _needs_modules(self, "qa-review")
+        selftest_support.needs_modules(self, "qa-review")
         for name in ("engine-qa-review-spec-conformance.md", "engine-qa-review-divergence-hunter.md"):
             text = (bc.ROOT / ".claude" / "agents" / name).read_text()
             self.assertIn("no-spec is not a no-op" if "divergence" in name else "It is not a no-op", text)

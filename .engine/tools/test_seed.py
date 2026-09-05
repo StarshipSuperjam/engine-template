@@ -18,17 +18,11 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import validate          # noqa: E402
 import weakening_guard   # noqa: E402
 import protection_guard  # noqa: E402
 import bootstrap         # noqa: E402  (floor_ruleset — the team-tier floor builder the verifier is checked against)
-import module_coherence  # noqa: E402  (installed-means-present manifests, for roster-aware optional-script guards)
-
-
-def _installed_module_ids() -> set:
-    """The ids of the modules present on disk (installed-means-present). A deployment that DECLINED an
-    optional module removes its subtree, so its id drops out here — the roster-aware signal for #646."""
-    return {man.get("id") for _rel, man in module_coherence.discover_manifests()}
 
 
 def _run_quiet(suite, ctx):
@@ -744,7 +738,7 @@ class TestWeakeningTiers(unittest.TestCase):
         # is skipped ONLY where its owning module is declined (see _OPTIONAL_FLOOR_OWNERS); everywhere it is
         # present it is still asserted, so a genuine dead-weight entry is still caught.
         derived = weakening_guard._derive_check_scripts()
-        installed = _installed_module_ids()
+        installed = selftest_support.installed_module_ids()
         for path in weakening_guard._HARD_EXACT:
             owner = self._OPTIONAL_FLOOR_OWNERS.get(path)
             if owner and owner not in installed:
@@ -886,7 +880,7 @@ class TestWeakeningDerivedSet(unittest.TestCase):
         # dependency-discipline legitimately lacks its script and must not red here (#646).
         derived = weakening_guard._derive_check_scripts()
         self.assertIsNotNone(derived)
-        installed = _installed_module_ids()
+        installed = selftest_support.installed_module_ids()
         expected = [".engine/tools/protection_guard.py"]
         if "product-design" in installed:
             expected.append(".engine/tools/product_design/lock_integrity.py")

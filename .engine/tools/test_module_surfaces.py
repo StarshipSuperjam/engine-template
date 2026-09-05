@@ -14,13 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate            # noqa: E402
 import module_surfaces as ms  # noqa: E402
 import derived_state       # noqa: E402
-import repo_identity       # noqa: E402
-
-_CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get("ENGINE_NESTED_SELFTEST")
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 
 
 class TestRegistryInSync(unittest.TestCase):
-    @unittest.skipUnless(_CONSTRUCTION, "the committed registry equals the DERIVED set only where every module "
+    @unittest.skipUnless(selftest_support.CONSTRUCTION, "the committed registry equals the DERIVED set only where every module "
                          "is present — a deployment carries the full registry but a subset of manifests (#646)")
     def test_committed_registry_matches_the_derived_set(self):
         # Stale registry gate: regenerate with `module_surfaces.py generate` and commit if this fails.

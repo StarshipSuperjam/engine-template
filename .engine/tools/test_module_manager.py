@@ -26,6 +26,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import module_manager  # noqa: E402
 import release_impact  # noqa: E402  (the canonical marker formatter/parser)
 import release_impact_check  # noqa: E402  (the same pure pre-open marker rule the updater invokes)
@@ -45,14 +46,6 @@ def _cand(mid, version="0.1.0", status="optional", depends=None, provides=None, 
     """A fetched-module candidate manifest (the shape plan_add receives from the release tree)."""
     return {"id": mid, "version": version, "status": status,
             "provides": provides or {}, "depends": depends or {}, "wires": wires or []}
-
-
-def _installed_module_ids() -> set:
-    """The ids of the modules present on disk (installed-means-present). A deployment that DECLINED an optional
-    or default-on module removes its subtree, so its id drops out here — the roster-aware signal (#646) that lets
-    a test skip a leg which assumes that module is installed (e.g. inside the deployment gate's add-on-declined
-    projection). Mirrors the helper of the same name in test_seed.py."""
-    return {m.get("id") for _p, m in module_coherence.discover_manifests()}
 
 
 class TestRemoveRefusals(unittest.TestCase):
@@ -133,7 +126,7 @@ class TestUvGroupDerivation(unittest.TestCase):
         self.assertEqual(module_manager.derive_uv_groups(), module_manager.committed_default_groups())
         # Core always carries dependencies; the semantic-recall module (numpy) carries a group only when it is
         # installed, so a deployment that DECLINED it legitimately has just ["core"] here (#646).
-        installed = _installed_module_ids()
+        installed = selftest_support.installed_module_ids()
         groups = module_manager.committed_default_groups()
         self.assertIn("core", groups)
         if "memory-semantic-recall" in installed:
@@ -268,7 +261,7 @@ class TestUpgradeDefaultGroupsReconcile(unittest.TestCase):
         # `memory-semantic-recall` (default-on), to be installed. In a deployment that DECLINED it (the
         # deployment gate's add-on-declined projection), `derive_uv_groups()` legitimately collapses to ["core"],
         # so the genuine arm can't fire and the demo can't pass — a real declined-shape truth, not a #757 break.
-        if "memory-semantic-recall" not in _installed_module_ids():
+        if "memory-semantic-recall" not in selftest_support.installed_module_ids():
             self.skipTest("demo_757's genuine-change arm needs the memory-semantic-recall dependency group; "
                           "it is declined in this deployment")
         import demo_757_upgrade_reconciles_default_groups as demo
@@ -3470,7 +3463,7 @@ class TestUpgradeReconcile(unittest.TestCase):
         # module: `_regen_indexes` imports it lazily and skips (matrix stays empty) when it is absent. In a
         # deployment that DECLINED product-design (the deployment gate's add-on-declined projection) there is no
         # generator, so this leg cannot run — skip it there rather than assert a matrix nothing regenerates.
-        if "product-design" not in _installed_module_ids():
+        if "product-design" not in selftest_support.installed_module_ids():
             self.skipTest("the product-spec-matrix regenerate path is provided by the declined product-design "
                           "module")
         cap = ("---\nstatus: locked\n---\n\n# A capability\n\n## Summary\nWhat.\n\n## Behavior\nHow.\n\n"

@@ -7,11 +7,14 @@ with SYNTHETIC members where the current roster does not yet carry the shape (E2
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
-import derived_state as ds
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import derived_state as ds  # noqa: E402
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 
 
 # ---- synthetic members exercising the generalized dimensions ----------------------------------------
@@ -214,7 +217,7 @@ class TestScope(unittest.TestCase):
 
 class TestPresence(unittest.TestCase):
     def test_present_requires_a_resolvable_generator_not_just_a_file(self):
-        _needs_product_design(self)
+        selftest_support.needs_modules(self, "product-design", reason=_PRODUCT_DESIGN_ABSENT)
         matrix = ".engine/product-spec-matrix.json"
         root = ds.validate.ROOT
         self.assertIn(matrix, ds.paths(present_root=root))
@@ -461,7 +464,7 @@ class TestRegenerate(unittest.TestCase):
         self.assertEqual(by_path[".engine/provisioning/module-surfaces.json"].status, "skipped-out-of-scope")
 
     def test_optional_module_absent_is_skipped_no_generator(self):
-        _needs_product_design(self)
+        selftest_support.needs_modules(self, "product-design", reason=_PRODUCT_DESIGN_ABSENT)
         matrix = ".engine/product-spec-matrix.json"
         with mock.patch.object(ds, "_resolve_generate",
                                side_effect=lambda m: None if m.path == matrix else _real_resolve(m)):
@@ -509,14 +512,8 @@ _REAL_RESOLVE = ds._resolve_generate
 _REAL_RESOLVE_CHECK = ds._resolve_check
 
 
-def _installed_module_ids() -> set:
-    import module_coherence
-    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
-
-
-def _needs_product_design(case) -> None:
-    if "product-design" not in _installed_module_ids():
-        case.skipTest("the product-spec matrix is provided by the declined product-design module")
+# The product-spec matrix is DELIVERED by product-design; a deployment that declined it has no matrix.
+_PRODUCT_DESIGN_ABSENT = "the product-spec matrix is provided by the declined product-design module"
 
 
 def _real_resolve(member):
