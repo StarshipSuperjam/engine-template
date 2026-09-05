@@ -62,10 +62,11 @@
       },
       "output_schema": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
           "pins",
-          "total"
+          "total",
+          "outcome"
         ],
         "properties": {
           "pins": {
@@ -75,6 +76,58 @@
           "total": {
             "description": "How many there are, so a bounded view can say what it left out.",
             "type": "integer"
+          },
+          "outcome": {
+            "description": "How this answer was resolved, as ONE object and the only thing the read seam adds (C2, the read-degradation contract). `binding` says how far the session's binding to the store on disk could be confirmed: healthy (revalidated clean, or healed by the read-side root refresh), moved (the accepted activation or its tree moved while the store held - answered from disk, a restart re-accepts), unbound (the store identity or backup pointer changed, an artefact is unreadable, the sealed context no longer describes this checkout, or a staleness class this server does not know - NOTHING was read from that store), absent (no memory context is installed - the unqualified or command-line path, answered from the ordinarily resolved directory, no binding claim made). `completeness` says what RETRIEVAL actually did, independently of binding: complete (the tool read its full source), incomplete (an index heal was refused, the meaning backend was unavailable, or a ledger-scan fallback answered), none (unbound - results were discarded). `reason` is a closed vocabulary of class names, never message text. `restart_clears` says whether fully quitting and relaunching the client, so this server restarts, clears the condition. `note` is the one plain sentence a session relays: what happened, the concrete recovery action, and where to escalate if it keeps happening; null when there is nothing to say. Derived live on every call, never from a value frozen at the first read.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "completeness",
+              "reason",
+              "restart_clears",
+              "note"
+            ],
+            "properties": {
+              "binding": {
+                "enum": [
+                  "healthy",
+                  "moved",
+                  "unbound",
+                  "absent"
+                ]
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "none"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "ExpectedStateStale",
+                  "ActivationStale",
+                  "AcceptedTreeStale",
+                  "StoreIdentityStale",
+                  "BackupPointerStale",
+                  "ArtifactUnreadable",
+                  "ContextError",
+                  "unknown",
+                  "none-installed"
+                ]
+              },
+              "restart_clears": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }
@@ -126,10 +179,11 @@
       },
       "output_schema": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "required": [
           "notes",
-          "sessions"
+          "sessions",
+          "outcome"
         ],
         "properties": {
           "notes": {
@@ -139,6 +193,58 @@
           "sessions": {
             "description": "Withheld whole conversations, by identifier.",
             "type": "array"
+          },
+          "outcome": {
+            "description": "How this answer was resolved, as ONE object and the only thing the read seam adds (C2, the read-degradation contract). `binding` says how far the session's binding to the store on disk could be confirmed: healthy (revalidated clean, or healed by the read-side root refresh), moved (the accepted activation or its tree moved while the store held - answered from disk, a restart re-accepts), unbound (the store identity or backup pointer changed, an artefact is unreadable, the sealed context no longer describes this checkout, or a staleness class this server does not know - NOTHING was read from that store), absent (no memory context is installed - the unqualified or command-line path, answered from the ordinarily resolved directory, no binding claim made). `completeness` says what RETRIEVAL actually did, independently of binding: complete (the tool read its full source), incomplete (an index heal was refused, the meaning backend was unavailable, or a ledger-scan fallback answered), none (unbound - results were discarded). `reason` is a closed vocabulary of class names, never message text. `restart_clears` says whether fully quitting and relaunching the client, so this server restarts, clears the condition. `note` is the one plain sentence a session relays: what happened, the concrete recovery action, and where to escalate if it keeps happening; null when there is nothing to say. Derived live on every call, never from a value frozen at the first read.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "completeness",
+              "reason",
+              "restart_clears",
+              "note"
+            ],
+            "properties": {
+              "binding": {
+                "enum": [
+                  "healthy",
+                  "moved",
+                  "unbound",
+                  "absent"
+                ]
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "none"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "ExpectedStateStale",
+                  "ActivationStale",
+                  "AcceptedTreeStale",
+                  "StoreIdentityStale",
+                  "BackupPointerStale",
+                  "ArtifactUnreadable",
+                  "ContextError",
+                  "unknown",
+                  "none-installed"
+                ]
+              },
+              "restart_clears": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }

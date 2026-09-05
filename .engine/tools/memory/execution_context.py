@@ -885,6 +885,208 @@ def refresh_current_context(context: ExecutionContext) -> ExecutionContext:
     return refreshed
 
 
+# ---------------------------------------------------------------------------------------------------------
+# Read-side resolution (C2, pln_b5eb869e55b4). Two ADDED functions; nothing above changes.
+#
+# `current_context()` raises on any staleness at an uncached first resolution, and that raise is the write
+# path's own routing (mutation_authority.mutation_scope branches on it). The two captured production traces
+# were reads dying on that raise, twice per call (the caveat swallowed it once; `ledger_dir` re-raised it).
+# Reads therefore get their own route here. It never edits the functions the write path and the
+# qualification gates are built on; it adds a refresh that is exactly a restart's seal, and a read-only
+# binding that is never installed or registered.
+# ---------------------------------------------------------------------------------------------------------
+
+READ_BINDING_KINDS = ("healthy", "moved", "unbound", "absent")
+_READ_REASON_ABSENT = "none-installed"
+_READ_REASON_UNKNOWN = "unknown"
+_READ_REASONS = frozenset({
+    "ExpectedStateStale", "ActivationStale", "AcceptedTreeStale", "StoreIdentityStale",
+    "BackupPointerStale", "ArtifactUnreadable", "ContextError", _READ_REASON_ABSENT, _READ_REASON_UNKNOWN,
+})
+_MOVED_CLASSES = (ActivationStale, AcceptedTreeStale)
+_ROOT_REFRESH_REGISTRY_ID = "attended-memory-mcp"
+
+
+class ReadBinding:
+    """What a READ resolved to, without raising: the memory directory it may read, and how far the
+    session's binding to that store could be confirmed.
+
+    `kind` is total over every way resolution can end: `healthy` (revalidated clean, or healed by the root
+    refresh), `moved` (the activation or its accepted tree moved while the store held — answer from disk,
+    a restart re-accepts), `unbound` (the store identity or backup pointer changed, an artefact is
+    unreadable, the sealed document no longer describes this checkout, or a staleness class this module
+    does not know — read NOTHING from it), `absent` (no context installed — the unqualified/CLI path,
+    which resolves its directory the ordinary way and makes no binding claim). `reason` is a closed
+    vocabulary of class names, never message text, so nothing here can carry a path, a fingerprint or a
+    commit into an answer or a log.
+
+    Carries the decoded context only for a caller that must re-check the store it read from (see
+    `explicit_store_check`); it is NEVER registered as authorized and NEVER installed, so no writer can
+    find it and `mint_capability`/`consume_capability` reject it."""
+
+    __slots__ = ("kind", "reason", "restart_clears", "memory_dir", "_context")
+
+    def __init__(self, kind: str, reason: str | None, restart_clears: bool, memory_dir: str | None,
+                 context: "ExecutionContext | None"):
+        if kind not in READ_BINDING_KINDS:
+            raise ContextError("read binding kind is outside the declared vocabulary")
+        if reason is not None and reason not in _READ_REASONS:
+            raise ContextError("read binding reason is outside the declared vocabulary")
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "reason", reason)
+        object.__setattr__(self, "restart_clears", bool(restart_clears))
+        object.__setattr__(self, "memory_dir", memory_dir)
+        object.__setattr__(self, "_context", context)
+
+    def __setattr__(self, _name, _value):
+        raise AttributeError("ReadBinding is immutable")
+
+    @property
+    def context(self) -> "ExecutionContext | None":
+        return self._context
+
+    def to_document(self) -> dict:
+        return {"binding": self.kind, "reason": self.reason, "restart_clears": self.restart_clears}
+
+
+def _read_reason_for(exc: BaseException) -> str:
+    name = type(exc).__name__
+    if type(exc) in (ExpectedStateStale, ActivationStale, AcceptedTreeStale, StoreIdentityStale,
+                     BackupPointerStale, ArtifactUnreadable, ContextError):
+        return name
+    return _READ_REASON_UNKNOWN
+
+
+def explicit_store_check(context: ExecutionContext) -> str | None:
+    """Re-check ONLY the store identity and the backup pointer of a decoded context against disk.
+
+    `_revalidate_matched` checks the activation and the accepted tree BEFORE the store identity and the
+    pointer, so the class it raises says what it met first, not everything that moved: a merge landing at
+    the same time as a restore surfaces `ActivationStale`, and a caller keyed on that type alone would
+    answer from a replaced store labelled 'moved'. The read seam therefore never infers what moved from the
+    exception type: under any non-refreshable class it asks this, and again after it has read, so content
+    stays bound to the store that was validated. Returns the class NAME that fails, or None. Reads only."""
+    document = context.to_document()
+    lifecycle = document["target"]["lifecycle"]
+    try:
+        identity = _read_identity(lifecycle["store_identity"])
+    except ContextError:
+        return "ArtifactUnreadable"
+    if identity != document["target"]["store_identity"]:
+        return "StoreIdentityStale"
+    try:
+        pointer, pointer_digest = _strict_pointer(lifecycle["canonical_backup_pointer"])
+    except ContextError:
+        return "BackupPointerStale"
+    state = document["state"]
+    if pointer != state["backup_pointer_identity"] or pointer_digest != state["backup_pointer_digest"]:
+        return "BackupPointerStale"
+    return None
+
+
+def _decoded_environment_context() -> "ExecutionContext | None":
+    try:
+        raw = os.environ[CONTEXT_ENV]
+    except KeyError:
+        return None
+    document = json.loads(raw)                       # ValueError -> caller maps to unbound
+    return ExecutionContext.from_document(document)  # ContextError -> caller maps to unbound
+
+
+def refresh_root_for_read(context: ExecutionContext) -> ExecutionContext:
+    """Heal an UNCACHED first resolution that raised `ExpectedStateStale` by installing a restart's seal.
+
+    Only the accepted memory server may call this (the same gate as `refresh_current_context`), and only
+    while no root context is installed. From the decoded document it re-observes disk, seals, runs the
+    FULL revalidation, and refuses if the authority-bearing binding (`binding_identity`: store identity,
+    memory directory, target kind, the five activation fields) differs before and after. Only a context
+    that passed all of that is installed — as `_CURRENT_CONTEXT`, in the environment, and remembered —
+    exactly the state a process that started a moment later would be in. It grants no authority a restart
+    would not: every non-refreshable class still raises its own type here and nothing is installed.
+
+    This DOES change when a process can write: a server whose first resolution met refreshable drift used
+    to be write-dead until restart. That is disclosed in C2's plan and pull request; it is availability,
+    not authority. Under `_CONTEXT_LOCK` so two concurrent first reads produce one refresh."""
+    global _CURRENT_CONTEXT
+    if not isinstance(context, ExecutionContext):
+        raise ContextError("execution context has an unsupported runtime type")
+    if context["operation"]["registry_id"] != _ROOT_REFRESH_REGISTRY_ID:
+        raise ContextError("only the accepted memory server has a read-side root refresh")
+    with _CONTEXT_LOCK:
+        if _CURRENT_CONTEXT is not None:
+            return _CURRENT_CONTEXT
+        document = context.to_document()
+        before = binding_identity(context)
+        target, state = document["target"], document["state"]
+        document["state"] = _observe_state(
+            target["lifecycle"], target["store_identity"],
+            state["backup_pointer_identity"], state["backup_pointer_digest"],
+        )
+        document["receipt"] = {"context_id": secrets.token_hex(16), "context_digest": None}
+        document = _seal(document)
+        _validate_document(document)
+        refreshed = ExecutionContext(document, _trusted=True)
+        revalidate_context(refreshed)                 # every non-refreshable class raises here, uninstalled
+        if binding_identity(refreshed) != before:
+            raise ContextError("read-side root refresh would change the authority-bearing binding")
+        _remember_context(refreshed)
+        _CURRENT_CONTEXT = refreshed
+        os.environ[CONTEXT_ENV] = refreshed.to_json()
+        return refreshed
+
+
+def read_binding() -> ReadBinding:
+    """Resolve what a READ may use, never raising, and say how far the binding could be confirmed.
+
+    Runs the live revalidation on EVERY call — that is what tells a session that a merge landed under it
+    after a healthy first read — and installs nothing except through `refresh_root_for_read` on an
+    uncached refreshable drift. The mapping from what revalidation raised to a kind is TOTAL with `unbound`
+    as its default: `ExpectedStateStale` -> healthy (healed when uncached in the memory server; a read
+    reflects disk either way); `ActivationStale`/`AcceptedTreeStale` -> moved, unless the explicit store
+    check says the store moved too, in which case unbound; everything else, including a class this module
+    does not know -> unbound. Absent context -> absent, with no memory directory of its own (the caller
+    resolves the ordinary way)."""
+    with _CONTEXT_LOCK:
+        cached = _CURRENT_CONTEXT
+        if cached is None:
+            try:
+                context = _decoded_environment_context()
+            except (ValueError, ContextError):
+                return ReadBinding("unbound", "ContextError", True, None, None)
+            if context is None:
+                return ReadBinding("absent", _READ_REASON_ABSENT, False, None, None)
+        else:
+            context = cached
+        memory_dir = context["target"]["memory_dir"]
+        try:
+            revalidate_context(context)
+            if cached is None:
+                # Clean from the environment: cache it the ordinary way, as current_context() would.
+                context = current_context()
+            return ReadBinding("healthy", None, False, memory_dir, context)
+        except ExpectedStateStale:
+            if cached is None and context["operation"]["registry_id"] == _ROOT_REFRESH_REGISTRY_ID:
+                try:
+                    healed = refresh_root_for_read(context)
+                except ContextError as exc:
+                    return _read_binding_for_failure(exc, context, memory_dir)
+                return ReadBinding("healthy", None, False, memory_dir, healed)
+            return ReadBinding("healthy", None, False, memory_dir, context)
+        except ContextError as exc:
+            return _read_binding_for_failure(exc, context, memory_dir)
+
+
+def _read_binding_for_failure(exc: ContextError, context: ExecutionContext,
+                              memory_dir: str) -> ReadBinding:
+    reason = _read_reason_for(exc)
+    if isinstance(exc, _MOVED_CLASSES) and type(exc) in _MOVED_CLASSES:
+        store_moved = explicit_store_check(context)
+        if store_moved is None:
+            return ReadBinding("moved", reason, True, memory_dir, context)
+        return ReadBinding("unbound", store_moved, True, None, context)
+    return ReadBinding("unbound", reason, True, None, context)
+
+
 def observe_state_fingerprint(context: ExecutionContext) -> str:
     if not _is_authorized_context(context):
         raise ContextError("execution context is not authorized in this process")
