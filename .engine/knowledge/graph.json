@@ -5326,7 +5326,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:9e5e805806ee304a5e31dd1dc3676039e62dcc2d8499708cc5df0546d8fd7100",
+        "fingerprint": "sha256:532bcc4ad842e92b718da8a461d5073cdf6ce3b0e366dd40268a7f827bdee518",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:80a428ccc0202324868f2c81a2a99d58b6feb004cd1d1bfa289f5fd62e4a25c7",
+        "fingerprint": "sha256:d67758f609db7b3b069e4e61b51bdc541f77d217844695c224acae56906cc8a2",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -12091,7 +12091,7 @@
       },
       "slug": "execution_context",
       "source": {
-        "fingerprint": "sha256:a59d180740cc9ba323575ff139c3b4b962aeaad0b526cd331e3188f6e0d6a233",
+        "fingerprint": "sha256:1b4a5bb9fdd02076c1ae1b98e692d6cfde7f3ea6434e8a0427350b01c3a4e204",
         "path": ".engine/tools/memory/execution_context.py"
       },
       "status": "active",
@@ -13153,7 +13153,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:f4ac520d8fd2950700daa523f2ca16de57251a7c83abfc3d2d223d57860220d3",
+        "fingerprint": "sha256:ec3bf6c8db074084513556cc2945ceae02e46ee5e857e0fa59509c2805e3f7b6",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -16242,7 +16242,7 @@
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:c37ea41801439b7f33730d4582abec931f384d492ca9210aabf327c92b06c4a4",
+        "fingerprint": "sha256:9c885af51e920536c6c4d62fcd3ebfe500dde9bd6e2a0173bac94f2f1404d291",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -17548,7 +17548,7 @@
       },
       "slug": "test_interface",
       "source": {
-        "fingerprint": "sha256:65d25d06ac5a7c2163979e30e20723724d19c5fa47fd3e384f98c63ca5a46be2",
+        "fingerprint": "sha256:fa9e9b389877eb1bb027274c41d0ab6e9dbf575cb2113ab448e56341009936a5",
         "path": ".engine/tools/test_interface.py"
       },
       "status": "active",
@@ -18102,7 +18102,9 @@
           "tool:mutation_authority",
           "tool:mutation_contract",
           "tool:pins",
+          "tool:recall_acceptance_probe",
           "tool:records",
+          "tool:store",
           "tool:stranding_log",
           "tool:test_mutation_authority",
           "tool:validate"
@@ -18110,7 +18112,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:f5387431fe49d17aff54edaf1dc7f01b7ff257687cff6a1fe52500c1043d930c",
+        "fingerprint": "sha256:14415d524a25e463ea4a4ed59ac2747198d69cb411445d76e60789bb8246d514",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18376,8 +18378,10 @@
           "module:memory-substrate-sqlite-fts5"
         ],
         "tests": [
+          "tool:candidate_invocation",
           "tool:capture",
           "tool:clawmem_export",
+          "tool:drain",
           "tool:erase",
           "tool:execution_context",
           "tool:first_run_health",
@@ -18392,7 +18396,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:17e4630ef2c9aff7c6d388b921e2fd2cb463bc3e76c7aed6c26a5f0a056c1133",
+        "fingerprint": "sha256:f340b47ddd20df2615522395cffdc280ba0f6ccc7b4614b52a6edd3ff0fef875",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
