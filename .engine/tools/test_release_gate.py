@@ -6,7 +6,7 @@ suite — moving that cost out of every pull request is the whole point of the s
 gate's ORCHESTRATION and its fail-CLOSED contract with the heavy arms stubbed; the genuine operate/upgrade
 proofs are the cut-time gate run and the first-run-retired `demo_664_release_gate.py`.
 
-Every case is guarded `@skipUnless(_CONSTRUCTION)` — the home repo AND not a nested run — so that when Arm A's
+Every case is guarded `@skipUnless(selftest_support.CONSTRUCTION)` — the home repo AND not a nested run — so that when Arm A's
 in-projection suite re-collects this file (it ships to deployed repos), these cases skip rather than recurse
 into the gate or fail against a tag-less projected tree.
 """
@@ -34,8 +34,8 @@ from memory import index as memory_index     # noqa: E402
 from memory import ledger                    # noqa: E402
 from memory import restore_vault as rv       # noqa: E402
 from memory import snapshot_format as sf     # noqa: E402
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 
-_CONSTRUCTION = rg._ccc._in_home_repo() and not os.environ.get(rg._NESTED_ENV)
 _SKIP = "runs where a release is cut (the home repo, not a nested projection run)"
 
 
@@ -43,7 +43,7 @@ def _proc(returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestBaselineSelection(unittest.TestCase):
     """`_upgrade_baselines` picks the released version tags at or above the clean-upgrade floor. The tag list
     is INJECTED so the test is independent of the checkout's actual tags — the CI self-test checkout is shallow
@@ -72,7 +72,7 @@ class TestBaselineSelection(unittest.TestCase):
         self.assertEqual(self._baselines_for("v0.3.2\nv0.4.0\n"), ["v0.3.2", "v0.4.0"])
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestIsolationGuard(unittest.TestCase):
     """The belt-and-suspenders half of the ROOT-isolation guarantee refuses a non-throwaway target."""
 
@@ -89,7 +89,7 @@ class TestIsolationGuard(unittest.TestCase):
             rg._assert_isolated(d)                          # must not raise
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestFailClosed(unittest.TestCase):
     """A gate that cannot run — a setup GateError or ANY unexpected error — BLOCKS the cut (exit nonzero),
     never waves it through."""
@@ -127,7 +127,7 @@ class TestFailClosed(unittest.TestCase):
         self.assertEqual(code, 0)
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestCompleteSuiteExecution(unittest.TestCase):
     """The expensive suite has an explicit cut-only budget and a failure that names its active leg."""
 
@@ -170,7 +170,7 @@ class TestCompleteSuiteExecution(unittest.TestCase):
         self.assertEqual(suite_labels, ["operate/default", "operate/declined(optional-one)"])
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestInertWhenDeployed(unittest.TestCase):
     """On a non-home checkout the gate is inert (ran=False) and passes — a deployed repo runs the suite in its
     own engine-ci. The workflow, not the tool, decides an engine cut must actually have run."""
@@ -182,7 +182,7 @@ class TestInertWhenDeployed(unittest.TestCase):
         self.assertTrue(result["passed"])
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestHomeTreeGuard(unittest.TestCase):
     """If the gate ever leaves a change in the home working tree the cut is about to commit, it BLOCKS."""
 
@@ -198,7 +198,7 @@ class TestHomeTreeGuard(unittest.TestCase):
         self.assertTrue(result.get("home_tree_mutated"))
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestUpgradeArmReporting(unittest.TestCase):
     """The UPGRADE leg (`_upgrade_leg`) reads the practice-upgrade result and blocks on refusal, non-
     application, a hard gate finding, a driver crash, OR a missing practice-path note (a silent network fetch of
@@ -289,7 +289,7 @@ class TestUpgradeArmReporting(unittest.TestCase):
                 rg._candidate_ref(d)
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestControlPlaneLegReporting(unittest.TestCase):
     """The release matrix's injected GitHub leg accepts only a verified, exact owned-rule transition."""
 
@@ -315,7 +315,7 @@ class TestControlPlaneLegReporting(unittest.TestCase):
         self.assertFalse(rg._control_plane_leg("/tmp/proj", "v9.9.9", None)["passed"])
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestRollbackLegReporting(unittest.TestCase):
     """The ROLLBACK leg (`_rollback_leg`) undoes the staged practice upgrade and asserts the PARSED result — a
     real staged undo with a recovery point or a verified transactional restore — never the exit code. It
@@ -395,7 +395,7 @@ class TestRollbackLegReporting(unittest.TestCase):
         self.assertFalse(self._drive(stdout="garbage with no marker")["passed"])
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestTransitionComposition(unittest.TestCase):
     """`_upgrade_from` composes the upgrade, owned-rule repair, and rollback legs into one transition record.
     The rollback leg runs ONLY after both prior legs pass; a rollback on a half-applied tree would obscure the
@@ -485,7 +485,7 @@ class TestTransitionComposition(unittest.TestCase):
         self.assertIn("module_manager.rollback(", drivers[2])  # rollback runs only after repair verifies
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestBaselineSelectionExcluded(unittest.TestCase):
     """`_baseline_selection` records the below-floor version tags it excluded, so the evidence can show the
     matrix was not silently shrunk."""
@@ -502,7 +502,7 @@ class TestBaselineSelectionExcluded(unittest.TestCase):
             self.assertLess(validate._ver_tuple(t[1:]), validate._ver_tuple(floor))
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestArmUpgradesShape(unittest.TestCase):
     """Arm B's result carries the transition matrix and its shape fields (floor / baselines / excluded), so the
     release evidence can state the matrix instance, not just a pass/fail."""
@@ -600,7 +600,7 @@ class TestArmUpgradesShape(unittest.TestCase):
         self.assertTrue(any("malformed" in item for item in arm["failures"]))
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestReleaseWorkflowBudgets(unittest.TestCase):
     """The release-cut child budget and both workflow envelopes stay in the declared 30/120-minute contract."""
 
@@ -611,7 +611,7 @@ class TestReleaseWorkflowBudgets(unittest.TestCase):
         self.assertEqual(rg._COMPLETE_SUITE_TIMEOUT_SECONDS, 1_800)
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestCandidateIdentity(unittest.TestCase):
     """`_candidate_tree_sha` computes a real git tree hash of the working tree (the identity stamped into the
     gate result). Exercised against real git — the run_gate/pr-body unit tests mock it, so this is the one place
@@ -624,7 +624,7 @@ class TestCandidateIdentity(unittest.TestCase):
         self.assertTrue(all(c in "0123456789abcdef" for c in sha))
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestSummaryMarkdown(unittest.TestCase):
     """`_summary_md` renders the per-transition matrix for the step summary — structured fields only, never a
     raw `detail` string, and it states the floor and count so a shrunken matrix is visible."""
@@ -660,7 +660,7 @@ class TestSummaryMarkdown(unittest.TestCase):
         self.assertIn("not applicable", rg._summary_md({"ran": False, "passed": True}).lower())
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestRunGateIdentity(unittest.TestCase):
     """`run_gate` stamps the candidate identity (tree sha + a UTC timestamp) so the release-PR renderer can tie
     the transition matrix to the tree it was run against."""
@@ -679,7 +679,7 @@ class TestRunGateIdentity(unittest.TestCase):
         self.assertIn("generated_at", result)
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestNoBaselinesFailsClosed(unittest.TestCase):
     """A checkout with no in-range baseline (shallow / tag-less) BLOCKS rather than reporting a vacuous pass."""
 
@@ -689,7 +689,7 @@ class TestNoBaselinesFailsClosed(unittest.TestCase):
                 rg._arm_upgrades("/tmp/candidate")
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestRenderCopy(unittest.TestCase):
     """The operator-facing copy is plain language — never a check id or an internal arm token."""
 
@@ -709,7 +709,7 @@ class TestRenderCopy(unittest.TestCase):
             self.assertNotIn(jargon, text)
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestDeclineVocabulary(unittest.TestCase):
     """The declined arm declines every DECLINABLE module — both `default-on` (the #663 shape) and `optional`
     (the #646 shape). If either status literal is ever renamed, the declined projection would silently stop
@@ -736,7 +736,7 @@ class TestDeclineVocabulary(unittest.TestCase):
                       "covering the add-on-declined shape; update release_gate._decline_optional_modules")
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestNestedEnvScrub(unittest.TestCase):
     """Every process the gate spawns inside a projection runs with the release workflow's GitHub-Actions
     identity stripped. A projection has no real pull request, so leaking the ambient CI/PR env made the
@@ -787,7 +787,7 @@ class TestNestedEnvScrub(unittest.TestCase):
         self.assertEqual(lines[1], "False")                            # no CI identity reached the child
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestOperateArmReporting(unittest.TestCase):
     """`_validate_in` surfaces the validator's FAIL section as the failure reason. report() prints the verbose
     "notes (…)" section BEFORE the "FAIL (…)" one, so the reason must be read from the FAIL marker — reading the
@@ -821,7 +821,7 @@ class TestOperateArmReporting(unittest.TestCase):
         self.assertEqual(res["detail"], "")
 
 
-@unittest.skipUnless(_CONSTRUCTION, _SKIP)
+@unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestMultipartMemoryReleaseEvidence(unittest.TestCase):
     """Cut-time evidence for #822's supported envelope, deadlines, and disclosed privacy limits."""
 

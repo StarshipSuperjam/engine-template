@@ -28,13 +28,12 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
-import repo_identity      # noqa: E402  (construction-repo signal for the optional-subtree registry check)
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 
 # The optional-subtree REGISTRY check below validates the source's _OPTIONAL_MODULE_SUBTREES against the
 # shipped module manifests — it needs every module present, so it is a construction-repo check. A deployment
 # that DECLINED a module legitimately lacks that subtree and its manifest, and the gate's declined projection
-# (ENGINE_NESTED_SELFTEST set) is exactly such a shape, so both skip here (#646).
-_CONSTRUCTION = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get("ENGINE_NESTED_SELFTEST")
+# (ENGINE_NESTED_SELFTEST set) is exactly such a shape, so both skip here (#646) — selftest_support.CONSTRUCTION.
 import knowledge_gen     # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness the commit-boundary regen rides)
 
@@ -630,7 +629,7 @@ class TestOptionalModuleSubtrees(unittest.TestCase):
                 with open(man_path, encoding="utf-8") as fh:
                     yield json.load(fh)
 
-    @unittest.skipUnless(_CONSTRUCTION, "construction-repo registry check — a deployment may decline the "
+    @unittest.skipUnless(selftest_support.CONSTRUCTION, "construction-repo registry check — a deployment may decline the "
                          "owning module, so its subtree and manifest are legitimately absent (#646)")
     def test_each_subtree_is_present_here_and_owned_by_a_removable_module(self):
         packages, _modules, _syms = knowledge_gen.tool_module_index(self.tools_root)

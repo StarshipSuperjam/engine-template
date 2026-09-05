@@ -22,6 +22,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 import validate          # noqa: E402
 import module_coherence  # noqa: E402
 import wiring            # noqa: E402
@@ -54,14 +55,6 @@ def _run_kind(kind_fn, rule, files):
         return kind_fn(rule, {})
     finally:
         validate.target_files = orig
-
-
-def _installed_module_ids() -> set:
-    """The module ids present in this tree. Mirrors the helper of the same name in test_seed.py, and the
-    same presence-conditional discipline `optional_owner` documents below: an optional module can be
-    declined, so a case keyed on one it DELIVERS has no subject in a deployment that declined it."""
-    import module_coherence
-    return {m.get("id") for _p, m in module_coherence.discover_manifests() if isinstance(m, dict)}
 
 
 class TestModuleSchema(unittest.TestCase):
@@ -163,7 +156,7 @@ class TestRetiredVerbUpgradeNotices(unittest.TestCase):
         self.assertIn("engine-setup", text)
 
     def test_github_projects_sync_notice_names_board_setup_pointing_at_engine_setup(self):
-        if "github-projects-sync" not in _installed_module_ids():
+        if "github-projects-sync" not in selftest_support.installed_module_ids():
             self.skipTest("the retired-verb notice is carried by the declined github-projects-sync module")
         text = self._notices("github-projects-sync")
         self.assertIn("engine-board-setup", text)
@@ -857,7 +850,7 @@ class TestModuleCoherenceConsumer(unittest.TestCase):
         # product-design is OPTIONAL, so its footprint is asserted only when it is actually installed —
         # the same reason the check-ownership leg above is conditional. Requiring it to be present would red
         # a deployment's required self-tests for declining an add-on it was offered at setup.
-        installed = {m.get("id") for _p, m in module_coherence.discover_manifests()}
+        installed = selftest_support.installed_module_ids()
         self.assertEqual(sorted(r for r, o in doc_owner.items() if o == ["product-design"]),
                          [".engine/docs/product-design.md"] if "product-design" in installed else [],
                          "product-design owns exactly its orientation doc when it is installed")

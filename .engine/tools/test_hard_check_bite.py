@@ -218,21 +218,11 @@ class TestS4LiveRosterBackfill(unittest.TestCase):
                     self.assertTrue(found and all(f["severity"] == "soft" for f in found),
                                     f"{stem}: a not-applicable carve-out must yield only soft notes: {found}")
                     self.assertTrue(any("NOT APPLICABLE" in (f.get("message") or "") for f in found), found)
-                elif stem == "census-completeness":
-                    # Construction-scoped (#512): required to bite here in the construction repo; in a
-                    # deployed repo the ambient-verified carve-out yields the loud NOT APPLICABLE HERE note.
-                    found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
-                    if repo_identity.is_home_repo(ROOT):
-                        self.assertEqual(found, [], f"{stem}: did not bite in the construction repo")
-                    else:
-                        self.assertTrue(found and all(f["severity"] == "soft" for f in found), found)
-                        self.assertTrue(any("NOT APPLICABLE HERE" in (f.get("message") or "") for f in found),
-                                        found)
-                elif stem == "shipped-issue-references":
-                    # Home-scoped (#640) and it reads its fixture from the filesystem (like census-completeness,
-                    # not `git show HEAD:`): required to bite here in the construction repo; in a deployed repo
+                elif stem in ("census-completeness", "shipped-issue-references"):
+                    # Construction-scoped (#512, #640), both reading their fixture from the filesystem rather
+                    # than `git show HEAD:`: required to bite here in the construction repo; in a deployed repo
                     # (the deployment gate's projection) the ambient-verified carve-out yields the loud NOT
-                    # APPLICABLE HERE note. Owned by required validators-core, so the check and its
+                    # APPLICABLE HERE note. Both are owned by required validators-core, so the check and its
                     # construction-scoped.json survive the add-on-declined projection too.
                     found = hcb._cover_script_instance(rule, LIVE_FIXTURES, ROOT, "hard")
                     if repo_identity.is_home_repo(ROOT):

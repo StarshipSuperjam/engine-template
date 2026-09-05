@@ -2145,6 +2145,9 @@
   ".engine/tools/selftest_select.py": [
    "core"
   ],
+  ".engine/tools/selftest_support.py": [
+   "core"
+  ],
   ".engine/tools/session_economy.py": [
    "core"
   ],

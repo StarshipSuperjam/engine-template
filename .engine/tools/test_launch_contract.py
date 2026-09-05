@@ -427,14 +427,12 @@ class TestModuleIntegrityTests(unittest.TestCase):
     #: Only that bare module-level statement, placed AHEAD of the sibling imports, counts: a call inside a
     #: function, below the imports, or wrapped in a conditional is deliberately not recognised.
     KNOWN_PATH_BLIND: frozenset = frozenset({
-        "test_boot.py",
         "test_boot_alarm_ledger.py",
         "test_build_coordinator_contract.py",
         "test_build_state_store.py",
         "test_checkout_auto_update.py",
         "test_checkout_health.py",
         "test_ci_assurance.py",
-        "test_derived_state.py",
         "test_first_run_health.py",
         "test_integration_queue_backend.py",
         "test_issue_gate.py",
@@ -651,6 +649,133 @@ class TestCaptureHermeticity(unittest.TestCase):
                 "    capture.restore_health_paths(saved)\n",
                 encoding="utf-8")
             self.assertEqual(self._offenders([good]), [])
+
+
+class TestGuardHelpersSingleHome(unittest.TestCase):
+    """Repo-wide invariant: the self-test suite's guard helpers — the construction predicate, the installed-
+    modules helper and the needs-modules skip wrapper — have ONE home, `selftest_support.py`, and no test
+    module carries its own copy (StarshipSuperjam/engine-template#940). Before the consolidation the copies
+    had drifted under NEW names (`_needs_product_design`, `_needs_design_review`) and one had the helper
+    inlined into a wrapper's body, so a guard keyed on the original names would have caught none of them.
+    This one is keyed on the two shapes that actually drifted — a helper function (not a test case, which
+    may legitimately read a manifest's content and skip when it is absent) that both calls `skipTest` and
+    reaches `discover_manifests`, and a module-level binding that combines a home-repo probe with the
+    nested-run marker — plus the old and new names as a belt. It is a tripwire for those shapes, not a
+    proof of uniqueness: a copy written in a third shape would pass it. The guard only PARSES modules; it
+    never runs them. `selftest_support.py` sits outside the `test_*.py` pattern on purpose, so it is not
+    in the population this guard scans (and must not be renamed into it: see its docstring)."""
+
+    #: Names the consolidation removed, and the single home's public spellings — no test module may DEFINE
+    #: its own under either spelling (an assignment or a def at module level; importing them is the point).
+    BANNED_NAMES = frozenset({
+        "_CONSTRUCTION", "CONSTRUCTION",
+        "_installed_module_ids", "installed_module_ids",
+        "_needs_modules", "needs_modules",
+        "_needs_product_design", "_needs_design_review",
+    })
+    #: The probes a re-copied construction predicate combines with the nested-run marker.
+    HOME_PROBES = frozenset({"is_home_repo", "_in_home_repo"})
+    NESTED_MARKERS = frozenset({"ENGINE_NESTED_SELFTEST", "NESTED_ENV", "_NESTED_ENV"})
+
+    @staticmethod
+    def _called_names(node: ast.AST) -> set:
+        names = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                fn = sub.func
+                names.add(fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None))
+        return names
+
+    @classmethod
+    def _mentions_marker(cls, node: ast.AST) -> bool:
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and sub.value in cls.NESTED_MARKERS:
+                return True
+            if isinstance(sub, ast.Attribute) and sub.attr in cls.NESTED_MARKERS:
+                return True
+            if isinstance(sub, ast.Name) and sub.id in cls.NESTED_MARKERS:
+                return True
+        return False
+
+    @classmethod
+    def _copies_in(cls, tree: ast.AST) -> list:
+        """Every guard-helper copy in one parsed module, as plain-language reasons."""
+        found = []
+        for node in tree.body:  # module level only for the name and predicate shapes
+            targets = []
+            if isinstance(node, ast.Assign):
+                targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                targets = [node.target.id]
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                targets = [node.name]
+            for name in targets:
+                if name in cls.BANNED_NAMES:
+                    found.append(f"binds `{name}` at module level")
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+                if cls._called_names(node.value) & cls.HOME_PROBES and cls._mentions_marker(node.value):
+                    found.append("binds a home-repo-and-not-nested predicate at module level")
+        for node in ast.walk(tree):  # the inlined-wrapper shape, at any depth: a HELPER, not a test case
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("test_"):
+                called = cls._called_names(node)
+                if "skipTest" in called and "discover_manifests" in called:
+                    found.append(f"`{node.name}` both calls skipTest and reaches discover_manifests")
+        return found
+
+    @classmethod
+    def _offenders(cls, paths) -> list:
+        out = []
+        for path in paths:
+            tree = ast.parse(Path(path).read_text(encoding="utf-8"), filename=str(path))
+            for reason in cls._copies_in(tree):
+                out.append(f"{Path(path).name}: {reason}")
+        return out
+
+    def test_no_test_module_carries_its_own_guard_helper(self):
+        paths = sorted((ROOT / ".engine/tools").rglob("test_*.py"))
+        self.assertEqual(self._offenders(paths), [],
+                         "these test modules carry their own copy of a guard helper; import it from "
+                         "selftest_support.py (CONSTRUCTION, installed_module_ids, needs_modules) instead")
+
+    def test_the_guard_names_each_shape_that_drifted(self):
+        """The tripwire's own proof: each shape the consolidation removed is caught and named, and a module
+        that uses the single home is not."""
+        shapes = {
+            "old_name": "_CONSTRUCTION = True\n",
+            "new_name": "def _needs_design_review(case):\n    return None\n",
+            "public_name": "installed_module_ids = None\n",
+            "predicate": ("import os, repo_identity, validate\n"
+                          "_GATE = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get('ENGINE_NESTED_SELFTEST')\n"),
+            "predicate_variant": "import os, release_gate as rg\n_GATE = rg._ccc._in_home_repo() and not os.environ.get(rg._NESTED_ENV)\n",
+            "inlined_wrapper": ("import module_coherence\n"
+                                "def _needs_thing(case):\n"
+                                "    ids = {m.get('id') for _p, m in module_coherence.discover_manifests()}\n"
+                                "    if 'thing' not in ids:\n"
+                                "        case.skipTest('thing is absent')\n"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            for label, body in shapes.items():
+                path = Path(tmp) / f"test_{label}.py"
+                path.write_text(body, encoding="utf-8")
+                self.assertEqual(len(self._offenders([path])), 1, f"{label} was not caught exactly once")
+            good = Path(tmp) / "test_good.py"
+            good.write_text("import selftest_support\n"
+                            "@unittest.skipUnless(selftest_support.CONSTRUCTION, 'home only')\n"
+                            "class T(unittest.TestCase):\n"
+                            "    def test_x(self):\n"
+                            "        selftest_support.needs_modules(self, 'qa-review')\n", encoding="utf-8")
+            self.assertEqual(self._offenders([good]), [])
+
+    def test_the_nested_run_marker_has_one_value_across_its_homes(self):
+        """The marker's name is held by value in three places on purpose (the launcher, the release gate,
+        and the support module: a test module's import graph stays light, so the support module does not
+        import the launcher just to read one string). This case is the one deliberate exception — it imports
+        both to compare their values — and is what keeps the three from drifting apart."""
+        import release_gate
+        import selftest
+        import selftest_support
+        self.assertEqual(selftest_support.NESTED_ENV, selftest._NESTED_ENV)
+        self.assertEqual(selftest_support.NESTED_ENV, release_gate._NESTED_ENV)
 
 
 if __name__ == "__main__":
