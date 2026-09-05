@@ -259,10 +259,8 @@ def _arc_one(copy, head, env, pr_state, holder):
     # what the reviewer actually read, which is why `review record` re-renders and compares.
     digest = next((line.split(":", 1)[1].strip() for line in packet.stdout.splitlines()
                    if line.startswith("Packet digest:")), "")
-    # `--delivered-effort` is required now: a review record has to say what its panel actually ran at,
-    # checked against the depth the operator approved. The demo stands in for a reviewer that met it.
     recorded = _plan_cmd(copy, env, "review", "record", gate_id, "--packet-digest", digest,
-                         "--lens", "architecture", "--delivered-effort", "high")
+                         "--lens", "architecture")
     ok &= _pass("one reviewer's review is recorded", recorded.returncode == 0,
                 "architecture read that plan; the others its level calls for did not")
     short = _plan_cmd(copy, env, "seal", gate_id, "--delta-judgment", "none",

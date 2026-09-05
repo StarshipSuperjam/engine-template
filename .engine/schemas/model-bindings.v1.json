@@ -33,20 +33,11 @@
         "builder": { "$ref": "#/$defs/implementation_binding" },
         "bounded": { "$ref": "#/$defs/implementation_binding" }
       }
-    },
-    "review_depths": {
-      "description": "The per-depth reviewer EFFORT the operator's review-depth choice scales — the single depth dial (StarshipSuperjam/engine-template#677). Each present depth carries ONE effort applied uniformly to the reviewers that depth runs; there is deliberately NO model dimension here, because depth scales effort (thoroughness/token spend) while MODEL stays matched per-lens to each lens's nature via `tiers`+`overrides`, stable across depths — stepping both at once would double-cut the middle tier toward Quick. `quick` carries no entry (it runs no cold reviewers). `thorough` is the anchor (high, so it is a zero-regression identity with today's stamped effort); `standard` steps effort down. On Claude the depth effort is realized by the session --effort governing the un-pinned reviewer roles; on Codex by spawning each cold reviewer as a non-full-history fork (fork_turns=\"none\") with reasoning_effort set from the depth (the un-pinned twin bakes no model_reasoning_effort). Optional: absent, the depth passes no effort, so reviewers run at their un-pinned default (Claude Code's session default; the Codex fork carries none). Operators retune these values through the preserved operator-review-effort override, which survives an engine update.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "standard": { "$ref": "#/$defs/depth_effort" },
-        "thorough": { "$ref": "#/$defs/depth_effort" }
-      }
     }
   },
   "$defs": {
     "override_binding": {
-      "description": "One persona's override. The MODEL is required; the effort is OPTIONAL, and the three reviewer overrides deliberately omit it. A reviewer persona carries no effort frontmatter by design \u2014 the operator's review-depth choice scales reviewer effort at launch \u2014 so an effort named here had nothing to ride on, and the bindings file was asserting something the Claude arm could not deliver (StarshipSuperjam/engine-template#1067). Where an effort IS genuinely stamped, an override that omits one falls back to the persona's tier effort rather than un-pinning it.",
+      "description": "One persona's override. The MODEL is required; the effort is OPTIONAL, and the three reviewer overrides deliberately omit it: a reviewer persona carries no effort frontmatter because effort is not part of the review contract, so an effort here would have nothing to ride on. An override without an effort keeps its tier's effort (workers).",
       "type": "object",
       "additionalProperties": false,
       "required": ["model"],
@@ -95,18 +86,6 @@
         },
         "effort": {
           "description": "The reasoning-effort level for this worker class.",
-          "enum": ["low", "medium", "high"]
-        }
-      }
-    },
-    "depth_effort": {
-      "description": "One review depth's reasoning effort — the single value the depth applies to the reviewers it runs. No model dimension (model stays the per-lens tiers+overrides at every depth). The enum is the review effort range; xhigh/max are deliberately not offered here — the three depths need no more, and holding to low/medium/high keeps the value valid as a Codex model_reasoning_effort too.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["effort"],
-      "properties": {
-        "effort": {
-          "description": "The reasoning-effort level this depth runs its reviewers at.",
           "enum": ["low", "medium", "high"]
         }
       }

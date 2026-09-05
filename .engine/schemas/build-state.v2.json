@@ -87,8 +87,6 @@
           "packet_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
           "referent_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
           "reviewer_contracts": {"type": "array", "items": {"$ref": "#/$defs/reviewer_contract"}},
-          "session_effort": {"description": "The reasoning effort the SPAWNING SESSION reported running at when this panel was cut. Self-reported, and on the Claude arm it is the ceiling every un-pinned reviewer in the fan-out inherits (StarshipSuperjam/engine-template#1067).", "oneOf": [{"enum": ["low", "medium", "high"]}, {"type": "null"}]},
-          "effort_shortfall_accepted": {"description": "The session spawned this panel knowing it ran below the approved depth's effort. Kept so the hard PR-body disclosure cannot be forgotten.", "type": "boolean"},
           "receipts": {"type": "array", "items": {"$ref": "#/$defs/review_receipt"}},
           "anchor": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
           "counted": {"type": "boolean"},
@@ -236,9 +234,7 @@
         "reviewer_contracts": {"type": "array", "items": {"$ref": "#/$defs/reviewer_contract"}},
         "receipts": {"type": "array", "items": {"$ref": "#/$defs/review_receipt"}},
         "reviewed_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
-        "base_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
-        "session_effort": {"description": "The reasoning effort the SPAWNING SESSION reported running at when this panel was cut. Self-reported, and on the Claude arm it is the ceiling every un-pinned reviewer in the fan-out inherits (StarshipSuperjam/engine-template#1067).", "oneOf": [{"enum": ["low", "medium", "high"]}, {"type": "null"}]},
-        "effort_shortfall_accepted": {"description": "The session spawned this panel knowing it ran below the approved depth's effort. Kept so the hard PR-body disclosure cannot be forgotten.", "type": "boolean"}
+        "base_commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]}
       },
       "description": "No `waiver` field: the only waivable review was the retrospective plan review, and its precondition — a Build that started before its plan was reviewed — is unreachable now that only a sealed plan can bind. Deliverable review was never waivable."
     },
@@ -251,9 +247,7 @@
         "commit": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]},
         "finding_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
         "code_execution": {"description": "What this reviewer did with the change's code. Three real behaviours, three values: it ran nothing, it ran the code in a throwaway copy, or it ran the code in place in the operator's own checkout. Rounding the third to one of the other two made a materially different claim about what touched their project (B2 finding CO-1).", "enum": ["none", "discarded-copy", "in-place"]},
-        "reviewed_range": {"description": "The commit range this lens actually READ. What makes a receipt carryable across a re-bind: if the range already contains every authored commit a new binding asks about, the lens owes no further read and the receipt stands unchanged (StarshipSuperjam/engine-template#1065). Absent on a receipt written before ranges existed, which covers nothing rather than everything.", "type": "object", "additionalProperties": false, "required": ["base", "tip"], "properties": {"base": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]}, "tip": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]}}},
-        "delivered_effort": {"description": "The reasoning effort this reviewer reports having run at, compared against the approved depth's promise. Self-reported by the session and the reviewer; nothing here verifies it, and every disclosure of it says so.", "oneOf": [{"enum": ["low", "medium", "high"]}, {"type": "null"}]},
-        "spawn_session_effort": {"description": "The effort the session that spawned THIS receipt's panel reported, stamped at record time. A repair receipt is spliced into the deliverable stage, so the stage a receipt sits in no longer says which panel it came from — and inferring it from the repair stage's own receipt list goes stale, which can publish a reviewer as claiming more than its session in a disclosure the operator is meant to trust. Absent on receipts written before this field existed; the disclosure falls back to the stage's session and says nothing it cannot support.", "oneOf": [{"enum": ["low", "medium", "high"]}, {"type": "null"}]}
+        "reviewed_range": {"description": "The commit range this lens actually READ. What makes a receipt carryable across a re-bind: if the range already contains every authored commit a new binding asks about, the lens owes no further read and the receipt stands unchanged (StarshipSuperjam/engine-template#1065). Absent on a receipt written before ranges existed, which covers nothing rather than everything.", "type": "object", "additionalProperties": false, "required": ["base", "tip"], "properties": {"base": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]}, "tip": {"oneOf": [{"$ref": "#/$defs/commit"}, {"type": "null"}]}}}
       }
     },
     "finding": {

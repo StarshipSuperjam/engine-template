@@ -51,6 +51,24 @@ PlanStoreError = core.CoordinatorError
 ROOT = Path(__file__).resolve().parents[2]
 RECORD_SCHEMA = ROOT / ".engine" / "schemas" / "plan-record.v1.json"
 
+# Fields a record on disk may carry that plan-record.v1 no longer declares. The record schema forbids
+# unknown properties and every read and write validates, so a retired field has to be dropped at the
+# raw read — the one door every reader and every mutator comes through — or the record becomes
+# unreadable the moment the removal lands. `delivered_efforts` and `effort_shortfall_accepted` left
+# `plan_review` when review depth became the lens roster alone.
+_RETIRED_REVIEW_FIELDS = ("delivered_efforts", "effort_shortfall_accepted")
+
+
+def forward_migrate_record(record: dict) -> dict:
+    """Drop retired `plan_review` fields from a record read off disk; returns the record itself when
+    there is nothing to drop, and a copy (the file is never edited underneath its caller) when there is."""
+    review = record.get("plan_review") if isinstance(record, dict) else None
+    if not isinstance(review, dict) or not any(k in review for k in _RETIRED_REVIEW_FIELDS):
+        return record
+    out = dict(record)
+    out["plan_review"] = {k: v for k, v in review.items() if k not in _RETIRED_REVIEW_FIELDS}
+    return out
+
 ENV_DIR = "ENGINE_PLAN_DIR"
 LIBRARY_SUBDIR = os.path.join(".engine", "plans")
 RECORD_FILENAME = "record.json"
@@ -324,7 +342,7 @@ class PlanLibrary:
         path = self._record_path(slug)
         if not path.is_file():
             raise PlanStoreError(f"no plan record at {path}; the folder is not a usable plan")
-        return core.json_file(path)
+        return forward_migrate_record(core.json_file(path))
 
     def read_record(self, slug: str) -> dict:
         record = self._read_record_unchecked(slug)

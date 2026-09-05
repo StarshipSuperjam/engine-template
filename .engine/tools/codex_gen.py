@@ -22,8 +22,9 @@ Render rules (the whole mapping, so review needs no second source):
       runtime override can be reapplied by Codex (the declared provider exception).
     - `model` is NEVER emitted because a pinned model id in a reviewer persona file rots;
       `model_reasoning_effort` maps the demand tier (judgment -> high, mechanical -> low), EXCEPT for the
-      un-pinned reviewer roles (plan-review, pre-submission-review), whose effort is depth-scaled at spawn,
-      so their twins omit it entirely (see the reviewer branch in render_agent).
+      reviewer roles (plan-review, pre-submission-review), whose twins omit it entirely: a reviewer's
+      effort is not part of the review contract, so the twin runs at the provider's configured default
+      (see the reviewer branch in render_agent).
   SKILLS (.claude/skills/engine-*/ -> .agents/skills/engine-*/):
     - frontmatter narrows to the two keys Codex reads (name = the directory slug, description);
       the Claude governance flags stay home. The companion `agents/openai.yaml` carries the one
@@ -172,11 +173,10 @@ def render_agent(src_path: str, root: str | None = None) -> str:
             f'model_reasoning_effort = "{binding["effort"]}"',
         ]
     else:
-        # A reviewer render emits NO model — a pinned model id rots. Its EFFORT is depth-scaled at launch
-        # (StarshipSuperjam/engine-template#677): the cold reviewer is spawned as a non-full-history fork
-        # (fork_turns="none") carrying reasoning_effort resolved from the review depth, so the twin omits
-        # model_reasoning_effort rather than baking a value the spawn would have to override. Non-reviewer
-        # personas (the audit persona) keep their stamped effort, or the tier fallback if not yet stamped.
+        # A reviewer render emits NO model — a pinned model id rots — and NO effort: a reviewer's effort is
+        # not part of the review contract, so the twin omits model_reasoning_effort and runs at the
+        # provider's configured default. Non-reviewer personas (the audit persona) keep their stamped
+        # effort, or the tier fallback if not yet stamped.
         lines.append('sandbox_mode = "read-only"')
         if fm.get("role") not in agent_bindings.EFFORT_UNPINNED_ROLES:
             effort = fm.get("effort") or _EFFORT_BY_TIER.get(fm.get("model-tier"), "high")

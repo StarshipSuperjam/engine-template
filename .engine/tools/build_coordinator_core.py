@@ -459,6 +459,10 @@ def run_validation(command: list[str], log_path: Path, *, root: Path) -> int:
         return process.wait()
 
 
+_RETIRED_STAGE_FIELDS = ("session_effort", "effort_shortfall_accepted")
+_RETIRED_RECEIPT_FIELDS = ("delivered_effort", "spawn_session_effort")
+
+
 def forward_migrate(state: dict) -> dict:
     """Drop fields a shipped snapshot may carry that the current schema no longer declares.
 
@@ -474,12 +478,46 @@ def forward_migrate(state: dict) -> dict:
     `counted`. Dropping it here rather than tolerating it in the schema is what keeps the ledger from
     carrying two answers to one question. A legacy round loses no protection by it -- `_round_counted`
     reads an absent `counted` as counted, which is the fail-toward-spent direction.
+
+    The review-effort fields (`session_effort` and `effort_shortfall_accepted` on the deliverable stage
+    and the repair stage; `delivered_effort` and `spawn_session_effort` on every receipt) left the
+    schema when review depth became the lens roster alone. A snapshot written while they existed is
+    read here and loses them; nothing downstream reads them, so a Build in flight across that change
+    continues unchanged.
     """
     rounds = state.get("repair_rounds")
     if isinstance(rounds, list) and any(isinstance(r, dict) and "spent" in r for r in rounds):
         state = dict(state)
         state["repair_rounds"] = [{k: v for k, v in r.items() if k != "spent"}
                                   if isinstance(r, dict) else r for r in rounds]
+    stages = []
+    reviews = state.get("reviews")
+    if isinstance(reviews, dict) and isinstance(reviews.get("deliverable"), dict):
+        stages.append(("reviews", "deliverable"))
+    if isinstance(state.get("repair"), dict):
+        stages.append(("repair", None))
+
+    def _stale(stage: dict) -> bool:
+        return (any(k in stage for k in _RETIRED_STAGE_FIELDS)
+                or any(isinstance(r, dict) and any(k in r for k in _RETIRED_RECEIPT_FIELDS)
+                       for r in stage.get("receipts", []) if isinstance(stage.get("receipts"), list)))
+
+    def _clean(stage: dict) -> dict:
+        out = {k: v for k, v in stage.items() if k not in _RETIRED_STAGE_FIELDS}
+        if isinstance(out.get("receipts"), list):
+            out["receipts"] = [{k: v for k, v in r.items() if k not in _RETIRED_RECEIPT_FIELDS}
+                               if isinstance(r, dict) else r for r in out["receipts"]]
+        return out
+
+    for top, sub in stages:
+        stage = state[top][sub] if sub else state[top]
+        if _stale(stage):
+            state = dict(state)
+            if sub:
+                state[top] = dict(state[top])
+                state[top][sub] = _clean(stage)
+            else:
+                state[top] = _clean(stage)
     return state
 
 
