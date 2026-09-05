@@ -14968,7 +14968,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:bcb0f3c185da12f6fb527b55a9563f760c32901f264a896ffb6a1d42b3dc06b8",
+        "fingerprint": "sha256:94fe8b8efe2aac1973bdf2604a3f7463bf5122c274b967c365a56e9fd6f2f311",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
