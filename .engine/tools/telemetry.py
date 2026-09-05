@@ -21,7 +21,9 @@ Seams (telemetry OWNS its acting-mechanism; producers only emit):
     as "no open issues"; the caller then falls back to State's committed offline count.
   - State's debt count/pointer is a derived convenience telemetry refreshes (never authoritative). This tool COMPUTES it and, on explicit request, writes a schema-valid cursor —
     it never auto-commits (the committed cursor advances on committed acts).
-  - Telemetry is itself a local gate, so its own crash emits a finding and exits 0 (fail-open).
+  - Telemetry is itself a local gate, so its collection and reconciliation commands (run, run-ambient, drain-inbox,
+    refresh) emit a finding and exit 0 on their own crash (fail-open); its verdict commands (demo, engine-issues,
+    never-fired) report theirs and exit 1, so a diagnostic defect is never swallowed as success.
 
 The engine-domain label string (`engine`) is the build-spec leaf decided with the maintainer. It is homed here as the FIRST producer to
 apply it; provisioning later owns the general ensure-both-labels step and inherits this
@@ -37,7 +39,9 @@ import math
 import os
 import re
 import sys
+import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.parse
 
@@ -1690,14 +1694,19 @@ def _rec(sid, severity, message):
 
 
 def _demo(_argv) -> int:
+    """The operator-runnable walkthrough. Every scratch file it writes — its counter caches, its ambient
+    feeds, its inbox spool — lives in ONE per-run temporary directory that is removed on the way out (even
+    when a section fails), so a hand-run demo never touches the live telemetry state under
+    .engine/telemetry/.cache/ and never leaves a stranded aside for the SessionStart sweep to find."""
+    with tempfile.TemporaryDirectory(prefix="telemetry-demo-") as scratch:
+        return _demo_walkthrough(scratch)
+
+
+def _demo_walkthrough(scratch: str) -> int:
     th = {"persistence": 3, "auto_resolve": 2, "triage_pressure": 10}
     fake = _FakeGitHub()
     gh = GitHubIssues("you/your-project", "demo-token", transport=fake.transport)
-    cache = Cache(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo.json"))
-    try:
-        os.remove(cache.path)
-    except OSError:
-        pass
+    cache = Cache(os.path.join(scratch, "_demo.json"))
     clock = ["2026-06-05T0%d:00:00Z" % n for n in range(1, 9)]
 
     print("TELEMETRY DEMO — real triage logic, fake in-memory GitHub (no real issues, no token).\n")
@@ -1759,11 +1768,7 @@ def _demo(_argv) -> int:
     ci_fake = _FakeGitHub(check_runs=[{"name": "engine-ci", "conclusion": "failure"},
                                       {"name": "actionlint", "conclusion": "success"}])
     ci_gh = GitHubIssues("you/your-project", "demo-token", transport=ci_fake.transport)
-    ci_cache = Cache(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ci.json"))
-    try:
-        os.remove(ci_cache.path)
-    except OSError:
-        pass
+    ci_cache = Cache(os.path.join(scratch, "_demo_ci.json"))
     cclock = ["2026-06-06T0%d:00:00Z" % n for n in range(1, 9)]
     # An UNRELATED, out-of-band item (a "gate could not run" alarm) is opened directly, the way a hook does.
     oob = _rec("hooks/fail-open/PreToolUse/modes", TRUST_CRITICAL, "A safety gate could not run this session.")
@@ -1804,23 +1809,14 @@ def _demo(_argv) -> int:
     print(f"    before: {before} open (#433, #434) -> after: {after_open} open  "
           f"(survivor #{survivor}, earliest first-noticed preserved: {kept_earliest})")
     dup_ok = before == 2 and after_open == [433] and survivor == 433 and kept_earliest
-    for path in (cache.path, ci_cache.path):
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-    print("\n(9) The SECOND signal source — best-effort AMBIENT capture of local check-fires. A local check")
+
+    print("\n(10) The SECOND signal source — best-effort AMBIENT capture of local check-fires. A local check")
     print("    that keeps failing across sessions is tracked after it persists; once it is seen passing again")
     print("    — or its file is gone — its item clears; and it NEVER touches an unrelated item:")
     amb_fake = _FakeGitHub()
     amb_gh = GitHubIssues("you/your-project", "demo-token", transport=amb_fake.transport)
-    amb_cache = Cache(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient_streams.json"))
-    amb_ndjson = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient.ndjson")
-    for p in (amb_cache.path, amb_ndjson):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
+    amb_cache = Cache(os.path.join(scratch, "_demo_ambient_streams.json"))
+    amb_ndjson = os.path.join(scratch, "_demo_ambient.ndjson")
     aclock = ["2026-06-07T0%d:00:00Z" % n for n in range(1, 9)]
     amb_oob = _rec("hooks/fail-open/Stop/close", TRUST_CRITICAL, "A safety gate could not run this session.")
     promote_finding(amb_gh, amb_oob, aclock[0])                       # an unrelated out-of-band item, opened directly
@@ -1838,13 +1834,8 @@ def _demo(_argv) -> int:
     # FRESH fails, not a stale replay of one observation (the freshness watermark makes this real):
     tr_fake = _FakeGitHub()
     tr_gh = GitHubIssues("you/your-project", "demo-token", transport=tr_fake.transport)
-    tr_cache = Cache(os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient_tr.json"))
-    tr_ndjson = os.path.join(validate.ROOT, ".engine", "telemetry", ".cache", "_demo_ambient_tr.ndjson")
-    for p in (tr_cache.path, tr_ndjson):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
+    tr_cache = Cache(os.path.join(scratch, "_demo_ambient_tr.json"))
+    tr_ndjson = os.path.join(scratch, "_demo_ambient_tr.ndjson")
     append_ambient([ambient_record("engine/check/one-off", False, "x.md", aclock[0])], tr_ndjson)  # fires ONCE
     tr_wm, tr_open = "", []
     for k in range(3):                                              # three passes, NO new fire appended
@@ -1853,11 +1844,6 @@ def _demo(_argv) -> int:
         tr_open.append(any(i["state"] == "open" for i in tr_fake.issues.values()))
     transient_ok = tr_open == [False, False, False]
     print(f"    a ONE-TIME fail never re-run -> NEVER promoted: {transient_ok}  (open across 3 passes: {tr_open})")
-    for p in (tr_cache.path, tr_ndjson):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
     append_ambient([ambient_record("engine/check/policy-shape", True, "README.md", aclock[3])], amb_ndjson)
     for k in range(3, 6):                                           # now it is seen PASSING -> clears
         recs, auth, wm = derive_ambient_records(amb_ndjson, wm, exists=lambda p: True)
@@ -1870,13 +1856,8 @@ def _demo(_argv) -> int:
                and not any(r["source_id"] == "ambient/engine/check/gone-rule" for r in gone_recs))
     print(f"    a failing check whose file was deleted is treated as gone, not stuck open: {gone_ok}")
     amb_ok = (seen_open == [False, False, True] and transient_ok and cleared and amb_oob_open() and gone_ok)
-    for p in (amb_cache.path, amb_ndjson):
-        try:
-            os.remove(p)
-        except OSError:
-            pass
 
-    print("\n(10) The THIRD input the self-review consumes — the engine's own file-scoped checks that select")
+    print("\n(11) The THIRD input the self-review consumes — the engine's own file-scoped checks that select")
     print("    NO files right now. Each is surfaced for the self-review to judge (raise-it-upstream if")
     print("    it is dead template weight, or leave it) — NEVER a local retirement; a check that DOES match")
     print("    files, and a non-file-scoped check, are excluded. Driven over a fixture (the real checks all")
@@ -1897,21 +1878,58 @@ def _demo(_argv) -> int:
           f"{nf_scoped_ok}")
     print(f"    the feed frames it escalate-or-ignore (a question, not a retire verdict): {nf_framing_ok}")
 
+    print("\n(12) The findings INBOX — the drain core the SessionStart pass runs. A producer re-emits ONE benign")
+    print("    finding afresh each session and is done: each emit is spooled (capture, not tracking), each drain")
+    print("    consumes the spool, and the finding is promoted only once it has persisted across drains — a")
+    print("    drain NEVER touches an unrelated item. Walked on the demo's own temporary spool and counter,")
+    print("    never the live inbox:")
+    inbox_fake = _FakeGitHub()
+    inbox_gh = GitHubIssues("you/your-project", "demo-token", transport=inbox_fake.transport)
+    inbox_spool = os.path.join(scratch, "inbox", "findings-inbox.ndjson")
+    inbox_cache = Cache(os.path.join(scratch, "inbox", "inbox-streams.json"))
+    paths_ok = (inbox_spool != INBOX_SPOOL_PATH and inbox_cache.path != DEFAULT_INBOX_STREAMS_PATH
+                and not os.path.dirname(inbox_spool).startswith(os.path.dirname(INBOX_SPOOL_PATH)))
+    iclock = ["2026-06-08T0%d:00:00Z" % n for n in range(1, 9)]
+    inbox_oob = _rec("hooks/fail-open/Stop/close", TRUST_CRITICAL, "A safety gate could not run this session.")
+    promote_finding(inbox_gh, inbox_oob, iclock[0])                    # an unrelated out-of-band item, opened directly
+    inbox_oob_open = lambda: any(i["state"] == "open" and "fail-open" in i["body"] for i in inbox_fake.issues.values())
+    spooled = _rec("demo/inbox/degraded-start", PERSISTENT_BENIGN,
+                   "The engine started in a degraded state (a demo fixture, not a real finding).")
+    inbox_count = lambda: sum(1 for i in inbox_fake.issues.values()
+                              if i["state"] == "open" and "demo/inbox/degraded-start" in i["body"])
+    inbox_seen = []
+    for k in range(3):                                                # a producer emits it FRESHLY before each drain
+        _append_inbox(spooled, path=inbox_spool)                      # the unguarded spool primitive (emit-and-done)
+        drain_inbox(inbox_gh, cache=inbox_cache, thresholds=th, now=iclock[k], spool_path=inbox_spool)
+        inbox_seen.append(inbox_count())
+    print(f"    re-emitted afresh, spooled and drained across 3 passes -> open Issues for it after each pass: "
+          f"{inbox_seen} (tracked once, only once it persists)   (unrelated item untouched: {inbox_oob_open()})")
+    print(f"    the demo's spool and counter are its own temporary files, never the live inbox: {paths_ok}")
+    inbox_ok = (inbox_seen == [0, 0, 1] and inbox_oob_open() and paths_ok)
+
     print("\nDone — no real issues were created; only the network was faked. The triage LOGIC above is "
           "real; that it writes correctly to your REAL GitHub is confirmed the first time it runs live.")
-    # Self-check: ONE issue opens only when the benign signal crosses the threshold (3rd fire), re-fires
-    # never duplicate it, a distinct trust-critical signal opens a 2nd, an unreachable GitHub degrades
-    # in-band (never a silent or wrong zero), the LIVE CI source is tracked on the first failing pass and
-    # clears on the first green pass EVEN WITH THE CACHE WIPED, the cache-accrued AMBIENT source promotes only
-    # after it persists and clears when seen passing or its file is gone, a create/create-race duplicate pair
-    # CONVERGES to one survivor, none of these ever closes the unrelated out-of-band item, and the
-    # never-firing signal surfaces only
-    # a zero-match file-scoped check, framed escalate-or-ignore.
-    ok = (open2 == 1 and open3 == 1 and open4 == 2 and bool(r6.degraded_line)
-          and ci_ok and amb_ok and dup_ok and nf_ok and inbox_ok)
-    if not ok:
-        print("\nDEMO UNEXPECTED: the triage open/dedup/critical-open counts or the offline degrade line "
-              "did not behave as expected.", file=sys.stderr)
+    # Self-check, one NAMED conjunct per section so a red says WHICH claim failed: ONE issue opens only when
+    # the benign signal crosses the threshold (3rd fire), re-fires never duplicate it, a distinct
+    # trust-critical signal opens a 2nd, an unreachable GitHub degrades in-band (never a silent or wrong
+    # zero), the LIVE CI source is tracked on the first failing pass and clears on the first green pass EVEN
+    # WITH THE CACHE WIPED, the cache-accrued AMBIENT source promotes only after it persists and clears when
+    # seen passing or its file is gone, a create/create-race duplicate pair CONVERGES to one survivor, the
+    # never-firing signal surfaces only a zero-match file-scoped check framed escalate-or-ignore, a spooled
+    # INBOX finding promotes only once it persists across drains on the demo's own temporary files — and
+    # none of these ever closes the unrelated out-of-band item. (Section (5), the auto-resolve close, prints
+    # its counts and is not a conjunct — a known gap, not an oversight.) The verdict is a REAL failure: main()
+    # dispatches `demo` outside the fail-open catch, so a false conjunct — or a crash on the way here —
+    # exits non-zero instead of being swallowed as success.
+    conjuncts = [  # (name, the section that printed its counts, held) — in on-screen order
+        ("open2", 2, open2 == 1), ("open3", 3, open3 == 1), ("open4", 4, open4 == 2),
+        ("degraded_line", 6, bool(r6.degraded_line)), ("ci_ok", 8, ci_ok), ("dup_ok", 9, dup_ok),
+        ("amb_ok", 10, amb_ok), ("nf_ok", 11, nf_ok), ("inbox_ok", 12, inbox_ok),
+    ]
+    failed = [f"{name} (section {section})" for name, section, held in conjuncts if not held]
+    if failed:
+        print("\nDEMO UNEXPECTED: these self-checks did not hold: " + ", ".join(failed)
+              + " — re-read the section named beside each; it prints the counts that went wrong.", file=sys.stderr)
         return 1
     return 0
 
@@ -2260,39 +2278,76 @@ def _serialize_session_passes():
         return None   # fail-open: a lockless pass beats a broken session start
 
 
+def _run_ambient_locked(argv: list) -> int:
+    _lock = _serialize_session_passes()   # noqa: F841 — held until the pass returns
+    return _run_ambient_cli(argv)
+
+
+def _run_drain_locked(argv: list) -> int:
+    _lock = _serialize_session_passes()   # noqa: F841 — held until the pass returns
+    return _run_drain_cli(argv)
+
+
+# ---- the CLI: ONE command table, TWO failure contracts (StarshipSuperjam/engine-template#769) ----
+# Every verb is dispatched from this table (verb -> the module-level handler's NAME, resolved at call time so
+# a test can replace the handler on the module) and belongs to exactly one contract:
+#   FAIL_OPEN_COMMANDS — the collection and reconciliation paths a session or a scheduled workflow drives
+#     (the SessionStart triages, the live CI-health triage, the where-we-stand refresh). Telemetry must never
+#     block a session, so an unexpected error there emits a soft finding and exits 0.
+#   VERDICT_COMMANDS — the commands whose OUTPUT IS THE RESULT: the hand-run demo's verdict, and the two feeds
+#     the scheduled self-review reads. There, exit 0 on an internal error is a false green (an empty backlog,
+#     every check firing, a walkthrough that "passed"), so an unexpected error is reported and exits 1 —
+#     the audit-prep workflow already writes an honest in-band marker when a feed step fails.
+# The two sets partition the table (test-pinned), so a new verb cannot be added without being classified.
+COMMANDS = {
+    "run": "_run_cli",
+    "run-ambient": "_run_ambient_locked",
+    "drain-inbox": "_run_drain_locked",
+    "refresh": "_refresh_cli",
+    "demo": "_demo",
+    "engine-issues": "_engine_issues_cli",
+    "never-fired": "_never_fired_cli",
+}
+FAIL_OPEN_COMMANDS = frozenset({"run", "run-ambient", "drain-inbox", "refresh"})
+VERDICT_COMMANDS = frozenset({"demo", "engine-issues", "never-fired"})
+
+_USAGE = ("usage: telemetry.py {run|run-ambient|drain-inbox|demo|refresh|engine-issues|"
+          "never-fired}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
+          "`run-ambient` and `drain-inbox` are the local SessionStart triages — over local "
+          "check-fires, over the memory tidy-up backlog, and over the findings inbox (promoting a broken "
+          "tool-runtime alert and any out-of-band findings); `engine-issues` and `never-fired` (the engine's "
+          "own checks that currently match no files) feed the scheduled self-review; demo shows the logic on "
+          "a fake GitHub. run/run-ambient/drain-inbox/refresh fail open — an internal error exits 0 with a soft "
+          "finding; demo/engine-issues/never-fired report an internal error and exit 1)")
+
+
 def main(argv: list) -> int:
-    """Fail-open: telemetry is self-surfacing and must never break a session. Any unexpected error
-    emits a plain finding and exits 0."""
-    try:
-        if argv and argv[0] == "run":
-            return _run_cli(argv[1:])
-        if argv and argv[0] == "run-ambient":
-            _lock = _serialize_session_passes()
-            return _run_ambient_cli(argv[1:])
-        if argv and argv[0] == "drain-inbox":
-            _lock = _serialize_session_passes()
-            return _run_drain_cli(argv[1:])
-        if argv and argv[0] == "demo":
-            return _demo(argv[1:])
-        if argv and argv[0] == "refresh":
-            return _refresh_cli(argv[1:])
-        if argv and argv[0] == "engine-issues":
-            return _engine_issues_cli(argv[1:])
-        if argv and argv[0] == "never-fired":
-            return _never_fired_cli(argv[1:])
-        print("usage: telemetry.py {run|run-ambient|drain-inbox|demo|refresh|engine-issues|"
-              "never-fired}   (`run` is the live CI-health triage the scheduled audit-prep workflow drives; "
-              "`run-ambient` and `drain-inbox` are the local SessionStart triages — over local "
-              "check-fires, over the memory tidy-up backlog, and over the findings inbox (promoting a broken "
-              "tool-runtime alert and any out-of-band findings); `engine-issues` and `never-fired` (the engine's "
-              "own checks that currently match no files) feed the scheduled self-review; demo shows the logic on "
-              "a fake GitHub)", file=sys.stderr)
+    """Dispatch one verb under its failure contract. The fail-open commands (FAIL_OPEN_COMMANDS) never break
+    a session: any unexpected error emits a plain finding and exits 0. The verdict commands
+    (VERDICT_COMMANDS) report an unexpected error — a plain FAILED line plus the traceback on stderr — and
+    exit 1, because their exit code is the answer. An unknown or missing verb prints usage and exits 2."""
+    verb = argv[0] if argv else ""
+    handler_name = COMMANDS.get(verb)
+    if handler_name is None:
+        print(_USAGE, file=sys.stderr)
         return 2
-    except Exception as exc:  # noqa: BLE001 — fail-open is the whole point
-        print(json.dumps(validate.finding(
-            "soft", f"The engine's self-monitoring hit an unexpected error and stopped without acting "
-            f"({exc}); this was recorded and the session continues normally.")), file=sys.stderr)
-        return 0
+    handler = globals()[handler_name]
+    if verb in FAIL_OPEN_COMMANDS:
+        try:
+            return handler(argv[1:])
+        except Exception as exc:  # noqa: BLE001 — fail-open is the whole point for these paths
+            print(json.dumps(validate.finding(
+                "soft", f"The engine's self-monitoring hit an unexpected error and stopped without acting "
+                f"({exc}); this was recorded and the session continues normally.")), file=sys.stderr)
+            return 0
+    try:
+        return handler(argv[1:])
+    except Exception as exc:  # noqa: BLE001 — a verdict command's crash IS its verdict: report it, exit 1
+        print(f"TELEMETRY {verb} FAILED: this diagnostic hit an internal error and is reporting it rather than "
+              f"passing silently ({exc}). The traceback below is the local diagnostic; the exit code (1) is the "
+              f"verdict.", file=sys.stderr)
+        traceback.print_exc()
+        return 1
 
 
 from memory import mutation_authority as _mutation_authority  # noqa: E402
