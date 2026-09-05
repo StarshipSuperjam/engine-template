@@ -61,10 +61,12 @@ def findings(tier: str, root: str | None = None) -> list:
         return out
     runbook = os.path.join(root or validate.ROOT, bp.RUNBOOK_REL)
     if actual is None:
-        out.append(validate.finding(tier, f"{bp.RUNBOOK_REL} carries no generated review-consumers region (the two "
-                                    f"marker comments are missing or out of order); add the region once, then "
-                                    f"regenerate it with `uv run --directory .engine --frozen -- python "
-                                    f"tools/build_protocol.py render`.", validate.loc(runbook)))
+        out.append(validate.finding(tier, f"{bp.RUNBOOK_REL} carries no single generated review-consumers region: "
+                                    f"the two marker lines are missing, out of order, or present more than once "
+                                    f"(a second copy is refused, because it would be a place to hide prose behind "
+                                    f"a name this check guards). Leave exactly one pair, then regenerate it with "
+                                    f"`uv run --directory .engine --frozen -- python tools/build_protocol.py "
+                                    f"render`.", validate.loc(runbook)))
     elif actual != expected:
         out.append(validate.finding(tier, f"the generated review-consumers region in {bp.RUNBOOK_REL} has drifted "
                                     f"from {bp.PROTOCOL_REL}: regenerate it with `uv run --directory .engine "

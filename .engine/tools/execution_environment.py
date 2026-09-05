@@ -313,14 +313,18 @@ def render_postures(routing: dict) -> str:
 
 
 def _split_policy(text: str) -> tuple:
-    """(before, region, after); region is None when the markers are absent, malformed, or duplicated (a second
-    pair would be a place to hide prose behind a name this check guards)."""
-    b = text.find(POSTURE_REGION_BEGIN)
-    e = text.find(POSTURE_REGION_END)
-    if b < 0 or e < 0 or e < b or text.count(POSTURE_REGION_BEGIN) > 1 or text.count(POSTURE_REGION_END) > 1:
+    """(before, region, after); region is None when the markers are absent, malformed, or present on more than
+    one line (a second pair would be a place to hide prose behind a name this check guards). A marker is a LINE
+    whose whole text is the marker, wherever it sits, so a mention sharing a line with other text is not one."""
+    lines = text.splitlines(keepends=True)
+    begins = [i for i, line in enumerate(lines) if line.strip() == POSTURE_REGION_BEGIN]
+    ends = [i for i, line in enumerate(lines) if line.strip() == POSTURE_REGION_END]
+    if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
         return text, None, ""
-    end = e + len(POSTURE_REGION_END)
-    return text[:b], text[b:end], text[end:]
+    b, e = begins[0], ends[0]
+    whole = "".join(lines[b:e + 1])
+    body = whole.rstrip("\r\n")
+    return "".join(lines[:b]), body, whole[len(body):] + "".join(lines[e + 1:])
 
 
 def posture_projection_status(root: str | None = None, routing_path: str | None = None) -> tuple:
@@ -343,7 +347,8 @@ def apply_posture_projection(root: str | None = None) -> bool:
         text = fh.read()
     before, region, after = _split_policy(text)
     if region is None:
-        raise RoutingUnreadable(f"{_POLICY_REL} carries no generated posture region to render into")
+        raise RoutingUnreadable(f"{_POLICY_REL} carries no single generated posture region to render into (the two "
+                                f"marker lines are missing, out of order, or present more than once)")
     new = before + render_postures(load_routing_strict(root)) + after
     if new == text:
         return False

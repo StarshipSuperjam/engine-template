@@ -716,8 +716,9 @@ GENERATED_REGION_OWNERS = {
 def _prose_scan(text: str, rel: str | None = None) -> tuple:
     """(prose line count, anomalies) for a prose body. Frontmatter is excluded. A fenced block (``` or ~~~)
     is excluded when it closes; an unclosed fence counts as prose and is an anomaly. A generated region is
-    excluded when it is registered for `rel` in GENERATED_REGION_OWNERS and closes; an unregistered or unclosed
-    region counts as prose and is an anomaly. Anomalies are plain sentences naming the line."""
+    excluded when it is registered for `rel` in GENERATED_REGION_OWNERS, closes, and is the first copy of that
+    name in the file; an unregistered, unclosed, or second-copy region counts as prose and is an anomaly.
+    Anomalies are plain sentences naming the line."""
     allowed = GENERATED_REGION_OWNERS.get(rel or "", set())
     seen = set()                                       # registered regions already excluded in this file
     count, anomalies = 0, []
@@ -790,15 +791,17 @@ def prose_line_count(text: str, rel: str | None = None) -> int:
     out. Neither is prose an author wrote or a cold reader reads as the runbook's own instruction: a fence
     carries a command or a data literal, and a registered generated region is owned by the renderer that
     emits it (its drift check, not a line budget, governs it). Anything else that looks like an exclusion —
-    an unclosed fence, an unregistered or unclosed region — counts as prose, so the count cannot be
-    switched off from inside the file (`prose_line_anomalies` names each such marker). `rel` is the file's
+    an unclosed fence, an unregistered or unclosed region, a second copy of a registered region — counts as
+    prose, so the count cannot be switched off from inside the file (`prose_line_anomalies` names each such
+    marker). `rel` is the file's
     repo-relative path, which decides which regions are registered for it. The count is shared with the
     tests that pin per-file baselines (test_operation_length.py), so the validator and the pins read one number."""
     return _prose_scan(text, rel)[0]
 
 
 def prose_line_anomalies(text: str, rel: str | None = None) -> list:
-    """The markers `prose_line_count` refused to honour: unclosed fences, unregistered or unclosed generated regions."""
+    """The markers `prose_line_count` refused to honour: unclosed fences; unregistered, unclosed, or duplicated
+    generated regions (a registered region is honoured once per file)."""
     return _prose_scan(text, rel)[1]
 
 
@@ -854,9 +857,10 @@ def kind_shape(rule, ctx):
     surface's TEMPLATE frontmatter via the catalog (catalog -> template -> shape -> instance),
     so the thing the AI authors from is the thing the validator checks and the two cannot
     drift. The length counted is `prose_line_count`: frontmatter, closed fenced code blocks and
-    closed REGISTERED generated regions (GENERATED_REGION_OWNERS) are excluded from the count — an
-    unclosed fence or an unregistered/unclosed region counts as prose and is a hard finding, so the budget
-    cannot be switched off from inside the file — and frontmatter and fences from section
+    closed REGISTERED generated regions (GENERATED_REGION_OWNERS, honoured once per file) are excluded from
+    the count — an unclosed fence, an unregistered/unclosed region, or a second copy of a registered region
+    counts as prose and is a hard finding, so the budget cannot be switched off from inside the file — and
+    frontmatter and fences from section
     detection; templates govern the prose body only. An optional
     params.length_budget_overrides {rel: {budget, why}} stays on the (guarded) rule, not the
     template, and carries a recorded, consented higher ceiling for one named operation (raising

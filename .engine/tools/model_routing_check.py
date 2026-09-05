@@ -62,10 +62,12 @@ def findings(tier: str, root: str | None = None, routing_path: str | None = None
         return out
     page = os.path.join(base, ee._POLICY_REL)
     if actual is None:
-        out.append(validate.finding(tier, f"{ee._POLICY_REL} carries no generated posture region (the two marker "
-                                    f"comments are missing or out of order); place the region once, then regenerate "
-                                    f"it with `uv run --directory .engine --frozen -- python "
-                                    f"tools/execution_environment.py render-postures`.", validate.loc(page)))
+        out.append(validate.finding(tier, f"{ee._POLICY_REL} carries no single generated posture region: the two "
+                                    f"marker lines are missing, out of order, or present more than once (a second "
+                                    f"copy is refused, because it would be a place to hide prose behind a name this "
+                                    f"check guards). Leave exactly one pair, then regenerate it with `uv run "
+                                    f"--directory .engine --frozen -- python tools/execution_environment.py "
+                                    f"render-postures`.", validate.loc(page)))
     elif actual != expected:
         out.append(validate.finding(tier, f"the generated posture region in {ee._POLICY_REL} has drifted from "
                                     f"{ee._ROUTING_REL}: regenerate it with `uv run --directory .engine --frozen -- "

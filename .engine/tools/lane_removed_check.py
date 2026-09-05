@@ -25,6 +25,10 @@ ENV_OVERRIDE = "ENGINE_LANE_REMOVED_ROOT"
 # The retired lane's names. The module name is what an import, a census entry, a workflow step or a doc row
 # would carry; the step title is what a re-added workflow step would carry even if it invoked a renamed script.
 RETIRED_TOKENS = ("audit_soft_promote", "Track standing length-budget findings")
+# ENGINE-TODO: one-time source-scope retirement sweep — the removed lane opened GitHub issues in instantiated
+# projects with source id prefix `soft-budget:` and nothing closes them now; close any still open with a note
+# pointing at the hard length tier. The home repository held none on 2026-09-05 (deliverable review SG-4).
+
 # Where a revival would land: tools (an import or a resurrected script), the workflows (a re-added step), the
 # provisioning census and module manifests (a stale entry), and the prose homes (a doc row or a runbook pointer).
 SCAN_HOMES = (

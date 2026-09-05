@@ -130,14 +130,18 @@ def render(protocol: dict) -> str:
 
 def _split_runbook(text: str) -> tuple:
     """(before, region, after) around the generated region; region is None when the markers are absent
-    or malformed (a begin without an end, in the wrong order, or either marker appearing more than once —
-    a duplicate pair would be a place to hide prose behind a name this check guards)."""
-    b = text.find(GENERATED_BEGIN)
-    e = text.find(GENERATED_END)
-    if b < 0 or e < 0 or e < b or text.count(GENERATED_BEGIN) > 1 or text.count(GENERATED_END) > 1:
+    or malformed (a begin without an end, in the wrong order, or either marker appearing on more than one
+    line — a duplicate pair would be a place to hide prose behind a name this check guards). A marker is a
+    LINE whose whole text is the marker, wherever it sits, so a mention sharing a line with other text is not one."""
+    lines = text.splitlines(keepends=True)
+    begins = [i for i, line in enumerate(lines) if line.strip() == GENERATED_BEGIN]
+    ends = [i for i, line in enumerate(lines) if line.strip() == GENERATED_END]
+    if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
         return text, None, ""
-    end = e + len(GENERATED_END)
-    return text[:b], text[b:end], text[end:]
+    b, e = begins[0], ends[0]
+    whole = "".join(lines[b:e + 1])
+    body = whole.rstrip("\r\n")
+    return "".join(lines[:b]), body, whole[len(body):] + "".join(lines[e + 1:])
 
 
 def projection_status(root: str | None = None) -> tuple:
@@ -158,7 +162,8 @@ def apply(root: str | None = None) -> bool:
         text = fh.read()
     before, region, after = _split_runbook(text)
     if region is None:
-        raise ProtocolError(f"{RUNBOOK_REL} carries no generated review-consumers region to render into")
+        raise ProtocolError(f"{RUNBOOK_REL} carries no single generated review-consumers region to render into "
+                            f"(the two marker lines are missing, out of order, or present more than once)")
     new = before + render(load(root)) + after
     if new == text:
         return False

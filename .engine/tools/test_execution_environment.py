@@ -506,7 +506,7 @@ class TestRoutingData(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
-    def test_a_second_copy_of_the_posture_region_is_drift_not_a_match(self):
+    def test_a_second_copy_of_the_posture_region_is_refused_as_no_region(self):
         tmp = self._scratch()
         try:
             page = os.path.join(tmp, ee._POLICY_REL)
@@ -516,6 +516,24 @@ class TestRoutingData(unittest.TestCase):
             with open(page, "w", encoding="utf-8") as fh:
                 fh.write(before + region + after + "\n" + region.replace("\n", "\nhidden prose\n", 1) + "\n")
             self.assertIsNone(ee.posture_projection_status(tmp)[1])
+            with self.assertRaises(ee.RoutingUnreadable) as ctx:
+                ee.apply_posture_projection(tmp)
+            self.assertIn("more than once", str(ctx.exception))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_a_mention_of_the_posture_marker_in_prose_is_not_a_marker(self):
+        tmp = self._scratch()
+        try:
+            page = os.path.join(tmp, ee._POLICY_REL)
+            with open(page, encoding="utf-8") as fh:
+                text = fh.read()
+            before, region, after = ee._split_policy(text)
+            mention = f"see `{ee.POSTURE_REGION_BEGIN}` for the shape\n```text\nexample: {ee.POSTURE_REGION_END}\n```\n"
+            with open(page, "w", encoding="utf-8") as fh:
+                fh.write(mention + before + region + after)
+            expected, actual = ee.posture_projection_status(tmp)
+            self.assertEqual(actual, expected)
         finally:
             shutil.rmtree(tmp)
 

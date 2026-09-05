@@ -118,9 +118,9 @@ class TestProjection(unittest.TestCase):
         finally:
             shutil.rmtree(tmp)
 
-    def test_a_second_copy_of_the_region_is_drift_not_a_match(self):
+    def test_a_second_copy_of_the_region_is_refused_as_no_region(self):
         # A duplicate marker pair would be a place to hide prose behind the name this check guards (repair
-        # round 2 of typed-lifecycle part C): the split refuses it, so the check reports the runbook as drifted.
+        # round 2 of typed-lifecycle part C): the split refuses it, so the check reports no single region.
         tmp = _scratch_tree()
         try:
             path = os.path.join(tmp, bp.RUNBOOK_REL)
@@ -130,6 +130,29 @@ class TestProjection(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(before + region + after + "\n" + region.replace("\n", "\nhidden prose\n", 1) + "\n")
             self.assertIsNone(bp.projection_status(tmp)[1])
+            with self.assertRaises(bp.ProtocolError) as ctx:
+                bp.apply(tmp)
+            self.assertIn("more than once", str(ctx.exception))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_a_mention_of_the_marker_in_prose_is_not_a_marker(self):
+        # A marker is a whole line; naming it in prose or inside a fence (repair round 3) leaves the one real
+        # region intact and current.
+        tmp = _scratch_tree()
+        try:
+            path = os.path.join(tmp, bp.RUNBOOK_REL)
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            before, region, after = bp._split_runbook(text)
+            # A whole line that IS the marker is a marker wherever it sits (a fence included); a mention shares
+            # its line with other text.
+            mention = f"see `{bp.GENERATED_BEGIN}` for the shape\n```text\nexample: {bp.GENERATED_END}\n```\n"
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(mention + before + region + after)
+            expected, actual = bp.projection_status(tmp)
+            self.assertEqual(actual, expected)
+            self.assertEqual(bp._split_runbook(mention + before + region + after)[1], region)
         finally:
             shutil.rmtree(tmp)
 
