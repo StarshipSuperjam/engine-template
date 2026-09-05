@@ -981,25 +981,66 @@ class TestNativePlanIntake(unittest.TestCase):
     typed acceptance envelope (UserPromptSubmit) both import the accepted document into the Plan
     Coordinator as an unapproved draft and inject the arrival report. Neither writes the stance signal:
     after this change the signal has exactly two writers, both typed operator verbs, so `$engine-start`
-    is the only way into Build on either runtime. Fail-safe runs in every direction — no plan text, a
-    prompt that is not the envelope, an envelope with nothing after it, and a failing import all leave
-    the session exactly where it was.
+    is the only way into Build on either runtime. Fail-safe runs in every direction — a prompt that is
+    not the envelope, an envelope with nothing after it, and a failing import all leave the session
+    exactly where it was; an acceptance that yields no plan text is REPORTED, not silent
+    (StarshipSuperjam/engine-template#1163).
+
+    Where the accepted plan lives (StarshipSuperjam/engine-template#1163): the harness no longer passes the plan inline, so
+    the Claude adapter reads the inline text first (older harnesses), then the completion's result in
+    any of the three recorded shapes — the structured {plan, filePath, isAgent} dict, its rendering
+    ('User has approved your plan… ## Approved Plan: …'), a list of content blocks — then the plan file
+    the result names, read only inside the read anchor (the platform default or a managed/user
+    plansDirectory, never a workspace file), capped at 1 MiB, decode failure as no text. The user home
+    and the managed paths are seams pointed at a temporary tree, so nothing here reads the developer's
+    real ~/.claude.
 
     The import itself is stubbed here so these tests say nothing about the operator's real plan library
     and write nothing to it; the real end-to-end import is exercised in test_project_manager.
     """
 
+    PLAN = "# Cache widgets\n\nThey are slow."
     CLAUDE_ACCEPT = {"session_id": "s", "tool_name": "ExitPlanMode",
-                     "tool_input": {"plan": "# Cache widgets\n\nThey are slow."}}
+                     "tool_input": {"plan": PLAN}}
+    # The rendering the harness hands the model on approval — recorded on every acceptance in this
+    # workstation's transcripts; the preamble before the heading is the harness talking, never the plan.
+    RENDERED = ("User has approved your plan. You can now start coding. Start with updating your todo list "
+                "if applicable\n\nYour plan has been saved to: {path}\nYou can refer back to it if needed "
+                "during implementation.\n\n## Approved Plan:\n" + PLAN)
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self._patch = mock.patch.object(modes.tempfile, "gettempdir", return_value=self._tmp.name)
-        self._patch.start()
+        base = os.path.realpath(self._tmp.name)
+        self.home = os.path.join(base, "home")
+        self.plans = os.path.join(self.home, ".claude", "plans")      # the read anchor's default
+        self.root = os.path.join(base, "code", "proj")                # a workspace, for the anchor test
+        os.makedirs(self.plans)
+        os.makedirs(os.path.join(self.root, ".claude"))
+        self._patches = [mock.patch.object(modes.tempfile, "gettempdir", return_value=self._tmp.name),
+                         mock.patch.object(modes, "_user_home", return_value=self.home),
+                         mock.patch.object(modes, "_MANAGED_SETTINGS_PATHS", ())]
+        for p in self._patches:
+            p.start()
 
     def tearDown(self):
-        self._patch.stop()
+        for p in self._patches:
+            p.stop()
         self._tmp.cleanup()
+
+    def _plan_file(self, folder=None, name="p.md", text=None):
+        folder = folder or self.plans
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(self.PLAN if text is None else text)
+        return path
+
+    @staticmethod
+    def _accept(tool_response, tool_input=None, **extra):
+        payload = {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": tool_input or {},
+                   "tool_response": tool_response}
+        payload.update(extra)
+        return payload
 
     @staticmethod
     @contextlib.contextmanager
@@ -1042,14 +1083,170 @@ class TestNativePlanIntake(unittest.TestCase):
         self.assertIn("preview --plan pln_0123456789ab", text)
         self.assertIn("tell the operator", text.lower())
 
-    def test_an_acceptance_carrying_no_plan_text_imports_nothing(self):
+    def test_an_acceptance_yielding_no_plan_text_is_reported_not_silent(self):
+        # StarshipSuperjam/engine-template#1163: under the current harness the empty case is never benign, so it is a
+        # notice — what was seen (structure only), what was tried, the recovery, and the relay line.
         for payload in ({"session_id": "s", "tool_name": "ExitPlanMode"},
                         {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": {}},
                         {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": {"plan": "  "}},
-                        {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": "not a dict"}):
+                        {"session_id": "s", "tool_name": "ExitPlanMode", "tool_input": "not a dict"},
+                        self._accept("Something the harness now says, without the plan.")):
             with self._importer() as importer:
-                self.assertEqual(modes.accept_handler(payload).get("action"), "proceed")
+                decision = modes.accept_handler(payload)
             importer.assert_not_called()
+            self.assertEqual(decision.get("action"), "inject", payload)
+            text = decision.get("context", "")
+            self.assertIn("found no plan text to import", text)
+            self.assertIn("tool_response", text)                          # the shape it saw
+            self.assertIn("inline plan text (absent)", text)              # the sources tried
+            self.assertIn("the completion's result (no plan text)", text)
+            self.assertIn("none named", text)
+            self.assertIn(modes._RECOVERY_COMMAND, text)                  # the recovery, by the constant
+            self.assertIn("tell the operator plainly", text.lower())      # the relay instruction
+            self.assertNotIn(self.PLAN, text)                             # structure, never content
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
+
+    def test_the_notice_names_the_shape_it_saw_as_structure_only(self):
+        payload = self._accept({"isAgent": False, "unexpected": "x"}, tool_input={"allowedPrompts": []})
+        with self._importer():
+            text = modes.accept_handler(payload).get("context", "")
+        self.assertIn("tool_input keys allowedPrompts", text)
+        self.assertIn("tool_response dict with keys isAgent, unexpected", text)
+        self.assertNotIn("x\"", text)
+
+    # -- where the accepted plan lives (StarshipSuperjam/engine-template#1163) ------------------------------------
+
+    def test_the_structured_result_imports_the_plan_and_says_so(self):
+        # The primary source on the current harness: the result dict {plan, filePath, isAgent}.
+        payload = self._accept({"plan": self.PLAN, "filePath": os.path.join(self.plans, "p.md"),
+                                "isAgent": False})
+        with self._importer() as importer:
+            decision = modes.accept_handler(payload)
+        self.assertEqual(importer.call_args.args[0], self.PLAN)
+        self.assertIn("completion's result", importer.call_args.kwargs["provenance"])
+        context = decision.get("context", "")
+        self.assertTrue(context.startswith("The accepted plan's text came from the plan-exit completion's result. "))
+        self.assertIn("pln_0123456789ab", context)                        # the arrival report follows
+
+    def test_the_rendered_result_imports_only_the_plan_body(self):
+        payload = self._accept(self.RENDERED.format(path=os.path.join(self.plans, "p.md")))
+        with self._importer() as importer:
+            modes.accept_handler(payload)
+        self.assertEqual(importer.call_args.args[0], self.PLAN)          # the preamble is excluded
+
+    def test_a_list_of_content_blocks_imports_the_plan_body(self):
+        rendered = self.RENDERED.format(path=os.path.join(self.plans, "p.md"))
+        payload = self._accept([{"type": "text", "text": rendered}])
+        with self._importer() as importer:
+            modes.accept_handler(payload)
+        self.assertEqual(importer.call_args.args[0], self.PLAN)
+
+    def test_the_inline_text_still_wins_on_an_older_harness(self):
+        payload = self._accept({"plan": "# Other\n"}, tool_input={"plan": self.PLAN})
+        with self._importer() as importer:
+            decision = modes.accept_handler(payload)
+        self.assertEqual(importer.call_args.args[0], self.PLAN)
+        self.assertIn("inline plan text", importer.call_args.kwargs["provenance"])
+        self.assertTrue(decision.get("context", "").startswith("The accepted plan's text came from the acceptance's inline"))
+
+    def test_the_file_the_result_names_is_read_when_the_result_has_no_text(self):
+        path = self._plan_file()
+        for response in ({"filePath": path, "isAgent": False},
+                         f"Your plan has been saved to: {path}\nYou can refer back to it."):
+            with self._importer() as importer:
+                decision = modes.accept_handler(self._accept(response))
+            self.assertEqual(importer.call_args.args[0], self.PLAN, response)
+            provenance = importer.call_args.kwargs["provenance"]
+            self.assertIn(path, provenance)                               # the resolved path, for audit
+            self.assertIn(self.plans, provenance)                         # and the anchor
+            self.assertIn(f"plan file the harness named ({path})", decision.get("context", ""))
+
+    def test_a_named_file_outside_the_read_anchor_is_refused_and_named(self):
+        outside = self._plan_file(folder=os.path.join(self.home, "Documents"))
+        with self._importer() as importer:
+            decision = modes.accept_handler(self._accept({"filePath": outside}))
+        importer.assert_not_called()
+        text = decision.get("context", "")
+        self.assertIn(outside, text)                                      # the refused path
+        self.assertIn("refused", text)
+        self.assertIn(self.plans, text)                                   # the anchor it was held against
+
+    def test_a_symlink_inside_the_anchor_pointing_out_is_refused(self):
+        outside = self._plan_file(folder=os.path.join(self.home, "Documents"))
+        link = os.path.join(self.plans, "link.md")
+        os.symlink(outside, link)
+        with self._importer() as importer:
+            modes.accept_handler(self._accept({"filePath": link}))
+        importer.assert_not_called()
+
+    def test_a_named_file_over_the_cap_or_not_utf8_is_refused(self):
+        big = self._plan_file(name="big.md", text="x" * (modes._PLAN_FILE_READ_CAP + 1))
+        binary = os.path.join(self.plans, "bin.md")
+        with open(binary, "wb") as fh:
+            fh.write(b"\xff\xfe not text \x00")
+        for path in (big, binary, os.path.join(self.plans, "missing.md"), self.plans):
+            with self._importer() as importer:
+                decision = modes.accept_handler(self._accept({"filePath": path}))
+            importer.assert_not_called()
+            self.assertEqual(decision.get("action"), "inject", path)
+
+    def test_a_workspace_plans_directory_does_not_widen_the_read_anchor(self):
+        # The write carve-out honours a workspace's settings file; the READ anchor must not, or a
+        # checked-in file would choose what a hook imports verbatim into the durable library.
+        custom = os.path.join(self.root, "docs", "plans")
+        path = self._plan_file(folder=custom)
+        with open(os.path.join(self.root, ".claude", "settings.local.json"), "w", encoding="utf-8") as fh:
+            json.dump({"plansDirectory": "docs/plans"}, fh)
+        self.assertEqual(modes._plans_directory(self.root), os.path.realpath(custom))   # the write side
+        self.assertEqual(modes._readable_plan_root(self.root), self.plans)             # the read side
+        with self._importer() as importer:
+            modes.accept_handler(self._accept({"filePath": path}, cwd=self.root))
+        importer.assert_not_called()
+
+    def test_a_user_plans_directory_moves_the_read_anchor(self):
+        custom = os.path.join(self.home, "myplans")
+        path = self._plan_file(folder=custom)
+        with open(os.path.join(self.home, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
+            json.dump({"plansDirectory": "~/myplans"}, fh)
+        self.assertEqual(modes._readable_plan_root(None), os.path.realpath(custom))
+        with self._importer() as importer:
+            modes.accept_handler(self._accept({"filePath": path}))
+        self.assertEqual(importer.call_args.args[0], self.PLAN)
+
+    def test_the_read_anchor_consults_managed_and_user_files_only(self):
+        files = modes._readable_plan_settings_files()
+        self.assertEqual(files, [os.path.join(self.home, ".claude", "settings.json")])   # managed paths patched to ()
+        for f in files:
+            self.assertFalse(f.startswith(self.root))
+
+    def test_a_plan_file_path_in_tool_input_alone_imports_nothing(self):
+        # tool_input is the model's raw input; a model-controlled path is never read.
+        path = self._plan_file()
+        with self._importer() as importer:
+            decision = modes.accept_handler(self._accept(None, tool_input={"planFilePath": path}))
+        importer.assert_not_called()
+        self.assertEqual(decision.get("action"), "inject")
+        self.assertIn("none named", decision.get("context", ""))
+
+    def test_the_recovery_command_is_one_constant_in_both_notices(self):
+        with self._importer(raises=RuntimeError("the library is unreadable")):
+            failed = modes.accept_handler(self.CLAUDE_ACCEPT).get("context", "")
+        with self._importer():
+            empty = modes.accept_handler(self._accept(None)).get("context", "")
+        self.assertIn(modes._RECOVERY_COMMAND, failed)
+        self.assertIn(modes._RECOVERY_COMMAND, empty)
+        self.assertIn("import-native --input -", modes._RECOVERY_COMMAND)
+
+    def test_end_to_end_via_run_hook_on_the_structured_result(self):
+        out, err = io.StringIO(), io.StringIO()
+        payload = self._accept({"plan": self.PLAN, "filePath": os.path.join(self.plans, "p.md"), "isAgent": False})
+        with self._importer():
+            code = hooks.run_hook("PostToolUse", modes.accept_handler,
+                                  stdin=io.StringIO(json.dumps(payload)), stdout=out, stderr=err)
+        self.assertEqual(code, hooks.EXIT_PROCEED)
+        emitted = json.loads(out.getvalue())
+        self.assertIn("pln_0123456789ab", emitted["hookSpecificOutput"]["additionalContext"])
+        self.assertIn("came from the plan-exit completion's result", emitted["hookSpecificOutput"]["additionalContext"])
 
     def test_only_the_plan_exit_completion_imports(self):
         # The false-fire guard: a subagent's inner tool calls do not fire the parent PostToolUse, and a
@@ -1074,9 +1271,11 @@ class TestNativePlanIntake(unittest.TestCase):
         self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
     def test_handler_always_proceeds_and_tolerates_a_bad_payload(self):
-        for payload in ({}, {"session_id": "s"}, {"tool_name": "ExitPlanMode"}, None, "nonsense"):
+        for payload in ({}, {"session_id": "s"}, None, "nonsense"):
             with self._importer():
                 self.assertEqual(modes.accept_handler(payload).get("action"), "proceed")
+        with self._importer():                       # the completion with nothing else is still reported
+            self.assertEqual(modes.accept_handler({"tool_name": "ExitPlanMode"}).get("action"), "inject")
         self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
     def test_end_to_end_via_run_hook_injects_the_arrival_report(self):
