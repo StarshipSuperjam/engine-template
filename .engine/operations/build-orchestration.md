@@ -2,14 +2,14 @@
 title: Build orchestration — from approved intent to a ready pull request
 ---
 ## Purpose
-Build turns an operator-approved plan into one coherent pull request. The orchestrating AI acts as the
-senior engineer: it frames the problem, challenges assumptions, chooses the implementation, adjudicates
-review findings, and decides whether repairs deserve more review. The Build coordinator is its instrument
-panel. It preserves the exact plan and current evidence, prepares cold-review packets, records what commit
-was checked, runs validation and preflights, and reports what remains. It never decides whether the work is
-good, and it never merges.
-The protected-branch merge remains the only binding gate. The coordinator may change an open draft pull
-request to ready only after the evidence described here is complete. The operator alone merges it.
+Build turns an operator-approved plan into one coherent pull request. The orchestrating AI acts as the senior
+engineer: it frames the problem, challenges assumptions, chooses the implementation, adjudicates review
+findings, and decides whether repairs deserve more review. The Build coordinator is its instrument panel. It
+preserves the exact plan and current evidence, prepares cold-review packets, records what commit was checked,
+runs validation and preflights, and reports what remains. It never decides whether the work is good, and it
+never merges: the protected-branch merge remains the only binding gate, the coordinator may change an open draft
+pull request to ready only after the evidence described here is complete, and the operator alone merges it.
+
 ## Steps
 ### Responsibility boundary
 The coordinator owns mechanical facts: Build and draft-PR identity, plan source and digest, approved review
@@ -24,8 +24,6 @@ is coherent and worth presenting.
 
 The operator owns approval of the plan and review depth as one Build gate, decisions about design, law,
 authority, or the agreed capability boundary, guardrail acknowledgements, and merge.
-
-Reviewer severity is advice. It never selects a remedy and never makes a finding block automatically.
 
 ### 1. Plan and open the claim
 
@@ -60,13 +58,13 @@ refused at the door with its remaining lifecycle steps named, as is one whose co
 For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
 **The seal hands back before the Build starts**, and [Plan orchestration](plan-orchestration.md) carries what
-that pause asks for. It is an offer, not a gate: the bind's own `--operator-decision` consent is the
-operator's agreement to begin, nothing mechanical checks the hand-back's steps, and the engine neither reads
-nor records what the session runs on.
+that pause asks for. It is an offer, not a gate: the bind's `--operator-decision` consent is the operator's
+agreement to begin; nothing mechanical checks the hand-back's steps, and the engine neither reads nor records
+what the session runs on.
 
-Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this
-session against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and
-a `compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
+Compaction mid-Build is survivable by design and needs no ceremony: every mutating verb re-verifies this session
+against the durable snapshot and refuses on a mismatch whether or not a compaction was observed, and a
+`compact`-matcher hook re-grounds the fresh context (Claude only — see the provider-exception ledger).
 
 ### Where the plan lives
 
@@ -77,16 +75,16 @@ authorization and plan authority are two artifacts and neither stands in for the
 a GitHub comment, and GitHub or network loss does not stop same-session local work.
 
 The Build's own snapshot is durable and lives beside that sealed plan, so a killed Build resumes with its
-evidence intact — one atomically replaced, lock-protected document of current evidence, carrying no
-authority, found from the worktree or named outright with `--state <path>`. It keeps the plan's id and
-digests, never the plan's content. `status` derives the phase from it, and every checkpoint, review packet
-and submission preview receives the payload again and refuses a mismatch.
+evidence intact — one atomically replaced, lock-protected document of current evidence, carrying no authority,
+found from the worktree or named outright with `--state <path>`. It keeps the plan's id and digests, never the
+plan's content; `status` derives the phase from it, and every checkpoint, review packet and submission preview
+receives the payload again and refuses a mismatch.
 
 Cold continuation is anchored on the sealed plan RECORD. `handoff export --output <file>` writes the Build's
-own evidence, redacted, to a file; `handoff restore --input <file>` reads it back and re-verifies the plan in
-the library — same id, same sealed digest, same payload. Gone, unsealed or changed, and continuation is
-blocked rather than guessed at. A Build whose executed plan was revised away from its seal cannot hand off
-cold at all: finish it in the session that holds it, or re-plan.
+evidence, redacted, to a file; `handoff restore --input <file>` reads it back and re-verifies the plan in the
+library — same id, same sealed digest, same payload; gone, unsealed or changed, continuation is blocked rather
+than guessed at. A Build whose executed plan was revised away from its seal cannot hand off cold at all: finish
+it in the session that holds it, or re-plan.
 
 ### 2. Assess risk and approve the Build gate
 
@@ -108,11 +106,11 @@ The `trivial` profile is the one-entry fast path: its reduced plan needs raw int
 
 ### 3. The plan review already happened
 
-There is no plan review on this side. There is exactly one cold plan review per plan, run on the plan side
-against the approved revision before the seal, and the seal refuses while the recorded lenses do not cover the
-approved depth's roster. A bound plan is a reviewed plan by construction, which is why this side has no
-plan-review gate and no waiver for one. Approve, seal and bind each refuse without the operator's decision in
-their own words; the trail is published in the pull request — a record of what was said, not proof that it was.
+There is no plan review on this side: exactly one cold plan review runs per plan, on the plan side against the
+approved revision before the seal, and the seal refuses while the recorded lenses do not cover the approved
+depth's roster. A bound plan is a reviewed plan by construction, so this side has no plan-review gate and no
+waiver for one. Approve, seal and bind each refuse without the operator's decision in their own words; the trail
+is published in the pull request — a record of what was said, not proof that it was.
 
 Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
 be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or
@@ -121,10 +119,10 @@ operator, synthesize the findings into one recommended call and state its tradeo
 outputs as the decision surface. Return to the operator only when the review changes design, law, authority, or
 the agreed capability boundary, or leaves a genuine operator decision unresolved.
 
-If the Build discovers the plan itself is wrong, the seal still holds: clone it, take the clone through its
-own approval and panel, then `plan adopt --successor <id> --input <bound-plan.json>`. The Build keeps its
-pull request and the integration evidence of every node the successor carries unchanged with unchanged
-ancestry; changed nodes and their dependants reset, and the plan panel does not re-run.
+If the Build discovers the plan itself is wrong, the seal still holds: clone it, take the clone through its own
+approval and panel, then `plan adopt --successor <id> --input <bound-plan.json>`. The Build keeps its pull
+request and the integration evidence of nodes the successor carries with unchanged ancestry; changed nodes and
+their dependants reset, and the plan panel does not re-run.
 
 What the Build still owes is DISCLOSURE. The composed PR contract renders the sealed plan review's findings,
 their dispositions, and a disagreement line for any blocking finding decided not to block — read from the plan
