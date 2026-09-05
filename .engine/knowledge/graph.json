@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:db69656485676762feaaedf34b02fd7974edaa29df6e9bfb22c6d9b7674864d7",
+        "fingerprint": "sha256:df7664205a03c8ef64807251ffa87fe2cd2fa715689703571d10edd688672b29",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -14968,7 +14968,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:24c51d19c4bf96eecc5c8d4bfceb6d761b9af98897a7b7dacf6319de560b4ac3",
+        "fingerprint": "sha256:bcb0f3c185da12f6fb527b55a9563f760c32901f264a896ffb6a1d42b3dc06b8",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -17452,7 +17452,7 @@
       },
       "slug": "test_integration_queue",
       "source": {
-        "fingerprint": "sha256:650130f003d1bf67de91a9381c9cd4c3e667570e7c41f69ffb2287d55b8cf5c2",
+        "fingerprint": "sha256:ad36ec2bafaba4ac6b118e750182d7347801d79881569f5df0223b2d172e2132",
         "path": ".engine/tools/test_integration_queue.py"
       },
       "status": "active",
@@ -17801,7 +17801,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:78a214af21d60792e9bca38e1018f1bae0de7ea1b84c10967ee4a18066ae6919",
+        "fingerprint": "sha256:44f1c1799933ce466845765479769e3912b0bc578757fed37a9bc270005c2e6f",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -20013,7 +20013,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:1b12b721404ae86b994fb0042eb02d8f67915830423d4eb9b1cb438d2e527b35",
+        "fingerprint": "sha256:aff76a1cefbea315c7d963ea4a33cd9244ad2e6f7d93ae3072040fa047b35572",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
