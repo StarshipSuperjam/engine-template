@@ -366,11 +366,7 @@ class _Governed(_Surface):
         slug, document = self._plan(**over)
         self.run_command("preview", slug)
         self.assertEqual(self.run_command("approve", slug, "--depth", depth, "--operator-decision", "yes, at that depth")[0], 0)
-        # Every lens in this fixture ran at the effort its depth promises. `review record` refuses a
-        # panel that does not say what it delivered (StarshipSuperjam/engine-template#1067), and the
-        # bare level applies to every lens named in the record.
-        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug),
-                "--delivered-effort", "high"]
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
         for lens in (lenses if lenses is not None else self._covering_lenses(depth)):
             argv += ["--lens", lens]
         if findings:
@@ -1064,8 +1060,7 @@ class SingleMintedGatesUnderConcurrency(_Governed):
         digest = self._packet_digest(slug)
         # Both sessions read a record with no review; A records first, B must still be refused.
         self.assertEqual(self.run_command("review", "record", slug, "--lens", "architecture",
-                                          "--packet-digest", digest,
-                                          "--delivered-effort", "medium")[0], 0)
+                                          "--packet-digest", digest)[0], 0)
 
         def racing_write(current):
             current["plan_review"] = {"revision": 1, "plan_digest": digest, "packet_digest": digest,
@@ -1658,25 +1653,64 @@ class ThePanelMovedHere(_Governed):
         self.assertIn("renders to", err)
         self.assertIn(self._packet_digest(slug), err)
 
-    def test_the_depth_offer_is_computed_from_the_installed_roster_with_resolved_effort(self):
+    def test_the_depth_offer_is_judged_over_both_panels_by_lenses_alone(self):
         roster = [{"lens": "architecture"}, {"lens": "feasibility"},
                   {"lens": "product-intent"}, {"lens": "risk-governance"}]
-        efforts = {"quick": None, "standard": "medium", "thorough": "high"}
-        self.assertEqual(project_manager.available_depths(roster, efforts=efforts),
+        table = {"quick": [], "standard": ["spec-conformance", "divergence-hunter", "usability"],
+                 "thorough": ["spec-conformance", "divergence-hunter", "usability",
+                              "technical-integrity", "security-governance"]}
+        full = [{"lens": lens} for lens in table["thorough"]]
+        # The shipped shape: the plan panel is identical at standard and thorough, and thorough is
+        # offered because it adds two deliverable lenses after the build.
+        self.assertEqual(project_manager.available_depths(roster, deliverable_roster=full,
+                                                          deliverable_protocol=table),
                          ["quick", "standard", "thorough"])
-        # A depth that buys nothing is suppressed: with no reviewers every heavier depth runs what quick
-        # runs, so only the floor is offered (the 763/677 protection, moved with the consent surface).
-        self.assertEqual(project_manager.available_depths([], efforts=efforts), ["quick"])
-        # ...and with equal lens-sets AND equal effort, the heavier depth collapses too.
-        flat = {"quick": None, "standard": "medium", "thorough": "medium"}
-        self.assertEqual(project_manager.available_depths(roster, efforts=flat), ["quick", "standard"])
+        # A depth that buys nothing is suppressed: with no reviewers on either side every heavier depth
+        # runs what quick runs, so only the floor is offered (the 763/677 protection).
+        self.assertEqual(project_manager.available_depths([], deliverable_roster=[],
+                                                          deliverable_protocol=table), ["quick"])
+        # A deployment whose deliverable roster stops at standard's lenses: thorough adds nothing on
+        # either side, so it is honestly not offered.
+        standard_only = [{"lens": lens} for lens in table["standard"]]
+        self.assertEqual(project_manager.available_depths(roster, deliverable_roster=standard_only,
+                                                          deliverable_protocol=table),
+                         ["quick", "standard"])
+        # The offer takes no effort argument.
+        with self.assertRaises(TypeError):
+            project_manager.available_depths(roster, efforts={"standard": "medium"})
+
+    def test_the_shipped_roster_offers_all_three_depths(self):
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        out = self.run_command("depths", slug)[1]
+        for depth in ("quick", "standard", "thorough"):
+            self.assertIn(f"  {depth:<10}", out)
+        self.assertNotIn("not offered", out)
+        self.assertNotIn("effort", out)
+        self.assertIn("deliverable lenses after the build", out)
+
+    def test_a_record_written_with_the_retired_effort_fields_still_loads(self):
+        slug, _ = self._to_reviewed()
+        path = self.lib.plan_dir(slug) / "record.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["plan_review"]["delivered_efforts"] = {lens: "high" for lens in raw["plan_review"]["lenses"]}
+        raw["plan_review"]["effort_shortfall_accepted"] = False
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        record = self.lib.read_record(slug)
+        self.assertFalse({k for k in record["plan_review"] if "effort" in k})
+        # A mutator reads through the same door, so the record can still be written.
+        self.lib.update_record(slug, lambda current: None)
+        self.assertNotIn("delivered_efforts", path.read_text(encoding="utf-8"))
+        self.assertEqual(self.run_command("show", slug)[0], 0)
 
     def test_a_depth_that_buys_nothing_cannot_be_approved_either(self):
         # Suppressing it from the offer is not enough if it can still be typed: consent spent on nothing
         # is the failure, wherever it is spent.
         slug, _ = self._plan()
         self.run_command("preview", slug)
-        with mock.patch.object(project_manager, "installed_lenses", return_value=[]):
+        # Both panels count: with no reviewers on EITHER side, thorough runs what quick runs.
+        with mock.patch.object(project_manager, "installed_lenses", return_value=[]), \
+                mock.patch.object(project_manager, "installed_deliverable_lenses", return_value=[]):
             code, _, err = self.run_command("approve", slug, "--depth", "thorough", "--operator-decision", "yes, at that depth")
         self.assertEqual(code, 2)
         self.assertIn("not offered here", err)
@@ -1687,7 +1721,7 @@ class ThePanelMovedHere(_Governed):
         out = self.run_command("depths", slug)[1]
         for lens in self._covering_lenses("standard"):
             self.assertIn(lens, out)
-        self.assertIn("only those that add coverage or effort", out)
+        self.assertIn("only those that add coverage over a lighter one", out)
 
     def test_a_blocking_finding_left_unblocking_owes_an_operator_summary(self):
         slug, _ = self._to_reviewed(findings=({"id": "RISK-1", "lens": "risk-governance",
@@ -2407,8 +2441,7 @@ class ProjectionLink(_Governed):
         self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
                                           "--operator-decision", "yes, at that depth")[0], 0)
         self.assertIn("awaiting-review", plan_md.read_text(encoding="utf-8"))
-        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug),
-                "--delivered-effort", "high"]
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug)]
         for lens in self._covering_lenses("standard"):
             argv += ["--lens", lens]
         argv += ["--findings", self._findings(

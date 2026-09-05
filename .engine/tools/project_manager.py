@@ -70,8 +70,8 @@ DEPTHS = {
     "quick": "No cold reviewers on either side — your own read of the plan plus the automatic checks.",
     "standard": "Architecture, feasibility, product intent, risk and governance — the four-lens panel "
                 "before the seal, and three deliverable lenses after the build.",
-    "thorough": "The same four-lens panel at higher effort, and five deliverable lenses after the "
-                "build. For a plan that touches secrets, data durability, or a guardrail.",
+    "thorough": "The same four-lens panel, and five deliverable lenses after the build. For a plan "
+                "that touches secrets, data durability, or a guardrail.",
 }
 DEPTH_ORDER = ("quick", "standard", "thorough")
 
@@ -113,9 +113,36 @@ def installed_lenses(root: Path | None = None) -> list[dict]:
             if lens in found:
                 raise ProjectManagerError(f"more than one installed reviewer declares lens {lens}")
             found[lens] = {"lens": lens, "path": str(path.relative_to(base)),
-                           "digest": core.digest(path.read_bytes()),
-                           "effort": fields.get("effort")}
+                           "digest": core.digest(path.read_bytes())}
     return [found[lens] for lens in sorted(found)]
+
+
+def installed_deliverable_lenses(root: Path | None = None) -> list[dict]:
+    """The deliverable reviewers installed here, by lens — the other panel the one approval pays for.
+
+    The depth offer judges over BOTH panels, because a depth that adds nothing before the seal may
+    still add lenses after the build; discovered the same way the plan panel is."""
+    base = Path(root) if root is not None else Path(__file__).resolve().parents[2]
+    found: dict[str, dict] = {}
+    for path in sorted((base / ".claude" / "agents").glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            continue
+        front = text.split("---\n", 2)[1]
+        fields = {}
+        for line in front.splitlines():
+            if ":" in line:
+                key, value = line.split(":", 1)
+                fields[key.strip()] = value.strip()
+        if fields.get("role") == "pre-submission-review" and fields.get("lens"):
+            found[fields["lens"]] = {"lens": fields["lens"], "path": str(path.relative_to(base))}
+    return [found[lens] for lens in sorted(found)]
+
+
+def deliverable_lens_table(root: Path | None = None) -> dict:
+    """The per-depth deliverable lens table, read from the Build protocol the coordinator runs."""
+    base = Path(root) if root is not None else Path(__file__).resolve().parents[2]
+    return core.json_file(base / ".engine" / "build-protocol.json")["deliverable_review"]
 
 
 def required_lenses(depth: str, roster: list[dict], protocol: dict | None = None) -> list[str]:
@@ -131,25 +158,6 @@ def required_lenses(depth: str, roster: list[dict], protocol: dict | None = None
     return [item["lens"] for item in roster if item["lens"] in allowed]
 
 
-_EFFORT_RANK = {None: -1, "low": 0, "medium": 1, "high": 2}
-BINDINGS_PATH = Path(__file__).resolve().parents[2] / ".engine" / "policies" / "model-bindings.json"
-
-
-def resolved_efforts(root: Path | None = None) -> dict:
-    """Each depth's RESOLVED reviewer effort — the deployment's override over the shipped default.
-
-    Not a second table. This is the same single depth dial the Build side reads, so an operator asked
-    to choose a depth here is told the effort they will actually get.
-    """
-    import agent_bindings
-    base = str(Path(root) if root is not None else Path(__file__).resolve().parents[2])
-    bindings = core.json_file(Path(base) / ".engine" / "policies" / "model-bindings.json")
-    return {depth: agent_bindings.depth_effort(depth, bindings, root=base) for depth in DEPTH_ORDER}
-
-
-_EFFORT_RANK = {"low": 0, "medium": 1, "high": 2}
-
-
 def _validate_findings(findings: list) -> None:
     """Each translated finding against the record's own finding definition, at read time."""
     schema = Path(__file__).resolve().parents[2] / ".engine" / "schemas" / "plan-record.v1.json"
@@ -157,109 +165,30 @@ def _validate_findings(findings: list) -> None:
         core.validate_part(finding, schema, "#/$defs/finding", "plan-review finding")
 
 
-def parse_delivered_efforts(values: list[str] | None, lenses: list[str]) -> dict:
-    """`--delivered-effort` into a {lens: effort} map. A bare `high` applies to every lens in this
-    record — the honest shape on the Claude arm, where one session spawns the whole panel at one effort
-    — and `<lens>=<effort>` names one. Both forms exist because both facts are real: the fan-out has a
-    single ceiling, and a reviewer may report something different from it."""
-    out: dict = {}
-    for raw in values or []:
-        if "=" in raw:
-            lens, _, effort = raw.partition("=")
-            lens, effort = lens.strip(), effort.strip()
-            if lens not in lenses:
-                raise ProjectManagerError(
-                    f"--delivered-effort names {lens}, which is not a lens in this record "
-                    f"({', '.join(lenses)})")
-            out[lens] = effort
-        else:
-            for lens in lenses:
-                out.setdefault(lens, raw.strip())
-    bad = sorted({effort for effort in out.values() if effort not in _EFFORT_RANK})
-    if bad:
-        raise ProjectManagerError("not a reasoning-effort level: " + ", ".join(bad)
-                                   + " (expected low, medium or high)")
-    return out
-
-
-def effort_shortfalls(depth: str, delivered: dict, root: Path | None = None) -> list[str]:
-    """One line per lens that reports having run below what the approved depth promises."""
-    promised = resolved_efforts(root).get(depth)
-    if not promised:
-        return []
-    return [f"{lens} reports running at {effort}, and the approved {depth} depth promises {promised}"
-            for lens, effort in sorted(delivered.items())
-            if _EFFORT_RANK.get(effort, -1) < _EFFORT_RANK.get(promised, -1)]
-
-
-def require_delivered_effort(depth: str, lenses: list[str], delivered: dict,
-                             root: Path | None = None, *, accepted: bool = False) -> None:
-    """Refuse a review record whose panel came in under the approved depth's effort.
-
-    A shortfall REFUSES but is not unrecordable: `--accept-effort-shortfall` records the honest number
-    and publishes the gap. Without that escape the only way past an honest medium panel under a thorough
-    approval was to type `high`, which is exactly the false record this gate exists to prevent.
-
-    HERE, and not at the seal, because here is where the exits are still open
-    (StarshipSuperjam/engine-template#1067). The approval freezes at the first review recorded, so a
-    seal-time refusal would leave a plan with no way out: the panel already ran, and the depth can no
-    longer be re-chosen. Refusing before the record lands keeps both honest answers available — re-run
-    the lenses at the promised effort, or go back to the operator and approve the depth this panel can
-    actually deliver. On the Claude arm a reviewer persona carries no effort of its own, so the depth
-    reaches the lens only through the session that spawned it; the value is self-reported and nothing
-    here verifies it."""
-    promised = resolved_efforts(root).get(depth)
-    if not promised or not lenses:
-        return
-    silent = [lens for lens in lenses if lens not in delivered]
-    if silent:
-        raise ProjectManagerError(
-            f"the approved {depth} depth runs its reviewers at {promised} effort, so this record has to "
-            f"say what they actually ran at. Missing for: {', '.join(silent)}. Add "
-            f"`--delivered-effort {promised}` (it applies to every lens in the record) or "
-            "`--delivered-effort <lens>=<effort>` per lens. It is self-reported — the point is that the "
-            "claim is on the record, not that anything here can check it.")
-    shortfalls = effort_shortfalls(depth, delivered, root)
-    if shortfalls and not accepted:
-        raise ProjectManagerError(
-            "this panel came in under the depth the operator approved: " + "; ".join(shortfalls)
-            + ". Three ways on, and the third is why this is a refusal rather than a wall: re-run those "
-            f"lenses at {promised} and record that; take it back to the operator and re-approve at the "
-            "depth this panel can actually deliver (the approval is still unfrozen — it freezes the "
-            "moment a review is recorded); or record it as it stands with "
-            "`--accept-effort-shortfall`, which keeps the honest number and publishes the gap in the "
-            "pull request.\n\n"
-            "That third exit exists deliberately. This value is self-reported and nothing here can check "
-            "it, so a gate whose only unblocking path was to overstate it would manufacture the very "
-            "false record it exists to prevent — the Build side has had this escape since it was built, "
-            "and the asymmetry was the defect.")
-
-
 def available_depths(roster: list[dict], protocol: dict | None = None,
-                     efforts: dict | None = None) -> list[str]:
+                     deliverable_roster: list[dict] | None = None,
+                     deliverable_protocol: dict | None = None) -> list[str]:
     """Which depths to OFFER, so the operator is never asked to choose one that buys nothing.
 
-    The 763/677 protection, moved with the consent surface. A depth is offered when, against the last
-    offered lighter one, it covers at least one lens the lighter one does not, OR the same non-empty
-    lens set at higher reviewer effort. Empty-versus-empty never distinguishes, so with no reviewers
+    The 763/677 protection, moved with the consent surface. One approval pays for two panels — this
+    one before the seal and the Build's deliverable review after it — so a depth is judged over BOTH:
+    it is offered when, against the last offered lighter one, it covers at least one lens on either
+    side that the lighter one does not. Empty-versus-empty never distinguishes, so with no reviewers
     installed only `quick` is offered. `quick` is always offered: it is the floor.
     """
     protocol = protocol or PLAN_REVIEW_LENSES
-    efforts = resolved_efforts() if efforts is None else efforts
+    if deliverable_roster is None:
+        deliverable_roster = installed_deliverable_lenses()
+    deliverable_protocol = deliverable_protocol or deliverable_lens_table()
     offered: list[str] = []
-    last: tuple[frozenset, str | None] | None = None
+    last: frozenset | None = None
     for depth in DEPTH_ORDER:
-        lenses = frozenset(required_lenses(depth, roster, protocol))
-        effort = efforts.get(depth)
-        if last is None:
+        lenses = frozenset(required_lenses(depth, roster, protocol)) | frozenset(
+            "deliverable:" + lens
+            for lens in required_lenses(depth, deliverable_roster, deliverable_protocol))
+        if last is None or (lenses - last):
             offered.append(depth)
-            last = (lenses, effort)
-            continue
-        last_lenses, last_effort = last
-        if (lenses - last_lenses) or (lenses == last_lenses and lenses
-                                      and _EFFORT_RANK.get(effort, -1) > _EFFORT_RANK.get(last_effort, -1)):
-            offered.append(depth)
-            last = (lenses, effort)
+            last = lenses
     return offered
 
 
@@ -459,7 +388,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         return (f"run the one cold plan review against the approved revision:\n"
                 f"    project_manager.py review packet {plan} --output <packet.md>\n"
                 f"    project_manager.py review record {plan} --packet-digest <digest from the packet> "
-                f"--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
+                f"--lens <lens> --findings <findings.json>")
     if status == "awaiting-approval":
         return (f"present the full revision — and stop there. Invite the operator's questions, take their "
                 f"revisions, and say nothing about approval yet:\n"
@@ -532,19 +461,22 @@ def cmd_depths(args) -> int:
             "has read is the failure this refusal exists to prevent.)")
     blockers = plan_contract.seal_blockers(library.head(slug))
     roster = installed_lenses()
-    efforts = resolved_efforts()
-    offered = available_depths(roster, efforts=efforts)
+    deliverable_roster = installed_deliverable_lenses()
+    deliverable_table = deliverable_lens_table()
+    offered = available_depths(roster, deliverable_roster=deliverable_roster,
+                               deliverable_protocol=deliverable_table)
     print(f"review depths for {record['plan_id']} at revision {record['current']['revision']}")
-    print("(only those that add coverage or effort over a lighter one):\n")
+    print("(only those that add coverage over a lighter one):\n")
     for name in offered:
         lenses = required_lenses(name, roster)
         print(f"  {name:<10} {DEPTHS[name]}")
-        effort = efforts.get(name)
         if lenses:
-            print(f"             lenses: {', '.join(lenses)}"
-                  + (f" — reviewer effort {effort}" if effort else ""))
+            print(f"             lenses: {', '.join(lenses)}")
         else:
             print("             no cold plan reviewers; your own read is the review")
+        after = required_lenses(name, deliverable_roster, deliverable_table)
+        if after:
+            print(f"             deliverable lenses after the build: {', '.join(after)}")
     suppressed = [d for d in DEPTH_ORDER if d not in offered]
     if suppressed:
         print("\nnot offered, because it would run what a lighter depth already runs: "
@@ -764,7 +696,7 @@ def cmd_approve(args) -> int:
     print(f"\nnext: cut the packet and run the one cold plan review against this revision:\n"
           f"    project_manager.py review packet {args.plan} --output <packet.md>\n"
           f"    project_manager.py review record {args.plan} --packet-digest <digest> "
-          f"--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
+          f"--lens <lens> --findings <findings.json>")
     return 0
 
 
@@ -891,16 +823,12 @@ def cmd_review_record(args) -> int:
               "until they are covered. This record is NOT spent — run the missing lenses and add them:\n"
               f"    project_manager.py review amend {args.plan} --lens <lens> "
               f"--packet-digest {args.packet_digest} --findings <findings.json> "
-              "--delivered-effort <low|medium|high> "
               "--reason \"<why this is being completed now>\"\n"
               "  Amendment is possible until the first finding is dispositioned.", file=sys.stderr)
     # The findings fail on their own terms, here, before any ceremony gate: a mistyped severity should
     # be reported as a mistyped severity, not survive to the write and surface as a complaint about the
     # enclosing record — and not be pre-empted by a flag the author has not reached yet.
     _validate_findings(findings)
-    delivered = parse_delivered_efforts(getattr(args, "delivered_effort", None), list(args.lens))
-    accepted = bool(getattr(args, "accept_effort_shortfall", False))
-    require_delivered_effort(approval["depth"], list(args.lens), delivered, accepted=accepted)
     review = {
         "revision": approval["revision"],
         "plan_digest": approval["plan_digest"],
@@ -908,8 +836,6 @@ def cmd_review_record(args) -> int:
         "at": _now(),
         "lenses": list(args.lens),
         "findings": findings,
-        "delivered_efforts": delivered,
-        "effort_shortfall_accepted": bool(accepted and effort_shortfalls(approval["depth"], delivered)),
     }
     def record_review(current):
         # INSIDE the lock. Recording a review does not mint a revision, so the compare-and-swap on
@@ -953,7 +879,7 @@ def cmd_review_amend(args) -> int:
         raise ProjectManagerError(
             f"no plan review is recorded, so there is nothing to amend. Record one first:\n"
             f"    project_manager.py review record {args.plan} --packet-digest <digest> "
-            "--lens <lens> --findings <findings.json> --delivered-effort <low|medium|high>")
+            "--lens <lens> --findings <findings.json>")
     frozen = plan_lifecycle.frozen_reason(record, "plan_review")
     if frozen:
         raise ProjectManagerError("this review can no longer be amended: " + frozen)
@@ -964,18 +890,6 @@ def cmd_review_amend(args) -> int:
             "plan, and folding it in here would put two referents behind one receipt. Re-run it "
             f"against the recorded packet, or `review packet {args.plan}` again and check they match.")
     added_lenses = [lens for lens in (args.lens or []) if lens not in review["lenses"]]
-    # An amendment adds lenses, so it carries the same obligation the record does: a lens joining the
-    # review must say what it ran at, checked against the same approved depth.
-    added_efforts = parse_delivered_efforts(getattr(args, "delivered_effort", None), added_lenses)
-    if added_lenses:
-        require_delivered_effort(record["approval"]["depth"], added_lenses, added_efforts,
-                                 accepted=bool(getattr(args, "accept_effort_shortfall", False)))
-    # An amendment that USED the shortfall escape has to leave the same acknowledgement the record verb
-    # leaves. Passing the flag to the refusal and not writing it down produced the one state the
-    # disclosure cannot describe: a gap on the record with nothing saying anyone accepted it.
-    amended_shortfall = bool(added_lenses
-                             and getattr(args, "accept_effort_shortfall", False)
-                             and effort_shortfalls(record["approval"]["depth"], added_efforts))
     added = plan_lifecycle.translate_findings(
         json.loads(core.input_text(args.findings)) if args.findings else [],
         lenses=list(args.lens or review["lenses"]))
@@ -997,9 +911,6 @@ def cmd_review_amend(args) -> int:
                 "prepared; re-read it before deciding what to do next")
         current["plan_review"]["lenses"] = current["plan_review"]["lenses"] + added_lenses
         current["plan_review"].setdefault("findings", []).extend(added)
-        current["plan_review"].setdefault("delivered_efforts", {}).update(added_efforts)
-        if amended_shortfall:
-            current["plan_review"]["effort_shortfall_accepted"] = True
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
@@ -1212,21 +1123,6 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
                 f"approved {depth} depth requires {', '.join(required)}: missing {', '.join(gap)}. "
                 "Run the missing lenses and record them, or re-approve at a depth that matches what "
                 "you actually intend to run.")
-    if review and required and "delivered_efforts" in review:
-        # A COHERENCE check, never a level check. The level was gated at `review record`, where the
-        # exits still existed; re-gating it here would only wedge a plan whose panel already ran. What
-        # the seal owes is that a record which HAS started stating delivered effort states it for every
-        # lens it seals — a half-filled map would publish a depth promise as met for lenses that never
-        # said so. A record with no map at all predates the field and is disclosed as unrecorded, not
-        # refused: the Build's pull-request body carries that honestly
-        # (StarshipSuperjam/engine-template#1067).
-        efforts = review["delivered_efforts"]
-        silent = [lens for lens in review.get("lenses", []) if lens not in efforts]
-        if silent:
-            refusals.append(
-                "this review records the effort some of its lenses delivered but not all of them, so the "
-                f"seal would publish an approved {depth} depth as met by lenses that never said what they "
-                "ran at: " + ", ".join(silent) + ". Record them with `review amend --delivered-effort`.")
     if review:
         outstanding = [f["id"] for f in review.get("findings", []) if not f.get("disposition")]
         if outstanding:
@@ -2223,12 +2119,6 @@ def build_parser() -> argparse.ArgumentParser:
                                                   "the record shape (id, lens, severity, summary) or "
                                                   "plan-review-finding.v1 (severity, message, location), "
                                                   "which the reviewer personas emit and which is mapped")
-    record_review.add_argument("--accept-effort-shortfall", action="store_true",
-                            help="Record a panel that came in UNDER the approved depth, keeping the honest number. The gap is published in the pull request.")
-    record_review.add_argument("--delivered-effort", action="append",
-                            help="The reasoning effort a reviewer actually ran at, self-reported. "
-                                 "A bare level (`high`) applies to every lens named here; "
-                                 "`<lens>=<level>` names one. Checked against the approved depth.")
     record_review.set_defaults(func=cmd_review_record)
     amend_review = review.add_parser(
         "amend", help="complete or correct the recorded review, until its first finding is dispositioned")
@@ -2239,12 +2129,6 @@ def build_parser() -> argparse.ArgumentParser:
                               help="must equal the recorded review's packet digest — a lens that read a "
                                    "different packet did not review the same plan")
     amend_review.add_argument("--findings", help="a JSON array of findings to ADD (never to replace)")
-    amend_review.add_argument("--accept-effort-shortfall", action="store_true",
-                            help="Record a panel that came in UNDER the approved depth, keeping the honest number. The gap is published in the pull request.")
-    amend_review.add_argument("--delivered-effort", action="append",
-                            help="The reasoning effort a reviewer actually ran at, self-reported. "
-                                 "A bare level (`high`) applies to every lens named here; "
-                                 "`<lens>=<level>` names one. Checked against the approved depth.")
     amend_review.add_argument("--reason", required=True, help="why this review is being completed now")
     amend_review.set_defaults(func=cmd_review_amend)
 
