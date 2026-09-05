@@ -9384,6 +9384,7 @@
           "tool:build_review_range",
           "tool:build_state_store",
           "tool:ci_gatekeeper",
+          "tool:close_linkage_preflight",
           "tool:derived_state",
           "tool:executor_eligibility",
           "tool:executor_records",
@@ -9405,7 +9406,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:1c57d184a1957d6a5fac4d77d3259b8590ea38a3054173686136c3ed2cfeea9c",
+        "fingerprint": "sha256:ded4fc016f17643f628dd6c74f26808caff35231e65db86731d6232240223468",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -15967,6 +15968,7 @@
           "tool:build_coordinator_github",
           "tool:build_state_store",
           "tool:checkout_health",
+          "tool:close_linkage_preflight",
           "tool:derived_state",
           "tool:hooks",
           "tool:plan_contract",
@@ -15982,7 +15984,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:4e1e74639c029b65d349dc142f1f777a5aa3866c0a2ccda3b73b81d2f3f30356",
+        "fingerprint": "sha256:acd48649dd5c1bea36f180c2a46298caef9453e849ed12aff8a8e8d921604602",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
