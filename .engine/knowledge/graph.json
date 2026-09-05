@@ -6277,7 +6277,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:40ab32fbe3f5237342b3d20f4a7cdf16ff9fcf368af2cce6ce7d5c180a7f5e95",
+        "fingerprint": "sha256:924a112ec76099bf9e04fcac0b62296ac521c45940c0f4eb8d724270d5fc6da4",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -10886,7 +10886,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:modes"
+          "tool:modes",
+          "tool:plan_store"
         ],
         "provided_by": [
           "module:core"
@@ -10894,11 +10895,11 @@
       },
       "slug": "demo_build_entry_depth_gate",
       "source": {
-        "fingerprint": "sha256:beb411ed441221ee1a8976bfab43e35afe70c8e84e345aa9d1d733d3514dafb1",
+        "fingerprint": "sha256:b8b20444788913ca7ce1e735fc4323c504b8e5515587e3e9c25fbc1238942de4",
         "path": ".engine/tools/demo_build_entry_depth_gate.py"
       },
       "status": "active",
-      "summary": "Operator-runnable demo: accepting a plan does not start building it.",
+      "summary": "Operator-runnable demo: accepting a plan lands it on the shelf — and does not start building it.",
       "type": "tool"
     },
     {
@@ -13483,7 +13484,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:304a96c8a23d4aa2dce710859be7a355fc332f4a95cc661d2e65e6756b0b4f00",
+        "fingerprint": "sha256:e66829e63402e2456b1c24ff095e2d372ad91c724400b1cf4d6d5490773cb645",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -18404,7 +18405,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:de1c13f371a1820c0390eaf8619a1520bbeed7960c7da20fc3636193f82ce022",
+        "fingerprint": "sha256:364fe80e21a76a5f33426fea173778eff50f3892346054c81307aa1e865603ad",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
