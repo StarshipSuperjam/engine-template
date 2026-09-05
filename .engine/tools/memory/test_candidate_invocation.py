@@ -661,21 +661,10 @@ def classify_outcome(observation: dict) -> dict:
     return {"class": "not-reproduced", "label": "healthy"}
 
 
-def recall_acceptance_probe(observation: dict, nonce: str) -> dict:
-    """The DESIRED behavior — meaning-based recall returns the seeded conversation — evaluated and RECORDED
-    with its actual result. This is the probe the fix child will run as its acceptance test; here it is
-    preserved, never asserted and never skipped."""
-    entry = observation.get("tools", {}).get("recall-by-meaning")
-    if entry is None:
-        return {"passed": False, "detail": "recall-by-meaning was not offered by the launched server"}
-    if entry.get("is_error"):
-        return {"passed": False, "detail": "recall-by-meaning answered with an error"}
-    payload = entry.get("payload") or {}
-    if payload.get("unavailable"):
-        return {"passed": False, "detail": f"recall-by-meaning reported itself unavailable: {payload['unavailable'][:120]}"}
-    found = any(nonce in (hit.get("passage") or hit.get("text") or "") for hit in payload.get("results", []))
-    return {"passed": found, "detail": "the seeded conversation was recalled by meaning" if found
-            else "recall-by-meaning answered but did not return the seeded conversation"}
+# The DESIRED behavior — meaning-based recall returns the seeded conversation — lives in its own uncollected
+# carrier module (memory/recall_acceptance_probe.py): the fix child imports and asserts it; this harness only
+# evaluates it and RECORDS its actual result, never asserted, never skipped.
+from memory.recall_acceptance_probe import recall_acceptance_probe  # noqa: E402
 
 
 class CounterfeitReproductionTests(unittest.TestCase):
