@@ -623,7 +623,7 @@ def _forward_signal(proc, signum) -> None:
     default disposition would have done (SIGINT interrupts, SIGTERM terminates with the conventional
     128+signal status). The handlers are installed before the spawn so the child inherits a caught handler
     (reset to default across exec) rather than an ignore (preserved across exec); this pre-spawn branch keeps
-    that window from swallowing a signal or leaving a launcher nothing can stop (#1188)."""
+    that window from swallowing a signal or leaving a launcher nothing can stop (StarshipSuperjam/engine-template#1188)."""
     if proc is None:
         if signum == signal.SIGINT:
             raise KeyboardInterrupt
@@ -905,7 +905,7 @@ def _run_parent(args: argparse.Namespace) -> int:
     sel = selectors.DefaultSelector()
     proc = None
     try:
-        # The forwarding handlers go in BEFORE the child is spawned (#1188). A signal disposition inherits
+        # The forwarding handlers go in BEFORE the child is spawned (StarshipSuperjam/engine-template#1188). A signal disposition inherits
         # across exec, and the two kinds inherit differently: a CAUGHT handler resets to the default in the
         # new program, while an IGNORE is preserved. A POSIX shell starts a `cmd &` job with SIGINT ignored,
         # so a launcher that spawned first handed that ignore straight to the suite, and the SIGINT it later
