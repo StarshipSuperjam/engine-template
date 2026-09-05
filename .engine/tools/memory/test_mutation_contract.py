@@ -568,6 +568,8 @@ _ATTENDED_WRITE_ROOT_CLOSURES = {
     'semantic-passages-drop': ('semantic-passages-drop',),
     'semantic-store-connect': ('semantic-store-connect',),
     'semantic-store-reconcile': ('semantic-store-reconcile',),
+    'stranding-log-append': ('stranding-log-append',),
+    'stranding-log-export': ('stranding-log-export',),
     'telemetry-finding-emit': ('telemetry-finding-emit',),
     'vault-blob-create': ('vault-blob-create',),
     'vault-commit-build': ('vault-blob-create', 'vault-commit-build'),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import gc
+import inspect
 import json
 import os
 import subprocess
@@ -837,6 +838,155 @@ class RaiseSiteTaxonomyEnumerationTests(unittest.TestCase):
         self.assertEqual(offenders, [], f"unsanctioned raise classes: {offenders}")
         # Guard the guard: if a refactor stopped the family from being raised, this must not pass vacuously.
         self.assertGreater(family, 30)
+
+
+from memory import stranding_log as _stranding_log  # noqa: E402 — the writer under test below
+
+
+class StrandingLogAuthorityTests(unittest.TestCase):
+    """The diagnostic-private tier (program prg_d15d7dc8f3df, C1): the stranding log must RECORD in exactly
+    the sessions where the ordinary guard cannot finish — and it must be able to write nothing else.
+
+    `mutation_scope` reads the context, opens the store lock and refreshes authority before it routes an
+    ordinary degraded-allowed writer, catching only ContextError on the way, so a lock that cannot be taken
+    or a refresh that raises anything else stops such a writer cold. The early route for
+    `DIAGNOSTIC_PRIVATE_ENTRY_IDS` never enters those steps. These tests inject each failure in turn and
+    assert the record still lands — and that the failing step was not even attempted."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="engine-stranding-")
+        self.path = os.path.join(self.temp.name, "stranding-log.ndjson")
+        self.fixture = None
+        mutation_authority._THREAD.state = None
+
+    def tearDown(self):
+        if self.fixture is not None:
+            self.fixture.cleanup()
+        mutation_authority._THREAD.state = None
+        execution_context._CURRENT_CONTEXT = None
+        os.environ.pop(execution_context.CONTEXT_ENV, None)
+        self.temp.cleanup()
+
+    def _fault(self):
+        try:
+            raise RuntimeError("a fault whose message must never be recorded")
+        except RuntimeError as exc:
+            return exc
+
+    def _records(self):
+        if not os.path.exists(self.path):
+            return []
+        with open(self.path, encoding="utf-8") as handle:
+            return [json.loads(line) for line in handle if line.strip()]
+
+    def _install_qualified(self):
+        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture.install()
+
+    def test_records_with_no_execution_context_at_all(self):
+        self.assertTrue(_stranding_log.record_stranding(
+            _stranding_log.Event.TOOL_FAULT, self._fault(), path=self.path))
+        (record,) = self._records()
+        self.assertEqual(record["event"], "tool-fault")
+        self.assertEqual(record["qualification"], "none")
+
+    def test_records_under_a_genuinely_stale_typed_context(self):
+        self._install_qualified()
+        activation = os.path.join(self.fixture.common, "engine", "accepted-hooks", "activation.json")
+        document = json.loads(Path(activation).read_text(encoding="utf-8"))
+        document["epoch"] = 2
+        Path(activation).write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+        with self.assertRaises(execution_context.ActivationStale):
+            execution_context.revalidate_context(self.fixture.context)  # the staleness is real, not mocked
+        self.assertTrue(_stranding_log.record_stranding(
+            _stranding_log.Event.READ_DEGRADED, self._fault(), path=self.path))
+        self.assertEqual(len(self._records()), 1)
+
+    def test_records_when_the_authority_refresh_raises_something_unexpected(self):
+        self._install_qualified()
+        with mock.patch.object(execution_context, "refresh_for_operation",
+                               side_effect=RuntimeError("refresh exploded")) as refresh, \
+             mock.patch.object(execution_context, "revalidate_context",
+                               side_effect=RuntimeError("revalidate exploded")) as revalidate:
+            self.assertTrue(_stranding_log.record_stranding(
+                _stranding_log.Event.TOOL_FAULT, self._fault(), path=self.path))
+        refresh.assert_not_called()
+        revalidate.assert_not_called()
+        self.assertEqual(len(self._records()), 1)
+
+    def test_records_when_the_store_lock_cannot_be_taken(self):
+        """The writer never needs the store lock. The real `_open_store_lock` BLOCKS rather than raising,
+        so this injects the failure the ordinary path would otherwise sit in and proves the diagnostic
+        route never reaches that step at all (the mock is not called) — the record lands regardless."""
+        self._install_qualified()
+        with mock.patch.object(mutation_authority, "_open_store_lock",
+                               side_effect=OSError(11, "store lock busy")) as lock:
+            self.assertTrue(_stranding_log.record_stranding(
+                _stranding_log.Event.TOOL_FAULT, self._fault(), path=self.path))
+        lock.assert_not_called()
+        self.assertEqual(len(self._records()), 1)
+
+    def test_a_guard_fault_that_is_not_a_context_error_stays_inside_the_boundary(self):
+        with mock.patch.object(mutation_authority, "_entry", side_effect=RuntimeError("registry exploded")):
+            self.assertFalse(_stranding_log.record_stranding(
+                _stranding_log.Event.TOOL_FAULT, self._fault(), path=self.path))
+        with mock.patch.object(mutation_contract, "classify", side_effect=RuntimeError("classify exploded")):
+            self.assertFalse(_stranding_log.record_stranding(
+                _stranding_log.Event.TOOL_FAULT, self._fault(), path=self.path))
+        self.assertEqual(self._records(), [])
+
+    def test_the_early_route_leaves_an_enclosing_scope_untouched(self):
+        with mutation_authority.test_scope("attended"):
+            before = mutation_authority._THREAD.state
+            self.assertTrue(_stranding_log.record_stranding(_stranding_log.Event.SELF_CHECK, path=self.path))
+            self.assertIs(mutation_authority._THREAD.state, before)
+
+    def test_the_writer_reaches_only_its_own_sink_outside_the_test_harness(self):
+        """Authority narrowness. With the test-harness allowance switched off — the production shape — a
+        caller-supplied path, even one aimed at a ledger, is ignored and the record lands in the sink."""
+        root = os.path.realpath(self.temp.name)
+        sink = os.path.join(root, ".engine", "telemetry", ".cache", "stranding-log.ndjson")
+        elsewhere = os.path.join(root, ".engine", "memory", "ledger.ndjson")
+        outside = os.path.join(os.path.realpath(tempfile.gettempdir()), "engine-stranding-outside.ndjson")
+        os.makedirs(os.path.dirname(elsewhere))
+        with mock.patch.object(_stranding_log, "_test_path_allowed", return_value=False), \
+             mock.patch.object(_stranding_log, "_project_root", return_value=root):
+            # The derived sink is the only destination; a caller-supplied path aimed at the ledger is ignored.
+            self.assertTrue(_stranding_log.record_stranding(
+                _stranding_log.Event.TOOL_FAULT, self._fault(), path=elsewhere))
+            self.assertTrue(os.path.exists(sink))
+            self.assertFalse(os.path.exists(elsewhere))
+            self.assertEqual(os.listdir(os.path.dirname(elsewhere)), [])
+            # And a sink that would resolve OUTSIDE the project root is refused, not written.
+            with mock.patch.object(_stranding_log, "sink_path", return_value=outside):
+                self.assertFalse(_stranding_log.record_stranding(
+                    _stranding_log.Event.TOOL_FAULT, self._fault()))
+            self.assertFalse(os.path.exists(outside))
+        # The writer's shape admits no other destination: one line, and the test-only path.
+        self.assertEqual(list(inspect.signature(_stranding_log._append).parameters), ["line", "path"])
+
+    def test_the_tier_is_declared_closed_and_the_module_is_censused(self):
+        entry = mutation_contract.entry_by_id(_stranding_log.APPEND_REGISTRY_ID)
+        self.assertEqual(mutation_contract.DIAGNOSTIC_PRIVATE_ENTRY_IDS,
+                         frozenset({_stranding_log.APPEND_REGISTRY_ID}))
+        self.assertEqual(mutation_contract.degraded_disposition(entry), "allow")
+        self.assertEqual(entry["declared_cardinality"]["maximum"], 1)
+        self.assertEqual(getattr(_stranding_log._append, "__engine_registry_id__", None),
+                         _stranding_log.APPEND_REGISTRY_ID)
+        export = mutation_contract.entry_by_id(_stranding_log.EXPORT_REGISTRY_ID)
+        self.assertEqual(getattr(_stranding_log._export_write, "__engine_registry_id__", None),
+                         _stranding_log.EXPORT_REGISTRY_ID)
+        # The export is an ordinary export artifact: no early route, refused unqualified.
+        self.assertNotIn(_stranding_log.EXPORT_REGISTRY_ID, mutation_contract.DIAGNOSTIC_PRIVATE_ENTRY_IDS)
+        self.assertEqual(mutation_contract.degraded_disposition(export), "refuse")
+        module_path = os.path.join(TOOLS, "memory", "stranding_log.py")
+        self.assertEqual(mutation_contract.coverage_failures([(module_path, "memory.stranding_log")]), [])
+
+    def test_a_test_that_names_no_file_records_nothing(self):
+        sink = os.path.join(self.temp.name, "never.ndjson")
+        with mock.patch.object(_stranding_log, "sink_path", return_value=sink):
+            self.assertFalse(_stranding_log.record_stranding(_stranding_log.Event.SELF_CHECK))
+        self.assertFalse(os.path.exists(sink))
 
 
 if __name__ == "__main__":

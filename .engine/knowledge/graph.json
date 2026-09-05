@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:1235ea2244fdf0c19efdc050df30771de268643778428b1c94ab246160c33a61",
+        "fingerprint": "sha256:80a428ccc0202324868f2c81a2a99d58b6feb004cd1d1bfa289f5fd62e4a25c7",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -13146,7 +13146,8 @@
           "tool:pins",
           "tool:recall",
           "tool:records",
-          "tool:store"
+          "tool:store",
+          "tool:stranding_log"
         ],
         "provided_by": [
           "module:memory-substrate-sqlite-fts5"
@@ -13154,7 +13155,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:e5cc11997628e087ec955e67c28ac6d856e57ef7bbaf6eab001254fd4aed92bc",
+        "fingerprint": "sha256:f4ac520d8fd2950700daa523f2ca16de57251a7c83abfc3d2d223d57860220d3",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13534,7 +13535,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:0002b84130308bea342fa8258402a0c0b83e26957c8a5199519b19cd609820c6",
+        "fingerprint": "sha256:2245e4824a7614e8a00aa2f4235270fac2ef3791afa78239c8acdb3527fbd4d8",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13554,7 +13555,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:9e5991cfacf7e2145f640118e6c604683f9a5806067130cf72bb49c3091e6b50",
+        "fingerprint": "sha256:6b5cb6ab81a3723f6648d1cbee6d1963309afb28b6eebff0bb4bc1e3995e775b",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -14316,6 +14317,26 @@
       },
       "status": "active",
       "summary": "recall.py — the transcript-window reader (memory-substrate-sqlite-fts5).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:recall_acceptance_probe",
+      "name": ".engine/tools/memory/recall_acceptance_probe.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "recall_acceptance_probe",
+      "source": {
+        "fingerprint": "sha256:8c8f307f1238ae389d8b2f45c256b8bc8b624d3081a0f7bd9c44b2eb0cd23c25",
+        "path": ".engine/tools/memory/recall_acceptance_probe.py"
+      },
+      "status": "active",
+      "summary": "The recall acceptance probe — the DESIRED behavior, kept where the standard suite will not run it.",
       "type": "tool"
     },
     {
@@ -15332,6 +15353,30 @@
     {
       "entrypoint": "cli",
       "guarded": false,
+      "id": "tool:stranding_log",
+      "name": ".engine/tools/memory/stranding_log.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:mutation_authority",
+          "tool:mutation_contract"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "stranding_log",
+      "source": {
+        "fingerprint": "sha256:697e4152d3f62f126bc10e7b84cc6fd50f939ac5c7cf003caeb06821763b4370",
+        "path": ".engine/tools/memory/stranding_log.py"
+      },
+      "status": "active",
+      "summary": "The stranding log — a narrowly authorized, no-throw diagnostic path for the memory server.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
       "id": "tool:submit",
       "name": ".engine/tools/external_contribution/submit.py",
       "owner": "external-contribution",
@@ -16191,12 +16236,14 @@
         ],
         "tests": [
           "tool:accepted_hook_dispatch",
-          "tool:execution_context"
+          "tool:execution_context",
+          "tool:recall_acceptance_probe",
+          "tool:records"
         ]
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:6cfd1150a96ca6d951806d12a9527f8d9007ed675250e2bebc62140efa9011e1",
+        "fingerprint": "sha256:c37ea41801439b7f33730d4582abec931f384d492ca9210aabf327c92b06c4a4",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -18051,13 +18098,14 @@
           "tool:mutation_contract",
           "tool:pins",
           "tool:records",
+          "tool:stranding_log",
           "tool:test_mutation_authority",
           "tool:validate"
         ]
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:7fffbcd1fb153c1924bdcb2eb6ba02efcb1d19f46674c91a7f872a98d51b86f6",
+        "fingerprint": "sha256:f5387431fe49d17aff54edaf1dc7f01b7ff257687cff6a1fe52500c1043d930c",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18332,12 +18380,13 @@
           "tool:mutation_authority",
           "tool:mutation_contract",
           "tool:pins",
-          "tool:records"
+          "tool:records",
+          "tool:stranding_log"
         ]
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:78bd1e71e22022e26651deb39f612ff5045490e1cc90dc59dbe24082189460f1",
+        "fingerprint": "sha256:17e4630ef2c9aff7c6d388b921e2fd2cb463bc3e76c7aed6c26a5f0a056c1133",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -18365,7 +18414,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:40265f69fe2fc808407af5d9a5c85a826d75e283536630110399450dde0562de",
+        "fingerprint": "sha256:ea1ce9706c5211b11e0f87a997e6f52cdcd1de073ef70466324e0f82224bf548",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",

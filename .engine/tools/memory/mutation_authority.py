@@ -700,6 +700,20 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
     """Hold one coherent outer lock and consume this exact writer's one-shot subgrant."""
     entry = _entry(entry_id)
     measured = _measured_cardinality(entry, args, kwargs)
+    if entry_id in mutation_contract.DIAGNOSTIC_PRIVATE_ENTRY_IDS:
+        # The narrowly authorized diagnostic tier, routed BEFORE any context is read, any store lock is
+        # taken, or any authority is refreshed — every one of those is a step that can itself fail in a
+        # stranded session, and a diagnostic that dies on the guard records nothing about the fault it exists
+        # to record (StarshipSuperjam/engine-template program prg_d15d7dc8f3df, C1). The early route is safe
+        # only because the tier is narrow by construction (the registry says which writers qualify and why):
+        # the writer's sole destination is its own gitignored file and it takes no destination argument, so
+        # this receipt is a door to nothing beneath it. It is still classified (cardinality, mode) — it is
+        # early, not unchecked — and it neither reads nor replaces `_THREAD.state`, so a diagnostic taken
+        # inside another writer's scope leaves that scope exactly as it found it. This is the ONE bypass of
+        # the scope rules below — including a terminal-attended verb's "only its own writes" contract and a
+        # test scope's test receipt — and it is bypassed for a file no scope could reach anyway.
+        yield _degraded_receipt(entry, _default_mode(entry), measured)
+        return
     state = getattr(_THREAD, "state", None)
     if state is not None:
         if state.get("test_only"):

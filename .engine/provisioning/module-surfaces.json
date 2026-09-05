@@ -1791,6 +1791,9 @@
   ".engine/tools/memory/recall.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/recall_acceptance_probe.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/records.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1831,6 +1834,9 @@
    "memory-semantic-recall"
   ],
   ".engine/tools/memory/snapshot_format.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/stranding_log.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_backup_vault.py": [
