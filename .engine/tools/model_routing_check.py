@@ -3,7 +3,7 @@
 
 Three conditions, each a hard finding:
 
-  1. `.engine/policies/model-routing.json` loads as model-routing.v1. At boot a file that does not load
+  1. `.engine/policies/model-routing-postures.json` loads as model-routing.v1. At boot a file that does not load
      silently drops the engine to its built-in conservative default — safe, but an operator edit that
      never took effect; the merge is where that is caught.
   2. The policy page's generated posture region matches what the data renders.

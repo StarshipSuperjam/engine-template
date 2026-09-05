@@ -72,7 +72,7 @@ def genesis_baseline() -> dict:
 ENVIRONMENTS = ("claude", "codex")
 _BASELINE_REL = os.path.join(".engine", "state", "execution.json")
 _POLICY_REL = os.path.join(".engine", "policies", "model-routing.md")          # the page; carries a generated projection
-_ROUTING_REL = os.path.join(".engine", "policies", "model-routing.json")        # the data the engine loads
+_ROUTING_REL = os.path.join(".engine", "policies", "model-routing-postures.json")        # the data the engine loads
 _ROUTING_SCHEMA_REL = os.path.join(".engine", "schemas", "model-routing.v1.json")
 #: Input-substitution seam for the negative-fixture meta-check (unset in production): points the loader at a
 #: seeded bad routing file so engine/check/model-routing is witnessed biting.
@@ -83,7 +83,7 @@ POSTURE_REGION_BEGIN = "<!-- generated: model-routing postures (execution_enviro
 POSTURE_REGION_END = "<!-- /generated: model-routing postures -->"
 
 # The safe fallback posture — always available in code, so the engine has careful guidance even when the
-# routing data is missing or unparseable. The operator tunes the posture lines in model-routing.json;
+# routing data is missing or unparseable. The operator tunes the posture lines in model-routing-postures.json;
 # this constant is the floor beneath it, never a "future" placeholder.
 _CONSERVATIVE_DEFAULT = [
     "Execution environment is not a verified qualified match here — run your full, careful ceremony.",
@@ -243,7 +243,7 @@ def compare(observed: dict, baseline: dict) -> dict:
 
 
 class RoutingUnreadable(Exception):
-    """Raised by load_routing_strict when model-routing.json is missing, unparseable, or off schema. The boot
+    """Raised by load_routing_strict when model-routing-postures.json is missing, unparseable, or off schema. The boot
     path never sees it — load_routing swallows it into None — the merge check reports it."""
 
 
@@ -255,7 +255,7 @@ def _routing_path(root: str) -> str:
 
 
 def load_routing_strict(root: str | None = None) -> dict:
-    """model-routing.json validated against model-routing.v1, or RoutingUnreadable naming the miss."""
+    """model-routing-postures.json validated against model-routing.v1, or RoutingUnreadable naming the miss."""
     root = root or _repo_root()
     path = _routing_path(root)
     try:
@@ -287,7 +287,7 @@ def load_routing(root: str | None = None) -> dict | None:
 
 def resolve_posture(posture: str, root: str | None = None) -> list[str]:
     """The self-instruction lines the engine loads for a posture. A 'matched' environment loads the
-    operator-authored qualified lines from model-routing.json (or the safe constant if the data is absent
+    operator-authored qualified lines from model-routing-postures.json (or the safe constant if the data is absent
     or malformed); every other posture loads the conservative default. Never raises."""
     root = root or _repo_root()
     key = "qualified" if posture == "matched" else "conservative-default"

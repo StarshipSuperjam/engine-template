@@ -438,7 +438,7 @@ class TestBootPostureRelay(unittest.TestCase):
 
 
 class TestRoutingData(unittest.TestCase):
-    """The posture lines are schema-checked data (model-routing.json): the boot-facing loader returns None
+    """The posture lines are schema-checked data (model-routing-postures.json): the boot-facing loader returns None
     on ANY miss and resolve_posture falls back to the built-in conservative default; the strict loader names
     the miss for the merge check; the fence parser is gone; the page's generated region is current, drifts
     are caught, and render restores them; the registered check is green live and bites its fixture."""

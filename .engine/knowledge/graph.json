@@ -1749,7 +1749,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:8beae7464449c25986319986c56cf6b639a5299c81620a14a8dee9fb614fb03a",
+        "fingerprint": "sha256:efab6b7b5aad06afff8a3976095adfbcbe14a8387cf9554630172805c69c31ee",
         "path": ".engine/check/model-routing.json"
       },
       "status": "active",
@@ -5245,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:ce01f0ad23c5ef4969d017ebcdfc906778f2d8b9eb31eb9c022835dc2d86c178",
+        "fingerprint": "sha256:c9e7e17e463c58a1e139ae661cb7c14ff577e62b9d28b92031effcd6e4ed1c91",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5486,7 +5486,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:6c156017e8b49db5ad40e539ba8c8e5df5df355f9a0d70846088cca92bc807ae",
+        "fingerprint": "sha256:f0e3b7ca9b5a67f1f0fec3ed81f1e743a22f79692181f9ca7a50ef047e8b612f",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6644,11 +6644,31 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:e45e79abeb13f583fb43b66e7cd992c1cf7a7581ddaf639a0c300143e39ce109",
+        "fingerprint": "sha256:35714e3b622463577b91efb2bb6544ac5448a6ec16d74a839576ce16144beaa8",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
       "title": "Model routing and execution posture",
+      "type": "policy"
+    },
+    {
+      "id": "policy:model-routing-postures",
+      "name": ".engine/policies/model-routing-postures.json",
+      "owner": "core",
+      "predicates": {
+        "governed_by": [
+          "schema:policy.v1"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "model-routing-postures",
+      "source": {
+        "fingerprint": "sha256:9c69e9ea62d2f3556d436c2a4374877c5ddab8399025cdca23b3963c6cc8554e",
+        "path": ".engine/policies/model-routing-postures.json"
+      },
+      "status": "active",
       "type": "policy"
     },
     {
@@ -9350,7 +9370,7 @@
       },
       "slug": "boot",
       "source": {
-        "fingerprint": "sha256:e87c54bd060fca40b2f4b7dda38c0ab74b76c7f52c43e7db6f7b3e90e597a7f2",
+        "fingerprint": "sha256:462eae9f27eb2674498408db6c3d74575e9b98df942e151e73a36c7ad1a0805e",
         "path": ".engine/tools/boot.py"
       },
       "status": "active",
@@ -12212,7 +12232,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:72bf75cf3e025b6d8a99422b7e8a4d0470509b8ca98dd5bf0433912d8554ae69",
+        "fingerprint": "sha256:66b8e5fc89194d825bc4830d899a5efa9872655ec036025dcd0c2f6dfd5cb27c",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -13436,7 +13456,7 @@
       },
       "slug": "model_routing_check",
       "source": {
-        "fingerprint": "sha256:024a8cd1a448ce406f6d9eb1bfb66e7f25e8e259e4c2af22b86add53d90a8666",
+        "fingerprint": "sha256:1710e3ffe1242b5c6d1b043189c3785eba7a52e358d071e65865ca058e5abfc9",
         "path": ".engine/tools/model_routing_check.py"
       },
       "status": "active",
@@ -17258,7 +17278,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:278790a92f7f4b64e734b84c3a7522164f4cc6486a10f35429bf65a430805e65",
+        "fingerprint": "sha256:8bdaa7fc947ae9e260e40fabeeb47eba0868a7614a7774da1f93ee03fe8d390d",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
