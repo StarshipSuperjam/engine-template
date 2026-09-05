@@ -9406,7 +9406,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:ded4fc016f17643f628dd6c74f26808caff35231e65db86731d6232240223468",
+        "fingerprint": "sha256:f3dab11fbbeb8ca99e9d3addf0521de45d06889f98e8c89a751dfeb25ddd3724",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9536,7 +9536,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:build_coordinator_core"
+          "tool:build_coordinator_core",
+          "tool:close_linkage_preflight"
         ],
         "provided_by": [
           "module:core"
@@ -9544,7 +9545,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:262cbbeeb835e841f953791d1246ca360ddcdd43e51a27be273bb4e9b6e95ce1",
+        "fingerprint": "sha256:864e909d74d42c48405ecceaf7230813beddf70292311867e807d6ee3f7c24c5",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -9993,7 +9994,7 @@
       },
       "slug": "close_linkage_preflight",
       "source": {
-        "fingerprint": "sha256:c8d568c68813eb805ba5f62ce2e9343de02b20fa9d6e23c65a16edd036df69c9",
+        "fingerprint": "sha256:9aff15566936d8d5809080b081c0cc4be17a46ed3ea703d20423abd8a2484a01",
         "path": ".engine/tools/close_linkage_preflight.py"
       },
       "status": "active",
@@ -15984,7 +15985,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:acd48649dd5c1bea36f180c2a46298caef9453e849ed12aff8a8e8d921604602",
+        "fingerprint": "sha256:c9118cb290112ee2ed5c34bed6f89ea0cb9fc1e39d1cdc384ecae68f9fefd1d4",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16132,6 +16133,7 @@
         "tests": [
           "tool:build_coordinator",
           "tool:build_coordinator_review",
+          "tool:close_linkage_preflight",
           "tool:project_manager",
           "tool:selftest_support",
           "tool:test_build_coordinator"
@@ -16139,7 +16141,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:433b096fb7f828f0e84986dbfe2e62be94ee9c800d250ad6b13697a3ec880196",
+        "fingerprint": "sha256:4a6ba7f3efd6d881bf354a8f5a82a8c69ae2ef2de8c5ca05181eae6d8995ac48",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
