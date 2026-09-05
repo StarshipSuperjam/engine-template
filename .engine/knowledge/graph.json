@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:db69656485676762feaaedf34b02fd7974edaa29df6e9bfb22c6d9b7674864d7",
+        "fingerprint": "sha256:764b9c6391cc961fea8fbaf95a3cf8683386e14f267b104b1a85ad6ae38b8389",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -12392,7 +12392,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:31334bbeb15b223354f898a70df63723ca9012003f33320642c0209c588001a1",
+        "fingerprint": "sha256:8ea4d89ab1804dfa428cbbd813c016ac1d156583a1e2081e121714cd97fe7667",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -17316,12 +17316,13 @@
           "tool:modes",
           "tool:qualification_health",
           "tool:telemetry",
-          "tool:validate"
+          "tool:validate",
+          "tool:wiring"
         ]
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:8c7f0aedb13975edcff92e472d7f3892c2789fbdc75f73654d6dbf69444af265",
+        "fingerprint": "sha256:182494390ffcf46a36902149ad34d0ba91dd24b112ad089bd2c503d03cd15572",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
