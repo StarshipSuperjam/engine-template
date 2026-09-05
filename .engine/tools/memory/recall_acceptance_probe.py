@@ -19,16 +19,25 @@ from __future__ import annotations
 def recall_acceptance_probe(observation: dict, nonce: str) -> dict:
     """Evaluate the desired behavior over one launcher's observation (see `drive_launcher`): meaning-based
     recall answered, was available, and returned the seeded conversation carrying `nonce`. Returns
-    `{"passed": bool, "detail": str}` — the actual result, whatever it is."""
+    `{"passed": bool, "reason": str, "detail": str}` — the actual result, whatever it is. `reason` is the
+    closed-set WHY a harness can pin (`not-offered`, `error`, `semantic-unavailable`, `not-recalled`,
+    `recalled`): a probe that fails because the launcher cannot build a meaning index at all is a different
+    fact from one that fails because recall returned the wrong records, and the two must never read alike."""
     entry = observation.get("tools", {}).get("recall-by-meaning")
     if entry is None:
-        return {"passed": False, "detail": "recall-by-meaning was not offered by the launched server"}
+        return {"passed": False, "reason": "not-offered",
+                "detail": "recall-by-meaning was not offered by the launched server"}
     if entry.get("is_error"):
-        return {"passed": False, "detail": "recall-by-meaning answered with an error"}
+        return {"passed": False, "reason": "error", "detail": "recall-by-meaning answered with an error"}
     payload = entry.get("payload") or {}
     if payload.get("unavailable"):
-        return {"passed": False,
+        return {"passed": False, "reason": "semantic-unavailable",
                 "detail": f"recall-by-meaning reported itself unavailable: {payload['unavailable'][:120]}"}
-    found = any(nonce in (hit.get("passage") or hit.get("text") or "") for hit in payload.get("results", []))
-    return {"passed": found, "detail": "the seeded conversation was recalled by meaning" if found
-            else "recall-by-meaning answered but did not return the seeded conversation"}
+    # A hit carries the matched `passage` (one chunk of the record) AND the record's whole `text`; the marker
+    # may sit in either, so both are checked rather than short-circuiting on a non-empty passage.
+    found = any(nonce in (hit.get("passage") or "") or nonce in (hit.get("text") or "")
+                for hit in payload.get("results", []))
+    if found:
+        return {"passed": True, "reason": "recalled", "detail": "the seeded conversation was recalled by meaning"}
+    return {"passed": False, "reason": "not-recalled",
+            "detail": "recall-by-meaning answered but did not return the seeded conversation"}

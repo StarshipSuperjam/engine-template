@@ -76,14 +76,28 @@ class ToolWiringTests(_ServerBase):
         with mock.patch.object(index, "search", side_effect=AssertionError("health read memory")), \
              mock.patch.object(ledger, "iter_records", side_effect=AssertionError("health read ledger")):
             data = await self._call("health", {})
-        # Fixed identity plus the stranding log's readiness bit — two content-free facts (armed, tier),
-        # never a path or a record; the exact key set is pinned so nothing else can creep into health.
+        # Fixed identity plus the stranding log's readiness — three content-free facts (armed, tier, loaded
+        # code version), never a path or a record; the exact key set is pinned so nothing else can creep in.
         self.assertEqual({key: data[key] for key in ("status", "server")},
                          {"status": "ok", "server": "engine-memory"})
         self.assertEqual(set(data), {"status", "server", "diagnostics"})
-        self.assertEqual(set(data["diagnostics"]), {"armed", "qualification"})
+        self.assertEqual(set(data["diagnostics"]), {"armed", "qualification", "code_version"})
         self.assertIsInstance(data["diagnostics"]["armed"], bool)
         self.assertIn(data["diagnostics"]["qualification"], {"attended", "degraded", "none"})
+        self.assertIsNone(data["diagnostics"]["code_version"])   # in-process from a live checkout, not a tree
+        # And the answer conforms to the health operation's DECLARED output schema — the interface file says
+        # `additionalProperties: false`, so the diagnostics block has to be declared there, not just returned.
+        import validate
+        schema_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "interfaces", "search.json")
+        with open(schema_path, encoding="utf-8") as fh:
+            out_schema = next(op["output_schema"] for op in json.load(fh)["operations"] if op["name"] == "health")
+        checker = validate.Draft202012Validator(out_schema)
+        self.assertEqual(list(checker.iter_errors(data)), [])
+        tree = {**data, "diagnostics": {**data["diagnostics"], "code_version": "a" * 40 + "-" + "b" * 40}}
+        self.assertEqual(list(checker.iter_errors(tree)), [])                  # an accepted-tree launch conforms
+        self.assertTrue(list(checker.iter_errors({**data, "surprise": 1})))    # unknown keys still rejected
+        self.assertTrue(list(checker.iter_errors({"status": "ok", "server": "engine-memory"})))  # diagnostics required
 
     @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
@@ -386,14 +400,15 @@ class StdioLaunchTest(unittest.IsolatedAsyncioTestCase):
         # cannot reach it — a richer call here would hit the operator's REAL store (see stdio_health).
         engine_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         data = await mts.stdio_health(engine_dir, "tools/memory/mcp_server.py")
-        # Fixed identity plus the stranding log's readiness bit — two content-free facts (armed, tier),
-        # never a path or a record; the exact key set is pinned so nothing else can creep into health.
+        # Fixed identity plus the stranding log's readiness — three content-free facts (armed, tier, loaded
+        # code version), never a path or a record; the exact key set is pinned so nothing else can creep in.
         self.assertEqual({key: data[key] for key in ("status", "server")},
                          {"status": "ok", "server": "engine-memory"})
         self.assertEqual(set(data), {"status", "server", "diagnostics"})
-        self.assertEqual(set(data["diagnostics"]), {"armed", "qualification"})
+        self.assertEqual(set(data["diagnostics"]), {"armed", "qualification", "code_version"})
         self.assertIsInstance(data["diagnostics"]["armed"], bool)
         self.assertIn(data["diagnostics"]["qualification"], {"attended", "degraded", "none"})
+        self.assertIsNone(data["diagnostics"]["code_version"])   # launched from this checkout, not a tree
 
 
 class DemoTests(unittest.TestCase):
@@ -884,30 +899,120 @@ class StrandingLogContentSafetyTests(unittest.TestCase):
         self.assertTrue(self._record(self._fault(), path=self.path))
         self.assertEqual(len(self._records()), 2)      # no rotation below the cap
 
+    def test_reading_and_exporting_cover_the_rotated_file_first_and_then_the_live_one(self):
+        # The one record the log exists to keep can be the OLDER one after a rotation; an export that read
+        # only the live sink would silently omit it. Both files are read, oldest first.
+        older = {"schema_version": "stranding-log.v1", "ts": 1.0, "event": "tool-fault", "tool": "recall-by-meaning"}
+        newer = {"schema_version": "stranding-log.v1", "ts": 2.0, "event": "read-degraded"}
+        Path(self.path + ".1").write_text(json.dumps(older) + "\nnot json\n", encoding="utf-8")
+        Path(self.path).write_text(json.dumps(newer) + "\n", encoding="utf-8")
+        self.assertEqual([r["event"] for r in _stranding_log.read_records(path=self.path)],
+                         ["tool-fault", "read-degraded"])
+        self.assertEqual([r["event"] for r in _stranding_log.export_sanitized(path=self.path)],
+                         ["tool-fault", "read-degraded"])
+        os.unlink(self.path + ".1")
+        self.assertEqual([r["event"] for r in _stranding_log.read_records(path=self.path)], ["read-degraded"])
+
+    def test_a_short_write_is_completed_or_cut_back_and_never_fuses_two_records(self):
+        real_write = os.write
+        # write(2) storing fewer bytes than asked is legal; the writer keeps going until the line is whole.
+        with mock.patch.object(_stranding_log.os, "write", side_effect=lambda fd, data: real_write(fd, data[:7])):
+            self.assertTrue(self._record(self._fault(), tool="search", path=self.path))
+        (first,) = self._records()
+        self.assertEqual(first["tool"], "search")
+        # A short write that then fails outright: the partial line is cut back, the miss is honest (False),
+        # and the NEXT good record parses on its own line instead of fusing with the fragment.
+        calls = []
+
+        def short_then_fail(fd, data):
+            calls.append(len(data))
+            if len(calls) == 1:
+                return real_write(fd, data[:7])
+            raise OSError(28, "No space left on device")
+
+        with mock.patch.object(_stranding_log.os, "write", side_effect=short_then_fail):
+            self.assertFalse(self._record(self._fault(), tool="pin", path=self.path))
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(self._record(self._fault(), tool="search", path=self.path))
+        records = self._records()
+        self.assertEqual([r["tool"] for r in records], ["search", "search"])   # the fragment is gone
+        self.assertEqual(self._text().count("\n"), 2)
+
     def test_readiness_is_truthful_and_the_real_sink_is_gitignored(self):
         live = _stranding_log.readiness(check_ignore=True)
-        self.assertEqual(set(live), {"schema_version", "armed", "registered", "guard_installed",
+        self.assertEqual(set(live), {"schema_version", "armed", "reason", "registered", "guard_installed",
                                      "sink_dir_writable", "harness_gated", "sink_present", "sink_ignored",
-                                     "qualification"})
+                                     "rotated", "qualification", "code_version"})
         self.assertTrue(live["registered"])
         self.assertTrue(live["guard_installed"])
         self.assertIs(live["sink_ignored"], True)       # git check-ignore confirms the production path
+        self.assertIsNone(live["code_version"])          # this module was loaded from a checkout, not a tree
+        self.assertIsInstance(live["rotated"], bool)
         # Under the test harness the writer records nothing without a named file, and readiness says so
-        # rather than reporting armed: the bit is truthful, not optimistic.
+        # rather than reporting armed: the bit is truthful, not optimistic — and it says why.
         self.assertTrue(live["harness_gated"])
         self.assertFalse(live["armed"])
+        self.assertIn("harness", live["reason"])
         self.assertIsNone(_stranding_log.readiness()["sink_ignored"])   # a health probe never forks git
         with mock.patch.object(_stranding_log, "_test_path_allowed", return_value=False):
-            self.assertTrue(_stranding_log.readiness()["armed"])         # the production shape
+            ready = _stranding_log.readiness()
+            self.assertTrue(ready["armed"])                               # the production shape
+            self.assertIsNone(ready["reason"])
             locked = os.path.join(self.temp.name, "locked")
             os.makedirs(locked)
             os.chmod(locked, 0o500)
             try:
                 with mock.patch.object(_stranding_log, "sink_path",
                                        return_value=os.path.join(locked, "log.ndjson")):
-                    self.assertFalse(_stranding_log.readiness()["armed"])
+                    ready = _stranding_log.readiness()
+                    self.assertFalse(ready["armed"])
+                    self.assertIn("not writable", ready["reason"])
             finally:
                 os.chmod(locked, 0o700)
+            # A receipt (`check_ignore`) may not call the instrument armed at a destination git cannot
+            # confirm ignored — a redirected project root outside any work tree is exactly that case.
+            with mock.patch.object(_stranding_log, "_is_ignored", return_value=None):
+                ready = _stranding_log.readiness(check_ignore=True)
+                self.assertFalse(ready["armed"])
+                self.assertIn("could not confirm", ready["reason"])
+            with mock.patch.object(_stranding_log, "_is_ignored", return_value=False):
+                self.assertIn("NOT ignored", _stranding_log.readiness(check_ignore=True)["reason"])
+            with mock.patch.object(_stranding_log, "_is_ignored", return_value=True):
+                self.assertTrue(_stranding_log.readiness(check_ignore=True)["armed"])
+
+    def test_the_frame_budget_keeps_the_engine_entry_point_over_the_sdk_plumbing_above_it(self):
+        # Every tool call travels the same SDK frames before the engine; a trace that spent its outer slots
+        # on them would be identical in every record and lose the tool entry point from the middle.
+        sdk_outer = {}
+        exec(compile("def o1(fn):\n    return o2(fn)\n\ndef o2(fn):\n    return fn()\n",
+                     "/venv/site-packages/mcp/server/base.py", "exec"), sdk_outer)
+        sdk_inner = {}
+        exec(compile("def a(fn):\n    return b(fn)\n\ndef b(fn):\n    return c(fn)\n\n"
+                     "def c(fn):\n    return d(fn)\n\ndef d(fn):\n    return fn()\n",
+                     "/venv/site-packages/anyio/to_thread.py", "exec"), sdk_inner)
+
+        def raiser():
+            raise RuntimeError("deep " + _SECRET)
+
+        def engine_tool():
+            return sdk_inner["a"](raiser)
+
+        try:
+            sdk_outer["o1"](engine_tool)
+        except RuntimeError as exc:
+            facts = _stranding_log._exception_facts(exc)
+        frames = facts["frames"]
+        # Nine frames were walked (this test, o1, o2, engine_tool, a, b, c, d, raiser); six survive: the two
+        # outermost ENGINE frames — this test and the tool entry point, NOT the SDK's o1/o2 above the entry
+        # point — and the innermost four.
+        self.assertEqual(len(frames), _stranding_log._OUTER_FRAMES + _stranding_log._INNER_FRAMES)
+        # (This test's own 83-character name is over the identifier cap, so it is recorded as `<unnamed>` —
+        # the cap at work, on the frame the budget rightly kept.)
+        self.assertEqual([frame[2] for frame in frames[:2]], ["<unnamed>", "engine_tool"])
+        self.assertEqual({frame[0] for frame in frames[:2]}, {"test_mcp_server.py"})
+        self.assertNotIn("base.py", [frame[0] for frame in frames])   # the SDK plumbing above it, dropped
+        self.assertEqual([frame[2] for frame in frames[2:]], ["b", "c", "d", "raiser"])   # where it broke
+        self.assertNotIn(_SECRET, json.dumps(facts))
 
     def test_export_drops_unlisted_fields_redacts_paths_and_is_bound_to_the_cache_directory(self):
         home = os.path.expanduser("~")
@@ -978,29 +1083,54 @@ class StrandingLogContentSafetyTests(unittest.TestCase):
         home = os.path.expanduser("~")
         mine, other = str(os.getuid()), str(os.getuid() + 1)
         tree = "e" * 40 + "-" + "f" * 40
+        ours = os.path.realpath(os.path.join(self.temp.name, "proj", ".git"))
+        elsewhere = os.path.realpath(os.path.join(self.temp.name, "other", ".git"))
+        os.makedirs(os.path.join(ours, "engine", "accepted-hooks", "trees", tree))
+        os.makedirs(os.path.join(elsewhere, "engine", "accepted-hooks", "trees", tree))
         listing = "\n".join([
             # a foreign process that merely mentions the server on its command line, with a secret
             f"111 {mine} python -c sleep mcp_server.py --api-key={_SECRET} --tree /x/TOKEN-{_SECRET}",
-            # this engine's real attended server from an accepted tree
-            f"222 {mine} python -I {home}/.git/x/accepted_hook_dispatch.py _run-accepted --tree {home}/t/{tree} "
+            # this engine's real attended server from an accepted tree under ANOTHER checkout's git directory
+            f"222 {mine} python -I {home}/.git/x/accepted_hook_dispatch.py _run-accepted "
+            f"--tree {elsewhere}/engine/accepted-hooks/trees/{tree} "
             f"--script .engine/tools/memory/mcp_server.py -- attended-memory-mcp",
             # the same launch shape under ANOTHER account
             f"333 {other} python {home}/.git/x/accepted_hook_dispatch.py _run-accepted --tree {home}/t/{tree}",
-            # a degraded (live-checkout) launch of the dispatcher for the memory server
+            # a degraded (live-checkout) launch of the dispatcher for the memory server, argv naming no root
             f"444 {mine} python {home}/tools/accepted_hook_dispatch.py attended --script .engine/tools/memory/mcp_server.py",
-            # a --tree that is not a materialized accepted tree name
+            # a --tree that is not a materialized accepted tree name (but IS a path outside this project)
             f"555 {mine} python {home}/tools/accepted_hook_dispatch.py --tree /x/not-a-tree -- attended-memory-mcp",
+            # THIS project's attended server: its tree sits under this project's git directory
+            f"666 {mine} python -I {ours}/engine/accepted-hooks/trees/{tree}/.engine/tools/accepted_hook_dispatch.py "
+            f"_run-accepted --tree {ours}/engine/accepted-hooks/trees/{tree} -- attended-memory-mcp",
+            # the `uv run` wrapper that spawns a server is not a second server
+            f"777 {mine} uv run --directory .engine --frozen -- python tools/accepted_hook_dispatch.py attended "
+            f"--script .engine/tools/memory/mcp_server.py --operation attended-memory-mcp --",
+            # a live-checkout launch running a checkout's own interpreter: that checkout is asked for its git dir
+            f"888 {mine} {home}/dev/proj/.engine/.venv/bin/python3 -I {home}/dev/proj/.engine/tools/accepted_hook_dispatch.py "
+            f"attended --script .engine/tools/memory/mcp_server.py",
         ])
         done = mock.Mock(stdout=listing, returncode=0)
-        with mock.patch.object(_stranding_log.subprocess, "run", return_value=done):
+        asked = []
+
+        def common_dir(root=None):
+            asked.append(root)
+            return ours if root is None or root == f"{home}/dev/proj" else None
+
+        with mock.patch.object(_stranding_log.subprocess, "run", return_value=done), \
+             mock.patch.object(_stranding_log, "_git_common_dir", side_effect=common_dir):
             found = _stranding_log._live_servers()
         self.assertEqual(found, [
-            {"pid": 222, "launcher": "accepted-tree", "code_version": tree},
-            {"pid": 444, "launcher": "live-checkout", "code_version": None},
-            {"pid": 555, "launcher": "live-checkout", "code_version": None},
+            {"pid": 222, "launcher": "accepted-tree", "code_version": tree, "same_repository": False},
+            {"pid": 444, "launcher": "live-checkout", "code_version": None, "same_repository": None},
+            {"pid": 555, "launcher": "live-checkout", "code_version": None, "same_repository": False},
+            {"pid": 666, "launcher": "accepted-tree", "code_version": tree, "same_repository": True},
+            {"pid": 888, "launcher": "live-checkout", "code_version": None, "same_repository": True},
         ])
+        self.assertEqual(asked, [None, f"{home}/dev/proj"])    # one question per distinct checkout root
         self.assertNotIn(_SECRET, json.dumps(found))
         self.assertNotIn(home, json.dumps(found))
+        self.assertNotIn(self.temp.name, json.dumps(found))
 
 
 class StrandingLogServerWiringTests(unittest.IsolatedAsyncioTestCase):
@@ -1051,14 +1181,29 @@ class StrandingLogServerWiringTests(unittest.IsolatedAsyncioTestCase):
 
     def test_the_read_caveat_records_the_typed_staleness_and_not_a_refreshable_drift(self):
         context = object()
+        srv._READ_DEGRADED_NOTED.clear()
+        self.addCleanup(srv._READ_DEGRADED_NOTED.clear)
         with mock.patch.object(execution_context, "current_context", return_value=context), \
              mock.patch.object(execution_context, "revalidate_context",
                                side_effect=execution_context.ActivationStale("moved")), \
              mock.patch.object(srv._stranding_log, "record_stranding", return_value=True) as recorded:
             self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
+            # A stale session reads many times; the trace is written ONCE per staleness type per process,
+            # so the routine caveat can never rotate the rare crash record out of the bounded sink.
+            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
+            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
         recorded.assert_called_once()
         self.assertIs(recorded.call_args.args[0], _stranding_log.Event.READ_DEGRADED)
         self.assertIsInstance(recorded.call_args.args[1], execution_context.ActivationStale)
+        # A miss is not counted: the next read tries once more.
+        srv._READ_DEGRADED_NOTED.clear()
+        with mock.patch.object(execution_context, "current_context", return_value=context), \
+             mock.patch.object(execution_context, "revalidate_context",
+                               side_effect=execution_context.ActivationStale("moved")), \
+             mock.patch.object(srv._stranding_log, "record_stranding", return_value=False) as missed:
+            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
+            self.assertEqual(srv._memory_read_caveat(), srv._READ_CAVEAT)
+        self.assertEqual(missed.call_count, 2)
         with mock.patch.object(execution_context, "current_context", return_value=context), \
              mock.patch.object(execution_context, "revalidate_context",
                                side_effect=execution_context.ExpectedStateStale("healed")), \

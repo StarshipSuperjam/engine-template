@@ -7,7 +7,7 @@
   "operations": [
     {
       "name": "health",
-      "description": "Prove that this exact MCP helper answered without reading the memory ledger, returning saved content, rebuilding an index, or changing any state. This says the server is live; it does not claim the stored memory is healthy, which boot checks separately.",
+      "description": "Prove that this exact MCP helper answered without reading the memory ledger, returning saved content, rebuilding an index, or changing any state. This says the server is live; it does not claim the stored memory is healthy, which boot checks separately. `diagnostics` is the readiness of the server's own in-process stranding log — whether an unexpected fault in this server would leave a content-free trace, the qualification tier it runs under, and the loaded `<commit>-<tree>` version (null from a live checkout): the three facts a deployment receipt reads. Content-free by construction: no path, no record, no message.",
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
@@ -18,7 +18,8 @@
         "additionalProperties": false,
         "required": [
           "status",
-          "server"
+          "server",
+          "diagnostics"
         ],
         "properties": {
           "status": {
@@ -26,6 +27,34 @@
           },
           "server": {
             "const": "engine-memory"
+          },
+          "diagnostics": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "armed",
+              "qualification",
+              "code_version"
+            ],
+            "properties": {
+              "armed": {
+                "type": "boolean"
+              },
+              "qualification": {
+                "enum": [
+                  "attended",
+                  "degraded",
+                  "none"
+                ]
+              },
+              "code_version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{40}-[0-9a-f]{40}$"
+              }
+            }
           }
         }
       }

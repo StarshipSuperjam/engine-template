@@ -16,8 +16,11 @@ unavailable lock or an unexpected refresh error in exactly the sessions this log
 therefore named in `mutation_contract.DIAGNOSTIC_PRIVATE_ENTRY_IDS`, the tier the guard routes BEFORE it reads
 a context, takes the lock, or refreshes anything. The price of that early route is narrowness, and the narrowness
 is structural, not a promise: the writer's only destination is its own gitignored file under the engine's cache
-directory (`sink_path`), it takes no destination argument in production (`path` is honored only under the unit
-test harness), and it can write nothing else — never the ledger, a derived cache, the activation, or a backup.
+directory — `.engine/telemetry/.cache/stranding-log.ndjson` under the project root, with at most one rotation
+beside it as `stranding-log.ndjson.1` (`sink_path`) — it takes no destination argument in production (`path` is
+honored only under the unit test harness), and it can write nothing else — never the ledger, a derived cache,
+the activation, or a backup. The CLI (`readiness`, `export`, `baseline`) is how an operator or a later session
+reads it: `readiness` is the deployment receipt's source (armed, qualification tier, loaded code version).
 
 What it records — and, more importantly, what it never records. Only: the exception's TYPE (a checked,
 capped dotted identifier), a capped chain of cause/context TYPES, a few frame LOCATIONS (a checked file
@@ -64,8 +67,9 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.
 # One rotation, at most, per append: when the sink is this large it is renamed to `.1` (dropping the previous
 # `.1`) and a fresh sink starts. Bounded disk, no loop, no second attempt.
 _ROTATE_BYTES = 256 * 1024
-_OUTER_FRAMES = 2       # the engine call site that led into a library ...
+_OUTER_FRAMES = 2       # the outermost ENGINE frames (the tool entry point), never the SDK plumbing above it ...
 _INNER_FRAMES = 4       # ... and where it actually broke
+_ENGINE_MARK = f"{os.sep}.engine{os.sep}"   # what places a frame's file inside this engine (a checkout or an accepted tree)
 _MAX_CHAIN = 5
 _MAX_SEGMENTS = 8
 _MAX_SEGMENT = 64
@@ -87,8 +91,8 @@ _ENV_VALUE_KEYS = ("PYTHONNOUSERSITE",)
 # string; `observed_error` carries text only when it IS the content-free generic boundary string.
 _EXPORT_KEYS = frozenset({
     "schema_version", "ts", "event", "pid", "tool", "exception", "frames", "qualification", "activation",
-    "code_version", "env_present", "env", "observed_error", "servers", "activation_on_disk", "lifecycle",
-    "cache_effects", "query_kind",
+    "code_version", "env_present", "env", "observed_error", "servers", "servers_scope", "activation_on_disk",
+    "lifecycle", "cache_effects", "query_kind",
 })
 _SAFE_TOOL = re.compile(r"[a-z][a-z0-9\-]{0,63}")
 _SAFE_BASENAME = re.compile(r"[A-Za-z0-9_.\-]{1,80}\.py|<[a-z ]{1,24}>")
@@ -120,8 +124,11 @@ def _project_root() -> str:
 
 
 def _cache_dir() -> str:
-    """The engine's own gitignored cache directory, DERIVED from the project root — deliberately not taken
-    from ENGINE_BOOT_CACHE_DIR, so no environment value can point the writer at another directory."""
+    """The engine's own gitignored cache directory, DERIVED from the project root the launcher supplied
+    (ENGINE_PROJECT_ROOT, else this engine's own root). The writer takes no destination argument and never
+    reads ENGINE_BOOT_CACHE_DIR; what it IS bound to is the launcher's root — a narrower claim than "no
+    environment value can move it", which is why `readiness(check_ignore=True)` refuses to call the instrument
+    armed until git confirms the sink under that root is ignored."""
     return os.path.join(_project_root(), ".engine", "telemetry", ".cache")
 
 
@@ -176,13 +183,21 @@ def _exception_facts(exc: BaseException) -> dict:
         chain.append(_type_name(link))
         link = link.__cause__ or link.__context__
     frames = []
+    engine = []
     tb = exc.__traceback__
     while tb is not None:
         code = tb.tb_frame.f_code
         frames.append([_safe_basename(code.co_filename), int(tb.tb_lineno), _safe_identifier(code.co_name)])
+        engine.append(isinstance(code.co_filename, str) and _ENGINE_MARK in code.co_filename)
         tb = tb.tb_next
     if len(frames) > _OUTER_FRAMES + _INNER_FRAMES:
-        frames = frames[:_OUTER_FRAMES] + frames[-_INNER_FRAMES:]
+        # Every tool call travels the same SDK plumbing (`Tool.run` -> `call_fn` -> a worker thread) before it
+        # reaches the engine, so the outermost frames overall would be identical in every record and the
+        # engine's own entry point would fall out of the middle. The outer slots therefore go to the
+        # outermost ENGINE frames above the inner window — the outermost frames overall only when none exist.
+        head, inner = frames[:-_INNER_FRAMES], frames[-_INNER_FRAMES:]
+        head_engine = [frame for frame, ours in zip(head, engine) if ours]
+        frames = (head_engine or head)[:_OUTER_FRAMES] + inner
     return {"type": _type_name(exc), "chain": chain, "frames": frames}
 
 
@@ -332,9 +347,28 @@ def _append(line: str, *, path: str | None = None) -> bool:
         fd = -1
         try:
             fd = os.open(target, flags | os.O_APPEND, 0o600)
-            if not stat.S_ISREG(os.fstat(fd).st_mode):
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
                 return False
-            os.write(fd, (line + "\n").encode("utf-8"))
+            # `write(2)` may legitimately store fewer bytes than asked (disk full mid-record, a signal); an
+            # unchecked short write would leave a partial line that fuses with the next record and loses BOTH
+            # on read while this call still reported success. So: write until the whole line is stored, and if
+            # that cannot complete, cut the sink back to where this record began (the exclusive lock above
+            # means nothing else appended meanwhile) and report an honest miss.
+            payload = (line + "\n").encode("utf-8")
+            start, written = info.st_size, 0
+            try:
+                while written < len(payload):
+                    count = os.write(fd, payload[written:])
+                    if count <= 0:
+                        raise OSError("short write")
+                    written += count
+            except OSError:
+                try:
+                    os.ftruncate(fd, start)
+                except OSError:
+                    pass
+                return False
         finally:
             if fd >= 0:
                 os.close(fd)
@@ -365,7 +399,11 @@ def readiness(*, check_ignore: bool = False) -> dict:
     is installed, the sink's directory (or the nearest existing parent) is writable, and the test-harness gate
     is not holding the writer back. `sink_ignored` — a `git check-ignore` of the sink from the project root —
     is asked for only when `check_ignore` is set (the CLI), never on a health probe: True/False when git
-    answered, None when it could not."""
+    answered, None when it could not — and under `check_ignore` the instrument is NOT armed until that answer
+    is True, so a receipt cannot report armed at an unverified destination. `reason` says, in one sentence,
+    what holds the writer back when it is not armed. `code_version` is the loaded `<commit>-<tree>` (None
+    from a live checkout) and `rotated` whether an older `.1` file exists beside the sink — both facts a
+    deployment receipt and an export reader need."""
     registered = any(entry["id"] == APPEND_REGISTRY_ID for entry in _mutation_contract.REGISTRY)
     guard_installed = getattr(_append, "__engine_registry_id__", None) == APPEND_REGISTRY_ID
     sink = sink_path()
@@ -377,16 +415,32 @@ def readiness(*, check_ignore: bool = False) -> dict:
         probe = parent
     writable = bool(probe) and os.path.isdir(probe) and os.access(probe, os.W_OK)
     gated = _test_path_allowed()
+    ignored = _is_ignored(sink) if check_ignore else None
+    reason = None
+    if not registered:
+        reason = "the writer is not in the mutation registry"
+    elif not guard_installed:
+        reason = "the writer's mutation guard is not installed"
+    elif not writable:
+        reason = "the sink's directory is not writable"
+    elif gated:
+        reason = "the unit-test harness is loaded, which holds the production writer back"
+    elif check_ignore and ignored is not True:
+        reason = ("git could not confirm the sink is ignored under the project root" if ignored is None
+                  else "git reports the sink as NOT ignored under the project root")
     return {
         "schema_version": SCHEMA_VERSION,
-        "armed": bool(registered and guard_installed and writable and not gated),
+        "armed": reason is None,
+        "reason": reason,
         "registered": registered,
         "guard_installed": guard_installed,
         "sink_dir_writable": writable,
         "harness_gated": gated,
         "sink_present": os.path.exists(sink),
-        "sink_ignored": _is_ignored(sink) if check_ignore else None,
+        "sink_ignored": ignored,
+        "rotated": os.path.exists(sink + ".1"),
         "qualification": _qualification(),
+        "code_version": _loaded_tree_name(),
     }
 
 
@@ -447,24 +501,26 @@ def sanitize(record: dict) -> dict:
 
 
 def read_records(*, path: str | None = None) -> list[dict]:
-    """Read the raw sink. The source is hardcoded: a test may name its own file, production always reads
-    the sink."""
+    """Read the raw sink — the rotated `.1` file first, then the live one, so an export covers the whole
+    retained window rather than silently omitting everything older than the last rotation. The source is
+    hardcoded: a test may name its own file, production always reads the sink."""
     source = path if (path is not None and _test_path_allowed()) else sink_path()
     out = []
-    try:
-        with open(source, encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    value = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(value, dict):
-                    out.append(value)
-    except OSError:
-        return []
+    for candidate in (source + ".1", source):
+        try:
+            with open(candidate, encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        value = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(value, dict):
+                        out.append(value)
+        except OSError:
+            continue
     return out
 
 
@@ -516,48 +572,88 @@ _CACHE_EFFECTS = (
 )
 
 
-def _live_servers() -> list[dict]:
-    """This engine's memory-server processes owned by THIS account: an argv that runs the accepted-hook
-    dispatcher for the memory server. Records the launcher and, when the `--tree` argument names a
-    materialized accepted tree, its `<commit>-<tree>` name — never the argv itself, which carries paths and
-    whatever else a command line holds."""
-    try:
-        done = subprocess.run(["ps", "-axo", "pid=,uid=,args="], capture_output=True, text=True,
-                              timeout=_SUBPROCESS_TIMEOUT, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return []
-    mine = str(os.getuid())
-    found = []
-    for line in done.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 3 or not parts[0].isdigit() or parts[1] != mine:
-            continue
-        argv = parts[2:]
-        if not any(token.endswith("accepted_hook_dispatch.py") for token in argv):
-            continue
-        if "attended-memory-mcp" not in argv and not any(token.endswith("memory/mcp_server.py") for token in argv):
-            continue
-        tree = None
-        if "--tree" in argv:
-            candidate = argv[argv.index("--tree") + 1:][:1]
-            name = os.path.basename(candidate[0]) if candidate else ""
-            tree = name if _TREE_NAME.fullmatch(name) else None
-        found.append({"pid": int(parts[0]), "launcher": "accepted-tree" if tree else "live-checkout",
-                      "code_version": tree})
-    return found
+_SERVERS_SCOPE = (
+    "every memory server this account runs for ANY engine checkout on this machine (a shared activation "
+    "serves every worktree of one repository); `same_repository` marks the ones under THIS project's git "
+    "directory, None when the argv does not say."
+)
+_VENV_PYTHON = f"{os.sep}.engine{os.sep}.venv{os.sep}bin{os.sep}"
 
 
-def _activation_on_disk() -> dict | None:
+def _git_common_dir(root: str | None = None) -> str | None:
+    """The resolved git common directory of `root` (the project root by default), or None."""
+    root = _project_root() if root is None else root
     try:
-        done = subprocess.run(["git", "-C", _project_root(), "rev-parse", "--git-common-dir"],
+        done = subprocess.run(["git", "-C", root, "rev-parse", "--git-common-dir"],
                               capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
         return None
     common = done.stdout.strip()
-    if not os.path.isabs(common):
-        common = os.path.join(_project_root(), common)
+    return os.path.realpath(common if os.path.isabs(common) else os.path.join(root, common))
+
+
+def _same_repository(argv: list[str], tree_path: str | None, ours: str | None, cache: dict) -> bool | None:
+    """Whether one server's argv places it under THIS project's git directory. An accepted tree lives at
+    `<common>/engine/accepted-hooks/trees/<name>`, so its path answers directly; a live-checkout launch runs
+    the checkout's own interpreter (`<root>/.engine/.venv/bin/...`), so that root is asked for its common
+    directory once per distinct root. None when the argv carries neither shape or git could not answer."""
+    if ours is None:
+        return None
+    if tree_path:
+        return os.path.commonpath((os.path.realpath(tree_path), ours)) == ours
+    for token in argv:
+        at = token.find(_VENV_PYTHON)
+        if at > 0:
+            root = token[:at]
+            if root not in cache:
+                cache[root] = _git_common_dir(root)
+            return None if cache[root] is None else cache[root] == ours
+    return None
+
+
+def _live_servers() -> list[dict]:
+    """This engine's memory-server processes owned by THIS account: an argv that runs the accepted-hook
+    dispatcher for the memory server (the `uv run` wrapper that merely spawns it is not counted twice).
+    Records the launcher, whether the server sits under this project's git directory, and — when the
+    `--tree` argument names a materialized accepted tree — its `<commit>-<tree>` name; never the argv itself,
+    which carries paths and whatever else a command line holds."""
+    try:
+        done = subprocess.run(["ps", "-axo", "pid=,uid=,args="], capture_output=True, text=True,
+                              timeout=_SUBPROCESS_TIMEOUT, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    mine = str(os.getuid())
+    ours = _git_common_dir()
+    roots: dict = {}
+    found = []
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or not parts[0].isdigit() or parts[1] != mine:
+            continue
+        argv = parts[2:]
+        if os.path.basename(argv[0]) == "uv":
+            continue   # the launcher's wrapper process; its child is the server
+        if not any(token.endswith("accepted_hook_dispatch.py") for token in argv):
+            continue
+        if "attended-memory-mcp" not in argv and not any(token.endswith("memory/mcp_server.py") for token in argv):
+            continue
+        tree, tree_path = None, None
+        if "--tree" in argv:
+            candidate = argv[argv.index("--tree") + 1:][:1]
+            tree_path = candidate[0] if candidate else None
+            name = os.path.basename(tree_path) if tree_path else ""
+            tree = name if _TREE_NAME.fullmatch(name) else None
+        found.append({"pid": int(parts[0]), "launcher": "accepted-tree" if tree else "live-checkout",
+                      "code_version": tree, "same_repository": _same_repository(argv, tree_path, ours, roots)})
+    return found
+
+
+def _activation_on_disk() -> dict | None:
+    common = _git_common_dir()
+    if common is None:
+        return None
     activation = os.path.join(common, "engine", "accepted-hooks", "activation.json")
     try:
         with open(activation, encoding="utf-8") as handle:
@@ -567,8 +663,23 @@ def _activation_on_disk() -> dict | None:
     return _activation_facts(value) if isinstance(value, dict) else None
 
 
+def _main_worktree() -> str:
+    """The repository's main checkout — where the canonical memory store lives — even when this runs from a
+    linked worktree (a build lane), which has no store of its own. The project root when git cannot say."""
+    try:
+        done = subprocess.run(["git", "-C", _project_root(), "worktree", "list", "--porcelain"],
+                              capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return _project_root()
+    first = done.stdout.split("\n\n", 1)[0] if done.returncode == 0 else ""
+    for line in first.splitlines():
+        if line.startswith("worktree "):
+            return line[len("worktree "):]
+    return _project_root()
+
+
 def _lifecycle_state() -> dict:
-    memory_dir = os.environ.get("ENGINE_MEMORY_DIR") or os.path.join(_project_root(), ".engine", "memory")
+    memory_dir = os.environ.get("ENGINE_MEMORY_DIR") or os.path.join(_main_worktree(), ".engine", "memory")
     state = {"memory_dir_present": os.path.isdir(memory_dir), "files": {}}
     for name in ("index.sqlite3", "vectors.sqlite3"):
         candidate = os.path.join(memory_dir, name)
@@ -607,6 +718,7 @@ def capture_baseline(observed_error: str, *, tool: str | None = None, query_kind
             "tool": _safe_tool(tool),
             "query_kind": query_kind if query_kind in ("innocuous", "production") else "innocuous",
             "servers": _live_servers(),
+            "servers_scope": _SERVERS_SCOPE,
             "activation_on_disk": _activation_on_disk(),
             "lifecycle": _lifecycle_state(),
             "cache_effects": _CACHE_EFFECTS,
@@ -627,7 +739,10 @@ def main(argv) -> int:
     sub = parser.add_subparsers(dest="verb", required=True)
     sub.add_parser("readiness", help="say whether the instrument can record right now (writes nothing)")
     export = sub.add_parser("export", help="print the sanitized records; --to writes them under the engine cache")
-    export.add_argument("--to", default=None)
+    export.add_argument("--to", default=None, help=(
+        "write the export to this file instead of printing it. Refused unless the path resolves under the "
+        "engine's cache directory (.engine/telemetry/.cache) AND git reports it ignored, and the write needs a "
+        "session qualified to write memory; without --to the export is printed and needs no write authority."))
     baseline = sub.add_parser("baseline", help="record a Stage-0 baseline of the visible failure")
     baseline.add_argument("--observed-error", required=True, help="the error text the client showed")
     baseline.add_argument("--tool", default=None)
@@ -639,8 +754,12 @@ def main(argv) -> int:
     if args.verb == "export":
         try:
             records = export_sanitized(args.to)
-        except (ValueError, _mutation_authority.MutationAuthorityError) as exc:
+        except ValueError as exc:
             print(str(exc), file=sys.stderr)
+            return 2
+        except _mutation_authority.MutationAuthorityError as exc:
+            print(f"{exc}\nOmit --to and redirect the printed output yourself: a plain `export` needs no "
+                  "write authority, so it works from a session that is not (yet) qualified.", file=sys.stderr)
             return 2
         if args.to is None:
             for item in records:

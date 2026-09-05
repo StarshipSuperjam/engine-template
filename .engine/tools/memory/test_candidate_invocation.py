@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import jsonschema
@@ -452,6 +453,15 @@ DISPOSITION = {
                              "activation — a MECHANISM-REMOVING difference from the attended production launch.",
     "expected_class": {"claude": "not-reproduced", "codex": "not-reproduced"},
     "expected_label": {"claude": "semantic-unavailable-keyword-ok", "codex": "semantic-unavailable-keyword-ok"},
+    # The acceptance probe's ACTUAL result, pinned like the outcome so a change in either fails loudly.
+    "expected_probe": {"claude": {"passed": False, "reason": "semantic-unavailable"},
+                       "codex": {"passed": False, "reason": "semantic-unavailable"}},
+    "probe_disposition": (
+        "A THIRD outcome, stated plainly: the harness did NOT reproduce the fault, AND the acceptance probe "
+        "FAILED — for a separate, recorded reason (the degraded launcher cannot build the meaning index, so "
+        "meaning recall reports itself unavailable), not because recall returned the wrong records. Neither "
+        "fact is evidence about the real bug. The probe is a meaningful assertion only under an attended "
+        "launch, which is the fix child's contract, not this harness's."),
     "mechanism_removing_differences": [
         "launcher: degraded (live checkout, no execution context) instead of attended (materialized accepted "
         "tree with an installed context) — the recall path under investigation runs behind the guard's "
@@ -481,27 +491,52 @@ def _real_home() -> str:
         return os.path.expanduser("~")
 
 
+def _setup_env() -> dict:
+    """The environment the harness's OWN git calls run under: the inherited one minus every `GIT_*`
+    variable, so the harness identifies what canonical IS under the same rule it launches under — a leaked
+    GIT_DIR must not be allowed to name the repository this sandbox is then built to protect."""
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
 class DisposableClone:
     """One sandboxed clone of this repository, its scrubbed launch environment, and the shipped launchers."""
 
     def __init__(self):
+        setup = _setup_env()
         self.source = str(ROOT)
-        self.branch = _run(["git", "-C", self.source, "rev-parse", "--abbrev-ref", "HEAD"])
-        canonical = _run(["git", "-C", self.source, "worktree", "list", "--porcelain"]).split("\n\n", 1)[0]
+        # Cloned BY COMMIT, never by branch name: the merge check runs its tests from a detached, shallow
+        # checkout where `--abbrev-ref HEAD` is the literal `HEAD` and no local branch exists, so a clone by
+        # branch fails there on every run. `--no-checkout` fetches what the source has (its branches, or its
+        # detached HEAD) and the sandbox is then detached at the resolved commit.
+        self.commit = _run(["git", "-C", self.source, "rev-parse", "HEAD"], env=setup)
+        self.branch = _run(["git", "-C", self.source, "rev-parse", "--abbrev-ref", "HEAD"], env=setup)  # informational
+        canonical = _run(["git", "-C", self.source, "worktree", "list", "--porcelain"], env=setup).split("\n\n", 1)[0]
         self.canonical_root = os.path.realpath(
             next(line[len("worktree "):] for line in canonical.splitlines() if line.startswith("worktree ")))
-        common = _run(["git", "-C", self.source, "rev-parse", "--git-common-dir"])
+        common = _run(["git", "-C", self.source, "rev-parse", "--git-common-dir"], env=setup)
         self.canonical_common = os.path.realpath(common if os.path.isabs(common) else os.path.join(self.source, common))
         self.canonical_memory = os.path.join(self.canonical_root, ".engine", "memory")
         self.sandbox = os.path.realpath(tempfile.mkdtemp(prefix="engine-repro-clone-"))
+        try:
+            self._build(setup)
+        except BaseException:
+            # A failure anywhere past mkdtemp — a clone timeout, a refused target, a missing uv — must not
+            # strand a full clone of the repository under the temp directory: tearDownClass never runs when
+            # setUpClass raised, so the sandbox is removed here, then the failure is re-raised unchanged.
+            self.cleanup()
+            raise
+
+    def _build(self, setup: dict):
         self.root = os.path.join(self.sandbox, "repo")
         self.home = os.path.join(self.sandbox, "home")
         self.tmp = os.path.join(self.sandbox, "tmp")
         os.makedirs(self.home)
         os.makedirs(self.tmp)
-        _run(["git", "clone", "--no-hardlinks", "--quiet", "--branch", self.branch, self.canonical_root, self.root],
-             timeout=300)
-        self.head = _run(["git", "-C", self.root, "rev-parse", "HEAD"])
+        _run(["git", "clone", "--no-hardlinks", "--quiet", "--no-checkout", self.canonical_root, self.root],
+             env=setup, timeout=300)
+        _run(["git", "-C", self.root, "checkout", "--quiet", "--detach", self.commit], env=setup, timeout=300)
+        self.head = _run(["git", "-C", self.root, "rev-parse", "HEAD"], env=setup)
+        assert self.head == self.commit, (self.head, self.commit)
         # The audited refusal: a clone that aliased the canonical project, memory, or git metadata is rejected
         # here, before anything is launched against it.
         execution_context.validate_disposable_target(
@@ -514,6 +549,9 @@ class DisposableClone:
         self.memory = os.path.join(self.root, ".engine", "memory")
         self.nonce = f"repro-{secrets.token_hex(6)}"
         self.uv_cache = _run(["uv", "cache", "dir"])
+        # Where uv keeps its managed interpreters: the host's own setting when it has one, else what uv says —
+        # never a hardcoded default, which would fail loudly under UV_OFFLINE on a host that moved it.
+        self.uv_python = os.environ.get("UV_PYTHON_INSTALL_DIR") or _run(["uv", "python", "dir"])
         self.seed_records()
 
     def seed_records(self):
@@ -546,7 +584,7 @@ class DisposableClone:
         kept.update({
             "HOME": self.home, "TMPDIR": self.tmp, "CLAUDE_PROJECT_DIR": self.root,
             "UV_CACHE_DIR": self.uv_cache,
-            "UV_PYTHON_INSTALL_DIR": os.path.join(_real_home(), ".local", "share", "uv", "python"),
+            "UV_PYTHON_INSTALL_DIR": self.uv_python,
             "UV_PROJECT_ENVIRONMENT": os.path.realpath(os.path.join(self.source, ".engine", ".venv")),
             "UV_NO_SYNC": "1", "UV_OFFLINE": "1", "PYTHONNOUSERSITE": "1",
         })
@@ -587,6 +625,19 @@ class DisposableClone:
 
     def cleanup(self):
         shutil.rmtree(self.sandbox, ignore_errors=True)
+
+
+_SHARED: dict = {}
+
+
+def _shared_clone() -> DisposableClone:
+    """ONE clone for every class in this module: a full, hardlink-free clone of the repository is the
+    expensive part of these tests and nothing here mutates the clone's history, so the isolation and the
+    reproduction classes share it. Torn down once, when the module is done."""
+    if "clone" not in _SHARED:
+        _SHARED["clone"] = DisposableClone()
+        unittest.addModuleCleanup(_SHARED["clone"].cleanup)
+    return _SHARED["clone"]
 
 
 async def drive_launcher(clone: DisposableClone, kind: str) -> dict:
@@ -709,6 +760,15 @@ class CounterfeitReproductionTests(unittest.TestCase):
         self.assertTrue(recall_acceptance_probe(
             {"tools": {"recall-by-meaning": {"is_error": False, "payload": {"results": [{"passage": f"x {nonce} y"}]}}}},
             nonce)["passed"])
+        # The marker may sit outside the matched chunk: a hit whose passage lacks it but whose record text
+        # carries it IS a recall, and must never read as "not recalled".
+        outside = recall_acceptance_probe(
+            {"tools": {"recall-by-meaning": {"is_error": False, "payload": {"results": [
+                {"passage": "an unrelated chunk", "text": f"the whole record mentions {nonce} later"}]}}}}, nonce)
+        self.assertEqual({"passed": outside["passed"], "reason": outside["reason"]}, {"passed": True, "reason": "recalled"})
+        self.assertEqual(recall_acceptance_probe(
+            {"tools": {"recall-by-meaning": {"is_error": False, "payload": {"unavailable": "not-qualified"}}}},
+            nonce)["reason"], "semantic-unavailable")
 
 
 class DisposableCloneIsolationTests(unittest.TestCase):
@@ -717,14 +777,11 @@ class DisposableCloneIsolationTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.clone = DisposableClone()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.clone.cleanup()
+        cls.clone = _shared_clone()
 
     def test_the_clone_is_accepted_by_the_audited_disposable_target_check_and_is_seeded(self):
         self.assertTrue(os.path.isdir(os.path.join(self.clone.root, ".git")))
+        self.assertEqual(self.clone.head, self.clone.commit)          # detached at the resolved commit
         self.assertNotEqual(os.path.realpath(self.clone.root), self.clone.canonical_root)
         self.assertNotEqual(self.clone.resolved_launch_paths(self.clone.env())["git_common_dir"],
                             self.clone.canonical_common)
@@ -742,7 +799,57 @@ class DisposableCloneIsolationTests(unittest.TestCase):
         self.assertTrue(env["TMPDIR"].startswith(self.clone.sandbox))
         self.assertEqual(env["UV_OFFLINE"], "1")
         self.assertEqual(env["UV_CACHE_DIR"], self.clone.uv_cache)
+        self.assertEqual(env["UV_PYTHON_INSTALL_DIR"], self.clone.uv_python)
+        self.assertTrue(os.path.isabs(self.clone.uv_python))
         self.assertIn("PATH", env)
+
+    def test_the_clone_is_built_by_commit_so_a_detached_shallow_checkout_can_build_it_too(self):
+        # The merge check's checkout is detached (`--abbrev-ref HEAD` == "HEAD") and shallow; a clone by
+        # branch name fails there. Prove the clone form used above works from exactly that shape.
+        scratch = tempfile.mkdtemp(prefix="engine-repro-detached-")
+        try:
+            src = os.path.join(scratch, "src")
+            _run(["git", "init", "-q", src])
+            Path(os.path.join(src, "f")).write_text("1\n")
+            git = ["git", "-C", src, "-c", "user.email=t@t", "-c", "user.name=t"]
+            _run(git + ["add", "f"])
+            _run(git + ["commit", "-qm", "one"])
+            sha = _run(["git", "-C", src, "rev-parse", "HEAD"])
+            ci = os.path.join(scratch, "ci")
+            _run(["git", "init", "-q", ci])
+            _run(["git", "-C", ci, "fetch", "-q", "--depth=1", src, "+HEAD:refs/remotes/pull/1/merge"])
+            _run(["git", "-C", ci, "checkout", "-q", "--force", "refs/remotes/pull/1/merge"])
+            self.assertEqual(_run(["git", "-C", ci, "rev-parse", "--abbrev-ref", "HEAD"]), "HEAD")
+            dst = os.path.join(scratch, "dst")
+            _run(["git", "clone", "--no-hardlinks", "--quiet", "--no-checkout", ci, dst])
+            _run(["git", "-C", dst, "checkout", "--quiet", "--detach", sha])
+            self.assertEqual(_run(["git", "-C", dst, "rev-parse", "HEAD"]), sha)
+            self.assertTrue(os.path.exists(os.path.join(dst, "f")))
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+    def test_a_clone_that_fails_to_build_leaves_no_sandbox_behind(self):
+        # Measured as a DELTA over the temp directory: what this failed construction leaves behind, not
+        # whatever earlier runs (the very leak this guards against) may have stranded there already.
+        def sandboxes():
+            return {name for name in os.listdir(tempfile.gettempdir()) if name.startswith("engine-repro-clone-")}
+
+        before = sandboxes()
+        made = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def spying_mkdtemp(*args, **kwargs):
+            path = real_mkdtemp(*args, **kwargs)
+            made.append(path)
+            return path
+
+        with mock.patch.object(tempfile, "mkdtemp", side_effect=spying_mkdtemp), \
+             mock.patch.object(DisposableClone, "_build", side_effect=OSError("clone step failed")):
+            with self.assertRaises(OSError):
+                DisposableClone()
+        self.assertEqual(len(made), 1)                       # the sandbox WAS created ...
+        self.assertFalse(os.path.exists(made[0]))            # ... and removed on the way out
+        self.assertEqual(sandboxes() - before, set())
 
     def test_a_leaked_git_dir_would_bind_canonical_and_the_scrub_prevents_it(self):
         hostile = dict(os.environ, GIT_DIR=self.clone.canonical_common)
@@ -766,11 +873,7 @@ class DisposableCloneReproductionTests(unittest.IsolatedAsyncioTestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.clone = DisposableClone()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.clone.cleanup()
+        cls.clone = _shared_clone()
 
     async def test_both_shipped_launchers_run_degraded_and_the_disposition_matches_reality(self):
         report = {"clone_head": self.clone.head, "sandbox": self.clone.sandbox, "launchers": {}}
@@ -792,7 +895,11 @@ class DisposableCloneReproductionTests(unittest.IsolatedAsyncioTestCase):
                 # The committed finding equals the observed class and label — or this test fails loudly.
                 self.assertEqual(outcome["class"], DISPOSITION["expected_class"][kind], outcome)
                 self.assertEqual(outcome["label"], DISPOSITION["expected_label"][kind], outcome)
-                self.assertIn("passed", probe)                      # preserved with its actual result
+                # The probe is preserved with its actual result AND that result is pinned — passed and the
+                # closed-set reason — so the third outcome (not reproduced, probe failed for a recorded,
+                # unrelated reason) can neither drift silently nor be mistaken for "recall is broken".
+                self.assertEqual({"passed": probe["passed"], "reason": probe["reason"]},
+                                 DISPOSITION["expected_probe"][kind], probe)
         # Containment, stated as what actually happened: a DEGRADED launch refuses the derived-index rebuild
         # (index-rebuild is not degraded-allowed; keyword recall falls through to a ledger scan), so the reads
         # wrote NOTHING — the sandbox's memory directory holds exactly what this harness seeded, and no
@@ -800,13 +907,19 @@ class DisposableCloneReproductionTests(unittest.IsolatedAsyncioTestCase):
         # difference from the attended launch, which reconciles its caches on the way past.
         self.assertEqual(sorted(os.listdir(self.clone.memory)), ["ledger.ndjson"])
         report["derived_cache_written"] = False
-        report["mechanism_removing_differences"] = DISPOSITION["mechanism_removing_differences"]
-        report_path = os.path.join(self.clone.sandbox, "reproduction-report.json")
+        report["disposition"] = DISPOSITION
+        # The report outlives the run: the sandbox is destroyed with the raw server output it holds, so the
+        # evidence goes to the source checkout's own gitignored engine cache — a durable, local-only home the
+        # printed path actually still names when the run is over.
+        report_dir = os.path.join(self.clone.source, ".engine", "telemetry", ".cache")
+        os.makedirs(report_dir, exist_ok=True)
+        report_path = os.path.join(report_dir, "reproduction-report.json")
         Path(report_path).write_text(json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8")
-        print(f"\nreproduction report: {report_path}\n" + json.dumps(
+        print(f"\nreproduction report (durable, gitignored): {report_path}\n" + json.dumps(
             {kind: {"outcome": value["outcome"], "probe": value["probe"],
                     "qualification": value["observation"]["qualification_reported"]}
-             for kind, value in report["launchers"].items()}, indent=2))
+             for kind, value in report["launchers"].items()} | {"probe_disposition": DISPOSITION["probe_disposition"]},
+            indent=2))
 
 
 if __name__ == "__main__":

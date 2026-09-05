@@ -136,11 +136,14 @@ def _tool(**registration):
     ),
 )
 def health() -> dict:
-    # `diagnostics` is the readiness bit of the in-server stranding log: whether a fault in THIS server
-    # would leave a trace. Two content-free facts (armed, qualification tier) — no path, no record.
+    # `diagnostics` is the readiness of the in-server stranding log: whether a fault in THIS server would
+    # leave a trace. Three content-free facts — armed, qualification tier, and the loaded `<commit>-<tree>`
+    # (None from a live checkout) — the three a deployment receipt needs; no path, no record. The shape is
+    # declared in `.engine/interfaces/search.json`.
     ready = _stranding_log.readiness()
     return {"status": "ok", "server": SERVER_NAME,
-            "diagnostics": {"armed": ready["armed"], "qualification": ready["qualification"]}}
+            "diagnostics": {"armed": ready["armed"], "qualification": ready["qualification"],
+                            "code_version": ready["code_version"]}}
 
 
 # The cap applied when a caller omits `limit`. Search is unbounded by default in the library, which was
@@ -224,6 +227,13 @@ _READ_CAVEAT = (
 )
 
 
+# The staleness types this process has already traced. A stale session reads memory many times and every read
+# would otherwise write a near-identical `read-degraded` record into the same bounded sink as the rare crash
+# record the log exists to keep — enough of them rotate that record out. One trace per staleness TYPE per
+# process says which binding moved without ever evicting the fault line.
+_READ_DEGRADED_NOTED: set = set()
+
+
 def _memory_read_caveat() -> str | None:
     """Return `_READ_CAVEAT` when this session's installed context is present but stale in a restart-clearable
     way, else None. Every read tool calls it so all four answer the operator's moved-commit scenario the same.
@@ -244,9 +254,12 @@ def _memory_read_caveat() -> str | None:
     except _execution_context.ExpectedStateStale:
         return None
     except _execution_context.ContextError as exc:
-        # The typed staleness class is worth a trace of its own: it says WHICH binding moved under the
-        # running server, which the one plain caveat sentence deliberately does not.
-        _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc)
+        # The typed staleness class is worth ONE trace of its own per process (see `_READ_DEGRADED_NOTED`):
+        # it says WHICH binding moved under the running server, which the plain caveat sentence does not.
+        kind = type(exc).__qualname__
+        if kind not in _READ_DEGRADED_NOTED and \
+                _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc):
+            _READ_DEGRADED_NOTED.add(kind)
         return _READ_CAVEAT
     return None
 
