@@ -155,7 +155,7 @@ class CoordinatorCase(unittest.TestCase):
 
     def bind_args(self, **over):
         args = {"plan": PLAN_ID, "mode": "same-session", "repository": "owner/repo", "pr": 7,
-                "issue": None, "operator_decision": "yes, start the Build"}
+                "issue": None, "operator_decided": True}
         args.update(over)
         return argparse.Namespace(**args)
 
@@ -202,6 +202,41 @@ class TestPlanAndSnapshot(CoordinatorCase):
         self.write_plan(value)
         with self.assertRaisesRegex(bc.CoordinatorError, "must be unique"):
             bc._plan(str(self.plan_path))
+
+    def test_bind_prints_the_carrier_rule_on_stderr_and_one_json_line_on_stdout(self):
+        # #1091: the kickoff itself says the Build's work rides its draft pull request. On stderr
+        # with the other human-facing notes; stdout stays the one line a caller parses.
+        import plan_lifecycle
+        pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
+        out, err = io.StringIO(), io.StringIO()
+        with self.sealed(), mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc.github, "tag_coordinator_owned", return_value=True), \
+                mock.patch.object(bc, "_record_build_binding"), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            bc.cmd_plan_bind(self.bind_args(), self.store)
+        self.assertIn(plan_lifecycle.CARRIER_RULE, err.getvalue())
+        lines = [line for line in out.getvalue().splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(set(json.loads(lines[0])), {"plan_digest", "state"})
+
+    def test_bind_refuses_without_the_switch_and_names_the_ask(self):
+        with self.sealed(), self.assertRaises(bc.CoordinatorError) as caught:
+            bc.cmd_plan_bind(self.bind_args(operator_decided=False), self.store)
+        self.assertIn("starting the Build that executes this sealed plan", str(caught.exception))
+        self.assertIn("--operator-decided", str(caught.exception))
+
+    def test_the_parser_takes_the_switch_and_refuses_the_retired_words_flag(self):
+        parser = bc.parser()
+        args = parser.parse_args(["plan", "bind", "--plan", "pln_0123456789ab", "--repository", "o/r",
+                                  "--pr", "1", "--operator-decided"])
+        self.assertTrue(args.operator_decided)
+        for argv in (["plan", "bind", "--plan", "pln_0123456789ab", "--repository", "o/r", "--pr", "1",
+                      "--operator-decision", "go"],
+                     ["plan", "adopt", "--successor", "pln_0123456789ab", "--input", "p.json",
+                      "--operator-decision", "go"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                parser.parse_args(argv)
 
     def test_bind_initializes_only_for_the_matching_draft_pr_head(self):
         pr = {"number": 7, "state": "OPEN", "isDraft": True, "headRefOid": HEAD_A, "baseRefOid": BASE}
@@ -487,8 +522,12 @@ class TestSealedPlanEntry(CoordinatorCase):
                 "sealed_digest": record["current"]["plan_digest"],
                 "build_plan_digest": plan_contract.build_plan_digest(document),
                 "at": "2026-08-24T00:00:00Z", "delta_judgment": "none"}
-        self.library.update_record(self.slug, lambda current: current.update({"seal": seal}),
-                                   expected_revision=record["current"]["revision"])
+        self.library.update_record(
+            self.slug,
+            lambda current: current.update({
+                "seal": seal,
+                "consent": (current.get("consent") or []) + [{"gate": "seal", "at": seal["at"]}]}),
+            expected_revision=record["current"]["revision"])
         return seal
 
     def test_an_unsealed_plan_cannot_start_a_build_and_the_refusal_names_the_lifecycle(self):
@@ -649,37 +688,68 @@ class TestSealedPlanEntry(CoordinatorCase):
         self.assertIn("refuses rather than proceeding", str(caught.exception))
 
     def test_a_crash_retry_of_the_same_bind_does_not_double_record_consent(self):
-        """The trail is published verbatim into the PR body; a retry re-writes the marker but must
-        not record the operator saying the same thing twice. A different decision still appends."""
+        """A retry re-writes the marker but must not record the operator deciding twice — and it
+        says on stderr that it did not, because the record cannot tell a retry from a re-bind onto
+        the same pull request."""
         seal = self.seal_it()
-        consent = {"gate": "bind", "decision": "Yes, begin.", "at": "2026-08-29T10:00:00Z"}
+        consent = {"gate": "bind", "at": "2026-08-29T10:00:00Z"}
         bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
                                  seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], dict(consent))
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                     seal["sealed_digest"], seal["build_plan_digest"],
+                                     {"gate": "bind", "at": "2026-08-29T10:00:07Z"})
         record = self.library.read_record(self.slug)
-        self.assertEqual(len(record.get("consent") or []), 1)
-        different = {"gate": "bind", "decision": "Yes, begin again.", "at": "2026-08-29T11:00:00Z"}
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], different)
-        self.assertEqual(len(self.library.read_record(self.slug).get("consent") or []), 2)
+        self.assertEqual([entry["gate"] for entry in record["consent"]], ["seal", "bind"])
+        self.assertIn("already carries a bind decision", err.getvalue())
 
-    def test_a_second_bind_onto_a_new_pr_records_the_operators_words_again(self):
+    def test_a_second_bind_onto_a_new_pr_records_the_operators_decision_again(self):
         """`state supersede` makes a second Build of the same plan a first-class act, and the
-        operator repeating "yes" is a NEW consent for a NEW binding. Keyed on the words alone,
-        the dedup swallowed it — two reviewers drove the published trail attesting a bind hours
-        before the bind it authorized. Suppression is for the crash-retry of an IDENTICAL binding
-        and nothing else."""
+        operator deciding again for a NEW binding is a new event. Suppression is for the identical
+        binding and nothing else."""
         seal = self.seal_it()
-        same_words_am = {"gate": "bind", "decision": "Go.", "at": "2026-08-29T09:00:00Z"}
-        same_words_pm = {"gate": "bind", "decision": "Go.", "at": "2026-08-29T17:30:00Z"}
         bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
-                                 seal["sealed_digest"], seal["build_plan_digest"], same_words_am)
-        bc._record_build_binding(self.document["plan_id"], "owner/repo", 99,
-                                 seal["sealed_digest"], seal["build_plan_digest"], same_words_pm)
+                                 seal["sealed_digest"], seal["build_plan_digest"],
+                                 {"gate": "bind", "at": "2026-08-29T09:00:00Z"})
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 99,
+                                     seal["sealed_digest"], seal["build_plan_digest"],
+                                     {"gate": "bind", "at": "2026-08-29T17:30:00Z"})
         entries = self.library.read_record(self.slug).get("consent") or []
-        self.assertEqual([entry["at"] for entry in entries],
+        self.assertEqual([entry["at"] for entry in entries if entry["gate"] == "bind"],
                          ["2026-08-29T09:00:00Z", "2026-08-29T17:30:00Z"])
+        for entry in entries:
+            self.assertEqual(set(entry), {"gate", "at"})
+        self.assertEqual(err.getvalue(), "")
+
+    def test_a_bind_refuses_a_sealed_record_that_carries_no_seal_decision(self):
+        """The chain checks itself: a `seal` block with no seal decision event beside it is a record
+        the seal verb did not write, and the bind refuses before writing anything."""
+        seal = self.seal_it()
+        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
+        with self.assertRaisesRegex(bc.CoordinatorError, "needs the seal gate's recorded decision"):
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                     seal["sealed_digest"], seal["build_plan_digest"],
+                                     {"gate": "bind", "at": "2026-08-29T10:00:00Z"})
+        record = self.library.read_record(self.slug)
+        self.assertIsNone(record.get("build_binding"))
+        self.assertNotIn("consent", record)
+
+    def test_an_adoption_records_its_own_gate_and_looks_back_to_the_seal(self):
+        """A Build continuing onto a corrected successor is recorded as `adopt`, so a reader of the
+        successor's record can tell it from a Build that started there; and like the bind it refuses
+        a sealed record that carries no seal decision."""
+        seal = self.seal_it()
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"],
+                                 {"gate": "adopt", "at": "2026-08-29T10:00:00Z"})
+        entries = self.library.read_record(self.slug)["consent"]
+        self.assertEqual([entry["gate"] for entry in entries], ["seal", "adopt"])
+        self.library.update_record(self.slug, lambda current: current.pop("consent", None))
+        with self.assertRaisesRegex(bc.CoordinatorError, "adopt gate needs the seal gate"):
+            bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
+                                     seal["sealed_digest"], seal["build_plan_digest"],
+                                     {"gate": "adopt", "at": "2026-08-29T11:00:00Z"})
 
     def test_the_rollback_restores_only_what_this_command_wrote(self):
         """The rollback is the one write on its path that used to carry no precondition, and a
@@ -687,27 +757,47 @@ class TestSealedPlanEntry(CoordinatorCase):
         binding AND consent — silently. It now asserts, inside the mutator, that the record's
         binding is still the one this command wrote, and refuses to touch anything else's."""
         seal = self.seal_it()
-        mine = {"gate": "bind", "decision": "adopt it", "at": "2026-08-29T12:00:00Z"}
+        before = list(self.library.read_record(self.slug).get("consent") or [])
+        mine = {"gate": "bind", "at": "2026-08-29T12:00:00Z"}
         written = {"repository": "owner/repo", "pull_request": 7,
                    "sealed_digest": seal["sealed_digest"],
                    "build_plan_digest": seal["build_plan_digest"]}
         bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
                                  seal["sealed_digest"], seal["build_plan_digest"], dict(mine))
         # The clean case: nothing moved, so the restore lands and removes only this entry.
-        bc._restore_binding(self.slug, None, [], written, dict(mine))
+        bc._restore_binding(self.slug, None, before, written, dict(mine))
         record = self.library.read_record(self.slug)
         self.assertIsNone(record.get("build_binding"))
-        self.assertNotIn("consent", record)
+        self.assertEqual(record.get("consent"), before)
         # The raced case: another session's bind moved the record; the rollback refuses whole.
-        theirs = {"gate": "bind", "decision": "start the other Build", "at": "2026-08-29T13:00:00Z"}
+        theirs = {"gate": "bind", "at": "2026-08-29T13:00:00Z"}
         bc._record_build_binding(self.document["plan_id"], "owner/repo", 4242,
                                  seal["sealed_digest"], seal["build_plan_digest"], dict(theirs))
         with self.assertRaisesRegex(bc.CoordinatorError, "another session moved"):
-            bc._restore_binding(self.slug, None, [], written, dict(mine))
+            bc._restore_binding(self.slug, None, before, written, dict(mine))
         record = self.library.read_record(self.slug)
         self.assertEqual(record["build_binding"]["pull_request"], 4242)
-        self.assertEqual([entry["decision"] for entry in record["consent"]],
-                         ["start the other Build"])
+        self.assertEqual([entry["at"] for entry in record["consent"] if entry["gate"] == "bind"],
+                         ["2026-08-29T13:00:00Z"])
+
+    def test_the_rollback_removes_one_entry_by_position_under_a_frozen_clock(self):
+        """Entries are events with whole-second moments, so a genuine decision and a retracted one
+        in the same second are EQUAL. A rollback keyed on value would erase both; keyed on position
+        it removes the one it appended and leaves the earlier, genuine one standing."""
+        seal = self.seal_it()
+        frozen = {"gate": "bind", "at": "2026-08-29T12:00:00Z"}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 7,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(frozen))
+        genuine = list(self.library.read_record(self.slug)["consent"])
+        # A second, distinct binding in the same second, then refused: its entry equals the first.
+        written = {"repository": "owner/repo", "pull_request": 8,
+                   "sealed_digest": seal["sealed_digest"],
+                   "build_plan_digest": seal["build_plan_digest"]}
+        bc._record_build_binding(self.document["plan_id"], "owner/repo", 8,
+                                 seal["sealed_digest"], seal["build_plan_digest"], dict(frozen))
+        self.assertEqual(len(self.library.read_record(self.slug)["consent"]), len(genuine) + 1)
+        bc._restore_binding(self.slug, None, genuine, written, dict(frozen))
+        self.assertEqual(self.library.read_record(self.slug)["consent"], genuine)
 
     def test_a_closure_landing_in_the_bind_window_refuses_under_the_lock(self):
         """The bind half of the supersede interlock, driven at exactly the racing write.
