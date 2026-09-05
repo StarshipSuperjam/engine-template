@@ -185,6 +185,45 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
         self.assertIn("carry no lens of their own", str(caught.exception))
 
 
+class D11DepthChoiceClosesAtTheSeal(unittest.TestCase):
+    """One predicate says when a review depth can no longer be chosen, and it says WHY
+    (StarshipSuperjam/engine-template#1108). Negative enumeration: an unknown status reads as open."""
+
+    def _record(self, **over):
+        record = {"current": {"revision": 1, "plan_digest": "sha256:" + "0" * 64},
+                  "approval": None, "plan_review": None, "seal": None,
+                  "build_binding": None, "closure": None}
+        record.update(over)
+        return record
+
+    def test_open_on_every_pre_seal_status(self):
+        digest = "sha256:" + "0" * 64
+        self.assertIsNone(plan_lifecycle.depth_choice_closed(self._record()))
+        self.assertIsNone(plan_lifecycle.depth_choice_closed(self._record(
+            approval={"revision": 1, "plan_digest": digest, "depth": "standard", "at": "2026-09-04T00:00:00Z"})))
+        self.assertIsNone(plan_lifecycle.depth_choice_closed(self._record(
+            approval={"revision": 1, "plan_digest": digest, "depth": "standard", "at": "2026-09-04T00:00:00Z"},
+            plan_review={"revision": 1, "lenses": ["architecture"], "findings": []})))
+
+    def test_closed_with_the_real_state_and_the_real_way_on(self):
+        seal = {"revision": 3}
+        cases = {
+            "sealed": (self._record(seal=seal), ("sealed", "Clone")),
+            "bound": (self._record(seal=seal, build_binding={"x": 1}), ("bound", "Build", "clone")),
+            "complete": (self._record(closure={"state": "complete", "reason": "merged"}), ("complete", "new plan")),
+            "retired": (self._record(closure={"state": "retired", "reason": "superseded"}), ("retired", "reopen")),
+            "abandoned": (self._record(closure={"state": "abandoned", "reason": "dropped"}), ("abandoned", "reopen")),
+        }
+        for name, (record, words) in cases.items():
+            reason = plan_lifecycle.depth_choice_closed(record)
+            self.assertIsNotNone(reason, name)
+            for word in words:
+                self.assertIn(word, reason, name)
+            self.assertNotIn("preview", reason, name)   # never a remedy that cannot succeed
+        # `complete` names no reopen: completed history is terminal and reopen refuses it.
+        self.assertNotIn("reopen", plan_lifecycle.depth_choice_closed(cases["complete"][0]))
+
+
 class D4FreezeMoments(_Ceremony):
     """Recording mistakes stop being seal-grade — and corrections stop at a named moment."""
 

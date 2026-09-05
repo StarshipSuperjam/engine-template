@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:db69656485676762feaaedf34b02fd7974edaa29df6e9bfb22c6d9b7674864d7",
+        "fingerprint": "sha256:4ed54c75cd86de3b68c61ee1191aa35bc93e4d03662177a8acdab5d1a9f291b4",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -6233,7 +6233,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:d154061885d5c17e761d8242b0559d5b16aedecae6d464a2b1102f43ce61c114",
+        "fingerprint": "sha256:5b2020000e440b05ffed39287f6181297de0fdd4dcb6fe8d9040bd8c89e97afa",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -9407,7 +9407,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:e6219f0f998d67f88550e276e7ec12ad78106fbe13c6fe7f9ed5a1de41fa95ba",
+        "fingerprint": "sha256:265eeb07cd95dcf5457f6406ff618ad4d9c47d9b6dff131a19330e3234f80597",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -12392,7 +12392,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:31334bbeb15b223354f898a70df63723ca9012003f33320642c0209c588001a1",
+        "fingerprint": "sha256:450bc4ca0bfd4792de2d6a18ae598e8514c977adc38f84e33c66d96bf2b073bd",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -13840,7 +13840,8 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:build_coordinator_core"
+          "tool:build_coordinator_core",
+          "tool:plan_store"
         ],
         "provided_by": [
           "module:core"
@@ -13848,7 +13849,7 @@
       },
       "slug": "plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:0a0a2c0a083204a485598ea85830c3c3c64530c4ac346d0142c1bab5e45d28e3",
+        "fingerprint": "sha256:bd36018ad9e8f43b03af7881ef4aed73a766bc7c85df4af7205723ab00e44f20",
         "path": ".engine/tools/plan_lifecycle.py"
       },
       "status": "active",
@@ -14101,7 +14102,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:77aff00e885f03f64dc6ae498ffbdd9785b1d6382b1f17e8cbae61a12056ba5e",
+        "fingerprint": "sha256:6f97d175ab78b2c61fc6ee455fcb9a7cb9408200ae84ff7a42f97be78cc11979",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -14989,7 +14990,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:24c51d19c4bf96eecc5c8d4bfceb6d761b9af98897a7b7dacf6319de560b4ac3",
+        "fingerprint": "sha256:834c536f1d3514e907d3bcf187a477613829921875da543289ad0473b9ff4d1f",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -17361,14 +17362,16 @@
           "tool:engine_status",
           "tool:hooks",
           "tool:modes",
+          "tool:module_catalog",
           "tool:qualification_health",
           "tool:telemetry",
-          "tool:validate"
+          "tool:validate",
+          "tool:wiring"
         ]
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:8c7f0aedb13975edcff92e472d7f3892c2789fbdc75f73654d6dbf69444af265",
+        "fingerprint": "sha256:d573332c21baacb1e769641356ae464630e2942e0e5fbc06fa72a9e487e592a3",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
@@ -17499,7 +17502,7 @@
       },
       "slug": "test_integration_queue",
       "source": {
-        "fingerprint": "sha256:650130f003d1bf67de91a9381c9cd4c3e667570e7c41f69ffb2287d55b8cf5c2",
+        "fingerprint": "sha256:ad36ec2bafaba4ac6b118e750182d7347801d79881569f5df0223b2d172e2132",
         "path": ".engine/tools/test_integration_queue.py"
       },
       "status": "active",
@@ -17848,7 +17851,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:78a214af21d60792e9bca38e1018f1bae0de7ea1b84c10967ee4a18066ae6919",
+        "fingerprint": "sha256:2421f4688ad60a8bd394303f11c814131d1123a49c74d7fc848e5642784895d2",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -18764,7 +18767,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:1d21d2d24a86f77c361999dba62563a069ab0c9de20053f9f742f2b5d81e1311",
+        "fingerprint": "sha256:6fb458eb969cd730c0374509b6c21ce9f086c6c2c8565c4131ef53d0612c0e05",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19027,7 +19030,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:87f9c9deebebcd8b373a1ca70ea33f7d83b7de9a9ed08d016dc8946f818b6620",
+        "fingerprint": "sha256:1891031470e9035e857e1f3db2d1c4e84e9db60b663d7fb8c12d716b32b79c0f",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -20062,7 +20065,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:1b12b721404ae86b994fb0042eb02d8f67915830423d4eb9b1cb438d2e527b35",
+        "fingerprint": "sha256:f1038b27b766f753e80715a75d9b5a8768942a9ce380f29370912fc7bc40ad3f",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",

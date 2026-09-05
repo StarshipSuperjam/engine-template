@@ -6,10 +6,20 @@ block-budget coherence leg (validate.block_budget_findings).
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 These lock the laws hooks owns:
-  - the event inventory is the engine's chosen subset, with PostToolUse three-owner (validation·telemetry·
-    modes), SessionEnd hooks-owned and non-blocking, UserPromptSubmit boot-owned injection; only PreToolUse
-    and Stop are block-eligible;
-    the block-eligible invariant set ships EMPTY.
+  - the event inventory is the engine's chosen subset of six events (SessionEnd is NOT governed — nothing
+    ever ran on it on either runtime, so its never-bound row was retracted), every row naming the systems
+    whose behaviour runs on the event: SessionStart five-owner (boot·memory·github-projects-sync·telemetry·
+    build-coordinator), PreToolUse six-owner (its actually-bound systems, not a placeholder), PostToolUse
+    three-owner (validation·telemetry·modes — telemetry a DECLARED delegated owner riding validation's
+    accept-hook), UserPromptSubmit boot-then-modes; owners are asserted as sets, order only where it is
+    load-bearing; only PreToolUse and Stop are block-eligible; the block-eligible invariant set ships EMPTY.
+  - the inventory is kept true by two pure drift checkers over the runtimes' registration documents, judging
+    ENGINE-owned entries only (an operator's own hook is never a finding): the forward leg reds an engine
+    command on an uninventoried event or one whose script maps to no owner named on its event; the reverse
+    leg reds an inventoried event with no engine binding, or a named owner nothing satisfies (a delegated
+    owner needs its delegate bound; an optional module's owner is skipped when the module is absent); both
+    fail loud on an empty extraction. Committed negative fixtures prove each leg still bites; what the
+    owner table proves is that every engine command has a NAMED owner, not that the name is the right one.
   - the block cap is 8, overridable via CLAUDE_CODE_STOP_HOOK_BLOCK_CAP (verified on the live platform).
   - the interpreter path is ${CLAUDE_PROJECT_DIR}-rooted, per-OS (POSIX bin/python, Windows Scripts/
     python.exe), never bare python / uv run.
@@ -29,6 +39,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -57,10 +68,18 @@ def _run(event, handler, payload=None, stdin_text=None):
 
 
 class TestEventInventory(unittest.TestCase):
-    def test_the_seven_governed_events(self):
+    def test_the_six_governed_events(self):
         self.assertEqual(hooks.EVENTS, {
             "SessionStart", "PreToolUse", "PostToolUse", "PreCompact",
-            "Stop", "SessionEnd", "UserPromptSubmit"})
+            "Stop", "UserPromptSubmit"})
+
+    def test_sessionend_is_not_governed(self):
+        # Retracted (StarshipSuperjam/engine-template#816, migration M2): the row claimed a hooks-owned
+        # cleanup duty while nothing ever ran on SessionEnd on either runtime — no registration, no
+        # delegated call — and hooks ships no handler by its own law. A never-bound row is a claim, not a
+        # reservation; a real duty re-adds the row with its owner and a binding, in one change.
+        self.assertNotIn("SessionEnd", hooks.EVENTS)
+        self.assertNotIn("SessionEnd", hooks.DELEGATED_OWNERS)
 
     def test_only_pretooluse_and_stop_are_block_eligible(self):
         self.assertEqual(hooks.BLOCK_ELIGIBLE_EVENTS, {"PreToolUse", "Stop"})
@@ -68,11 +87,64 @@ class TestEventInventory(unittest.TestCase):
             self.assertEqual(meta["blocks"], ev in {"PreToolUse", "Stop"},
                              f"{ev} block-eligibility")
 
+    def test_sessionstart_names_its_five_owners_as_a_set(self):
+        # boot's pack + memory's session-start work + the optional board refresh + telemetry's ambient
+        # triage and inbox drain (StarshipSuperjam/engine-template#784 — four bound hooks that had no
+        # owner slot) + build-coordinator's compact-matcher re-grounding. A SET: the two runtimes register
+        # these in different orders, so no single registration order exists to pin.
+        self.assertEqual(set(hooks.EVENT_INVENTORY["SessionStart"]["owners"]),
+                         {"boot", "memory", "github-projects-sync", "telemetry", "build-coordinator"})
+        self.assertTrue(hooks.EVENT_INVENTORY["SessionStart"]["injects"])
+        self.assertFalse(hooks.EVENT_INVENTORY["SessionStart"]["blocks"])
+
+    def test_pretooluse_names_the_six_systems_actually_bound_there(self):
+        # The row used to name a placeholder ("invariant-owner") — the same under-report as StarshipSuperjam/engine-template#784 on the
+        # busiest event. These are the systems whose commands are bound on PreToolUse.
+        self.assertEqual(set(hooks.EVENT_INVENTORY["PreToolUse"]["owners"]),
+                         {"modes", "knowledge", "self-map", "validation", "product-design", "session-economy"})
+        self.assertNotIn("invariant-owner", hooks.EVENT_INVENTORY["PreToolUse"]["owners"])
+
     def test_posttooluse_enumerates_its_three_owners(self):
         # validation's touched-file run + telemetry's ambient capture + modes' Claude native-plan
         # intake adapter coexist on one event (the owner inventory).
-        self.assertEqual(hooks.EVENT_INVENTORY["PostToolUse"]["owners"],
-                         ("validation", "telemetry", "modes"))
+        self.assertEqual(set(hooks.EVENT_INVENTORY["PostToolUse"]["owners"]),
+                         {"validation", "telemetry", "modes"})
+
+    def test_telemetry_is_a_declared_delegated_owner_on_posttooluse(self):
+        # telemetry registers no PostToolUse hook of its own: validate's accept-hook relays each edit into
+        # telemetry.capture_touched_fires. "Owner" is a behaviour relation, and a delegated owner is
+        # DECLARED data — the checkers honour it, they cannot detect it.
+        self.assertEqual(hooks.DELEGATED_OWNERS, {"PostToolUse": {"telemetry": "validation"},
+                                                  "Stop": {"telemetry": "close"}})
+        for event, delegations in hooks.DELEGATED_OWNERS.items():
+            self.assertIn(event, hooks.EVENTS)
+            for owner, delegate in delegations.items():
+                self.assertIn(owner, hooks.EVENT_INVENTORY[event]["owners"])
+                self.assertIn(delegate, hooks.EVENT_INVENTORY[event]["owners"])
+                self.assertNotEqual(owner, delegate)
+
+    def test_stop_names_close_and_a_delegated_telemetry(self):
+        # close's Stop handler promotes a logged finding through telemetry.promote_finding — the same
+        # delegated shape as PostToolUse, on the turn-close event.
+        self.assertEqual(set(hooks.EVENT_INVENTORY["Stop"]["owners"]), {"close", "telemetry"})
+        self.assertEqual(hooks.DELEGATED_OWNERS["Stop"], {"telemetry": "close"})
+
+    def test_every_owner_by_script_target_is_an_inventoried_owner(self):
+        named = {o for meta in hooks.EVENT_INVENTORY.values() for o in meta["owners"]}
+        for prefix, owner in hooks.OWNER_BY_SCRIPT:
+            self.assertTrue(prefix.startswith(".engine/tools/"), prefix)
+            self.assertIn(owner, named, f"{prefix} maps to {owner}, which no inventory row names")
+        self.assertLessEqual(set(hooks.OWNER_MODULE), named)
+        # A mistyped module id would make the reverse leg skip that owner forever, silently. The roster
+        # is the module CATALOG — the offerable add-ons (optional / default-on / experimental), kept
+        # whether or not this deployment installed them; required modules have no entry — which is the
+        # right roster precisely because OWNER_MODULE only ever names optional modules. It is not the
+        # modules present on disk, so a project that declined an add-on (a supported setup) does not red
+        # its own self-test.
+        import module_catalog
+        catalog_ids = {entry["id"] for entry in module_catalog.entries()}
+        self.assertTrue(catalog_ids, "the module catalog is empty or unreadable")
+        self.assertLessEqual(set(hooks.OWNER_MODULE.values()), catalog_ids)
 
     def test_posttooluse_may_inject_and_stays_non_blocking(self):
         # modes' intake adapter injects the arrival report (additionalContext) after importing an
@@ -80,18 +152,14 @@ class TestEventInventory(unittest.TestCase):
         self.assertTrue(hooks.EVENT_INVENTORY["PostToolUse"]["injects"])
         self.assertFalse(hooks.EVENT_INVENTORY["PostToolUse"]["blocks"])
 
-    def test_sessionend_is_hooks_owned_and_cannot_block(self):
-        self.assertEqual(hooks.EVENT_INVENTORY["SessionEnd"]["owners"], ("hooks",))
-        self.assertFalse(hooks.EVENT_INVENTORY["SessionEnd"]["blocks"])
-
     def test_userpromptsubmit_carries_boot_then_modes_in_a_defined_order(self):
         """AMENDED, deliberately, when the Codex native-plan intake adapter landed. This event was
         single-owner (`("boot",)`) from the day the table was written until then.
 
         What makes a second owner admissible here, and why the amendment is not the drift the table
         exists to catch. The hook table refuses writers of UNDEFINED order — writers that race, whose
-        relative sequence nothing states — not registered owners; PostToolUse has carried three owners
-        in a stated order since it was written, and this is that shape, not a new one. The two owners
+        relative sequence nothing states — not registered owners; PostToolUse has carried three owners,
+        added one at a time, since it was written (asserted as a set), and this is that shape, not a new one. The two owners
         cannot contend: boot's per-prompt scent injects a constant orientation cue without reading the
         prompt's content, while modes reads the prompt's opening bytes and acts only on an acceptance
         envelope at byte zero. They share no file and no signal — modes writes no stance — so neither
@@ -2092,5 +2160,219 @@ class TestBytecodeBeltScope(unittest.TestCase):
 # module that defines a TestCase after its runner. (An earlier comment here claimed #1153's activation suite
 # "ran never" because it sat below the runner; that was wrong — it was collected and ran under discovery, and
 # #1153 shipped broken because its tests never exercised the fresh-clone path.)
+
+
+class TestInventoryDriftCheckers(unittest.TestCase):
+    """The two-direction drift checkers keep EVENT_INVENTORY true mechanically (the #784 / #816 close).
+    Positive: both live registration files pass both legs. Negative: committed fixtures prove each leg
+    still bites — and that a FOREIGN (operator's own) hook is never a finding, because the registration
+    files are operator-shared."""
+
+    _LIVE = (("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json"))
+
+    @classmethod
+    def _live(cls):
+        return {provider: validate.load_json(os.path.join(validate.ROOT, rel)) for provider, rel in cls._LIVE}
+
+    @staticmethod
+    def _doc(event, *commands, matcher=""):
+        return {"hooks": {event: [{"matcher": matcher,
+                                   "hooks": [{"type": "command", "command": c} for c in commands]}]}}
+
+    def test_marker_is_the_wiring_libraries_engine_identity(self):
+        import wiring
+        self.assertEqual(hooks.ENGINE_COMMAND_MARKER, wiring.ENGINE_DIR_MARKER)
+
+    def test_engine_script_extraction_returns_the_script_not_the_launcher(self):
+        for provider in ("claude", "codex"):
+            cmd = hooks.hook_command(".engine/tools/telemetry.py run-ambient", provider=provider)
+            self.assertEqual(hooks._engine_script(cmd), ".engine/tools/telemetry.py")
+        self.assertIsNone(hooks._engine_script("echo hi"))
+        self.assertIsNone(hooks._engine_script(None))
+
+    def test_both_live_registrations_pass_the_forward_leg(self):
+        for provider, document in self._live().items():
+            with self.subTest(provider=provider):
+                self.assertEqual(hooks.inventory_forward_failures(document, provider), [])
+
+    def test_the_union_of_live_registrations_passes_the_reverse_leg(self):
+        installed = hooks.installed_modules()
+        self.assertIn("core", installed)
+        self.assertEqual(hooks.inventory_reverse_failures(self._live(), installed), [])
+
+    def test_reverse_leg_stays_green_with_both_optional_modules_absent(self):
+        # The deployment-variance case: board-sync and product-design declined, so their commands are gone
+        # from both files and their owners are skipped — no false red for a supported choice.
+        docs = {}
+        for provider, document in self._live().items():
+            stripped = json.loads(json.dumps(document))
+            for groups in stripped["hooks"].values():
+                for group in groups:
+                    group["hooks"] = [h for h in group["hooks"]
+                                      if "projects_sync/" not in h["command"] and "product_design/" not in h["command"]]
+            docs[provider] = stripped
+        installed = hooks.installed_modules() - {"github-projects-sync", "product-design"}
+        self.assertEqual(hooks.inventory_reverse_failures(docs, installed), [])
+        # With the installed list left to the checker, it reads THIS checkout's modules: every optional
+        # add-on installed here is then a named owner with nothing behind it in the stripped documents.
+        # This pins the default — a checker that assumed nothing installed would pass the line above
+        # vacuously — and it reds exactly the add-ons present, so a deployment that declined one stays green.
+        derived = hooks.inventory_reverse_failures(docs)
+        for owner in {"github-projects-sync", "product-design"} & hooks.installed_modules():
+            self.assertTrue(any(f"names {owner} on" in f and "over-reports" in f for f in derived), (owner, derived))
+        self.assertEqual([f for f in derived if "names" in f and "over-reports" in f
+                          and not any(o in f for o in {"github-projects-sync", "product-design"})], [])
+        for provider, document in docs.items():
+            self.assertEqual(hooks.inventory_forward_failures(document, provider), [])
+
+    def test_forward_leg_reds_an_engine_hook_on_an_uninventoried_event(self):
+        # The planted drift: an engine hook bound on SessionEnd (or any ungoverned event) with no row.
+        for provider in ("claude", "codex"):
+            doc = self._doc("SessionEnd", hooks.hook_command(".engine/tools/close.py", provider=provider))
+            failures = hooks.inventory_forward_failures(doc, provider)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("does not govern", failures[0])
+
+    def test_forward_leg_reds_an_engine_command_mapping_to_no_owner(self):
+        # A REAL engine script (moment.py exists) that OWNER_BY_SCRIPT does not map.
+        doc = self._doc("SessionStart", hooks.hook_command(".engine/tools/moment.py", provider="claude"),
+                        matcher="startup")
+        failures = hooks.inventory_forward_failures(doc, "claude")
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("no owning system", failures[0])
+
+    def test_a_foreign_command_merely_mentioning_an_engine_path_is_not_judged(self):
+        # The operator's own script that happens to name a non-existent path under .engine/tools/ is
+        # not the engine's — off the launcher, only a command running an EXISTING engine script is judged.
+        doc = self._doc("SessionEnd", "sh /Users/me/mytidy.sh --log .engine/tools/mylog.txt")
+        doc["hooks"]["Stop"] = [{"hooks": [{"type": "command",
+                                            "command": hooks.hook_command(".engine/tools/close.py", provider="claude")}]}]
+        self.assertEqual(hooks.inventory_forward_failures(doc, "claude"), [])
+        self.assertIsNone(hooks._engine_script("sh /Users/me/mytidy.sh --log .engine/tools/mylog.txt"))
+
+    def test_forward_leg_reds_a_launcher_entry_pointing_at_a_missing_script(self):
+        # The dangling registration: an engine launcher entry left behind by a deleted or renamed script.
+        # It is still the engine's (identity rides the launcher), and the missing file is its own finding
+        # — a file-must-exist identity test would make the leg look away from exactly this case.
+        for provider in ("claude", "codex"):
+            cmd = hooks.hook_command(".engine/tools/gone_since_a_rename.py", provider=provider)
+            self.assertEqual(hooks._engine_script(cmd), ".engine/tools/gone_since_a_rename.py")
+            doc = self._doc("Stop", cmd)
+            failures = hooks.inventory_forward_failures(doc, provider)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("no such file", failures[0])
+        # And it satisfies nothing on the reverse leg. The renamed path must STILL map to its owner (the
+        # memory/ directory prefix does; memory is a required module, present in every deployment), so
+        # the only thing that can red memory on SessionStart is the missing-file guard — a name no owner
+        # maps to would be discarded one step earlier for a different reason and prove nothing.
+        docs = {}
+        for provider, document in self._live().items():
+            swapped = json.loads(json.dumps(document))
+            for group in swapped["hooks"]["SessionStart"]:
+                for h in group["hooks"]:
+                    h["command"] = re.sub(r"\.engine/tools/memory/[^\s\"']+",
+                                          ".engine/tools/memory/gone_since_a_rename.py", h["command"])
+            docs[provider] = swapped
+        self.assertEqual(hooks._engine_script(hooks.hook_command(".engine/tools/memory/gone_since_a_rename.py")),
+                         ".engine/tools/memory/gone_since_a_rename.py")
+        self.assertEqual(hooks.owner_of_script(".engine/tools/memory/gone_since_a_rename.py"), "memory")
+        failures = hooks.inventory_reverse_failures(docs, hooks.installed_modules())
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("names memory on SessionStart", failures[0])
+
+    def test_root_points_both_legs_at_another_checkout(self):
+        # `root` is a real seam, not decoration: a non-launcher command is the engine's only where its
+        # script exists, and the reverse leg reads that checkout's installed modules by default.
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, ".engine", "tools"))
+            os.makedirs(os.path.join(tmp, ".engine", "modules", "core"))
+            Path(tmp, ".engine", "tools", "only_here.py").write_text("", encoding="utf-8")
+            Path(tmp, ".engine", "modules", "core", "manifest.json").write_text("{}", encoding="utf-8")
+            cmd = "python3 .engine/tools/only_here.py"
+            self.assertEqual(hooks._engine_script(cmd, root=tmp), ".engine/tools/only_here.py")
+            self.assertIsNone(hooks._engine_script(cmd))
+            doc = self._doc("SessionStart", cmd, matcher="startup")
+            failures = hooks.inventory_forward_failures(doc, "claude", root=tmp)
+            self.assertEqual(len(failures), 1, failures)
+            self.assertIn("no owning system", failures[0])
+            self.assertIn("nothing to judge", hooks.inventory_forward_failures(doc, "claude")[0])
+            self.assertEqual(hooks.installed_modules(root=tmp), {"core"})
+            # The live registrations judged against the temporary root: every launcher entry is still the
+            # engine's, and every script is missing there — the reverse leg has nothing behind any row.
+            failures = hooks.inventory_reverse_failures(self._live(), root=tmp)
+            self.assertTrue(all("nothing to judge" in f for f in failures), failures)
+
+    def test_forward_leg_reds_an_owner_its_event_does_not_name(self):
+        # The #784 shape exactly: a known engine script bound on an event whose row omits its owner.
+        doc = self._doc("PreCompact", hooks.hook_command(".engine/tools/telemetry.py run-ambient", provider="claude"))
+        failures = hooks.inventory_forward_failures(doc, "claude")
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("under-reports", failures[0])
+
+    def test_a_foreign_hook_is_never_a_finding(self):
+        # The operator's own hook on an event the engine does not govern, beside one engine hook so the
+        # extraction is non-empty: the foreign entry passes unjudged.
+        doc = self._doc("SessionEnd", "echo goodbye", "/usr/local/bin/my-own-tidy --quiet")
+        doc["hooks"]["Stop"] = [{"hooks": [{"type": "command",
+                                            "command": hooks.hook_command(".engine/tools/close.py", provider="claude")}]}]
+        self.assertEqual(hooks.inventory_forward_failures(doc, "claude"), [])
+
+    def test_both_legs_fail_loud_on_an_empty_extraction(self):
+        empty = {"hooks": {"SessionEnd": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}}
+        self.assertTrue(hooks.inventory_forward_failures(empty, "claude"))
+        self.assertTrue(hooks.inventory_forward_failures({}, "codex"))
+        self.assertTrue(hooks.inventory_reverse_failures({"claude": empty, "codex": {}}, {"core"}))
+        with self.assertRaises(ValueError):
+            hooks.inventory_forward_failures(empty, "gemini")
+
+    def test_reverse_leg_reds_an_inventoried_owner_nothing_satisfies(self):
+        # The #816 shape: a named owner with nothing behind it (telemetry stripped from SessionStart).
+        docs = {}
+        for provider, document in self._live().items():
+            stripped = json.loads(json.dumps(document))
+            for group in stripped["hooks"]["SessionStart"]:
+                group["hooks"] = [h for h in group["hooks"] if "telemetry.py" not in h["command"]]
+            docs[provider] = stripped
+        failures = hooks.inventory_reverse_failures(docs, hooks.installed_modules())
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("names telemetry on SessionStart", failures[0])
+        self.assertIn("over-reports", failures[0])
+
+    def test_reverse_leg_reds_an_inventoried_event_with_no_binding(self):
+        docs = {}
+        for provider, document in self._live().items():
+            stripped = json.loads(json.dumps(document))
+            stripped["hooks"].pop("PreCompact", None)
+            docs[provider] = stripped
+        failures = hooks.inventory_reverse_failures(docs, hooks.installed_modules())
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("governs PreCompact", failures[0])
+
+    def test_reverse_leg_requires_a_delegated_owners_delegate_to_be_bound(self):
+        docs = {}
+        for provider, document in self._live().items():
+            stripped = json.loads(json.dumps(document))
+            for group in stripped["hooks"]["PostToolUse"]:
+                group["hooks"] = [h for h in group["hooks"] if "validate.py" not in h["command"]]
+            docs[provider] = stripped
+        failures = hooks.inventory_reverse_failures(docs, hooks.installed_modules())
+        self.assertTrue(any("telemetry rides validation" in f for f in failures), failures)
+        self.assertTrue(any("names validation on PostToolUse" in f for f in failures), failures)
+
+    def test_provider_only_bindings_satisfy_their_owners_only_across_the_union(self):
+        # Provider-only owners are an established, ledgered shape: build-coordinator's compact-matcher
+        # re-grounding and session-economy's spend gate are Claude-only; modes' native-plan importer on
+        # UserPromptSubmit is Codex-only. Read alone, EACH runtime's file reds the other's owners — which
+        # is exactly why the reverse leg reads the union (green above), never one file.
+        live = self._live()
+        installed = hooks.installed_modules()
+        codex_only = hooks.inventory_reverse_failures({"codex": live["codex"]}, installed)
+        self.assertTrue(any("build-coordinator on SessionStart" in f for f in codex_only), codex_only)
+        self.assertTrue(any("session-economy on PreToolUse" in f for f in codex_only), codex_only)
+        claude_only = hooks.inventory_reverse_failures({"claude": live["claude"]}, installed)
+        self.assertEqual([f for f in claude_only if "over-reports" in f],
+                         ["the inventory names modes on UserPromptSubmit, but no engine command mapped to modes "
+                          "is bound there in any runtime — the row over-reports"])
+
 if __name__ == "__main__":
     unittest.main()
