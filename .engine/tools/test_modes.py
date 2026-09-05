@@ -449,57 +449,305 @@ class TestBlockInvariantAndVocabulary(unittest.TestCase):
 
 
 class TestPlanArtifactCarveOut(unittest.TestCase):
-    """#64: in Explore the gate EXEMPTS Claude Code's native plan file — recognized by the
-    platform's own marker (`permission_mode == "plan"` / `is_plan_file`), NEVER a path — while every other
-    write stays denied. (On the current platform `is_plan_file` appears only in conversation text, so the
-    live marker is `permission_mode == "plan"`; the exact field is a build-spec leaf.)"""
+    """StarshipSuperjam/engine-template#64, narrowed by StarshipSuperjam/engine-template#775: in Explore the gate EXEMPTS Claude Code's native plan file — the session's
+    plan-mode marker (`permission_mode == "plan"`) AND a write landing inside the plans folder the platform
+    is configured to use — while every other write in plan mode (the operator's ~/.claude/ settings, engine
+    source, a pathless call) stays denied, with a plan-mode relay that names the resolved folder. The
+    payload shape is observed on this platform: an ordinary Write/Edit with an absolute file_path under
+    the plans folder. The user home and the settings-file list are seams pointed at a temporary tree, so
+    nothing here reads or writes the developer's real ~/.claude."""
 
-    def _payload(self, tool_name, permission_mode=None, tool_input=None):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = os.path.realpath(self._tmp.name)
+        self.home = os.path.join(base, "home")
+        self.root = os.path.join(base, "code", "myproj")               # the workspace root (has .claude/)
+        self.plans = os.path.join(self.home, ".claude", "plans")       # the platform default
+        os.makedirs(self.plans)
+        os.makedirs(os.path.join(self.root, ".claude"))
+        os.makedirs(os.path.join(self.root, ".engine", "tools"))
+        self._patches = [mock.patch.object(modes, "_user_home", return_value=self.home),
+                         mock.patch.object(modes, "_MANAGED_SETTINGS_PATHS", ())]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patches:
+            p.stop()
+        self._tmp.cleanup()
+
+    def _payload(self, tool_name, permission_mode=None, tool_input=None, cwd="root"):
         # session_id=None -> current_stance is Explore (the gated default); no signal file needed.
-        return {"session_id": None, "tool_name": tool_name,
-                "tool_input": dict(tool_input or {}), "permission_mode": permission_mode}
+        return {"session_id": None, "tool_name": tool_name, "tool_input": dict(tool_input or {}),
+                "permission_mode": permission_mode, "cwd": self.root if cwd == "root" else cwd}
 
-    def test_plan_file_write_in_plan_mode_is_allowed(self):
-        self.assertTrue(_allow(modes.handler(self._payload("Write", permission_mode="plan"))))
-        self.assertTrue(_allow(modes.handler(self._payload("Edit", permission_mode="plan"))))
+    def _settings(self, which, value, root=None):
+        root = root or self.root
+        path = {"user": os.path.join(self.home, ".claude", "settings.json"),
+                "local": os.path.join(root, ".claude", "settings.local.json"),
+                "project": os.path.join(root, ".claude", "settings.json")}[which]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"permissions": {}, "plansDirectory": value}, fh)
+        return path
 
-    def test_plan_file_allowed_even_when_plansdir_is_inside_the_repo(self):
-        # marker-not-path: a plan folder relocated INTO the repo must not re-trip the gate.
-        d = modes.handler(self._payload("Write", permission_mode="plan",
-                                        tool_input={"file_path": ".engine/plans/p.md"}))
+    # ---- the allowed cases: the artifact, by path ----
+    def test_plan_file_write_in_default_folder_is_allowed(self):
+        for tool in ("Write", "Edit"):
+            d = modes.handler(self._payload(tool, "plan", {"file_path": os.path.join(self.plans, "p.md")}))
+            self.assertTrue(_allow(d), tool)
+
+    def test_a_file_directly_in_the_folder_and_one_nested_deeper_are_both_the_artifact(self):
+        for rel in ("p.md", os.path.join("nested", "deeper", "p.md")):
+            d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(self.plans, rel)}))
+            self.assertTrue(_allow(d), rel)
+
+    def test_the_tilde_form_of_the_plan_path_is_allowed(self):
+        d = modes.handler(self._payload("Write", "plan", {"file_path": "~/.claude/plans/p.md"}))
+        self.assertTrue(_allow(d))
+
+    def test_a_configured_absolute_folder_is_allowed(self):
+        folder = os.path.join(self.home, "my-plans"); os.makedirs(folder)
+        self._settings("user", folder)
+        self.assertEqual(modes._plans_directory(self.root), folder)
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(folder, "p.md")}))
+        self.assertTrue(_allow(d))
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(self.plans, "p.md")}))
+        self.assertTrue(_deny(d), "the default folder is no longer the plans folder once one is configured")
+
+    def test_plan_file_allowed_even_when_plansdir_is_relocated_into_the_repo(self):
+        # The relocated-folder case the original design protected: a relative value resolves from the
+        # workspace root, and an ordinary folder inside the workspace is contained.
+        self._settings("local", "./project-plans")
+        folder = os.path.join(self.root, "project-plans")
+        self.assertEqual(modes._plans_directory(self.root), folder)
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(folder, "p.md")}))
+        self.assertTrue(_allow(d))
+
+    def test_a_symlinked_plans_folder_is_allowed_through_either_name(self):
+        real = os.path.join(self.home, "real-plans"); os.makedirs(real)
+        link = os.path.join(self.home, "linked-plans"); os.symlink(real, link)
+        self._settings("user", link)
+        self.assertEqual(modes._plans_directory(self.root), real)          # both sides realpath-resolved
+        for base in (link, real):
+            d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(base, "p.md")}))
+            self.assertTrue(_allow(d), base)
+
+    def test_a_session_started_in_a_subdirectory_still_finds_the_workspace_folder(self):
+        self._settings("project", "./project-plans")
+        sub = os.path.join(self.root, "src", "deep"); os.makedirs(sub)
+        self.assertEqual(modes._workspace_root(sub), self.root)
+        folder = os.path.join(self.root, "project-plans")
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(folder, "p.md")}, cwd=sub))
         self.assertTrue(_allow(d))
 
     def test_is_plan_file_flag_is_allowed(self):
         # the belt-and-suspenders marker: a platform that flags the write as the plan file is honored too.
         self.assertTrue(_allow(modes.handler(self._payload("Write", tool_input={"is_plan_file": True}))))
 
-    def test_non_plan_engine_source_write_stays_denied(self):
-        d = modes.handler(self._payload("Write", permission_mode="default",
-                                        tool_input={"file_path": ".engine/tools/x.py"}))
+    # ---- the denied cases: plan mode alone is never the artifact ----
+    def test_home_claude_settings_write_under_plan_mode_is_denied(self):
+        # THE NEGATIVE WITNESS (StarshipSuperjam/engine-template#775): a ~/.claude/settings.json write during plan mode passes the gate no
+        # longer. StarshipSuperjam/engine-template#1120 (the location-based redesign of this gate) must preserve this case when it is
+        # reconsidered — it is the regression the narrowed carve-out exists to hold.
+        d = modes.handler(self._payload("Write", "plan", {"file_path": "~/.claude/settings.json"}))
+        self.assertTrue(_deny(d))
+        self.assertIn("the only writes I can make are files inside your plans folder", d.get("reason", ""))
+        self.assertIn("that value wins", d.get("reason", ""))        # the relay states the precedence it applies
+        self.assertIn(self.plans, d.get("reason", ""))                 # the relay names the resolved folder
+        self.assertIn("plansDirectory", d.get("reason", ""))
+        self.assertNotIn("open a pull request", d.get("reason", ""))   # never the build-set relay
+
+    def test_engine_source_write_under_plan_mode_is_denied(self):
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(self.root, ".engine", "tools", "x.py")}))
         self.assertTrue(_deny(d))
 
+    def test_pathless_write_under_plan_mode_is_denied(self):
+        # Observed: a plan save always carries a path; a pathless plan-mode write is a fixture, not a save.
+        self.assertTrue(_deny(modes.handler(self._payload("Write", "plan"))))
+
+    def test_a_batch_with_one_path_outside_the_folder_is_denied(self):
+        ti = {"file_path": os.path.join(self.plans, "p.md"), "file_paths": [os.path.join(self.plans, "p.md"), "~/.claude/settings.json"]}
+        self.assertTrue(_deny(modes.handler(self._payload("Write", "plan", ti))))
+
+    def test_non_plan_engine_source_write_stays_denied(self):
+        d = modes.handler(self._payload("Write", "default", {"file_path": ".engine/tools/x.py"}))
+        self.assertTrue(_deny(d))
+        self.assertIn("open a pull request", d.get("reason", ""))      # outside plan mode: the generic relay
+
     def test_non_plan_home_claude_settings_write_stays_denied(self):
-        # a ~/.claude/settings.json write carries no plan marker -> denied (it has no merge backstop).
-        d = modes.handler(self._payload("Write", permission_mode="default",
-                                        tool_input={"file_path": "~/.claude/settings.json"}))
+        d = modes.handler(self._payload("Write", "default", {"file_path": "~/.claude/settings.json"}))
         self.assertTrue(_deny(d))
 
     def test_write_without_permission_mode_stays_denied(self):
         # pm absent (older platform / a plain edit) -> not the artifact -> denied (old behavior preserved).
-        self.assertTrue(_deny(modes.handler(self._payload("Write"))))
+        self.assertTrue(_deny(modes.handler(self._payload("Write", tool_input={"file_path": os.path.join(self.plans, "p.md")}))))
 
     def test_build_verbs_not_exempted_even_in_plan_mode(self):
         # the carve-out is the file-mutating tools specifically; a commit/branch/PR is never the artifact.
         for cmd in ("git commit -m x", "gh pr create", "git checkout -b f"):
-            d = modes.handler(self._payload("Bash", permission_mode="plan", tool_input={"command": cmd}))
+            d = modes.handler(self._payload("Bash", "plan", {"command": cmd}))
             self.assertTrue(_deny(d), f"{cmd!r} must stay denied even under permission_mode=plan")
 
+    def test_without_a_cwd_the_default_folder_still_works_and_workspace_files_are_skipped(self):
+        # The missing-cwd rule: a hand-built payload can still save into the default (or a configured
+        # absolute user-level) folder; the workspace files and any relative value are skipped.
+        self._settings("local", "./project-plans")
+        self.assertIsNone(modes._workspace_root(None))
+        self.assertEqual(modes._plans_directory(None), self.plans)
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(self.plans, "p.md")}, cwd=None))
+        self.assertTrue(_allow(d))
+        d = modes.handler(self._payload("Write", "plan", {"file_path": os.path.join(self.root, "project-plans", "p.md")}, cwd=None))
+        self.assertTrue(_deny(d))
+
     def test_is_plan_artifact_predicate(self):
-        self.assertTrue(modes.is_plan_artifact("Write", {}, "plan"))
-        self.assertTrue(modes.is_plan_artifact("Edit", {"is_plan_file": True}, None))
-        self.assertFalse(modes.is_plan_artifact("Write", {}, "default"))
-        self.assertFalse(modes.is_plan_artifact("Write", {}, None))
-        self.assertFalse(modes.is_plan_artifact("Bash", {"command": "x"}, "plan"))  # not a file-mutating tool
+        inside = {"file_path": os.path.join(self.plans, "p.md")}
+        self.assertTrue(modes.is_plan_artifact("Write", inside, "plan", self.root))
+        self.assertTrue(modes.is_plan_artifact("Edit", {"is_plan_file": True}, None, self.root))
+        self.assertFalse(modes.is_plan_artifact("Write", {}, "plan", self.root))            # pathless
+        self.assertFalse(modes.is_plan_artifact("Write", inside, "default", self.root))
+        self.assertFalse(modes.is_plan_artifact("Write", inside, None, self.root))
+        self.assertFalse(modes.is_plan_artifact("Bash", {"command": "x"}, "plan", self.root))  # not a file-mutating tool
+        self.assertFalse(modes.is_plan_artifact("Write", inside, "plan", self.root, provider="codex"))
+
+    # ---- the classify CLI's discoverability (deliverable-review findings on StarshipSuperjam/engine-template#775) ----
+    def test_classify_help_prints_usage_and_names_the_path_options(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(modes._classify(["--help"]), 0)
+        self.assertIn("--file PATH", out.getvalue())
+        self.assertIn("--cwd DIR", out.getvalue())
+        self.assertNotIn("ALLOW", out.getvalue())      # never a classification of the literal '--help'
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(modes._classify(["Write", "--help"]), 0)   # the trailing form too
+        self.assertIn("--cwd DIR", out.getvalue())
+        self.assertNotIn("->", out.getvalue())
+
+    def test_classify_resolves_a_relative_cwd_instead_of_dropping_it(self):
+        # A relative --cwd used to be silently ignored (the workspace files were never consulted); it now
+        # resolves against the process working directory, so the workspace-configured folder is honored.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp):
+            custom = os.path.join(self.root, "docs", "plans")
+            os.makedirs(custom)
+            with open(os.path.join(self.root, ".claude", "settings.local.json"), "w", encoding="utf-8") as fh:
+                json.dump({"plansDirectory": "docs/plans"}, fh)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), mock.patch.object(os, "getcwd", return_value=self.root):
+                modes._classify(["Write", "--pm", "plan", "--file", os.path.join(custom, "p.md"), "--cwd", "."])
+        self.assertIn(f"plans_folder={custom!r}", out.getvalue())
+        self.assertIn("-> ALLOW", out.getvalue())
+
+
+class TestPlansDirectoryResolver(unittest.TestCase):
+    """StarshipSuperjam/engine-template#775: where the plans folder comes from, and which configured values are refused. Precedence is
+    managed, user, then the workspace's local and project files — first VALID value wins — else the
+    platform default; a non-string, blank, unreadable or uncontained value falls through. Containment is
+    what stops a settings file shipped inside a repository from opening the gate for whoever clones it."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = os.path.realpath(self._tmp.name)
+        self.home = os.path.join(base, "home")
+        self.root = os.path.join(base, "code", "myproj")
+        self.managed = os.path.join(base, "managed", "managed-settings.json")
+        os.makedirs(os.path.join(self.home, ".claude", "plans"))
+        os.makedirs(os.path.join(self.root, ".claude"))
+        os.makedirs(os.path.join(self.root, ".engine"))
+        os.makedirs(os.path.join(self.root, ".git"))
+        os.makedirs(os.path.dirname(self.managed))
+        self.default = os.path.join(self.home, ".claude", "plans")
+        self._patches = [mock.patch.object(modes, "_user_home", return_value=self.home),
+                         mock.patch.object(modes, "_MANAGED_SETTINGS_PATHS", (self.managed,))]
+        for p in self._patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self._patches:
+            p.stop()
+        self._tmp.cleanup()
+
+    def _write(self, which, value, raw=None):
+        path = {"managed": self.managed,
+                "user": os.path.join(self.home, ".claude", "settings.json"),
+                "local": os.path.join(self.root, ".claude", "settings.local.json"),
+                "project": os.path.join(self.root, ".claude", "settings.json")}[which]
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(raw if raw is not None else json.dumps({"plansDirectory": value}))
+
+    def test_the_default_when_nothing_is_configured(self):
+        self.assertEqual(modes._plans_directory(self.root), self.default)
+
+    def test_precedence_is_managed_then_user_then_local_then_project(self):
+        for which in ("managed", "user", "local", "project"):
+            os.makedirs(os.path.join(self.home, which + "-plans"), exist_ok=True)
+        self._write("project", os.path.join(self.home, "project-plans"))
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.home, "project-plans"))
+        self._write("local", os.path.join(self.home, "local-plans"))
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.home, "local-plans"))
+        self._write("user", os.path.join(self.home, "user-plans"))
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.home, "user-plans"))
+        self._write("managed", os.path.join(self.home, "managed-plans"))
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.home, "managed-plans"))
+
+    def test_the_settings_files_consulted_are_exactly_these_in_this_order(self):
+        self.assertEqual(modes._plans_settings_files(self.root),
+                         [self.managed, os.path.join(self.home, ".claude", "settings.json"),
+                          os.path.join(self.root, ".claude", "settings.local.json"),
+                          os.path.join(self.root, ".claude", "settings.json")])
+        self.assertEqual(modes._plans_settings_files(None),
+                         [self.managed, os.path.join(self.home, ".claude", "settings.json")])
+
+    def test_an_unreadable_or_malformed_file_falls_through(self):
+        self._write("user", None, raw="{not json")
+        self._write("local", os.path.join(self.home, "ok-plans"))
+        os.makedirs(os.path.join(self.home, "ok-plans"))
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.home, "ok-plans"))
+        self._write("local", None, raw="[1, 2, 3]")                    # not an object
+        self.assertEqual(modes._plans_directory(self.root), self.default)
+
+    def test_a_non_string_or_blank_value_is_skipped(self):
+        for bad in (None, 7, ["x"], {"a": 1}, "", "   "):
+            self._write("user", bad)
+            self.assertEqual(modes._plans_directory(self.root), self.default, repr(bad))
+
+    def test_a_value_failing_containment_is_skipped(self):
+        ancestor = os.path.dirname(self.root)
+        for bad in (".", "./", "~", "~/", self.root, ancestor, os.path.dirname(self.home), self.home,
+                    os.path.realpath(os.sep), "~/.claude", os.path.join(self.home, ".claude", "hooks"),
+                    "./.engine", "./.engine/plans", "./.claude", "./.claude/plans", "./.git", "../"):
+            self._write("local", bad)
+            self.assertEqual(modes._plans_directory(self.root), self.default, repr(bad))
+
+    def test_the_platforms_own_plans_area_under_home_claude_is_contained(self):
+        # ~/.claude is off limits except the platform's own plans area (the default lives there).
+        self._write("user", "~/.claude/plans/team")
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.default, "team"))
+
+    def test_a_repo_shipped_value_can_name_only_an_ordinary_folder_inside_the_workspace(self):
+        # The steering vector StarshipSuperjam/engine-template#775's review named: a cloned repo's own settings can never make the checkout,
+        # the home, or the engine's own directories "the plan folder" — only an ordinary folder inside it.
+        self._write("project", ".")
+        self.assertEqual(modes._plans_directory(self.root), self.default)
+        self._write("project", "~/.claude")
+        self.assertEqual(modes._plans_directory(self.root), self.default)
+        self._write("project", "docs/plans")
+        self.assertEqual(modes._plans_directory(self.root), os.path.join(self.root, "docs", "plans"))
+
+    def test_a_relative_value_without_a_workspace_root_is_skipped(self):
+        self._write("user", "./relative-plans")
+        self.assertEqual(modes._plans_directory(None), self.default)
+        self.assertEqual(modes._plans_directory("relative/cwd"), self.default)
+
+    def test_the_workspace_root_walk(self):
+        sub = os.path.join(self.root, "a", "b"); os.makedirs(sub)
+        self.assertEqual(modes._workspace_root(sub), self.root)
+        self.assertEqual(modes._workspace_root(self.root), self.root)
+        lone = os.path.join(os.path.dirname(self.root), "lone"); os.makedirs(lone)
+        self.assertEqual(modes._workspace_root(lone), lone)            # no marker anywhere -> cwd itself
+        self.assertIsNone(modes._workspace_root(None))
+        self.assertIsNone(modes._workspace_root("not/absolute"))
 
 
 class TestMemoryTargetDenial(unittest.TestCase):
@@ -1179,7 +1427,7 @@ class TestAuthorityContractExport(unittest.TestCase):
         # fidelity: the carve-outs really are provider-confined to claude (is_plan_artifact returns
         # False for anything else, and is_harness_memory_write does too), which is the fact the note
         # discloses.
-        self.assertFalse(modes.is_plan_artifact("Write", {"is_plan_file": True}, "plan", provider="codex"))
+        self.assertFalse(modes.is_plan_artifact("Write", {"is_plan_file": True}, "plan", None, provider="codex"))
         self.assertFalse(modes.is_harness_memory_write(
             "Write", {"file_path": "/x"}, "/repo", provider="codex"))
 

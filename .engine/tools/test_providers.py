@@ -245,8 +245,13 @@ class TestPlanCarveoutProviderConfined(unittest.TestCase):
         """Plan mode is Claude Code's feature: a Codex payload reporting permission_mode "plan"
         (its vocabulary is unverified) must NOT open the Explore write-gate — inert BY RULE."""
         import modes
-        self.assertTrue(modes.is_plan_artifact("Edit", {}, "plan", provider="claude"))
-        self.assertFalse(modes.is_plan_artifact("Edit", {}, "plan", provider="codex"))
+        # The Claude case carries what a real plan save carries (StarshipSuperjam/engine-template#775): a path inside the plans folder
+        # (the default, with no settings file consulted, so the developer's own configuration cannot
+        # steer this test). The Codex denials are the point: the same call opens nothing there.
+        with mock.patch.object(modes, "_plans_settings_files", return_value=[]):
+            plan_path = os.path.join(modes._plans_directory(None), "p.md")   # resolved INSIDE the seam
+            self.assertTrue(modes.is_plan_artifact("Edit", {"file_path": plan_path}, "plan", None, provider="claude"))
+            self.assertFalse(modes.is_plan_artifact("Edit", {"file_path": plan_path}, "plan", None, provider="codex"))
         self.assertFalse(modes.is_plan_artifact("Edit", {"is_plan_file": True}, None,
                                                 provider="codex"))
 
@@ -263,11 +268,13 @@ class TestPlanCarveoutProviderConfined(unittest.TestCase):
                              "Codex has no plan mode; the carve-out must not open the gate")
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp), \
+                mock.patch.object(modes, "_plans_settings_files", return_value=[]), \
                 mock.patch.dict(os.environ, {}, clear=True):
+            plan_path = os.path.join(modes._plans_directory(None), "p.md")
             decision = modes.handler({"session_id": "s-claude", "tool_name": "Edit",
-                                      "tool_input": {}, "permission_mode": "plan"})
+                                      "tool_input": {"file_path": plan_path}, "permission_mode": "plan"})
             self.assertEqual(decision.get("action"), "proceed",
-                             "the Claude plan-artifact carve-out is unchanged")
+                             "the Claude plan-artifact carve-out admits the plan file itself")
 
 
 class TestCodexRegistrationDrift(unittest.TestCase):

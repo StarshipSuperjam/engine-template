@@ -37,14 +37,18 @@ The stance lifecycle:
    own notebook for its own notes — never a code-change refusal, and never a false "saved" (StarshipSuperjam/engine-template#257, StarshipSuperjam/engine-template#766).
    It allows reading, running read-only commands and tests, greps, spawning subagents, and logging issues.
    It also allows Claude Code's own plan file — that is planning, not building — recognized by the
-   platform's plan-mode marker, not a path, so it holds even if the plan folder is moved into the repo.
-   And it allows one path-anchored exception (StarshipSuperjam/engine-template#766): a Write/Edit whose every path resolves inside the
-   harness's own auto-memory notebook for **this** project (`~/.claude/projects/<this project>/memory/`) —
-   the session's own notebook, not the project — judged on the real filesystem (symlinks and `..`
-   resolved, the project bound to the session's working directory, anything undecidable denied). A write
-   to the operator's own `~/.claude/` config carries no marker and matches no anchor and stays denied. An
-   action it cannot classify is allowed: there is no default-deny, because exploring must stay the
-   comfortable place to work.
+   platform's plan-mode marker together with where the write lands: inside the plans folder the platform
+   is configured to use (`plansDirectory`, read from the managed, user and workspace settings in that
+   order, else `~/.claude/plans`), so it holds even if the plan folder is moved into the repo, while a
+   folder that would make the checkout, the home or the engine's own directories "the plan folder" is
+   refused (StarshipSuperjam/engine-template#775). That is one of two path-anchored exceptions; the other (StarshipSuperjam/engine-template#766) is a Write/Edit whose every
+   path resolves inside the harness's own auto-memory notebook for **this** project
+   (`~/.claude/projects/<this project>/memory/`) — the session's own notebook, not the project. Both are
+   judged on the real filesystem (symlinks and `..` resolved, the project bound to the session's working
+   directory, anything undecidable denied). A write to the operator's own `~/.claude/` config lands in
+   neither place and stays denied — even during plan mode, when the denial names the plans folder the
+   engine resolved and the setting that moves it. An action it cannot classify is allowed: there is no
+   default-deny, because exploring must stay the comfortable place to work.
 3. **To start building, the operator types `/engine-start` — and only that.** It is an operator-only
    command the model cannot invoke itself (it carries the platform's operator-only flag, and the
    skill-coherence check holds that flag in place). The stance flips to build, the gate permits the writes,
@@ -75,7 +79,7 @@ To check the live stance, `python tools/modes.py stance` — it resolves the ses
 `$CLAUDE_CODE_SESSION_ID`, and says `unknown` (non-zero) rather than a misleading `explore` when it cannot
 resolve one. To see what the gate decides for any action without Claude Desktop (the operator demo): `python
 tools/modes.py demo` (which also shows the plan-file carve-out, and that accepting a plan leaves the
-session where it was), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
+session where it was), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE] [--file PATH] [--cwd DIR]` (for example `classify Write --pm plan --file ~/.claude/plans/x.md` shows the plan-mode allow, and the same call with `--file ~/.claude/settings.json` the denial that names the plans folder).
 
 ## Done when
 
