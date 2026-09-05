@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:1235ea2244fdf0c19efdc050df30771de268643778428b1c94ab246160c33a61",
+        "fingerprint": "sha256:a9df078b35f873e21800af1e162a5816cde444d20c3e908fbff1fa7127ba5eaf",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -13155,7 +13155,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:77d1b282b049cfeff4ffe3730025776b181bf81ea1d907336e85db9a33fa815f",
+        "fingerprint": "sha256:7229250a5775455f9474c828a11a4dd159f2a4465bda9c62f52e85c8ee4c878c",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -14331,7 +14331,7 @@
       },
       "slug": "recall_acceptance_probe",
       "source": {
-        "fingerprint": "sha256:1331e6a1d569e0e607ee32057594c41b6754607d1deddd205c55632b90f8c5b3",
+        "fingerprint": "sha256:8c8f307f1238ae389d8b2f45c256b8bc8b624d3081a0f7bd9c44b2eb0cd23c25",
         "path": ".engine/tools/memory/recall_acceptance_probe.py"
       },
       "status": "active",
@@ -15366,7 +15366,7 @@
       },
       "slug": "stranding_log",
       "source": {
-        "fingerprint": "sha256:49d90be18bef80d332a0236bf55eacb83fdeb996c8ee35d5fb49096e8579211a",
+        "fingerprint": "sha256:5f3e8648a04b79dc146e328e33f2914818635a5dd968a7f6a1add5c2db4eaaa5",
         "path": ".engine/tools/memory/stranding_log.py"
       },
       "status": "active",
@@ -16242,7 +16242,7 @@
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:d4ad8ccb8e81803d910fdfbcffa0cb42593dc16857175c97e0bee23ed9410e70",
+        "fingerprint": "sha256:d95dd19e664bcf83fffeea16fd4e6cfc2d0e2ba970376588c36d9a163a3c7666",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -18102,7 +18102,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:b6f94a0dd24f452cdaad28f67b472cf29d7dc330f09c330ea5048ce5bc2c90f6",
+        "fingerprint": "sha256:9ff66396e0299322b1f4e07d9f6d68df29f6662e8219ed2dd36e8214b64760f7",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
