@@ -98,9 +98,8 @@ take the operator's approval in their own words. No installed reviewer is a disc
 never a false green.
 
 **That one choice covers both gates**: it names the lenses the seal will require, and it is the depth this
-Build's deliverable review runs at, so consent is given once and given there. Depth scales EFFORT, not model
-(see `model-routing.md`): Claude `--effort`, Codex a `fork_turns="none"` fork at that effort, named in the
-Review record. On the Build side, `approve --plan <plan.json> --depth …` records the same depth against the
+Build's deliverable review runs at, so consent is given once and given there. On the Build side,
+`approve --plan <plan.json> --depth …` records the same depth against the
 bound payload; changing approved depth clears review coverage, and progress prose does not. A sealed plan's
 revision is always the operator's call, recorded with `--operator-change` and disclosed at merge.
 
@@ -181,9 +180,9 @@ Validation is now two evidence classes, earned in this order once the implementa
 
 A later accepted repair must be green candidate evidence again on its new final commit, and its head's proof re-imported.
 
-Only after green validation, create `review packet --stage deliverable --session-effort <level>`, carrying the exact raw intent, approved plan, settled criteria where present, reviewed commit and base, and impact evidence. The spec-conformance reviewer checks plan-derived success obligations every Build and settled criteria add a higher-authority comparison; the divergence hunter reverse-sweeps the diff against intent, plan, non-goals, and any settled criteria; other installed reviewers judge usability, technical integrity, and release safety at the approved depth. A pass may run the operator's code, so each shell-capable persona runs it only in a throwaway copy it makes itself (never worktree-ing or repointing a checkout it did not create); creating the deliverable packet snapshots the checkout, and the submission preflight's required `checkout-integrity` leg (`review_integrity`) refuses to report ready if the review moved its origin, branch, or stash; a companion advisory `checkout-worktrees` leg surfaces a stray worktree registration without blocking, since a concurrent peer may add one legitimately.
+Only after green validation, create `review packet --stage deliverable`, carrying the exact raw intent, approved plan, settled criteria where present, reviewed commit and base, and impact evidence. The spec-conformance reviewer checks plan-derived success obligations every Build and settled criteria add a higher-authority comparison; the divergence hunter reverse-sweeps the diff against intent, plan, non-goals, and any settled criteria; other installed reviewers judge usability, technical integrity, and release safety at the approved depth. A pass may run the operator's code, so each shell-capable persona runs it only in a throwaway copy it makes itself (never worktree-ing or repointing a checkout it did not create); creating the deliverable packet snapshots the checkout, and the submission preflight's required `checkout-integrity` leg (`review_integrity`) refuses to report ready if the review moved its origin, branch, or stash; a companion advisory `checkout-worktrees` leg surfaces a stray worktree registration without blocking, since a concurrent peer may add one legitimately.
 
-**State the panel's effort, and record what each lens delivered.** A depth promises an effort, and a reviewer here carries none of its own — it inherits the session's, so the session's effort is the panel's ceiling. `--session-effort` says what that is; a packet that would under-deliver the approved depth is refused (raise the session and re-cut, or re-approve at a lighter depth), and `--accept-effort-shortfall` proceeds while publishing the gap in the pull-request body. Each `review record` carries `--delivered-effort`, and `--code-execution none|discarded-copy|in-place` for what the lens did with the change's code. All of these are self-reported; the disclosures say so.
+**Record what each lens did with the code.** Each `review record` carries `--code-execution none|discarded-copy|in-place` for what the lens did with the change's code; it is self-reported, and the pull-request body's disclosure says so.
 
 **Record a whole round from one file.** `review record --findings-from-file` takes the receipt's ids and `finding record --from-file` the dispositions, from one `build-findings-batch.v1` file — so they cannot disagree. A malformed entry records nothing. The per-finding flags still work for a one-off.
 
