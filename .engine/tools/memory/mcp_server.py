@@ -129,12 +129,17 @@ def _tool(**registration):
                 # restart's seal, so the guard then opens qualified and the derived stores can reconcile. Done
                 # inside the seam instead, the guard would already have routed this very call degraded - the
                 # operator's fixture showed meaning recall answering unavailable for exactly that reason.
-                # Never raises; the seam re-derives the outcome live after the read.
-                _execution_context.read_binding()
+                # Never raises for a staleness (every class maps to a binding); a NON-staleness fault inside
+                # revalidation - a logic bug, a genuine corruption - still propagates by the reviewed decision
+                # of the earlier root fix, and the recording server logs it as a tool-fault. The binding is
+                # kept for this call so the seam does not resolve (and revalidate) a second time.
+                _CALL.binding = _execution_context.read_binding()
             try:
                 return function(*args, **kwargs)
             except _TRANSLATED_REFUSALS as exc:
                 raise ToolError(str(exc)) from exc
+            finally:
+                _CALL.binding = None
         return server.tool(**registration)(wrapper)
     return register
 
@@ -142,6 +147,7 @@ def _tool(**registration):
 # The served read tools: the ones whose answers pass through the read seam and whose wrapper performs the
 # read-side resolution ahead of the guard. `health` is deliberately not one: it touches no store.
 _READ_TOOLS = frozenset({"search", "recall-window", "recall-by-meaning", "list-pins", "list-withheld"})
+_CALL = threading.local()   # the binding the wrapper resolved for the tool call running on this thread
 
 
 @_tool(
@@ -243,15 +249,24 @@ _RECALL_COMPLETENESS_NOTE = (
 # second time with nothing to catch it - the crash the two captured production traces recorded.
 # ---------------------------------------------------------------------------------------------------------
 
-_RESTART_ACTION = ("To fully reconnect, quit Claude Desktop completely and reopen it so the memory server "
-                   "restarts.")
+_RESTART_ACTION = ("To fully reconnect, quit your client completely (Claude Desktop, or the Codex session) and "
+                   "reopen it so the memory server restarts.")
 _ESCALATION = "If this keeps happening after a restart, run /engine-status and open an engine issue."
 _NOTE_MOVED = ("This project moved to a new commit while this memory server was running. Recall reflects what is "
                "saved on disk; the keyword index was not refreshed and meaning-based recall is unavailable. "
                + _RESTART_ACTION + " " + _ESCALATION)
-_NOTE_UNBOUND = ("The memory store under this session is not the one it was bound to, so nothing was read from "
-                 "it. Quit Claude Desktop completely and reopen it so the memory server restarts against the "
-                 "current store. " + _ESCALATION)
+_NOTE_UNBOUND_STORE = ("The memory store under this session is not the one it was bound to, so nothing was read "
+                       "from it. Quit your client completely (Claude Desktop, or the Codex session) and reopen it "
+                       "so the memory server restarts against the current store. " + _ESCALATION)
+_NOTE_UNBOUND_UNREADABLE = ("A memory file on disk could not be read, so nothing was read from the store - this is "
+                            "a problem with the store on disk, not with what is saved in it. Quit your client "
+                            "completely (Claude Desktop, or the Codex session) and reopen it so the memory server "
+                            "retries against the store. " + _ESCALATION)
+_NOTE_UNBOUND_UNCONFIRMED = ("This session's memory context could not be confirmed against the store, so nothing "
+                             "was read from it. Quit your client completely (Claude Desktop, or the Codex session) "
+                             "and reopen it so the memory server re-establishes the binding. " + _ESCALATION)
+_NOTE_INCOMPLETE_SEARCH = ("The keyword index could not be refreshed, so this answer came from a slower full scan "
+                           "of everything saved. If this persists, run /engine-status and open an engine issue.")
 _NOTE_INCOMPLETE = ("Part of this answer's source was unavailable, so it may be incomplete; keyword search over "
                     "what is saved still covers everything. If this persists, run /engine-status and open an "
                     "engine issue.")
@@ -263,8 +278,32 @@ _READ_DEGRADED_NOTED: set = set()
 _READ_DEGRADED_LOCK = threading.Lock()   # tool calls run on the SDK's worker threads; check-and-add is one step
 
 # Test-only: called with (tool, binding) after resolution and BEFORE the read, so a test can replace the store
-# in that window and prove the post-read check discards the result as unbound. Never set in production.
+# in that window and prove the post-read check discards the result as unbound. Installed only through
+# `set_seam_test_hook`, which refuses outside a checked-in test module (the discipline mutation_authority's
+# under-lock hook already keeps); fired only inside a unit-test process, since the seam runs on the SDK's
+# worker threads where the frame-walking adapter check cannot see the test.
 _SEAM_HOOK = None
+_SEAM_HOOK_LOCK = threading.Lock()
+
+
+def set_seam_test_hook(hook) -> None:
+    """Install a one-process interleaving hook for the read seam; unavailable outside unit tests."""
+    if not _mutation_authority._test_adapter_allowed():
+        raise _mutation_authority.MutationAuthorityError("read-seam test hooks are test-only")
+    if hook is not None and not callable(hook):
+        raise _mutation_authority.MutationAuthorityError("read-seam test hook must be callable or None")
+    global _SEAM_HOOK
+    with _SEAM_HOOK_LOCK:
+        _SEAM_HOOK = hook
+
+
+def _run_seam_test_hook(tool: str, binding) -> None:
+    with _SEAM_HOOK_LOCK:
+        hook = _SEAM_HOOK
+    if hook is not None:
+        if sys.modules.get("unittest") is None:
+            raise _mutation_authority.MutationAuthorityError("read-seam test hook escaped a unit-test process")
+        hook(tool, binding)
 
 _EMPTY_ANSWERS = {
     "search": lambda: {"results": []},
@@ -278,26 +317,39 @@ def _ledger_file(memory_dir):
     return None if memory_dir is None else os.path.join(memory_dir, ledger.LEDGER_FILENAME)
 
 
-def _read_degraded_trace(reason: str, tool: str) -> None:
+def _read_degraded_trace(reason: str, tool: str, error=None) -> None:
     key = (reason, tool)
     with _READ_DEGRADED_LOCK:
         if key in _READ_DEGRADED_NOTED:
             return
-        klass = getattr(_execution_context, reason, None)
-        if not (isinstance(klass, type) and issubclass(klass, _execution_context.ContextError)):
-            klass = _execution_context.ContextError
-        # The instance carries only its class: the log records type, tool and frames, never message text.
-        if _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, klass("read degraded"), tool=tool):
+        exc = error
+        if exc is None:
+            klass = getattr(_execution_context, reason, None)
+            if not (isinstance(klass, type) and issubclass(klass, _execution_context.ContextError)):
+                klass = _execution_context.ContextError
+            exc = klass("read degraded")
+        # The exception revalidation actually raised, so the record keeps its content-free frame chain
+        # (basenames, functions, lines); the log never records message text, paths, fingerprints or commits.
+        if _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc, tool=tool):
             _READ_DEGRADED_NOTED.add(key)
 
 
-def _outcome(binding, completeness: str) -> dict:
+def _outcome(binding, completeness: str, tool: str, payload: dict) -> dict:
+    """The one object every read answer carries; the note is the one sentence a session relays, chosen by
+    what actually happened rather than one fixed string per kind."""
     if binding.kind == "moved":
         note = _NOTE_MOVED
     elif binding.kind == "unbound":
-        note = _NOTE_UNBOUND
+        note = {"ArtifactUnreadable": _NOTE_UNBOUND_UNREADABLE,
+                "StoreIdentityStale": _NOTE_UNBOUND_STORE,
+                "BackupPointerStale": _NOTE_UNBOUND_STORE}.get(binding.reason, _NOTE_UNBOUND_UNCONFIRMED)
     elif completeness == "incomplete":
-        note = _NOTE_INCOMPLETE
+        if tool == "recall-by-meaning" and payload.get("unavailable"):
+            note = None            # the tool's own `unavailable` sentence IS the relay; never two sentences
+        elif tool == "search":
+            note = _NOTE_INCOMPLETE_SEARCH
+        else:
+            note = _NOTE_INCOMPLETE
     else:
         note = None
     return {"binding": binding.kind, "completeness": completeness, "reason": binding.reason,
@@ -318,10 +370,8 @@ def _read_seam(tool: str, read, *, empty) -> dict:
     the result as unbound (another process can replace the store between the two; the context lock covers only
     this process's threads). The outcome is derived on every call - `read_binding` revalidates live - so a
     merge landing under a running server is disclosed on the next read, never frozen at the first."""
-    binding = _execution_context.read_binding()
-    hook = _SEAM_HOOK
-    if hook is not None:
-        hook(tool, binding)
+    binding = getattr(_CALL, "binding", None) or _execution_context.read_binding()
+    _run_seam_test_hook(tool, binding)
     if binding.kind == "unbound":
         payload = empty()
         completeness = "none"
@@ -334,9 +384,9 @@ def _read_seam(tool: str, read, *, empty) -> dict:
                 payload = empty()
                 completeness = "none"
     payload.pop("memory_caveat", None)
-    payload["outcome"] = _outcome(binding, completeness)
+    payload["outcome"] = _outcome(binding, completeness, tool, payload)
     if binding.kind in ("moved", "unbound"):
-        _read_degraded_trace(binding.reason, tool)
+        _read_degraded_trace(binding.reason, tool, binding.error)
     return payload
 
 
@@ -468,14 +518,17 @@ if _semantic_installed():
             # kept apart too — one resolves itself and the other needs someone to look at it.
             if found["unavailable"] == "not-qualified":
                 if binding.kind == "moved":
-                    remedy = ("It comes back after a restart: quit Claude Desktop completely and reopen it so "
-                              "the memory server restarts against the current commit.")
-                else:
-                    remedy = "It sorts itself out at a session start that can reach GitHub."
+                    # The outcome note beside this answer carries the recovery sentence; this text states the
+                    # fact once and does not repeat it.
+                    return {"results": [], "unavailable": (
+                        "I can't search by meaning right now: the project moved to a new commit under this "
+                        "memory server, so this session isn't qualified to update the meaning index. This says "
+                        "NOTHING about what is in memory: keyword search works normally and covers "
+                        "everything.")}, "incomplete"
                 return {"results": [], "unavailable": (
-                    "I can't search by meaning in this session right now — it isn't qualified to update the "
-                    "meaning index. This says NOTHING about what is in memory: keyword search works normally "
-                    "and covers everything. " + remedy)}, "incomplete"
+                    "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
+                    "index. This says NOTHING about what is in memory: keyword search works normally and "
+                    "covers everything. It sorts itself out at a session start that can reach GitHub.")}, "incomplete"
             # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
             # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
             # delete it loses a possibly-fine cache and gets the identical error back. The internal class

@@ -900,8 +900,8 @@ READ_BINDING_KINDS = ("healthy", "moved", "unbound", "absent")
 _READ_REASON_ABSENT = "none-installed"
 _READ_REASON_UNKNOWN = "unknown"
 _READ_REASONS = frozenset({
-    "ExpectedStateStale", "ActivationStale", "AcceptedTreeStale", "StoreIdentityStale",
-    "BackupPointerStale", "ArtifactUnreadable", "ContextError", _READ_REASON_ABSENT, _READ_REASON_UNKNOWN,
+    "ActivationStale", "AcceptedTreeStale", "StoreIdentityStale", "BackupPointerStale",
+    "ArtifactUnreadable", "ContextError", _READ_REASON_ABSENT, _READ_REASON_UNKNOWN,
 })
 _MOVED_CLASSES = (ActivationStale, AcceptedTreeStale)
 _ROOT_REFRESH_REGISTRY_ID = "attended-memory-mcp"
@@ -924,10 +924,10 @@ class ReadBinding:
     `explicit_store_check`); it is NEVER registered as authorized and NEVER installed, so no writer can
     find it and `mint_capability`/`consume_capability` reject it."""
 
-    __slots__ = ("kind", "reason", "restart_clears", "memory_dir", "_context")
+    __slots__ = ("kind", "reason", "restart_clears", "memory_dir", "_context", "_error")
 
     def __init__(self, kind: str, reason: str | None, restart_clears: bool, memory_dir: str | None,
-                 context: "ExecutionContext | None"):
+                 context: "ExecutionContext | None", error: "BaseException | None" = None):
         if kind not in READ_BINDING_KINDS:
             raise ContextError("read binding kind is outside the declared vocabulary")
         if reason is not None and reason not in _READ_REASONS:
@@ -937,6 +937,7 @@ class ReadBinding:
         object.__setattr__(self, "restart_clears", bool(restart_clears))
         object.__setattr__(self, "memory_dir", memory_dir)
         object.__setattr__(self, "_context", context)
+        object.__setattr__(self, "_error", error)
 
     def __setattr__(self, _name, _value):
         raise AttributeError("ReadBinding is immutable")
@@ -945,14 +946,20 @@ class ReadBinding:
     def context(self) -> "ExecutionContext | None":
         return self._context
 
+    @property
+    def error(self) -> "BaseException | None":
+        """The exception revalidation actually raised, with its live traceback - for the stranding log's
+        content-free frame chain only. Never part of `to_document()`; never relayed."""
+        return self._error
+
     def to_document(self) -> dict:
         return {"binding": self.kind, "reason": self.reason, "restart_clears": self.restart_clears}
 
 
 def _read_reason_for(exc: BaseException) -> str:
     name = type(exc).__name__
-    if type(exc) in (ExpectedStateStale, ActivationStale, AcceptedTreeStale, StoreIdentityStale,
-                     BackupPointerStale, ArtifactUnreadable, ContextError):
+    if type(exc) in (ActivationStale, AcceptedTreeStale, StoreIdentityStale, BackupPointerStale,
+                     ArtifactUnreadable, ContextError):
         return name
     return _READ_REASON_UNKNOWN
 
@@ -1038,42 +1045,54 @@ def refresh_root_for_read(context: ExecutionContext) -> ExecutionContext:
 def read_binding() -> ReadBinding:
     """Resolve what a READ may use, never raising, and say how far the binding could be confirmed.
 
-    Runs the live revalidation on EVERY call — that is what tells a session that a merge landed under it
-    after a healthy first read — and installs nothing except through `refresh_root_for_read` on an
+    Runs the live revalidation on EVERY call - that is what tells a session that a merge landed under it
+    after a healthy first read - and installs nothing except through `refresh_root_for_read` on an
     uncached refreshable drift. The mapping from what revalidation raised to a kind is TOTAL with `unbound`
     as its default: `ExpectedStateStale` -> healthy (healed when uncached in the memory server; a read
     reflects disk either way); `ActivationStale`/`AcceptedTreeStale` -> moved, unless the explicit store
     check says the store moved too, in which case unbound; everything else, including a class this module
     does not know -> unbound. Absent context -> absent, with no memory directory of its own (the caller
-    resolves the ordinary way)."""
+    resolves the ordinary way).
+
+    The context lock covers only the cache check and the install: the disk- and SQLite-bound revalidation
+    runs outside it, so concurrent reads on the server's worker threads are not serialized behind one
+    mutex. Two concurrent first reads under drift both revalidate, and `refresh_root_for_read` - which
+    re-checks under the lock that nothing is installed yet - performs one refresh; the second call finds it."""
     with _CONTEXT_LOCK:
         cached = _CURRENT_CONTEXT
-        if cached is None:
-            try:
-                context = _decoded_environment_context()
-            except (ValueError, ContextError):
-                return ReadBinding("unbound", "ContextError", True, None, None)
-            if context is None:
-                return ReadBinding("absent", _READ_REASON_ABSENT, False, None, None)
-        else:
-            context = cached
-        memory_dir = context["target"]["memory_dir"]
+    if cached is None:
         try:
-            revalidate_context(context)
-            if cached is None:
-                # Clean from the environment: cache it the ordinary way, as current_context() would.
-                context = current_context()
-            return ReadBinding("healthy", None, False, memory_dir, context)
-        except ExpectedStateStale:
-            if cached is None and context["operation"]["registry_id"] == _ROOT_REFRESH_REGISTRY_ID:
-                try:
-                    healed = refresh_root_for_read(context)
-                except ContextError as exc:
-                    return _read_binding_for_failure(exc, context, memory_dir)
-                return ReadBinding("healthy", None, False, memory_dir, healed)
-            return ReadBinding("healthy", None, False, memory_dir, context)
-        except ContextError as exc:
-            return _read_binding_for_failure(exc, context, memory_dir)
+            context = _decoded_environment_context()
+        except (ValueError, ContextError) as exc:
+            return ReadBinding("unbound", "ContextError", True, None, None, exc)
+        if context is None:
+            return ReadBinding("absent", _READ_REASON_ABSENT, False, None, None)
+    else:
+        context = cached
+    memory_dir = context["target"]["memory_dir"]
+    try:
+        revalidate_context(context)
+    except ExpectedStateStale as exc:
+        if cached is None and context["operation"]["registry_id"] == _ROOT_REFRESH_REGISTRY_ID:
+            try:
+                healed = refresh_root_for_read(context)
+            except ExpectedStateStale:
+                # Disk moved again between the two observations: a read still reflects disk; nothing installed.
+                return ReadBinding("healthy", None, False, memory_dir, context)
+            except ContextError as failure:
+                return _read_binding_for_failure(failure, context, memory_dir)
+            return ReadBinding("healthy", None, False, memory_dir, healed)
+        return ReadBinding("healthy", None, False, memory_dir, context)
+    except ContextError as exc:
+        return _read_binding_for_failure(exc, context, memory_dir)
+    if cached is None:
+        # Clean from the environment: cache it the way current_context() would, without a second revalidation.
+        with _CONTEXT_LOCK:
+            if _CURRENT_CONTEXT is None:
+                _remember_context(context)
+                globals()["_CURRENT_CONTEXT"] = context
+            context = _CURRENT_CONTEXT
+    return ReadBinding("healthy", None, False, memory_dir, context)
 
 
 def _read_binding_for_failure(exc: ContextError, context: ExecutionContext,
@@ -1082,9 +1101,9 @@ def _read_binding_for_failure(exc: ContextError, context: ExecutionContext,
     if isinstance(exc, _MOVED_CLASSES) and type(exc) in _MOVED_CLASSES:
         store_moved = explicit_store_check(context)
         if store_moved is None:
-            return ReadBinding("moved", reason, True, memory_dir, context)
-        return ReadBinding("unbound", store_moved, True, None, context)
-    return ReadBinding("unbound", reason, True, None, context)
+            return ReadBinding("moved", reason, True, memory_dir, context, exc)
+        return ReadBinding("unbound", store_moved, True, None, context, exc)
+    return ReadBinding("unbound", reason, True, None, context, exc)
 
 
 def observe_state_fingerprint(context: ExecutionContext) -> str:

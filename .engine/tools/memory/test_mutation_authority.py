@@ -1044,6 +1044,8 @@ class ReadBindingTests(unittest.TestCase):
 
     def _make_artifact_unreadable(self):
         # A content-hashed artefact that exists but cannot be opened: the I/O-fault class #1208 typed.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("chmod 0 does not make a file unreadable to root")
         cursor = os.path.join(self.fixture.memory, "capture-state.json")
         Path(cursor).write_text("{}\n", encoding="utf-8")
         os.chmod(cursor, 0)
@@ -1073,6 +1075,8 @@ class ReadBindingTests(unittest.TestCase):
         self.assertEqual((binding.kind, binding.reason), ("healthy", None))
         installed = execution_context._CURRENT_CONTEXT
         self.assertIsNotNone(installed)
+        # An invariant on the refresh's own code (it copies the authority-bearing fields through), not a control
+        # against disk - the control is the full revalidation the refresh runs before installing.
         self.assertEqual(execution_context.binding_identity(installed), before)
         self.assertNotEqual(installed.expected_state_fingerprint, self.fixture.context.expected_state_fingerprint)
         self.assertTrue(execution_context._is_authorized_context(installed))
@@ -1086,15 +1090,15 @@ class ReadBindingTests(unittest.TestCase):
         import threading
         self._uncached()
         self._drift_fingerprint()
-        calls = []
-        original = execution_context._observe_state
+        original = execution_context._remember_context
+        remembered = []
 
-        def counted(*args, **kwargs):
-            calls.append(1)
-            return original(*args, **kwargs)
+        def counted(context):
+            remembered.append(context)
+            return original(context)
 
         results = []
-        with mock.patch.object(execution_context, "_observe_state", side_effect=counted):
+        with mock.patch.object(execution_context, "_remember_context", side_effect=counted):
             threads = [threading.Thread(target=lambda: results.append(execution_context.read_binding()))
                        for _ in range(2)]
             for thread in threads:
@@ -1103,6 +1107,30 @@ class ReadBindingTests(unittest.TestCase):
                 thread.join()
         self.assertEqual([r.kind for r in results], ["healthy", "healthy"])
         self.assertIs(results[0].context, results[1].context)
+        self.assertEqual(len(remembered), 1, "the refresh installed more than once")   # the bound, asserted
+
+    def test_a_drift_during_the_refresh_itself_is_healthy_read_only_not_unbound(self):
+        """A sibling write landing between the refresh's observation and its revalidation raises the same
+        refreshable class again; that is a read reflecting disk, never 'the store is not yours'."""
+        self._uncached()
+        self._drift_fingerprint()
+        original = execution_context._observe_state
+        seen = []
+
+        def drift_once(*args, **kwargs):
+            state = original(*args, **kwargs)
+            seen.append(1)
+            if len(seen) == 2:
+                # The second observation is the refresh's own: the write lands after it and before the
+                # refresh's revalidation, which then raises the refreshable class again.
+                self._drift_fingerprint()
+            return state
+
+        with mock.patch.object(execution_context, "_observe_state", side_effect=drift_once):
+            binding = execution_context.read_binding()
+        self.assertEqual((binding.kind, binding.reason), ("healthy", None))
+        self.assertIsNone(execution_context._CURRENT_CONTEXT)
+        self.assertEqual(binding.memory_dir, self.fixture.memory)
 
     def test_uncached_drift_outside_the_memory_server_is_healthy_read_only_and_installs_nothing(self):
         cli = _QualifiedFixture()  # ledger-append on pins.py: a CLI context, not the memory server
@@ -1210,23 +1238,66 @@ class ReadBindingTests(unittest.TestCase):
                  if isinstance(value, type) and issubclass(value, execution_context.ContextError)
                  and value is not execution_context.ContextError}
         self.assertEqual(found, declared)
-        self.assertTrue(declared <= execution_context._READ_REASONS)
+        self.assertTrue((declared - {"ExpectedStateStale"}) <= execution_context._READ_REASONS)
+        self.assertNotIn("ExpectedStateStale", execution_context._READ_REASONS)   # always healed or healthy
+        from memory import test_mcp_server as tms   # the matrix's own table is the second half of the check
+        self.assertTrue((declared - {"ExpectedStateStale"}) <= set(tms.ReadDegradationMatrixTests.REASON.values()))
 
-    def test_every_current_context_caller_still_fails_closed_under_a_moved_activation(self):
-        """The strict resolution is untouched: after a moved activation an uncached current_context() raises
-        for every caller that routes on it - the write path and the qualification gates included - even
-        while read_binding() answers moved."""
-        from memory import drain, candidate_invocation, mutation_authority as authority
+    def test_every_current_context_caller_still_fails_closed_under_every_non_refreshable_row(self):
+        """The strict resolution is untouched: under every non-refreshable row an uncached current_context()
+        raises for every caller that routes on it - drain.is_qualified, candidate_invocation.run,
+        backup_vault._pointer_path and capture._health_path - each EXERCISED here - while read_binding() answers
+        moved or unbound; the write path's own mutation_scope is exercised under the same rows by the matrix."""
+        import argparse
+        from memory import drain, candidate_invocation, backup_vault, capture
+        rows = (("activation", self._advance_activation, "moved"), ("tree", self._remove_accepted_tree, "moved"),
+                ("store-identity", self._replace_store_identity, "unbound"), ("pointer", self._rewrite_pointer, "unbound"),
+                ("artifact", self._make_artifact_unreadable, "unbound"))
+        for name, inject, expected in rows:
+            with self.subTest(row=name):
+                self.setUp()
+                self._uncached()
+                inject()
+                self.assertEqual(execution_context.read_binding().kind, expected)
+                self.assertIsNone(execution_context._CURRENT_CONTEXT)
+                with self.assertRaises(execution_context.ContextError):
+                    execution_context.current_context()
+                self.assertFalse(drain.is_qualified())
+
+                def fails_closed(call):
+                    # candidate_invocation loads the context library under its own module name, so its
+                    # staleness classes are distinct objects: match the ContextError lineage by name.
+                    try:
+                        call()
+                    except Exception as exc:  # noqa: BLE001 - the lineage is the assertion
+                        self.assertIn("ContextError", [klass.__name__ for klass in type(exc).__mro__], type(exc))
+                        return
+                    self.fail("did not fail closed")
+
+                fails_closed(lambda: candidate_invocation.run(argparse.Namespace(
+                    target_root=self.fixture.root, candidate_root=self.fixture.root, script="x")))
+                fails_closed(backup_vault._pointer_path)
+                fails_closed(lambda: capture._health_path("capture_status", "fallback"))
+                # mutation_scope itself: on this (main, checked-in test) thread the test adapter would admit
+                # the write, so its refusal is proven where the adapter cannot see - through the SDK client's
+                # worker threads, under every row, in test_mcp_server.ReadDegradationMatrixTests
+                # .test_write_authority_is_unchanged_across_the_rows.
+
+    def test_the_read_refresh_and_the_write_reseal_seal_the_same_state_from_the_same_disk(self):
+        """Drift alarm: the read-side refresh repeats the write-side re-seal's steps rather than sharing its
+        code (the plan forbids editing the write re-seal inside this fix). If the two ever diverge in what they
+        observe or seal, this fails: from the same document and the same disk both must produce the same
+        state (everything but the receipt) and the same binding identity."""
         self._uncached()
-        self._advance_activation()
-        self.assertEqual(execution_context.read_binding().kind, "moved")
-        with self.assertRaises(execution_context.ActivationStale):
-            execution_context.current_context()
-        self.assertFalse(drain.is_qualified())
-        # candidate_invocation and the write path both consume current_context() directly; the raise above
-        # is what routes them closed, and neither source is edited by C2.
-        self.assertIn("current_context()", Path(candidate_invocation.__file__).read_text(encoding="utf-8"))
-        self.assertIn("current_context()", Path(authority.__file__).read_text(encoding="utf-8"))
+        self._drift_fingerprint()
+        execution_context._remember_context(self.fixture.context)
+        write_side = execution_context.reseal_for_stale_state(self.fixture.context).to_document()
+        with execution_context._CONTEXT_LOCK:
+            execution_context._CURRENT_CONTEXT = None
+        read_side = execution_context.refresh_root_for_read(self.fixture.context).to_document()
+        for document in (write_side, read_side):
+            document.pop("receipt")
+        self.assertEqual(write_side, read_side)
 
     def test_degraded_allowed_sets_are_unchanged(self):
         self.assertEqual(mutation_contract.DEGRADED_ALLOWED_ENTRY_IDS, frozenset({

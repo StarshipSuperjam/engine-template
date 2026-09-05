@@ -716,8 +716,9 @@ def classify_outcome(observation: dict) -> dict:
     if meaning and not meaning.get("is_error") and (meaning.get("payload") or {}).get("unavailable") \
             and search and not search.get("is_error"):
         return {"class": "not-reproduced", "label": "semantic-unavailable-keyword-ok"}
-    if any((entry.get("payload") or {}).get("memory_caveat") for entry in tools.values() if entry):
-        return {"class": "not-reproduced", "label": "caveat-only"}
+    if any(((entry.get("payload") or {}).get("outcome") or {}).get("binding") in ("moved", "unbound")
+           for entry in tools.values() if entry):
+        return {"class": "not-reproduced", "label": "caveat-only"}   # a disclosed degradation (C2's outcome)
     if any(entry.get("is_error") for entry in tools.values()):
         return {"class": "not-reproduced", "label": "other-error"}
     return {"class": "not-reproduced", "label": "healthy"}
@@ -744,8 +745,12 @@ class CounterfeitReproductionTests(unittest.TestCase):
 
     def test_a_clean_stale_context_caveat_is_not_a_reproduction(self):
         seen = classify_outcome(self._observation(
-            **{"search": {"is_error": False, "payload": {"results": [], "memory_caveat": "restart"}},
-               "recall-by-meaning": {"is_error": False, "payload": {"results": [], "memory_caveat": "restart"}}}))
+            **{"search": {"is_error": False, "payload": {"results": [], "outcome": {
+                   "binding": "moved", "completeness": "incomplete", "reason": "ActivationStale",
+                   "restart_clears": True, "note": "restart"}}},
+               "recall-by-meaning": {"is_error": False, "payload": {"results": [], "outcome": {
+                   "binding": "moved", "completeness": "incomplete", "reason": "ActivationStale",
+                   "restart_clears": True, "note": "restart"}}}}))
         self.assertEqual(seen, {"class": "not-reproduced", "label": "caveat-only"})
 
     def test_keyword_ok_with_meaning_unavailable_is_not_a_reproduction(self):
