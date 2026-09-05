@@ -97,7 +97,7 @@ class TestEventInventory(unittest.TestCase):
         self.assertFalse(hooks.EVENT_INVENTORY["SessionStart"]["blocks"])
 
     def test_pretooluse_names_the_six_systems_actually_bound_there(self):
-        # The row used to name a placeholder ("invariant-owner") — the same under-report as #784 on the
+        # The row used to name a placeholder ("invariant-owner") — the same under-report as StarshipSuperjam/engine-template#784 on the
         # busiest event. These are the systems whose commands are bound on PreToolUse.
         self.assertEqual(set(hooks.EVENT_INVENTORY["PreToolUse"]["owners"]),
                          {"modes", "knowledge", "self-map", "validation", "product-design", "session-economy"})

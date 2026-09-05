@@ -374,7 +374,7 @@ def engine_bindings(document) -> list:
 
 
 def inventory_forward_failures(document, provider: str) -> list:
-    """The FORWARD leg (the #784 direction — bound but unnamed): every engine command in `document` sits
+    """The FORWARD leg (the StarshipSuperjam/engine-template#784 direction — bound but unnamed): every engine command in `document` sits
     on an event the inventory governs, and its script maps via OWNER_BY_SCRIPT to an owner named on that
     event. Returns plain-language failures; empty means the document's engine wiring is inside the table."""
     if provider not in {"claude", "codex"}:
@@ -400,7 +400,7 @@ def inventory_forward_failures(document, provider: str) -> list:
 
 
 def inventory_reverse_failures(documents: dict, installed_modules) -> list:
-    """The REVERSE leg (the #816 direction — named with nothing behind it), over the UNION of the runtimes'
+    """The REVERSE leg (the StarshipSuperjam/engine-template#816 direction — named with nothing behind it), over the UNION of the runtimes'
     documents ({provider: document}) so a provider-only binding (a recorded provider exception) still
     satisfies its owner: every inventoried event carries at least one engine binding somewhere, every
     owner it names is either bound there or a declared DELEGATED owner whose delegate is bound there,
