@@ -325,42 +325,6 @@ class ASnapshotWrittenByTheEngineBeforeThisOne(unittest.TestCase):
         self.assertIn("spent", original["repair_rounds"][0],
                       "the loaded document is copied, never edited underneath its caller")
 
-    def _stage(self, **over):
-        stage = {"receipts": [{"lens": "usability", "packet_digest": "sha256:" + "0" * 64,
-                               "commit": "a" * 40, "finding_ids": []}]}
-        stage.update(over)
-        return stage
-
-    def test_a_snapshot_written_with_the_retired_review_effort_fields_loses_them_on_read(self):
-        """Review depth became the lens roster alone, and the four effort fields left the schema: two on
-        each review stage, two on every receipt. A Build in flight across that change reads clean."""
-        old_receipt = {"lens": "usability", "packet_digest": "sha256:" + "0" * 64, "commit": "a" * 40,
-                       "finding_ids": [], "delivered_effort": "high", "spawn_session_effort": "high"}
-        snapshot = {"reviews": {"deliverable": {"session_effort": "high", "effort_shortfall_accepted": False,
-                                                "receipts": [old_receipt]}},
-                    "repair": {"session_effort": "medium", "effort_shortfall_accepted": True,
-                               "receipts": [dict(old_receipt)]}}
-        migrated = core.forward_migrate(snapshot)
-        for stage in (migrated["reviews"]["deliverable"], migrated["repair"]):
-            self.assertFalse({k for k in stage if "effort" in k}, stage)
-            self.assertEqual(stage["receipts"], [{"lens": "usability", "packet_digest": "sha256:" + "0" * 64,
-                                                  "commit": "a" * 40, "finding_ids": []}])
-        self.assertIn("session_effort", snapshot["reviews"]["deliverable"],
-                      "the loaded document is copied, never edited underneath its caller")
-        self.assertIn("delivered_effort", snapshot["repair"]["receipts"][0])
-
-    def test_a_snapshot_with_clean_review_stages_is_returned_as_it_stands(self):
-        clean = {"reviews": {"deliverable": self._stage()}, "repair": self._stage(), "revision": 2}
-        self.assertIs(core.forward_migrate(clean), clean)
-
-    def test_the_schema_no_longer_declares_the_retired_fields(self):
-        import json as _json
-        here = os.path.dirname(os.path.abspath(__file__))
-        text = open(os.path.join(here, "..", "schemas", "build-state.v2.json"), encoding="utf-8").read()
-        _json.loads(text)
-        for field in ("session_effort", "effort_shortfall_accepted", "delivered_effort", "spawn_session_effort"):
-            self.assertNotIn(field, text)
-
     def test_a_real_snapshot_file_carrying_it_loads_and_saves_through_a_real_store(self):
         """The WIRING, not the function. Calling `forward_migrate` directly proves the function; it
         proves nothing about whether anything calls it, and deleting either call site left every unit

@@ -6127,5 +6127,56 @@ class TestReceiptReporting(unittest.TestCase):
         self.assertEqual(node["unresolved_concerns"], ["scope boundary looks tight"])
 
 
+class TheRetiredReviewEffortFieldsLeaveOnRead(CoordinatorCase):
+    """Review depth became the lens roster alone, and the four effort fields left build-state.v2: two on
+    each review stage, two on every receipt. Both Build stores validate on read behind closed schemas, so
+    a snapshot written while the fields existed must lose them in `forward_migrate` or become unreadable
+    the moment the removal lands."""
+
+    def _old_receipt(self):
+        return {"lens": "usability", "packet_digest": "sha256:" + "0" * 64, "commit": "a" * 40,
+                "finding_ids": [], "delivered_effort": "high", "spawn_session_effort": "high"}
+
+    def test_a_snapshot_written_with_the_retired_fields_loses_them(self):
+        import build_coordinator_core as core
+        snapshot = {"reviews": {"deliverable": {"session_effort": "high", "effort_shortfall_accepted": False,
+                                                "receipts": [self._old_receipt()]}},
+                    "repair": {"session_effort": "medium", "effort_shortfall_accepted": True,
+                               "receipts": [self._old_receipt()]}}
+        migrated = core.forward_migrate(snapshot)
+        for stage in (migrated["reviews"]["deliverable"], migrated["repair"]):
+            self.assertFalse({k for k in stage if "effort" in k}, stage)
+            self.assertEqual(stage["receipts"], [{"lens": "usability", "packet_digest": "sha256:" + "0" * 64,
+                                                  "commit": "a" * 40, "finding_ids": []}])
+        self.assertIn("session_effort", snapshot["reviews"]["deliverable"],
+                      "the loaded document is copied, never edited underneath its caller")
+        self.assertIn("delivered_effort", snapshot["repair"]["receipts"][0])
+
+    def test_a_snapshot_with_clean_review_stages_is_returned_as_it_stands(self):
+        import build_coordinator_core as core
+        clean = {"reviews": {"deliverable": {"receipts": []}}, "repair": {"receipts": []}, "revision": 2}
+        self.assertIs(core.forward_migrate(clean), clean)
+
+    def test_the_schema_declares_none_of_them(self):
+        text = (bc.ROOT / ".engine" / "schemas" / "build-state.v2.json").read_text(encoding="utf-8")
+        json.loads(text)
+        for field in ("session_effort", "effort_shortfall_accepted", "delivered_effort", "spawn_session_effort"):
+            self.assertNotIn(field, text)
+
+    def test_a_real_pre_change_snapshot_reads_clean_through_the_real_store(self):
+        """The wiring, not the function: a snapshot file written with every retired field is read through
+        the real store, which runs the migration before validating."""
+        self.seed()
+        path = Path(self.state_path)
+        state = json.loads(path.read_text(encoding="utf-8"))
+        state["reviews"]["deliverable"].update({"session_effort": "high", "effort_shortfall_accepted": False,
+                                                "receipts": [self._old_receipt()]})
+        path.write_text(json.dumps(state), encoding="utf-8")
+        loaded = self.store.read()
+        stage = loaded["reviews"]["deliverable"]
+        self.assertFalse({k for k in stage if "effort" in k})
+        self.assertFalse({k for k in stage["receipts"][0] if "effort" in k})
+
+
 if __name__ == "__main__":
     unittest.main()
