@@ -306,24 +306,6 @@ jobs:
           # re-fires next run).
           uv run --directory .engine --frozen -- python tools/conformance_sweep.py promote \
             "${RUNNER_TEMP}/audit-digest-body.md" || true
-      - name: Track standing length-budget findings as engine issues
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          # Issue StarshipSuperjam/engine-template#273 half 2: give a STANDING soft length-budget finding a durable home — a
-          # deduped, lane-aware engine-labelled issue — so it reaches boot and the tracker, not just this
-          # week's digest. The tool runs a LIVE-DERIVED telemetry pass (StarshipSuperjam/engine-template#403): it opens/updates an
-          # issue for each over-budget surface AND auto-resolves the issue of a surface seen back under its
-          # budget — telemetry's standard source-scoped resolution, confined to soft-budget sids so it can
-          # never close another source's issue (auto-resolve only clears the flag; it never edits the file). It
-          # uses the OWN-repo GitHub token (never the Claude token) and needs the issues:write scope declared
-          # above. It is fail-open — it prints a visible status and exits 0 even when GitHub is unreachable,
-          # so a transient blip never fails the self-review; the trailing `|| true` additionally guards
-          # against any unexpected non-zero so this best-effort side action can never block the digest pull
-          # request, and the finding simply re-fires (and stays in the digest) next run.
-          uv run --directory .engine --frozen -- python tools/audit_soft_promote.py || true
       - name: Seal the digest with its run-date
         run: |
           set -euo pipefail

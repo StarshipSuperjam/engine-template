@@ -40,6 +40,7 @@
       ".engine/check/interface-declaration.json",
       ".engine/check/knowledge-coverage.json",
       ".engine/check/knowledge-vocabulary.json",
+      ".engine/check/lane-removed.json",
       ".engine/check/lens-consumption.json",
       ".engine/check/link-integrity.json",
       ".engine/check/manifest-write-funnel.json",

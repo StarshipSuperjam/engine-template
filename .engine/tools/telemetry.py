@@ -883,12 +883,31 @@ def _consolidation_note(survivor_number: int) -> str:
             f"noticed; tracking continues there.*\n\n")
 
 
+def neutralize_author_text(text: str) -> str:
+    """Render author-influenced text inertly in a GitHub issue body. A finding message, a file path or a
+    settled-criterion note embeds author-chosen text, and an issue body is rendered markdown — so neutralise
+    both the prompt-fence rails (the soft-findings feed's defang, for when this body is later re-read into a
+    persona prompt) AND the markdown/HTML a crafted string could smuggle: HTML-escape the angle brackets and
+    ampersand (no tag, no comment, no forged `<!-- engine-signal -->` tracking marker) and backslash-escape
+    the markdown image/link/code characters (no beacon image, link, or code-span breakout). A plain repo
+    path passes through untouched. Shared by every producer that composes an issue body from author text
+    (the conformance sweep's promote today); it lived in the retired length-budget promoter until
+    typed-lifecycle part C (StarshipSuperjam/engine-template#821) removed that lane."""
+    text = validate.defang_prompt_fence_markers(text or "")
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("\\", "\\\\")
+    for ch in ("`", "[", "]", "!"):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
 def promote_finding(github: GitHubIssues, record: dict, now: str, *, title: str | None = None,
                     body_core: str | None = None):
     """Promote ONE finding to a tracked engine Issue — the out-of-band "log it" relay a producer hands
     a single concern to for durable tracking WITHOUT running a full triage pass. Close calls
     it at cap-exhaustion / fail-open to degrade a still-undispositioned finding to logged (never lost);
-    the soft-finding promoter (audit_soft_promote) calls it to track a standing length-budget nudge.
+    the conformance sweep's promote calls it to track a settled-criterion drift (the length-budget promoter
+    that also called it was retired by typed-lifecycle part C, StarshipSuperjam/engine-template#821).
 
     Open-or-update-and-CONVERGE, deduped by `source_id` (the same source-keyed dedup `run` uses, via
     list_open_engine_issues + the body sentinel). GitHub has no atomic create-if-absent, so two rapid
@@ -1186,7 +1205,7 @@ def spool_capture_marker(*, marker_path: str = CAPTURE_STATUS_PATH,
 # open forever — the drain's own docstring records the asymmetry ("a spooled finding never
 # auto-resolves") and the reason widening its authority was refused (StarshipSuperjam/engine-template#412). This pass is the fix #774
 # prescribes instead: source-scoped and LIVE-DERIVED, authoritative for ONLY memory/capture-degraded,
-# run from the SessionStart drain driver, mirroring how CI / soft-budget findings clear on a positive
+# run from the SessionStart drain driver, mirroring how CI findings clear on a positive
 # observation. It touches neither drain_inbox's authority nor the persistence-gated promotion path.
 #
 # The clearance condition is REPO-WIDE, deliberately stronger than a single marker read: the marker is

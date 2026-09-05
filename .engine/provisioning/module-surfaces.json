@@ -549,6 +549,9 @@
   ".engine/check/block-coherence.json": [
    "validators-core"
   ],
+  ".engine/check/build-protocol.json": [
+   "validators-core"
+  ],
   ".engine/check/catalog-completeness.json": [
    "validators-core"
   ],
@@ -642,6 +645,9 @@
   ".engine/check/knowledge-vocabulary.json": [
    "validators-core"
   ],
+  ".engine/check/lane-removed.json": [
+   "validators-core"
+  ],
   ".engine/check/lens-consumption.json": [
    "validators-core"
   ],
@@ -658,6 +664,9 @@
    "migration-discipline"
   ],
   ".engine/check/model-bindings-schema.json": [
+   "validators-core"
+  ],
+  ".engine/check/model-routing.json": [
    "validators-core"
   ],
   ".engine/check/module-catalog-drift.json": [
@@ -1122,6 +1131,9 @@
   ".engine/schemas/model-bindings.v1.json": [
    "core"
   ],
+  ".engine/schemas/model-routing.v1.json": [
+   "core"
+  ],
   ".engine/schemas/module.v1.json": [
    "core"
   ],
@@ -1269,9 +1281,6 @@
   ".engine/tools/audit_soft_findings.py": [
    "core"
   ],
-  ".engine/tools/audit_soft_promote.py": [
-   "core"
-  ],
   ".engine/tools/block_coherence_check.py": [
    "core"
   ],
@@ -1312,6 +1321,12 @@
    "core"
   ],
   ".engine/tools/build_coordinator_work.py": [
+   "core"
+  ],
+  ".engine/tools/build_protocol.py": [
+   "core"
+  ],
+  ".engine/tools/build_protocol_check.py": [
    "core"
   ],
   ".engine/tools/build_readiness.py": [
@@ -1423,9 +1438,6 @@
    "core"
   ],
   ".engine/tools/demo_audit_soft_findings.py": [
-   "core"
-  ],
-  ".engine/tools/demo_audit_soft_promote.py": [
    "core"
   ],
   ".engine/tools/demo_boot_alarm_collapse.py": [
@@ -1701,6 +1713,9 @@
   ".engine/tools/knowledge_vocabulary_check.py": [
    "core"
   ],
+  ".engine/tools/lane_removed_check.py": [
+   "core"
+  ],
   ".engine/tools/lens_consumption_check.py": [
    "core"
   ],
@@ -1933,6 +1948,9 @@
    "migration-discipline"
   ],
   ".engine/tools/milestone_emit.py": [
+   "core"
+  ],
+  ".engine/tools/model_routing_check.py": [
    "core"
   ],
   ".engine/tools/modes.py": [
@@ -2214,9 +2232,6 @@
   ".engine/tools/test_audit_soft_findings.py": [
    "core"
   ],
-  ".engine/tools/test_audit_soft_promote.py": [
-   "core"
-  ],
   ".engine/tools/test_block_coherence.py": [
    "core"
   ],
@@ -2254,6 +2269,9 @@
    "core"
   ],
   ".engine/tools/test_build_coordinator_work.py": [
+   "core"
+  ],
+  ".engine/tools/test_build_protocol.py": [
    "core"
   ],
   ".engine/tools/test_build_readiness.py": [
@@ -2406,6 +2424,9 @@
   ".engine/tools/test_knowledge_vocabulary.py": [
    "core"
   ],
+  ".engine/tools/test_lane_removed_check.py": [
+   "core"
+  ],
   ".engine/tools/test_launch_contract.py": [
    "core"
   ],
@@ -2455,6 +2476,9 @@
    "core"
   ],
   ".engine/tools/test_operation.py": [
+   "core"
+  ],
+  ".engine/tools/test_operation_length.py": [
    "core"
   ],
   ".engine/tools/test_operator_guarded_paths_check.py": [
