@@ -67,7 +67,8 @@ ordinary and should not be forced into the first:
 
 Never file an intake issue for work already in flight. Intake is how work arrives; a plan and its pull
 request are how in-flight work is carried, and an issue opened alongside them records nothing that is not
-already recorded.
+already recorded. The seal hand-back and the bind kickoff both say so, so the rule arrives from the ceremony
+rather than from memory.
 
 ### 6. Move through the operator's stops, in order
 
@@ -82,8 +83,9 @@ already recorded.
   false green — and fill `.engine/templates/risk-assessment.md` in plain language. Follow that template
   rather than paraphrasing it: it carries the rules this stop turns on, including that a care level follows
   the risk and is never lowered to a depth the operator preferred earlier, that no time or cost is invented,
-  and how a weakened guardrail must be worded. Take the operator's approval in their own words. That single
-  choice covers both the plan's cold review and the Build's later one; consent is given once, here.
+  and how a weakened guardrail must be worded. Record the operator's approval at the gate with
+  `--operator-decided` — the record is the gate and the moment, never their words. That single choice covers
+  both the plan's cold review and the Build's later one; consent is given once, here.
 - **One cold review, then its findings.** A plan gets exactly one cold panel. Adjudicate it yourself:
   accepting a concern is not accepting its remedy, and severity is advice that never selects a remedy for
   you. Synthesize the panel into one recommended call rather than relaying raw reviewer output, and return
@@ -131,7 +133,7 @@ Restating its order here would only give you a second answer, free to drift from
 ## Done when
 
 The operator has discussed the shape, seen the drafted plan and had the chance to revise it, chosen its
-review depth in their own words, seen what the cold panel found and how each finding was answered, and
+review depth and had that recorded, seen what the cold panel found and how each finding was answered, and
 sealed it — and the sealed plan sits in the library ready for a Build to bind. Concluding that this is not
 the change to make is also a finished outcome: nothing is authored, and the operator knows why.
 
