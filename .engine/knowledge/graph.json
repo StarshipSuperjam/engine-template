@@ -18028,7 +18028,7 @@
       },
       "slug": "test_lane_removed_check",
       "source": {
-        "fingerprint": "sha256:ad0e9bf9916d32fe20e7fc590832248d1613f7dae40070f04cf843c4dfc94226",
+        "fingerprint": "sha256:db49d9ecc15b8b20fc6cbedbb407f552df3c41f0486997b2db9c511ae991577f",
         "path": ".engine/tools/test_lane_removed_check.py"
       },
       "status": "active",
@@ -20763,7 +20763,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:4affd1f3a2afd80ccc4b1d7cbacd884df3398bb6e0a37daf54a7e1e6a35f19ec",
+        "fingerprint": "sha256:d02e85a0bb48bdc5d9824bc63d8a60352b50494f84b139da0fd44d06fae7c691",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",
