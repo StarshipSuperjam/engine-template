@@ -118,15 +118,30 @@ def _tool(**registration):
     it registers unchanged, so the wrapper is both what the boundary invokes (translation takes effect)
     and what binds to the module global (marker preserved); `inspect.signature` follows `__wrapped__`,
     so the registered tool schema is the original function's."""
+    name = registration.get("name")
+
     def register(function):
         @functools.wraps(function)
         def wrapper(*args, **kwargs):
+            if name in _READ_TOOLS:
+                # BEFORE the mutation guard beneath this wrapper resolves the context: on an uncached first
+                # resolution that met refreshable drift, this is where the read-side root refresh installs a
+                # restart's seal, so the guard then opens qualified and the derived stores can reconcile. Done
+                # inside the seam instead, the guard would already have routed this very call degraded - the
+                # operator's fixture showed meaning recall answering unavailable for exactly that reason.
+                # Never raises; the seam re-derives the outcome live after the read.
+                _execution_context.read_binding()
             try:
                 return function(*args, **kwargs)
             except _TRANSLATED_REFUSALS as exc:
                 raise ToolError(str(exc)) from exc
         return server.tool(**registration)(wrapper)
     return register
+
+
+# The served read tools: the ones whose answers pass through the read seam and whose wrapper performs the
+# read-side resolution ahead of the guard. `health` is deliberately not one: it touches no store.
+_READ_TOOLS = frozenset({"search", "recall-window", "recall-by-meaning", "list-pins", "list-withheld"})
 
 
 @_tool(

@@ -27,6 +27,7 @@ from memory import (capture, execution_context, forget, index, ledger, mutation_
                     mutation_contract, pins, records)
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
+from memory.recall_acceptance_probe import recall_acceptance_probe  # noqa: E402
 from mcp.server import MCPServer  # noqa: E402
 from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
 
@@ -1230,6 +1231,306 @@ class StrandingLogServerWiringTests(unittest.IsolatedAsyncioTestCase):
                                      empty=srv._EMPTY_ANSWERS["list-pins"])
             self.assertEqual(out["outcome"]["binding"], "healthy")
         self.assertEqual(recorded.call_count, 1)
+
+
+class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
+    """THE AUTHORITATIVE MATRIX (C2, pln_b5eb869e55b4, success obligation 1). Every served read tool, driven
+    through the real in-memory client, against a REAL canonical attended-memory-mcp context sealed on disk
+    (test_mutation_authority._QualifiedFixture), under every way context resolution can end:
+
+      R1 absent            no ENGINE_PERSISTENT_EXECUTION_CONTEXT installed
+      R2 ExpectedStateStale a sibling process appended to the ledger after the seal   -> healthy (root refresh)
+      R3 ActivationStale   activation.json epoch advanced on disk                     -> moved
+      R4 AcceptedTreeStale the dispatcher removed from the accepted tree              -> moved
+      R5 StoreIdentityStale store-identity.json rewritten                             -> unbound
+      R6 BackupPointerStale pointer.json rewritten                                    -> unbound
+      R7 ArtifactUnreadable a content-hashed artefact made unreadable (chmod 0)      -> unbound
+      R8 base ContextError DECLARED monkeypatch on _revalidate_matched                -> unbound
+      R9 unknown subclass  DECLARED monkeypatch: a ContextError subclass this module does not know -> unbound
+
+    Each row runs from an UNCACHED first resolution (execution_context._CURRENT_CONTEXT is None at entry - the
+    captured production shape, which PR #1208's fixture never covered) and from a CACHED one, and once more
+    injected AFTER a healthy first read. Runs OUTSIDE mutation_authority.test_scope: the SDK's worker threads
+    make the test adapter false, so the guard, the lock and the per-request refresh are the production ones.
+    The coverage assertion in test_mutation_authority pins that every ContextError subclass has a row here."""
+
+    TOOLS = ("search", "recall-window", "recall-by-meaning", "list-pins", "list-withheld")
+    EXPECTED = {"R1": "absent", "R2": "healthy", "R3": "moved", "R4": "moved", "R5": "unbound",
+                "R6": "unbound", "R7": "unbound", "R8": "unbound", "R9": "unbound"}
+    REASON = {"R1": "none-installed", "R2": None, "R3": "ActivationStale", "R4": "AcceptedTreeStale",
+              "R5": "StoreIdentityStale", "R6": "BackupPointerStale", "R7": "ArtifactUnreadable",
+              "R8": "ContextError", "R9": "unknown"}
+
+    def setUp(self):
+        self._row_cleanups: list = []
+        self.addCleanup(self._teardown_row)
+        self._build()
+
+    def _teardown_row(self):
+        while self._row_cleanups:
+            self._row_cleanups.pop()()
+        self._reset_process()
+
+    def _fresh(self):
+        """A clean fixture for the next row: this row's cleanups (patchers, chmod, the temp dir) run first."""
+        self._teardown_row()
+        self._build()
+
+    def _build(self):
+        from memory import test_mutation_authority as tma
+        from memory.semantic import store as _semantic_store
+
+        self._reset_process()
+        self.fixture = tma._QualifiedFixture(mcp=True)
+        self._row_cleanups.append(self.fixture.temp.cleanup)
+        self.ledger_file = os.path.join(self.fixture.memory, ledger.LEDGER_FILENAME)
+        self.index_file = os.path.join(self.fixture.memory, index.INDEX_FILENAME)
+        self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
+        self.nonce = "nonce-" + records.new_record_id()[:10]
+        self.withheld_nonce = "withheld-" + records.new_record_id()[:10]
+        self.session = "s-matrix"
+        self.events: list = []
+        recorder = mock.patch.object(srv._stranding_log, "record_stranding", side_effect=self._record)
+        recorder.start(); self._row_cleanups.append(recorder.stop)
+        self.activation = os.path.join(self.fixture.common, "engine", "accepted-hooks", "activation.json")
+        self._seed()
+
+    def _record(self, event, exc=None, *, tool=None, path=None):
+        self.events.append((event, type(exc).__name__ if exc is not None else None, tool))
+        return True
+
+    def _reset_process(self):
+        from memory.semantic import store as _semantic_store
+
+        execution_context._CURRENT_CONTEXT = None
+        with execution_context._CONTEXT_LOCK:
+            execution_context._AUTHORIZED_CONTEXTS.clear()
+        os.environ.pop(execution_context.CONTEXT_ENV, None)
+        os.environ.pop(ledger.ENV_DIR, None)
+        srv._READ_DEGRADED_NOTED.clear()
+        srv._SEAM_HOOK = None
+        _semantic_store._LIVE_CACHE.clear()
+        mutation_authority._THREAD.state = None
+
+    def _seed(self):
+        """Seed with NO context installed - the committed test module's adapter covers these direct writes,
+        which under the memory server's own context would sit outside its closed operation boundary - then
+        re-seal the fixture context to the seeded state so the ONLY drift a row injects is the row's own.
+        The derived stores are left deliberately LAGGING a withhold: the keyword index and the vector store
+        are built while the withheld record is live, and the withhold lands in the ledger afterwards with NO
+        rebuild and NO reconcile - so a revival would be observable in any row that answered from a stale
+        derived copy."""
+        from memory import forget as _forget
+        from memory.semantic import store as _semantic_store
+
+        now = int(time.time())
+        for seq, text in enumerate((f"we decided to hook the calendar and not run a cron job {self.nonce}",
+                                    f"an unrelated aside about the office plants {self.withheld_nonce}"), 1):
+            ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                           "session_id": self.session, "seq": seq, "speaker": "user", "ts": now + seq,
+                           "text": text}, path=self.ledger_file)
+        index.rebuild(ledger_file=self.ledger_file, index_file=self.index_file)
+        _semantic_store.sync(ledger_file=self.ledger_file, store_file=self.store_file)
+        withheld_id = next(r[_ID] for r in ledger.read(path=self.ledger_file).records
+                           if self.withheld_nonce in r.get("text", ""))
+        _forget.withhold(record_id=withheld_id, path=self.ledger_file)
+        execution_context._remember_context(self.fixture.context)   # _reset_process cleared the registry
+        self.fixture.context = execution_context.reseal_for_stale_state(self.fixture.context)
+        self._reset_process()
+
+    # ---- cache states ----
+    def _uncached(self):
+        os.environ[execution_context.CONTEXT_ENV] = self.fixture.context.to_json()
+        execution_context._CURRENT_CONTEXT = None
+
+    def _cached(self):
+        os.environ[execution_context.CONTEXT_ENV] = self.fixture.context.to_json()
+        execution_context._CURRENT_CONTEXT = self.fixture.context
+        execution_context._remember_context(self.fixture.context)
+
+    # ---- the nine injections ----
+    def _inject(self, row):
+        if row == "R1":
+            os.environ.pop(execution_context.CONTEXT_ENV, None)
+            execution_context._CURRENT_CONTEXT = None
+            os.environ[ledger.ENV_DIR] = self.fixture.memory
+        elif row == "R2":
+            with open(self.ledger_file, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+                                         "session_id": "s-sibling", "seq": 1, "speaker": "user",
+                                         "ts": int(time.time()), "text": "a sibling session wrote this"}) + "\n")
+        elif row == "R3":
+            document = json.loads(Path(self.activation).read_text(encoding="utf-8"))
+            document["epoch"] = document["epoch"] + 1
+            Path(self.activation).write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+        elif row == "R4":
+            os.remove(os.path.join(self.fixture.accepted, ".engine", "tools", "accepted_hook_dispatch.py"))
+        elif row == "R5":
+            path = os.path.join(self.fixture.memory, execution_context.STORE_IDENTITY_FILENAME)
+            identity = json.loads(Path(path).read_text(encoding="utf-8"))
+            identity["store_id"] = "f" * 32
+            Path(path).write_text(json.dumps(identity, sort_keys=True) + "\n", encoding="utf-8")
+        elif row == "R6":
+            Path(self.fixture.pointer).write_text(
+                '{"schema_version":1,"owner":"o","repo":"r","branch":"b","namespace":"n"}\n', encoding="utf-8")
+        elif row == "R7":
+            cursor = os.path.join(self.fixture.memory, "capture-state.json")
+            Path(cursor).write_text("{}\n", encoding="utf-8")
+            os.chmod(cursor, 0)
+            self._row_cleanups.append(lambda: os.chmod(cursor, 0o600))
+        elif row == "R8":
+            patcher = mock.patch.object(execution_context, "_revalidate_matched",
+                                        side_effect=execution_context.ContextError("lifecycle paths no longer match"))
+            patcher.start(); self._row_cleanups.append(patcher.stop)
+        elif row == "R9":
+            class FutureStale(execution_context.ContextError):
+                pass
+            patcher = mock.patch.object(execution_context, "_revalidate_matched",
+                                        side_effect=FutureStale("a class this module does not know"))
+            patcher.start(); self._row_cleanups.append(patcher.stop)
+        else:
+            raise AssertionError(row)
+
+    async def _call(self, name, args):
+        return await mts.call_tool_json(srv.server, name, args)
+
+    def _args(self, name):
+        return {"search": {"query": "calendar"}, "recall-window": {"session_id": self.session},
+                "recall-by-meaning": {"query": "did we consider running it on a timer"},
+                "list-pins": {}, "list-withheld": {}}[name]
+
+    async def _drive(self, row, expected):
+        """One row across all five tools: the cell assertions."""
+        answers = {}
+        for name in self.TOOLS:
+            with self.subTest(row=row, tool=name):
+                out = await self._call(name, self._args(name))     # raises on a tool error: 'never crash'
+                answers[name] = out
+                outcome = out["outcome"]
+                self.assertEqual(outcome["binding"], expected, (row, name, outcome))
+                self.assertEqual(outcome["reason"], self.REASON[row])
+                self.assertEqual(outcome["restart_clears"], expected in ("moved", "unbound"))
+                self.assertNotIn("memory_caveat", out)
+                self.assertNotIn(self.withheld_nonce, json.dumps(out))          # never revived, any row
+                self.assertNotIn(self.fixture.base, json.dumps(out["outcome"]))  # no path in the disclosure
+                if expected == "unbound":
+                    self.assertEqual(outcome["completeness"], "none")
+                    for key in ("results", "turns", "pins", "notes", "sessions"):
+                        self.assertEqual(out.get(key, []), [], (row, name))
+                elif expected == "moved":
+                    self.assertIn("quit Claude Desktop completely", outcome["note"])
+                    if name == "search":
+                        self.assertEqual(outcome["completeness"], "incomplete")   # the ledger scan answered
+                        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+                    if name == "recall-by-meaning":
+                        self.assertEqual(outcome["completeness"], "incomplete")
+                        self.assertIn("unavailable", out)
+                        self.assertIn("restarts against the current commit", out["unavailable"])
+                        self.assertEqual(out["results"], [])
+                    if name == "recall-window":
+                        self.assertTrue(any(self.nonce in str(turn) for turn in out["turns"]))
+                elif expected == "healthy":
+                    self.assertIsNone(outcome["note"])
+                    if name == "search":
+                        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+                    if name == "recall-by-meaning":
+                        probe = recall_acceptance_probe(
+                            {"tools": {"recall-by-meaning": {"is_error": False, "payload": out}}}, self.nonce)
+                        self.assertEqual((probe["passed"], probe["reason"]), (True, "recalled"), probe)
+                elif expected == "absent":
+                    self.assertFalse(outcome["restart_clears"])
+        self.assertFalse([e for e in self.events if e[0] is _stranding_log.Event.TOOL_FAULT], self.events)
+        return answers
+
+    async def test_every_row_uncached(self):
+        for row, expected in self.EXPECTED.items():
+            with self.subTest(row=row, cache="uncached"):
+                self._fresh()
+                self._uncached()
+                self._inject(row)
+                if row != "R1":
+                    self.assertIsNone(execution_context._CURRENT_CONTEXT)   # the captured production shape
+                await self._drive(row, expected)
+                if expected in ("moved", "unbound"):
+                    degraded = {(e[1], e[2]) for e in self.events if e[0] is _stranding_log.Event.READ_DEGRADED}
+                    klass = self.REASON[row] if self.REASON[row] in vars(execution_context) else "ContextError"
+                    self.assertEqual(degraded, {(klass, tool) for tool in self.TOOLS})   # one per (class, tool)
+                    self.assertIsNone(execution_context._CURRENT_CONTEXT)               # nothing installed
+                if row == "R2":
+                    self.assertIsNotNone(execution_context._CURRENT_CONTEXT)              # the root refresh
+                    self.assertEqual(execution_context.binding_identity(execution_context._CURRENT_CONTEXT),
+                                     execution_context.binding_identity(self.fixture.context))
+
+    async def test_every_row_cached(self):
+        for row, expected in self.EXPECTED.items():
+            if row == "R1":
+                continue
+            with self.subTest(row=row, cache="cached"):
+                self._fresh()
+                self._cached()
+                self._inject(row)
+                await self._drive(row, expected)
+
+    async def test_drift_injected_after_a_healthy_first_read_is_disclosed(self):
+        for row in ("R2", "R3", "R5", "R7"):
+            with self.subTest(row=row):
+                self._fresh()
+                self._uncached()
+                first = await self._call("list-pins", {})
+                self.assertEqual(first["outcome"]["binding"], "healthy")
+                self._inject(row)
+                await self._drive(row, self.EXPECTED[row])
+
+    async def test_activation_and_store_moving_together_is_unbound(self):
+        self._uncached()
+        self._inject("R3")
+        self._inject("R5")
+        for name in self.TOOLS:
+            out = await self._call(name, self._args(name))
+            self.assertEqual((out["outcome"]["binding"], out["outcome"]["reason"]),
+                             ("unbound", "StoreIdentityStale"), name)
+
+    async def test_a_store_replaced_between_validation_and_the_read_is_discarded_as_unbound(self):
+        self._uncached()
+
+        def replace_store(tool, binding):
+            self.assertEqual(binding.kind, "healthy")
+            self._inject("R5")
+
+        srv._SEAM_HOOK = replace_store
+        for name in ("search", "recall-window", "list-pins"):
+            with self.subTest(tool=name):
+                self._fresh(); self._uncached(); srv._SEAM_HOOK = replace_store
+                out = await self._call(name, self._args(name))
+                self.assertEqual(out["outcome"]["binding"], "unbound")
+                self.assertEqual(out["outcome"]["completeness"], "none")
+                self.assertNotIn(self.nonce, json.dumps(out))
+
+    async def test_write_authority_is_unchanged_across_the_rows(self):
+        """The plan's authority bound: after the root refresh a write has a restarted server's authority and
+        no more; under every non-refreshable row a write refuses with the UNCHANGED _stale_refusal sentence."""
+        self._uncached()
+        self._inject("R2")
+        self.assertEqual((await self._call("list-pins", {}))["outcome"]["binding"], "healthy")
+        pinned = await self._call("pin", {"text": "a pin written after the read-side root refresh"})
+        self.assertIn("id", pinned)
+        self.assertTrue(any("root refresh" in p["text"] for p in (await self._call("list-pins", {}))["pins"]))
+        expected_sentences = {
+            "R3": mutation_authority._stale_refusal(execution_context.ActivationStale("x")),
+            "R4": mutation_authority._stale_refusal(execution_context.AcceptedTreeStale("x")),
+            "R5": mutation_authority._stale_refusal(execution_context.StoreIdentityStale("x")),
+            "R6": mutation_authority._stale_refusal(execution_context.BackupPointerStale("x")),
+            "R7": mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
+        }
+        for row, sentence in expected_sentences.items():
+            with self.subTest(row=row):
+                self._fresh()
+                self._cached()          # a bound server that the drift lands under: the under-lock refusal
+                self._inject(row)
+                text = await mts.call_tool_expect_error(srv.server, "pin", {"text": "must not be written"})
+                self.assertTrue(text.endswith(sentence), text)   # the protocol prefixes the tool name
+                self.assertNotIn(self.fixture.base, text)
+                self.assertEqual((await self._call("list-pins", {}))["outcome"]["binding"], self.EXPECTED[row])
 
 
 if __name__ == "__main__":
