@@ -139,15 +139,7 @@
   "review_consumers": [
     {
       "stage": "plan-review gate",
-      "roster": "plan-review"
-    },
-    {
-      "stage": "product-design spec lock",
-      "roster": "plan-review"
-    },
-    {
-      "stage": "pre-submission gate",
-      "roster": "deliverable-review"
+      "roster": "nobody"
     }
   ]
 }

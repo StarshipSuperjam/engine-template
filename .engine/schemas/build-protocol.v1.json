@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "build-protocol.v1 — current runtime Build mechanics",
   "type": "object", "additionalProperties": false,
-  "required": ["schema_version", "deliverable_review", "validation_commands", "preflights", "hard_holds"],
+  "required": ["schema_version", "deliverable_review", "validation_commands", "preflights", "hard_holds", "review_consumers"],
   "properties": {
     "schema_version": {"const": "build-protocol.v1"},
     "deliverable_review": {"$ref": "#/$defs/depths"},
@@ -15,7 +15,8 @@
       }
     },
     "preflights": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["id", "command", "required"], "properties": {"id": {"type": "string", "minLength": 1}, "command": {"type": "array", "items": {"type": "string"}}, "required": {"type": "boolean"}}}},
-    "hard_holds": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "prevents"], "properties": {"id": {"type": "string", "minLength": 1}, "prevents": {"type": "string", "minLength": 1}}}}
+    "hard_holds": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["id", "prevents"], "properties": {"id": {"type": "string", "minLength": 1}, "prevents": {"type": "string", "minLength": 1}}}},
+    "review_consumers": {"type": "array", "minItems": 1, "description": "Which Build stage consumes which review roster; the lens lists live once (deliverable_review here, the plan-review roster with the Project Manager), so a stage can never list a review its roster does not carry.", "items": {"type": "object", "additionalProperties": false, "required": ["stage", "roster"], "properties": {"stage": {"type": "string", "minLength": 1}, "roster": {"type": "string", "enum": ["plan-review", "deliverable-review"]}}}}
   },
   "$defs": {
     "depths": {"type": "object", "additionalProperties": false, "required": ["quick", "standard", "thorough"], "properties": {"quick": {"$ref": "#/$defs/lenses"}, "standard": {"$ref": "#/$defs/lenses"}, "thorough": {"$ref": "#/$defs/lenses"}}},

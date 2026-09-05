@@ -11,6 +11,7 @@
       ".engine/check/audit-digest-fingerprint.json",
       ".engine/check/audit-digest-staleness.json",
       ".engine/check/block-coherence.json",
+      ".engine/check/build-protocol.json",
       ".engine/check/catalog-completeness.json",
       ".engine/check/catalog-coverage.json",
       ".engine/check/census-completeness.json",
