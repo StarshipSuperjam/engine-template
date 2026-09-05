@@ -1452,8 +1452,8 @@ def seal_handback(plan_id: str) -> str:
     PROVIDER-AWARE, AND SO IT PRESCRIBES NO CONTEXT CONTROL (StarshipSuperjam/engine-template#1112).
     Until 2026-09-04 this line prescribed /compact and forbade /clear, because one build session had
     lost its thread by clearing at this boundary (2026-08-25); that was a Claude Code rule printed
-    into every runtime, and Codex has neither control. The operator lifted it on #1112 and again at
-    the 2026-09-04 shape discussion: context management is the operator's own on every runtime, and
+    into every runtime, and Codex has neither control. The operator lifted it on that issue and again
+    at the 2026-09-04 shape discussion: context management is the operator's own on every runtime, and
     the session's job is to judge the Build ahead and SUGGEST a model and effort for the harness in
     use — never to ask the operator to state or record one. The incident stays here as history.
 
