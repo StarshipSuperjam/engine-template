@@ -12392,7 +12392,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:3e1e489293b93085e53db13cbf894f37cb3b245dab4dd9bfea8f0ed82eedbf95",
+        "fingerprint": "sha256:450bc4ca0bfd4792de2d6a18ae598e8514c977adc38f84e33c66d96bf2b073bd",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -17314,6 +17314,7 @@
           "tool:engine_status",
           "tool:hooks",
           "tool:modes",
+          "tool:module_catalog",
           "tool:qualification_health",
           "tool:telemetry",
           "tool:validate",
@@ -17322,7 +17323,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:6c27b197a8cb7726da3d125d84d47a4a036a94266673e1067de922844e257e33",
+        "fingerprint": "sha256:baabadce45974cfcd720e4ce7e1ded581e3759fda18573cf7a53baacc963cba3",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
