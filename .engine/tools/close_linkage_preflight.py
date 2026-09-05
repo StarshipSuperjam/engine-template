@@ -80,6 +80,27 @@ _CLOSE_LIST_RE = re.compile(
 # A single `owner/repo#N` or `#N` reference inside a captured list.
 _REF_RE = re.compile(r"(?:(?P<slug>[\w.-]+/[\w.-]+)#|#)(?P<num>\d+)")
 
+
+def break_closing_keywords(text: str) -> str:
+    """Keep prose that QUOTES a closing keyword from arming a close on the merge surface.
+
+    A sealed plan or a reviewer may restate a past accident ("C1's wording auto-closed #1210 on merge"),
+    and GitHub honours the keyword-reference pair wherever it lands in a pull-request body, so rendering
+    the quotation verbatim would close #1210 again (StarshipSuperjam/engine-template#1229). The composed
+    body cannot be hand-edited and a sealed plan cannot be revised, so the break happens where the text
+    is rendered: the one word "issue" is inserted between the keyword and the reference list. The
+    sentence still says what its author said; GitHub's parser and this preflight's own pattern no longer
+    see a close. It breaks EVERY pair it sees, so it must never be applied where a deliberate close line
+    is meant to work - every caller renders prose behind an identifier in a bullet, where a close could
+    never have been honoured anyway. The pattern is `_CLOSE_LIST_RE` itself, so what this breaks and
+    what `check` would flag cannot drift apart."""
+
+    def split(match):
+        whole, refs = match.group(0), match.group(1)
+        return whole[: len(whole) - len(refs)] + "issue " + refs
+
+    return _CLOSE_LIST_RE.sub(split, text)
+
 # A DELIBERATE close line: a line whose FIRST token is a closing keyword directly followed by a bare `#N` (the
 # template's "one `Closes #N` line" convention). This is how an *intended* close is told from a keyword *buried*
 # mid-sentence — a location read, not an intent guess.

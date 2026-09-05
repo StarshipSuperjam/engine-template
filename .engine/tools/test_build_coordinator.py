@@ -1448,11 +1448,13 @@ class TestReviewAndFindings(CoordinatorCase):
         import close_linkage_preflight
         document = {"program": {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
             {"id": "OB-WRITE-AUTHORITY", "state": "carried",
-             "statement": "The write-authority issues #1210 and #1167 are C4's to resolve.",
+             "statement": "The write-authority issues #1210 and #1167 are C4's to resolve (C1 fixed #1210 "
+                          "by accident).",
              "reason": "Restated without a closing keyword: C1's wording auto-closed #1210 on merge. "
                        "Fixes #1167; resolves owner/repo#5, #6."}]}}
         with self._with_plan_document(document):
             lines = bc._plan_obligation_lines(self.state())
+        self.assertIn("C1 fixed issue #1210 by accident", lines[0])           # the statement's own guard
         self.assertIn("auto-closed issue #1210 on merge", lines[0])
         self.assertIn("Fixes issue #1167", lines[0])
         self.assertIn("resolves issue owner/repo#5, #6", lines[0])
@@ -1470,6 +1472,14 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertTrue(any("Fixed issue #78" in line for line in disagreement), disagreement)
         for line in finding_lines + disagreement:
             self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(line), line)
+        # The fourth place plan-authored prose reaches the body: a post-approval assumption resolution.
+        plan = {"assumptions": [{"claim": "Closes #91 is the wording we keep.", "status": "unresolved"}]}
+        state = dict(self.state())
+        state["assumption_dispositions"] = [{"claim": "Closes #91 is the wording we keep.",
+                                             "resolved_as": "verified", "basis": "It resolved #92 in review."}]
+        rendered = bc._assumption_resolution_lines(state, plan)
+        self.assertEqual(rendered, ["Closes issue #91 is the wording we keep. -> verified (self-attested, not "
+                                    "re-reviewed) — basis: It resolved issue #92 in review."])
 
     def test_a_standalone_plan_carries_no_obligations(self):
         # A plan belongs to no program unless someone deliberately put it in one, so the ordinary case

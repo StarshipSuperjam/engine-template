@@ -4699,26 +4699,29 @@ def _sealed_plan_review(state: dict) -> dict | None:
 
 
 def _break_closing_keywords(text: str) -> str:
-    """Keep sealed-plan prose from arming a close the operator never wrote.
+    """Keep quoted closing keywords in rendered prose from arming a close (see the close-linkage tool).
 
-    A plan may QUOTE a closing keyword beside an issue reference — C2's carried obligation restated C1's
-    accident as "C1's wording auto-closed #1210 on merge" — and GitHub honours the pair wherever it lands
-    in a pull-request body, so composing that sentence verbatim would close #1210 again on merge
-    (StarshipSuperjam/engine-template#1229). The composed contract cannot be hand-edited and the sealed
-    plan cannot be revised, so the break happens here: the one word "issue" is inserted between the
-    keyword and the reference. What the sentence says is unchanged; GitHub's parser no longer sees a
-    close. The pattern is the close-linkage preflight's own, so what this breaks and what that check
-    would flag cannot drift apart. Single-homed for every renderer that emits plan-library prose."""
+    Applied at the four places prose that this session did not author reaches the composed body: a carried
+    obligation's statement and reason, a plan-review finding's summary, a plan-review disagreement, and a
+    post-approval assumption resolution; the reviewer-side disagreement line breaks its own text at its
+    single source in the review module. The claim's own prose is NOT passed through it: that is the
+    author's, and the close-linkage preflight adjudicates it separately. Never apply this where a
+    deliberate close line is meant to work."""
     tools = str(ROOT / ".engine" / "tools")
     if tools not in sys.path:
         sys.path.insert(0, tools)
     import close_linkage_preflight
+    return close_linkage_preflight.break_closing_keywords(text)
 
-    def split(match):
-        whole, refs = match.group(0), match.group(1)
-        return whole[: len(whole) - len(refs)] + "issue " + refs
 
-    return close_linkage_preflight._CLOSE_LIST_RE.sub(split, text)
+def _assumption_resolution_lines(state: dict, plan: dict) -> list[str]:
+    """Post-approval assumption resolutions for the merge surface: plan-authored claims, so their prose
+    passes through the closing-keyword break like every other plan text the body renders."""
+    authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
+    return [
+        f"{_break_closing_keywords(_plain(d['claim']))} -> {d['resolved_as']} (self-attested, not "
+        f"re-reviewed) — basis: {_break_closing_keywords(_plain(d['basis']))}"
+        for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
 
 
 def _plan_obligation_lines(state: dict) -> list[str]:
@@ -5162,11 +5165,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # not just `status` (StarshipSuperjam/engine-template#1014). Only an assumption authored 'unresolved' can
     # carry a disposition, so its presence is the "after approval" signal; both verified and accepted-risk are
     # disclosed so a self-attested post-hoc resolution can never vanish before the operator sees it.
-    authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
-    assumption_resolutions = [
-        f"{_plain(d['claim'])} -> {d['resolved_as']} (self-attested, not re-reviewed) — "
-        f"basis: {_plain(d['basis'])}"
-        for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
+    assumption_resolutions = _assumption_resolution_lines(state, plan)
 
     # The two cost-cadence escalations, published because an escalation the operator cannot see at merge is
     # an escalation to nobody -- the whole argument for these being real rather than a self-tick. Only rounds
