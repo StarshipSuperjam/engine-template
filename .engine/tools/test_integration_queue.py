@@ -2,9 +2,12 @@
 
 import os
 import re
+import sys
 import unittest
 import urllib.parse
 from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # importable standalone, whatever loaded first (#1010)
 
 import integration_queue as iq
 import integration_queue_backend as be

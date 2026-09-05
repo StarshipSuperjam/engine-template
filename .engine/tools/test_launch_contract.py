@@ -416,6 +416,94 @@ class TestModuleIntegrityTests(unittest.TestCase):
         self.assertEqual(still_dead & self.KNOWN_DEAD_TAILS, self.KNOWN_DEAD_TAILS,
                          "a known dead tail was fixed; remove it from KNOWN_DEAD_TAILS")
 
+    #: Test modules that import a sibling tool WITHOUT putting their own directory on sys.path first, so
+    #: they import only when some module loaded earlier happened to set the path — the standalone dotted
+    #: run (`python -m unittest tools.test_x` from .engine) fails with ModuleNotFoundError (#1010). The
+    #: canonical `discover -s tools` run puts the directory on the path itself, so it can never catch a
+    #: regression here; this guard is what does. The list must only ever SHRINK: fix a module by adding
+    #: `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))` ahead of its sibling imports and
+    #: remove it here — the companion test fails if it is fixed and the allowance is left behind.
+    KNOWN_PATH_BLIND: frozenset = frozenset({
+        "test_boot.py",
+        "test_boot_alarm_ledger.py",
+        "test_build_coordinator_contract.py",
+        "test_build_state_store.py",
+        "test_checkout_auto_update.py",
+        "test_checkout_health.py",
+        "test_ci_assurance.py",
+        "test_derived_state.py",
+        "test_first_run_health.py",
+        "test_integration_queue_backend.py",
+        "test_issue_gate.py",
+        "test_license_health.py",
+        "test_license_seeds.py",
+        "test_mechanic_build.py",
+        "test_modes.py",
+        "test_plan_contract.py",
+        "test_plan_dogfood.py",
+        "test_plan_lifecycle.py",
+        "test_plan_program.py",
+        "test_plan_projection.py",
+        "test_plan_store.py",
+        "test_pr_reconcile.py",
+        "test_program_manager.py",
+        "test_program_projection.py",
+        "test_project_manager.py",
+        "test_release_cut.py",
+        "test_release_impact.py",
+        "test_release_impact_check.py",
+        "test_release_terminal.py",
+        "test_repair_divergence.py",
+        "test_self_review_setup.py",
+        "test_selftest_select.py",
+        "test_session_relay.py",
+        "test_uv_workspace_cache.py",
+    })
+
+    @staticmethod
+    def _sibling_tools() -> set:
+        return {path.stem for path in (ROOT / ".engine/tools").glob("*.py")}
+
+    def _path_blind_imports(self, path: Path, tools: set) -> list:
+        """The sibling tools `path` imports bare (top-level `import x` / `from x import ...` where x is a
+        module in .engine/tools) when the module never inserts or appends to sys.path itself."""
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        sets_path = any(
+            isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("insert", "append")
+            and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "path"
+            and isinstance(node.func.value.value, ast.Name) and node.func.value.value.id == "sys"
+            for node in ast.walk(tree))
+        if sets_path:
+            return []
+        bare = []
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                bare += [alias.name for alias in node.names if alias.name in tools]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module in tools:
+                bare.append(node.module)
+        return bare
+
+    def test_every_test_module_that_imports_a_sibling_tool_sets_its_own_path(self):
+        tools = self._sibling_tools()
+        offenders = {}
+        for path in sorted((ROOT / ".engine/tools").rglob("test_*.py")):
+            bare = self._path_blind_imports(path, tools)
+            if bare and path.name not in self.KNOWN_PATH_BLIND:
+                offenders[str(path.relative_to(ROOT))] = bare
+        self.assertEqual(offenders, {},
+                         "these test modules import a sibling tool without putting their own directory on "
+                         "sys.path first, so they cannot be run standalone (python -m unittest tools.<module>); "
+                         "add sys.path.insert(0, os.path.dirname(os.path.abspath(__file__))) ahead of the imports")
+
+    def test_the_known_path_blind_modules_are_still_the_only_exceptions(self):
+        """If one is fixed, this fails and the allowance must be removed with it — so the list cannot rot."""
+        tools = self._sibling_tools()
+        still_blind = {path.name for path in sorted((ROOT / ".engine/tools").rglob("test_*.py"))
+                       if self._path_blind_imports(path, tools)}
+        self.assertEqual(still_blind & self.KNOWN_PATH_BLIND, self.KNOWN_PATH_BLIND,
+                         "a path-blind test module was fixed; remove it from KNOWN_PATH_BLIND")
+
     def test_the_activation_suite_this_guard_exists_for_is_collected(self):
         source = (ROOT / ".engine/tools/test_hooks.py").read_text(encoding="utf-8")
         self.assertIn("class TestAcceptedAutomaticHookDispatch", source)
