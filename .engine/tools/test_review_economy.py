@@ -474,7 +474,7 @@ class TheBindingsStopAssertingWhatTheClaudeArmCannotDo(unittest.TestCase):
         true of the three reviewers and became false the moment a worker persona with real effort
         frontmatter joined the table — a merge turned a correct rule into a wrong one. What actually
         matters is whether the persona the override names carries an effort for the pin to ride on: a
-        reviewer does not (effort is not part of the review contract), a mechanical worker does."""
+        reviewer does not (its depth arrives through the spawning session), a mechanical worker does."""
         for name, override in (self.bindings.get("overrides") or {}).items():
             persona = Path(self.root) / ".claude" / "agents" / f"{name}.md"
             self.assertTrue(persona.is_file(), f"{name} is overridden but has no persona file")
