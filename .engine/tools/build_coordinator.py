@@ -1041,7 +1041,7 @@ def _library() -> "plan_store.PlanLibrary":
 # renders a hand-back (project_manager.seal_handback) for the session: settle what lives only in the
 # conversation, suggest a model and effort for the BUILD (context management is the operator's own —
 # it prescribes no runtime control), and name the operator-typed engine-start as the only entry into
-# the Build stance. All of it is an offer. The bind's own --operator-decision consent — required below
+# the Build stance for an attended Build (unattended runs enter through set-routine). All of it is an offer. The bind's own --operator-decision consent — required below
 # — is the operator's agreement to begin THIS Build, and nothing mechanical checks the hand-back's steps.
 #
 # WHAT WAS TRIED AND REMOVED, so it is not re-attempted. Two gates were built here and cut on the

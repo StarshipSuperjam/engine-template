@@ -209,7 +209,7 @@ class D11DepthChoiceClosesAtTheSeal(unittest.TestCase):
         seal = {"revision": 3}
         cases = {
             "sealed": (self._record(seal=seal), ("sealed", "Clone")),
-            "bound": (self._record(seal=seal, build_binding={"x": 1}), ("bound", "Build")),
+            "bound": (self._record(seal=seal, build_binding={"x": 1}), ("bound", "Build", "clone")),
             "complete": (self._record(closure={"state": "complete", "reason": "merged"}), ("complete", "new plan")),
             "retired": (self._record(closure={"state": "retired", "reason": "superseded"}), ("retired", "reopen")),
             "abandoned": (self._record(closure={"state": "abandoned", "reason": "dropped"}), ("abandoned", "reopen")),

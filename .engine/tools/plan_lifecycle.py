@@ -75,7 +75,8 @@ def depth_choice_closed(record: dict) -> str | None:
                 "review depth is chosen before the seal, never after it. Clone the plan to choose again.")
     if status == "active":
         return ("a Build is bound to this plan, so a review depth can no longer be chosen for it — the "
-                "depth approved before the seal is the one that Build runs at.")
+                "depth approved before the seal is the one that Build runs at. Let that Build run, or "
+                "clone the plan to plan the work differently.")
     if status == "complete":
         return ("this plan is complete, and completed Build history is terminal: nothing about it can be "
                 "approved again. Start a new plan for new work.")

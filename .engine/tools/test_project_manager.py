@@ -2148,6 +2148,7 @@ class TestSealHandback(unittest.TestCase):
         self.assertIn("Settle", text)
         self.assertIn("suggest a model and effort", text)
         self.assertIn("/engine-start or $engine-start", text)
+        self.assertIn("this runtime", text)     # relay the one spelling the operator can actually type
         self.assertIn("wait", text.lower())
 
     def test_it_carries_the_plan_id_and_the_consent_placeholder_into_the_bind_it_suggests(self):
@@ -2262,6 +2263,23 @@ class MarkerFollowsTheLifecycle(_Governed):
         with mock.patch.object(project_manager.core, "atomic_write",
                                side_effect=OSError("the library is not writable")):
             self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertEqual(self.run_command("depths", slug)[0], 0)
+
+    def test_a_stale_marker_is_refreshed_by_the_next_preview(self):
+        # The other way a marker stops vouching: the plan was revised after it was read. The marker is
+        # keyed by digest, so the readers refuse — and the next preview must refresh it, not skip it.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        stale = self._marker(slug).read_text(encoding="utf-8").strip()
+        self.assertEqual(self.run_command("revise", slug, "--document",
+                                          self._write_document(_document(revision=2)))[0], 0)
+        code, _, err = self.run_command("depths", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("preview", err)
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        fresh = self._marker(slug).read_text(encoding="utf-8").strip()
+        self.assertNotEqual(stale, fresh)
+        self.assertEqual(fresh, self.lib.read_record(slug)["current"]["plan_digest"])
         self.assertEqual(self.run_command("depths", slug)[0], 0)
 
     def test_a_lost_marker_on_an_approved_plan_is_recoverable(self):

@@ -317,7 +317,7 @@ def cmd_init(args) -> int:
     slug = library.create(document, intake=intake)
     plan_projection.project_library(library)
     print(f"created {document['plan_id']} at {library.plan_dir(slug)}")
-    print(_projection_line(library, slug))
+    print(f"\n{_projection_line(library, slug)}")
     warning = plan_store.volume_warning(library.root)
     if warning:
         print(f"\nwarning: {warning}", file=sys.stderr)
@@ -736,8 +736,12 @@ def cmd_approve(args) -> int:
     consent = _require_consent(record, "approve", args)
 
     def approve(current):
-        if current.get("seal"):          # re-asserted inside the lock, not from the copy above
-            raise ProjectManagerError("this plan was sealed while you were reading it; a seal is terminal")
+        # Re-asserted inside the lock, not from the copy above — and the SAME precondition the door
+        # checked, so a plan sealed, bound, or closed by another session in the window between the two
+        # reads is refused here with its real state rather than approved underneath that change.
+        closed_now = plan_lifecycle.depth_choice_closed(current)
+        if closed_now:
+            raise ProjectManagerError("while you were reading this plan, another session changed it: " + closed_now)
         current["approval"] = {"revision": revision, "plan_digest": digest,
                                "depth": args.depth, "at": _now()}
         current.setdefault("consent", []).append(consent)
@@ -1040,6 +1044,7 @@ def cmd_finding_amend(args) -> int:
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
+    plan_projection.project_library(library)   # the projection follows every record write
     print(f"amended {args.id}: " + ", ".join(f"{k}={v!r}" for k, v in sorted(changes.items())))
     return 0
 
@@ -1468,7 +1473,7 @@ def seal_handback(plan_id: str) -> str:
         "The plan is sealed and read-only. Stop building context here.",
         "Settle into the record anything that still lives only in this conversation.",
         "Judge the Build ahead and suggest a model and effort for this harness; their context is theirs to manage.",
-        "Build begins only when the operator types /engine-start or $engine-start: wait for it, then bind with their go:",
+        "Build begins only when the operator types /engine-start or $engine-start (tell them the one this runtime uses): wait, then bind with their go:",
         f"  build_coordinator.py plan bind --plan {plan_id} \\",
         "    --repository <owner/repo> --pr <number> --operator-decision \"<their go>\"",
     ])
