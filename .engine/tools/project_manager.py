@@ -295,9 +295,9 @@ def cmd_show(args) -> int:
         for problem in problems:
             print(f"  - {problem}")
     if record.get("consent"):
-        print("\noperator decisions recorded:")
-        for line in plan_lifecycle.consent_trail(record):
-            print(f"  {line[2:]}")
+        print("\noperator decisions recorded (gate and moment):")
+        for line in plan_lifecycle.consent_lines(record):
+            print(f"  {line}")
     if document and not record.get("seal"):
         # ONE refusal set, derived here exactly as `seal` derives it. They used to be computed from
         # different inputs — `show` from the document's own blockers, `seal` from those PLUS the
@@ -361,7 +361,8 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         return (f"this plan is sealed and read-only, and a sealed plan is now the only thing a Build "
                 f"runs on. Open a draft pull request for the work, then hand this plan to it:\n"
                 f"    build_coordinator.py plan bind --plan {plan} "
-                f"--repository <owner/repo> --pr <number> --operator-decision \"<what they said>\"\n"
+                f"--repository <owner/repo> --pr <number>\n"
+                f"    (add --operator-decided to it only after the operator's go)\n"
                 f"  To keep working on the idea instead:\n"
                 f"    project_manager.py clone {plan} --reason \"<why a new plan>\"")
     if status == "review-recorded":
@@ -381,9 +382,9 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
         if not plan_lifecycle.consent_for(record, "findings-presented"):
             return (f"show the operator what the panel found and what was done about each, then record "
                     f"that you did:\n    project_manager.py present-findings {plan} "
-                    "--operator-decision \"<what they said>\"")
+                    "(add --operator-decided only after the operator's go)")
         return (f"seal the plan — it is reviewed and nothing outstanding blocks it:\n"
-                f"    project_manager.py seal {plan} --operator-decision \"<what they said>\"")
+                f"    project_manager.py seal {plan} (add --operator-decided only after the operator's go)")
     if status == "awaiting-review":
         return (f"run the one cold plan review against the approved revision:\n"
                 f"    project_manager.py review packet {plan} --output <packet.md>\n"
@@ -398,7 +399,7 @@ def _next_step(status: str, record: dict, blockers: list) -> str:
                 f"and these two are listed here only so you know where they are —\n"
                 f"    project_manager.py depths {plan}\n"
                 f"    project_manager.py approve {plan} --depth <quick|standard|thorough> "
-                "--operator-decision \"<what the operator said>\"")
+                "(add --operator-decided only after the operator's go)")
     lead = ("revise to clear: " + "; ".join(blockers)) if blockers else "revise, then preview and approve"
     return (f"{lead}:\n    project_manager.py revise {plan} --document <revision.json> "
             f"--expect-revision {record['current']['revision']}")
@@ -656,7 +657,7 @@ def cmd_approve(args) -> int:
             "that is the expected shape — do not re-approve. Seal it and let the delta judgment cover "
             f"the change:\n    project_manager.py seal {args.plan} --delta-judgment scoped "
             "--delta-rationale \"<what changed and why it is still the reviewed plan>\" "
-            "--operator-decision \"<what the operator said>\"\n"
+            "(add --operator-decided only after the operator's go)\n"
             f"  If the change is too large for that, clone: `clone {args.plan} --reason \"<why>\"`.")
     roster = installed_lenses()
     if args.depth not in available_depths(roster):
@@ -686,7 +687,6 @@ def cmd_approve(args) -> int:
     plan_projection.project_library(library)
     covering = required_lenses(args.depth, roster)
     print(f"approved revision {revision} of {record['plan_id']} at {args.depth} depth")
-    print(f"  on the operator's decision: “{consent['decision']}”")
     if covering:
         print(f"  the seal will require these lenses: {', '.join(covering)}")
     else:
@@ -709,15 +709,15 @@ def revision_of(record: dict) -> int:
 def _require_consent(record: dict, gate: str, args) -> dict:
     """The operator's decision at one gate, or a refusal that says what they are being asked.
 
-    Taken from the command line rather than read back from the record, because the whole point is
-    that the words are the OPERATOR's from this moment — a gate satisfied by an attestation recorded
-    earlier for something else would be consent laundering, and `consent` is append-only so a stale
-    entry can never be edited into a fresh one.
+    Asserted on the command line rather than read back from the record, because the point is that
+    the operator was asked NOW — a gate satisfied by an entry recorded earlier for something else
+    would be consent laundering, and `consent` is append-only so a stale entry can never be edited
+    into a fresh one. The flag is a bare switch: the record is the gate and the moment, never words.
+    The refusal is this function's, not argparse's, so it can say what the operator is being asked.
     """
-    decision = getattr(args, "operator_decision", None)
-    if not decision or not decision.strip():
+    if not getattr(args, "operator_decided", False):
         raise ProjectManagerError(plan_lifecycle.missing_consent({}, gate))
-    return plan_lifecycle.attestation(gate, decision, at=_now())
+    return plan_lifecycle.attestation(gate, at=_now())
 
 
 def cmd_review_packet(args) -> int:
@@ -988,15 +988,18 @@ def cmd_present_findings(args) -> int:
         if current.get("seal"):
             raise ProjectManagerError("this plan was sealed while the presentation was being recorded")
         current.setdefault("consent", []).append(consent)
+        # What was shown, not only that something was: the reviewed revision and the packet the panel
+        # read, the way the approval and the seal carry their own substance beside their decision.
+        current["findings_presented"] = {"revision": review["revision"],
+                                         "packet_digest": review["packet_digest"], "at": consent["at"]}
 
     library.update_record(slug, attest)
     plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in review.get("findings", []) if f["severity"] == "blocking"]
     print(f"recorded that the operator was shown the panel's outcome: {len(review.get('findings', []))} "
           f"finding(s), {len(blocking)} blocking, all dispositioned")
-    print(f"  their words: “{consent['decision']}”")
     print(f"\nnext: seal it:\n    project_manager.py seal {args.plan} "
-          "--operator-decision \"<what the operator said>\"")
+          "(add --operator-decided only after the operator's go)")
     return 0
 
 
@@ -1096,6 +1099,8 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
     approval = record.get("approval")
     if not approval:
         refusals.append("the plan has not been approved at any revision")
+    elif plan_lifecycle.missing_prior_consent(record, "seal"):
+        refusals.append(plan_lifecycle.missing_prior_consent(record, "seal"))
     elif plan_store.approval_is_stale(record):
         refusals.append(
             f"the approval covers revision {approval['revision']} but the plan changed before it was "
@@ -1136,7 +1141,16 @@ def seal_refusals(library: plan_store.PlanLibrary, slug: str) -> list:
                 f"the panel's outcome has not been presented to the operator. {len(review.get('findings', []))} "
                 "finding(s) were recorded and dispositioned, and a seal is the last moment anyone can "
                 "act on them. Show the operator what was found and what was done about each, then:\n"
-                "      project_manager.py present-findings <plan> --operator-decision \"<what they said>\"")
+                "      project_manager.py present-findings <plan> (add --operator-decided only after the operator's go)")
+        # A presentation recorded before 2026-09-05 carries the decision entry and no subject block;
+        # it is accepted as it stands. Only a block that names a DIFFERENT packet is a presentation
+        # of the wrong panel.
+        elif record.get("findings_presented") and \
+                record["findings_presented"].get("packet_digest") != review.get("packet_digest"):
+            refusals.append(
+                "the presentation on record does not name the packet this review read, so nothing shows "
+                "the operator saw THIS panel's outcome; present it again:\n"
+                "      project_manager.py present-findings <plan> (add --operator-decided only after the operator's go)")
     refusals.extend(_program_check(library, record, document)[0])
     return refusals
 
@@ -1329,7 +1343,6 @@ def cmd_seal(args) -> int:
     library.update_record(slug, mint_seal, expected_revision=record["current"]["revision"])
     plan_projection.project_library(library)
     print(f"sealed {record['plan_id']} at revision {seal['revision']}")
-    print(f"  on the operator's decision: “{consent['decision']}”")
     print(f"  reviewed  {reviewed_digest}")
     print(f"  sealed    {sealed_digest}"
           + ("  (unchanged since review)" if not changed else f"  (delta judged {judgment})"))
@@ -1361,17 +1374,17 @@ def seal_handback(plan_id: str) -> str:
     Two acts, in order, and the hand-back names both. The operator's typed engine-start is the ONLY
     entry into the Build stance (operating-modes.md: an operator-only verb no hook or model can
     invoke), and it is printed in both spellings because a plain command cannot tell the runtimes
-    apart reliably. Then the bind's own --operator-decision consent is the agreement to begin THIS
+    apart reliably. Then the bind's own --operator-decided consent is the agreement to begin THIS
     Build. An offer, not a gate: nothing mechanical checks any of this.
     """
     return "\n".join([
         "",
-        "The plan is sealed and read-only. Stop building context here.",
+        f"The plan is sealed and read-only. {plan_lifecycle.CARRIER_RULE} Stop building context here.",
         "Settle into the record anything that still lives only in this conversation.",
         "Judge the Build ahead and suggest a model and effort for this harness; their context is theirs to manage.",
-        "Build begins only when the operator types /engine-start or $engine-start (tell them the one this runtime uses): wait, then bind with their go:",
+        "Build begins only when the operator types /engine-start or $engine-start (tell them the one this runtime uses): wait, then bind, adding --operator-decided only after their go:",
         f"  build_coordinator.py plan bind --plan {plan_id} \\",
-        "    --repository <owner/repo> --pr <number> --operator-decision \"<their go>\"",
+        "    --repository <owner/repo> --pr <number>",
     ])
 
 
@@ -1876,11 +1889,16 @@ def cmd_import(args) -> int:
     if bundle.get("schema_version") != "plan-bundle.v1":
         raise ProjectManagerError(
             f"not a plan bundle (schema_version {bundle.get('schema_version')!r})")
-    record, revisions = bundle["record"], bundle["revisions"]
+    raw_record, revisions = bundle["record"], bundle["revisions"]
+    # Forward-migrate BEFORE the shape check, exactly as the store does on its own read: a bundle
+    # exported before a field retirement carries the retired field, and validating the raw record
+    # refused every such bundle outright — the operator's only transport for a plan, refused over a
+    # field nothing reads. The digest is still taken over the raw record, which is what was exported.
+    record = plan_store.forward_migrate_record(raw_record)
     # Shape first. The record's own schema pattern-constrains `slug` and every `snapshot`, so this one
     # call is what stops a crafted bundle choosing where the store writes.
     core.validate(record, plan_store.RECORD_SCHEMA)
-    recomputed = core.digest({"record": record, "revisions": revisions})
+    recomputed = core.digest({"record": raw_record, "revisions": revisions})
     if recomputed != bundle.get("bundle_digest"):
         raise ProjectManagerError(
             f"the bundle does not match its own digest (recorded {bundle.get('bundle_digest')}, found "
@@ -1917,7 +1935,11 @@ def cmd_import(args) -> int:
     if existing:
         # A collision is only benign when the content is genuinely identical. Otherwise two different
         # plans share an id, and every later reference to that id becomes ambiguous.
-        if build_bundle(library, existing)["bundle_digest"] == bundle["bundle_digest"]:
+        # Compared on the MIGRATED incoming record as well as the raw one: the local bundle is built
+        # from a record the store already forward-migrated, so a legacy bundle imported twice is the
+        # same plan, not a collision.
+        incoming = core.digest({"record": record, "revisions": revisions})
+        if build_bundle(library, existing)["bundle_digest"] in (bundle["bundle_digest"], incoming):
             print(f"{record['plan_id']} is already here and identical; nothing to do.")
             return 0
         raise ProjectManagerError(
@@ -2051,11 +2073,14 @@ def cmd_program_moved(args) -> int:
 
 
 def _consent_argument(command, gate: str) -> None:
-    """The one flag that carries an operator decision, worded the same at every gate it guards."""
+    """The one switch that records an operator decision, worded the same at every gate it guards.
+
+    Not `required`: a missing switch is refused by the gate itself (`_require_consent`), which can
+    say what the operator is being asked, where argparse could only name a missing argument."""
     command.add_argument(
-        "--operator-decision", required=True,
-        help=f"The operator's actual words consenting to {plan_lifecycle.GATES[gate]}. Published "
-             "verbatim in the pull request. It is a record, not a proof.")
+        "--operator-decided", action="store_true",
+        help=f"Record that the operator, asked, consented to {plan_lifecycle.GATES[gate]}. The record "
+             "is the gate and the moment, never their words; the gate refuses without it.")
 
 
 def build_parser() -> argparse.ArgumentParser:

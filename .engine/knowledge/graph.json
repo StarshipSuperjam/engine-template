@@ -5757,7 +5757,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:2b7574dd6ef0f969d0f9cb5e436f6b46714bc46fa4d71604525d4651fe090021",
+        "fingerprint": "sha256:20ba477cafbc3f79847359155910d980c85e41219cb73adc6aa944f0afcc2ada",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6317,7 +6317,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:5b2020000e440b05ffed39287f6181297de0fdd4dcb6fe8d9040bd8c89e97afa",
+        "fingerprint": "sha256:e6f5de21a11928f511ed8ca1ee0c15b7a9dba0e44216226ad0b323da078eefe3",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -7466,7 +7466,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:3d1e04d386250e4fe99c072f4484f05d8e2a963df31b94e97582c1fa91f25788",
+        "fingerprint": "sha256:a37780c70bd5c0ecca732d596588a0d58753264f3a22c71acd4cc260d2f44c8a",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9499,7 +9499,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:7e0cae49d7ca994224f5429c45be8704e35d6b098fcbf779f18b2b8decce16fa",
+        "fingerprint": "sha256:65c95bd434958486d0eb5db712b5a8ce5dab91ed9b6e7860c846544e713b59be",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9523,7 +9523,7 @@
       },
       "slug": "build_coordinator_contract",
       "source": {
-        "fingerprint": "sha256:b50a4c99601e2b0991b7a1109a63bf417c94faa36bde665ac98e661212ad4a86",
+        "fingerprint": "sha256:20becb6dd81a78fbdfe1518a06d0f321d7a8779ded2f00eb1322d91730229563",
         "path": ".engine/tools/build_coordinator_contract.py"
       },
       "status": "active",
@@ -11405,7 +11405,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:e9e91c8442d89f43109778bac97affb7365768e6b86c2861b9c4c0d7a0447798",
+        "fingerprint": "sha256:3dc5ae28a90345298b092265277b17c09793c6f1f75c3ab9573571d2f557a586",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -13991,7 +13991,7 @@
       },
       "slug": "plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:bd36018ad9e8f43b03af7881ef4aed73a766bc7c85df4af7205723ab00e44f20",
+        "fingerprint": "sha256:e50beecaf542cd593e5b41f87c49ebf6a9cd1236d44d8210ffc637b3a3aabebe",
         "path": ".engine/tools/plan_lifecycle.py"
       },
       "status": "active",
@@ -14243,7 +14243,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:a1230cdbcbdf694372ff213f81ef186d688c60364e84fbff673be6ae2d7548ac",
+        "fingerprint": "sha256:3cffa387f27e601b251f683e4bd1dfbd570398bc4059c49fbf4044db8bda8d4e",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -16110,6 +16110,7 @@
           "tool:derived_state",
           "tool:hooks",
           "tool:plan_contract",
+          "tool:plan_lifecycle",
           "tool:plan_store",
           "tool:project_manager",
           "tool:repair_divergence",
@@ -16121,7 +16122,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:a055bbb8d28d2c6b619810845ee897695548d4a3a6efc4298a31895376b98f54",
+        "fingerprint": "sha256:4e1e74639c029b65d349dc142f1f777a5aa3866c0a2ccda3b73b81d2f3f30356",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16303,7 +16304,7 @@
       },
       "slug": "test_build_coordinator_work",
       "source": {
-        "fingerprint": "sha256:f9b8d10f3648e5d0dfd0a518bad3b6ed3714a43a071805507e72f854e434e2dd",
+        "fingerprint": "sha256:c0983d8fc0bb04bb1008a9676fbc0bbe90b391078849d6378e2aed05742f1bea",
         "path": ".engine/tools/test_build_coordinator_work.py"
       },
       "status": "active",
@@ -16381,7 +16382,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:35f581e8947e7ff926ca40b843c5604bc8216cdc7f4931315a487850751ea9ca",
+        "fingerprint": "sha256:279e32c419201589edf5ccd13f2b4635308d8aed219c16e6dfce6187a1da93f5",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
@@ -18935,7 +18936,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:697e127c99658bd122d09cf8187f73c71a0257bd990d8174489e37e139c89745",
+        "fingerprint": "sha256:650969f25f6f169b9b636ed5ddefe285fe2bcad4fa933380893211b05147712e",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -18965,7 +18966,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:1184643e3500e9dbe3f4a73aa491b3ce60b1abf4bb4e698c27a34c6f6f3b682a",
+        "fingerprint": "sha256:8274c9982052ce16aa0bc4f54b87d549f23997d7be28713010bac038161f096c",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19218,6 +19219,7 @@
           "tool:engine_fixture",
           "tool:module_manager",
           "tool:plan_contract",
+          "tool:plan_lifecycle",
           "tool:plan_program",
           "tool:plan_projection",
           "tool:plan_store",
@@ -19228,7 +19230,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:eeecbf49ccb881d55746fabd7ea281574a02479fffc0d43fdc55aa224d6e18b5",
+        "fingerprint": "sha256:bad34b48ce5884d1c65f0bad7728140e52b87f267098028484cc226d1e4e8c17",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",

@@ -30,8 +30,8 @@ authority, or the agreed capability boundary, guardrail acknowledgements, and me
 Open one draft pull request for the Build and keep it draft throughout construction. Title it `Kind: what
 changed`, using the kinds in `.github/pull_request_template.md`. A Build is one PR-shaped change; it need not
 be one session. An Issue is never created merely because a Build exists — not even to track the work; an
-Issue is intake, and a Build's work is carried by its draft PR. A Build that must continue cold recovers its
-plan from the local plan library (see "Where the plan lives").
+Issue is intake, and a Build's work is carried by its draft PR — the seal hand-back and the bind kickoff both
+say so. A Build that must continue cold recovers its plan from the local plan library (see "Where the plan lives").
 
 The plan is not authored here. It is authored, reviewed and SEALED through the Project Manager first, and
 [Plan orchestration](plan-orchestration.md) is that half: the deliberation, the operator's stops, and
@@ -50,15 +50,16 @@ Bind the plan once:
 
 ```text
 build_coordinator.py plan bind --plan <plan-id> \
-  --repository <owner/repo> --pr <number> --operator-decision "<the operator's go>"
+  --repository <owner/repo> --pr <number>
 ```
 
 `--plan` names a SEALED plan in the local library, and nothing else enters a Build: an unsealed plan is
 refused at the door with its remaining lifecycle steps named, as is one whose content moved after its seal.
-For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
+Add `--operator-decided` only after the operator's go; the bind refuses without it and records gate and moment,
+never words. For unattended work add `--issue <number>` — that Issue AUTHORIZES the work; it is never its plan.
 
 **The seal hands back before the Build starts**, and [Plan orchestration](plan-orchestration.md) carries what
-that pause asks for. It is an offer, not a gate: the bind's `--operator-decision` consent is the operator's
+that pause asks for. It is an offer, not a gate: the bind's `--operator-decided` consent is the operator's
 agreement to begin; nothing mechanical checks the hand-back's steps, and the engine neither reads nor records
 what the session runs on.
 
@@ -92,7 +93,7 @@ it in the session that holds it, or re-plan.
 [Plan orchestration](plan-orchestration.md) runs that stop: run the knowledge impact check, offer only the
 depths worth offering for this repository's installed reviewers (only Quick when no reviewers,
 StarshipSuperjam/engine-template#763), fill `.engine/templates/risk-assessment.md` in plain language, and
-take the operator's approval in their own words. No installed reviewer is a disclosed no-extra-review result,
+record the operator's approval at the gate. No installed reviewer is a disclosed no-extra-review result,
 never a false green.
 
 **That one choice covers both gates**: it names the lenses the seal will require, and it is the depth this
@@ -108,8 +109,8 @@ The `trivial` profile is the one-entry fast path: its reduced plan needs raw int
 There is no plan review on this side: exactly one cold plan review runs per plan, on the plan side against the
 approved revision before the seal, and the seal refuses while the recorded lenses do not cover the approved
 depth's roster. A bound plan is a reviewed plan by construction, so this side has no plan-review gate and no
-waiver for one. Approve, seal and bind each refuse without the operator's decision in their own words; the trail
-is published in the pull request — a record of what was said, not proof that it was.
+waiver for one. Approve, seal and bind each refuse without a recorded operator decision at that gate, and each
+checks that the gate before it left its record — a record that the operator was asked, not proof.
 
 Adjudication is unchanged wherever it runs: accepting a concern is not accepting its remedy, and a finding may
 be accepted and fixed, accepted and tracked, partly accepted with a bounded remedy, rejected with rationale, or

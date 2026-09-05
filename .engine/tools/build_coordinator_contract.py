@@ -41,7 +41,6 @@ THE EVIDENCE CONTRACT. `compose(claim, evidence)` reads these keys (all coordina
   qa_finding_split    {}         which Build findings render in full (`full_ids`) and the counted
                                  remainder, per stage. The claim still carries a summary for EVERY
                                  finding; this only decides which of them reach the body.
-  consent_lines       [str]      the operator's recorded decision at each plan consent gate, verbatim
   obligation_lines    [str]      the sealed plan's carried obligations — each with its state and, for a
                                  release, the reason — read from the plan record, never from Build state
   disagreement_lines  [str]      required reviewer-disagreement lines, verbatim from the coordinator
@@ -315,14 +314,6 @@ def compose(claim: dict, evidence: dict) -> str:
     if evidence.get("obligation_lines"):
         review_body.append("- **Obligations carried from the predecessor plan.**")
         review_body += [f"  {ol}" for ol in evidence["obligation_lines"]]
-    # The consent trail: what the operator was asked at each plan-phase gate and what they answered,
-    # verbatim. It is published HERE because this is the surface they read again at merge — a
-    # decision they do not recognise is the one thing that makes a fabricated attestation visible,
-    # and it can only do that if it is put in front of them. Recorded, never proven.
-    if evidence.get("consent_lines"):
-        review_body.append("- **Operator decisions at this plan's consent gates**, in their own words. "
-                           "Recorded by the session, not independently proven.")
-        review_body += [f"  {cl}" for cl in evidence["consent_lines"]]
     # Consequence earns wordage. The claim carries an operator-safe summary for every finding and the
     # handoff keeps them all; what reaches the merge surface is what the operator must still act on or
     # ever disagreed over. A body that transcribes every row buries the two findings that mattered
