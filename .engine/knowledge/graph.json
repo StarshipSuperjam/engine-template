@@ -17801,7 +17801,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:44f1c1799933ce466845765479769e3912b0bc578757fed37a9bc270005c2e6f",
+        "fingerprint": "sha256:aca8f47cbd51183d5f701f62e69e47401423aba865701965ed634860c23087a5",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -20013,7 +20013,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:fd7bdcf8d149ddf17620876f63177687df7fae109831bed2e5537febab826465",
+        "fingerprint": "sha256:f1038b27b766f753e80715a75d9b5a8768942a9ce380f29370912fc7bc40ad3f",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
