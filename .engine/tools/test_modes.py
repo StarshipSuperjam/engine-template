@@ -552,7 +552,8 @@ class TestPlanArtifactCarveOut(unittest.TestCase):
         # reconsidered — it is the regression the narrowed carve-out exists to hold.
         d = modes.handler(self._payload("Write", "plan", {"file_path": "~/.claude/settings.json"}))
         self.assertTrue(_deny(d))
-        self.assertIn("in plan mode I can save only your plan file", d.get("reason", ""))
+        self.assertIn("the only writes I can make are files inside your plans folder", d.get("reason", ""))
+        self.assertIn("that value wins", d.get("reason", ""))        # the relay states the precedence it applies
         self.assertIn(self.plans, d.get("reason", ""))                 # the relay names the resolved folder
         self.assertIn("plansDirectory", d.get("reason", ""))
         self.assertNotIn("open a pull request", d.get("reason", ""))   # never the build-set relay
@@ -608,6 +609,30 @@ class TestPlanArtifactCarveOut(unittest.TestCase):
         self.assertFalse(modes.is_plan_artifact("Write", inside, None, self.root))
         self.assertFalse(modes.is_plan_artifact("Bash", {"command": "x"}, "plan", self.root))  # not a file-mutating tool
         self.assertFalse(modes.is_plan_artifact("Write", inside, "plan", self.root, provider="codex"))
+
+    # ---- the classify CLI's discoverability (deliverable-review findings on StarshipSuperjam/engine-template#775) ----
+    def test_classify_help_prints_usage_and_names_the_path_options(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(modes._classify(["--help"]), 0)
+        self.assertIn("--file PATH", out.getvalue())
+        self.assertIn("--cwd DIR", out.getvalue())
+        self.assertNotIn("ALLOW", out.getvalue())      # never a classification of the literal '--help'
+
+    def test_classify_resolves_a_relative_cwd_instead_of_dropping_it(self):
+        # A relative --cwd used to be silently ignored (the workspace files were never consulted); it now
+        # resolves against the process working directory, so the workspace-configured folder is honored.
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(modes.tempfile, "gettempdir", return_value=tmp):
+            custom = os.path.join(self.root, "docs", "plans")
+            os.makedirs(custom)
+            with open(os.path.join(self.root, ".claude", "settings.local.json"), "w", encoding="utf-8") as fh:
+                json.dump({"plansDirectory": "docs/plans"}, fh)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), mock.patch.object(os, "getcwd", return_value=self.root):
+                modes._classify(["Write", "--pm", "plan", "--file", os.path.join(custom, "p.md"), "--cwd", "."])
+        self.assertIn(f"plans_folder={custom!r}", out.getvalue())
+        self.assertIn("-> ALLOW", out.getvalue())
 
 
 class TestPlansDirectoryResolver(unittest.TestCase):

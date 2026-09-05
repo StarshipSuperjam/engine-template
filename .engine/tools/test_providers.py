@@ -248,8 +248,8 @@ class TestPlanCarveoutProviderConfined(unittest.TestCase):
         # The Claude case carries what a real plan save carries (StarshipSuperjam/engine-template#775): a path inside the plans folder
         # (the default, with no settings file consulted, so the developer's own configuration cannot
         # steer this test). The Codex denials are the point: the same call opens nothing there.
-        plan_path = os.path.join(modes._plans_directory(None), "p.md")
         with mock.patch.object(modes, "_plans_settings_files", return_value=[]):
+            plan_path = os.path.join(modes._plans_directory(None), "p.md")   # resolved INSIDE the seam
             self.assertTrue(modes.is_plan_artifact("Edit", {"file_path": plan_path}, "plan", None, provider="claude"))
             self.assertFalse(modes.is_plan_artifact("Edit", {"file_path": plan_path}, "plan", None, provider="codex"))
         self.assertFalse(modes.is_plan_artifact("Edit", {"is_plan_file": True}, None,

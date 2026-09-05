@@ -79,7 +79,7 @@ To check the live stance, `python tools/modes.py stance` — it resolves the ses
 `$CLAUDE_CODE_SESSION_ID`, and says `unknown` (non-zero) rather than a misleading `explore` when it cannot
 resolve one. To see what the gate decides for any action without Claude Desktop (the operator demo): `python
 tools/modes.py demo` (which also shows the plan-file carve-out, and that accepting a plan leaves the
-session where it was), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE]`.
+session where it was), or `python tools/modes.py classify <Tool> [command] [--session S] [--pm MODE] [--file PATH] [--cwd DIR]` (for example `classify Write --pm plan --file ~/.claude/plans/x.md` shows the plan-mode allow, and the same call with `--file ~/.claude/settings.json` the denial that names the plans folder).
 
 ## Done when
 

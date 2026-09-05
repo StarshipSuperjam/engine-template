@@ -24,8 +24,9 @@ set-routine — are the deliberate in-session entries, run by the operator-typed
      commits, and the opening of a pull request (via gh or a GitHub MCP tool) — and ALLOWS everything
      else: reads, read-only command/test execution, greps, subagent spawning, `gh issue` calls, AND
      Claude Code's own plan-mode artifact (the plan file is planning, not building — see
-     is_plan_artifact, recognized by the platform's own marker, never a path). There is NO default-deny:
-     an action it cannot classify resolves to ALLOW.
+     is_plan_artifact: a write landing inside the resolved plans folder while the session is in plan
+     mode, or one the platform itself flags as the plan file; plan mode alone opens nothing). There is
+     NO default-deny: an action it cannot classify resolves to ALLOW.
 
   3. THE NATIVE-PLAN INTAKE ADAPTERS — two hooks that import an accepted native plan into the Plan
      Coordinator as an unapproved DRAFT: accept_handler on Claude's plan-exit completion
@@ -57,7 +58,7 @@ CLI (the operator-runnable demo; the live gates are what the wired hooks invoke)
   python tools/modes.py                              # hook mode: run the PreToolUse gate over stdin
   python tools/modes.py accept-hook                  # PostToolUse mode: import an accepted Claude plan
   python tools/modes.py plan-import-hook             # UserPromptSubmit mode: import an accepted Codex plan
-  python tools/modes.py classify <Tool> [cmd] [--session S] [--pm MODE] [--plan-file]  # gate decision
+  python tools/modes.py classify <Tool> [cmd] [--session S] [--pm MODE] [--file PATH] [--cwd DIR] [--plan-file]  # gate decision
   python tools/modes.py stance --session S           # the session's current stance
   python tools/modes.py set-build [--session S]       # enter Build (what the /engine-start verb runs; --session falls back to the session env var)
   python tools/modes.py clear --session S             # clear the signal -> Explore (what boot does)
@@ -693,10 +694,12 @@ def _plan_mode_denial(cwd) -> str:
     while the session is in plan mode is most often a plan save the gate could not place, so the generic
     _DENIAL ("tell me to build it…") would send the person the wrong way; this names the folder the gate
     resolved and the setting that moves it."""
-    return (f"I didn't make that change — in plan mode I can save only your plan file, and that write was "
-            f"not inside your plans folder ({_plans_directory(cwd)}); everything else waits until you tell "
+    return (f"I didn't make that change — in plan mode the only writes I can make are files inside your plans "
+            f"folder, and that write was not inside it ({_plans_directory(cwd)}); everything else waits until you tell "
             f"me to build. If your plans live somewhere else, set `plansDirectory` in your own "
-            f"~/.claude/settings.json (or the project's .claude/settings.local.json) and I'll follow it.")
+            f"~/.claude/settings.json and I'll follow it — that value wins over the project's "
+            f".claude/settings.local.json, which counts only when your own file sets none (an organization's "
+            f"managed settings win over both).")
 
 
 # ---- the harness auto-memory carve-out (StarshipSuperjam/engine-template#766) -----------------------------------------------
@@ -1048,16 +1051,22 @@ def _classify(argv: list) -> int:
     vary the tool/command/mode/path and confirm the behavior (e.g. a Write under `--pm plan` to a file
     inside the plans folder → ALLOW; the same write to ~/.claude/settings.json, or with no --file → DENY
     in Explore). `--cwd` defaults to the process working directory; the resolved plans folder is echoed."""
+    usage = ("usage: modes.py classify <Tool> [command] [--session S] [--pm MODE] [--file PATH] [--cwd DIR] "
+             "[--plan-file]  (--cwd is the session's working directory, resolved to an absolute path; a "
+             "relative --file is taken as written, which the gate denies in plan mode)")
+    if not argv or argv[0] in ("--help", "-h"):
+        print(usage, file=sys.stderr if not argv else sys.stdout)
+        return 2 if not argv else 0
     session = _arg(argv, "--session")
     pm = _arg(argv, "--pm")
     file_path = _arg(argv, "--file")
-    cwd = _arg(argv, "--cwd") or os.getcwd()
+    cwd_arg = _arg(argv, "--cwd")
+    cwd = os.path.abspath(cwd_arg) if cwd_arg else os.getcwd()   # a relative --cwd resolves, never silently drops
     plan_file = "--plan-file" in argv
-    skip = {"--session", session, "--pm", pm, "--file", file_path, "--cwd", _arg(argv, "--cwd"), "--plan-file"}
+    skip = {"--session", session, "--pm", pm, "--file", file_path, "--cwd", cwd_arg, "--plan-file"}
     rest = [a for a in argv if a not in skip]
     if not rest:
-        print("usage: modes.py classify <Tool> [command] [--session S] [--pm MODE] [--file PATH] [--cwd DIR] "
-              "[--plan-file]", file=sys.stderr)
+        print(usage, file=sys.stderr)
         return 2
     tool_name = rest[0]
     command = " ".join(rest[1:])
@@ -1221,7 +1230,7 @@ def main(argv: list) -> int:
     if cmd == "demo":
         return _demo(argv[1:])
     print("usage: modes.py [hook | accept-hook | classify <Tool> [cmd] [--session S] [--pm MODE] "
-          "[--plan-file] | stance [--session S] | set-build [--session S] | set-routine [--session S] | "
+          "[--file PATH] [--cwd DIR] [--plan-file] | stance [--session S] | set-build [--session S] | set-routine [--session S] | "
           "clear --session S | demo]  (stance/set-build/set-routine resolve the session from --session else "
           "$CLAUDE_CODE_SESSION_ID; set-routine also requires a dedicated worktree)",
           file=sys.stderr)
