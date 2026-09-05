@@ -2296,6 +2296,35 @@ class MarkerFollowsTheLifecycle(_Governed):
             self.assertEqual(state in ("retired", "abandoned"), "reopen" in err, state)
 
 
+class TestPlanRunbookHandsBack(unittest.TestCase):
+    """The runbook says what the tool does. Two bullets of plan-orchestration.md are pinned: the show
+    stop hands over the projection link (StarshipSuperjam/engine-template#1121), and the hand-back
+    prescribes no runtime context control and names the typed engine-start as what begins the Build
+    (StarshipSuperjam/engine-template#1112). Literal-token pins, kept deliberately narrow: they stop
+    the retired guidance creeping back, and nothing more."""
+
+    RUNBOOK = plan_store.ROOT / ".engine" / "operations" / "plan-orchestration.md"
+
+    def _bullet(self, text, start, end):
+        i = text.index(start)
+        return text[i:text.index(end, i)]
+
+    def test_the_show_stop_hands_over_the_projection(self):
+        text = self.RUNBOOK.read_text(encoding="utf-8")
+        show = self._bullet(text, "**Show the drafted plan with no ask attached.**", "**Then, once they are satisfied")
+        self.assertIn("PLAN.md", show)
+
+    def test_the_hand_back_prescribes_no_context_control_and_names_the_typed_start(self):
+        text = self.RUNBOOK.read_text(encoding="utf-8")
+        handback = self._bullet(text, "**The seal hands back before the Build starts.**",
+                                "**The Build is downstream and owns itself.**")
+        for control in ("/compact", "/clear", "/autocompact"):
+            self.assertNotIn(control, handback, control)
+        self.assertIn("suggest a model and effort", handback)
+        self.assertIn("engine-start", handback)
+        self.assertIn("offer, not a gate", handback)
+
+
 class ProjectionLink(_Governed):
     """Every verb that shows or mints a plan ENDS by handing over the projection
     (StarshipSuperjam/engine-template#1121), and the file it hands over is current.

@@ -73,9 +73,10 @@ already recorded.
 
 - **Discuss the shape first.** Before anything is authored into the library, the operator hears what you
   understand the problem to be and what shape a fix would take, and gets to redirect it.
-- **Show the drafted plan with no ask attached.** Present it in full, invite questions, take revisions, and
-  stop there. The depth choice never rides along with the plan's first showing: a plan and an approval menu
-  delivered in one breath is not a stop, it is a formality wearing one.
+- **Show the drafted plan with no ask attached.** Present it in full — which means handing over the link to
+  its `PLAN.md` projection, and after a revision the link to the updated head — invite questions, take
+  revisions, and stop there. The depth choice never rides along with the plan's first showing: a plan and an
+  approval menu delivered in one breath is not a stop, it is a formality wearing one.
 - **Then, once they are satisfied, the approval.** Offer only the review depths worth offering for this
   repository's installed reviewers — no reviewer installed is a disclosed no-extra-review result, never a
   false green — and fill `.engine/templates/risk-assessment.md` in plain language. Follow that template
@@ -119,11 +120,11 @@ Restating its order here would only give you a second answer, free to drift from
   retiring a plan whose work is done, abandoning one that is not going to happen.
 - **The seal hands back before the Build starts.** Sealing and building are different jobs that often want
   different settings. So at the seal: settle into the record anything that still lives only in the
-  conversation, offer the operator a compaction and their model and effort choice for the Build, and wait
-  for their go. Always `/compact`, never `/clear` — the one session that cleared at this boundary is the one
-  that lost its thread. Recommend once, not at every seal, that they set their own user-level `/autocompact`
-  threshold at around 75%, which survives engine updates. This is an offer, not a gate; their go at the
-  Build's own consent point is what actually begins the work.
+  conversation; judge the Build ahead and suggest a model and effort for the harness in use — how they manage
+  their context is theirs, on every runtime, so prescribe no runtime control; and tell them, in their own
+  runtime's spelling, that the Build begins only when they type the engine-start command. That typed start
+  enters the Build stance; the bind's recorded decision is then their consent to this Build, in that order.
+  This is an offer, not a gate; nothing mechanical checks it.
 - **The Build is downstream and owns itself.** Binding the sealed plan to a draft pull request, and
   everything after it, belongs to [Build orchestration](build-orchestration.md).
 
