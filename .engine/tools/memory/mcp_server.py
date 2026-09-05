@@ -43,6 +43,7 @@ from __future__ import annotations
 import functools
 import os
 import sys
+import threading
 
 # Third-party import first: it needs nothing from the path bootstrap below, and importing it above the
 # sys.path mutation closes the shadowing hazard (a same-named module in tools/ could otherwise win).
@@ -53,7 +54,7 @@ from mcp.server import MCPServer
 # str(exc) for any exception, which masked the difference). Imported from an unexported path that is
 # nonetheless present in both 2.0.0 and 2.1.1; a future rename fails loudly here at server start rather
 # than silently reverting refusals to the masked form.
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 
 # Make the package parent (.engine/tools) importable so `from memory import …` resolves both when launched as a
 # script via .mcp.json (`python tools/memory/mcp_server.py`) and when imported as `memory.mcp_server` in a test.
@@ -61,11 +62,35 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records  # noqa: E402
+from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records, stranding_log as _stranding_log  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
-server = MCPServer(SERVER_NAME)
+class _RecordingServer(MCPServer):
+    """The server, with the stranding log attached at the ONE seam that sees every unexpected fault.
+
+    The SDK's `Tool.run` wraps whatever a tool raises — and whatever fails while its RESULT is converted
+    for the wire, which happens after the tool function has already returned — into an
+    `UnexpectedToolError` whose `__cause__` is the original, and the client sees only "Error executing
+    tool <name>". `call_tool` is the method the low-level protocol handler dispatches through, so an
+    override here observes both kinds of fault, which a wrapper around the tool function alone cannot.
+    A plain `ToolError` (a translated refusal, an argument-validation failure) is not a stranding and is
+    not recorded. Recording can never change the outcome: the log's own boundary swallows its faults, the
+    call below is guarded again anyway, and the exception is re-raised unchanged."""
+
+    async def call_tool(self, name, arguments, context=None):
+        try:
+            return await super().call_tool(name, arguments, context)
+        except UnexpectedToolError as exc:
+            try:
+                _stranding_log.record_stranding(_stranding_log.Event.TOOL_FAULT, exc.__cause__ or exc,
+                                                tool=name)
+            except Exception:  # noqa: BLE001 — unreachable past the log's boundary; kept so the outcome
+                pass           # can never depend on the diagnostic, by construction
+            raise
+
+
+server = _RecordingServer(SERVER_NAME)
 
 
 # The refusals this server raises in plain words, each carrying a sentence written to be read by the
@@ -82,7 +107,9 @@ def _tool(**registration):
     """Register a tool through `@server.tool`, translating this server's plain-word refusals to
     `ToolError` so their sentences reach the client under mcp 2.1.1 as well as 2.0.0 (see the ToolError
     import above). Genuine crashes are NOT translated — they stay masked as a bare "Error executing
-    tool", which is the right disclosure for an unexpected fault.
+    tool", which is the right disclosure for an unexpected fault; the stranding log records them at the
+    server's `call_tool` seam (`_RecordingServer`), the one place that also sees a fault in output
+    conversion, which happens after this wrapper has returned.
 
     `functools.wraps` copies the wrapped function's `__dict__`, so a tool that also carries a
     `@_mutation_authority.guard` beneath this one keeps its `__engine_registry_id__` marker on the
@@ -110,7 +137,14 @@ def _tool(**registration):
     ),
 )
 def health() -> dict:
-    return {"status": "ok", "server": SERVER_NAME}
+    # `diagnostics` is the readiness of the in-server stranding log: whether a fault in THIS server would
+    # leave a trace. Three content-free facts — armed, qualification tier, and the loaded `<commit>-<tree>`
+    # (None from a live checkout) — the three a deployment receipt needs; no path, no record. The shape is
+    # declared in `.engine/interfaces/search.json`.
+    ready = _stranding_log.readiness()
+    return {"status": "ok", "server": SERVER_NAME,
+            "diagnostics": {"armed": ready["armed"], "qualification": ready["qualification"],
+                            "code_version": ready["code_version"]}}
 
 
 # The cap applied when a caller omits `limit`. Search is unbounded by default in the library, which was
@@ -194,6 +228,14 @@ _READ_CAVEAT = (
 )
 
 
+# The staleness types this process has already traced. A stale session reads memory many times and every read
+# would otherwise write a near-identical `read-degraded` record into the same bounded sink as the rare crash
+# record the log exists to keep — enough of them rotate that record out. One trace per staleness TYPE per
+# process says which binding moved without ever evicting the fault line.
+_READ_DEGRADED_NOTED: set = set()
+_READ_DEGRADED_LOCK = threading.Lock()   # tool calls run on the SDK's worker threads; check-and-add is one step
+
+
 def _memory_read_caveat() -> str | None:
     """Return `_READ_CAVEAT` when this session's installed context is present but stale in a restart-clearable
     way, else None. Every read tool calls it so all four answer the operator's moved-commit scenario the same.
@@ -213,7 +255,14 @@ def _memory_read_caveat() -> str | None:
         _execution_context.revalidate_context(context)
     except _execution_context.ExpectedStateStale:
         return None
-    except _execution_context.ContextError:
+    except _execution_context.ContextError as exc:
+        # The typed staleness class is worth ONE trace of its own per process (see `_READ_DEGRADED_NOTED`):
+        # it says WHICH binding moved under the running server, which the plain caveat sentence does not.
+        kind = type(exc).__qualname__
+        with _READ_DEGRADED_LOCK:
+            if kind not in _READ_DEGRADED_NOTED and \
+                    _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc):
+                _READ_DEGRADED_NOTED.add(kind)
         return _READ_CAVEAT
     return None
 

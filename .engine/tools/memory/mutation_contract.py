@@ -256,6 +256,18 @@ REGISTRY = (
            code_referent=".engine/tools/hook-runner.sh:runtime-health.marker"),
     _entry("hook-crash-debug", "hooks._record_crash_debug", "degraded-health", "durable-append", _AUTO, 1,
            "status-records", "best-effort-diagnostic", ["hooks.run_hook"]),
+    # The in-server stranding log (program prg_d15d7dc8f3df, C1): the instrument that records a content-safe
+    # trace of a memory-server fault from INSIDE the process, under absent, stale, or otherwise unrefreshable
+    # authority. Its id is named in DIAGNOSTIC_PRIVATE_ENTRY_IDS, which is what buys the guard's early route;
+    # its cardinality is one line per call.
+    _entry("stranding-log-append", "memory.stranding_log._append", "degraded-health", "durable-append",
+           _BOTH, 1, "status-records", "best-effort-diagnostic",
+           ["memory.stranding_log.record_stranding", "memory.stranding_log.capture_baseline"]),
+    # Its sanitized export is an ordinary export artifact: attended only, refused unqualified like every other
+    # export, and refused outright for any destination git does not report ignored.
+    _entry("stranding-log-export", "memory.stranding_log._export_write", "export-artifact",
+           "reversible-mutation", _ATTENDED, 1, "files", "atomic-replace",
+           ["memory.stranding_log.export_sanitized"]),
     _entry("hook-fail-open-promote", "hooks._do_promote_fail_open", "tracked-finding",
            "reversible-mutation", _AUTO, 1, "status-records", "best-effort-diagnostic",
            ["hooks._promote_fail_open"]),
@@ -398,6 +410,7 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
         "attended-pin-add", "attended-withhold", "attended-restore-withheld",
         "attended-keyword-mcp-search", "attended-semantic-mcp-search",
         "read-memory-health", "read-recall-window", "read-pins", "read-withheld",
+        "stranding-log-append",
     ),
     "memory.mcp_server.search": (
         "attended-keyword-mcp-search", "attended-keyword-search-heal", "index-stale-heal", "index-rebuild",
@@ -552,6 +565,15 @@ def _needs_attendance(entry) -> bool:
 DEGRADED_ALLOWED_TARGETS = frozenset({
     "degraded-health", "tracked-finding", "lifecycle-marker", "ephemeral-staging",
 })
+
+# The DIAGNOSTIC-PRIVATE tier: writers the mutation guard routes BEFORE it reads a context, takes the store
+# lock, or refreshes authority. Every one of those steps can itself fail in a stranded session, and a diagnostic
+# that dies on the guard records nothing about the fault it exists to record. The early route is admitted only
+# for a writer that is narrow by construction — its sole destination is its own gitignored file under the
+# engine's cache, it takes no destination argument in production, and it can reach nothing in the store — so
+# membership here is a review-visible claim about the writer's shape, not a convenience (memory/stranding_log.py;
+# program prg_d15d7dc8f3df, C1). The entry is still classified on the way past: early, never unchecked.
+DIAGNOSTIC_PRIVATE_ENTRY_IDS = frozenset({"stranding-log-append"})
 
 # The RECALL boundaries, allowed by id because their target says more about them than they deserve. Each is
 # registered against an index target as a reversible mutation — not because the call writes anything, but
