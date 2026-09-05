@@ -296,6 +296,20 @@ def status_of(library: plan_store.PlanLibrary, slug: str) -> tuple[str, dict, di
     return plan_store.derived_status(record, head_blockers=blockers), record, document, blockers
 
 
+def _projection_line(library: plan_store.PlanLibrary, slug: str) -> str:
+    """The one spelling of the link a verb hands over when it shows or mints a plan.
+
+    Every verb that presents a plan ends its output with this line
+    (StarshipSuperjam/engine-template#1121): the projection is what the operator actually reads, and
+    a show stop that does not hand it over is not a show stop. One helper, so the wording cannot
+    drift between verbs. The path is deliberately ABSOLUTE and uncontracted: the operator asked for
+    a clickable link, and a terminal opens an absolute path where it would not open a tilde one. The
+    library is workstation-local and never published, so the path belongs on the operator's own
+    screen — never in a pull request body, an issue comment, or a handoff.
+    """
+    return f"read it at {library.plan_dir(slug) / plan_projection.PLAN_MD}"
+
+
 def cmd_init(args) -> int:
     library = _library(args)
     document = json.loads(core.input_text(args.document))
@@ -303,7 +317,7 @@ def cmd_init(args) -> int:
     slug = library.create(document, intake=intake)
     plan_projection.project_library(library)
     print(f"created {document['plan_id']} at {library.plan_dir(slug)}")
-    print(f"read it at {library.plan_dir(slug) / plan_projection.PLAN_MD}")
+    print(f"\n{_projection_line(library, slug)}")
     warning = plan_store.volume_warning(library.root)
     if warning:
         print(f"\nwarning: {warning}", file=sys.stderr)
@@ -371,6 +385,7 @@ def cmd_show(args) -> int:
         # Beside the refusals, never inside them: what the operator should know but which is not a
         # reason to stop. `show` prints exactly what `seal` refuses AND exactly what it discloses.
         _print_disclosures(seal_disclosures(library, slug), stream=sys.stdout)
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -385,7 +400,6 @@ def cmd_resume(args) -> int:
     slug = _select(library, args.plan)
     status, record, document, blockers = status_of(library, slug)
     print(f"{record['title']}  ({record['plan_id']}, revision {record['current']['revision']}, {status})")
-    print(f"  {library.plan_dir(slug) / plan_projection.PLAN_MD}")
     if document:
         print(f"\nlast revision note: {document.get('revision_note', '—')}")
     problems = library.verify_chain(slug)
@@ -393,8 +407,10 @@ def cmd_resume(args) -> int:
         print("\nthis plan needs attention before anything else:")
         for problem in problems:
             print(f"  - {problem}")
+        print(f"\n{_projection_line(library, slug)}")
         return 1
     print(f"\nnext: {_next_step(status, record, blockers)}")
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -467,14 +483,24 @@ def cmd_preview(args) -> int:
     record = library.read_record(slug)
     document = library.head(slug)
     print(plan_projection.render_plan(document, record))
-    _mark_previewed(library, slug, record["current"]["plan_digest"])
+    # Mark only while a depth choice can still follow, and only when the marker is not already
+    # current: rendering sealed, bound, or closed history is a READ, and a read must succeed against a
+    # library the session cannot write (StarshipSuperjam/engine-template#1108). On the pre-seal side
+    # the marker is what `depths` and `approve` require, so a preview that must mark still writes —
+    # and still fails loudly where the library is unreachable, rather than silently not marking.
+    digest = record["current"]["plan_digest"]
+    if plan_lifecycle.depth_choice_closed(record) is None and not was_previewed(library, slug, digest):
+        _mark_previewed(library, slug, digest)
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
 # The preview marker is intentionally NOT part of plan-record.v1: it is session ergonomics, not plan
 # evidence, and putting it in the record would make an operator's reading habits part of the document
 # a Build consumes. It lives beside the record, keyed by the digest it was rendered for, so it cannot
-# survive a revision and vouch for a plan nobody read.
+# survive a revision and vouch for a plan nobody read. Whether it is written at all is the lifecycle's
+# call — `plan_lifecycle.depth_choice_closed` — and the two verbs that read it ask that same predicate
+# first, so nothing ever sends a session to preview a plan that preview will no longer mark.
 _PREVIEW_FILENAME = ".previewed"
 
 
@@ -495,6 +521,9 @@ def cmd_depths(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
+    closed = plan_lifecycle.depth_choice_closed(record)
+    if closed:
+        raise ProjectManagerError(closed)
     digest = record["current"]["plan_digest"]
     if not was_previewed(library, slug, digest):
         raise ProjectManagerError(
@@ -659,8 +688,9 @@ def cmd_approve(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
-    if record.get("seal"):
-        raise ProjectManagerError("this plan is sealed; a seal is terminal and nothing about it changes")
+    closed = plan_lifecycle.depth_choice_closed(record)   # seal, binding, or closure — with the way on
+    if closed:
+        raise ProjectManagerError(closed)
     digest = record["current"]["plan_digest"]
     if not was_previewed(library, slug, digest):
         raise ProjectManagerError(
@@ -706,13 +736,22 @@ def cmd_approve(args) -> int:
     consent = _require_consent(record, "approve", args)
 
     def approve(current):
-        if current.get("seal"):          # re-asserted inside the lock, not from the copy above
-            raise ProjectManagerError("this plan was sealed while you were reading it; a seal is terminal")
+        # Re-asserted inside the lock, not from the copy above — and the SAME precondition the door
+        # checked, so a plan sealed, bound, or closed by another session in the window between the two
+        # reads is refused here with its real state rather than approved underneath that change.
+        closed_now = plan_lifecycle.depth_choice_closed(current)
+        if closed_now:
+            raise ProjectManagerError("while you were reading this plan, another session changed it: " + closed_now)
         current["approval"] = {"revision": revision, "plan_digest": digest,
                                "depth": args.depth, "at": _now()}
         current.setdefault("consent", []).append(consent)
 
     library.update_record(slug, approve, expected_revision=revision)
+    # Re-project after every record write, so the projection a verb links to says what the record
+    # says. The status in PLAN.md's header is derived from the record, and a file that lagged the
+    # approval read "awaiting-approval" while the tool read "awaiting-review" — the exact confusion
+    # a link to a stale file hands the operator. Read verbs stay write-free; only writers re-project.
+    plan_projection.project_library(library)
     covering = required_lenses(args.depth, roster)
     print(f"approved revision {revision} of {record['plan_id']} at {args.depth} depth")
     print(f"  on the operator's decision: “{consent['decision']}”")
@@ -887,6 +926,7 @@ def cmd_review_record(args) -> int:
         current["plan_review"] = review
 
     library.update_record(slug, record_review)
+    plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in findings if f["severity"] == "blocking"]
     print(f"recorded a {len(args.lens)}-lens review of revision {approval['revision']}: "
           f"{len(findings)} finding(s), {len(blocking)} blocking")
@@ -963,6 +1003,7 @@ def cmd_review_amend(args) -> int:
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
+    plan_projection.project_library(library)   # the projection follows every record write
     updated = library.read_record(slug)["plan_review"]
     print(f"amended the review: +{len(added_lenses)} lens(es), +{len(added)} finding(s)")
     print(f"  lenses now: {', '.join(updated['lenses'])}")
@@ -1003,6 +1044,7 @@ def cmd_finding_amend(args) -> int:
         current.setdefault("amendments", []).append(amendment)
 
     library.update_record(slug, amend)
+    plan_projection.project_library(library)   # the projection follows every record write
     print(f"amended {args.id}: " + ", ".join(f"{k}={v!r}" for k, v in sorted(changes.items())))
     return 0
 
@@ -1037,6 +1079,7 @@ def cmd_present_findings(args) -> int:
         current.setdefault("consent", []).append(consent)
 
     library.update_record(slug, attest)
+    plan_projection.project_library(library)   # the projection follows every record write
     blocking = [f for f in review.get("findings", []) if f["severity"] == "blocking"]
     print(f"recorded that the operator was shown the panel's outcome: {len(review.get('findings', []))} "
           f"finding(s), {len(blocking)} blocking, all dispositioned")
@@ -1100,6 +1143,7 @@ def cmd_finding_dispose(args) -> int:
                 if args.operator_summary:
                     finding["operator_summary"] = args.operator_summary
     library.update_record(slug, change)
+    plan_projection.project_library(library)   # the projection follows every record write
     outstanding = [f["id"] for f in library.read_record(slug)["plan_review"]["findings"]
                    if not f.get("disposition")]
     print(f"{args.id}: {args.disposition}")
@@ -1401,28 +1445,35 @@ def cmd_seal(args) -> int:
 
 
 def seal_handback(plan_id: str) -> str:
-    """The plan-to-build hand-back: stop, settle, offer, wait.
+    """The plan-to-build hand-back: stop, settle, suggest, wait for the typed start, then bind.
 
     SIX LINES, ADDRESSED TO THE SESSION. This prints into the session's context, not onto the
     operator's screen, so it is instructions for the assistant's next move — not operator training.
     The operator ruled the long form out: a hand-back that needs paragraphs of meta-commentary to
     explain the next step is a poorly designed step. The settle summary the session then gives the
-    operator is conversational and build-specific; the readiness line at its end is the offer.
+    operator is conversational and build-specific, and it tells them, in their own runtime's
+    spelling, the command that begins the Build.
 
-    /compact, NEVER /clear. The one build session that lost its thread — the incident this whole
-    spine exists to prevent — is the one that cleared instead of compacting. A cleared session keeps
-    nothing to re-ground from; a compacted one keeps the summary plus everything settled below.
+    PROVIDER-AWARE, AND SO IT PRESCRIBES NO CONTEXT CONTROL (StarshipSuperjam/engine-template#1112).
+    Until 2026-09-04 this line prescribed /compact and forbade /clear, because one build session had
+    lost its thread by clearing at this boundary (2026-08-25); that was a Claude Code rule printed
+    into every runtime, and Codex has neither control. The operator lifted it on that issue and again
+    at the 2026-09-04 shape discussion: context management is the operator's own on every runtime, and
+    the session's job is to judge the Build ahead and SUGGEST a model and effort for the harness in
+    use — never to ask the operator to state or record one. The incident stays here as history.
 
-    An offer, not a gate: the bind's own --operator-decision consent is the agreement to begin, and
-    nothing mechanical checks any of this. The one-time /autocompact recommendation lives in the
-    runbook, not here — repeating it at every seal is nagging, not guidance.
+    Two acts, in order, and the hand-back names both. The operator's typed engine-start is the ONLY
+    entry into the Build stance (operating-modes.md: an operator-only verb no hook or model can
+    invoke), and it is printed in both spellings because a plain command cannot tell the runtimes
+    apart reliably. Then the bind's own --operator-decision consent is the agreement to begin THIS
+    Build. An offer, not a gate: nothing mechanical checks any of this.
     """
     return "\n".join([
         "",
         "The plan is sealed and read-only. Stop building context here.",
-        "Settle into the record anything that still lives only in this conversation, then offer",
-        "the operator a /compact and their model and effort choice for the build phase. Wait.",
-        "Their go begins the Build:",
+        "Settle into the record anything that still lives only in this conversation.",
+        "Judge the Build ahead and suggest a model and effort for this harness; their context is theirs to manage.",
+        "Build begins only when the operator types /engine-start or $engine-start (tell them the one this runtime uses): wait, then bind with their go:",
         f"  build_coordinator.py plan bind --plan {plan_id} \\",
         "    --repository <owner/repo> --pr <number> --operator-decision \"<their go>\"",
     ])
@@ -1644,6 +1695,7 @@ def cmd_revise(args) -> int:
     elif updated.get("plan_review"):
         print("\nthis revision folds a fix in after the review. The panel does NOT re-run; the seal "
               "will ask for one proportional judgment of the delta.")
+    print(f"\n{_projection_line(library, slug)}")
     return 0
 
 
@@ -1687,6 +1739,7 @@ def cmd_clone(args) -> int:
               "released describe work that does not exist.")
         print(f"Complete the supersession with `program supersede <program> {args.supersedes} "
               f"--with {document['plan_id']} --reason \"...\"`.")
+    print(f"\n{_projection_line(library, new_slug)}")
     return 0
 
 
