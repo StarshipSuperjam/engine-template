@@ -479,30 +479,6 @@ def _outstanding_repair_lenses(repair: dict | None) -> list[str]:
     return [lens for lens in repair.get("lenses", []) if lens not in standing]
 
 
-_EFFORT_RANK = {"low": 0, "medium": 1, "high": 2}
-
-
-def _depth_effort(depth: str) -> str | None:
-    """The reasoning effort the approved review depth PROMISES its reviewers will run at, or None where
-    the depth pins none. Read from the one bindings file through `agent_bindings`, never re-derived."""
-    sys.path.insert(0, str(ROOT / ".engine" / "tools"))
-    import agent_bindings
-    return agent_bindings.depth_effort(depth, agent_bindings.load_bindings(str(ROOT)), str(ROOT))
-
-
-def effort_shortfall(delivered: str | None, promised: str | None) -> bool:
-    """True when a self-reported delivered effort is below what the depth promised.
-
-    An UNRECORDED effort is not a shortfall — it is an unknown, and the disclosure says so rather than
-    inventing a number. The measurement is self-reported throughout: the spawning session knows its own
-    effort at panel time and the reviewer reports its own, and nothing here can independently verify
-    either. Commit-bound reviewer attestations (StarshipSuperjam/engine-template#916) are the named
-    residual; until they exist, every place this value is disclosed says who reported it."""
-    if delivered is None or promised is None:
-        return False
-    return _EFFORT_RANK.get(delivered, -1) < _EFFORT_RANK.get(promised, -1)
-
-
 CODE_EXECUTION_KINDS = ("none", "discarded-copy", "in-place")
 
 
@@ -524,165 +500,6 @@ def code_execution_disclosure(kinds: set) -> str:
         return ("a reviewer ran the change's code in a throwaway copy to judge it — it never touched "
                 "your project")
     return "no reviewer executed the change's code"
-
-
-def _depth_effort_or_none(state: dict) -> str | None:
-    """The approved depth's promised effort, or None where there is no depth or no promise to caveat."""
-    depth = (state.get("approval") or {}).get("depth")
-    try:
-        return _depth_effort(depth) if depth else None
-    except Exception:                                   # noqa: BLE001 — the disclosure above says so itself
-        return None
-
-
-def _plan_effort_lines(state: dict) -> list[str]:
-    """What to say about the PLAN panel's effort, read from the sealed plan record.
-
-    The plan side's `--accept-effort-shortfall` tells the session, in its own refusal text, that the gap
-    it is accepting "publishes the gap in the pull request". Nothing published it. `delivered_efforts`
-    and `effort_shortfall_accepted` were written onto the plan record and the only reader in the tree
-    was the seal's own completeness check, which asserts the map is filled in and never that the level
-    was met. So the honest exit built FOR the plan panel produced a body claiming the approved depth
-    without qualification — the same failure the Build side closed, re-opened one component over by the
-    escape valve added to close it.
-
-    The depth is the plan record's own, not the Build's: the two are normally the same value through the
-    sealed handoff, but the claim being qualified here is the plan panel's, and it is answerable to the
-    approval the plan panel actually ran under."""
-    record, problem = _sealed_plan_record(state)
-    if problem:
-        # The disclosure this function carries is a hard one, so its own failure is a hard line too.
-        # Silence here would publish nothing while `_plan_review_clause` publishes something false.
-        #
-        # WITHOUT the underlying message. The plans are local and private — the library's own read
-        # errors name sibling plan slugs, which are the operator's working titles for unrelated work.
-        # This line is composed into a body that gets pushed to a pull request, so it says WHAT failed
-        # and never quotes the failure.
-        return ["the sealed plan could not be read while composing this body, so nothing here can say "
-                "what effort its review panel ran at — check the plan's own record before merging"]
-    review = (record or {}).get("plan_review") or {}
-    depth = ((record or {}).get("approval") or {}).get("depth")
-    if not depth or not review:
-        return []
-    delivered = review.get("delivered_efforts") or {}
-    try:
-        promised = _depth_effort(depth)
-    except Exception:                                   # noqa: BLE001
-        return [f"the effort the plan's approved `{depth}` depth promises could not be read, so nothing "
-                "here checked what its panel delivered against it"]
-    if not promised:
-        return []
-    # A plan sealed before this field existed carries no map at all, and the seal deliberately permits
-    # that — its own comment says the pull-request body "carries that honestly". It did not: an absent
-    # map returned nothing, so the body claimed the approved depth with no qualification for a panel
-    # that never stated what it ran at. Every plan sealed before this change is in that state, so this
-    # is the common case on the day it merges, not a corner. Mirrors the Build side's `silent` line.
-    unrecorded = sorted(lens for lens in review.get("lenses", []) if lens not in delivered)
-    lines = []
-    if unrecorded:
-        lines.append(f"these plan reviewers recorded no delivered effort, so the `{depth}` depth's "
-                     f"promise of {promised} is unverified for them: " + ", ".join(unrecorded))
-    under = sorted(f"{lens} ({effort})" for lens, effort in delivered.items()
-                   if effort_shortfall(effort, promised))
-    if not under:
-        return lines
-    # An unacknowledged shortfall should be unreachable — the gate refuses one — but `review amend` can
-    # bypass the refusal without setting the flag, so the two cases are told apart rather than assumed.
-    acknowledged = ("and the session recorded that it proceeded knowing it"
-                    if review.get("effort_shortfall_accepted")
-                    else "and NO acknowledgement of that gap is recorded against the plan")
-    return lines + [f"the PLAN panel came in under the `{depth}` depth it was approved at, which promises "
-                    f"{promised}, {acknowledged}: " + ", ".join(under)
-                    + " (self-reported, and nothing here verifies it)"]
-
-
-def _effort_shortfall_lines(state: dict) -> list[str]:
-    """What to say about reviewer effort, from every panel this Build paid for.
-
-    Reading only the receipts was a hole big enough to swallow the whole mechanism. A session can accept a
-    known shortfall at panel spawn — the operator's own recorded choice — and every reviewer can then
-    self-report meeting the depth, at which point the gap the operator asked to publish disappeared
-    entirely. That is not a corner case: it happened on the first Build to use this, where the session
-    spawned at `medium` and all five lenses reported `high`.
-
-    The two claims can also disagree, and one of them must be wrong: on this runtime a reviewer inherits
-    the spawning session's effort and cannot exceed it. Resolving that silently in the reviewer's favour
-    is the more flattering reading, so it is the one not taken — the disagreement is stated and the
-    operator decides what it is worth (StarshipSuperjam/engine-template#1067).
-
-    EVERY PANEL, NOT JUST THE FIRST. A repair round is spawned with its own session effort onto the
-    repair stage, and its receipts are then SPLICED into the deliverable stage — so reading the session
-    from `reviews.deliverable` alone dropped the repair panel's accepted gap entirely and compared each
-    spliced repair receipt against the wrong session's number. Each receipt is attributed to the panel
-    that actually spawned it, which the repair stage's own receipt list still records."""
-    lines = _plan_effort_lines(state)
-    approval = state.get("approval") or {}
-    depth = approval.get("depth")
-    if not depth:
-        return lines
-    stage = state.get("reviews", {}).get("deliverable", {})
-    repair = state.get("repair") or {}
-    receipts = stage.get("receipts", [])
-    try:
-        promised = _depth_effort(depth)
-    except Exception as exc:                            # noqa: BLE001
-        # NOT silence. This function is the sole source of the merge-surface disclosure as well as of the
-        # status line, and a status render that degrades quietly is a different thing from a pull-request
-        # body that quietly drops a line this engine calls hard.
-        # NAMED, NEVER QUOTED — the same rule the plan-record composers learned twice. The underlying
-        # error carries absolute paths from the operator's own filesystem, and this line is composed into
-        # a body pushed to a public repository.
-        return lines + [f"the effort the approved `{depth}` depth promises could not be read, so nothing "
-                        "here checked what the panel delivered against it"]
-    if not promised:
-        return lines
-    silent, overclaim = [], []
-    session = stage.get("session_effort")
-    repair_session = repair.get("session_effort")
-    # Attribution comes off the receipt itself, stamped when it was recorded. Inferring it from the
-    # repair stage's own receipt list read correctly but could go stale in both directions — a dropped
-    # repair receipt still spliced in the deliverable stage produced a FALSE "reviewed above its
-    # session" line, and a re-cut deliverable receipt for the same lens could hide a real one. A
-    # disclosure the operator is asked to trust must not be built on a list that can drift. The list is
-    # still the fallback for receipts written before the field existed.
-    repair_lenses = {receipt["lens"] for receipt in repair.get("receipts", [])}
-    for label, panel_session, panel in (("this panel", session, stage),
-                                        ("the repair panel", repair_session, repair)):
-        if panel.get("effort_shortfall_accepted") or effort_shortfall(panel_session, promised):
-            lines.append(
-                f"{label} was spawned from a session reporting {panel_session or 'an unrecorded'} effort "
-                f"against an approved `{depth}` depth that promises {promised}, and the session proceeded "
-                "knowing it (self-reported, and nothing here verifies it)")
-    for receipt in receipts:
-        delivered = receipt.get("delivered_effort")
-        # Presence, not truthiness. The stamp is nullable — a panel spawned without a stated effort
-        # records None honestly — so testing `is None` handed exactly that receipt back to the drifting
-        # list this stamp replaced, and it then produced the false "reviewed above its session" line.
-        if "spawn_session_effort" in receipt:
-            spawning = receipt["spawn_session_effort"]
-        else:
-            spawning = repair_session if receipt["lens"] in repair_lenses else session
-        if delivered is None:
-            silent.append(receipt["lens"])
-        elif effort_shortfall(delivered, promised):
-            lines.append(f"reviewer effort below the approved depth (self-reported): {receipt['lens']} ran at "
-                         f"{delivered}, and `{depth}` promises {promised}")
-        elif spawning and effort_shortfall(spawning, delivered):
-            # Collected, not repeated per lens: five near-identical sentences in a pull-request body is
-            # how a real disclosure gets skimmed past. Grouped by the session each answers to, because a
-            # repair round and the deliverable panel can report different ones.
-            overclaim.append((spawning, f"{receipt['lens']} ({delivered})"))
-    for spawning in sorted({entry[0] for entry in overclaim}):
-        named = sorted(entry[1] for entry in overclaim if entry[0] == spawning)
-        lines.append(
-            "these reviewers report running ABOVE the session that spawned them, which is not possible "
-            "here — a reviewer inherits the session's effort and cannot exceed it, so one of the two "
-            "self-reports is wrong and neither is verified: " + ", ".join(named)
-            + f" against a session reporting {spawning}")
-    if silent:
-        lines.append("these review receipts recorded no delivered effort, so the approved "
-                     f"`{depth}` depth's promise of {promised} is unverified for them: " + ", ".join(sorted(silent)))
-    return lines
 
 
 # `_plan_review_ready` is gone, and with it the checkpoint and validate gates that called it. A Build
@@ -942,13 +759,6 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     if sync_receipt and sync_receipt.get("commit") != _head():
         warnings.append("derived artifacts were synced at " + sync_receipt["commit"][:12]
                         + ", but HEAD has since moved — run `sync-artifacts` again if sources changed")
-    # Delivered reviewer effort against the depth that was approved
-    # (StarshipSuperjam/engine-template#1067). A warning here and a hard line in the pull-request body:
-    # the operator approved a depth that promises an effort, and until this existed nothing recorded
-    # whether the panel delivered it — a sealed `thorough` whose lenses actually ran at `medium`
-    # published its promise unchallenged. Both halves are self-reported, and every rendering says so.
-    for line in _effort_shortfall_lines(state):
-        warnings.append(line)
 
     approval_ready = state["approval"] is not None and state["approval"].get("plan_digest") == state["plan"]["digest"]
     dispositions_ready = not missing_findings and not blocking
@@ -1047,8 +857,8 @@ def _library() -> "plan_store.PlanLibrary":
 # WHAT WAS TRIED AND REMOVED, so it is not re-attempted. Two gates were built here and cut on the
 # operator's direction. First a boundary DETECTOR: bind refused unless it could prove the
 # conversation had broken since the seal — session identity plus a durable compaction ledger — with
-# an override flag. Then a required ANSWER: bind refused without self-reported --session-model and
-# --session-effort. Both failed the same test: the engine cannot read what a session actually runs
+# an override flag. Then a required ANSWER: bind refused without a self-reported session model and
+# effort. Both failed the same test: the engine cannot read what a session actually runs
 # on, so either gate proves only that a string was typed, and the session is what types it. The
 # consent gate that already exists carries the operator's go; ceremony bolted on beyond it was cost
 # without assurance, and the operator named it governance overreach.
@@ -1817,41 +1627,33 @@ def cmd_status(args, store: Snapshot) -> None:
 
 
 def cmd_depths(args, store: "Snapshot | None") -> None:
-    """Advisory, read-only: which review depths are worth OFFERING for this repo's installed reviewer roster,
-    and the reviewer effort each resolves to. Consulted before `approve` so the operator is never asked to pick
-    a depth that buys nothing over a lighter one (StarshipSuperjam/engine-template#763). The exact offer rule
-    (a depth runs at least one lens the last lighter offered depth does not, or the same non-empty lens-set at
-    higher effort) is single-homed in `build_coordinator_review.available_depths`, which this delegates to;
-    `quick` is always offered (the floor). This shapes the consent surface only — `required()`/`approve`
-    remain the sole mechanical lens authority, so a collapsed depth bound anyway still resolves to quick's roster.
-    Needs no Build state (it reads the protocol, the installed personas, and the shipped/operator effort)."""
-    import agent_bindings  # lazy: keep the coordinator's common path import-light, as cmd_validate does
+    """Advisory, read-only: which review depths are worth OFFERING for this repo's installed reviewer roster.
+    Consulted before `approve` so the operator is never asked to pick a depth that buys nothing over a lighter
+    one (StarshipSuperjam/engine-template#763). The exact offer rule (a depth runs at least one lens the last
+    lighter offered depth does not) is single-homed in `build_coordinator_review.available_depths`, which this
+    delegates to; `quick` is always offered (the floor). This shapes the consent surface only — `required()`/
+    `approve` remain the sole mechanical lens authority, so a collapsed depth bound anyway still resolves to
+    quick's roster. Needs no Build state (it reads the protocol and the installed personas)."""
     protocol = _protocol()
     deliverable_roster = _installed()
-    bindings = _bindings()
-    efforts = {depth: agent_bindings.depth_effort(depth, bindings, root=str(ROOT))
-               for depth in review.DEPTH_ORDER}
-    offered = review.available_depths(protocol, deliverable_roster, efforts)
+    offered = review.available_depths(protocol, deliverable_roster)
     detail = {}
     for depth in review.DEPTH_ORDER:
         detail[depth] = {
             "offered": depth in offered,
-            "effort": efforts[depth],
             "deliverable_lenses": [item["lens"] for item in _required(protocol, depth, deliverable_roster)],
         }
     if args.json:
         print(json.dumps({"available": offered, "depths": detail}, indent=2, sort_keys=True))
         return
-    print("Available review depths (only those that add coverage or effort over a lighter one):")
+    print("Available review depths (only those that add coverage over a lighter one):")
     for depth in offered:
         d = detail[depth]
         if not d["deliverable_lenses"]:
             print(f"  {depth}: no cold reviewers — your own read plus the automatic checks")
         else:
-            effort = d["effort"] or "session default"
             # Name the lenses, not just their count, so the operator can see WHICH reviewer a heavier depth adds.
-            print(f"  {depth}: reviewer effort {effort}")
-            print(f"      deliverable lenses: {', '.join(d['deliverable_lenses']) or 'none'}")
+            print(f"  {depth}: deliverable lenses: {', '.join(d['deliverable_lenses'])}")
     collapsed = [depth for depth in review.DEPTH_ORDER if depth not in offered]
     if collapsed:
         print("Collapsed (adds nothing over a lighter depth, so not offered): " + ", ".join(collapsed))
@@ -1953,32 +1755,6 @@ def _packet(args, store: Snapshot | None) -> None:
         commit = _head()
         if not _candidate_ok(state, commit):
             raise CoordinatorError("green candidate validation for the current commit is required before deliverable review")
-    # THE EFFORT GATE, at panel spawn (StarshipSuperjam/engine-template#1067). This is the moment the
-    # session still holds every exit: it can raise its own effort and re-cut, or go back to the operator
-    # for a lighter depth. Once the lenses have run, the only honest options left are re-running them or
-    # publishing a shortfall, so the refusal belongs here. On the Claude arm a reviewer persona carries no
-    # effort of its own by design — the depth reaches the lens ONLY through the spawning session's effort
-    # — which is why the session has to state it. The value is self-reported and nothing here can check
-    # it; commit-bound reviewer attestations (StarshipSuperjam/engine-template#916) are the residual.
-    promised_effort = _depth_effort(state["approval"]["depth"])
-    session_effort = getattr(args, "session_effort", None)
-    if promised_effort and required:
-        if not session_effort:
-            raise CoordinatorError(
-                f"the approved `{state['approval']['depth']}` depth runs its reviewers at {promised_effort} "
-                "effort, and on this runtime an un-pinned reviewer inherits the SPAWNING SESSION's effort — "
-                "so the packet has to state what that is. Re-run with `--session-effort "
-                f"{promised_effort}` once this session is actually running at it.")
-        if effort_shortfall(session_effort, promised_effort) and not getattr(args, "accept_effort_shortfall", False):
-            raise CoordinatorError(
-                f"this session reports running at {session_effort} effort, but the approved "
-                f"`{state['approval']['depth']}` depth promises reviewers at {promised_effort}, and an "
-                "un-pinned reviewer cannot exceed the session that spawns it — so this panel would "
-                "under-deliver the depth the operator approved. Either raise this session's effort to "
-                f"{promised_effort} and re-cut the packet, or ask the operator to re-approve at the depth "
-                "this panel can actually deliver. To proceed anyway, pass --accept-effort-shortfall: the "
-                "gap is then published as a hard disclosure in the pull-request body, where the operator "
-                "meets it at merge.")
     stable = core.StableCommit(ROOT, f"{stage} review-packet construction") if commit else None
     if stable:
         stable_head = stable.__enter__()
@@ -2044,30 +1820,18 @@ def _packet(args, store: Snapshot | None) -> None:
                               if receipt["lens"] in expected
                               and (receipt.get("lens_packet_digest") == expected[receipt["lens"]]
                                    or covers(receipt))]
-        # The session's own effort at the moment the panel was spawned, recorded on the stage rather than
-        # only on each receipt: it is a fact about the fan-out, and it is the ceiling every un-pinned
-        # reviewer in that fan-out inherits. `effort_shortfall_accepted` is the operator-facing half —
-        # a session that proceeded under a known gap, kept so the disclosure cannot be forgotten.
-        # The flag ALONE is not an accepted gap. Recording it unconditionally made a panel that met its
-        # depth publish "the session proceeded knowing it", which cries a gap that is not there — the
-        # same trust cost as hiding one that is. The plan side already gated this on a real shortfall;
-        # the two halves of one mechanism now agree.
-        spawn = {"session_effort": session_effort,
-                 "effort_shortfall_accepted": bool(getattr(args, "accept_effort_shortfall", False)
-                                                   and effort_shortfall(session_effort, promised_effort))}
         if stage == "repair":
             s["repair"]["packet_digest"] = packet["packet_digest"]
             s["repair"]["referent_digest"] = referent_digest
             s["repair"]["base_commit"] = packet["base_commit"]
             s["repair"]["reviewer_contracts"] = contracts
             s["repair"]["receipts"] = preserved_receipts
-            s["repair"].update(spawn)
         else:
             target = s["reviews"][stage]
             target.update({"packet_digest": packet["packet_digest"], "referent_digest": referent_digest,
                            "required_lenses": required, "installed_lenses": installed_names,
                            "reviewer_contracts": contracts, "receipts": preserved_receipts, "reviewed_commit": commit,
-                           "base_commit": packet["base_commit"], **spawn})
+                           "base_commit": packet["base_commit"]})
         # A finding lives exactly as long as a receipt still demands it -- derived, for BOTH branches, from
         # the single home in `review` rather than from a per-branch stage filter. The two old filters keyed
         # on `f["stage"] != stage`, which cut both ways: a repair regeneration deleted findings whose
@@ -2186,7 +1950,6 @@ def _receipt_finding_ids(args) -> list[str]:
 
 def cmd_review_record(args, store: Snapshot) -> None:
     finding_ids = sorted(set(_receipt_finding_ids(args)))
-    delivered_effort = getattr(args, "delivered_effort", None)
 
     def change(state):
         if args.stage == "repair":
@@ -2207,12 +1970,7 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "code_execution": args.code_execution,
                        # What this lens actually READ, so a later re-bind can ask whether anything in the
                        # new range is new to it instead of assuming everything is.
-                       "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]},
-                       "delivered_effort": delivered_effort,
-                       # Which panel this receipt came from, stamped rather than inferred: it is about
-                       # to be spliced into the deliverable stage, where the stage it sits in stops
-                       # answering that question.
-                       "spawn_session_effort": target.get("session_effort")}
+                       "reviewed_range": {"base": target["reviewed_commit"], "tip": target["final_commit"]}}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
             delivery = state["reviews"]["deliverable"]
             delivery["receipts"] = [r for r in delivery["receipts"] if r["lens"] != args.lens] + [receipt]
@@ -2247,14 +2005,9 @@ def cmd_review_record(args, store: Snapshot) -> None:
                        "lens_packet_digest": contract["lens_packet_digest"],
                        "commit": target["reviewed_commit"], "finding_ids": finding_ids,
                        "code_execution": args.code_execution,
-                       "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]},
-                       "delivered_effort": delivered_effort,
-                       "spawn_session_effort": target.get("session_effort")}
+                       "reviewed_range": {"base": target["base_commit"], "tip": target["reviewed_commit"]}}
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
     store.mutate(change)
-    shortfall = _effort_shortfall_lines(store.read())
-    for line in shortfall:
-        print("disclosure: " + line, file=sys.stderr)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
 
 
@@ -3722,8 +3475,6 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     repair = {"reviewed_commit": reviewed, "final_commit": head, "summary": summary, "judgment": args.judgment,
               "rationale": args.rationale, "lenses": lenses, "packet_digest": None,
               "referent_digest": None, "reviewer_contracts": [], "receipts": carried,
-              "session_effort": (prior or {}).get("session_effort"),
-              "effort_shortfall_accepted": bool((prior or {}).get("effort_shortfall_accepted")),
               "anchor": anchor, "counted": counted, "classification": classification,
               "roster_provenance": roster_provenance}
     store.mutate(lambda s: s.update({"repair": repair, "repair_rounds": rounds}), from_revision=revision)
@@ -5361,9 +5112,15 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
         review_coverage = (f"{depth} depth. {plan_clause}. No deliverable review receipt is recorded "
                            "either, so this body can vouch for NEITHER panel.")
     elif cold_review_ran:
-        lenses = ", ".join(sorted(x["lens"] for x in _installed())) or "no installed deliverable lenses"
+        # The lenses that RECORDED A RECEIPT, never the installed set: a packet that required a subset of
+        # the installed roster used to render every installed lens as having run
+        # (StarshipSuperjam/engine-template#1216).
+        recorded = sorted({r["lens"] for r in state.get("reviews", {}).get("deliverable", {}).get("receipts", [])})
         plan_clause = _plan_review_clause(state)
-        review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({lenses}) ran after."
+        if recorded:
+            review_coverage = f"{depth} depth. {plan_clause}; the deliverable review ({', '.join(recorded)}) ran after."
+        else:
+            review_coverage = f"{depth} depth. {plan_clause}; no deliverable review receipt is recorded."
     else:
         review_coverage = (f"{depth} depth — no cold reviewers ran; the coverage is your own read of the change "
                            "plus the automatic checks (the full CI suite and self-tests).")
@@ -5383,21 +5140,6 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # was recorded as though it had used a throwaway copy, which is a materially different claim about
     # what touched their project. B2's carried finding CO-1; the third value is the fix.
     code_execution_line = code_execution_disclosure({r.get("code_execution") for r in receipts})
-    # The effort the panel actually delivered against the depth the operator approved
-    # (StarshipSuperjam/engine-template#1067). A HARD line, not a warning: a sealed `thorough` whose
-    # lenses ran at `medium` published its promise unchallenged, and the operator's merge is the only
-    # place that can be met. Self-reported on both halves, and the sentence says so.
-    # The caveat rides the DEPTH CLAIM itself, not only its exceptions. Stating "self-reported and
-    # unverified" only when there is a shortfall to admit means the exact failure this closes — a session
-    # claiming an effort it did not deliver — produces a body that reads as an unqualified assurance
-    # (StarshipSuperjam/engine-template#1067).
-    if cold_review_ran and _depth_effort_or_none(state):
-        review_coverage += (" What effort those reviewers ran at is self-reported by the spawning session "
-                            "and by the reviewers themselves; nothing in this engine verifies it.")
-    effort_lines = _effort_shortfall_lines(state)
-    if effort_lines:
-        review_coverage += " " + "; ".join(effort_lines) + "."
-
     drift_line = _drift_line(state, head)
 
     # Index-regeneration disclosure (BO-24): which of the engine's generated surfaces this PR changed,
@@ -5676,8 +5418,8 @@ def parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status"); status.add_argument("--plan"); status.add_argument("--json", action="store_true"); status.set_defaults(func=cmd_status)
     depths = sub.add_parser("depths"); depths.add_argument("--json", action="store_true"); depths.set_defaults(func=cmd_depths)
     review = sub.add_parser("review").add_subparsers(dest="review_command", required=True)
-    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.add_argument("--session-effort", choices=["low", "medium", "high"], help="The reasoning effort THIS session is running at as it spawns the panel. On the Claude arm an un-pinned reviewer inherits it, so it is the ceiling every lens in the fan-out runs at; self-reported."); packet.add_argument("--accept-effort-shortfall", action="store_true", help="Spawn the panel knowing it runs below the approved depth's effort. The gap becomes a hard disclosure in the PR body."); packet.set_defaults(func=_packet)
-    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.add_argument("--delivered-effort", choices=["low", "medium", "high"], help="The reasoning effort this reviewer actually ran at, self-reported. Compared against the approved depth's effort; a shortfall is disclosed in the PR body."); record.set_defaults(func=cmd_review_record)
+    packet = review.add_parser("packet"); packet.add_argument("--stage", choices=["deliverable", "repair"], required=True); packet.add_argument("--plan", required=True); packet.add_argument("--impact"); packet.add_argument("--output"); packet.add_argument("--json", action="store_true"); packet.add_argument("--standalone", action="store_true"); packet.add_argument("--repository"); packet.add_argument("--commit"); packet.add_argument("--base"); packet.add_argument("--depth", choices=["quick", "standard", "thorough"]); packet.set_defaults(func=_packet)
+    record = review.add_parser("record"); record.add_argument("--stage", choices=["deliverable", "repair"], required=True); record.add_argument("--lens", required=True); record.add_argument("--packet-digest", required=True); record.add_argument("--lens-packet-digest", required=True); record.add_argument("--finding", action="append"); record.add_argument("--findings-from-file", help="A build-findings-batch.v1 file (or -) whose ids this receipt demands. The SAME file `finding record --from-file` reads, so a receipt and its findings cannot disagree; mutually exclusive with --finding."); record.add_argument("--code-execution", choices=["none", "discarded-copy", "in-place"], required=True); record.set_defaults(func=cmd_review_record)
     finding = sub.add_parser("finding").add_subparsers(dest="finding_command", required=True)
     frecord = finding.add_parser("record"); frecord.add_argument("--id"); frecord.add_argument("--stage", choices=["deliverable", "repair"], required=True); frecord.add_argument("--lens"); frecord.add_argument("--severity", choices=["blocking", "serious", "nit"]); frecord.add_argument("--summary"); frecord.add_argument("--disposition", choices=["accepted-fixed", "accepted-tracked", "partially-accepted", "rejected", "escalated"]); frecord.add_argument("--rationale"); frecord.add_argument("--escalation-kind", choices=["design", "law", "authority", "capability-boundary", "guardrail-ack", "operator-only"]); block = frecord.add_mutually_exclusive_group(); block.add_argument("--blocks-this-pr", action="store_const", const=True, dest="blocks_this_pr_stated"); block.add_argument("--does-not-block-this-pr", action="store_const", const=False, dest="blocks_this_pr_stated"); frecord.add_argument("--handoff-summary"); frecord.add_argument("--operator-summary"); frecord.add_argument("--private-reference", help="Local-only reviewer note; kept in build-state, never published to the PR body and not read back by any verb."); frecord.add_argument("--findings-from-file", "--from-file", dest="from_file", help="A build-findings-batch.v1 file (or -) carrying a whole round's dispositions. The SAME flag name and the SAME file `review record` takes, so one cut file feeds both verbs and their ids cannot drift; --from-file remains as an alias. Validated entirely before anything is written, then recorded in one mutation: a malformed entry records nothing."); frecord.set_defaults(func=cmd_finding_record)
     assumption = sub.add_parser("assumption").add_subparsers(dest="assumption_command", required=True)

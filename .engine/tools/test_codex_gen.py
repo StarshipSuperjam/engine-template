@@ -157,9 +157,8 @@ class TestWorkerFloorScoping(unittest.TestCase):
 class TestRenderTransforms(_FixtureTree):
     def test_reviewer_render_carries_the_floor_pins_no_model_and_un_pins_effort(self):
         # A reviewer twin (role pre-submission-review) carries the read-only floor and NO model id, and — since
-        # #677 — NO model_reasoning_effort either: the cold reviewer's effort is depth-scaled at launch by
-        # spawning it as a non-full-history fork with reasoning_effort from the resolved depth, so the twin must
-        # not bake an effort the spawn would have to override.
+        # NO model_reasoning_effort either: a reviewer's effort is not part of the review contract, so the
+        # twin bakes none and runs at the provider's configured default.
         codex_gen.generate(self.root)
         path = os.path.join(self.root, ".codex", "agents", "qa-review-widget.toml")
         with open(path, "rb") as fh:
@@ -167,7 +166,7 @@ class TestRenderTransforms(_FixtureTree):
         self.assertEqual(data["sandbox_mode"], "read-only")
         self.assertNotIn("model", data)
         self.assertNotIn("model_reasoning_effort", data,
-                         "a reviewer twin un-pins effort so the depth-scaled reasoning_effort governs at spawn")
+                         "a reviewer twin carries no effort; effort is not part of the review contract")
         self.assertIn("read-only", data["developer_instructions"])
         self.assertIn("Do not run shell commands", data["developer_instructions"],
                       "a Bash-denylisting source renders the no-shell instruction line")

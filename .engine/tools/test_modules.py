@@ -352,6 +352,28 @@ class TestOwnershipFindings(unittest.TestCase):
         self.assertIn("other", found[0]["message"])
 
 
+class TestAPreservedOperatorFileNothingReads(unittest.TestCase):
+    """A deployment that once retuned a review depth carries `.engine/operator-review-effort.json`; the
+    reader is gone, and the file must stay quiet: not an orphan, not clobbered, not public."""
+
+    PATH = ".engine/operator-review-effort.json"
+
+    def test_it_is_registered_operator_config(self):
+        self.assertIn(self.PATH, module_coherence.OPERATOR_CONFIG)
+
+    def test_the_ownership_leg_raises_no_orphan_for_it(self):
+        manifests = module_coherence.discover_manifests()
+        exempt = (set(module_coherence.NAMED_INFRA) | {path for path, _m in manifests}
+                  | module_coherence.OPERATOR_CONFIG)
+        inventory = sorted(set(module_coherence.engine_file_inventory()) | {self.PATH})
+        findings = validate.ownership_findings(inventory, module_coherence.provides_claims(manifests),
+                                               exempt, "hard", "owned")
+        self.assertFalse([f for f in findings if self.PATH in json.dumps(f)], findings)
+
+    def test_it_is_deployment_private(self):
+        self.assertTrue(module_coherence.is_deployment_private(self.PATH))
+
+
 class TestWiringFindings(unittest.TestCase):
     """The pure forward wiring leg: a not-applied directive flags HARD (uniform across all five
     seams — mcp too, because the carve-out is approval-blindness, not a soft tier), an applied one

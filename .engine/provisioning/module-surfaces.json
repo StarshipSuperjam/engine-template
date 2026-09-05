@@ -999,6 +999,9 @@
   ".engine/policies/model-bindings.json": [
    "core"
   ],
+  ".engine/policies/model-routing.json": [
+   "core"
+  ],
   ".engine/policies/model-routing.md": [
    "core"
   ],
@@ -1992,9 +1995,6 @@
   ".engine/tools/operator_overrides.py": [
    "core"
   ],
-  ".engine/tools/operator_review_effort.py": [
-   "core"
-  ],
   ".engine/tools/overlay_disclosure.py": [
    "core"
   ],
@@ -2488,9 +2488,6 @@
    "core"
   ],
   ".engine/tools/test_operator_overrides.py": [
-   "core"
-  ],
-  ".engine/tools/test_operator_review_effort.py": [
    "core"
   ],
   ".engine/tools/test_optional_module_isolation.py": [

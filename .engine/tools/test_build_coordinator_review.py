@@ -168,51 +168,42 @@ class TestStandardPlanRow(unittest.TestCase):
 
 
 class TestAvailableDepths(unittest.TestCase):
-    """#763/#677: the consent surface offers only depths that add something — keyed on lens-set AND effort."""
+    """#763/#677: the consent surface offers only depths that add something — keyed on the lens-set alone."""
     def _protocol(self):
         here = os.path.dirname(os.path.abspath(__file__))
         return json.load(open(os.path.join(here, "..", "build-protocol.json"), encoding="utf-8"))
-
-    _EFFORTS = {"quick": None, "standard": "medium", "thorough": "high"}
 
     def _roster(self, *lenses):
         return [{"lens": l} for l in lenses]
 
     def test_zero_lenses_collapses_to_quick_only(self):
-        got = review.available_depths(self._protocol(), self._roster(), self._EFFORTS)
+        got = review.available_depths(self._protocol(), self._roster())
         self.assertEqual(got, ["quick"])
 
     def test_full_roster_offers_all_three(self):
         deliverable = self._roster("spec-conformance", "divergence-hunter", "usability",
                                    "technical-integrity", "security-governance")
-        got = review.available_depths(self._protocol(), deliverable, self._EFFORTS)
+        got = review.available_depths(self._protocol(), deliverable)
         self.assertEqual(got, ["quick", "standard", "thorough"])
 
-    def test_effort_only_difference_still_offers_the_heavier_depth(self):
-        # A roster where standard's and thorough's lens-sets COINCIDE (only the standard-subset lenses are
-        # installed): the depths differ ONLY by effort, and the heavier one is still offered because effort
-        # distinguishes them (architecture F1's genuine effort-only case).
+    def test_a_roster_where_thorough_adds_no_lens_does_not_offer_it(self):
+        # Only the standard-subset lenses are installed (an optional review pack declined): thorough would run
+        # exactly what standard runs, so it is honestly not offered — the roster is the whole difference.
         deliverable = self._roster("spec-conformance", "divergence-hunter", "usability")
-        got = review.available_depths(self._protocol(), deliverable, self._EFFORTS)
-        self.assertEqual(got, ["quick", "standard", "thorough"])
+        got = review.available_depths(self._protocol(), deliverable)
+        self.assertEqual(got, ["quick", "standard"])
 
-    def test_equal_effort_and_equal_lenses_collapses(self):
-        flat = {"quick": None, "standard": "medium", "thorough": "medium"}
-        deliverable = self._roster("spec-conformance", "divergence-hunter", "usability")
-        got = review.available_depths(self._protocol(), deliverable, flat)
-        self.assertEqual(got, ["quick", "standard"])   # thorough adds neither lenses nor effort -> collapsed
-
-    def test_one_standard_table_lens_offers_all_three(self):
+    def test_one_standard_table_lens_offers_quick_and_standard(self):
         # A single installed reviewer whose lens IS in the standard table: standard adds that lens over quick,
-        # and thorough adds effort over standard (same lens-set, higher effort) -> all three are distinct.
-        got = review.available_depths(self._protocol(), self._roster("spec-conformance"), self._EFFORTS)
-        self.assertEqual(got, ["quick", "standard", "thorough"])
+        # and thorough adds nothing over standard -> two depths.
+        got = review.available_depths(self._protocol(), self._roster("spec-conformance"))
+        self.assertEqual(got, ["quick", "standard"])
 
     def test_one_thorough_only_lens_skips_standard(self):
         # A single installed reviewer whose lens runs ONLY at thorough (security-governance is not in the
         # standard deliverable table): standard would run nothing the quick floor doesn't, so it collapses,
         # yet thorough still adds that lens -> the offer skips the middle depth entirely.
-        got = review.available_depths(self._protocol(), self._roster("security-governance"), self._EFFORTS)
+        got = review.available_depths(self._protocol(), self._roster("security-governance"))
         self.assertEqual(got, ["quick", "thorough"])
 
     def test_non_monotonic_tables_still_offer_a_depth_with_unique_coverage(self):
@@ -223,10 +214,15 @@ class TestAvailableDepths(unittest.TestCase):
         protocol = {"deliverable_review": {"quick": ["risk-governance"], "standard": ["product-intent"],
                                           "thorough": []}}
         roster = self._roster("risk-governance", "product-intent")
-        got = review.available_depths(protocol, roster, self._EFFORTS)
+        got = review.available_depths(protocol, roster)
         # standard runs product-intent, which quick (risk-governance) does not -> it must be offered, not hidden.
         self.assertIn("standard", got)
         self.assertEqual(got[0], "quick")   # quick is always the floor
+
+    def test_the_offer_rule_takes_no_effort_argument(self):
+        with self.assertRaises(TypeError):
+            review.available_depths(self._protocol(), self._roster("spec-conformance"),
+                                    {"quick": None, "standard": "medium", "thorough": "high"})
 
 
 if __name__ == "__main__":

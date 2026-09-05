@@ -932,7 +932,7 @@ class TestReviewAndFindings(CoordinatorCase):
                           "technical-integrity", "security-governance"]
 
     def packet(self, stage="deliverable", head=HEAD_A, roster=None):
-        args = argparse.Namespace(stage=stage, plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage=stage, plan=str(self.plan_path), impact=None)
         out = io.StringIO()
         lenses = roster if roster is not None else self.DELIVERABLE_LENSES
         with mock.patch.object(bc, "_installed", return_value=lenses), mock.patch.object(bc, "_head", return_value=head), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(out):
@@ -944,8 +944,7 @@ class TestReviewAndFindings(CoordinatorCase):
         return argparse.Namespace(stage=packet["stage"], lens=lens,
                                   packet_digest=packet["packet_digest"],
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
-                                  findings_from_file=None, code_execution="none",
-                                  delivered_effort="high")
+                                  findings_from_file=None, code_execution="none")
 
     def complete_panel(self):
         """Run the deliverable panel and receipt every lens, as a real Build does."""
@@ -958,7 +957,7 @@ class TestReviewAndFindings(CoordinatorCase):
     # --- the plan stage is gone from this side ----------------------------------------
 
     def test_a_plan_review_packet_is_refused_and_names_where_plan_review_lives(self):
-        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="plan", plan=str(self.plan_path), impact=None)
         with self.assertRaisesRegex(bc.CoordinatorError, "runs one review"):
             bc._packet(args, self.store)
 
@@ -1391,7 +1390,7 @@ class TestReviewAndFindings(CoordinatorCase):
 
     def test_deliverable_packet_requires_green_validation(self):
         self.store.mutate(lambda s: s.update({"validation": None}))
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         with mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), mock.patch.object(bc, "_head", return_value=HEAD_A), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
@@ -1430,7 +1429,7 @@ class TestReviewAndFindings(CoordinatorCase):
         class ChangedAfter:
             def __enter__(self): return HEAD_A
             def __exit__(self, *unused): raise bc.CoordinatorError("changed after packet")
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high",
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
                                   output=None, json=True)
         with mock.patch.object(bc.core, "StableCommit", return_value=ChangedAfter()), \
                 mock.patch.object(bc, "_installed", return_value=["spec-conformance"]), \
@@ -1451,7 +1450,7 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertEqual(packet["plan"]["spec"]["posture"], "none")
 
     def test_standalone_packet_needs_no_pr_or_snapshot(self):
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high", standalone=True,
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, standalone=True,
                                   repository="owner/repo", commit=HEAD_A, base=BASE, depth="thorough",
                                   output=None, json=False)
         output = io.StringIO()
@@ -1465,7 +1464,7 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertNotIn('"raw_intent"', output.getvalue())
 
     def test_default_packet_output_is_concise_and_json_is_explicit(self):
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high",
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
                                   standalone=False, output=None, json=False)
         pins = lambda: (mock.patch.object(bc, "_installed", return_value=[]),
                         mock.patch.object(bc, "_head", return_value=HEAD_A),
@@ -1599,55 +1598,40 @@ class TestReviewAndFindings(CoordinatorCase):
                          "a batch is validated whole before anything is written, so a bad entry at the "
                          "end must not leave the good ones half-recorded")
 
-    def test_a_panel_that_would_under_deliver_the_approved_depth_is_refused_at_spawn(self):
-        """The B1 shape (StarshipSuperjam/engine-template#1067): a sealed `thorough` promises high-effort
-        reviewers, but on this runtime an un-pinned reviewer inherits the SESSION's effort — so a medium
-        session cannot deliver it. Refused here, where the session still holds both exits: raise its own
-        effort and re-cut, or take the depth back to the operator."""
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
-                                  session_effort="medium")
-        with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
-                mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_base", return_value=BASE), \
-                self.assertRaises(bc.CoordinatorError) as caught:
-            bc._packet(args, self.store)
-        message = str(caught.exception)
-        self.assertIn("reports running at medium", message)
-        self.assertIn("re-approve at the depth", message)
-        self.assertIn("--accept-effort-shortfall", message)
+    def test_a_packet_states_no_effort_and_is_cut_at_every_depth(self):
+        """Review depth is the lens roster and nothing else: a packet carries no statement of the
+        session's effort, and none is asked for at any depth."""
+        for depth in ("quick", "standard", "thorough"):
+            self.store.mutate(lambda s, d=depth: s["approval"].update({"depth": d}))
+            out = io.StringIO()
+            args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+            with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
+                    mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                    mock.patch.object(bc, "_base", return_value=BASE), \
+                    contextlib.redirect_stdout(out):
+                bc._packet(args, self.store)
+            stage = self.state()["reviews"]["deliverable"]
+            self.assertFalse({k for k in stage if "effort" in k}, depth)
+            if depth == "quick":
+                self.assertEqual(stage["required_lenses"], [])
+        self.store.mutate(lambda s: s["approval"].update({"depth": "standard"}))
 
-    def test_a_packet_that_does_not_state_its_effort_is_refused_rather_than_assumed(self):
-        """The assumption this replaces was that a session defaults to `high`. It stopped being true the
-        moment running a build at `medium` became a rational choice, and nothing noticed."""
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
-        with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
-                mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_base", return_value=BASE), \
-                self.assertRaises(bc.CoordinatorError) as caught:
-            bc._packet(args, self.store)
-        self.assertIn("--session-effort", str(caught.exception))
+    def test_the_parser_offers_no_effort_flag_anywhere(self):
+        parser = bc.parser()
+        for argv in (["review", "packet", "--stage", "deliverable", "--plan", "p.json", "--session-effort", "high"],
+                     ["review", "packet", "--stage", "deliverable", "--plan", "p.json", "--accept-effort-shortfall"],
+                     ["review", "record", "--stage", "deliverable", "--lens", "usability", "--packet-digest", "d",
+                      "--lens-packet-digest", "d", "--code-execution", "none", "--delivered-effort", "high"]):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                parser.parse_args(argv)
 
-    def test_proceeding_under_a_known_shortfall_is_recorded_for_the_merge_surface(self):
-        """The other exit. It is not free: the gap is kept on the stage and published as a hard line in
-        the pull-request body, where the operator meets it at merge."""
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None,
-                                  session_effort="medium", accept_effort_shortfall=True)
-        with mock.patch.object(bc, "_installed", return_value=self.DELIVERABLE_LENSES), \
-                mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                mock.patch.object(bc, "_base", return_value=BASE), \
-                contextlib.redirect_stdout(io.StringIO()):
-            bc._packet(args, self.store)
-        stage = self.state()["reviews"]["deliverable"]
-        self.assertEqual(stage["session_effort"], "medium")
-        self.assertTrue(stage["effort_shortfall_accepted"])
-
-    def test_a_receipt_records_what_its_lens_read_and_what_it_ran_at(self):
+    def test_a_receipt_records_what_its_lens_read_and_nothing_about_effort(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "usability", []), self.store)
         receipt = next(r for r in self.state()["reviews"]["deliverable"]["receipts"]
                        if r["lens"] == "usability")
-        self.assertEqual(receipt["delivered_effort"], "high")
+        self.assertFalse({k for k in receipt if "effort" in k}, "a receipt records no effort")
         self.assertEqual(receipt["reviewed_range"], {"base": BASE, "tip": HEAD_A})
 
     def test_engineering_blocker_remains_orchestrator_work(self):
@@ -2607,7 +2591,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
 
     def test_repair_review_requires_validation_for_repaired_commit(self):
         self.store.mutate(lambda s: s.update({"repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []}}))
-        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
         with mock.patch.object(bc, "_installed", return_value=["usability"]), self.assertRaisesRegex(bc.CoordinatorError, "green candidate validation"):
             bc._packet(args, self.store)
 
@@ -2723,7 +2707,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             "validation": {"commit": HEAD_B, "results": [{"id": "ci", "commit": HEAD_B, "passed": True, "summary": "ok"}]},
             "repair": {"reviewed_commit": HEAD_A, "final_commit": HEAD_B, "summary": "1 file", "judgment": "scoped", "rationale": "Logic changed", "lenses": ["usability"], "packet_digest": None, "receipts": []},
         }))
-        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
         output = io.StringIO()
         with mock.patch.object(bc, "_installed", return_value=["usability"]), mock.patch.object(bc, "_head", return_value=HEAD_B), mock.patch.object(bc, "_base", return_value=BASE), contextlib.redirect_stdout(output):
             bc._packet(args, self.store)
@@ -3780,7 +3764,7 @@ status: locked
         self.seed(); self.approve("thorough")
         canonical = {"posture": "settled", "documents": [{"criteria": [{"text": "exact criterion"}]}],
                      "review_steps": [{"operator_steps": ["exact criterion"]}], "digest": "sha256:" + "1" * 64}
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         out = io.StringIO()
         self.integrate_all()
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
@@ -4362,16 +4346,15 @@ class TestDepthsVerb(unittest.TestCase):
             bc.cmd_depths(argparse.Namespace(json=as_json), None)
         return out.getvalue()
 
-    def test_full_roster_offers_all_three_with_stepped_effort(self):
+    def test_full_roster_offers_all_three_by_lenses_alone(self):
         deliverable_roster = self._roster("spec-conformance", "divergence-hunter", "usability",
                                           "technical-integrity", "security-governance")
         result = json.loads(self._run(deliverable_roster, as_json=True))
         self.assertEqual(result["available"], ["quick", "standard", "thorough"])
-        self.assertIsNone(result["depths"]["quick"]["effort"])
-        # Depth scales reviewer effort off the shipped review_depths defaults (standard steps down, thorough
-        # holds the anchor); no operator override in the tree, so these are the shipped values.
-        self.assertEqual(result["depths"]["standard"]["effort"], "medium")
-        self.assertEqual(result["depths"]["thorough"]["effort"], "high")
+        # Depth is the roster: the readout carries lenses and nothing else about a reviewer.
+        for depth in ("quick", "standard", "thorough"):
+            self.assertEqual(set(result["depths"][depth]), {"offered", "deliverable_lenses"})
+        self.assertNotIn("effort", self._run(deliverable_roster))
         # Standard's deliverable gate runs its three lenses; the plan roster is no longer this verb's
         # business, and the plan side offers its own depths from its own roster.
         self.assertEqual(len(result["depths"]["standard"]["deliverable_lenses"]), 3)
@@ -4739,7 +4722,7 @@ class TestEvidenceDurability(CoordinatorCase):
         """Land a completed deliverable review at `head`, the way a real Build reaches repair. The roster is
         passed as bare lens names to `_installed` and coerced by `_packet`, mirroring the established helper
         -- a hand-built roster of `{"lens": x}` dicts is not a real reviewer contract and is rejected."""
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         out = io.StringIO()
         self.store.mutate(lambda s: s.update({"validation": {
             "commit": head, "results": [{"id": "x", "commit": head, "passed": True, "summary": "ok"}]}}))
@@ -4759,15 +4742,14 @@ class TestEvidenceDurability(CoordinatorCase):
         return argparse.Namespace(stage=packet["stage"], lens=lens,
                                   packet_digest=packet["packet_digest"],
                                   lens_packet_digest=contract["lens_packet_digest"], finding=findings,
-                                  findings_from_file=None, code_execution="none",
-                                  delivered_effort="high")
+                                  findings_from_file=None, code_execution="none")
 
     def _plan_reviewed(self):
         """Complete the deliverable panel so the phase driver can reach the later gates."""
         self.integrate_all()
         self.store.mutate(lambda s: s.update({"validation": {"commit": HEAD_A, "results": [
             {"id": "ci", "commit": HEAD_A, "passed": True, "summary": "ok"}]}}))
-        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
         out = io.StringIO()
         roster = ["spec-conformance", "divergence-hunter", "usability"]
         with mock.patch.object(bc, "_installed", return_value=roster), \
@@ -4786,7 +4768,7 @@ class TestEvidenceDurability(CoordinatorCase):
                        "packet_digest": None, "referent_digest": None, "reviewer_contracts": [],
                        "receipts": []},
             "validation": {"commit": final, "results": [{"id": "x", "commit": final, "passed": True, "summary": "ok"}]}}))
-        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None, session_effort="high")
+        args = argparse.Namespace(stage="repair", plan=str(self.plan_path), impact=None)
         out = io.StringIO()
         with mock.patch.object(bc, "_installed", return_value=list(lenses)), \
                 mock.patch.object(bc, "_head", return_value=final), \
@@ -5149,7 +5131,6 @@ class TestEvidenceDurability(CoordinatorCase):
             # further composers were leaking at the time it was green.
             with mock.patch.object(bc, "_library", return_value=library), \
                     mock.patch.object(bc, "_head", return_value=HEAD_A), \
-                    mock.patch.object(bc, "_depth_effort", side_effect=OSError(f"{tmp}/policies/bindings.json")), \
                     mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
                         returncode=129, stdout="", stderr=f"fatal: not a git repository: '{tmp}/.git'")):
                 evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
@@ -5157,7 +5138,7 @@ class TestEvidenceDurability(CoordinatorCase):
             body = bcc.compose(claim, evidence)
             self.assertNotIn(tmp, body, "an absolute local path reached the merge surface")
         # Silence is the other way to get this wrong: the body must still SAY each thing failed.
-        for expected in ("could NOT be established", "could not be read", "could not be determined"):
+        for expected in ("could NOT be established", "could not be determined"):
             self.assertIn(expected, body, f"a failure was hidden rather than named: {expected}")
         for slug in secrets:
             self.assertNotIn(slug, body, f"a private plan title reached the merge surface: {slug}")
@@ -6144,6 +6125,110 @@ class TestReceiptReporting(unittest.TestCase):
                                                       "unresolved_concerns": ["scope boundary looks tight"]}}}})
         node = bc._work_projection(plan, state)["nodes"]["shared"]
         self.assertEqual(node["unresolved_concerns"], ["scope boundary looks tight"])
+
+
+class TheCoverageBulletNamesTheLensesThatRecordedReceipts(CoordinatorCase):
+    """The pull-request body's Coverage bullet names the lenses that RECORDED A RECEIPT, never the
+    installed set (StarshipSuperjam/engine-template#1216), and the Review section says nothing about
+    effort: review depth is the lens roster, and the body describes it that way."""
+
+    INSTALLED = ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"]
+
+    def test_two_receipts_against_five_installed_lenses_name_exactly_the_two(self):
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        self.seed()
+        self.approve("thorough")
+        self.store.mutate(lambda st: st.update({"validation": {"commit": HEAD_A, "results": [
+            {"id": "self-test", "commit": HEAD_A, "passed": True, "summary": "green"}]}}))
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=self.INSTALLED), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_base", return_value=BASE), \
+                contextlib.redirect_stdout(out):
+            bc._packet(args, self.store)
+        packet = json.loads(out.getvalue())
+        for lens in ("spec-conformance", "usability"):
+            contract = next(item for item in packet["reviewer_contracts"] if item["lens"] == lens)
+            receipt = argparse.Namespace(stage="deliverable", lens=lens, packet_digest=packet["packet_digest"],
+                                         lens_packet_digest=contract["lens_packet_digest"], finding=[],
+                                         findings_from_file=None, code_execution="none")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(receipt, self.store)
+        state = self.state()
+        claim = _good_claim()
+        claim["review"]["finding_summaries"] = []
+        record = {"approval": {"depth": "thorough"},
+                  "plan_review": {"lenses": ["architecture", "feasibility"], "findings": []}}
+        with mock.patch.object(bc, "_sealed_plan_record", return_value=(record, None)), \
+                mock.patch.object(bc, "_installed", return_value=self.INSTALLED), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                    returncode=129, stdout="", stderr="fatal: not a git repository")):
+            evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                             {"body": "", "isDraft": True})
+        body = bcc.compose(claim, evidence)
+        review = body[body.index("## Review"):body.index("## Demonstration")]
+        self.assertIn("the deliverable review (spec-conformance, usability) ran after", review)
+        for absent in ("technical-integrity", "security-governance", "divergence-hunter"):
+            self.assertNotIn(absent, review.split("ran after")[0].rsplit("\n", 1)[-1],
+                             f"{absent} recorded no receipt and must not be named as having run")
+        # The bullets the COORDINATOR composes, up to the claim-authored Impact line.
+        composed = review.split("*Impact:")[0]
+        self.assertNotIn("effort", composed)
+        self.assertNotIn("self-reported", composed)
+
+
+class TheRetiredReviewEffortFieldsLeaveOnRead(CoordinatorCase):
+    """Review depth became the lens roster alone, and the four effort fields left build-state.v2: two on
+    each review stage, two on every receipt. Both Build stores validate on read behind closed schemas, so
+    a snapshot written while the fields existed must lose them in `forward_migrate` or become unreadable
+    the moment the removal lands."""
+
+    def _old_receipt(self):
+        return {"lens": "usability", "packet_digest": "sha256:" + "0" * 64, "commit": "a" * 40,
+                "finding_ids": [], "delivered_effort": "high", "spawn_session_effort": "high"}
+
+    def test_a_snapshot_written_with_the_retired_fields_loses_them(self):
+        import build_coordinator_core as core
+        snapshot = {"reviews": {"deliverable": {"session_effort": "high", "effort_shortfall_accepted": False,
+                                                "receipts": [self._old_receipt()]}},
+                    "repair": {"session_effort": "medium", "effort_shortfall_accepted": True,
+                               "receipts": [self._old_receipt()]}}
+        migrated = core.forward_migrate(snapshot)
+        for stage in (migrated["reviews"]["deliverable"], migrated["repair"]):
+            self.assertFalse({k for k in stage if "effort" in k}, stage)
+            self.assertEqual(stage["receipts"], [{"lens": "usability", "packet_digest": "sha256:" + "0" * 64,
+                                                  "commit": "a" * 40, "finding_ids": []}])
+        self.assertIn("session_effort", snapshot["reviews"]["deliverable"],
+                      "the loaded document is copied, never edited underneath its caller")
+        self.assertIn("delivered_effort", snapshot["repair"]["receipts"][0])
+
+    def test_a_snapshot_with_clean_review_stages_is_returned_as_it_stands(self):
+        import build_coordinator_core as core
+        clean = {"reviews": {"deliverable": {"receipts": []}}, "repair": {"receipts": []}, "revision": 2}
+        self.assertIs(core.forward_migrate(clean), clean)
+
+    def test_the_schema_declares_none_of_them(self):
+        text = (bc.ROOT / ".engine" / "schemas" / "build-state.v2.json").read_text(encoding="utf-8")
+        json.loads(text)
+        for field in ("session_effort", "effort_shortfall_accepted", "delivered_effort", "spawn_session_effort"):
+            self.assertNotIn(field, text)
+
+    def test_a_real_pre_change_snapshot_reads_clean_through_the_real_store(self):
+        """The wiring, not the function: a snapshot file written with every retired field is read through
+        the real store, which runs the migration before validating."""
+        self.seed()
+        path = Path(self.state_path)
+        state = json.loads(path.read_text(encoding="utf-8"))
+        state["reviews"]["deliverable"].update({"session_effort": "high", "effort_shortfall_accepted": False,
+                                                "receipts": [self._old_receipt()]})
+        path.write_text(json.dumps(state), encoding="utf-8")
+        loaded = self.store.read()
+        stage = loaded["reviews"]["deliverable"]
+        self.assertFalse({k for k in stage if "effort" in k})
+        self.assertFalse({k for k in stage["receipts"][0] if "effort" in k})
 
 
 if __name__ == "__main__":

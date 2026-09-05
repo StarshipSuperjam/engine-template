@@ -76,10 +76,7 @@ class _Ceremony(unittest.TestCase):
 
     def reviewed(self, *findings, depth="standard", lenses=None):
         slug = self.approved(depth)
-        # The panel delivered the effort its depth promises, and now says so: `review record` refuses
-        # a record that does not (StarshipSuperjam/engine-template#1067).
-        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
-                "--delivered-effort", "high"]
+        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
         for lens in (lenses if lenses is not None else self.covering(depth)):
             argv += ["--lens", lens]
         if findings:
@@ -98,8 +95,7 @@ class D1PartialReviewIsNoLongerPermanent(_Ceremony):
     def test_the_wedge_reproduces_a_second_review_is_still_refused(self):
         slug = self.reviewed(lenses=[self.covering()[0]])
         code, _, err = self.run_command("review", "record", slug, "--packet-digest",
-                                        self.packet_digest(slug), "--lens", self.covering()[1],
-                                        "--delivered-effort", "high")
+                                        self.packet_digest(slug), "--lens", self.covering()[1])
         self.assertEqual(code, 2)
         self.assertIn("exactly one per plan", err)
 
@@ -107,7 +103,7 @@ class D1PartialReviewIsNoLongerPermanent(_Ceremony):
         slug = self.reviewed(lenses=[self.covering()[0]])
         code, out, _ = self.run_command(
             "review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
-            "--lens", self.covering()[1], "--delivered-effort", "high",
+            "--lens", self.covering()[1],
             "--reason", "The second lens finished after the record.")
         self.assertEqual(code, 0)
         self.assertIn("+1 lens", out)
@@ -137,8 +133,7 @@ class D2UnderCoverageWarnsInExactTerms(_Ceremony):
     def test_the_warning_names_the_missing_lenses_and_the_command_that_lands_them(self):
         slug = self.approved("standard")
         code, _, err = self.run_command("review", "record", slug, "--packet-digest",
-                                        self.packet_digest(slug), "--lens", self.covering()[0],
-                                        "--delivered-effort", "high")
+                                        self.packet_digest(slug), "--lens", self.covering()[0])
         self.assertEqual(code, 0, "an under-covering record is a warning, never a refusal")
         self.assertIn("Missing: " + ", ".join(self.covering()[1:]), err)
         self.assertIn("review amend", err)
@@ -157,8 +152,7 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
                    "location": "C01, the durable store"}
         code, _, _ = self.run_command(
             "review", "record", slug, "--packet-digest", self.packet_digest(slug),
-            "--lens", "architecture", "--findings", self.findings_file(persona),
-            "--delivered-effort", "high")
+            "--lens", "architecture", "--findings", self.findings_file(persona))
         self.assertEqual(code, 0)
         recorded = self.lib.read_record(slug)["plan_review"]["findings"][0]
         self.assertEqual(recorded["summary"], persona["message"])
@@ -301,10 +295,7 @@ class D6NextStepsNameTheirCommand(_Ceremony):
         self.run_command("preview", slug)
         self.run_command("approve", slug, "--depth", "standard", "--operator-decision", "Yes.")
         stages.append(self.run_command("resume", slug)[1])
-        # The panel delivered the effort its depth promises, and now says so: `review record` refuses
-        # a record that does not (StarshipSuperjam/engine-template#1067).
-        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
-                "--delivered-effort", "high"]
+        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
         for lens in self.covering():
             argv += ["--lens", lens]
         argv += ["--findings", self.findings_file(self.finding())]
@@ -364,8 +355,7 @@ class D6NextStepsNameTheirCommand(_Ceremony):
                 code, _, err = self._replay(slug, line)
                 self.assertEqual(code, 0, f"{line}\n{err}")
         # Stage two: review recorded, findings outstanding — the printed `finding dispose`.
-        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
-                "--delivered-effort", "high"]
+        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
         for lens in self.covering():
             argv += ["--lens", lens]
         argv += ["--findings", self.findings_file(self.finding())]
@@ -462,7 +452,6 @@ class D10TheOrphanedApprovalWedgeHasAnInCliRepair(_Ceremony):
         for lens in self.covering()[1:]:
             argv += ["--lens", lens]
         argv += ["--findings", self.findings_file(self.finding(id_="FEAS-1", lens=self.covering()[1])),
-                 "--delivered-effort", "high",
                  "--reason", "The remaining lenses returned late."]
         self.assertEqual(self.run_command(*argv)[0], 0)
         # 3. Both findings are dispositioned, presented, and the plan seals — no store surgery.
@@ -536,117 +525,55 @@ class ConsentGates(_Ceremony):
         self.assertIn("published in the pull request", message)
 
 
-class D11TheApprovalPaysForTwoPanelsAndBothMustSayWhatTheyDelivered(_Ceremony):
+class D11TheReviewRecordCarriesLensesAndNothingAboutEffort(_Ceremony):
     """One approval, one depth, TWO panels: this one before the seal and the Build's deliverable review
-    after it. Until StarshipSuperjam/engine-template#1067 neither recorded the effort it actually ran at,
-    so a sealed `thorough` could publish a promise nothing kept."""
+    after it. Review depth is the lens roster on each side; a record says which lenses read the plan
+    and never what any of them ran at."""
 
-    def test_a_panel_that_came_in_under_the_approved_depth_is_refused_at_the_record(self):
-        slug = self.approved("standard")
-        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
-                "--delivered-effort", "low"]
-        for lens in self.covering():
-            argv += ["--lens", lens]
-        code, _, err = self.run_command(*argv)
-        self.assertEqual(code, 2)
-        self.assertIn("came in under the depth the operator approved", err)
-
-    def test_the_refusal_lands_where_the_exits_still_exist(self):
-        """Not at the seal. The approval freezes at the first review recorded, so by seal time the depth
-        can no longer be re-chosen and a refusal there would wedge the plan with no way out. Here, both
-        honest answers are still available — and the refusal names them."""
-        slug = self.approved("standard")
-        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
-                "--delivered-effort", "low"]
-        for lens in self.covering():
-            argv += ["--lens", lens]
-        _, _, err = self.run_command(*argv)
-        self.assertIn("re-run those lenses", err)
-        self.assertIn("re-approve at the depth", err)
-        self.assertIsNone(self.lib.read_record(slug)["plan_review"],
-                          "a refused record must leave the one review slot unspent")
-
-    def test_a_record_that_says_nothing_about_effort_is_refused_rather_than_assumed(self):
-        slug = self.approved("standard")
+    def _recorded_with_no_effort_statement(self, depth):
+        slug = self.approved(depth)
         argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug)]
-        for lens in self.covering():
-            argv += ["--lens", lens]
-        code, _, err = self.run_command(*argv)
-        self.assertEqual(code, 2)
-        self.assertIn("has to say what they actually ran at", err)
-        self.assertIn("self-reported", err,
-                      "the gate must not imply it verified anything; it records a claim")
-
-    def test_the_delivered_efforts_reach_the_record_per_lens(self):
-        slug = self.reviewed()
-        efforts = self.lib.read_record(slug)["plan_review"]["delivered_efforts"]
-        self.assertEqual(sorted(efforts), sorted(self.covering()))
-        self.assertEqual(set(efforts.values()), {"high"})
-
-    def test_the_honest_exit_records_the_acknowledgement_it_bypassed_the_refusal_with(self):
-        slug = self.approved("standard")
-        argv = ["review", "record", slug, "--packet-digest", self.packet_digest(slug),
-                "--delivered-effort", "low", "--accept-effort-shortfall"]
-        for lens in self.covering():
+        for lens in self.covering(depth):
             argv += ["--lens", lens]
         code, _, err = self.run_command(*argv)
         self.assertEqual(code, 0, err)
-        self.assertTrue(self.lib.read_record(slug)["plan_review"]["effort_shortfall_accepted"])
+        review = self.lib.read_record(slug)["plan_review"]
+        self.assertEqual(sorted(review["lenses"]), sorted(self.covering(depth)))
+        self.assertFalse({k for k in review if "effort" in k}, review)
 
-    def test_an_amendment_that_uses_the_escape_records_it_too(self):
-        """The half of the fix with no test anywhere: `review amend` passed the accept flag to the
-        refusal to get past it and never wrote the acknowledgement down, leaving a gap on the record
-        with nothing saying anyone accepted it — the one state the disclosure cannot describe."""
-        slug = self.approved("standard")
-        first, second = self.covering()[0], self.covering()[1]
-        self.assertEqual(self.run_command(
-            "review", "record", slug, "--packet-digest", self.packet_digest(slug),
-            "--lens", first, "--delivered-effort", "high")[0], 0)
-        record = self.lib.read_record(slug)["plan_review"]
-        self.assertFalse(record.get("effort_shortfall_accepted"))
+    def test_a_standard_record_states_no_effort(self):
+        self._recorded_with_no_effort_statement("standard")
+
+    def test_a_thorough_record_states_no_effort(self):
+        self._recorded_with_no_effort_statement("thorough")
+
+    def test_an_amendment_adds_a_lens_with_no_effort_statement(self):
+        slug = self.reviewed(lenses=[self.covering()[0]])
         code, _, err = self.run_command(
             "review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
-            "--lens", second, "--delivered-effort", "low", "--reason", "A late lens, run cheaper.")
-        self.assertEqual(code, 2, "an under-depth amendment must refuse before it records")
-        self.assertIn("came in under the depth", err)
-        code, _, err = self.run_command(
-            "review", "amend", slug, "--packet-digest", self.recorded_packet_digest(slug),
-            "--lens", second, "--delivered-effort", "low", "--accept-effort-shortfall",
-            "--reason", "A late lens, run cheaper.")
+            "--lens", self.covering()[1], "--reason", "A late lens.")
         self.assertEqual(code, 0, err)
-        amended = self.lib.read_record(slug)["plan_review"]
-        self.assertEqual(amended["delivered_efforts"][second], "low")
-        self.assertTrue(amended["effort_shortfall_accepted"],
-                        "the escape was used, so the acknowledgement has to be on the record")
+        self.assertFalse({k for k in self.lib.read_record(slug)["plan_review"] if "effort" in k})
 
-    def test_a_per_lens_form_names_one_lens_and_a_bare_level_names_them_all(self):
-        lenses = ["architecture", "feasibility"]
-        self.assertEqual(project_manager.parse_delivered_efforts(["high"], lenses),
-                         {"architecture": "high", "feasibility": "high"})
-        self.assertEqual(project_manager.parse_delivered_efforts(["high", "feasibility=medium"], lenses),
-                         {"architecture": "high", "feasibility": "medium"})
+    def test_the_retired_flags_are_refused_by_the_parser(self):
+        slug = self.approved("standard")
+        for extra in (["--delivered-effort", "high"], ["--accept-effort-shortfall"]):
+            with self.assertRaises(SystemExit):
+                self.run_command("review", "record", slug, "--packet-digest",
+                                 self.packet_digest(slug), "--lens", self.covering()[0], *extra)
+            self.assertIsNone(self.lib.read_record(slug)["plan_review"],
+                              "a refused command must leave the one review slot unspent")
 
-    def test_a_half_filled_map_refuses_the_seal_as_incoherent(self):
-        """The seal's own check is COHERENCE, not level — the level was gated where the exits were. What
-        the seal owes is that a record which has started stating delivered effort states it for every
-        lens it seals, or it publishes a depth as met by lenses that never said so."""
+    def test_a_record_written_with_the_retired_fields_reads_and_seals(self):
         slug = self.reviewed()
-        def drop_one(current):
-            current["plan_review"]["delivered_efforts"].pop(self.covering()[0])
-        self.lib.update_record(slug, drop_one)
+        path = self.lib.plan_dir(slug) / "record.json"
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw["plan_review"]["delivered_efforts"] = {lens: "medium" for lens in raw["plan_review"]["lenses"]}
+        raw["plan_review"]["effort_shortfall_accepted"] = True
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        self.assertFalse({k for k in self.lib.read_record(slug)["plan_review"] if "effort" in k})
         refusals = project_manager.seal_refusals(self.lib, slug)
-        self.assertTrue(any("never said what they ran at" in r for r in refusals), refusals)
-        self.assertTrue(any(self.covering()[0] in r for r in refusals), refusals)
-
-    def test_a_review_predating_the_field_seals_rather_than_wedging(self):
-        """A record with no map at all is a legacy record, not a violation. Refusing it would wedge a plan
-        whose panel already ran; the pull-request body carries the silence honestly instead."""
-        slug = self.reviewed()
-        def drop_all(current):
-            current["plan_review"].pop("delivered_efforts")
-        self.lib.update_record(slug, drop_all)
-        refusals = project_manager.seal_refusals(self.lib, slug)
-        self.assertFalse(any("ran at" in r for r in refusals), refusals)
+        self.assertFalse(any("ran at" in r or "effort" in r for r in refusals), refusals)
 
 
 if __name__ == "__main__":

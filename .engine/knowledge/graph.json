@@ -5245,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:41c3865dd9c284147c530bb1e22a4177758930040ee7bb2363df04d4fe741bc6",
+        "fingerprint": "sha256:ce01f0ad23c5ef4969d017ebcdfc906778f2d8b9eb31eb9c022835dc2d86c178",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5486,7 +5486,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:2254f5a71a9c8baf048bee33cbeb87c9c178368774ae0c0fa1899bd7e3e0999e",
+        "fingerprint": "sha256:6c156017e8b49db5ad40e539ba8c8e5df5df355f9a0d70846088cca92bc807ae",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -5757,7 +5757,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:402eedc12185fb75c1bbc9875f985e2a8103c669c07bdd70c7222ffe1a867fae",
+        "fingerprint": "sha256:2b7574dd6ef0f969d0f9cb5e436f6b46714bc46fa4d71604525d4651fe090021",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6624,7 +6624,7 @@
       },
       "slug": "model-bindings",
       "source": {
-        "fingerprint": "sha256:7d4978d8ac68633dd1c7dbe7ac6e28cbdca1c1fd9fae79d7d2fdd201cd7012d9",
+        "fingerprint": "sha256:7e68c9a7d50c1c7bbf55354293ff6a16523b4d5031953f51ee222b43deb0f00d",
         "path": ".engine/policies/model-bindings.json"
       },
       "status": "active",
@@ -6644,7 +6644,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:0e957dd7158b6199c5a8de7cee182aa40ab5c1577c2f30e10966742032998979",
+        "fingerprint": "sha256:e45e79abeb13f583fb43b66e7cd992c1cf7a7581ddaf639a0c300143e39ce109",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
@@ -6970,7 +6970,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:1dea1581011866156a75351f34ec7660b569e15f550e54e676c8e79464a73fe4",
+        "fingerprint": "sha256:3f24a1e4154e813b804af78859d449334ddb741f7caa9d2dde18fd5a1601758f",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7327,7 +7327,7 @@
       },
       "slug": "model-bindings.v1",
       "source": {
-        "fingerprint": "sha256:2d6fe00dbd42935255d3c9aa6a572a35016879c26dbf5fb2cb0a75632d823e91",
+        "fingerprint": "sha256:fb5e97d6c775e5d8582711cdca9b49cc5314be7dbc956c5de01c1d56fb52518b",
         "path": ".engine/schemas/model-bindings.v1.json"
       },
       "status": "active",
@@ -7446,7 +7446,7 @@
       },
       "slug": "plan-record.v1",
       "source": {
-        "fingerprint": "sha256:37df00d0cab935376253fbc25f594c6dfae243027602f5b498e1da4cc7a481d0",
+        "fingerprint": "sha256:3d1e04d386250e4fe99c072f4484f05d8e2a963df31b94e97582c1fa91f25788",
         "path": ".engine/schemas/plan-record.v1.json"
       },
       "status": "active",
@@ -9053,7 +9053,6 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:operator_review_effort",
           "tool:repo_identity"
         ],
         "provided_by": [
@@ -9062,7 +9061,7 @@
       },
       "slug": "agent_bindings",
       "source": {
-        "fingerprint": "sha256:41dac0522cdb5fa9d09bb2dce8f3cc725dfb9d1eff71d8ab24e1165138deb749",
+        "fingerprint": "sha256:0f3c43c56d64b2a6db84f8bdc210b8b2289c5bf9049907ac5def30ae4381aaaa",
         "path": ".engine/tools/agent_bindings.py"
       },
       "status": "active",
@@ -9447,7 +9446,6 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:agent_bindings",
           "tool:boot",
           "tool:build_coordinator_contract",
           "tool:build_coordinator_core",
@@ -9481,7 +9479,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:0076d8086dda3a1252486ab420588cfc2b794c3e1194fe164eb91c770f900299",
+        "fingerprint": "sha256:7e0cae49d7ca994224f5429c45be8704e35d6b098fcbf779f18b2b8decce16fa",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9525,7 +9523,7 @@
       },
       "slug": "build_coordinator_core",
       "source": {
-        "fingerprint": "sha256:f5510c7278f914981899485ad583b27d4950a153469e44a79ca6cae52c385998",
+        "fingerprint": "sha256:732a2a3a6001046af5e4240fa0a167207cb7efa46614b3ab9b99f10bbf7a847e",
         "path": ".engine/tools/build_coordinator_core.py"
       },
       "status": "active",
@@ -9619,7 +9617,7 @@
       },
       "slug": "build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:e7128f75904067001f5a11074e0ab93cfa286a5cc839511957440dc0bac260e9",
+        "fingerprint": "sha256:262cbbeeb835e841f953791d1246ca360ddcdd43e51a27be273bb4e9b6e95ce1",
         "path": ".engine/tools/build_coordinator_review.py"
       },
       "status": "active",
@@ -10184,7 +10182,7 @@
       },
       "slug": "codex_gen",
       "source": {
-        "fingerprint": "sha256:b593235fca1022a4d8ec26d1a9325253259978047d9aec90c1f6b08b8456c7ba",
+        "fingerprint": "sha256:135202b5bee39f9cd95e8623566f0bf359c7126bdc241a727c1a91c90b97c790",
         "path": ".engine/tools/codex_gen.py"
       },
       "status": "active",
@@ -10901,7 +10899,7 @@
       },
       "slug": "demo_build_resumes_after_a_kill",
       "source": {
-        "fingerprint": "sha256:9e8170eac13676db7f4c1336a4593f0b9585f338c8a1e7afdbe0524db6f39392",
+        "fingerprint": "sha256:a9f65147e5072815000d74d0bf97835b6a05cf6e22c7f38951a09e9c3aad7c11",
         "path": ".engine/tools/demo_build_resumes_after_a_kill.py"
       },
       "status": "active",
@@ -11387,7 +11385,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:3f4fcdd5893d07db5ffacb043fd56bc6a78426bfb48b3f8fb081980891c8407d",
+        "fingerprint": "sha256:e9e91c8442d89f43109778bac97affb7365768e6b86c2861b9c4c0d7a0447798",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -13542,7 +13540,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:ae18643fad87a6c1ade6e5b21184783f82ffef5f869181134ee0cd31555fa01e",
+        "fingerprint": "sha256:1f1c838e9681f037195be7ce9d47a215c5004aaae58eee477891a149fa05a002",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -13854,29 +13852,6 @@
     {
       "entrypoint": "cli",
       "guarded": false,
-      "id": "tool:operator_review_effort",
-      "name": ".engine/tools/operator_review_effort.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "operator_review_effort",
-      "source": {
-        "fingerprint": "sha256:877b26c887c01b854fc0b9dea22f6aa76b22e649bfd01ac0baf366ead7f4e859",
-        "path": ".engine/tools/operator_review_effort.py"
-      },
-      "status": "active",
-      "summary": "The operator per-depth review-EFFORT override FILE reader — the single home for reading the",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "cli",
-      "guarded": false,
       "id": "tool:overlay_disclosure",
       "name": ".engine/tools/overlay_disclosure.py",
       "owner": "core",
@@ -14073,7 +14048,7 @@
       },
       "slug": "plan_store",
       "source": {
-        "fingerprint": "sha256:9b71d7ccf7eb957ec8b0c69e28fb58f26303e35d1b6dcca484cbf7f733f89f04",
+        "fingerprint": "sha256:712f5bf558b1d62686ace777b7832ae2fb134440de4da5b06dc0b34533001ffa",
         "path": ".engine/tools/plan_store.py"
       },
       "status": "active",
@@ -14234,7 +14209,6 @@
       "owner": "core",
       "predicates": {
         "imports": [
-          "tool:agent_bindings",
           "tool:build_coordinator_core",
           "tool:moment",
           "tool:plan_contract",
@@ -14249,7 +14223,7 @@
       },
       "slug": "project_manager",
       "source": {
-        "fingerprint": "sha256:6f97d175ab78b2c61fc6ee455fcb9a7cb9408200ae84ff7a42f97be78cc11979",
+        "fingerprint": "sha256:a1230cdbcbdf694372ff213f81ef186d688c60364e84fbff673be6ae2d7548ac",
         "path": ".engine/tools/project_manager.py"
       },
       "status": "active",
@@ -15624,7 +15598,7 @@
       },
       "slug": "telemetry",
       "source": {
-        "fingerprint": "sha256:dbdfca122dcb89ea37e32a788c7ebee3b34dc77ce8720b102fb9a94ce09393e3",
+        "fingerprint": "sha256:e0691146d0c81e24e2a3feb3c8385dfcf98a0558186782961a9c0a4da828d294",
         "path": ".engine/tools/telemetry.py"
       },
       "status": "active",
@@ -15772,7 +15746,7 @@
       },
       "slug": "test_agent_bindings",
       "source": {
-        "fingerprint": "sha256:11f3d370409203e03716f967782946ee3201a36a87464c456163837ec286ad71",
+        "fingerprint": "sha256:f915c4cefca2af0d3f24a5f82b1b90dbf620a531a6e9236a728b141d5889cb20",
         "path": ".engine/tools/test_agent_bindings.py"
       },
       "status": "active",
@@ -16109,6 +16083,7 @@
           "tool:boot",
           "tool:build_coordinator",
           "tool:build_coordinator_contract",
+          "tool:build_coordinator_core",
           "tool:build_coordinator_github",
           "tool:build_state_store",
           "tool:checkout_health",
@@ -16126,7 +16101,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:b6b5ae0eae4c45c2ebd2a0901b75671a16de35bfc5e816b5da95870b0c15efbb",
+        "fingerprint": "sha256:a055bbb8d28d2c6b619810845ee897695548d4a3a6efc4298a31895376b98f54",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16281,7 +16256,7 @@
       },
       "slug": "test_build_coordinator_review",
       "source": {
-        "fingerprint": "sha256:0a17bff24dddb20519889498ac32b6f4321a76f79ad0c1b53ccdd1dd5485306c",
+        "fingerprint": "sha256:433b096fb7f828f0e84986dbfe2e62be94ee9c800d250ad6b13697a3ec880196",
         "path": ".engine/tools/test_build_coordinator_review.py"
       },
       "status": "active",
@@ -16668,7 +16643,7 @@
       },
       "slug": "test_codex_gen",
       "source": {
-        "fingerprint": "sha256:701aef83504c2cc07b76b2b77e43fecbe884033bc7118f978500cf916a6e48ae",
+        "fingerprint": "sha256:9799cff92481585e5dcdb86ff773772c7baa804bd8d62cb99729c22f7b6a69aa",
         "path": ".engine/tools/test_codex_gen.py"
       },
       "status": "active",
@@ -18532,7 +18507,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:3f3131dd36892264c69f04664b361acfb5f00dcce951fc17ba60afdb27b5a73c",
+        "fingerprint": "sha256:4eb9ce0962b1ab0df34dc5e601c7d842d26137d8d217fa23c150640b0e89132e",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
@@ -18793,30 +18768,6 @@
     {
       "entrypoint": "test",
       "guarded": false,
-      "id": "tool:test_operator_review_effort",
-      "name": ".engine/tools/test_operator_review_effort.py",
-      "owner": "core",
-      "predicates": {
-        "provided_by": [
-          "module:core"
-        ],
-        "tests": [
-          "tool:module_coherence",
-          "tool:operator_review_effort"
-        ]
-      },
-      "slug": "test_operator_review_effort",
-      "source": {
-        "fingerprint": "sha256:e3c00ed5a750c33d4a07a1eb3097c7cf131151ee68c5b39d278d1e02362e3c17",
-        "path": ".engine/tools/test_operator_review_effort.py"
-      },
-      "status": "active",
-      "summary": "Self-tests for the operator per-depth review-effort override reader (StarshipSuperjam/engine-template#677).",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "test",
-      "guarded": false,
       "id": "tool:test_optional_module_isolation",
       "name": ".engine/tools/test_optional_module_isolation.py",
       "owner": "core",
@@ -18964,7 +18915,7 @@
       },
       "slug": "test_plan_dogfood",
       "source": {
-        "fingerprint": "sha256:ad0ab6e133344f4042aacaaf8bb5b2ce1aa304083ad11c2e1d56d3ef88b95a1e",
+        "fingerprint": "sha256:697e127c99658bd122d09cf8187f73c71a0257bd990d8174489e37e139c89745",
         "path": ".engine/tools/test_plan_dogfood.py"
       },
       "status": "active",
@@ -18994,7 +18945,7 @@
       },
       "slug": "test_plan_lifecycle",
       "source": {
-        "fingerprint": "sha256:6fb458eb969cd730c0374509b6c21ce9f086c6c2c8565c4131ef53d0612c0e05",
+        "fingerprint": "sha256:1184643e3500e9dbe3f4a73aa491b3ce60b1abf4bb4e698c27a34c6f6f3b682a",
         "path": ".engine/tools/test_plan_lifecycle.py"
       },
       "status": "active",
@@ -19097,7 +19048,7 @@
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:b6cf3bc08c2b948db900a822ef6b8f99ee0cad50a17da46721f9aa678ed0564b",
+        "fingerprint": "sha256:da4473583f3fcf64475517ff329b0b9102928cc7803a8c46b281ec558e7cc4d6",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
@@ -19257,7 +19208,7 @@
       },
       "slug": "test_project_manager",
       "source": {
-        "fingerprint": "sha256:1891031470e9035e857e1f3db2d1c4e84e9db60b663d7fb8c12d716b32b79c0f",
+        "fingerprint": "sha256:eeecbf49ccb881d55746fabd7ea281574a02479fffc0d43fdc55aa224d6e18b5",
         "path": ".engine/tools/test_project_manager.py"
       },
       "status": "active",
@@ -19355,12 +19306,13 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_protocol",
           "tool:validate"
         ]
       },
       "slug": "test_qa_review",
       "source": {
-        "fingerprint": "sha256:1437bc49a38aff580255e87f0020c4fd225b348703c7f1857b8c1b9f8155de61",
+        "fingerprint": "sha256:3be79cf6dcc0a852cb1c3c22464fb37eb7af005193170cbfef80975fdabd9f19",
         "path": ".engine/tools/test_qa_review.py"
       },
       "status": "active",
@@ -19859,7 +19811,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:7d407aac518cab4c97f1e2c3a708dd9e154e524207b480663d35ad88e15b09c4",
+        "fingerprint": "sha256:944fc2f4164cb6388247b896cff4a81a61f205e73eca827525aae1de54e13888",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
@@ -20763,7 +20715,7 @@
       },
       "slug": "test_telemetry",
       "source": {
-        "fingerprint": "sha256:d02e85a0bb48bdc5d9824bc63d8a60352b50494f84b139da0fd44d06fae7c691",
+        "fingerprint": "sha256:0cf51fe9977e4e23282a7e39d2f2a2473f9f225be1daffe1087bb44a75c60319",
         "path": ".engine/tools/test_telemetry.py"
       },
       "status": "active",

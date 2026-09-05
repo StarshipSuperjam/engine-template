@@ -233,49 +233,20 @@ class TestWorkerBinding(unittest.TestCase):
             ab._binding_for(fm, self._bindings())
 
 
-class TestReviewDepthsSchema(unittest.TestCase):
-    def test_review_depths_block_accepts_valid_efforts(self):
+class TestReviewDepthIsRosterOnly(unittest.TestCase):
+    """Review depth is the lens roster plus per-lens model; the bindings carry no per-depth effort."""
+
+    def test_the_schema_rejects_a_review_depths_block(self):
         b = _valid_bindings(review_depths={"standard": {"effort": "medium"}, "thorough": {"effort": "high"}})
-        self.assertEqual(_errors(b), [])
+        self.assertTrue(_errors(b), "a per-depth effort block is not part of the bindings")
 
-    def test_review_depths_is_optional(self):
-        self.assertEqual(_errors(_valid_bindings()), [])   # absent block is fine
-
-    def test_review_depths_rejects_bad_effort_and_stray_model(self):
-        bad_effort = _valid_bindings(review_depths={"standard": {"effort": "maximum"}})
-        self.assertTrue(_errors(bad_effort))
-        stray_model = _valid_bindings(review_depths={"standard": {"effort": "medium", "model": "sonnet"}})
-        self.assertTrue(_errors(stray_model), "review_depths carries effort only — a model key is rejected")
-        bad_depth = _valid_bindings(review_depths={"quick": {"effort": "low"}})
-        self.assertTrue(_errors(bad_depth), "quick runs no reviewers, so it is not a review_depths key")
-
-    def test_committed_bindings_carry_the_review_depths_block(self):
+    def test_the_committed_bindings_carry_no_review_depths_block(self):
         real = validate.load_json(REAL_BINDINGS)
-        self.assertEqual(real["review_depths"]["thorough"]["effort"], "high", "thorough = anchor high")
-        self.assertEqual(real["review_depths"]["standard"]["effort"], "medium")
+        self.assertNotIn("review_depths", real)
 
-
-class TestDepthEffort(unittest.TestCase):
-    def _b(self):
-        return _valid_bindings(review_depths={"standard": {"effort": "medium"}, "thorough": {"effort": "high"}})
-
-    def test_shipped_defaults_resolve(self):
-        self.assertEqual(ab.depth_effort("thorough", self._b()), "high")
-        self.assertEqual(ab.depth_effort("standard", self._b()), "medium")
-
-    def test_quick_has_no_effort(self):
-        self.assertIsNone(ab.depth_effort("quick", self._b()))
-
-    def test_absent_review_depths_is_none(self):
-        self.assertIsNone(ab.depth_effort("standard", _valid_bindings()))
-
-    def test_operator_override_wins_over_shipped_default(self):
-        with tempfile.TemporaryDirectory() as d:
-            os.makedirs(os.path.join(d, ".engine"))
-            with open(os.path.join(d, ".engine", "operator-review-effort.json"), "w", encoding="utf-8") as fh:
-                json.dump({"standard": {"effort": "low"}}, fh)
-            self.assertEqual(ab.depth_effort("standard", self._b(), root=d), "low")   # override wins
-            self.assertEqual(ab.depth_effort("thorough", self._b(), root=d), "high")  # untouched -> shipped
+    def test_the_bindings_module_resolves_no_depth_effort(self):
+        self.assertFalse(hasattr(ab, "depth_effort"))
+        self.assertNotIn("operator_review_effort", sys.modules.get("agent_bindings").__dict__)
 
 
 if __name__ == "__main__":

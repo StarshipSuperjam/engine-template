@@ -59,7 +59,7 @@ def _snapshot(worktree: str) -> dict:
             "required_lenses": ["usability"], "installed_lenses": ["usability"],
             "reviewer_contracts": [], "receipts": [
                 {"lens": "usability", "packet_digest": "sha256:" + "1" * 64, "commit": "a" * 40,
-                 "finding_ids": [], "code_execution": "none", "delivered_effort": "high"}],
+                 "finding_ids": [], "code_execution": "none"}],
             "reviewed_commit": "a" * 40, "base_commit": "0" * 40}},
         "findings": [], "checkpoint": None,
         "progress": {"current_item": "N1", "completed": []},
