@@ -20,7 +20,7 @@ length_budget: 70
 
 ## How careful — your choice
 
-You choose how careful this should be; the suggestion above is the default. Every level runs the same automatic checks and the same full test suite on every change — what the levels change is how much independent review runs on top, and how hard each reviewer looks. "What I'll run" above is the authoritative list for this change. I only offer levels that would actually add something here: if a heavier level would run exactly what a lighter one does, I don't offer it.
+You choose how careful this should be; the suggestion above is the default. Every level runs the same automatic checks and the same full test suite on every change — what the levels change is how much independent review runs on top. "What I'll run" above is the authoritative list for this change. I only offer levels that would actually add something here: if a heavier level would run exactly what a lighter one does, I don't offer it.
 
 - **Quick check** — I look it over myself and run the automatic checks (the completeness and guardrail checks, and the full test suite, that run on every change) — no separate reviewers. The lightest: with no independent review, the least gets caught before it ships, so you lean most on your own read at merge.
 - **Standard review** — a focused subset of the independent reviews — more independent review than Quick. ("What I'll run" above lists exactly which lenses run at each gate.)

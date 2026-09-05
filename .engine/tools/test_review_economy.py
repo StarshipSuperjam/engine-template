@@ -9,8 +9,6 @@ the build that produced most of them: lenses run to do work; they are not ceremo
     git repository, because the whole change is commit-range arithmetic and a fake SHA proves none of it.
   * `TheBatchForm` — the collapsed shell array that made a receipt demand a bogus id
     (StarshipSuperjam/engine-template#1060).
-  * `TheB1EffortShortfall` — the sealed `thorough` whose panel ran at `medium` and said nothing
-    (StarshipSuperjam/engine-template#1067).
   * `ThreeCodeExecutionBehaviours` — B2's carried finding CO-1.
   * `Issue1012BookkeepingTraps` — the four traps that lost long sessions in their own ceremony.
 """
@@ -64,7 +62,7 @@ class _RealRepo(unittest.TestCase):
 
     def receipt(self, lens: str, base: str, tip: str, **over) -> dict:
         return {"lens": lens, "packet_digest": "sha256:" + "1" * 64, "commit": tip,
-                "finding_ids": [], "code_execution": "none", "delivered_effort": "high",
+                "finding_ids": [], "code_execution": "none",
                 "reviewed_range": {"base": base, "tip": tip}, **over}
 
 

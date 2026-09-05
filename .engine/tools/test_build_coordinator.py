@@ -1625,7 +1625,7 @@ class TestReviewAndFindings(CoordinatorCase):
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 parser.parse_args(argv)
 
-    def test_a_receipt_records_what_its_lens_read_and_what_it_ran_at(self):
+    def test_a_receipt_records_what_its_lens_read_and_nothing_about_effort(self):
         packet = self.packet()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             bc.cmd_review_record(self.receipt_args(packet, "usability", []), self.store)
@@ -6125,6 +6125,59 @@ class TestReceiptReporting(unittest.TestCase):
                                                       "unresolved_concerns": ["scope boundary looks tight"]}}}})
         node = bc._work_projection(plan, state)["nodes"]["shared"]
         self.assertEqual(node["unresolved_concerns"], ["scope boundary looks tight"])
+
+
+class TheCoverageBulletNamesTheLensesThatRecordedReceipts(CoordinatorCase):
+    """The pull-request body's Coverage bullet names the lenses that RECORDED A RECEIPT, never the
+    installed set (StarshipSuperjam/engine-template#1216), and the Review section says nothing about
+    effort: review depth is the lens roster, and the body describes it that way."""
+
+    INSTALLED = ["spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"]
+
+    def test_two_receipts_against_five_installed_lenses_name_exactly_the_two(self):
+        import build_coordinator_contract as bcc
+        from test_build_coordinator_contract import _good_claim
+        self.seed()
+        self.approve("thorough")
+        self.store.mutate(lambda st: st.update({"validation": {"commit": HEAD_A, "results": [
+            {"id": "self-test", "commit": HEAD_A, "passed": True, "summary": "green"}]}}))
+        args = argparse.Namespace(stage="deliverable", plan=str(self.plan_path), impact=None)
+        out = io.StringIO()
+        with mock.patch.object(bc, "_installed", return_value=self.INSTALLED), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_base", return_value=BASE), \
+                contextlib.redirect_stdout(out):
+            bc._packet(args, self.store)
+        packet = json.loads(out.getvalue())
+        for lens in ("spec-conformance", "usability"):
+            contract = next(item for item in packet["reviewer_contracts"] if item["lens"] == lens)
+            receipt = argparse.Namespace(stage="deliverable", lens=lens, packet_digest=packet["packet_digest"],
+                                         lens_packet_digest=contract["lens_packet_digest"], finding=[],
+                                         findings_from_file=None, code_execution="none")
+            with contextlib.redirect_stdout(io.StringIO()):
+                bc.cmd_review_record(receipt, self.store)
+        state = self.state()
+        claim = _good_claim()
+        claim["review"]["finding_summaries"] = []
+        record = {"approval": {"depth": "thorough"},
+                  "plan_review": {"lenses": ["architecture", "feasibility"], "findings": []}}
+        with mock.patch.object(bc, "_sealed_plan_record", return_value=(record, None)), \
+                mock.patch.object(bc, "_installed", return_value=self.INSTALLED), \
+                mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_run", return_value=types.SimpleNamespace(
+                    returncode=129, stdout="", stderr="fatal: not a git repository")):
+            evidence = bc._assemble_evidence(state, bc._plan(str(self.plan_path)), claim, HEAD_A,
+                                             {"body": "", "isDraft": True})
+        body = bcc.compose(claim, evidence)
+        review = body[body.index("## Review"):body.index("## Demonstration")]
+        self.assertIn("the deliverable review (spec-conformance, usability) ran after", review)
+        for absent in ("technical-integrity", "security-governance", "divergence-hunter"):
+            self.assertNotIn(absent, review.split("ran after")[0].rsplit("\n", 1)[-1],
+                             f"{absent} recorded no receipt and must not be named as having run")
+        # The bullets the COORDINATOR composes, up to the claim-authored Impact line.
+        composed = review.split("*Impact:")[0]
+        self.assertNotIn("effort", composed)
+        self.assertNotIn("self-reported", composed)
 
 
 class TheRetiredReviewEffortFieldsLeaveOnRead(CoordinatorCase):

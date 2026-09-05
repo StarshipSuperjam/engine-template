@@ -28,7 +28,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 # each lens's model; no operator-facing surface describes reviewers by effort.
 RETIRED = ("--session-effort", "--delivered-effort", "--accept-effort-shortfall", "review_depths",
            "operator_review_effort", "reviewer effort", "reviewer EFFORT", "scales reviewer",
-           "Depth scales EFFORT", "at higher effort", "effort configured for", "depth-scaled")
+           "Depth scales EFFORT", "at higher effort", "effort configured for", "depth-scaled",
+           "how hard each reviewer looks", "TheB1EffortShortfall")
 
 
 def _operator_facing_files():
