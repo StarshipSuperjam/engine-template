@@ -5673,7 +5673,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:333aa913734917450d287ffd1472ef88843c6d7bb35cce3974756823fa6bad19",
+        "fingerprint": "sha256:a55d1ce465593aa206ba5b1088562cf5bfbe2892c0499b74caf250f9f584f1ae",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6560,7 +6560,7 @@
       },
       "slug": "model-routing",
       "source": {
-        "fingerprint": "sha256:6a616f5a6de0e45df18b3cc6631f4b52f32bfcd8342c4499fb692f9b928374b3",
+        "fingerprint": "sha256:156a3651697e8188a450dd05df32b24bd676872b8d88c36d79449b0a4a0104e5",
         "path": ".engine/policies/model-routing.md"
       },
       "status": "active",
@@ -10802,7 +10802,7 @@
       },
       "slug": "demo_build_resumes_after_a_kill",
       "source": {
-        "fingerprint": "sha256:9e8170eac13676db7f4c1336a4593f0b9585f338c8a1e7afdbe0524db6f39392",
+        "fingerprint": "sha256:a9f65147e5072815000d74d0bf97835b6a05cf6e22c7f38951a09e9c3aad7c11",
         "path": ".engine/tools/demo_build_resumes_after_a_kill.py"
       },
       "status": "active",
@@ -11288,7 +11288,7 @@
       },
       "slug": "demo_plan_to_ready_pr",
       "source": {
-        "fingerprint": "sha256:3f4fcdd5893d07db5ffacb043fd56bc6a78426bfb48b3f8fb081980891c8407d",
+        "fingerprint": "sha256:e9e91c8442d89f43109778bac97affb7365768e6b86c2861b9c4c0d7a0447798",
         "path": ".engine/tools/demo_plan_to_ready_pr.py"
       },
       "status": "active",
@@ -18852,7 +18852,7 @@
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:b6cf3bc08c2b948db900a822ef6b8f99ee0cad50a17da46721f9aa678ed0564b",
+        "fingerprint": "sha256:0e23925cfa18e73454dcd96598997d409e850acf5cec2da6c0386aa2c6a7c2be",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
@@ -19614,7 +19614,7 @@
       },
       "slug": "test_review_economy",
       "source": {
-        "fingerprint": "sha256:95372e503a04a1a1b47e976a2b0a8ab83be92ecfd220a0344973ade1af32855d",
+        "fingerprint": "sha256:10e6bc5d4aae466cd6d517b7773a0feda07ac436310dafdb86ea310e086e737d",
         "path": ".engine/tools/test_review_economy.py"
       },
       "status": "active",
