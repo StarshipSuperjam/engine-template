@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "model-routing.v1 — the operator-tunable execution-posture lines",
+  "description": "The self-instruction lines the engine loads for each execution posture: `qualified` for a `matched` environment, `conservative-default` for every other. They used to be two fenced text blocks inside .engine/policies/model-routing.md, parsed back out at boot; a policy page is judgment prose, not a data store, so the lines live here and the page carries a generated projection (StarshipSuperjam/engine-template#821). The loader falls back to the engine's built-in conservative default on any miss and never raises into boot; this schema is what the model-routing merge check enforces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "postures"],
+  "properties": {
+    "schema_version": {"const": "model-routing.v1"},
+    "postures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qualified", "conservative-default"],
+      "properties": {
+        "qualified": {"$ref": "#/$defs/lines"},
+        "conservative-default": {"$ref": "#/$defs/lines"}
+      }
+    }
+  },
+  "$defs": {
+    "lines": {
+      "description": "One posture's self-instruction lines, relayed verbatim in the boot briefing's never-shed execution block; bounded so the block the briefing floors at eight lines can never be gutted or flooded from here.",
+      "type": "array", "minItems": 1, "maxItems": 8,
+      "items": {"type": "string", "minLength": 1, "maxLength": 240}
+    }
+  }
+}

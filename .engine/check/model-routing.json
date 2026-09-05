@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/model-routing",
+  "target": { "context": "model-routing" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/model_routing_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The execution-posture lines (.engine/policies/model-routing.json) are what the engine tells itself at every session start about how carefully to operate — the qualified posture for an environment the operator has qualified, the conservative default for every other. This check goes red on three conditions: the file does not load as model-routing.v1 (a malformed file silently drops the engine to its built-in conservative default, which is safe but hides an operator edit that never took effect); the policy page's generated posture region (.engine/policies/model-routing.md, between the two marker comments) does not match what the data renders (so a reader would be told the engine loads lines it does not); or the retired fenced form — a `<!-- posture:... -->` marker in a policy page, or code under .engine/tools that parses one — has come back, which nothing reads any more. To fix: correct the JSON so it matches the schema; regenerate the page region with `uv run --directory .engine --frozen -- python tools/execution_environment.py render-postures` and commit it; delete any revived marker or parser. This check covers the data and its projection; which posture a session actually loads is decided at boot from the committed qualification baseline."
+}

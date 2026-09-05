@@ -45,6 +45,7 @@
       ".engine/check/manifest-write-funnel.json",
       ".engine/check/memory-pointer-public-safety.json",
       ".engine/check/model-bindings-schema.json",
+      ".engine/check/model-routing.json",
       ".engine/check/module-catalog-drift.json",
       ".engine/check/module-manifest.json",
       ".engine/check/module-surfaces-drift.json",

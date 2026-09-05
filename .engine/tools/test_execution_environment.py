@@ -17,10 +17,16 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import shutil
+import io
+import contextlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import execution_environment as ee  # noqa: E402
+
+_ROOT = validate.ROOT
 
 EXEC_SCHEMA = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "execution-state.v1.json"))
 REAL_BASELINE = os.path.join(validate.ROOT, ".engine", "state", "execution.json")
@@ -429,6 +435,117 @@ class TestBootPostureRelay(unittest.TestCase):
     def test_posture_block_reaches_the_assembled_pack(self):
         # The genesis baseline in this repo yields the conservative posture; its block must reach Tier 0.
         self.assertIn("EXECUTION POSTURE", self.boot.assemble_pack())
+
+
+class TestRoutingData(unittest.TestCase):
+    """The posture lines are schema-checked data (model-routing.json): the boot-facing loader returns None
+    on ANY miss and resolve_posture falls back to the built-in conservative default; the strict loader names
+    the miss for the merge check; the fence parser is gone; the page's generated region is current, drifts
+    are caught, and render restores them; the registered check is green live and bites its fixture."""
+
+    FIXTURE = ".engine/_fixtures/model-routing/malformed-routing.json"
+
+    def _scratch(self) -> str:
+        tmp = tempfile.mkdtemp(prefix="model-routing-")
+        for rel in (ee._ROUTING_REL, ee._ROUTING_SCHEMA_REL, ee._POLICY_REL):
+            dst = os.path.join(tmp, rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(os.path.join(_ROOT, rel), dst)
+        return tmp
+
+    def test_live_data_loads_and_a_matched_environment_gets_the_qualified_lines(self):
+        routing = ee.load_routing_strict(_ROOT)
+        self.assertEqual(set(routing["postures"]), {"qualified", "conservative-default"})
+        self.assertEqual(ee.resolve_posture("matched", _ROOT), routing["postures"]["qualified"])
+        for other in ("changed", "unqualified", "unknown"):
+            self.assertEqual(ee.resolve_posture(other, _ROOT), routing["postures"]["conservative-default"])
+
+    def test_absent_data_falls_back_to_the_constant_and_never_raises(self):
+        with mock.patch.dict(os.environ, {ee.ROUTING_ENV_OVERRIDE: "/nonexistent/model-routing.json"}):
+            self.assertIsNone(ee.load_routing(_ROOT))
+            self.assertEqual(ee.resolve_posture("matched", _ROOT), list(ee._CONSERVATIVE_DEFAULT))
+            with self.assertRaises(ee.RoutingUnreadable):
+                ee.load_routing_strict(_ROOT)
+
+    def test_malformed_data_falls_back_and_the_strict_loader_names_the_miss(self):
+        with mock.patch.dict(os.environ, {ee.ROUTING_ENV_OVERRIDE: self.FIXTURE}):
+            self.assertIsNone(ee.load_routing(_ROOT))
+            self.assertEqual(ee.resolve_posture("matched", _ROOT), list(ee._CONSERVATIVE_DEFAULT))
+            with self.assertRaises(ee.RoutingUnreadable) as ctx:
+                ee.load_routing_strict(_ROOT)
+        self.assertIn("qualified", str(ctx.exception))
+
+    def test_unreadable_json_falls_back(self):
+        tmp = self._scratch()
+        try:
+            open(os.path.join(tmp, ee._ROUTING_REL), "w", encoding="utf-8").write("{not json")
+            self.assertIsNone(ee.load_routing(tmp))
+            self.assertEqual(ee.resolve_posture("matched", tmp), list(ee._CONSERVATIVE_DEFAULT))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_derive_stays_total_when_the_data_is_gone(self):
+        tmp = self._scratch()
+        try:
+            os.remove(os.path.join(tmp, ee._ROUTING_REL))
+            result = ee.derive(provider="claude", repo="o/r", root=tmp)
+            self.assertEqual(result["lines"], list(ee._CONSERVATIVE_DEFAULT))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_the_fence_parser_is_gone(self):
+        self.assertFalse(hasattr(ee, "_policy_posture_block"))
+        source = open(ee.__file__, encoding="utf-8").read()
+        self.assertNotIn("<!-- posture:", source)
+
+    def test_committed_page_region_is_current(self):
+        expected, actual = ee.posture_projection_status(_ROOT)
+        self.assertEqual(actual, expected, "run `execution_environment.py render-postures` and commit the page")
+
+    def test_drift_is_caught_and_render_restores(self):
+        tmp = self._scratch()
+        try:
+            page = os.path.join(tmp, ee._POLICY_REL)
+            text = open(page, encoding="utf-8").read()
+            open(page, "w", encoding="utf-8").write(text.replace("run your full, careful ceremony", "relax"))
+            expected, actual = ee.posture_projection_status(tmp)
+            self.assertNotEqual(actual, expected)
+            self.assertTrue(ee.apply_posture_projection(tmp))
+            expected, actual = ee.posture_projection_status(tmp)
+            self.assertEqual(actual, expected)
+            self.assertFalse(ee.apply_posture_projection(tmp))
+        finally:
+            shutil.rmtree(tmp)
+
+
+class TestModelRoutingCheck(unittest.TestCase):
+    def _run(self, env: dict | None = None) -> list:
+        import model_routing_check as mrc
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, env or {}), contextlib.redirect_stdout(buf):
+            rc = mrc.main([])
+        self.assertEqual(rc, 0)
+        return json.loads(buf.getvalue())
+
+    def test_green_on_the_live_tree(self):
+        self.assertEqual(self._run(), [])
+
+    def test_bites_its_negative_fixture(self):
+        found = self._run({ee.ROUTING_ENV_OVERRIDE: TestRoutingData.FIXTURE})
+        self.assertTrue(any(f["severity"] == "hard" and "does not load as model-routing.v1" in f["message"]
+                            for f in found), found)
+
+    def test_a_revived_marker_is_a_finding(self):
+        import model_routing_check as mrc
+        tmp = TestRoutingData._scratch(TestRoutingData())
+        try:
+            stray = os.path.join(tmp, ".engine/policies/stray.md")
+            open(stray, "w", encoding="utf-8").write("# stray\n\n<!-- posture:qualified -->\n```text\nx\n```\n")
+            os.makedirs(os.path.join(tmp, ".engine/tools"), exist_ok=True)
+            found = mrc.findings("hard", tmp)
+            self.assertTrue(any("stray.md" in f["message"] and "retired" in f["message"] for f in found), found)
+        finally:
+            shutil.rmtree(tmp)
 
 
 if __name__ == "__main__":

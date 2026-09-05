@@ -71,10 +71,19 @@ def genesis_baseline() -> dict:
 
 ENVIRONMENTS = ("claude", "codex")
 _BASELINE_REL = os.path.join(".engine", "state", "execution.json")
-_POLICY_REL = os.path.join(".engine", "policies", "model-routing.md")
+_POLICY_REL = os.path.join(".engine", "policies", "model-routing.md")          # the page; carries a generated projection
+_ROUTING_REL = os.path.join(".engine", "policies", "model-routing.json")        # the data the engine loads
+_ROUTING_SCHEMA_REL = os.path.join(".engine", "schemas", "model-routing.v1.json")
+#: Input-substitution seam for the negative-fixture meta-check (unset in production): points the loader at a
+#: seeded bad routing file so engine/check/model-routing is witnessed biting.
+ROUTING_ENV_OVERRIDE = "ENGINE_MODEL_ROUTING_PATH"
+#: The generated region's delimiters in model-routing.md — the projection of the JSON the engine actually
+#: loads. Rendered by `execution_environment.py render-postures`; drift is a hard finding at merge.
+POSTURE_REGION_BEGIN = "<!-- generated: model-routing postures (execution_environment.py render-postures; never hand-edit) -->"
+POSTURE_REGION_END = "<!-- /generated: model-routing postures -->"
 
 # The safe fallback posture — always available in code, so the engine has careful guidance even when the
-# policy file is missing or unparseable. The operator tunes the rendered posture text in model-routing.md;
+# routing data is missing or unparseable. The operator tunes the posture lines in model-routing.json;
 # this constant is the floor beneath it, never a "future" placeholder.
 _CONSERVATIVE_DEFAULT = [
     "Execution environment is not a verified qualified match here — run your full, careful ceremony.",
@@ -233,37 +242,112 @@ def compare(observed: dict, baseline: dict) -> dict:
     return {"runtime": env, "posture": "matched", "drift": []}
 
 
-def _policy_posture_block(root: str, name: str) -> list[str] | None:
-    """The operator-tunable posture lines from model-routing.md's fenced block marked
-    `<!-- posture:<name> -->`, or None when the file or the block is absent or unparseable. Deliberately
-    tolerant: any miss returns None so resolve_posture falls back to the safe constant — the parse never
-    raises into boot."""
+class RoutingUnreadable(Exception):
+    """Raised by load_routing_strict when model-routing.json is missing, unparseable, or off schema. The boot
+    path never sees it — load_routing swallows it into None — the merge check reports it."""
+
+
+def _routing_path(root: str) -> str:
+    override = os.environ.get(ROUTING_ENV_OVERRIDE)
+    if override:
+        return override if os.path.isabs(override) else os.path.join(root, override)
+    return os.path.join(root, _ROUTING_REL)
+
+
+def load_routing_strict(root: str | None = None) -> dict:
+    """model-routing.json validated against model-routing.v1, or RoutingUnreadable naming the miss."""
+    root = root or _repo_root()
+    path = _routing_path(root)
     try:
-        with open(os.path.join(root, _POLICY_REL), encoding="utf-8") as fh:
-            text = fh.read()
-    except OSError:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as exc:
+        raise RoutingUnreadable(f"{_ROUTING_REL} is missing ({path})") from exc
+    except (OSError, ValueError) as exc:
+        raise RoutingUnreadable(f"{_ROUTING_REL} is not readable JSON: {exc}") from exc
+    with open(os.path.join(root, _ROUTING_SCHEMA_REL), encoding="utf-8") as fh:
+        schema = json.load(fh)
+    from jsonschema import Draft202012Validator  # lazy: the tool-runtime dependency validate.py also defers
+    errors = sorted(Draft202012Validator(schema).iter_errors(data), key=lambda e: list(e.absolute_path))
+    if errors:
+        where = "/".join(str(p) for p in errors[0].absolute_path) or "(top level)"
+        raise RoutingUnreadable(f"{_ROUTING_REL} does not match model-routing.v1 at {where}: {errors[0].message}")
+    return data
+
+
+def load_routing(root: str | None = None) -> dict | None:
+    """The routing data, or None on ANY miss — missing file, bad JSON, off schema, or an unexpected error.
+    This is the boot-facing loader: it never raises, so resolve_posture always has the constant to fall
+    back on. The merge check uses load_routing_strict to say WHY a file did not load."""
+    try:
+        return load_routing_strict(root)
+    except Exception:
         return None
-    start = text.find(f"<!-- posture:{name} -->")
-    if start < 0:
-        return None
-    fence = text.find("```", start)
-    if fence < 0:
-        return None
-    body_start = text.find("\n", fence)
-    end = text.find("```", body_start + 1)
-    if body_start < 0 or end < 0:
-        return None
-    lines = [ln.rstrip() for ln in text[body_start + 1:end].splitlines() if ln.strip()]
-    return lines or None
 
 
 def resolve_posture(posture: str, root: str | None = None) -> list[str]:
     """The self-instruction lines the engine loads for a posture. A 'matched' environment loads the
-    operator-authored qualified posture (or the safe constant if the policy is absent); every other posture
-    loads the conservative default. Never raises — the constant is always available."""
+    operator-authored qualified lines from model-routing.json (or the safe constant if the data is absent
+    or malformed); every other posture loads the conservative default. Never raises."""
     root = root or _repo_root()
-    block = "qualified" if posture == "matched" else "conservative-default"
-    return _policy_posture_block(root, block) or list(_CONSERVATIVE_DEFAULT)
+    key = "qualified" if posture == "matched" else "conservative-default"
+    routing = load_routing(root)
+    lines = (routing or {}).get("postures", {}).get(key) if routing else None
+    return list(lines) if lines else list(_CONSERVATIVE_DEFAULT)
+
+
+def render_postures(routing: dict) -> str:
+    """The generated region of model-routing.md, markers included: each posture's lines as the fenced text
+    the operator reads, in the order the engine prefers them."""
+    out = [POSTURE_REGION_BEGIN,
+           f"The posture lines the engine loads, from `{_ROUTING_REL}`:", ""]
+    for key, when in (("qualified", "loaded only for a `matched` environment"),
+                      ("conservative-default", "loaded for every other posture, and the built-in floor when the data is absent")):
+        out.append(f"**{key}** — {when}:")
+        out.append("```text")
+        out.extend(routing["postures"][key])
+        out.append("```")
+        out.append("")
+    out.append(POSTURE_REGION_END)
+    return "\n".join(out)
+
+
+def _split_policy(text: str) -> tuple:
+    b = text.find(POSTURE_REGION_BEGIN)
+    e = text.find(POSTURE_REGION_END)
+    if b < 0 or e < 0 or e < b:
+        return text, None, ""
+    end = e + len(POSTURE_REGION_END)
+    return text[:b], text[b:end], text[end:]
+
+
+def posture_projection_status(root: str | None = None) -> tuple:
+    """(expected_region, actual_region_or_None) for model-routing.md on disk; raises RoutingUnreadable when
+    the data itself does not load (there is nothing to project)."""
+    root = root or _repo_root()
+    expected = render_postures(load_routing_strict(root))
+    with open(os.path.join(root, _POLICY_REL), encoding="utf-8") as fh:
+        _, actual, _ = _split_policy(fh.read())
+    return expected, actual
+
+
+def apply_posture_projection(root: str | None = None) -> bool:
+    """Write the current projection into the page's generated region; True when the file changed. Refuses
+    (RoutingUnreadable) when the page carries no region — a region is placed by hand once, then only
+    regenerated."""
+    root = root or _repo_root()
+    path = os.path.join(root, _POLICY_REL)
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    before, region, after = _split_policy(text)
+    if region is None:
+        raise RoutingUnreadable(f"{_POLICY_REL} carries no generated posture region to render into")
+    new = before + render_postures(load_routing_strict(root)) + after
+    if new == text:
+        return False
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(new)
+    return True
 
 
 def derive(*, provider: str, repo: str | None = None, root: str | None = None) -> dict:
@@ -345,6 +429,18 @@ def main(argv: list | None = None) -> int:
         env = argv[1] if len(argv) > 1 else "claude"
         print(json.dumps(derive(provider=env), indent=2))
         return 0
+    if argv and argv[0] == "render-postures":
+        changed = apply_posture_projection()
+        print(f"{'rendered' if changed else 'already current'}: {_POLICY_REL}")
+        return 0
+    if argv and argv[0] == "check-postures":
+        expected, actual = posture_projection_status()
+        if actual == expected:
+            print(f"current: {_POLICY_REL} matches {_ROUTING_REL}")
+            return 0
+        print(f"DRIFT: the generated posture region in {_POLICY_REL} does not match {_ROUTING_REL} — run "
+              f"`execution_environment.py render-postures` and commit", file=sys.stderr)
+        return 1
     if argv and argv[0] == "record":
         if len(argv) < 2 or argv[1] not in ENVIRONMENTS:
             print(f"usage: execution_environment.py record <{'|'.join(ENVIRONMENTS)}> "
@@ -367,7 +463,7 @@ def main(argv: list | None = None) -> int:
         print(json.dumps(entry, indent=2))
         return 0
     print(f"usage: execution_environment.py derive [{'|'.join(ENVIRONMENTS)}] | "
-          f"record <{'|'.join(ENVIRONMENTS)}> [--model-alias A] [--evidence URL]")
+          f"record <{'|'.join(ENVIRONMENTS)}> [--model-alias A] [--evidence URL] | render-postures | check-postures")
     return 2
 
 
