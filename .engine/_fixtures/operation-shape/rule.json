@@ -1,0 +1,9 @@
+{
+  "id": "fixture/operation-shape-length",
+  "kind": "shape",
+  "tier": "hard",
+  "length_tier": "hard",
+  "target": {},
+  "params": { "required_sections": ["Purpose", "Steps", "Done when"], "allowed_sections": ["Notes"], "length_budget": 6 },
+  "message": "An operation's prose body must stay within its {effective_budget}-line budget; this rule's length tier is {length_tier}."
+}

@@ -92,6 +92,51 @@ class TestLiveFixturesBite(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class TestOperationShapeLengthTierBites(unittest.TestCase):
+    """The hardened length tier's negative fixture (`_fixtures/operation-shape/`): a runbook whose sections are
+    all present and in order but whose prose body is over budget must bite at the HARD tier once the rule opts
+    in with `length_tier: "hard"` (typed-lifecycle part C, StarshipSuperjam/engine-template#821). The corpus proves each closed
+    kind once by `kind-<kind>/`; a per-rule tier of a closed kind is outside that roster, so this drives the
+    fixture through the same unit builder and bite predicate the meta-check uses."""
+
+    FDIR = os.path.join(LIVE_FIXTURES, "operation-shape")
+
+    def _unit(self):
+        rule, target = hcb._build_closed_unit("shape", self.FDIR, ROOT)
+        expect = validate.load_json(os.path.join(self.FDIR, "expect.json"))
+        return rule, target, expect
+
+    def test_over_budget_fixture_bites_at_the_hard_tier(self):
+        rule, target, expect = self._unit()
+        passed, found = validate.run_unit(rule, target, {})
+        self.assertFalse(passed)
+        self.assertTrue(hcb._bit(found, expect), found)
+        # For the length reason alone: the sections are well-formed, so no structural finding fires.
+        self.assertEqual([f for f in found if "budget" not in f["message"]], [])
+
+    def test_the_count_leaves_fences_and_generated_regions_out(self):
+        # The input carries a two-line fence and a one-line generated region; the number the finding reports is
+        # the prose count without them, and it is the validator's shared helper that produced it.
+        rule, target, expect = self._unit()
+        input_path = os.path.join(ROOT, target["path"])
+        text = validate.read(input_path)
+        counted = validate.prose_line_count(text)
+        raw = len(validate._body_without_frontmatter(text).splitlines())
+        self.assertLess(counted, raw)
+        _passed, found = validate.run_unit(rule, target, {})
+        self.assertTrue(any(f"is {counted} prose lines" in f["message"] for f in found), found)
+
+    def test_same_fixture_is_only_a_soft_nudge_without_the_opt_in(self):
+        rule, target, _expect = self._unit()
+        rule = dict(rule)
+        rule.pop("length_tier")
+        passed, found = validate.run_unit(rule, target, {})
+        self.assertTrue(passed)
+        over = [f for f in found if "budget" in f["message"]]
+        self.assertTrue(over)
+        self.assertTrue(all(f["severity"] == "soft" for f in over))
+
+
 class TestMissingAndNonBiting(unittest.TestCase):
     """The two failure modes the meta-check must itself catch: a unit with no fixture, and a unit whose
     fixture does not bite."""

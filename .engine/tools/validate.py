@@ -695,24 +695,75 @@ def kind_schema(rule, ctx):
 
 # ---- kind: shape -----------------------------------------------------------
 
+GENERATED_REGION_BEGIN_RE = re.compile(r"^\s*<!-- generated:")   # a renderer-owned region opens (never hand-edited prose)
+GENERATED_REGION_END_RE = re.compile(r"^\s*<!-- /generated:")    # ... and closes
+
+
+def prose_line_count(text: str) -> int:
+    """The prose-body line count a length budget measures: the lines after the YAML frontmatter,
+    with fenced code blocks (``` or ~~~) and generated regions
+    (`<!-- generated: ... -->` ... `<!-- /generated: ... -->`) left out. Neither is prose an author
+    wrote or a cold reader reads as the runbook's own instruction: a fence carries a command or a
+    data literal, and a generated region is owned by the renderer that emits it (its drift check,
+    not a line budget, governs it). The count is shared with the tests that pin per-file baselines
+    (test_operation_length.py), so the validator and the pins read one number."""
+    count, in_fence, in_generated = 0, False, False
+    for line in _body_without_frontmatter(text).splitlines():
+        if GENERATED_REGION_BEGIN_RE.match(line):
+            in_generated = True
+            continue
+        if GENERATED_REGION_END_RE.match(line):
+            in_generated = False
+            continue
+        if in_generated:
+            continue
+        if FENCE_RE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        count += 1
+    return count
+
+
+_SHAPE_MESSAGE_TOKENS = ("{default_budget}", "{effective_budget}", "{length_tier}")
+
+
+def _shape_message(rule: dict, default_budget, effective_budget, length_tier: str) -> str:
+    """The rule's operator-facing message with its length facts interpolated from their sources —
+    the template's default budget, the file's effective budget (default or recorded override), and
+    the rule's length tier — so the prose never restates a number or a severity by hand that the
+    data can change underneath it. Plain token replacement, not str.format: other rule messages
+    legitimately carry braces."""
+    msg = rule["message"]
+    for token, value in zip(_SHAPE_MESSAGE_TOKENS, (default_budget, effective_budget, length_tier)):
+        msg = msg.replace(token, str(value))
+    return msg
+
+
 def kind_shape(rule, ctx):
     """A prose instance matches a template's shape-spec: the required sections are
     present and in the declared order, no section falls outside required+allowed, and
-    the body stays within a soft length budget. Section STRUCTURE is the control —
-    a missing required or an out-of-allowed section is the rule's tier (hard for a
-    governance-critical surface, soft for a lighter one). LENGTH only nudges — over
-    the budget is always SOFT, never the rule's hard tier. The
+    the body stays within its length budget. Section STRUCTURE is always the rule's tier —
+    a missing required or an out-of-allowed section is hard for a governance-critical surface,
+    soft for a lighter one. LENGTH bites at the rule's `length_tier`: soft by default (a nudge
+    to trim that never blocks), hard only where the rule opts in — the operation runbooks do,
+    so an over-budget runbook there fails at the merge gate the way a broken section does. The
     shape-spec (required_sections, allowed_sections, length_budget) is read from the
     surface's TEMPLATE frontmatter via the catalog (catalog -> template -> shape -> instance),
     so the thing the AI authors from is the thing the validator checks and the two cannot
-    drift. The frontmatter and any fenced code block are excluded from both section detection
-    and the length count — templates govern the prose body only. An optional
+    drift. The length counted is `prose_line_count`: frontmatter, fenced code blocks and
+    generated regions are excluded from the count, and frontmatter and fences from section
+    detection — templates govern the prose body only. An optional
     params.length_budget_overrides {rel: {budget, why}} stays on the (guarded) rule, not the
     template, and carries a recorded, consented higher ceiling for one named operation (raising
     a budget stays a deliberate act needing the operator's sign-off); an entry that is malformed
     (no integer budget, no recorded why) or names a file that no longer exists fails at the
-    rule's tier, so a stale or unexplained override cannot rot into a silent grant."""
+    rule's tier, so a stale or unexplained override cannot rot into a silent grant. The rule's
+    message may carry {default_budget}, {effective_budget} and {length_tier}; they are filled
+    from the template, the override table and the rule, never typed by hand."""
     tier = rule["tier"]
+    length_tier = rule.get("length_tier") or "soft"
     params = rule.get("params") or {}
     overrides = params.get("length_budget_overrides") or {}
     findings = []
@@ -727,42 +778,51 @@ def kind_shape(rule, ctx):
         if spec is None:
             spec = params
         required = spec.get("required_sections")
+        budget = spec.get("length_budget")
+        ov = overrides.get(rel)
+        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
+        file_budget = ov_budget if _is_pos_int(ov_budget) else budget
+        message = _shape_message(rule, budget, file_budget, length_tier)
         if required is None:
             findings.append(finding(tier, f"'{rel}' cannot be shape-checked: its surface names no template in the "
-                            f"catalog and the rule carries no inlined shape-spec. {rule['message']}", loc(path)))
+                            f"catalog and the rule carries no inlined shape-spec. {message}", loc(path)))
             continue
         allowed = set(required) | set(spec.get("allowed_sections", []))
-        budget = spec.get("length_budget")
-        body = _body_without_frontmatter(read(path))
+        text = read(path)
+        body = _body_without_frontmatter(text)
         present = section_order(body)
         present_set = set(present)
         # required present
         for name in required:
             if name not in present_set:
                 findings.append(finding(tier, f"'{rel}' is missing the required section "
-                                f"'## {name}'. {rule['message']}", loc(path)))
+                                f"'## {name}'. {message}", loc(path)))
         # required ordering: the required sections that ARE present must keep their order
         seen = [n for n in present if n in required]
         if seen != [n for n in required if n in present_set]:
             findings.append(finding(tier, f"'{rel}' has its required sections out of order; "
-                            f"expected the order {required}. {rule['message']}", loc(path)))
+                            f"expected the order {required}. {message}", loc(path)))
         # no section outside required+allowed
         for name in present:
             if name not in allowed:
                 findings.append(finding(tier, f"'{rel}' has section '## {name}', which the "
-                                f"template does not allow. {rule['message']}", loc(path)))
-        # length budget — a soft nudge only, regardless of the rule's tier. A per-file
+                                f"template does not allow. {message}", loc(path)))
+        # length budget — at the rule's length_tier (soft unless the rule opted in). A per-file
         # override (a recorded, consented higher ceiling for one named operation) replaces
         # the rule-wide budget for its file; absent or malformed, the rule-wide budget
         # applies (a malformed override is caught as a hard finding below).
-        ov = overrides.get(rel)
-        ov_budget = ov.get("budget") if isinstance(ov, dict) else None
-        file_budget = ov_budget if _is_pos_int(ov_budget) else budget
         if file_budget is not None:
-            lines = len(body.splitlines())
+            lines = prose_line_count(text)
             if lines > file_budget:
-                findings.append(finding("soft", f"'{rel}' is {lines} lines, over its "
-                                f"{file_budget}-line budget — a nudge to trim, never a block.", loc(path)))
+                if length_tier == "hard":
+                    consequence = ("this rule's length tier is hard, so this blocks the merge: trim the prose "
+                                   "to fit, or record a reasoned ceiling for this file in "
+                                   "length_budget_overrides with the operator's sign-off.")
+                else:
+                    consequence = "a nudge to trim, never a block."
+                findings.append(finding(length_tier, f"'{rel}' is {lines} prose lines (fenced blocks and "
+                                f"generated regions excluded), over its {file_budget}-line budget — "
+                                f"{consequence} {message}", loc(path)))
     # Each override must be well-formed and live: an integer `budget` (the line ceiling) and a
     # recorded `why` (StarshipSuperjam/engine-template#273's recorded-rationale, made mechanical so a budget cannot be raised
     # without a stated reason), keyed to a file that still exists. A malformed entry, or a key
@@ -1362,7 +1422,7 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
     It does NOT do the dangling/unconsumed-lens check (an installed review lens nothing in the
     orchestration consumes): that is a SEPARATE pure leg, `dangling_lens_findings` (below), driven
     by the lens-consumption consumer (`lens_consumption_check.py`) that discovers the personas and
-    reads build-orchestration's consumed-review-lenses set. This leg owns only persona-internal
+    reads the consumed-lens set from the Build protocol's review_consumers (build_protocol.py). This leg owns only persona-internal
     coherence; the closed sets live HERE, NOT as agent.v1 enums: agent.v1 governs role/model-tier/lens
     as well-formed strings and this leg owns membership, so each set is defined in one place (the
     locked grammar routes membership through the coherence kind, not the schema). `lens` stays an
@@ -1428,8 +1488,8 @@ def agent_coherence_findings(agents: list, tier: str, message: str) -> list:
 def dangling_lens_findings(agents: list, consumed: set, tier: str, message: str) -> list:
     """Pure lens-consumption coherence — the realization of the agents surface's dangling-lens
     posture (the dangling-check-kind). Given the present personas'
-    parsed frontmatter and the CONSUMED lens set a build stage records (build-orchestration's
-    consumed-review-lenses block, read by the lens-consumption consumer), return a finding for each
+    parsed frontmatter and the CONSUMED lens set the Build protocol records (its review_consumers
+    rosters, resolved by build_protocol.consumed_lenses for the lens-consumption consumer), return a finding for each
     INSTALLED review lens that no stage consumes: an installed-yet-unconsumed review lens is a
     coherence finding, disclosed — never a check-only signal the operator may never run.
 

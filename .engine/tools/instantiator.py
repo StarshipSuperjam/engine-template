@@ -1713,7 +1713,6 @@ _FIRST_RUN_ASSET_FILES = (
     # this boundary going forward, so this set cannot silently drift again.
     ".engine/tools/demo_map_reachability.py",
     ".engine/tools/demo_audit_soft_findings.py",
-    ".engine/tools/demo_audit_soft_promote.py",
     ".engine/tools/demo_boot_alarm_collapse.py",
     ".engine/tools/demo_hook_runner.py",
     ".engine/tools/demo_inbox_drain.py",

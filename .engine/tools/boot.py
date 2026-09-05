@@ -1959,7 +1959,7 @@ def gather_signals(session_id: str | None = None, payload: dict | None = None) -
 
     # The execution posture: which runtime is doing the work and whether it matches the operator's committed
     # qualification baseline (.engine/state/execution.json). The deriver owns the decision AND the posture text
-    # (read from model-routing.md, fail-open to the conservative default); boot only relays. It is total by
+    # (read from model-routing-postures.json, fail-open to the conservative default); boot only relays. It is total by
     # construction — a missing/unreadable baseline degrades to a conservative posture, never a broken pack.
     try:
         # provider from the payload (detect is env-first, payload is its Codex fallback); repo is the slug boot

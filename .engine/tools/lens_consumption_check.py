@@ -3,22 +3,24 @@
 
 Runs as a `custom/script` check in the CI suite: it discovers the present review personas
 (`.claude/agents/*.md`, reusing `agent_coherence_check.engine_agents`), reads the CONSUMED review-lens
-set that build orchestration records (the `consumed-review-lenses` block in
-`.engine/operations/build-orchestration.md`), and runs the pure dangling-lens leg
+set the Build protocol records (`review_consumers` in `.engine/build-protocol.json`, through the shared
+loader `build_protocol.consumed_lenses`), and runs the pure dangling-lens leg
 (`validate.dangling_lens_findings`) over them. It emits a finding for every INSTALLED review lens that
 no build stage consumes — an installed-yet-unconsumed review is one that ships but never runs against
 the operator's changes, exactly the coherence hole the agents surface says must be disclosed and never
 left as a check-only signal.
 
 This is where the agent grammar's dangling-lens posture is enforced: the
-consumed set (which gate consumes which lens) is build orchestration's to record, and this consumer
-diffs the installed personas against it. Today installed == consumed (the four plan-review + five
+consumed set (which gate consumes which lens) is the Build protocol's to record — it used to be a fenced
+block in build-orchestration.md, parsed back out here; StarshipSuperjam/engine-template#821 moved it into
+schema-checked data with a generated projection in the runbook — and this consumer diffs the installed
+personas against it. Today installed == consumed (the four plan-review + five
 pre-submission lenses are all consumed), so the check is green; it bites only when a review persona is
 installed carrying a lens no stage lists.
 
-FAIL-CLOSED on BOTH inputs. The consumed set is read from build-orchestration; if that file is missing
-or its `consumed-review-lenses` block is absent/empty, this RAISES — the custom/script kind turns the
-crash into a hard fail-closed finding, so a parse miss can never read as "nothing dangling". The
+FAIL-CLOSED on BOTH inputs. The consumed set is read from the protocol; if that file is missing, off
+schema, or names no lens, the loader RAISES — the custom/script kind turns the crash into a hard
+fail-closed finding, so a data miss can never read as "nothing dangling". The
 installed set is discovered from the real `.claude/agents` tree via `engine_agents` (rooted at
 validate.ROOT); a read error there raises the same way, while a GENUINE empty roster (no review packs
 installed) is a legitimate pass — zero installed lenses dangle.
@@ -34,56 +36,21 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate  # noqa: E402
 import agent_coherence_check  # noqa: E402  (reuse engine_agents + emit — no duplication of discovery)
+import build_protocol  # noqa: E402  (the one loader of .engine/build-protocol.json)
 
-_BUILD_ORCH_REL = ".engine/operations/build-orchestration.md"
-_SENTINEL = "consumed-review-lenses"
-_MESSAGE = ("Wire that review into a build stage that consumes its lens — record it in the "
-            "consumed-review-lenses block in .engine/operations/build-orchestration.md — or remove the "
+_MESSAGE = ("Wire that review into a build stage that consumes its lens — the stage's roster in "
+            ".engine/build-protocol.json (review_consumers names the roster; the deliverable roster is "
+            "deliverable_review there, the plan-review roster is the Project Manager's) — or remove the "
             "persona from .claude/agents/. Until then it is installed but never runs, so it checks "
             "nothing while looking like an active review.")
 
 
-def _consumed_from_notes(notes: str) -> set:
-    """Parse the `consumed-review-lenses` fenced block out of build-orchestration's Notes body and
-    return the union of every lens token it lists. RAISES if the block is absent or lists no lens —
-    the consumer's fail-closed guard, so an unparseable consumed set becomes a hard finding, never a
-    silent empty set. A fenced block is used (not bare backticks) because Notes prose carries other
-    backticked tokens; the fence bounds the machine-readable data unambiguously."""
-    fenced, in_fence, block = [], False, []
-    for line in notes.splitlines():
-        if validate.FENCE_RE.match(line):
-            if in_fence:
-                fenced.append(block)
-                block = []
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            block.append(line)
-    target = next((b for b in fenced if any(ln.strip().startswith(_SENTINEL) for ln in b)), None)
-    if target is None:
-        raise ValueError(f"{_BUILD_ORCH_REL} carries no `{_SENTINEL}` block in its Notes — the "
-                         f"consumed review-lens set is missing, so lens-consumption cannot be judged.")
-    tokens: set = set()
-    for line in target:
-        s = line.strip()
-        if not s or s.startswith(_SENTINEL) or ":" not in s:
-            continue
-        _, rhs = s.split(":", 1)
-        tokens.update(t.strip() for t in rhs.split(",") if t.strip())
-    if not tokens:
-        raise ValueError(f"the `{_SENTINEL}` block in {_BUILD_ORCH_REL} lists no lenses.")
-    return tokens
-
-
 def consumed_lenses(root: str | None = None) -> set:
-    """The consumed review-lens set build orchestration records. Reads the real committed
-    build-orchestration.md (from validate.ROOT, so working-dir independent); raises on a read or
-    parse miss (fail-closed)."""
-    path = os.path.join(root or validate.ROOT, _BUILD_ORCH_REL)
-    with open(path, encoding="utf-8") as fh:
-        body = fh.read()
-    notes = validate.section_blocks(body).get("Notes", "")
-    return _consumed_from_notes(notes)
+    """The consumed review-lens set the Build protocol records: the union over every stage in
+    build-protocol.json's review_consumers, each roster resolved by the shared loader. Raises
+    (build_protocol.ProtocolError) on a missing, off-schema, or empty record — the fail-closed guard, so an
+    unjudged roster becomes a hard finding, never a silent empty set."""
+    return build_protocol.consumed_lenses(root=root)
 
 
 def _demo() -> int:

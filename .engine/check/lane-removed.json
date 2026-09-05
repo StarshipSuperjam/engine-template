@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/lane-removed",
+  "target": { "context": "lane-removed" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/lane_removed_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The engine used to carry a second, softer path for an over-long runbook: a weekly job that noticed a page over its line budget and opened an engine issue to track it (the length-budget promotion lane). That lane is gone — an over-budget operation runbook now fails at the merge gate directly, through the operation-shape rule's hard length tier, so a tracking issue would only describe a problem the merge already refuses. This check keeps the removal complete: it goes red when any tool, workflow, provisioning census, module manifest, or engine document still names the retired promoter script or its old workflow step, which would mean a revived import, a re-added step, a stale entry, or a generated page that was not regenerated. To fix: delete the reference, or regenerate the derived page that carries it (`build_coordinator.py sync-artifacts`). Git history is not scanned; a mention there is history, not a revival. The shared text-neutralising helper the promoter carried lives on in telemetry (neutralize_author_text) and is not a reference to the lane."
+}
