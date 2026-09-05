@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:4be1fee9da93d05a79877ad0910f67b9d24cccc4339eb0b8bd028d0d2c9dcd69",
+        "fingerprint": "sha256:80a428ccc0202324868f2c81a2a99d58b6feb004cd1d1bfa289f5fd62e4a25c7",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -13155,7 +13155,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:7229250a5775455f9474c828a11a4dd159f2a4465bda9c62f52e85c8ee4c878c",
+        "fingerprint": "sha256:f4ac520d8fd2950700daa523f2ca16de57251a7c83abfc3d2d223d57860220d3",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -15366,7 +15366,7 @@
       },
       "slug": "stranding_log",
       "source": {
-        "fingerprint": "sha256:5f3e8648a04b79dc146e328e33f2914818635a5dd968a7f6a1add5c2db4eaaa5",
+        "fingerprint": "sha256:697e4152d3f62f126bc10e7b84cc6fd50f939ac5c7cf003caeb06821763b4370",
         "path": ".engine/tools/memory/stranding_log.py"
       },
       "status": "active",
@@ -16242,7 +16242,7 @@
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:d95dd19e664bcf83fffeea16fd4e6cfc2d0e2ba970376588c36d9a163a3c7666",
+        "fingerprint": "sha256:c37ea41801439b7f33730d4582abec931f384d492ca9210aabf327c92b06c4a4",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -18102,7 +18102,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:855db0f1f9c5b8ee8802361caec4b7d624e268b23dbbed1ad6dc5033444421bd",
+        "fingerprint": "sha256:f5387431fe49d17aff54edaf1dc7f01b7ff257687cff6a1fe52500c1043d930c",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
