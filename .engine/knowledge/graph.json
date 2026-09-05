@@ -12392,7 +12392,7 @@
       },
       "slug": "hooks",
       "source": {
-        "fingerprint": "sha256:8ea4d89ab1804dfa428cbbd813c016ac1d156583a1e2081e121714cd97fe7667",
+        "fingerprint": "sha256:f3c5bed0449ae7833da19bb8eec14bebf8e7a923b61edb6a64094c5aebc4a1fa",
         "path": ".engine/tools/hooks.py"
       },
       "status": "active",
@@ -17322,7 +17322,7 @@
       },
       "slug": "test_hooks",
       "source": {
-        "fingerprint": "sha256:182494390ffcf46a36902149ad34d0ba91dd24b112ad089bd2c503d03cd15572",
+        "fingerprint": "sha256:13870f9332c5d5b1b332dfeaedeaf586399f7f49a01e6019afc200880216955c",
         "path": ".engine/tools/test_hooks.py"
       },
       "status": "active",
