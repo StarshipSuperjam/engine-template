@@ -20,7 +20,13 @@ directory — `.engine/telemetry/.cache/stranding-log.ndjson` under the project 
 beside it as `stranding-log.ndjson.1` (`sink_path`) — it takes no destination argument in production (`path` is
 honored only under the unit test harness), and it can write nothing else — never the ledger, a derived cache,
 the activation, or a backup. The CLI (`readiness`, `export`, `baseline`) is how an operator or a later session
-reads it: `readiness` is the deployment receipt's source (armed, qualification tier, loaded code version).
+reads it. Two different processes answer two different questions, and a deployment receipt needs both:
+`health`, called over the live MCP connection to the DEPLOYED server, is the only source of that server's own
+facts — the loaded `<commit>-<tree>` and its qualification tier (a health answer with no `diagnostics` block
+means that server has not loaded the instrument at all, which before activation and a new process is the
+expected answer); the `readiness` verb reports on the PROCESS THAT RUNS IT — from a shell that is always
+qualification `none` and code_version null — and is the one that confirms, with git, that the sink under the
+project root is ignored, which `health` deliberately never checks (a health probe forks nothing).
 
 What it records — and, more importantly, what it never records. Only: the exception's TYPE (a checked,
 capped dotted identifier), a capped chain of cause/context TYPES, a few frame LOCATIONS (a checked file
@@ -69,7 +75,11 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.
 _ROTATE_BYTES = 256 * 1024
 _OUTER_FRAMES = 2       # the outermost ENGINE frames (the tool entry point), never the SDK plumbing above it ...
 _INNER_FRAMES = 4       # ... and where it actually broke
-_ENGINE_MARK = f"{os.sep}.engine{os.sep}"   # what places a frame's file inside this engine (a checkout or an accepted tree)
+# What places a frame's file inside the engine's OWN code — a checkout's or an accepted tree's `.engine/tools/`.
+# Not `/.engine/` alone: the launchers run `uv run --directory .engine`, so the project's Python environment and
+# every SDK frame live under `.engine/.venv/…` and would match too, and the budget would keep the plumbing.
+_ENGINE_MARK = f"{os.sep}.engine{os.sep}tools{os.sep}"
+_MAX_ROOT_PROBES = 8    # distinct live-checkout roots the server sweep will ask git about in one baseline
 _MAX_CHAIN = 5
 _MAX_SEGMENTS = 8
 _MAX_SEGMENT = 64
@@ -393,7 +403,9 @@ def record_stranding(event: Event, exc: BaseException | None = None, *, tool: st
 # ---- readiness --------------------------------------------------------------------------------------------
 
 def readiness(*, check_ignore: bool = False) -> dict:
-    """Whether this instrument can record right now, truthfully, without writing anything.
+    """Whether this instrument can record right now, IN THIS PROCESS, truthfully, without writing anything.
+    From a shell that is the shell's own answer (qualification `none`, code_version None): the deployed
+    server's tier and loaded version come from its `health` answer over the live connection, never from here.
 
     `armed` is the one bit a health probe or a deployment receipt reads: the writer is registered, its guard
     is installed, the sink's directory (or the nearest existing parent) is writable, and the test-harness gate
@@ -541,6 +553,11 @@ def export_sanitized(destination: str | None = None, *, path: str | None = None)
             f"refusing to export the stranding log to {destination!r}: an export may land only under the "
             f"engine's own cache directory, and this path resolves elsewhere. Omit the destination and "
             "redirect the printed output yourself if you need it somewhere else.")
+    sink = os.path.realpath(sink_path())
+    if resolved in (sink, sink + ".1", sink + ".lock"):
+        raise ValueError(
+            f"refusing to export the stranding log to {destination!r}: that is the raw log itself (or its "
+            "rotation or lock), and the sanitized export must never overwrite the record it was made from.")
     if _is_ignored(resolved) is not True:
         raise ValueError(
             f"refusing to export the stranding log to {destination!r}: git does not report that path ignored, "
@@ -575,7 +592,8 @@ _CACHE_EFFECTS = (
 _SERVERS_SCOPE = (
     "every memory server this account runs for ANY engine checkout on this machine (a shared activation "
     "serves every worktree of one repository); `same_repository` marks the ones under THIS project's git "
-    "directory, None when the argv does not say."
+    "directory, None when the argv does not say — an attribution INFERRED from each process's self-reported "
+    "command line, not a verified property of the process."
 )
 _VENV_PYTHON = f"{os.sep}.engine{os.sep}.venv{os.sep}bin{os.sep}"
 
@@ -608,6 +626,8 @@ def _same_repository(argv: list[str], tree_path: str | None, ours: str | None, c
         if at > 0:
             root = token[:at]
             if root not in cache:
+                if len(cache) >= _MAX_ROOT_PROBES:
+                    return None   # bounded: a machine strewn with stray servers cannot make a baseline slow
                 cache[root] = _git_common_dir(root)
             return None if cache[root] is None else cache[root] == ours
     return None

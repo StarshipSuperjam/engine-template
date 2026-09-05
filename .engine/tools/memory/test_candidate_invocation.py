@@ -477,6 +477,10 @@ DISPOSITION = {
 
 
 def _run(argv, *, env=None, cwd=None, timeout=60) -> str:
+    """Run one command. The environment is SCRUBBED BY DEFAULT (`_setup_env()`: every `GIT_*` variable
+    removed) — a caller that wants a specific environment names it. Opt-in scrubbing was how a leaked
+    GIT_DIR twice found a git call in this file that inherited it; a default cannot be forgotten."""
+    env = _setup_env() if env is None else env
     done = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout, check=False)
     if done.returncode != 0:
         raise AssertionError(f"{' '.join(argv)} failed ({done.returncode}): {(done.stderr or done.stdout)[:400]}")
@@ -536,7 +540,8 @@ class DisposableClone:
              env=setup, timeout=300)
         _run(["git", "-C", self.root, "checkout", "--quiet", "--detach", self.commit], env=setup, timeout=300)
         self.head = _run(["git", "-C", self.root, "rev-parse", "HEAD"], env=setup)
-        assert self.head == self.commit, (self.head, self.commit)
+        if self.head != self.commit:   # an explicit check, so it survives an optimized interpreter
+            raise AssertionError(f"the sandbox landed on {self.head}, not the resolved commit {self.commit}")
         # The audited refusal: a clone that aliased the canonical project, memory, or git metadata is rejected
         # here, before anything is launched against it.
         execution_context.validate_disposable_target(
@@ -828,6 +833,14 @@ class DisposableCloneIsolationTests(unittest.TestCase):
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
+    def test_the_harness_scrubs_git_variables_from_its_own_commands_by_default(self):
+        # The harness's own git commands — including the writes in the detached-checkout test above — must
+        # never inherit a leaked GIT_DIR, or they would land in the repository the sandbox exists to protect.
+        with mock.patch.dict(os.environ, {"GIT_DIR": "/nonexistent/leaked", "GIT_WORK_TREE": "/nonexistent"}):
+            self.assertEqual(_run(["sh", "-c", 'echo "${GIT_DIR:-unset} ${GIT_WORK_TREE:-unset}"']), "unset unset")
+            self.assertEqual(_run(["sh", "-c", 'echo "${GIT_DIR:-unset}"'], env=dict(os.environ)),
+                             "/nonexistent/leaked")   # only an explicitly named environment inherits it
+
     def test_a_clone_that_fails_to_build_leaves_no_sandbox_behind(self):
         # Measured as a DELTA over the temp directory: what this failed construction leaves behind, not
         # whatever earlier runs (the very leak this guards against) may have stranded there already.
@@ -908,18 +921,27 @@ class DisposableCloneReproductionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sorted(os.listdir(self.clone.memory)), ["ledger.ndjson"])
         report["derived_cache_written"] = False
         report["disposition"] = DISPOSITION
+        report["ts"] = time.time()
+        report["complete"] = set(report["launchers"]) == {"claude", "codex"}
+        summary = {kind: {"outcome": value["outcome"], "probe": value["probe"],
+                          "qualification": value["observation"]["qualification_reported"]}
+                   for kind, value in report["launchers"].items()}
+        summary["probe_disposition"] = DISPOSITION["probe_disposition"]
+        summary["complete"] = report["complete"]
         # The report outlives the run: the sandbox is destroyed with the raw server output it holds, so the
         # evidence goes to the source checkout's own gitignored engine cache — a durable, local-only home the
-        # printed path actually still names when the run is over.
-        report_dir = os.path.join(self.clone.source, ".engine", "telemetry", ".cache")
-        os.makedirs(report_dir, exist_ok=True)
-        report_path = os.path.join(report_dir, "reproduction-report.json")
-        Path(report_path).write_text(json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8")
-        print(f"\nreproduction report (durable, gitignored): {report_path}\n" + json.dumps(
-            {kind: {"outcome": value["outcome"], "probe": value["probe"],
-                    "qualification": value["observation"]["qualification_reported"]}
-             for kind, value in report["launchers"].items()} | {"probe_disposition": DISPOSITION["probe_disposition"]},
-            indent=2))
+        # printed path actually still names when the run is over. It carries its timestamp and whether every
+        # launcher was observed, so a leftover or a partial file cannot pass for a fresh, complete one; and a
+        # checkout that cannot be written degrades to the inline summary rather than failing the test here,
+        # after every real assertion has already run.
+        report_path = os.path.join(self.clone.source, ".engine", "telemetry", ".cache", "reproduction-report.json")
+        try:
+            os.makedirs(os.path.dirname(report_path), exist_ok=True)
+            Path(report_path).write_text(json.dumps(report, indent=2, sort_keys=True, default=str), encoding="utf-8")
+            where = f"reproduction report ({'complete' if report['complete'] else 'PARTIAL'}, gitignored): {report_path}"
+        except OSError as exc:
+            where = f"reproduction report not persisted ({type(exc).__name__}); inline summary only"
+        print(f"\n{where}\n" + json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

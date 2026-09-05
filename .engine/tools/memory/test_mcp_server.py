@@ -985,14 +985,17 @@ class StrandingLogContentSafetyTests(unittest.TestCase):
 
     def test_the_frame_budget_keeps_the_engine_entry_point_over_the_sdk_plumbing_above_it(self):
         # Every tool call travels the same SDK frames before the engine; a trace that spent its outer slots
-        # on them would be identical in every record and lose the tool entry point from the middle.
+        # on them would be identical in every record and lose the tool entry point from the middle. The SDK
+        # frames are placed where this deployment REALLY keeps them — under the project's own
+        # `.engine/.venv/…` — so a marker that merely looked for `.engine` in the path would fail this test.
+        site = os.path.join(_stranding_log._ROOT, ".engine", ".venv", "lib", "python3.12", "site-packages")
         sdk_outer = {}
         exec(compile("def o1(fn):\n    return o2(fn)\n\ndef o2(fn):\n    return fn()\n",
-                     "/venv/site-packages/mcp/server/base.py", "exec"), sdk_outer)
+                     os.path.join(site, "mcp", "server", "mcpserver", "tools", "base.py"), "exec"), sdk_outer)
         sdk_inner = {}
         exec(compile("def a(fn):\n    return b(fn)\n\ndef b(fn):\n    return c(fn)\n\n"
                      "def c(fn):\n    return d(fn)\n\ndef d(fn):\n    return fn()\n",
-                     "/venv/site-packages/anyio/to_thread.py", "exec"), sdk_inner)
+                     os.path.join(site, "anyio", "to_thread.py"), "exec"), sdk_inner)
 
         def raiser():
             raise RuntimeError("deep " + _SECRET)

@@ -43,6 +43,7 @@ from __future__ import annotations
 import functools
 import os
 import sys
+import threading
 
 # Third-party import first: it needs nothing from the path bootstrap below, and importing it above the
 # sys.path mutation closes the shadowing hazard (a same-named module in tools/ could otherwise win).
@@ -232,6 +233,7 @@ _READ_CAVEAT = (
 # record the log exists to keep — enough of them rotate that record out. One trace per staleness TYPE per
 # process says which binding moved without ever evicting the fault line.
 _READ_DEGRADED_NOTED: set = set()
+_READ_DEGRADED_LOCK = threading.Lock()   # tool calls run on the SDK's worker threads; check-and-add is one step
 
 
 def _memory_read_caveat() -> str | None:
@@ -257,9 +259,10 @@ def _memory_read_caveat() -> str | None:
         # The typed staleness class is worth ONE trace of its own per process (see `_READ_DEGRADED_NOTED`):
         # it says WHICH binding moved under the running server, which the plain caveat sentence does not.
         kind = type(exc).__qualname__
-        if kind not in _READ_DEGRADED_NOTED and \
-                _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc):
-            _READ_DEGRADED_NOTED.add(kind)
+        with _READ_DEGRADED_LOCK:
+            if kind not in _READ_DEGRADED_NOTED and \
+                    _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc):
+                _READ_DEGRADED_NOTED.add(kind)
         return _READ_CAVEAT
     return None
 
