@@ -1244,20 +1244,37 @@ class ReadBindingTests(unittest.TestCase):
         self.assertTrue((declared - {"ExpectedStateStale"}) <= set(tms.ReadDegradationMatrixTests.REASON.values()))
 
     def test_every_current_context_caller_still_fails_closed_under_every_non_refreshable_row(self):
-        """The strict resolution is untouched: under every non-refreshable row an uncached current_context()
-        raises for every caller that routes on it - drain.is_qualified, candidate_invocation.run,
+        """The strict resolution is untouched: under every non-refreshable row (R3-R9, the two declared
+        monkeypatch rows included) an uncached current_context() raises for every caller that routes on it - drain.is_qualified, candidate_invocation.run,
         backup_vault._pointer_path and capture._health_path - each EXERCISED here - while read_binding() answers
         moved or unbound; the write path's own mutation_scope is exercised under the same rows by the matrix."""
         import argparse
+        from contextlib import ExitStack
         from memory import drain, candidate_invocation, backup_vault, capture
-        rows = (("activation", self._advance_activation, "moved"), ("tree", self._remove_accepted_tree, "moved"),
-                ("store-identity", self._replace_store_identity, "unbound"), ("pointer", self._rewrite_pointer, "unbound"),
-                ("artifact", self._make_artifact_unreadable, "unbound"))
+
+        class FutureStale(execution_context.ContextError):
+            """A staleness class this module does not know (the matrix's R9)."""
+
+        def base_context_error(stack):        # the matrix's R8: the base class's own raise site
+            stack.enter_context(mock.patch.object(execution_context, "_path_identity",
+                                                  return_value={"device": -1, "inode": -1}))
+
+        def unknown_subclass(stack):          # the matrix's R9
+            stack.enter_context(mock.patch.object(execution_context, "_revalidate_matched",
+                                                  side_effect=FutureStale("a class this module does not know")))
+
+        rows = (("activation", lambda _stack: self._advance_activation(), "moved"),
+                ("tree", lambda _stack: self._remove_accepted_tree(), "moved"),
+                ("store-identity", lambda _stack: self._replace_store_identity(), "unbound"),
+                ("pointer", lambda _stack: self._rewrite_pointer(), "unbound"),
+                ("artifact", lambda _stack: self._make_artifact_unreadable(), "unbound"),
+                ("base-context-error", base_context_error, "unbound"),
+                ("unknown-subclass", unknown_subclass, "unbound"))
         for name, inject, expected in rows:
-            with self.subTest(row=name):
+            with self.subTest(row=name), ExitStack() as stack:
                 self.setUp()
                 self._uncached()
-                inject()
+                inject(stack)
                 self.assertEqual(execution_context.read_binding().kind, expected)
                 self.assertIsNone(execution_context._CURRENT_CONTEXT)
                 with self.assertRaises(execution_context.ContextError):
@@ -1274,8 +1291,12 @@ class ReadBindingTests(unittest.TestCase):
                         return
                     self.fail("did not fail closed")
 
-                fails_closed(lambda: candidate_invocation.run(argparse.Namespace(
-                    target_root=self.fixture.root, candidate_root=self.fixture.root, script="x")))
+                if inject not in (base_context_error, unknown_subclass):
+                    # candidate_invocation loads the context library under its own module name, so the two
+                    # DECLARED monkeypatch rows cannot reach its copy and there is no disk drift for it to see;
+                    # every disk-drift row exercises it.
+                    fails_closed(lambda: candidate_invocation.run(argparse.Namespace(
+                        target_root=self.fixture.root, candidate_root=self.fixture.root, script="x")))
                 fails_closed(backup_vault._pointer_path)
                 fails_closed(lambda: capture._health_path("capture_status", "fallback"))
                 # mutation_scope itself: on this (main, checked-in test) thread the test adapter would admit

@@ -5326,7 +5326,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:4da18304f0e2470d9eb152267955f3aa074d64464e1492a63fcf3ba790ecfd88",
+        "fingerprint": "sha256:a5d9a249b97c091067c658f2d119f65c36d4f7ca6170757327b95ff73ebd646a",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:a91cbf14049e03eac30c26653be53b77f69e2a048bca37da6f7ebbb2ded7235d",
+        "fingerprint": "sha256:3f306969176451770e0b6fe987f85bfd71ca1b6dc02dd5a3b0d85bc86a947626",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -12091,7 +12091,7 @@
       },
       "slug": "execution_context",
       "source": {
-        "fingerprint": "sha256:73e060776f363d06a0de4c97c36a1b4ffde22fa183be3d8a048856fdc86fa1a9",
+        "fingerprint": "sha256:f929b8a74c47e2b69785bf3816f85f9e1b02c789649f0a3c50fa30c08c29ea62",
         "path": ".engine/tools/memory/execution_context.py"
       },
       "status": "active",
@@ -13153,7 +13153,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:0a0fb32c30d515b745e7bfacdfb9b40f76122de1577bc24193772465b1addf32",
+        "fingerprint": "sha256:81323e4a990ae09485b2c4329606c78f9d6092b0355fd28c0adbef27772e12b2",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -18112,7 +18112,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:899a00628f3592e878dc2e559dc1c14c2c3214111d8d7a172cdfcce519382d53",
+        "fingerprint": "sha256:d144558445f84e72a9029538ecc398b2eb5c71e4b7273966a54d00c8d0ea080e",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18398,7 +18398,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:5527df074baa3449fa3b0e6b0f52016f24b215413ac631e1e625a4720567005f",
+        "fingerprint": "sha256:871370d13366fddfd1aa6f7db39b0427905a51c0e9c7f27a86a0483091df790e",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",

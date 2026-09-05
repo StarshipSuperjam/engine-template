@@ -249,27 +249,31 @@ _RECALL_COMPLETENESS_NOTE = (
 # second time with nothing to catch it - the crash the two captured production traces recorded.
 # ---------------------------------------------------------------------------------------------------------
 
-_RESTART_ACTION = ("To fully reconnect, quit your client completely (Claude Desktop, or the Codex session) and "
-                   "reopen it so the memory server restarts.")
+_RESTART_ACTION = ("To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
+                   "(in a Codex session, end the session and start a new one).")
 _ESCALATION = "If this keeps happening after a restart, run /engine-status and open an engine issue."
 _NOTE_MOVED = ("This project moved to a new commit while this memory server was running. Recall reflects what is "
                "saved on disk; the keyword index was not refreshed and meaning-based recall is unavailable. "
                + _RESTART_ACTION + " " + _ESCALATION)
 _NOTE_UNBOUND_STORE = ("The memory store under this session is not the one it was bound to, so nothing was read "
-                       "from it. Quit your client completely (Claude Desktop, or the Codex session) and reopen it "
-                       "so the memory server restarts against the current store. " + _ESCALATION)
+                       "from it. Quit Claude Desktop completely and reopen it so the memory server restarts against "
+                       "the current store (in a Codex session, end the session and start a new one). " + _ESCALATION)
 _NOTE_UNBOUND_UNREADABLE = ("A memory file on disk could not be read, so nothing was read from the store - this is "
-                            "a problem with the store on disk, not with what is saved in it. Quit your client "
-                            "completely (Claude Desktop, or the Codex session) and reopen it so the memory server "
-                            "retries against the store. " + _ESCALATION)
+                            "a problem with the store on disk, not with what is saved in it. Quit Claude Desktop "
+                            "completely and reopen it so the memory server retries against the store (in a Codex "
+                            "session, end the session and start a new one). " + _ESCALATION)
 _NOTE_UNBOUND_UNCONFIRMED = ("This session's memory context could not be confirmed against the store, so nothing "
-                             "was read from it. Quit your client completely (Claude Desktop, or the Codex session) "
-                             "and reopen it so the memory server re-establishes the binding. " + _ESCALATION)
+                             "was read from it. Quit Claude Desktop completely and reopen it so the memory server "
+                             "re-establishes the binding (in a Codex session, end the session and start a new "
+                             "one). " + _ESCALATION)
 _NOTE_INCOMPLETE_SEARCH = ("The keyword index could not be refreshed, so this answer came from a slower full scan "
                            "of everything saved. If this persists, run /engine-status and open an engine issue.")
-_NOTE_INCOMPLETE = ("Part of this answer's source was unavailable, so it may be incomplete; keyword search over "
-                    "what is saved still covers everything. If this persists, run /engine-status and open an "
-                    "engine issue.")
+_NOTE_MEANING_STORE_FAULT = ("Meaning-based recall could not open its store; keyword search still covers everything "
+                             "saved. If this persists, run /engine-status and open an engine issue.")
+# Only `search` (the ledger-scan fallback) and `recall-by-meaning` (its backend) can report an incomplete read;
+# recall-window, list-pins and list-withheld always read their full source. The plan's sentence for a meaning
+# store fault travels with that read's own result (see `_meaning_read`); the not-qualified and
+# embedding-unavailable cases keep the tool's own `unavailable` sentence as the relay and carry no second one.
 
 # One read-degraded trace per (staleness class, tool) per process. A stale session reads memory many times and
 # every read would otherwise write a near-identical record into the same bounded sink as the rare crash record
@@ -334,7 +338,7 @@ def _read_degraded_trace(reason: str, tool: str, error=None) -> None:
             _READ_DEGRADED_NOTED.add(key)
 
 
-def _outcome(binding, completeness: str, tool: str, payload: dict) -> dict:
+def _outcome(binding, completeness: str, tool: str, payload: dict, read_note=None) -> dict:
     """The one object every read answer carries; the note is the one sentence a session relays, chosen by
     what actually happened rather than one fixed string per kind."""
     if binding.kind == "moved":
@@ -344,12 +348,10 @@ def _outcome(binding, completeness: str, tool: str, payload: dict) -> dict:
                 "StoreIdentityStale": _NOTE_UNBOUND_STORE,
                 "BackupPointerStale": _NOTE_UNBOUND_STORE}.get(binding.reason, _NOTE_UNBOUND_UNCONFIRMED)
     elif completeness == "incomplete":
-        if tool == "recall-by-meaning" and payload.get("unavailable"):
-            note = None            # the tool's own `unavailable` sentence IS the relay; never two sentences
-        elif tool == "search":
+        if tool == "search":
             note = _NOTE_INCOMPLETE_SEARCH
         else:
-            note = _NOTE_INCOMPLETE
+            note = read_note       # recall-by-meaning: the plan's store-fault sentence, or None (its own relays)
     else:
         note = None
     return {"binding": binding.kind, "completeness": completeness, "reason": binding.reason,
@@ -360,7 +362,8 @@ def _read_seam(tool: str, read, *, empty) -> dict:
     """Run one read tool's body through the read-degradation contract.
 
     `read(memory_dir, binding)` performs the tool's own read with EXPLICIT paths under `memory_dir` (None
-    means no context is installed and the ordinary resolution applies) and returns `(payload, completeness)`,
+    means no context is installed and the ordinary resolution applies) and returns `(payload, completeness)`
+    - or `(payload, completeness, note)` when the read's own result carries the outcome's sentence -
     where completeness says what retrieval actually did: 'complete' (the full source was read) or 'incomplete'
     (an index heal was refused, the meaning backend was unavailable, a ledger-scan fallback answered). `empty`
     builds the tool's content-free answer for the unbound case.
@@ -372,11 +375,13 @@ def _read_seam(tool: str, read, *, empty) -> dict:
     merge landing under a running server is disclosed on the next read, never frozen at the first."""
     binding = getattr(_CALL, "binding", None) or _execution_context.read_binding()
     _run_seam_test_hook(tool, binding)
+    read_note = None
     if binding.kind == "unbound":
         payload = empty()
         completeness = "none"
     else:
-        payload, completeness = read(binding.memory_dir, binding)
+        payload, completeness, *extra = read(binding.memory_dir, binding)
+        read_note = extra[0] if extra else None
         if binding.context is not None:
             moved = _execution_context.explicit_store_check(binding.context)
             if moved is not None:
@@ -384,7 +389,7 @@ def _read_seam(tool: str, read, *, empty) -> dict:
                 payload = empty()
                 completeness = "none"
     payload.pop("memory_caveat", None)
-    payload["outcome"] = _outcome(binding, completeness, tool, payload)
+    payload["outcome"] = _outcome(binding, completeness, tool, payload, read_note)
     if binding.kind in ("moved", "unbound"):
         _read_degraded_trace(binding.reason, tool, binding.error)
     return payload
@@ -499,8 +504,7 @@ if _semantic_installed():
         from memory.semantic import store as _store
 
         def read(memory_dir, binding):
-            payload, completeness = _meaning_read(query, limit, memory_dir, binding, _embed, _store)
-            return payload, completeness
+            return _meaning_read(query, limit, memory_dir, binding, _embed, _store)
 
         return _read_seam("recall-by-meaning", read, empty=_EMPTY_ANSWERS["recall-by-meaning"])
 
@@ -543,7 +547,7 @@ if _semantic_installed():
                           "nothing you said is stored there, so there is nothing to lose by doing it.")
             return {"results": [], "unavailable": (
                 "Searching by meaning is not working right now. This says NOTHING about what is in memory: "
-                "keyword search works normally and covers everything. " + remedy)}, "incomplete"
+                "keyword search works normally and covers everything. " + remedy)}, "incomplete", _NOTE_MEANING_STORE_FAULT
         results = []
         for record, passage in zip(found["records"], found["passages"]):
             # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track

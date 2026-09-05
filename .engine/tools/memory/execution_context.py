@@ -1005,9 +1005,11 @@ def refresh_root_for_read(context: ExecutionContext) -> ExecutionContext:
 
     Only the accepted memory server may call this (the same gate as `refresh_current_context`), and only
     while no root context is installed. From the decoded document it re-observes disk, seals, runs the
-    FULL revalidation, and refuses if the authority-bearing binding (`binding_identity`: store identity,
-    memory directory, target kind, the five activation fields) differs before and after. Only a context
-    that passed all of that is installed — as `_CURRENT_CONTEXT`, in the environment, and remembered —
+    FULL revalidation - that revalidation against disk is the control - and only a context that passed it
+    is installed. The `binding_identity` comparison before and after (store identity, memory directory,
+    target kind, the five activation fields) is an invariant on this function's own code, not a second
+    control: the re-observation reads the same store the document names, so it cannot fire against disk.
+    Only a context that passed all of that is installed — as `_CURRENT_CONTEXT`, in the environment, and remembered —
     exactly the state a process that started a moment later would be in. It grants no authority a restart
     would not: every non-refreshable class still raises its own type here and nothing is installed.
 
@@ -1054,10 +1056,12 @@ def read_binding() -> ReadBinding:
     does not know -> unbound. Absent context -> absent, with no memory directory of its own (the caller
     resolves the ordinary way).
 
-    The context lock covers only the cache check and the install: the disk- and SQLite-bound revalidation
-    runs outside it, so concurrent reads on the server's worker threads are not serialized behind one
-    mutex. Two concurrent first reads under drift both revalidate, and `refresh_root_for_read` - which
-    re-checks under the lock that nothing is installed yet - performs one refresh; the second call finds it."""
+    On the ordinary path the context lock covers only the cache check and the install, so the disk- and
+    SQLite-bound revalidation runs outside it and concurrent reads on the server's worker threads are not
+    serialized behind it. The exception is the once-per-process root refresh: `refresh_root_for_read` holds
+    the same lock across its own re-observation and revalidation, so concurrent first reads under drift wait
+    behind it for that duration - availability, not authority. Both revalidate; the refresh re-checks under
+    the lock that nothing is installed yet, performs one refresh, and the second call finds it."""
     with _CONTEXT_LOCK:
         cached = _CURRENT_CONTEXT
     if cached is None:
@@ -1072,7 +1076,7 @@ def read_binding() -> ReadBinding:
     memory_dir = context["target"]["memory_dir"]
     try:
         revalidate_context(context)
-    except ExpectedStateStale as exc:
+    except ExpectedStateStale:
         if cached is None and context["operation"]["registry_id"] == _ROOT_REFRESH_REGISTRY_ID:
             try:
                 healed = refresh_root_for_read(context)

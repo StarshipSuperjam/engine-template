@@ -614,7 +614,46 @@ class ReadSeamWiringTests(_ServerBase):
                     self.assertEqual(out["outcome"]["reason"], "ActivationStale")
                     self.assertTrue(out["outcome"]["restart_clears"])
                     self.assertEqual(out["outcome"]["note"], srv._NOTE_MOVED)
+                    self.assertIn("quit Claude Desktop completely and reopen it so the memory server restarts",
+                                  out["outcome"]["note"])                       # the plan's pinned action
                     self.assertIn("/engine-status", out["outcome"]["note"])
+
+    def test_the_recovery_sentences_are_pinned_word_for_word(self):
+        """Every note a session relays, written out here in full so a rewording anywhere fails this test rather
+        than the self-referential `assertEqual(note, srv._NOTE_X)` checks, which move with the code. The
+        pinned action inside each is the sealed plan's own sentence; the Codex clause is the repair's addition,
+        disclosed in the pull request."""
+        restart = ("To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
+                   "(in a Codex session, end the session and start a new one).")
+        escalate = "If this keeps happening after a restart, run /engine-status and open an engine issue."
+        self.assertEqual(srv._RESTART_ACTION, restart)
+        self.assertEqual(srv._ESCALATION, escalate)
+        self.assertEqual(srv._NOTE_MOVED,
+                         "This project moved to a new commit while this memory server was running. Recall reflects "
+                         "what is saved on disk; the keyword index was not refreshed and meaning-based recall is "
+                         "unavailable. " + restart + " " + escalate)
+        self.assertEqual(srv._NOTE_UNBOUND_STORE,
+                         "The memory store under this session is not the one it was bound to, so nothing was read "
+                         "from it. Quit Claude Desktop completely and reopen it so the memory server restarts "
+                         "against the current store (in a Codex session, end the session and start a new one). "
+                         + escalate)
+        self.assertEqual(srv._NOTE_UNBOUND_UNREADABLE,
+                         "A memory file on disk could not be read, so nothing was read from the store - this is a "
+                         "problem with the store on disk, not with what is saved in it. Quit Claude Desktop "
+                         "completely and reopen it so the memory server retries against the store (in a Codex "
+                         "session, end the session and start a new one). " + escalate)
+        self.assertEqual(srv._NOTE_UNBOUND_UNCONFIRMED,
+                         "This session's memory context could not be confirmed against the store, so nothing was "
+                         "read from it. Quit Claude Desktop completely and reopen it so the memory server "
+                         "re-establishes the binding (in a Codex session, end the session and start a new one). "
+                         + escalate)
+        self.assertEqual(srv._NOTE_INCOMPLETE_SEARCH,
+                         "The keyword index could not be refreshed, so this answer came from a slower full scan of "
+                         "everything saved. If this persists, run /engine-status and open an engine issue.")
+        self.assertEqual(srv._NOTE_MEANING_STORE_FAULT,
+                         "Meaning-based recall could not open its store; keyword search still covers everything "
+                         "saved. If this persists, run /engine-status and open an engine issue.")
+        self.assertFalse(hasattr(srv, "_NOTE_INCOMPLETE"), "no generic incomplete sentence: none is reachable")
 
     async def test_an_unbound_binding_returns_no_content_from_any_read_tool(self):
         self._seed_conversation()
@@ -736,6 +775,8 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
             self.assertIn("writing is held", message)  # refused cleanly - nothing was changed
             self.assertIn("fresh session", message)    # names the recovery
             self.assertNotIn(self.fixture.base, message)
+
+
 class _Unconvertible:
     """A return value no serializer can render: every textual fallback raises."""
 
@@ -1235,6 +1276,10 @@ class StrandingLogServerWiringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recorded.call_count, 1)
 
 
+class _a_class_this_module_does_not_know(execution_context.ContextError):
+    """The matrix's R9 as a refusal input: `_stale_refusal` keys on type and knows no such class."""
+
+
 class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
     """THE AUTHORITATIVE MATRIX (C2, pln_b5eb869e55b4, success obligation 1). Every served read tool, driven
     through the real in-memory client, against a REAL canonical attended-memory-mcp context sealed on disk
@@ -1247,7 +1292,7 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
       R5 StoreIdentityStale store-identity.json rewritten                             -> unbound
       R6 BackupPointerStale pointer.json rewritten                                    -> unbound
       R7 ArtifactUnreadable a content-hashed artefact made unreadable (chmod 0)      -> unbound
-      R8 base ContextError DECLARED monkeypatch on _revalidate_matched                -> unbound
+      R8 base ContextError DECLARED monkeypatch on _path_identity (its own raise site) -> unbound
       R9 unknown subclass  DECLARED monkeypatch: a ContextError subclass this module does not know -> unbound
 
     Each row runs from an UNCACHED first resolution (execution_context._CURRENT_CONTEXT is None at entry - the
@@ -1314,7 +1359,6 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         srv.set_seam_test_hook(None)
         _semantic_store._LIVE_CACHE.clear()
         mutation_authority._THREAD.state = None
-        srv._CALL.binding = None
 
     def _seed(self):
         """Seed with NO context installed - the committed test module's adapter covers these direct writes,
@@ -1450,7 +1494,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(out.get(key, []), [], (row, name))
                 elif expected == "moved":
                     self.assertEqual(outcome["note"], srv._NOTE_MOVED)          # verbatim
-                    self.assertIn("quit your client completely (Claude Desktop, or the Codex session)", outcome["note"])
+                    self.assertIn("quit Claude Desktop completely and reopen it so the memory server restarts "
+                                  "(in a Codex session, end the session and start a new one)", outcome["note"])
                     if name == "search":
                         self.assertEqual(outcome["completeness"], "incomplete")   # the ledger scan answered
                         self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
@@ -1553,7 +1598,7 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                 srv._run_seam_test_hook("search", None)
         srv.set_seam_test_hook(None)
 
-    async def test_a_backend_fault_under_a_healthy_binding_is_incomplete_with_the_tools_own_sentence(self):
+    async def test_a_backend_fault_under_a_healthy_binding_carries_the_plans_store_fault_sentence(self):
         if "recall-by-meaning" not in self.TOOLS:
             self.skipTest("the optional semantic module is not installed here")
         from memory.semantic import store as _semantic_store
@@ -1564,7 +1609,34 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
             out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
         self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
         self.assertIn("Searching by meaning is not working right now", out["unavailable"])
-        self.assertIsNone(out["outcome"]["note"])          # one sentence, the tool's own; never two
+        self.assertEqual(out["outcome"]["note"],            # the plan's sentence for this case, word for word
+                         "Meaning-based recall could not open its store; keyword search still covers everything "
+                         "saved. If this persists, run /engine-status and open an engine issue.")
+
+    async def test_meaning_recall_that_is_not_qualified_keeps_its_own_sentence_as_the_relay(self):
+        if "recall-by-meaning" not in self.TOOLS:
+            self.skipTest("the optional semantic module is not installed here")
+        from memory.semantic import store as _semantic_store
+        self._uncached()
+        with mock.patch.object(_semantic_store, "search",
+                               return_value={"records": [], "scores": [], "passages": [], "searched": 0,
+                                             "embedded": 0, "unavailable": "not-qualified"}):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
+        self.assertIn("isn't qualified to build the meaning index", out["unavailable"])
+        self.assertIsNone(out["outcome"]["note"])          # its own sentence carries the action; never two
+
+    async def test_searchs_ledger_scan_fallback_under_a_healthy_binding_carries_the_search_sentence(self):
+        """The one incomplete read a healthy binding can produce besides a meaning-backend fault: the fast
+        keyword index is unavailable, so the slower full scan answers and the note says so."""
+        self._uncached()
+        with mock.patch.object(index, "fts5_available", return_value=False):
+            out = await self._call("search", self._args("search"))
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertEqual(out["outcome"]["note"],
+                         "The keyword index could not be refreshed, so this answer came from a slower full scan "
+                         "of everything saved. If this persists, run /engine-status and open an engine issue.")
 
     async def test_the_read_degraded_record_keeps_the_real_frame_chain(self):
         self._uncached()
@@ -1610,6 +1682,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
             "R5": mutation_authority._stale_refusal(execution_context.StoreIdentityStale("x")),
             "R6": mutation_authority._stale_refusal(execution_context.BackupPointerStale("x")),
             "R7": mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
+            "R8": mutation_authority._stale_refusal(execution_context.ContextError("x")),
+            "R9": mutation_authority._stale_refusal(_a_class_this_module_does_not_know("x")),
         }
         for row, sentence in expected_sentences.items():
             with self.subTest(row=row):
