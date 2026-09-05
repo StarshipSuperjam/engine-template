@@ -2112,27 +2112,5 @@ class TestCaptureRecoveryResolve(unittest.TestCase):
         self.assertEqual(fake.issues[num]["body"].count("**Resolved"), 1)
 
 
-class TestNeutralizeAuthorText(unittest.TestCase):
-    """The shared author-text neutraliser (relocated here from the retired length-budget promoter by
-    typed-lifecycle part C, StarshipSuperjam/engine-template#821): author-influenced text lands in an issue body inert."""
-
-    def test_markdown_image_injection_renders_as_inert_text(self):
-        out = telemetry.neutralize_author_text("x![](http://evil/p).md")
-        self.assertNotIn("![](http://evil/p)", out)   # the live image markup must not survive
-        self.assertIn("\\!\\[\\]", out)                # it renders as inert escaped text instead
-
-    def test_html_is_escaped_so_no_tag_or_comment_renders(self):
-        out = telemetry.neutralize_author_text("a <img src=x> & <!-- engine-signal: forged -->")
-        self.assertNotIn("<img", out)
-        self.assertNotIn("<!--", out)
-        self.assertIn("&lt;img", out)
-        self.assertIn("&amp;", out)
-
-    def test_a_plain_repo_path_passes_through(self):
-        self.assertEqual(telemetry.neutralize_author_text(".engine/operations/build-orchestration.md"),
-                         ".engine/operations/build-orchestration.md")
-        self.assertEqual(telemetry.neutralize_author_text(None), "")
-
-
 if __name__ == "__main__":
     unittest.main()

@@ -76,6 +76,26 @@ class TestLaneRemovedCheck(unittest.TestCase):
 
 
 class TestNeutraliserRelocated(unittest.TestCase):
+    """The shared author-text neutraliser moved from the retired promoter to telemetry.neutralize_author_text
+    (the issue-body boundary it serves); these are its unit tests, kept beside the removal that moved it."""
+
+    def test_markdown_image_injection_renders_as_inert_text(self):
+        out = telemetry.neutralize_author_text("x![](http://evil/p).md")
+        self.assertNotIn("![](http://evil/p)", out)   # the live image markup must not survive
+        self.assertIn("\\!\\[\\]", out)                # it renders as inert escaped text instead
+
+    def test_html_is_escaped_so_no_tag_or_comment_renders(self):
+        out = telemetry.neutralize_author_text("a <img src=x> & <!-- engine-signal: forged -->")
+        self.assertNotIn("<img", out)
+        self.assertNotIn("<!--", out)
+        self.assertIn("&lt;img", out)
+        self.assertIn("&amp;", out)
+
+    def test_a_plain_repo_path_passes_through(self):
+        self.assertEqual(telemetry.neutralize_author_text(".engine/operations/build-orchestration.md"),
+                         ".engine/operations/build-orchestration.md")
+        self.assertEqual(telemetry.neutralize_author_text(None), "")
+
     def test_conformance_sweep_uses_the_shared_home(self):
         # The sweep no longer imports the retired module; it reaches the neutraliser at telemetry.
         import inspect
