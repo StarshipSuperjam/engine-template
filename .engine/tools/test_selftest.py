@@ -6,9 +6,10 @@ Every case drives the launcher against a tiny SYNTHETIC suite written into a tem
 real `tools/` suite — so the fixture is fast and can never recurse when the real discover collects it.
 The load-bearing assertions are the false-green ones (an import/collection error and a killed child
 must each exit NON-ZERO, verdict = child exit status verbatim) and the no-hang one (a test that leaves a
-background process running must not stall the launcher's teardown).), plus the interrupt one: SIGINT to the launcher tears the suite down promptly — and that test PROVES its
-premise (a child that can be interrupted) through a beacon the synthetic suite writes, rather than assuming
-it from however the enclosing run happened to be started (#1188).
+background process running must not stall the launcher's teardown), plus the interrupt one: SIGINT to the
+launcher tears the suite down promptly — and that test PROVES its premise (a child that can be interrupted)
+through a beacon the synthetic suite writes, rather than assuming it from however the enclosing run happened
+to be started (#1188).
 """
 from __future__ import annotations
 
