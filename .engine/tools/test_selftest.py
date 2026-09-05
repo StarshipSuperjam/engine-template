@@ -6,7 +6,9 @@ Every case drives the launcher against a tiny SYNTHETIC suite written into a tem
 real `tools/` suite — so the fixture is fast and can never recurse when the real discover collects it.
 The load-bearing assertions are the false-green ones (an import/collection error and a killed child
 must each exit NON-ZERO, verdict = child exit status verbatim) and the no-hang one (a test that leaves a
-background process running must not stall the launcher's teardown).
+background process running must not stall the launcher's teardown).), plus the interrupt one: SIGINT to the launcher tears the suite down promptly — and that test PROVES its
+premise (a child that can be interrupted) through a beacon the synthetic suite writes, rather than assuming
+it from however the enclosing run happened to be started (#1188).
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+from unittest import mock
 
 import selftest
 
@@ -35,6 +38,19 @@ def _write_suite(bodies: dict) -> str:
         with open(os.path.join(tmp, name), "w") as fh:
             fh.write(textwrap.dedent(body))
     return tmp
+
+
+def _stop_launcher(proc) -> None:
+    """Cleanup for a launcher a test may have left running: ask it to tear its child down (it forwards
+    SIGTERM to the child's group), then kill it if it does not."""
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 class _LauncherCase(unittest.TestCase):
@@ -166,22 +182,57 @@ class SelftestLauncher(_LauncherCase):
 
     def test_sigint_tears_down_promptly_without_hanging(self):
         """SIGINT to the launcher is forwarded to the child's process group; the launcher must exit
-        promptly (well under the test's own runtime) with a non-zero status, never hang."""
+        promptly (well under the test's own runtime) with a non-zero status, never hang.
+
+        The premise — a child that CAN be interrupted — is proved, not assumed (#1188). A POSIX shell starts
+        a `cmd &` job with SIGINT ignored, and that disposition inherits through exec; the launcher used to
+        spawn its child before installing its own forwarding handlers, so a backgrounded validation run
+        handed the ignore straight to the suite and this test read as a launcher hang. The launcher now
+        installs its handlers first (a caught handler resets to default across exec; an ignore is
+        preserved), and the synthetic suite writes a beacon recording the disposition it actually observed.
+        The beacon doubles as the readiness signal: the test waits for it (bounded) instead of sleeping a
+        guessed second, and a missing beacon or an 'ignored' one is a NAMED failure — never a fall-through to
+        the exit-code check, which any fast failure would satisfy.
+        """
         tmp = _write_suite({"test_synth.py": textwrap.dedent("""
-            import unittest, time
+            import os, signal, time, unittest
             class T(unittest.TestCase):
                 def test_long(self):
+                    seen = ("default" if signal.getsignal(signal.SIGINT) is signal.default_int_handler
+                            else "ignored")
+                    beacon = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sigint-disposition.txt")
+                    with open(beacon + ".tmp", "w") as fh:
+                        fh.write(seen)
+                    os.replace(beacon + ".tmp", beacon)   # atomic: the reader never sees a half-written beacon
                     time.sleep(30)
                     self.assertTrue(True)
         """)})
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        beacon = os.path.join(tmp, "sigint-disposition.txt")
         proc = subprocess.Popen(
             [sys.executable, _SELFTEST, "--start-dir", tmp, "--cwd", tmp,
              "--heartbeat-interval", "0.1", "--log-path", os.path.join(tmp, "run.log")],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
         self.addCleanup(proc.stdout.close)
-        time.sleep(1.0)  # let it get into the run
+        self.addCleanup(_stop_launcher, proc)
+
+        # Readiness: wait (bounded) for the beacon the synthetic suite writes on entering its test body.
+        deadline = time.monotonic() + 10.0
+        while not os.path.exists(beacon) and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if not os.path.exists(beacon):
+            self.fail("the synthetic suite never wrote its SIGINT-disposition beacon (launcher "
+                      f"{'exited with ' + str(proc.returncode) if proc.poll() is not None else 'still running'}), "
+                      "so the child never reached the test body and nothing about SIGINT forwarding was "
+                      "exercised — this is not a teardown verdict")
+        with open(beacon, encoding="utf-8") as fh:
+            seen = fh.read().strip()
+        self.assertEqual(seen, "default",
+                         "the launcher's child inherited SIGINT ignored, so a forwarded interrupt could never "
+                         "reach it: the launcher must install its forwarding handlers BEFORE spawning the child "
+                         "(a caught handler resets to default across exec; an ignore is inherited)")
+
         proc.send_signal(signal.SIGINT)
         try:
             proc.wait(timeout=15)
@@ -189,6 +240,32 @@ class SelftestLauncher(_LauncherCase):
             proc.kill()
             self.fail("launcher hung after SIGINT instead of tearing down")
         self.assertNotEqual(proc.returncode, 0)
+
+    def test_a_signal_before_the_child_exists_behaves_as_the_default_disposition(self):
+        """The forwarding handlers are installed before the spawn, so there is a window in which a signal
+        arrives with no child to forward to. In that window the handler must do what the default disposition
+        would have done — SIGINT interrupts, SIGTERM terminates with the conventional 128+signal status —
+        never swallow the signal, and never leave a launcher that nothing can stop."""
+        with self.assertRaises(KeyboardInterrupt):
+            selftest._forward_signal(None, signal.SIGINT)
+        with self.assertRaises(SystemExit) as caught:
+            selftest._forward_signal(None, signal.SIGTERM)
+        self.assertEqual(caught.exception.code, 128 + int(signal.SIGTERM))
+
+    def test_a_signal_after_the_spawn_is_forwarded_to_the_whole_child_group(self):
+        """Once the child exists the same handler forwards to its PROCESS GROUP (the child runs in its own
+        session), so demo grandchildren are torn down with it; a vanished group is not an error."""
+        sent = []
+
+        class _Child:
+            pid = 4242
+
+        with mock.patch.object(selftest.os, "getpgid", return_value=4242), \
+                mock.patch.object(selftest.os, "killpg", side_effect=lambda group, sig: sent.append((group, sig))):
+            selftest._forward_signal(_Child(), signal.SIGTERM)
+        self.assertEqual(sent, [(4242, signal.SIGTERM)])
+        with mock.patch.object(selftest.os, "getpgid", side_effect=ProcessLookupError):
+            selftest._forward_signal(_Child(), signal.SIGINT)   # already gone: swallowed, not raised
 
     def test_log_path_is_announced_so_a_session_can_read_full_output(self):
         r = self._run_launcher("""
