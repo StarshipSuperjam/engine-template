@@ -618,6 +618,11 @@ class TestPlanArtifactCarveOut(unittest.TestCase):
         self.assertIn("--file PATH", out.getvalue())
         self.assertIn("--cwd DIR", out.getvalue())
         self.assertNotIn("ALLOW", out.getvalue())      # never a classification of the literal '--help'
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(modes._classify(["Write", "--help"]), 0)   # the trailing form too
+        self.assertIn("--cwd DIR", out.getvalue())
+        self.assertNotIn("->", out.getvalue())
 
     def test_classify_resolves_a_relative_cwd_instead_of_dropping_it(self):
         # A relative --cwd used to be silently ignored (the workspace files were never consulted); it now

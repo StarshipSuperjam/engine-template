@@ -1054,7 +1054,7 @@ def _classify(argv: list) -> int:
     usage = ("usage: modes.py classify <Tool> [command] [--session S] [--pm MODE] [--file PATH] [--cwd DIR] "
              "[--plan-file]  (--cwd is the session's working directory, resolved to an absolute path; a "
              "relative --file is taken as written, which the gate denies in plan mode)")
-    if not argv or argv[0] in ("--help", "-h"):
+    if not argv or "--help" in argv or "-h" in argv:      # help wherever it appears, never a classification of it
         print(usage, file=sys.stderr if not argv else sys.stdout)
         return 2 if not argv else 0
     session = _arg(argv, "--session")
