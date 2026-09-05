@@ -483,7 +483,14 @@ def cmd_preview(args) -> int:
     record = library.read_record(slug)
     document = library.head(slug)
     print(plan_projection.render_plan(document, record))
-    _mark_previewed(library, slug, record["current"]["plan_digest"])
+    # Mark only while a depth choice can still follow, and only when the marker is not already
+    # current: rendering sealed, bound, or closed history is a READ, and a read must succeed against a
+    # library the session cannot write (StarshipSuperjam/engine-template#1108). On the pre-seal side
+    # the marker is what `depths` and `approve` require, so a preview that must mark still writes —
+    # and still fails loudly where the library is unreachable, rather than silently not marking.
+    digest = record["current"]["plan_digest"]
+    if plan_lifecycle.depth_choice_closed(record) is None and not was_previewed(library, slug, digest):
+        _mark_previewed(library, slug, digest)
     print(f"\n{_projection_line(library, slug)}")
     return 0
 
@@ -491,7 +498,9 @@ def cmd_preview(args) -> int:
 # The preview marker is intentionally NOT part of plan-record.v1: it is session ergonomics, not plan
 # evidence, and putting it in the record would make an operator's reading habits part of the document
 # a Build consumes. It lives beside the record, keyed by the digest it was rendered for, so it cannot
-# survive a revision and vouch for a plan nobody read.
+# survive a revision and vouch for a plan nobody read. Whether it is written at all is the lifecycle's
+# call — `plan_lifecycle.depth_choice_closed` — and the two verbs that read it ask that same predicate
+# first, so nothing ever sends a session to preview a plan that preview will no longer mark.
 _PREVIEW_FILENAME = ".previewed"
 
 
@@ -512,6 +521,9 @@ def cmd_depths(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
+    closed = plan_lifecycle.depth_choice_closed(record)
+    if closed:
+        raise ProjectManagerError(closed)
     digest = record["current"]["plan_digest"]
     if not was_previewed(library, slug, digest):
         raise ProjectManagerError(
@@ -676,8 +688,9 @@ def cmd_approve(args) -> int:
     library = _library(args)
     slug = _select(library, args.plan)
     record = library.read_record(slug)
-    if record.get("seal"):
-        raise ProjectManagerError("this plan is sealed; a seal is terminal and nothing about it changes")
+    closed = plan_lifecycle.depth_choice_closed(record)   # seal, binding, or closure — with the way on
+    if closed:
+        raise ProjectManagerError(closed)
     digest = record["current"]["plan_digest"]
     if not was_previewed(library, slug, digest):
         raise ProjectManagerError(

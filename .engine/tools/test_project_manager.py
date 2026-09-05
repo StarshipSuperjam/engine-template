@@ -2169,6 +2169,110 @@ class TestSealHandback(unittest.TestCase):
         self.assertNotIn("Codex", text)
 
 
+class MarkerFollowsTheLifecycle(_Governed):
+    """The preview marker is written only while a depth choice can still follow, and the two verbs
+    that read it refuse a post-boundary plan with its real state (StarshipSuperjam/engine-template#1108).
+
+    The defect: `preview` marked on every render, including sealed, bound, and closed history, so
+    inspecting an old plan from a sandbox that could not write the library reported failure after the
+    render had succeeded. The trap in fixing it: the marker's two readers said "run preview first",
+    which stops being a remedy the moment preview stops marking — so the readers now ask the same
+    lifecycle predicate before they ask for the marker.
+    """
+
+    def _sealed(self, plan_id="pln_aaaaaaaaaaa4"):
+        slug, _ = self._to_reviewed(plan_id=plan_id)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        return slug
+
+    def _bound(self):
+        slug = self._sealed(plan_id="pln_aaaaaaaaaaa5")
+        seal = self.lib.read_record(slug)["seal"]
+        self.lib.update_record(slug, lambda r: r.update({"build_binding": {
+            "sealed_digest": seal["sealed_digest"], "build_plan_digest": seal["build_plan_digest"],
+            "at": "2026-09-04T00:00:00Z", "pull_request": 1, "repository": "o/r"}}))
+        return slug
+
+    def _closed(self, state, plan_id):
+        # Closed WITHOUT a seal — cmd_close needs none — which is the shape whose only remedy is
+        # `reopen` (retired, abandoned) or nothing at all (complete).
+        slug, _ = self._plan(plan_id=plan_id)
+        self.assertEqual(self.run_command(state, slug, "--reason", f"{state} for the test")[0], 0)
+        return slug
+
+    def _fixtures(self):
+        return {"sealed": self._sealed(), "bound": self._bound(),
+                "retired": self._closed("retire", "pln_aaaaaaaaaaa1"),
+                "abandoned": self._closed("abandon", "pln_aaaaaaaaaaa2"),
+                "complete": self._closed("complete", "pln_aaaaaaaaaaa3")}
+
+    def _marker(self, slug):
+        return self.root / slug / project_manager._PREVIEW_FILENAME
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory modes")
+    def test_previewing_completed_history_needs_no_write_to_the_library(self):
+        # The incident's shape: the library is readable but not writable. Render must still succeed.
+        slug = self._closed("complete", "pln_aaaaaaaaaaa3")
+        plan_dir = self.root / slug
+        self.addCleanup(os.chmod, plan_dir, 0o700)
+        os.chmod(plan_dir, 0o500)
+        code, out, err = self.run_command("preview", slug)
+        self.assertEqual(code, 0, err)
+        self.assertIn("A stored plan", out)
+        self.assertFalse(self._marker(slug).exists())
+
+    def test_sealed_bound_and_closed_plans_are_rendered_without_any_write(self):
+        fixtures = self._fixtures()            # built BEFORE the patch: closing and sealing do write
+        for marker in (self._marker(s) for s in fixtures.values()):
+            if marker.exists():
+                marker.unlink()                # a stale marker must not be "refreshed" either
+        with mock.patch.object(project_manager.core, "atomic_write",
+                               side_effect=OSError("the library is not writable")):
+            for state, slug in fixtures.items():
+                code, _, err = self.run_command("preview", slug)
+                self.assertEqual(code, 0, f"{state}: {err}")
+                self.assertFalse(self._marker(slug).exists(), state)
+
+    def test_a_current_marker_is_not_rewritten(self):
+        slug, _ = self._plan()
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        with mock.patch.object(project_manager.core, "atomic_write",
+                               side_effect=OSError("the library is not writable")):
+            self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertEqual(self.run_command("depths", slug)[0], 0)
+
+    def test_a_lost_marker_on_an_approved_plan_is_recoverable(self):
+        # Why the boundary is the seal and not the approval: a bundle carries the record and the
+        # revisions, never the marker, and an approved-but-unreviewed plan may still change depth.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
+                                          "--operator-decision", "yes, at that depth")[0], 0)
+        self._marker(slug).unlink()
+        code, _, err = self.run_command("approve", slug, "--depth", "thorough",
+                                        "--operator-decision", "deeper, please")
+        self.assertEqual(code, 2)
+        self.assertIn("preview", err)          # the remedy it names must actually work:
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertTrue(self._marker(slug).exists())
+        self.assertEqual(self.run_command("approve", slug, "--depth", "thorough",
+                                          "--operator-decision", "deeper, please")[0], 0)
+        self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "thorough")
+
+    def test_the_readers_refuse_a_post_boundary_plan_with_its_state_never_with_preview(self):
+        for state, slug in self._fixtures().items():
+            marker = self._marker(slug)
+            if marker.exists():
+                marker.unlink()                # the missing-marker case is the one that used to loop
+            for argv in (("depths", slug),
+                         ("approve", slug, "--depth", "standard", "--operator-decision", "yes")):
+                code, _, err = self.run_command(*argv)
+                self.assertEqual(code, 2, f"{state} {argv[0]}")
+                self.assertIn(state, err, f"{state} {argv[0]}: {err}")
+                self.assertNotIn("preview", err, f"{state} {argv[0]}: {err}")
+            self.assertEqual(state in ("retired", "abandoned"), "reopen" in err, state)
+
+
 class ProjectionLink(_Governed):
     """Every verb that shows or mints a plan ENDS by handing over the projection
     (StarshipSuperjam/engine-template#1121), and the file it hands over is current.

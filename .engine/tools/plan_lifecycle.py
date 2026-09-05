@@ -41,8 +41,47 @@ the session cannot mint, which is issue 914's residual and is not claimed here.
 from __future__ import annotations
 
 import build_coordinator_core as core
+import plan_store
 
 PlanLifecycleError = core.CoordinatorError
+
+# The statuses after which a review depth can no longer be chosen. Enumerated NEGATIVELY on purpose:
+# a status this list does not know is treated as pre-seal, which fails open to one harmless extra
+# preview marker, where a positive pre-seal list would fail closed to an approve nobody can reach.
+_AFTER_THE_SEAL = ("sealed", "active", "complete", "retired", "abandoned")
+
+
+def depth_choice_closed(record: dict) -> str | None:
+    """Why a review depth can no longer be chosen for this plan, or None while it still can.
+
+    ONE predicate for the preview marker and BOTH of its readers (StarshipSuperjam/engine-template#1108).
+    `preview` drops a marker to prove the operator was shown the revision a depth is about to be chosen
+    for; `depths` and `approve` refuse without it and tell the session to run preview. That remedy is
+    only honest while a preview can still mark — and it must not mark once the plan is sealed, bound to
+    a Build, or closed, because inspecting terminal history is a read, not a lifecycle step, and a
+    sandbox that cannot write the library must still be able to render it. The boundary is the SEAL
+    (plus binding and closure), not the approval: an approved-but-unreviewed plan may still be
+    re-approved at another depth, and its marker can be lost in transport (a bundle carries the record
+    and revisions, never the marker), so preview has to be able to re-mark it. Every verb that reads
+    the marker asks this predicate FIRST, so a post-boundary plan is refused with its real state and
+    the real way on — never with an instruction to run a preview that will never mark again. Derived
+    from the store's own status so it cannot drift from what `list` and `show` say.
+    """
+    status = plan_store.derived_status(record)
+    if status not in _AFTER_THE_SEAL:
+        return None
+    if status == "sealed":
+        return (f"this plan is sealed at revision {record['seal']['revision']}, and a seal is terminal: a "
+                "review depth is chosen before the seal, never after it. Clone the plan to choose again.")
+    if status == "active":
+        return ("a Build is bound to this plan, so a review depth can no longer be chosen for it — the "
+                "depth approved before the seal is the one that Build runs at.")
+    if status == "complete":
+        return ("this plan is complete, and completed Build history is terminal: nothing about it can be "
+                "approved again. Start a new plan for new work.")
+    reason = record["closure"].get("reason", "")
+    return (f"this plan is {status}" + (f" ({reason})" if reason else "") + ", so a review depth cannot be "
+            "chosen for it as it stands. Reopen it first (`reopen`); the choice starts over from there.")
 
 # The gates that require an operator attestation, and what each one is consent TO.
 GATES = {
