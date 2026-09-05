@@ -446,7 +446,7 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
                 mock.patch.object(bc, "_resolve_store", side_effect=AssertionError(
                     "bind must NOT resolve a snapshot: it is the command that creates one")):
             code = bc.main(["plan", "bind", "--plan", "pln_0123456789ab", "--repository", "o/r",
-                            "--pr", "1", "--operator-decision", "go"])
+                            "--pr", "1", "--operator-decided"])
         self.assertEqual(code, 0)
         self.assertEqual(seen["command"], "plan/bind")
         self.assertIsNone(seen["store"], "without --state, bind must choose its own durable address")
@@ -458,7 +458,7 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
         with mock.patch.object(bc, "cmd_plan_bind", lambda a, s: seen.update(store=s)), \
                 mock.patch.object(bc, "_resolve_store", return_value="explicit"):
             bc.main(["--state", "/tmp/x.json", "plan", "bind", "--plan", "pln_0123456789ab",
-                     "--repository", "o/r", "--pr", "1", "--operator-decision", "go"])
+                     "--repository", "o/r", "--pr", "1", "--operator-decided"])
         self.assertEqual(seen["store"], "explicit")
 
     def test_and_bind_reaches_the_durable_store_for_the_plan_it_binds(self):
@@ -482,7 +482,7 @@ class TheSeamAnOperatorActuallyCrosses(unittest.TestCase):
                 self.assertRaises(bc.CoordinatorError):
             bc.cmd_plan_bind(argparse.Namespace(
                 plan="pln_0123456789ab", repository="o/r", pr=1, issue=None, mode="same-session",
-                operator_decision="go", state=None), None)
+                operator_decided=True, state=None), None)
         self.assertEqual(asked["plan_id"], "pln_0123456789ab")
 
 

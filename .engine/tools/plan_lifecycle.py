@@ -28,15 +28,20 @@ approval, a four-lens panel, twenty-one findings, dispositions, a fix revision a
 thirty-two minutes with no operator input at all. Nothing malfunctioned. The consent points were
 prose in a runbook, and prose is advice a session may follow.
 
-So approve, seal and bind each refuse without a recorded operator attestation carrying the
-operator's ACTUAL words, and the seal additionally refuses until the panel's outcome was presented
-to the operator and that presentation attested. The consent trail is published in the pull request,
-where the operator meets it again at merge.
+So approve, seal and bind each refuse without a recorded operator decision at that gate, and the
+seal additionally refuses until the panel's outcome was presented to the operator and that
+presentation recorded. Each gate also checks that the gate before it left its record: the seal
+looks for the approval's, the bind for the seal's. The record is an EVENT — the gate and the
+moment — never the operator's words. Until 2026-09-05 each gate demanded the operator's actual
+words and the pull request republished them; a quotation typed by the session proves nothing, so
+that ceremony was retired (StarshipSuperjam/engine-template#1125) and every refusal kept. Records
+written before then may still carry the text; nothing reads or renders it.
 
-What this is NOT: proof. An attestation is a session's record of what the operator said, and a
-session that would fabricate one could. What it changes is the shape of the failure: silence becomes
-a discrete, published lie rather than an omission nobody can see. Un-forgeability needs an identity
-the session cannot mint, which is issue 914's residual and is not claimed here.
+What this is NOT: proof. A recorded decision is a session's record that the operator was asked, and
+a session that would fabricate one could. What it changes is the shape of the failure: a gate that
+was never crossed is a missing record rather than an omission nobody can see. Un-forgeability needs
+an identity the session cannot mint, which is issue 914's residual and is not claimed here. The
+trail stays in the plan record, where `plan show` lists it; it is not published in the pull request.
 """
 from __future__ import annotations
 
@@ -91,6 +96,7 @@ GATES = {
                           "before the plan locks",
     "seal": "sealing this plan, which is terminal, and authorising the Build it enters",
     "bind": "starting the Build that executes this sealed plan",
+    "adopt": "continuing this Build on a sealed successor plan that corrects the one it is executing",
 }
 
 
@@ -152,16 +158,13 @@ def frozen_reason(record: dict, artifact: str, *, finding_id: str | None = None)
 
 # --- consent attestations -----------------------------------------------------
 
-def attestation(gate: str, decision: str, *, at: str) -> dict:
-    """One recorded operator decision at one gate, in the operator's own words."""
+def attestation(gate: str, *, at: str) -> dict:
+    """One recorded operator decision at one gate: the gate and the moment, nothing else."""
     if gate not in GATES:
         raise PlanLifecycleError(f"unknown consent gate {gate!r}; expected " + ", ".join(sorted(GATES)))
-    decision = (decision or "").strip()
-    if not decision:
-        raise PlanLifecycleError(
-            f"the {gate} gate needs the operator's actual decision in their own words, not an empty "
-            f"string. What is being consented to: {GATES[gate]}.")
-    return {"gate": gate, "decision": decision, "at": at}
+    if not (at or "").strip():
+        raise PlanLifecycleError(f"the {gate} gate's record needs the moment it was crossed")
+    return {"gate": gate, "at": at}
 
 
 def consent_for(record: dict, gate: str) -> dict | None:
@@ -179,30 +182,40 @@ def missing_consent(record: dict, gate: str) -> str | None:
     if consent_for(record, gate):
         return None
     return (f"there is no recorded operator decision for this gate, so nothing shows the operator was "
-            f"asked. This gate is consent to: {GATES[gate]}. Ask, then pass their answer with "
-            f"--operator-decision \"<what they said>\". The attestation is a record, not a proof — it "
-            "is published in the pull request, where the operator meets it again at merge.")
+            f"asked. This gate is consent to: {GATES[gate]}. Ask, then record their answer with "
+            "--operator-decided. The record is the gate and the moment — a record, not a proof — and "
+            "it stays in the plan record, where `plan show` lists it.")
 
 
-def consent_trail(record: dict) -> list[str]:
-    """The consent trail, one operator-facing line per gate, for the pull request body.
+def consent_lines(record: dict) -> list[str]:
+    """The recorded decisions, one plain line per gate and moment, for `plan show`.
 
-    THE DECISION IS RENDERED, NEVER PARSED — and rendering it raw was not that. The operator's own
-    words go into a Markdown body that OTHER engine code reads for control markers, and a decision
-    carrying newlines used to break out of its bullet: a probe produced a fabricated second gate line
-    and an `engine-severity` marker that no attestation record contains. The same change neutralized
-    exactly this class one file over, for demonstration output, on exactly this reasoning — and then
-    left the program's headline governance control rendering free text into the same body.
+    Nothing here is rendered into the pull request any more, and nothing the operator typed is
+    rendered anywhere: the entry is an event. A pre-2026-09-05 entry may carry a `decision` text; it
+    is not shown, because a quotation the session typed is not evidence of anything."""
+    return [f"{entry['gate']} at {entry['at']}" for entry in record.get("consent", [])]
 
-    Newlines collapse to a single line and comment openers are neutralized visibly, so a decision can
-    say anything a person means to say and still cannot manufacture a gate that was never crossed.
-    Forging the CONTENT of a decision remains the session's to do and is issue 914's residual; what
-    stops here is forging the trail's SHAPE."""
-    lines = []
-    for entry in record.get("consent", []):
-        decision = " ".join(str(entry["decision"]).split()).replace("<!--", "<!‑‑")
-        lines.append(f"- **{entry['gate']}** ({entry['at']}) — “{decision}”")
-    return lines
+
+# The gate each gate looks back to: a seal without an approval's record, or a bind without a
+# seal's, is a chain with a link missing — a record a tool did not write, whatever else it says.
+PRIOR_GATE = {"seal": "approve", "bind": "seal", "adopt": "seal"}
+
+
+def missing_prior_consent(record: dict, gate: str) -> str | None:
+    """The refusal when the gate before `gate` left no record, or None."""
+    prior = PRIOR_GATE.get(gate)
+    if not prior or consent_for(record, prior):
+        return None
+    return (f"the {gate} gate needs the {prior} gate's recorded decision first, and this plan carries "
+            f"none: nothing shows the operator was asked to consent to {GATES[prior]}. The tool that "
+            "owns that gate did not write its record; run it again before this one.")
+
+
+# One sentence, rendered by the seal hand-back and the bind alike, so the rule that no Issue is filed
+# for work already in flight arrives from the ceremony itself rather than from anyone's memory
+# (StarshipSuperjam/engine-template#1091). An Issue is intake; a Build's work is carried by its draft
+# pull request.
+CARRIER_RULE = "The Build's work rides its draft pull request; no Issue is filed for it."
 
 
 # --- the two finding shapes ---------------------------------------------------
