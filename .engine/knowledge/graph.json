@@ -15019,7 +15019,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:16c8d11546d277a8ec2dd028410f59b553fc55ecb0468a3b67cf533543471ad7",
+        "fingerprint": "sha256:202ea2e97b3b7e74fafcf74d6a8556746dae362fd3f11220268283154224a281",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -15833,14 +15833,13 @@
           "tool:modes",
           "tool:module_coherence",
           "tool:module_manager",
-          "tool:repo_identity",
           "tool:restore_vault",
           "tool:validate"
         ]
       },
       "slug": "test_boot",
       "source": {
-        "fingerprint": "sha256:64e1e07a5ef95727ea7fb7d249c5f6cb218e2e3750e1a86735fbe9dc72e76b25",
+        "fingerprint": "sha256:b3b1b3e4eda25ce1b6459d48f1aea6c6418f405d45088640da9ea954fc055820",
         "path": ".engine/tools/test_boot.py"
       },
       "status": "active",
@@ -17833,7 +17832,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:8c94574244f655847ef5f2038ae302755e82b8c4e339ea621982313a61d4d164",
+        "fingerprint": "sha256:b20565110939e481d7535b2d2017dbba7cfe3bce62e4cc7e6b17eb052c7c81d4",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -18275,13 +18274,12 @@
         "tests": [
           "tool:derived_state",
           "tool:module_surfaces",
-          "tool:selftest_support",
-          "tool:validate"
+          "tool:selftest_support"
         ]
       },
       "slug": "test_module_surfaces",
       "source": {
-        "fingerprint": "sha256:ecd9c09c42cafddda16b1984c41c0a277b646490cc1c9b2aa95121696838600d",
+        "fingerprint": "sha256:e00b79cc62156a2138c9145e12be310505a750c685e8ae0143a51eefb6b01955",
         "path": ".engine/tools/test_module_surfaces.py"
       },
       "status": "active",
@@ -18311,7 +18309,7 @@
       },
       "slug": "test_modules",
       "source": {
-        "fingerprint": "sha256:4bb16362b115051bcb91fc6528c420c48d220a04f0d5bdf6dc45b3ca0ef7a515",
+        "fingerprint": "sha256:3f3131dd36892264c69f04664b361acfb5f00dcce951fc17ba60afdb27b5a73c",
         "path": ".engine/tools/test_modules.py"
       },
       "status": "active",
