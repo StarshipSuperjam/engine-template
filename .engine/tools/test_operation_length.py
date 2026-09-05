@@ -8,8 +8,8 @@ Counting rule. A runbook's length is its prose-body line count: the lines after 
 fenced code blocks (``` or ~~~) and generated regions (`<!-- generated: ... -->` ... `<!-- /generated: ... -->`)
 excluded, because neither is prose a cold operator reads and both are owned by a renderer or a fence, not
 the runbook author. This is the count the hardened operation-shape tier applies (typed-lifecycle part C,
-StarshipSuperjam/engine-template#821); `body_lines` below is that count, kept alongside the pins so the
-audit table in the delivering pull request and these assertions read the same number.
+StarshipSuperjam/engine-template#821); `body_lines` below reads it from the validator's `prose_line_count`, so the
+audit table in the delivering pull request, the merge check, and these assertions read the same number.
 
 What is pinned. (1) Every operation file is at or under its EFFECTIVE budget — the template's default
 `length_budget` unless the guarded rule carries a recorded, reasoned override for that file. (2) The six
@@ -25,7 +25,6 @@ from __future__ import annotations
 import glob
 import json
 import os
-import re
 import sys
 import unittest
 
@@ -36,9 +35,6 @@ OPERATIONS_DIR = os.path.join(validate.ENGINE_DIR, "operations")
 TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "operation.md")
 SHAPE_RULE_PATH = os.path.join(validate.CHECK_DIR, "operation-shape.json")
 MODULES_DIR = os.path.join(validate.ENGINE_DIR, "modules")
-
-GENERATED_BEGIN = re.compile(r"^\s*<!-- generated:")
-GENERATED_END = re.compile(r"^\s*<!-- /generated:")
 
 # The six lifecycle runbooks parts A and B of the typed-lifecycle program delivered, pinned at the size measured
 # when part C hardened the tier. Raising a pin is a deliberate edit to this table, made in the same change that
@@ -63,25 +59,9 @@ RECORDED_CEILINGS = {
 
 
 def body_lines(path: str) -> int:
-    """Prose-body line count: after the frontmatter, excluding fenced blocks and generated regions."""
-    body = validate._body_without_frontmatter(validate.read(path))
-    count, in_fence, in_generated = 0, False, False
-    for line in body.splitlines():
-        if GENERATED_BEGIN.match(line):
-            in_generated = True
-            continue
-        if GENERATED_END.match(line):
-            in_generated = False
-            continue
-        if in_generated:
-            continue
-        if validate.FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        count += 1
-    return count
+    """Prose-body line count: after the frontmatter, excluding fenced blocks and generated regions — the
+    validator's own `prose_line_count`, so the pins and the merge check read one number."""
+    return validate.prose_line_count(validate.read(path))
 
 
 def overrides() -> dict:

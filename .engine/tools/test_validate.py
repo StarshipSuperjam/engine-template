@@ -11,6 +11,7 @@ These tests prove (1) `import validate` and its path constants work with yaml+js
 (2) when the packages ARE present the lazy symbols and the frontmatter/schema paths behave exactly as before.
 """
 import contextlib
+import glob
 import io
 import json
 import os
@@ -546,6 +547,93 @@ class TestAmbientWriter(unittest.TestCase):
             d = validate._accept_handler(edit)
         cap.assert_called_once()                                            # the ambient relay fired
         self.assertEqual(d.get("action"), "proceed")                       # ...and it stays proceed/inject only
+
+
+class TestShapeLengthTier(unittest.TestCase):
+    """The shape kind's LENGTH budget bites at the rule's `length_tier` — soft unless the rule opts in — counts
+    prose only (frontmatter, fenced blocks and generated regions excluded), and interpolates the budget and the
+    tier into the rule's message from their sources (typed-lifecycle part C, StarshipSuperjam/engine-template#821)."""
+
+    PARAMS = {"required_sections": ["Purpose", "Steps", "Done when"], "allowed_sections": ["Notes"],
+              "length_budget": 4}
+    OK = "## Purpose\n\n## Steps\n\n## Done when\n"                      # 5 prose lines: over a 4-line budget
+    PADDED = ("---\ntitle: t\n---\n## Purpose\n```text\nfence one\nfence two\nfence three\n```\n"
+              "<!-- generated: x -->\ngen one\ngen two\n<!-- /generated: x -->\n## Steps\n## Done when\n")
+
+    def _rule(self, **extra):
+        rule = {"id": "engine/check/t", "target": {"path": "x"}, "kind": "shape", "tier": "hard",
+                "suites": [], "params": dict(self.PARAMS), "message": "M"}
+        rule.update(extra)
+        return rule
+
+    def _run(self, rule, files):
+        with mock.patch.object(validate, "target_files", return_value=list(files)):
+            return validate.kind_shape(rule, {})
+
+    def _file(self, d, name, body):
+        path = os.path.join(d, name)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        return path
+
+    def test_prose_line_count_excludes_frontmatter_fences_and_generated_regions(self):
+        # "## Purpose", "## Steps", "## Done when" plus the blank the frontmatter close leaves behind are the
+        # only prose lines left; the three fenced and two generated lines (and their markers) are not counted.
+        self.assertEqual(validate.prose_line_count(self.PADDED), 4)
+        self.assertEqual(validate.prose_line_count("a\nb\n"), 2)         # no frontmatter: unchanged
+
+    def test_a_rule_that_does_not_opt_in_stays_a_soft_nudge(self):
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(), [self._file(d, "a.md", self.OK)])
+        self.assertTrue(passed)
+        over = [f for f in found if "over its 4-line budget" in f["message"]]
+        self.assertEqual([f["severity"] for f in over], ["soft"])
+        self.assertIn("a nudge to trim, never a block", over[0]["message"])
+
+    def test_an_opted_in_rule_fails_at_the_hard_tier(self):
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(length_tier="hard"), [self._file(d, "a.md", self.OK)])
+        self.assertFalse(passed)
+        over = [f for f in found if "over its 4-line budget" in f["message"]]
+        self.assertEqual([f["severity"] for f in over], ["hard"])
+        self.assertIn("blocks the merge", over[0]["message"])
+
+    def test_padding_that_is_not_prose_does_not_reach_the_budget(self):
+        # Three prose lines under a 4-line budget, however much fenced or generated text surrounds them.
+        with tempfile.TemporaryDirectory() as d:
+            passed, found = self._run(self._rule(length_tier="hard"), [self._file(d, "a.md", self.PADDED)])
+        self.assertTrue(passed)
+        self.assertEqual([f for f in found if "budget" in f["message"]], [])
+
+    def test_message_interpolates_budget_and_tier_from_their_sources(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = self._file(d, "a.md", self.OK)
+            b = self._file(d, "b.md", self.OK + "\n".join(["x"] * 9) + "\n")     # over even a 9-line ceiling
+            rel_b = os.path.relpath(b, validate.ROOT)
+            rule = self._rule(length_tier="hard",
+                              message="default {default_budget}; here {effective_budget}; tier {length_tier}.")
+            rule["params"]["length_budget_overrides"] = {rel_b: {"budget": 9, "why": "recorded"}}
+            passed, found = self._run(rule, [a, b])
+        self.assertFalse(passed)
+        by_file = {os.path.basename(f["location"]["file"]): f["message"] for f in found if "over its" in f["message"]}
+        self.assertIn("default 4; here 4; tier hard.", by_file["a.md"])
+        self.assertIn("default 4; here 9; tier hard.", by_file["b.md"])
+        self.assertIn("over its 9-line budget", by_file["b.md"])
+
+    def test_the_schema_admits_only_hard_or_soft_for_length_tier(self):
+        from jsonschema import Draft202012Validator
+        schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))
+        base = {"id": "engine/check/t", "target": {"path": "x"}, "kind": "shape", "tier": "hard",
+                "suites": [], "params": {}, "message": "m"}
+        for ok in ("hard", "soft"):
+            self.assertEqual(list(Draft202012Validator(schema).iter_errors(dict(base, length_tier=ok))), [])
+        self.assertTrue(list(Draft202012Validator(schema).iter_errors(dict(base, length_tier="loud"))))
+
+    def test_only_the_operation_rule_opts_in(self):
+        # The obligation: ONLY operation-shape carries the hard length tier; every other shape family nudges.
+        opted = sorted(os.path.basename(p) for p in glob.glob(os.path.join(validate.CHECK_DIR, "*.json"))
+                       if validate.load_json(p).get("length_tier") == "hard")
+        self.assertEqual(opted, ["operation-shape.json"])
 
 
 def _write_kind(base: str, module: str, name: str, body: str) -> None:
