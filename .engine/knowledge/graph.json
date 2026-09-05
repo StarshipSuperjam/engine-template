@@ -5161,7 +5161,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:df7664205a03c8ef64807251ffa87fe2cd2fa715689703571d10edd688672b29",
+        "fingerprint": "sha256:f9a13c06f88202158f3607456e4cd5dd7dcbb168dad38b3318615bc4ae322253",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -20013,7 +20013,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:aff76a1cefbea315c7d963ea4a33cd9244ad2e6f7d93ae3072040fa047b35572",
+        "fingerprint": "sha256:fd7bdcf8d149ddf17620876f63177687df7fae109831bed2e5537febab826465",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
