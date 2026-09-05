@@ -1200,8 +1200,10 @@ def accept_handler(payload: dict) -> dict:
     anchor (see the section comment) — import it as an unapproved draft and inject the arrival report
     prefaced by where the text came from; on any other tool, no-op. An acceptance that yields no text
     from any source injects a notice naming what was seen, what was tried and the typed recovery, and
-    tells the session to relay it — never silence. It writes no stance: accepting a plan no longer
-    enters Build, on either runtime. ALWAYS proceeds; never blocks."""
+    tells the session to relay it — never silence for the operator's own acceptance. The one silent
+    case is a plan-exit the harness marks as an agent's (`isAgent`): not the operator's acceptance, so
+    nothing is imported and nothing is said. It writes no stance: accepting a plan no longer enters
+    Build, on either runtime. ALWAYS proceeds; never blocks."""
     if not isinstance(payload, dict) or payload.get("tool_name") != _PLAN_EXIT_TOOL:
         return hooks.proceed()
     response = payload.get("tool_response")

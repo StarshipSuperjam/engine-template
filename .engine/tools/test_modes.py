@@ -1273,6 +1273,14 @@ class TestNativePlanIntake(unittest.TestCase):
         self.assertIn(modes._RECOVERY_COMMAND, failed)
         self.assertIn(modes._RECOVERY_COMMAND, empty)
         self.assertIn("import-native --input -", modes._RECOVERY_COMMAND)
+        # The provenance placeholder says in words what to put there — a bare `...` runs and records
+        # "..." verbatim — and the runbook carries the same wording.
+        placeholder = '--provenance "<where this plan came from, in your words>"'
+        self.assertIn(placeholder, modes._RECOVERY_COMMAND)
+        runbook = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(modes.__file__))),
+                               "operations", "operating-modes.md")
+        with open(runbook, encoding="utf-8") as fh:
+            self.assertIn("<where this plan came from, in your words>", fh.read())
 
     def test_end_to_end_via_run_hook_on_the_structured_result(self):
         out, err = io.StringIO(), io.StringIO()
