@@ -70,7 +70,7 @@ The stance lifecycle:
    case against, the decomposition — are recorded as open decisions the plan cannot be sealed with.
    Where a hook cannot run (a Codex hook trust the operator has not re-approved, or an acceptance line the
    platform has since reworded), `python tools/project_manager.py import-native --input - --provenance
-   "..."` performs the identical import from the plan text on stdin.
+   "<where this plan came from, in your words>"` performs the identical import from the plan text on stdin.
 5. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
    Claude Desktop routine runs the routine command, which enters
    the Routine write-stance through `set-routine` — a **mechanical** gate that grants the stance only in a

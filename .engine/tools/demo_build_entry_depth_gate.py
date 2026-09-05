@@ -50,8 +50,11 @@ def main(argv: list | None = None) -> int:
     real_home = os.path.realpath(os.path.expanduser("~"))
     real_plans_before = _listing(os.path.join(real_home, ".claude", "plans"))
     import plan_store
-    real_library = str(plan_store.library_root())
-    real_library_before = _listing(real_library)
+    try:
+        real_library = str(plan_store.library_root())
+    except Exception:  # noqa: BLE001 — no resolvable library here (a bare copy of the tools): nothing to protect
+        real_library = None
+    real_library_before = _listing(real_library) if real_library else []
 
     with tempfile.TemporaryDirectory() as tmp:
         base = os.path.realpath(tmp)
@@ -139,7 +142,7 @@ def main(argv: list | None = None) -> int:
         all_landed = landed == len(shapes)
         untouched = (imported_here >= landed
                      and _listing(os.path.join(real_home, ".claude", "plans")) == real_plans_before
-                     and _listing(real_library) == real_library_before)
+                     and (real_library is None or _listing(real_library) == real_library_before))
         print(f"Every shape of acceptance landed on the shelf:    {all_landed} ({landed} of {len(shapes)})")
         print(f"Accepting a plan left the session where it was:  {stance_held}")
         print(f"Only a real acceptance line is treated as one:   {quiet}")

@@ -1107,12 +1107,31 @@ class TestNativePlanIntake(unittest.TestCase):
         self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
     def test_the_notice_names_the_shape_it_saw_as_structure_only(self):
-        payload = self._accept({"isAgent": False, "unexpected": "x"}, tool_input={"allowedPrompts": []})
+        # Structure, never content: the notice is relayed to the operator, so nothing the model put in
+        # tool_input and nothing the harness put in tool_response may be echoed — only types and keys.
+        secret_in, secret_out = "SECRET-INPUT-VALUE-7f3a", "SECRET-RESPONSE-TEXT-9c1d"
+        payload = self._accept({"isAgent": False, "unexpected": secret_out}, tool_input={"allowedPrompts": secret_in})
         with self._importer():
             text = modes.accept_handler(payload).get("context", "")
         self.assertIn("tool_input keys allowedPrompts", text)
         self.assertIn("tool_response dict with keys isAgent, unexpected", text)
-        self.assertNotIn("x\"", text)
+        self.assertNotIn(secret_in, text)
+        self.assertNotIn(secret_out, text)
+        with self._importer():
+            text = modes.accept_handler(self._accept(secret_out, tool_input={"plan": " ", "x": secret_in})).get("context", "")
+        self.assertIn(f"tool_response string of {len(secret_out)} characters", text)
+        self.assertNotIn(secret_in, text)
+        self.assertNotIn(secret_out, text)
+
+    def test_an_agents_plan_exit_is_not_the_operators_acceptance(self):
+        # The structured result carries isAgent; a plan-exit the harness marks as an agent's imports
+        # nothing and proceeds with no notice — nothing was accepted by the operator, nothing to recover.
+        payload = self._accept({"plan": self.PLAN, "filePath": os.path.join(self.plans, "p.md"), "isAgent": True})
+        with self._importer() as importer:
+            decision = modes.accept_handler(payload)
+        importer.assert_not_called()
+        self.assertEqual(decision.get("action"), "proceed")
+        self.assertEqual(modes.current_stance("s"), modes.EXPLORE)
 
     # -- where the accepted plan lives (StarshipSuperjam/engine-template#1163) ------------------------------------
 
@@ -1214,10 +1233,28 @@ class TestNativePlanIntake(unittest.TestCase):
         self.assertEqual(importer.call_args.args[0], self.PLAN)
 
     def test_the_read_anchor_consults_managed_and_user_files_only(self):
-        files = modes._readable_plan_settings_files()
-        self.assertEqual(files, [os.path.join(self.home, ".claude", "settings.json")])   # managed paths patched to ()
+        managed = os.path.join(self.home, "managed-settings.json")
+        with mock.patch.object(modes, "_MANAGED_SETTINGS_PATHS", (managed,)):
+            files = modes._readable_plan_settings_files()
+        self.assertEqual(files, [managed, os.path.join(self.home, ".claude", "settings.json")])
         for f in files:
             self.assertFalse(f.startswith(self.root))
+
+    def test_a_managed_plans_directory_wins_the_read_anchor(self):
+        # The administrator-installed file is consulted first and outranks the user's own.
+        managed_folder = self._plan_file(folder=os.path.join(self.home, "managed-plans"))
+        user_folder = os.path.join(self.home, "myplans")
+        os.makedirs(user_folder)
+        managed = os.path.join(self.home, "managed-settings.json")
+        with open(managed, "w", encoding="utf-8") as fh:
+            json.dump({"plansDirectory": "~/managed-plans"}, fh)
+        with open(os.path.join(self.home, ".claude", "settings.json"), "w", encoding="utf-8") as fh:
+            json.dump({"plansDirectory": "~/myplans"}, fh)
+        with mock.patch.object(modes, "_MANAGED_SETTINGS_PATHS", (managed,)):
+            self.assertEqual(modes._readable_plan_root(None), os.path.realpath(os.path.dirname(managed_folder)))
+            with self._importer() as importer:
+                modes.accept_handler(self._accept({"filePath": managed_folder}))
+        self.assertEqual(importer.call_args.args[0], self.PLAN)
 
     def test_a_plan_file_path_in_tool_input_alone_imports_nothing(self):
         # tool_input is the model's raw input; a model-controlled path is never read.
@@ -1300,6 +1337,9 @@ class TestNativePlanIntake(unittest.TestCase):
         self.assertEqual(importer.call_args.args[0], "\n# Cache widgets\n")
         self.assertIn("Codex", importer.call_args.kwargs["provenance"])
         self.assertEqual(decision.get("action"), "inject")
+        # The Claude-only 'where the text came from' sentence never precedes a Codex arrival.
+        self.assertTrue(decision.get("context", "").startswith("The plan you just accepted was imported"))
+        self.assertNotIn("came from", decision.get("context", ""))
 
     def test_anything_but_the_envelope_at_byte_zero_imports_nothing(self):
         # The anchor IS the fail-safe. A prompt that mentions, quotes or discusses the phrase is a

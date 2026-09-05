@@ -966,12 +966,16 @@ def handler(payload: dict) -> dict:
 # no text. An acceptance that yields no text from any source is REPORTED — a notice naming the shape the
 # hook saw, the sources that came up empty, any refused path, the typed recovery, and the relay
 # instruction — because under the current harness the empty case is never the benign one it was written
-# for.
+# for. One more guard: the structured result carries `isAgent`, and a plan-exit the harness marks as an
+# AGENT's is not the operator's acceptance — it imports nothing and proceeds (no notice: there is nothing
+# the operator accepted and nothing to recover). Every recorded acceptance on this workstation is
+# isAgent false on the main thread; the guard is for the day one is not.
 _PLAN_EXIT_TOOL = "ExitPlanMode"
 _APPROVED_PLAN_HEADING = "## Approved Plan:"
 _SAVED_TO_MARKER = "Your plan has been saved to:"
 _PLAN_FILE_READ_CAP = 1_048_576          # bytes; every recorded plan is under 20 KB
-_RECOVERY_COMMAND = "python tools/project_manager.py import-native --input - --provenance ..."
+_RECOVERY_COMMAND = ("python tools/project_manager.py import-native --input - "
+                     "--provenance \"<where this plan came from, in your words>\"")
 # The Codex acceptance envelope, spelled out here rather than imported, because the handler that reads
 # it runs on EVERY prompt and must not drag the plan library into that path to learn one string. It is
 # the same string project_manager declares, and a test pins the two together — the cheap way to keep
@@ -1200,6 +1204,9 @@ def accept_handler(payload: dict) -> dict:
     enters Build, on either runtime. ALWAYS proceeds; never blocks."""
     if not isinstance(payload, dict) or payload.get("tool_name") != _PLAN_EXIT_TOOL:
         return hooks.proceed()
+    response = payload.get("tool_response")
+    if isinstance(response, dict) and response.get("isAgent") is True:
+        return hooks.proceed()                 # an agent's plan-exit is not the operator's acceptance
     found = _accepted_plan_text(payload)
     if found["text"] is None:
         return hooks.inject(_no_text_notice(payload, found))
