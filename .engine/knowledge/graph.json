@@ -6277,7 +6277,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:924a112ec76099bf9e04fcac0b62296ac521c45940c0f4eb8d724270d5fc6da4",
+        "fingerprint": "sha256:9fe0f473fa543134d2d0bc2fd241c8e5ad7e420fb503a06a5bdaaf16e216c34a",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -10895,7 +10895,7 @@
       },
       "slug": "demo_build_entry_depth_gate",
       "source": {
-        "fingerprint": "sha256:b8b20444788913ca7ce1e735fc4323c504b8e5515587e3e9c25fbc1238942de4",
+        "fingerprint": "sha256:7150c162a7182d45cf7ac2e53aa5dd59282bc00893f69715cf8a6a8a36245213",
         "path": ".engine/tools/demo_build_entry_depth_gate.py"
       },
       "status": "active",
@@ -13484,7 +13484,7 @@
       },
       "slug": "modes",
       "source": {
-        "fingerprint": "sha256:e66829e63402e2456b1c24ff095e2d372ad91c724400b1cf4d6d5490773cb645",
+        "fingerprint": "sha256:350f5c3b6094d7a5199fa7bf9c4eb85e71bb8a2880fb3cba8dc2458dfd805c62",
         "path": ".engine/tools/modes.py"
       },
       "status": "active",
@@ -18405,7 +18405,7 @@
       },
       "slug": "test_modes",
       "source": {
-        "fingerprint": "sha256:364fe80e21a76a5f33426fea173778eff50f3892346054c81307aa1e865603ad",
+        "fingerprint": "sha256:24d9a4e0482d04ad42a005a8e05425839908605dfd59e7be69eeac4d1a605c04",
         "path": ".engine/tools/test_modes.py"
       },
       "status": "active",
