@@ -270,10 +270,14 @@ _NOTE_INCOMPLETE_SEARCH = ("The keyword index could not be refreshed, so this an
                            "of everything saved. If this persists, run /engine-status and open an engine issue.")
 _NOTE_MEANING_STORE_FAULT = ("Meaning-based recall could not open its store; keyword search still covers everything "
                              "saved. If this persists, run /engine-status and open an engine issue.")
+_NOTE_MEANING_BACKEND = ("Meaning-based recall's backend is unavailable on this machine; keyword search still covers "
+                         "everything saved. If this persists, run /engine-status and open an engine issue.")
 # Only `search` (the ledger-scan fallback) and `recall-by-meaning` (its backend) can report an incomplete read;
-# recall-window, list-pins and list-withheld always read their full source. The plan's sentence for a meaning
-# store fault travels with that read's own result (see `_meaning_read`); the not-qualified and
-# embedding-unavailable cases keep the tool's own `unavailable` sentence as the relay and carry no second one.
+# recall-window, list-pins and list-withheld always read their full source. `_meaning_read` returns the note
+# with its result on EVERY exit: the plan's sentence for a store fault, the backend sentence when the embedding
+# backend itself cannot run (numpy or the word table missing), and None for the one case whose own
+# `unavailable` text already carries the recovery and the escalation - a session not qualified to build the
+# meaning index.
 
 # One read-degraded trace per (staleness class, tool) per process. A stale session reads memory many times and
 # every read would otherwise write a near-identical record into the same bounded sink as the rare crash record
@@ -338,7 +342,7 @@ def _read_degraded_trace(reason: str, tool: str, error=None) -> None:
             _READ_DEGRADED_NOTED.add(key)
 
 
-def _outcome(binding, completeness: str, tool: str, payload: dict, read_note=None) -> dict:
+def _outcome(binding, completeness: str, tool: str, read_note=None) -> dict:
     """The one object every read answer carries; the note is the one sentence a session relays, chosen by
     what actually happened rather than one fixed string per kind."""
     if binding.kind == "moved":
@@ -363,7 +367,8 @@ def _read_seam(tool: str, read, *, empty) -> dict:
 
     `read(memory_dir, binding)` performs the tool's own read with EXPLICIT paths under `memory_dir` (None
     means no context is installed and the ordinary resolution applies) and returns `(payload, completeness)`
-    - or `(payload, completeness, note)` when the read's own result carries the outcome's sentence -
+    - or exactly `(payload, completeness, note)` when the tool's read decides the outcome's sentence itself
+    (recall-by-meaning, on every exit; None where its own text is the relay) -
     where completeness says what retrieval actually did: 'complete' (the full source was read) or 'incomplete'
     (an index heal was refused, the meaning backend was unavailable, a ledger-scan fallback answered). `empty`
     builds the tool's content-free answer for the unbound case.
@@ -380,8 +385,11 @@ def _read_seam(tool: str, read, *, empty) -> dict:
         payload = empty()
         completeness = "none"
     else:
-        payload, completeness, *extra = read(binding.memory_dir, binding)
-        read_note = extra[0] if extra else None
+        result = read(binding.memory_dir, binding)
+        if len(result) == 3:          # recall-by-meaning: its note travels with its result on every exit
+            payload, completeness, read_note = result
+        else:
+            payload, completeness = result
         if binding.context is not None:
             moved = _execution_context.explicit_store_check(binding.context)
             if moved is not None:
@@ -389,7 +397,7 @@ def _read_seam(tool: str, read, *, empty) -> dict:
                 payload = empty()
                 completeness = "none"
     payload.pop("memory_caveat", None)
-    payload["outcome"] = _outcome(binding, completeness, tool, payload, read_note)
+    payload["outcome"] = _outcome(binding, completeness, tool, read_note)
     if binding.kind in ("moved", "unbound"):
         _read_degraded_trace(binding.reason, tool, binding.error)
     return payload
@@ -512,7 +520,7 @@ if _semantic_installed():
         reason = _embed.unavailable_reason()
         if reason:
             # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
-            return {"results": [], "unavailable": reason}, "incomplete"
+            return {"results": [], "unavailable": reason}, "incomplete", _NOTE_MEANING_BACKEND
         found = _store.search(query, limit=limit, ledger_file=_ledger_file(memory_dir),
                               store_file=None if memory_dir is None else os.path.join(memory_dir, _store.STORE_FILENAME))
         if found.get("unavailable"):
@@ -528,11 +536,14 @@ if _semantic_installed():
                         "I can't search by meaning right now: the project moved to a new commit under this "
                         "memory server, so this session isn't qualified to update the meaning index. This says "
                         "NOTHING about what is in memory: keyword search works normally and covers "
-                        "everything.")}, "incomplete"
+                        "everything.")}, "incomplete", None
+                # This text is the relay itself (the outcome note stays null): it names the self-resolving
+                # cause, the action, and where to go if the action does not clear it.
                 return {"results": [], "unavailable": (
                     "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
                     "index. This says NOTHING about what is in memory: keyword search works normally and "
-                    "covers everything. It sorts itself out at a session start that can reach GitHub.")}, "incomplete"
+                    "covers everything. It sorts itself out at a session start that can reach GitHub. If it "
+                    "does not, run /engine-status and open an engine issue.")}, "incomplete", None
             # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
             # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
             # delete it loses a possibly-fine cache and gets the identical error back. The internal class
@@ -563,7 +574,7 @@ if _semantic_installed():
         elif not found["searched"]:
             out["unavailable"] = ("Nothing is stored to search by meaning yet — this project's memory is "
                                   "empty, so an empty answer here says nothing about what was discussed.")
-        return out, "complete"   # an empty store searched in full is a complete answer, not a degraded one
+        return out, "complete", None   # an empty store searched in full is a complete answer, not a degraded one
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

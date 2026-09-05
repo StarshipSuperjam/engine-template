@@ -1176,8 +1176,9 @@ class ReadBindingTests(unittest.TestCase):
         class FutureStale(execution_context.ContextError):
             pass
 
-        for name, raised, reason in (("base", execution_context.ContextError("lifecycle paths no longer match"), "ContextError"),
-                                     ("unknown-subclass", FutureStale("a class this module does not know"), "unknown")):
+        for name, raised, reason in (
+                ("base", execution_context.ContextError("lifecycle paths no longer match"), "ContextError"),
+                ("unknown-subclass", FutureStale("a class this module does not know"), "unknown")):
             with self.subTest(row=name):
                 self.setUp()
                 self._uncached()
@@ -1244,10 +1245,13 @@ class ReadBindingTests(unittest.TestCase):
         self.assertTrue((declared - {"ExpectedStateStale"}) <= set(tms.ReadDegradationMatrixTests.REASON.values()))
 
     def test_every_current_context_caller_still_fails_closed_under_every_non_refreshable_row(self):
-        """The strict resolution is untouched: under every non-refreshable row (R3-R9, the two declared
-        monkeypatch rows included) an uncached current_context() raises for every caller that routes on it - drain.is_qualified, candidate_invocation.run,
-        backup_vault._pointer_path and capture._health_path - each EXERCISED here - while read_binding() answers
-        moved or unbound; the write path's own mutation_scope is exercised under the same rows by the matrix."""
+        """The strict resolution is untouched: under every non-refreshable row (R3-R9) an uncached
+        current_context() raises, read_binding() answers moved or unbound, and the callers that route on the
+        strict resolution fail closed - drain.is_qualified, backup_vault._pointer_path and capture._health_path
+        exercised under all seven rows; candidate_invocation.run under the five disk-drift rows only, because
+        it loads the context library under its own module name, which the two declared monkeypatch rows (R8,
+        R9) cannot reach and no disk drift shows. The write path's own mutation_scope is exercised under the
+        same rows by the matrix."""
         import argparse
         from contextlib import ExitStack
         from memory import drain, candidate_invocation, backup_vault, capture

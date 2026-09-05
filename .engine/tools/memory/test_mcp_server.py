@@ -653,6 +653,9 @@ class ReadSeamWiringTests(_ServerBase):
         self.assertEqual(srv._NOTE_MEANING_STORE_FAULT,
                          "Meaning-based recall could not open its store; keyword search still covers everything "
                          "saved. If this persists, run /engine-status and open an engine issue.")
+        self.assertEqual(srv._NOTE_MEANING_BACKEND,
+                         "Meaning-based recall's backend is unavailable on this machine; keyword search still "
+                         "covers everything saved. If this persists, run /engine-status and open an engine issue.")
         self.assertFalse(hasattr(srv, "_NOTE_INCOMPLETE"), "no generic incomplete sentence: none is reachable")
 
     async def test_an_unbound_binding_returns_no_content_from_any_read_tool(self):
@@ -1326,14 +1329,17 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
 
     def _build(self):
         from memory import test_mutation_authority as tma
-        from memory.semantic import store as _semantic_store
 
         self._reset_process()
         self.fixture = tma._QualifiedFixture(mcp=True)
         self._row_cleanups.append(self.fixture.temp.cleanup)
         self.ledger_file = os.path.join(self.fixture.memory, ledger.LEDGER_FILENAME)
         self.index_file = os.path.join(self.fixture.memory, index.INDEX_FILENAME)
-        self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
+        if srv._semantic_installed():      # the optional add-on: absent, the tool is absent and so is its store
+            from memory.semantic import store as _semantic_store
+            self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
+        else:
+            self.store_file = None
         self.nonce = "nonce-" + records.new_record_id()[:10]
         self.withheld_nonce = "withheld-" + records.new_record_id()[:10]
         self.session = "s-matrix"
@@ -1348,8 +1354,6 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         return True
 
     def _reset_process(self):
-        from memory.semantic import store as _semantic_store   # present whenever this class runs at all
-
         execution_context._CURRENT_CONTEXT = None
         with execution_context._CONTEXT_LOCK:
             execution_context._AUTHORIZED_CONTEXTS.clear()
@@ -1357,7 +1361,9 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         os.environ.pop(ledger.ENV_DIR, None)
         srv._READ_DEGRADED_NOTED.clear()
         srv.set_seam_test_hook(None)
-        _semantic_store._LIVE_CACHE.clear()
+        if srv._semantic_installed():
+            from memory.semantic import store as _semantic_store
+            _semantic_store._LIVE_CACHE.clear()
         mutation_authority._THREAD.state = None
 
     def _seed(self):
@@ -1369,7 +1375,6 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         rebuild and NO reconcile - so a revival would be observable in any row that answered from a stale
         derived copy."""
         from memory import forget as _forget
-        from memory.semantic import store as _semantic_store
 
         now = int(time.time())
         for seq, text in enumerate((f"we decided to hook the calendar and not run a cron job {self.nonce}",
@@ -1379,6 +1384,7 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                            "text": text}, path=self.ledger_file)
         index.rebuild(ledger_file=self.ledger_file, index_file=self.index_file)
         if srv._semantic_installed():
+            from memory.semantic import store as _semantic_store
             _semantic_store.sync(ledger_file=self.ledger_file, store_file=self.store_file)
         withheld_id = next(r[_ID] for r in ledger.read(path=self.ledger_file).records
                            if self.withheld_nonce in r.get("text", ""))
@@ -1455,6 +1461,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         import hashlib
         out = {}
         for path in (self.index_file, self.store_file):
+            if path is None:
+                continue
             out[path] = hashlib.sha256(Path(path).read_bytes()).hexdigest() if os.path.exists(path) else None
         return out
 
@@ -1624,7 +1632,24 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
             out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
         self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
         self.assertIn("isn't qualified to build the meaning index", out["unavailable"])
+        self.assertIn("If it does not, run /engine-status and open an engine issue.", out["unavailable"])
         self.assertIsNone(out["outcome"]["note"])          # its own sentence carries the action; never two
+
+    async def test_an_unavailable_embedding_backend_under_a_healthy_binding_carries_the_backend_sentence(self):
+        """The fourth exit of the meaning read: numpy or the word table missing. The tool's own text is the
+        bare cause, so the note carries the action and the escalation."""
+        if "recall-by-meaning" not in self.TOOLS:
+            self.skipTest("the optional semantic module is not installed here")
+        from memory.semantic import embed as _embed
+        self._uncached()
+        with mock.patch.object(_embed, "unavailable_reason",
+                               return_value="numpy is not installed, so meaning-based recall cannot run."):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
+        self.assertEqual(out["results"], [])
+        self.assertEqual(out["outcome"]["note"],
+                         "Meaning-based recall's backend is unavailable on this machine; keyword search still "
+                         "covers everything saved. If this persists, run /engine-status and open an engine issue.")
 
     async def test_searchs_ledger_scan_fallback_under_a_healthy_binding_carries_the_search_sentence(self):
         """The one incomplete read a healthy binding can produce besides a meaning-backend fault: the fast
