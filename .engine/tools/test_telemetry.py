@@ -9,7 +9,10 @@ per-occurrence location; two distinct signals get two Issues; a trust-critical s
 immediately while a benign one waits for the persistence threshold; auto-resolve closes after the
 absent-observation count; a degraded read RAISES and is never swallowed as "no issues" (and makes
 zero writes); the engine-domain label is ensured-then-applied idempotently; the triage-pressure
-meter is render-only; telemetry's own crash fails open; the State refresh writes a schema-valid
+meter is render-only; telemetry's verbs are classified by failure contract — the collection and
+reconciliation commands fail open on their own crash while the verdict commands (the demo and the
+self-review feeds) report theirs and exit 1, the two sets partitioning one command table — and the
+demo's verdict is live (a failed section reds it by name) on temporary files only; the State refresh writes a schema-valid
 cursor and preserves the rest; an absent or wiped cache reads as empty (best-effort); a stripped
 signal marker yields at most one duplicate, never a missed signal; and both new schemas are valid
 2020-12 schemas whose enum and trailing-Z pattern bite. The deliverable-gate cold review attests
@@ -1103,18 +1106,112 @@ class TestPromoteFindingBodyOverride(unittest.TestCase):
         self.assertIn("health of *its own* machinery", created["body"])
 
 
-class TestFailOpen(unittest.TestCase):
-    def test_own_crash_exits_zero_with_a_soft_finding(self):
-        orig = telemetry._demo
-        telemetry._demo = lambda argv: (_ for _ in ()).throw(RuntimeError("boom"))
-        try:
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err):
-                code = telemetry.main(["demo"])
-        finally:
-            telemetry._demo = orig
+def _raise(*_a, **_k):
+    raise RuntimeError("boom")
+
+
+class TestFailureContracts(unittest.TestCase):
+    """StarshipSuperjam/engine-template#769: verbs are classified by failure contract against ONE command table. The collection
+    and reconciliation commands keep the fail-open law (a crash exits 0 with a soft finding — telemetry never
+    breaks a session); the verdict commands — the demo and the two self-review feeds — report a crash and
+    exit 1, because for them exit 0 on an internal error is a false green. One test per class, forcing a
+    handler that takes no session lock (run-ambient and drain-inbox would block on the session-pass lock)."""
+
+    def _main(self, argv):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = telemetry.main(argv)
+        return code, err.getvalue()
+
+    def test_the_two_contracts_partition_the_command_table(self):
+        # A new verb cannot be added without being classified: disjoint, and together exactly the table.
+        self.assertEqual(telemetry.FAIL_OPEN_COMMANDS & telemetry.VERDICT_COMMANDS, frozenset())
+        self.assertEqual(telemetry.FAIL_OPEN_COMMANDS | telemetry.VERDICT_COMMANDS,
+                         frozenset(telemetry.COMMANDS))
+        for verb, handler_name in telemetry.COMMANDS.items():
+            self.assertTrue(callable(getattr(telemetry, handler_name)), (verb, handler_name))
+        # The classification the issue's acceptance asks for, by name.
+        self.assertEqual(telemetry.FAIL_OPEN_COMMANDS, {"run", "run-ambient", "drain-inbox", "refresh"})
+        self.assertEqual(telemetry.VERDICT_COMMANDS, {"demo", "engine-issues", "never-fired"})
+
+    def test_a_collection_command_still_fails_open(self):
+        with mock.patch.object(telemetry, "_refresh_cli", _raise):
+            code, err = self._main(["refresh"])
         self.assertEqual(code, 0)                                # fail-open: never breaks the session
-        self.assertIn("self-monitoring hit an unexpected error", err.getvalue())
+        self.assertIn("self-monitoring hit an unexpected error", err)
+        self.assertIn("boom", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_an_evidence_feed_fails_loud(self):
+        with mock.patch.object(telemetry, "_engine_issues_cli", _raise):
+            code, err = self._main(["engine-issues"])
+        self.assertEqual(code, 1)                                # a swallowed crash would read as an empty backlog
+        self.assertIn("TELEMETRY engine-issues FAILED: boom", err)
+        self.assertIn("Traceback", err)
+        self.assertNotIn("self-monitoring hit an unexpected error", err)
+
+    def test_the_demos_own_crash_fails_loud(self):
+        with mock.patch.object(telemetry, "_demo", _raise):
+            code, err = self._main(["demo"])
+        self.assertEqual(code, 1)
+        self.assertIn("TELEMETRY demo FAILED: boom", err)
+
+    def test_an_unknown_or_missing_verb_prints_usage_and_exits_two(self):
+        for argv in ([], ["bogus"]):
+            code, err = self._main(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("usage: telemetry.py", err)
+
+
+class TestDemoVerdict(unittest.TestCase):
+    """The demo's aggregate verdict is REAL (StarshipSuperjam/engine-template#769): the whole walkthrough runs green on this checkout,
+    twice in a row, touching no live telemetry state and resolving no GitHub context; and the inbox section
+    made to fail reds the verdict BY NAME (inbox_ok — the conjunct that used to sit in the verdict
+    unassigned), not merely somewhere."""
+
+    def _run_demo(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = telemetry.main(["demo"])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_the_real_demo_exits_zero_twice_and_touches_no_live_state(self):
+        import boot
+        live_dir = os.path.dirname(telemetry.INBOX_SPOOL_PATH)
+        before = sorted(os.listdir(live_dir)) if os.path.isdir(live_dir) else None
+        with tempfile.TemporaryDirectory() as d:
+            # A seeded stand-in for the live spool: a demo that wrongly drained the module's live-spool path
+            # would consume this record (a drain claims and disposes of the spool), so it must survive intact.
+            sentinel = os.path.join(d, "findings-inbox.ndjson")
+            with open(sentinel, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(rec("real/pending-finding")) + "\n")
+            seeded = open(sentinel, encoding="utf-8").read()
+            with mock.patch.object(telemetry, "INBOX_SPOOL_PATH", sentinel), \
+                    mock.patch.object(telemetry, "DEFAULT_INBOX_STREAMS_PATH", os.path.join(d, "inbox-streams.json")), \
+                    mock.patch.object(boot, "gh_token", _raise), mock.patch.object(boot, "repo_slug", _raise):
+                for attempt in (1, 2):
+                    code, out, err = self._run_demo()
+                    self.assertEqual(code, 0, (attempt, err))
+                    self.assertEqual(err, "", attempt)                   # no soft finding, no failure line
+                    self.assertIn("(12) The findings INBOX", out)
+                    self.assertIn("tracked only once it persists: [False, False, True]", out)
+                    self.assertIn("never the live inbox: True", out)
+            self.assertEqual(open(sentinel, encoding="utf-8").read(), seeded)
+            self.assertFalse(os.path.exists(os.path.join(d, "inbox-streams.json")))
+        after = sorted(os.listdir(live_dir)) if os.path.isdir(live_dir) else None
+        self.assertEqual(after, before)                                  # nothing new under the live cache dir
+        if after:
+            self.assertEqual([n for n in after if n.endswith(".draining")], [])
+
+    def test_the_inbox_section_failing_reds_the_verdict_by_name(self):
+        # The section's drain is stubbed to do nothing, so its finding never promotes: the verdict must name
+        # inbox_ok — and only inbox_ok — as the conjunct that did not hold, and the demo must exit 1.
+        with mock.patch.object(telemetry, "drain_inbox", lambda *a, **k: None):
+            code, out, err = self._run_demo()
+        self.assertEqual(code, 1)
+        self.assertIn("DEMO UNEXPECTED: these self-checks did not hold: inbox_ok", err)
+        self.assertNotIn("nf_ok", err)
+        self.assertIn("tracked only once it persists: [False, False, False]", out)
 
 
 class TestThresholdsRead(unittest.TestCase):
