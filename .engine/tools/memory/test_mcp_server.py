@@ -97,7 +97,10 @@ class ToolWiringTests(_ServerBase):
         tree = {**data, "diagnostics": {**data["diagnostics"], "code_version": "a" * 40 + "-" + "b" * 40}}
         self.assertEqual(list(checker.iter_errors(tree)), [])                  # an accepted-tree launch conforms
         self.assertTrue(list(checker.iter_errors({**data, "surprise": 1})))    # unknown keys still rejected
-        self.assertTrue(list(checker.iter_errors({"status": "ok", "server": "engine-memory"})))  # diagnostics required
+        # `diagnostics` is declared but OPTIONAL: every live helper's health keeps the same fixed, content-free
+        # required signature (`status`, `server` — pinned across helpers by test_interface), and this server
+        # adds its readiness block on top of it.
+        self.assertEqual(list(checker.iter_errors({"status": "ok", "server": "engine-memory"})), [])
 
     @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
