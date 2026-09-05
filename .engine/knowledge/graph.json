@@ -10803,7 +10803,7 @@
       },
       "slug": "demo_build_resumes_after_a_kill",
       "source": {
-        "fingerprint": "sha256:a9f65147e5072815000d74d0bf97835b6a05cf6e22c7f38951a09e9c3aad7c11",
+        "fingerprint": "sha256:9e8170eac13676db7f4c1336a4593f0b9585f338c8a1e7afdbe0524db6f39392",
         "path": ".engine/tools/demo_build_resumes_after_a_kill.py"
       },
       "status": "active",
@@ -15988,6 +15988,7 @@
           "tool:boot",
           "tool:build_coordinator",
           "tool:build_coordinator_contract",
+          "tool:build_coordinator_core",
           "tool:build_coordinator_github",
           "tool:build_state_store",
           "tool:checkout_health",
@@ -16005,7 +16006,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:4baf498fb977864e98021db73ee39d7fb3af9298303ea89d9be4e03b68febfdf",
+        "fingerprint": "sha256:27fa05d8a24928106d4e16154bdedc15bae4e010650d7d4734b7b4fb625fc22f",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16240,7 +16241,7 @@
       },
       "slug": "test_build_state_store",
       "source": {
-        "fingerprint": "sha256:1f80d462a460615327ababd3597933fedf0b52ef5e7b854bbdccdd6a02e01c0d",
+        "fingerprint": "sha256:35f581e8947e7ff926ca40b843c5604bc8216cdc7f4931315a487850751ea9ca",
         "path": ".engine/tools/test_build_state_store.py"
       },
       "status": "active",
