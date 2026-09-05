@@ -5326,7 +5326,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:a5d9a249b97c091067c658f2d119f65c36d4f7ca6170757327b95ff73ebd646a",
+        "fingerprint": "sha256:17b45899a787d0e4e5e2e24a293f0e303aab9b47e052b8d290c40e9269a1c7e8",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:3f306969176451770e0b6fe987f85bfd71ca1b6dc02dd5a3b0d85bc86a947626",
+        "fingerprint": "sha256:9883df6246bca8df291be4c826a2e6e3afeae24de52fb2b8d60694d38ef983ec",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -13153,7 +13153,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:81323e4a990ae09485b2c4329606c78f9d6092b0355fd28c0adbef27772e12b2",
+        "fingerprint": "sha256:b6201c746752fce80adcfce2a054b60ba5de227607c3e48456ed187e9c43459a",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -18093,6 +18093,7 @@
         ],
         "tests": [
           "tool:capture",
+          "tool:embed",
           "tool:execution_context",
           "tool:forget",
           "tool:index",
@@ -18112,7 +18113,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:d144558445f84e72a9029538ecc398b2eb5c71e4b7273966a54d00c8d0ea080e",
+        "fingerprint": "sha256:ac48a688c66cfe03ab84d8a2afc61b3b493f0dab03a2d63bf12b211113150d3d",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18398,7 +18399,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:d13e99ff2af9c0b23d62984a9915e03f2fa4c6d005f0d42bb6f301ded6d908b7",
+        "fingerprint": "sha256:a7697ba2c41f74ab60780d3fadb197e41a435d04f093aab33fa4e18e2c362ec3",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
