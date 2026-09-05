@@ -128,14 +128,13 @@ class TestQaReviewRosterCoherence(unittest.TestCase):
     def test_divergence_hunter_paired_with_spec_conformance_at_pre_submission(self):
         # Divergence-hunter is the fifth pre-submission lens, COUPLED to spec-conformance —
         # the two run together at the pre-submission gate, never one without the other. Assert both appear
-        # on the SAME `pre-submission gate:` line of build-orchestration's consumed-review-lenses block: a
-        # flat-union membership check would still pass if the two were split across different gate lines, so
-        # this reads the line itself (which also proves neither dangles — both sit on a consumed line).
-        path = os.path.join(validate.ROOT, ".engine", "operations", "build-orchestration.md")
-        with open(path, encoding="utf-8") as fh:
-            notes = validate.section_blocks(fh.read()).get("Notes", "")
-        pre_submission = next(
-            (ln for ln in notes.splitlines() if ln.strip().startswith("pre-submission gate:")), "")
+        # in the SAME consumer entry of the Build protocol's review_consumers (the data the runbook's generated
+        # region and the lens-consumption check both read since StarshipSuperjam/engine-template#821): a flat-union
+        # membership check would still pass if the two were split across different stages, so this reads the
+        # pre-submission entry itself (which also proves neither dangles — both sit on a consumed roster).
+        import build_protocol
+        pre_submission = next((entry["lenses"] for entry in build_protocol.consumers(build_protocol.load())
+                               if entry["stage"] == "pre-submission gate"), [])
         self.assertIn("spec-conformance", pre_submission, "spec-conformance must run at the pre-submission gate")
         self.assertIn("divergence-hunter", pre_submission,
                       "its coupled partner divergence-hunter must run at the same gate")
