@@ -1975,7 +1975,7 @@
       },
       "slug": "operation-shape",
       "source": {
-        "fingerprint": "sha256:68e06b8fad5a28a483ea65a9617a2dff0e131264ad0ac1eb7a537fb0f3e98bf5",
+        "fingerprint": "sha256:23d3465976bea615793cc03885575aeb0e794d6780034802edb05ac18bebe76f",
         "path": ".engine/check/operation-shape.json"
       },
       "status": "active",
@@ -5245,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:c9e7e17e463c58a1e139ae661cb7c14ff577e62b9d28b92031effcd6e4ed1c91",
+        "fingerprint": "sha256:6b3693f57377729efc4b659b6d3680f618c9d49bb73013e61dda45542baa0e36",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -9998,7 +9998,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:b9b4dcd1981d1d3ff7f1fb73f16d030b3be6f158d6b1185220f7fc9c7daec51a",
+        "fingerprint": "sha256:64227439c814749d6daf586df9e870c822ed392e344d18be29c913577f860b52",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -12232,7 +12232,7 @@
       },
       "slug": "execution_environment",
       "source": {
-        "fingerprint": "sha256:66b8e5fc89194d825bc4830d899a5efa9872655ec036025dcd0c2f6dfd5cb27c",
+        "fingerprint": "sha256:1a1a208e1cdfe6481b7089b544ffca25ac30b3cc82ce9e9b08d21640a8877edf",
         "path": ".engine/tools/execution_environment.py"
       },
       "status": "active",
@@ -13456,7 +13456,7 @@
       },
       "slug": "model_routing_check",
       "source": {
-        "fingerprint": "sha256:1710e3ffe1242b5c6d1b043189c3785eba7a52e358d071e65865ca058e5abfc9",
+        "fingerprint": "sha256:ddb3b5c7fe2b9c780c9f3f6f9e86ed344e18f4e1fc3e17e77dd80b27ad8ec056",
         "path": ".engine/tools/model_routing_check.py"
       },
       "status": "active",
@@ -16328,7 +16328,7 @@
       },
       "slug": "test_build_protocol",
       "source": {
-        "fingerprint": "sha256:8bfbb35d120104207eb6183ce347129871dcdcaae209f77f1c1b1dc1f031088b",
+        "fingerprint": "sha256:374c2262196153ab5ad63c3596b67ff57081c50f0d8318bd0063ab77017b669e",
         "path": ".engine/tools/test_build_protocol.py"
       },
       "status": "active",
@@ -17278,7 +17278,7 @@
       },
       "slug": "test_execution_environment",
       "source": {
-        "fingerprint": "sha256:8bdaa7fc947ae9e260e40fabeeb47eba0868a7614a7774da1f93ee03fe8d390d",
+        "fingerprint": "sha256:613c2399471d2a49b2402c1243aa69d1e7b96ff31b0998155d71b75ce4564c9b",
         "path": ".engine/tools/test_execution_environment.py"
       },
       "status": "active",
@@ -17506,7 +17506,7 @@
       },
       "slug": "test_hard_check_bite",
       "source": {
-        "fingerprint": "sha256:d421589b753dc1f58e654abfa73f5f4072d1e9cfef5f710313e9646b443488f9",
+        "fingerprint": "sha256:94ea3fd78535a43010c54180270ddfcbed5a186cf55265345b4881c4f2c890b0",
         "path": ".engine/tools/test_hard_check_bite.py"
       },
       "status": "active",
@@ -18707,7 +18707,7 @@
       },
       "slug": "test_operation_length",
       "source": {
-        "fingerprint": "sha256:752ab37c2cddb0e8af759d42d2f3727f5f2027a50c9d151094cb0b5ef6b73510",
+        "fingerprint": "sha256:958560eb28fce4f01a619b3df55800bc3ada09378bb4ab680c23dae1a7492df5",
         "path": ".engine/tools/test_operation_length.py"
       },
       "status": "active",
@@ -21030,13 +21030,15 @@
           "module:core"
         ],
         "tests": [
+          "tool:build_protocol",
+          "tool:execution_environment",
           "tool:github_client",
           "tool:validate"
         ]
       },
       "slug": "test_validate",
       "source": {
-        "fingerprint": "sha256:d7c125ab0571c57b32508dd3fde78a103bd08f3a23c5137900bae47d28785038",
+        "fingerprint": "sha256:7a0378046b4c3f6aa92676f75f0cf4c62316605819c70b36fdcb3466c94bd828",
         "path": ".engine/tools/test_validate.py"
       },
       "status": "active",
@@ -21433,7 +21435,7 @@
       },
       "slug": "validate",
       "source": {
-        "fingerprint": "sha256:edfaf40a53000dd8aaabff62b0e7f93bd6c8ef06102357949b46def191495b98",
+        "fingerprint": "sha256:f4a1a3702d33c23804cfe960d7bb7f2736c239e3756ab6f04837317dfe56a238",
         "path": ".engine/tools/validate.py"
       },
       "status": "active",

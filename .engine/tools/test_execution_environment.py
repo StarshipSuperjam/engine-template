@@ -461,24 +461,46 @@ class TestRoutingData(unittest.TestCase):
             self.assertEqual(ee.resolve_posture(other, _ROOT), routing["postures"]["conservative-default"])
 
     def test_absent_data_falls_back_to_the_constant_and_never_raises(self):
-        with mock.patch.dict(os.environ, {ee.ROUTING_ENV_OVERRIDE: "/nonexistent/model-routing.json"}):
-            self.assertIsNone(ee.load_routing(_ROOT))
-            self.assertEqual(ee.resolve_posture("matched", _ROOT), list(ee._CONSERVATIVE_DEFAULT))
+        tmp = self._scratch()
+        try:
+            os.remove(os.path.join(tmp, ee._ROUTING_REL))
+            self.assertIsNone(ee.load_routing(tmp))
+            self.assertEqual(ee.resolve_posture("matched", tmp), list(ee._CONSERVATIVE_DEFAULT))
             with self.assertRaises(ee.RoutingUnreadable):
-                ee.load_routing_strict(_ROOT)
+                ee.load_routing_strict(tmp)
+        finally:
+            shutil.rmtree(tmp)
 
     def test_malformed_data_falls_back_and_the_strict_loader_names_the_miss(self):
-        with mock.patch.dict(os.environ, {ee.ROUTING_ENV_OVERRIDE: self.FIXTURE}):
-            self.assertIsNone(ee.load_routing(_ROOT))
-            self.assertEqual(ee.resolve_posture("matched", _ROOT), list(ee._CONSERVATIVE_DEFAULT))
+        tmp = self._scratch()
+        try:
+            shutil.copyfile(os.path.join(_ROOT, self.FIXTURE), os.path.join(tmp, ee._ROUTING_REL))
+            self.assertIsNone(ee.load_routing(tmp))
+            self.assertEqual(ee.resolve_posture("matched", tmp), list(ee._CONSERVATIVE_DEFAULT))
             with self.assertRaises(ee.RoutingUnreadable) as ctx:
-                ee.load_routing_strict(_ROOT)
+                ee.load_routing_strict(tmp)
+        finally:
+            shutil.rmtree(tmp)
         self.assertIn("qualified", str(ctx.exception))
+        # An explicit path is the CHECK's seam, and only a caller that passes one reaches it.
+        with self.assertRaises(ee.RoutingUnreadable):
+            ee.load_routing_strict(_ROOT, self.FIXTURE)
+
+    def test_the_boot_loader_reads_no_environment_seam(self):
+        # The lines this loader feeds are relayed to a session at boot, so an environment variable must not be
+        # able to swap the file (deliverable review, SG-2): with the check's override pointing at the malformed
+        # fixture, boot still reads the committed data.
+        with mock.patch.dict(os.environ, {"ENGINE_MODEL_ROUTING_PATH": self.FIXTURE}):
+            self.assertEqual(set(ee.load_routing_strict(_ROOT)["postures"]), {"qualified", "conservative-default"})
+        self.assertFalse(hasattr(ee, "ROUTING_ENV_OVERRIDE"))
+        with open(ee.__file__, encoding="utf-8") as fh:
+            self.assertNotIn("ENGINE_MODEL_ROUTING_PATH", fh.read())
 
     def test_unreadable_json_falls_back(self):
         tmp = self._scratch()
         try:
-            open(os.path.join(tmp, ee._ROUTING_REL), "w", encoding="utf-8").write("{not json")
+            with open(os.path.join(tmp, ee._ROUTING_REL), "w", encoding="utf-8") as fh:
+                fh.write("{not json")
             self.assertIsNone(ee.load_routing(tmp))
             self.assertEqual(ee.resolve_posture("matched", tmp), list(ee._CONSERVATIVE_DEFAULT))
         finally:
@@ -495,8 +517,8 @@ class TestRoutingData(unittest.TestCase):
 
     def test_the_fence_parser_is_gone(self):
         self.assertFalse(hasattr(ee, "_policy_posture_block"))
-        source = open(ee.__file__, encoding="utf-8").read()
-        self.assertNotIn("<!-- posture:", source)
+        with open(ee.__file__, encoding="utf-8") as fh:
+            self.assertNotIn("<!-- posture:", fh.read())
 
     def test_committed_page_region_is_current(self):
         expected, actual = ee.posture_projection_status(_ROOT)
@@ -506,8 +528,10 @@ class TestRoutingData(unittest.TestCase):
         tmp = self._scratch()
         try:
             page = os.path.join(tmp, ee._POLICY_REL)
-            text = open(page, encoding="utf-8").read()
-            open(page, "w", encoding="utf-8").write(text.replace("run your full, careful ceremony", "relax"))
+            with open(page, encoding="utf-8") as fh:
+                text = fh.read()
+            with open(page, "w", encoding="utf-8") as fh:
+                fh.write(text.replace("run your full, careful ceremony", "relax"))
             expected, actual = ee.posture_projection_status(tmp)
             self.assertNotEqual(actual, expected)
             self.assertTrue(ee.apply_posture_projection(tmp))
@@ -531,7 +555,8 @@ class TestModelRoutingCheck(unittest.TestCase):
         self.assertEqual(self._run(), [])
 
     def test_bites_its_negative_fixture(self):
-        found = self._run({ee.ROUTING_ENV_OVERRIDE: TestRoutingData.FIXTURE})
+        import model_routing_check as mrc
+        found = self._run({mrc.ENV_OVERRIDE: TestRoutingData.FIXTURE})
         self.assertTrue(any(f["severity"] == "hard" and "does not load as model-routing.v1" in f["message"]
                             for f in found), found)
 
@@ -540,7 +565,8 @@ class TestModelRoutingCheck(unittest.TestCase):
         tmp = TestRoutingData._scratch(TestRoutingData())
         try:
             stray = os.path.join(tmp, ".engine/policies/stray.md")
-            open(stray, "w", encoding="utf-8").write("# stray\n\n<!-- posture:qualified -->\n```text\nx\n```\n")
+            with open(stray, "w", encoding="utf-8") as fh:
+                fh.write("# stray\n\n<!-- posture:qualified -->\n```text\nx\n```\n")
             os.makedirs(os.path.join(tmp, ".engine/tools"), exist_ok=True)
             found = mrc.findings("hard", tmp)
             self.assertTrue(any("stray.md" in f["message"] and "retired" in f["message"] for f in found), found)

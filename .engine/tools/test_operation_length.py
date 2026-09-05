@@ -5,9 +5,11 @@ operation-shape rule enforces), owned here with named files and pinned baselines
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Counting rule. A runbook's length is its prose-body line count: the lines after the YAML frontmatter, with
-fenced code blocks (``` or ~~~) and generated regions (`<!-- generated: ... -->` ... `<!-- /generated: ... -->`)
+closed fenced code blocks (``` or ~~~) and closed, REGISTERED generated regions (`<!-- generated: <name>
+... -->` ... `<!-- /generated: <name> -->`, registered for that file in `validate.GENERATED_REGION_OWNERS`)
 excluded, because neither is prose a cold operator reads and both are owned by a renderer or a fence, not
-the runbook author. This is the count the hardened operation-shape tier applies (typed-lifecycle part C,
+the runbook author; a marker that does not close, or a region no renderer owns, counts as prose and is a hard
+finding, so a file cannot switch its own budget off. This is the count the hardened operation-shape tier applies (typed-lifecycle part C,
 StarshipSuperjam/engine-template#821); `body_lines` below reads it from the validator's `prose_line_count`, so the
 audit table in the delivering pull request, the merge check, and these assertions read the same number.
 
@@ -61,7 +63,7 @@ RECORDED_CEILINGS = {
 def body_lines(path: str) -> int:
     """Prose-body line count: after the frontmatter, excluding fenced blocks and generated regions — the
     validator's own `prose_line_count`, so the pins and the merge check read one number."""
-    return validate.prose_line_count(validate.read(path))
+    return validate.prose_line_count(validate.read(path), os.path.relpath(path, validate.ROOT))
 
 
 def overrides() -> dict:
@@ -95,18 +97,21 @@ def non_core_module_operations() -> dict:
 
 
 class TestCountingRule(unittest.TestCase):
-    def test_fenced_blocks_and_generated_regions_are_not_prose(self):
+    def test_fenced_blocks_and_registered_generated_regions_are_not_prose(self):
         import tempfile
+        region = "build-protocol review-consumers"          # the region build-orchestration.md registers
         text = ("---\ntitle: t\n---\n\n## Purpose\n\nprose\n\n```text\ncode one\ncode two\n```\n\n"
-                "<!-- generated: x (never hand-edit) -->\nrendered one\nrendered two\n<!-- /generated: x -->\n\n"
-                "## Steps\n\n1. step\n")
+                f"<!-- generated: {region} (never hand-edit) -->\nrendered one\nrendered two\n"
+                f"<!-- /generated: {region} -->\n\n## Steps\n\n1. step\n")
+        # two leading blanks, heading, blank, prose, blank, blank after the fence, blank after the region,
+        # heading, blank, step — the four fenced lines are never counted, and the four generated-region lines
+        # are left out only for the file that registers that region (validate.GENERATED_REGION_OWNERS).
+        self.assertEqual(validate.prose_line_count(text, ".engine/operations/build-orchestration.md"), 11)
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "op.md")
             with open(p, "w", encoding="utf-8") as fh:
                 fh.write(text)
-            # two leading blanks, heading, blank, prose, blank, blank after the fence, blank after the region,
-            # heading, blank, step — the four fenced lines and the four generated-region lines are not counted
-            self.assertEqual(body_lines(p), 11)
+            self.assertEqual(body_lines(p), 15)      # an unregistered file: the region counts as prose
 
 
 class TestEveryOperationWithinBudget(unittest.TestCase):

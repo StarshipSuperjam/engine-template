@@ -114,13 +114,14 @@ class TestOperationShapeLengthTierBites(unittest.TestCase):
         # For the length reason alone: the sections are well-formed, so no structural finding fires.
         self.assertEqual([f for f in found if "budget" not in f["message"]], [])
 
-    def test_the_count_leaves_fences_and_generated_regions_out(self):
-        # The input carries a two-line fence and a one-line generated region; the number the finding reports is
-        # the prose count without them, and it is the validator's shared helper that produced it.
+    def test_the_count_leaves_fences_out(self):
+        # The input carries a two-line fence; the number the finding reports is the prose count without it, and
+        # it is the validator's shared helper that produced it. (A generated region is left out only for the
+        # file that registers it, so the fixture carries none — see test_validate for the registry.)
         rule, target, expect = self._unit()
         input_path = os.path.join(ROOT, target["path"])
         text = validate.read(input_path)
-        counted = validate.prose_line_count(text)
+        counted = validate.prose_line_count(text, target["path"])
         raw = len(validate._body_without_frontmatter(text).splitlines())
         self.assertLess(counted, raw)
         _passed, found = validate.run_unit(rule, target, {})

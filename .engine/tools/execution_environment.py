@@ -76,7 +76,6 @@ _ROUTING_REL = os.path.join(".engine", "policies", "model-routing-postures.json"
 _ROUTING_SCHEMA_REL = os.path.join(".engine", "schemas", "model-routing.v1.json")
 #: Input-substitution seam for the negative-fixture meta-check (unset in production): points the loader at a
 #: seeded bad routing file so engine/check/model-routing is witnessed biting.
-ROUTING_ENV_OVERRIDE = "ENGINE_MODEL_ROUTING_PATH"
 #: The generated region's delimiters in model-routing.md — the projection of the JSON the engine actually
 #: loads. Rendered by `execution_environment.py render-postures`; drift is a hard finding at merge.
 POSTURE_REGION_BEGIN = "<!-- generated: model-routing postures (execution_environment.py render-postures; never hand-edit) -->"
@@ -247,17 +246,20 @@ class RoutingUnreadable(Exception):
     path never sees it — load_routing swallows it into None — the merge check reports it."""
 
 
-def _routing_path(root: str) -> str:
-    override = os.environ.get(ROUTING_ENV_OVERRIDE)
-    if override:
-        return override if os.path.isabs(override) else os.path.join(root, override)
+def _routing_path(root: str, path: str | None = None) -> str:
+    """The data file to read: the committed one under `root`, or an explicit `path` a CHECK passes for a seeded
+    fixture. Deliberately no environment seam: this loader feeds the lines a session relays to itself at boot,
+    and text that reaches a session that way must come only from the committed file."""
+    if path:
+        return path if os.path.isabs(path) else os.path.join(root, path)
     return os.path.join(root, _ROUTING_REL)
 
 
-def load_routing_strict(root: str | None = None) -> dict:
-    """model-routing-postures.json validated against model-routing.v1, or RoutingUnreadable naming the miss."""
+def load_routing_strict(root: str | None = None, path: str | None = None) -> dict:
+    """model-routing-postures.json (or an explicit `path`, for a check's seeded fixture) validated against
+    model-routing.v1, or RoutingUnreadable naming the miss."""
     root = root or _repo_root()
-    path = _routing_path(root)
+    path = _routing_path(root, path)
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -321,11 +323,11 @@ def _split_policy(text: str) -> tuple:
     return text[:b], text[b:end], text[end:]
 
 
-def posture_projection_status(root: str | None = None) -> tuple:
+def posture_projection_status(root: str | None = None, routing_path: str | None = None) -> tuple:
     """(expected_region, actual_region_or_None) for model-routing.md on disk; raises RoutingUnreadable when
-    the data itself does not load (there is nothing to project)."""
+    the data itself does not load (there is nothing to project). `routing_path` is the check's fixture seam."""
     root = root or _repo_root()
-    expected = render_postures(load_routing_strict(root))
+    expected = render_postures(load_routing_strict(root, routing_path))
     with open(os.path.join(root, _POLICY_REL), encoding="utf-8") as fh:
         _, actual, _ = _split_policy(fh.read())
     return expected, actual

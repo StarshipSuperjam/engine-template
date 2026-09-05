@@ -10,8 +10,10 @@ Three conditions, each a hard finding:
   3. The retired fenced form has not come back: no `<!-- posture:` marker in a policy page, and no code
      under .engine/tools that parses one (StarshipSuperjam/engine-template#821 deleted the parser).
 
-`ENGINE_MODEL_ROUTING_PATH` (unset in production) lets the negative-fixture meta-check point the loader at
-a seeded off-schema file so this check is witnessed biting.
+`ENGINE_MODEL_ROUTING_PATH` (unset in production) lets the negative-fixture meta-check point THIS CHECK at a
+seeded off-schema file so it is witnessed biting. The seam lives here, in the check, and is passed to the
+loader as an explicit path: the boot-time loader itself reads no environment variable, because the lines it
+loads are relayed to a session verbatim and must come only from the committed file.
 """
 from __future__ import annotations
 
@@ -23,6 +25,7 @@ import validate  # noqa: E402
 import execution_environment as ee  # noqa: E402
 import agent_coherence_check  # noqa: E402  (emit — the one finding.v1 writer)
 
+ENV_OVERRIDE = "ENGINE_MODEL_ROUTING_PATH"
 _FENCE_MARKER = "<!-- posture:"
 _OWN = {"model_routing_check.py", "test_execution_environment.py"}
 
@@ -46,11 +49,11 @@ def revived_fence_forms(root: str | None = None) -> list:
     return hits
 
 
-def findings(tier: str, root: str | None = None) -> list:
+def findings(tier: str, root: str | None = None, routing_path: str | None = None) -> list:
     base = root or validate.ROOT
     out = []
     try:
-        expected, actual = ee.posture_projection_status(base)
+        expected, actual = ee.posture_projection_status(base, routing_path)
     except ee.RoutingUnreadable as exc:
         out.append(validate.finding(tier, f"{ee._ROUTING_REL} does not load as model-routing.v1: {exc}. At boot the "
                                     f"engine would fall back to its built-in conservative default and the operator's "
@@ -77,7 +80,7 @@ def findings(tier: str, root: str | None = None) -> list:
 
 def main(argv: list) -> int:
     tier = os.environ.get("ENGINE_RULE_TIER", "hard")
-    return agent_coherence_check.emit(findings(tier))
+    return agent_coherence_check.emit(findings(tier, routing_path=validate.env_override_path(ENV_OVERRIDE, None)))
 
 
 if __name__ == "__main__":

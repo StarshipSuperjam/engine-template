@@ -695,38 +695,129 @@ def kind_schema(rule, ctx):
 
 # ---- kind: shape -----------------------------------------------------------
 
-GENERATED_REGION_BEGIN_RE = re.compile(r"^\s*<!-- generated:")   # a renderer-owned region opens (never hand-edited prose)
-GENERATED_REGION_END_RE = re.compile(r"^\s*<!-- /generated:")    # ... and closes
+GENERATED_REGION_BEGIN_RE = re.compile(r"^\s*<!-- generated: ([^\s(]+(?: [^\s(]+)*)")   # `<!-- generated: <name> (...)`
+GENERATED_REGION_END_RE = re.compile(r"^\s*<!-- /generated: ([^\s]+(?: [^\s]+)*?)\s*-->")   # `<!-- /generated: <name> -->`
+
+# The generated regions a renderer in this tree OWNS, keyed by the file that carries them. A length budget
+# leaves a generated region out of its count ONLY when the region is registered here for that file AND
+# closed: an unregistered `<!-- generated:` line, or one with no closing marker, is a way to switch a
+# hard budget off from inside the file it governs, so those lines count as prose and the shape check
+# reports the marker as a hard finding. Registering a region means a renderer emits it and a drift check
+# guards it; test_validate pins this table against the renderers' own marker constants.
+GENERATED_REGION_OWNERS = {
+    ".engine/operations/build-orchestration.md": {"build-protocol review-consumers"},   # build_protocol.py render
+    ".engine/policies/model-routing.md": {"model-routing postures"},                     # execution_environment.py render-postures
+}
 
 
-def prose_line_count(text: str) -> int:
-    """The prose-body line count a length budget measures: the lines after the YAML frontmatter,
-    with fenced code blocks (``` or ~~~) and generated regions
-    (`<!-- generated: ... -->` ... `<!-- /generated: ... -->`) left out. Neither is prose an author
-    wrote or a cold reader reads as the runbook's own instruction: a fence carries a command or a
-    data literal, and a generated region is owned by the renderer that emits it (its drift check,
-    not a line budget, governs it). The count is shared with the tests that pin per-file baselines
-    (test_operation_length.py), so the validator and the pins read one number."""
-    count, in_fence, in_generated = 0, False, False
-    for line in _body_without_frontmatter(text).splitlines():
-        if GENERATED_REGION_BEGIN_RE.match(line):
-            in_generated = True
+def _prose_scan(text: str, rel: str | None = None) -> tuple:
+    """(prose line count, anomalies) for a prose body. Frontmatter is excluded. A fenced block (``` or ~~~)
+    is excluded when it closes; an unclosed fence counts as prose and is an anomaly. A generated region is
+    excluded when it is registered for `rel` in GENERATED_REGION_OWNERS and closes; an unregistered or unclosed
+    region counts as prose and is an anomaly. Anomalies are plain sentences naming the line."""
+    allowed = GENERATED_REGION_OWNERS.get(rel or "", set())
+    count, anomalies = 0, []
+    in_fence, fence_line, held = False, 0, 0          # held: lines skipped inside the open construct
+    in_region, region_line, region_name, region_ok = False, 0, None, False
+    for n, line in enumerate(_body_without_frontmatter(text).splitlines(), 1):
+        m = GENERATED_REGION_BEGIN_RE.match(line)
+        if m and not in_fence:
+            if in_region:
+                anomalies.append(f"line {n}: a generated region opens inside the open region "
+                                 f"'{region_name}' (line {region_line}); regions do not nest")
+                count += 1
+                continue
+            in_region, region_line, region_name = True, n, m.group(1)
+            region_ok = region_name in allowed
+            if not region_ok:
+                anomalies.append(f"line {n}: generated region '{region_name}' is not one a renderer owns for "
+                                 f"this file (registered: {sorted(allowed) or 'none'}); its lines count as prose")
+                count += 1
+            held = 0
             continue
-        if GENERATED_REGION_END_RE.match(line):
-            in_generated = False
-            continue
-        if in_generated:
+        if in_region:
+            em = GENERATED_REGION_END_RE.match(line)
+            if em and em.group(1) == region_name:
+                in_region = False
+                if not region_ok:
+                    count += 1
+                continue
+            if em:
+                anomalies.append(f"line {n}: a closing marker names '{em.group(1)}' inside the open region "
+                                 f"'{region_name}' (line {region_line}); it does not close it")
+                count += 1
+                continue
+            if region_ok:
+                held += 1
+            else:
+                count += 1
             continue
         if FENCE_RE.match(line):
-            in_fence = not in_fence
+            if in_fence:
+                in_fence = False
+            else:
+                in_fence, fence_line, held = True, n, 0
             continue
         if in_fence:
+            held += 1
             continue
         count += 1
-    return count
+    if in_fence:
+        anomalies.append(f"line {fence_line}: a code fence opens here and never closes; its {held} lines count as prose")
+        count += held + 1
+    if in_region:
+        anomalies.append(f"line {region_line}: generated region '{region_name}' opens here and never closes; "
+                         f"its lines count as prose")
+        if region_ok:
+            count += held + 1
+    return count, anomalies
+
+
+def prose_line_count(text: str, rel: str | None = None) -> int:
+    """The prose-body line count a length budget measures: the lines after the YAML frontmatter, with
+    closed fenced code blocks (``` or ~~~) and closed, REGISTERED generated regions
+    (`<!-- generated: <name> ... -->` ... `<!-- /generated: <name> -->`, see GENERATED_REGION_OWNERS) left
+    out. Neither is prose an author wrote or a cold reader reads as the runbook's own instruction: a fence
+    carries a command or a data literal, and a registered generated region is owned by the renderer that
+    emits it (its drift check, not a line budget, governs it). Anything else that looks like an exclusion —
+    an unclosed fence, an unregistered or unclosed region — counts as prose, so the count cannot be
+    switched off from inside the file (`prose_line_anomalies` names each such marker). `rel` is the file's
+    repo-relative path, which decides which regions are registered for it. The count is shared with the
+    tests that pin per-file baselines (test_operation_length.py), so the validator and the pins read one number."""
+    return _prose_scan(text, rel)[0]
+
+
+def prose_line_anomalies(text: str, rel: str | None = None) -> list:
+    """The markers `prose_line_count` refused to honour: unclosed fences, unregistered or unclosed generated regions."""
+    return _prose_scan(text, rel)[1]
 
 
 _SHAPE_MESSAGE_TOKENS = ("{default_budget}", "{effective_budget}", "{length_tier}")
+
+
+def shape_rule_facts(rule: dict) -> tuple:
+    """(default_budget, length_tier) for a shape rule, read from the sources the check reads: the template of the
+    rule's first targeted file (or the rule's own inlined spec) and the rule's `length_tier` (soft by default)."""
+    params = rule.get("params") or {}
+    spec = None
+    for path in target_files(rule):
+        spec = _template_shape_spec(os.path.relpath(path, ROOT))
+        break
+    if spec is None:
+        spec = params
+    return spec.get("length_budget"), (rule.get("length_tier") or "soft")
+
+
+def render_rule_message(rule: dict) -> str:
+    """A rule's operator-facing message with its rule-level facts filled in — what a catalogue or a
+    listing should show. A shape rule's {default_budget} and {length_tier} come from `shape_rule_facts`;
+    the per-file {effective_budget} has no rule-level value and is rendered as the default budget with a
+    note. Any other rule's message is returned unchanged."""
+    if rule.get("kind") != "shape":
+        return rule.get("message", "")
+    default_budget, length_tier = shape_rule_facts(rule)
+    return _shape_message(rule, default_budget, f"{default_budget} unless a recorded override raises it",
+                          length_tier)
 
 
 def _shape_message(rule: dict, default_budget, effective_budget, length_tier: str) -> str:
@@ -752,9 +843,11 @@ def kind_shape(rule, ctx):
     shape-spec (required_sections, allowed_sections, length_budget) is read from the
     surface's TEMPLATE frontmatter via the catalog (catalog -> template -> shape -> instance),
     so the thing the AI authors from is the thing the validator checks and the two cannot
-    drift. The length counted is `prose_line_count`: frontmatter, fenced code blocks and
-    generated regions are excluded from the count, and frontmatter and fences from section
-    detection — templates govern the prose body only. An optional
+    drift. The length counted is `prose_line_count`: frontmatter, closed fenced code blocks and
+    closed REGISTERED generated regions (GENERATED_REGION_OWNERS) are excluded from the count — an
+    unclosed fence or an unregistered/unclosed region counts as prose and is a hard finding, so the budget
+    cannot be switched off from inside the file — and frontmatter and fences from section
+    detection; templates govern the prose body only. An optional
     params.length_budget_overrides {rel: {budget, why}} stays on the (guarded) rule, not the
     template, and carries a recorded, consented higher ceiling for one named operation (raising
     a budget stays a deliberate act needing the operator's sign-off); an entry that is malformed
@@ -811,8 +904,13 @@ def kind_shape(rule, ctx):
         # override (a recorded, consented higher ceiling for one named operation) replaces
         # the rule-wide budget for its file; absent or malformed, the rule-wide budget
         # applies (a malformed override is caught as a hard finding below).
+        for anomaly in prose_line_anomalies(text, rel):
+            findings.append(finding(tier, f"'{rel}' {anomaly}. A fence or a generated-region marker that does "
+                            f"not close, or a region no renderer owns for this file, would otherwise let the "
+                            f"length budget be switched off from inside the file; close it, or delete it. "
+                            f"{message}", loc(path)))
         if file_budget is not None:
-            lines = prose_line_count(text)
+            lines = prose_line_count(text, rel)
             if lines > file_budget:
                 if length_tier == "hard":
                     consequence = ("this rule's length tier is hard, so this blocks the merge: trim the prose "

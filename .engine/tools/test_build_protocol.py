@@ -88,10 +88,12 @@ class TestProjection(unittest.TestCase):
         tmp = _scratch_tree()
         try:
             path = os.path.join(tmp, bp.RUNBOOK_REL)
-            text = open(path, encoding="utf-8").read()
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
             corrupted = text.replace("pre-submission gate", "pre-submission gate (hand-edited)")
             self.assertNotEqual(corrupted, text)
-            open(path, "w", encoding="utf-8").write(corrupted)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(corrupted)
             expected, actual = bp.projection_status(tmp)
             self.assertNotEqual(actual, expected)
             self.assertTrue(bp.apply(tmp))
@@ -105,9 +107,11 @@ class TestProjection(unittest.TestCase):
         tmp = _scratch_tree()
         try:
             path = os.path.join(tmp, bp.RUNBOOK_REL)
-            text = open(path, encoding="utf-8").read()
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
             before, region, after = bp._split_runbook(text)
-            open(path, "w", encoding="utf-8").write(before + after)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(before + after)
             with self.assertRaises(bp.ProtocolError):
                 bp.apply(tmp)
             self.assertIsNone(bp.projection_status(tmp)[1])
@@ -136,7 +140,8 @@ class TestCheck(unittest.TestCase):
         try:
             os.makedirs(os.path.join(tmp, ".engine/policies"), exist_ok=True)
             stray = os.path.join(tmp, ".engine/policies/stray.md")
-            open(stray, "w", encoding="utf-8").write("# stray\n\n```text\nconsumed-review-lenses:\n  x: y\n```\n")
+            with open(stray, "w", encoding="utf-8") as fh:
+                fh.write("# stray\n\n```text\nconsumed-review-lenses:\n  x: y\n```\n")
             found = bpc.findings("hard", tmp)
             self.assertTrue(any("consumed-review-lenses:" in f["message"] and "stray.md" in f["message"]
                                 for f in found), found)
@@ -147,8 +152,10 @@ class TestCheck(unittest.TestCase):
         tmp = _scratch_tree()
         try:
             path = os.path.join(tmp, bp.RUNBOOK_REL)
-            text = open(path, encoding="utf-8").read()
-            open(path, "w", encoding="utf-8").write(text.replace("pre-submission gate", "pre-submission gate (edited)"))
+            with open(path, encoding="utf-8") as fh:
+                text = fh.read()
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text.replace("pre-submission gate", "pre-submission gate (edited)"))
             found = bpc.findings("hard", tmp)
             self.assertTrue(any("has drifted" in f["message"] for f in found), found)
         finally:
