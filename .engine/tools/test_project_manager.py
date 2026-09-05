@@ -2128,31 +2128,48 @@ class TestSealHandback(unittest.TestCase):
     The operator's ruling, after living with the long form: a hand-back that needs paragraphs of
     meta-commentary to explain the next step is a poorly designed step. So what these pin is the
     SHORTNESS as much as the content — the brevity cap is a real requirement, not a style note —
-    plus the two hard content rules: never /clear (the one session that cleared at this boundary is
-    the one that lost its thread), and no gate vocabulary (the pause is an offer).
+    plus the content rules: no context control prescribed (the /compact-never-/clear rule was a
+    Claude Code rule printed into every runtime; the operator lifted it on 2026-09-04,
+    StarshipSuperjam/engine-template#1112), the typed engine-start named as the only Build entry
+    ahead of the bind's consent, and no gate vocabulary (the pause is an offer).
     """
 
     def text(self):
         return project_manager.seal_handback("pln_0123456789ab")
 
     def test_it_is_brief(self):
-        # Six lines of substance. A hand-back that grows past this is becoming a manual again.
+        # Six lines of substance, and a character ceiling beside the line cap: a hand-back can grow
+        # back into a manual by lengthening its lines just as surely as by adding them.
         self.assertLessEqual(len([l for l in self.text().splitlines() if l.strip()]), 6)
+        self.assertLessEqual(len(self.text()), 600)
 
     def test_it_names_every_required_element(self):
         text = self.text()
         self.assertIn("Settle", text)
-        self.assertIn("/compact", text)
-        self.assertIn("model and effort", text)
-        self.assertIn("Wait", text)
+        self.assertIn("suggest a model and effort", text)
+        self.assertIn("/engine-start or $engine-start", text)
+        self.assertIn("this runtime", text)     # relay the one spelling the operator can actually type
+        self.assertIn("wait", text.lower())
 
-    def test_it_carries_the_plan_id_into_the_bind_it_suggests(self):
-        self.assertIn("--plan pln_0123456789ab", self.text())
+    def test_it_carries_the_plan_id_and_the_consent_placeholder_into_the_bind_it_suggests(self):
+        # The placeholder is where the operator's own go is captured; trimming it under line
+        # pressure would leave a session recording a bare command token as the decision.
+        text = self.text()
+        self.assertIn("--plan pln_0123456789ab", text)
+        self.assertIn('--operator-decision "<their go>"', text)
 
-    def test_it_never_suggests_clear(self):
-        # The only build session that lost its thread is the one that ran /clear here instead of
-        # /compact: a cleared session keeps nothing to re-ground from. Not guidance to ever revive.
-        self.assertNotIn("/clear", self.text())
+    def test_the_typed_start_precedes_the_bind(self):
+        # Two acts in order: the operator enters Build by typing the verb; the bind then records
+        # their consent for this Build. A session that binds first has skipped the stance gate.
+        text = self.text()
+        self.assertLess(text.index("/engine-start"), text.index("plan bind"))
+
+    def test_it_prescribes_no_context_control(self):
+        # Context management is the operator's own, on every runtime. The old rule and its incident
+        # live on in seal_handback's docstring as history, never as an instruction.
+        text = self.text()
+        for control in ("/compact", "/clear", "/autocompact"):
+            self.assertNotIn(control, text)
 
     def test_it_claims_no_teeth_and_teaches_no_flag(self):
         text = self.text()
@@ -2162,11 +2179,250 @@ class TestSealHandback(unittest.TestCase):
 
     def test_it_does_not_lecture(self):
         # The recurring recommendations and provider disclosures live in the runbook, read when
-        # orchestrating — not re-printed at every seal into every session.
+        # orchestrating — not re-printed at every seal into every session. Naming both spellings of
+        # the start command is not a disclosure, so the text can stay free of the runtime's name.
         text = self.text()
-        self.assertNotIn("/autocompact", text)
         self.assertNotIn("/hooks", text)
         self.assertNotIn("Codex", text)
+
+    def test_its_docstring_keeps_the_incident_and_the_dated_reversal(self):
+        # The rule this replaced was set in person after a real incident. Reversing it must not
+        # erase why it existed or when it was lifted.
+        doc = project_manager.seal_handback.__doc__
+        self.assertIn("lost its thread", doc)
+        self.assertIn("2026-09-04", doc)
+
+
+class MarkerFollowsTheLifecycle(_Governed):
+    """The preview marker is written only while a depth choice can still follow, and the two verbs
+    that read it refuse a post-boundary plan with its real state (StarshipSuperjam/engine-template#1108).
+
+    The defect: `preview` marked on every render, including sealed, bound, and closed history, so
+    inspecting an old plan from a sandbox that could not write the library reported failure after the
+    render had succeeded. The trap in fixing it: the marker's two readers said "run preview first",
+    which stops being a remedy the moment preview stops marking — so the readers now ask the same
+    lifecycle predicate before they ask for the marker.
+    """
+
+    def _sealed(self, plan_id="pln_aaaaaaaaaaa4"):
+        slug, _ = self._to_reviewed(plan_id=plan_id)
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        return slug
+
+    def _bound(self):
+        slug = self._sealed(plan_id="pln_aaaaaaaaaaa5")
+        seal = self.lib.read_record(slug)["seal"]
+        self.lib.update_record(slug, lambda r: r.update({"build_binding": {
+            "sealed_digest": seal["sealed_digest"], "build_plan_digest": seal["build_plan_digest"],
+            "at": "2026-09-04T00:00:00Z", "pull_request": 1, "repository": "o/r"}}))
+        return slug
+
+    def _closed(self, state, plan_id):
+        # Closed WITHOUT a seal — cmd_close needs none — which is the shape whose only remedy is
+        # `reopen` (retired, abandoned) or nothing at all (complete).
+        slug, _ = self._plan(plan_id=plan_id)
+        self.assertEqual(self.run_command(state, slug, "--reason", f"{state} for the test")[0], 0)
+        return slug
+
+    def _fixtures(self):
+        return {"sealed": self._sealed(), "bound": self._bound(),
+                "retired": self._closed("retire", "pln_aaaaaaaaaaa1"),
+                "abandoned": self._closed("abandon", "pln_aaaaaaaaaaa2"),
+                "complete": self._closed("complete", "pln_aaaaaaaaaaa3")}
+
+    def _marker(self, slug):
+        return self.root / slug / project_manager._PREVIEW_FILENAME
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory modes")
+    def test_previewing_completed_history_needs_no_write_to_the_library(self):
+        # The incident's shape: the library is readable but not writable. Render must still succeed.
+        slug = self._closed("complete", "pln_aaaaaaaaaaa3")
+        plan_dir = self.root / slug
+        self.addCleanup(os.chmod, plan_dir, 0o700)
+        os.chmod(plan_dir, 0o500)
+        code, out, err = self.run_command("preview", slug)
+        self.assertEqual(code, 0, err)
+        self.assertIn("A stored plan", out)
+        self.assertFalse(self._marker(slug).exists())
+
+    def test_sealed_bound_and_closed_plans_are_rendered_without_any_write(self):
+        fixtures = self._fixtures()            # built BEFORE the patch: closing and sealing do write
+        for marker in (self._marker(s) for s in fixtures.values()):
+            if marker.exists():
+                marker.unlink()                # a stale marker must not be "refreshed" either
+        with mock.patch.object(project_manager.core, "atomic_write",
+                               side_effect=OSError("the library is not writable")):
+            for state, slug in fixtures.items():
+                code, _, err = self.run_command("preview", slug)
+                self.assertEqual(code, 0, f"{state}: {err}")
+                self.assertFalse(self._marker(slug).exists(), state)
+
+    def test_a_current_marker_is_not_rewritten(self):
+        slug, _ = self._plan()
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        with mock.patch.object(project_manager.core, "atomic_write",
+                               side_effect=OSError("the library is not writable")):
+            self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertEqual(self.run_command("depths", slug)[0], 0)
+
+    def test_a_stale_marker_is_refreshed_by_the_next_preview(self):
+        # The other way a marker stops vouching: the plan was revised after it was read. The marker is
+        # keyed by digest, so the readers refuse — and the next preview must refresh it, not skip it.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        stale = self._marker(slug).read_text(encoding="utf-8").strip()
+        self.assertEqual(self.run_command("revise", slug, "--document",
+                                          self._write_document(_document(revision=2)))[0], 0)
+        code, _, err = self.run_command("depths", slug)
+        self.assertEqual(code, 2)
+        self.assertIn("preview", err)
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        fresh = self._marker(slug).read_text(encoding="utf-8").strip()
+        self.assertNotEqual(stale, fresh)
+        self.assertEqual(fresh, self.lib.read_record(slug)["current"]["plan_digest"])
+        self.assertEqual(self.run_command("depths", slug)[0], 0)
+
+    def test_a_lost_marker_on_an_approved_plan_is_recoverable(self):
+        # Why the boundary is the seal and not the approval: a bundle carries the record and the
+        # revisions, never the marker, and an approved-but-unreviewed plan may still change depth.
+        slug, _ = self._plan()
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
+                                          "--operator-decision", "yes, at that depth")[0], 0)
+        self._marker(slug).unlink()
+        code, _, err = self.run_command("approve", slug, "--depth", "thorough",
+                                        "--operator-decision", "deeper, please")
+        self.assertEqual(code, 2)
+        self.assertIn("preview", err)          # the remedy it names must actually work:
+        self.assertEqual(self.run_command("preview", slug)[0], 0)
+        self.assertTrue(self._marker(slug).exists())
+        self.assertEqual(self.run_command("approve", slug, "--depth", "thorough",
+                                          "--operator-decision", "deeper, please")[0], 0)
+        self.assertEqual(self.lib.read_record(slug)["approval"]["depth"], "thorough")
+
+    def test_the_readers_refuse_a_post_boundary_plan_with_its_state_never_with_preview(self):
+        for state, slug in self._fixtures().items():
+            marker = self._marker(slug)
+            if marker.exists():
+                marker.unlink()                # the missing-marker case is the one that used to loop
+            for argv in (("depths", slug),
+                         ("approve", slug, "--depth", "standard", "--operator-decision", "yes")):
+                code, _, err = self.run_command(*argv)
+                self.assertEqual(code, 2, f"{state} {argv[0]}")
+                self.assertIn(state, err, f"{state} {argv[0]}: {err}")
+                self.assertNotIn("preview", err, f"{state} {argv[0]}: {err}")
+            self.assertEqual(state in ("retired", "abandoned"), "reopen" in err, state)
+
+
+class TestPlanRunbookHandsBack(unittest.TestCase):
+    """The runbook says what the tool does. Two bullets of plan-orchestration.md are pinned: the show
+    stop hands over the projection link (StarshipSuperjam/engine-template#1121), and the hand-back
+    prescribes no runtime context control and names the typed engine-start as what begins the Build
+    (StarshipSuperjam/engine-template#1112). Literal-token pins, kept deliberately narrow: they stop
+    the retired guidance creeping back, and nothing more."""
+
+    RUNBOOK = plan_store.ROOT / ".engine" / "operations" / "plan-orchestration.md"
+
+    def _bullet(self, text, start, end):
+        i = text.index(start)
+        return text[i:text.index(end, i)]
+
+    def test_the_show_stop_hands_over_the_projection(self):
+        text = self.RUNBOOK.read_text(encoding="utf-8")
+        show = self._bullet(text, "**Show the drafted plan with no ask attached.**", "**Then, once they are satisfied")
+        self.assertIn("PLAN.md", show)
+
+    def test_the_hand_back_prescribes_no_context_control_and_names_the_typed_start(self):
+        text = self.RUNBOOK.read_text(encoding="utf-8")
+        handback = self._bullet(text, "**The seal hands back before the Build starts.**",
+                                "**The Build is downstream and owns itself.**")
+        for control in ("/compact", "/clear", "/autocompact"):
+            self.assertNotIn(control, handback, control)
+        self.assertIn("suggest a model and effort", handback)
+        self.assertIn("engine-start", handback)
+        self.assertIn("offer, not a gate", handback)
+
+
+class ProjectionLink(_Governed):
+    """Every verb that shows or mints a plan ENDS by handing over the projection
+    (StarshipSuperjam/engine-template#1121), and the file it hands over is current.
+
+    The show stop is the operator reading the plan; a verb that prints the folder, or nothing, leaves
+    them to ask for the link. One helper spells the line, and these tests pin the LAST non-blank line
+    rather than a substring, because three of the verbs print trailing guidance after the natural
+    insertion point and a link buried mid-output is the failure the issue names.
+    """
+
+    def _link(self, slug):
+        return f"read it at {self.lib.plan_dir(slug) / plan_projection.PLAN_MD}"
+
+    @staticmethod
+    def _last_line(out):
+        return [line for line in out.splitlines() if line.strip()][-1]
+
+    def test_every_showing_verb_ends_with_the_projection_link(self):
+        code, out, _ = self.run_command("init", "--document", self._write_document(_document()))
+        self.assertEqual(code, 0)
+        slug = self.lib.slugs()[0]
+        self.assertEqual(self._last_line(out), self._link(slug))
+        for verb in ("show", "preview", "resume"):
+            code, out, _ = self.run_command(verb, slug)
+            self.assertEqual(code, 0, verb)
+            self.assertEqual(self._last_line(out), self._link(slug), verb)
+        code, out, _ = self.run_command("revise", slug, "--document",
+                                        self._write_document(_document(revision=2)))
+        self.assertEqual(code, 0)
+        self.assertEqual(self._last_line(out), self._link(slug))
+        code, out, _ = self.run_command("clone", slug, "--reason", "a fresh start")
+        self.assertEqual(code, 0)
+        cloned = [s for s in self.lib.slugs() if s != slug]
+        self.assertEqual(len(cloned), 1)
+        # The NEW plan's projection — the one the operator reads next — never the source's.
+        self.assertEqual(self._last_line(out), self._link(cloned[0]))
+
+    def test_show_and_resume_hand_over_the_link_on_sealed_history_too(self):
+        slug, _ = self._to_reviewed()
+        self.assertEqual(self.run_command("seal", slug, "--operator-decision", "seal it")[0], 0)
+        for verb in ("show", "resume"):
+            code, out, _ = self.run_command(verb, slug)
+            self.assertEqual(code, 0, verb)
+            self.assertEqual(self._last_line(out), self._link(slug), verb)
+
+    def test_the_line_has_exactly_one_home(self):
+        # A second spelling anywhere is the drift this helper exists to prevent.
+        source = Path(project_manager.__file__).read_text(encoding="utf-8")
+        self.assertEqual(source.count('"read it at '), 1)
+        self.assertEqual(source.count("read it at {"), 1)
+
+    def test_the_projection_is_current_after_every_record_write(self):
+        # PLAN.md's header carries the derived status. Before this, only revision-minting verbs
+        # re-projected, so after `approve` the file the link points at still said the plan was
+        # awaiting approval while the tool said awaiting review. Every record write re-projects now.
+        # Minted through the tool (the fixture's direct create projects nothing), so PLAN.md exists.
+        self.assertEqual(self.run_command("init", "--document", self._write_document(_document()))[0], 0)
+        slug = self.lib.slugs()[0]
+        plan_md = self.lib.plan_dir(slug) / plan_projection.PLAN_MD
+        self.assertIn("awaiting-approval", plan_md.read_text(encoding="utf-8"))
+        self.run_command("preview", slug)
+        self.assertEqual(self.run_command("approve", slug, "--depth", "standard",
+                                          "--operator-decision", "yes, at that depth")[0], 0)
+        self.assertIn("awaiting-review", plan_md.read_text(encoding="utf-8"))
+        argv = ["review", "record", slug, "--packet-digest", self._packet_digest(slug),
+                "--delivered-effort", "high"]
+        for lens in self._covering_lenses("standard"):
+            argv += ["--lens", lens]
+        argv += ["--findings", self._findings(
+            {"id": "ARCH-1", "lens": "architecture", "severity": "nit", "summary": "tidy"})]
+        self.assertEqual(self.run_command(*argv)[0], 0)
+        self.assertIn("review-recorded", plan_md.read_text(encoding="utf-8"))
+        self.assertEqual(self.run_command(
+            "finding", "dispose", slug, "--id", "ARCH-1", "--disposition", "accepted-fixed",
+            "--rationale", "done", "--does-not-block-this-pr")[0], 0)
+        self.assertEqual(self.present(slug)[0], 0)
+        # Still current, and still a projection: the header names the same revision the record holds.
+        text = plan_md.read_text(encoding="utf-8")
+        self.assertIn("review-recorded", text)
+        self.assertIn(f"revision {self.lib.read_record(slug)['current']['revision']}", text)
 
 
 if __name__ == "__main__":

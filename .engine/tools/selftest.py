@@ -618,6 +618,23 @@ class _Progress:
                 "current": self.current, "since_last": now - self.last_completion}
 
 
+def _forward_signal(proc, signum) -> None:
+    """Forward `signum` to the child's whole process group — or, while no child exists yet, do what the
+    default disposition would have done (SIGINT interrupts, SIGTERM terminates with the conventional
+    128+signal status). The handlers are installed before the spawn so the child inherits a caught handler
+    (reset to default across exec) rather than an ignore (preserved across exec); this pre-spawn branch keeps
+    that window from swallowing a signal or leaving a launcher nothing can stop
+    (StarshipSuperjam/engine-template#1188)."""
+    if proc is None:
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        raise SystemExit(128 + int(signum))
+    try:
+        os.killpg(os.getpgid(proc.pid), signum)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 def _heartbeat_line(snap: dict, elapsed: float, stall_threshold: float) -> str:
     total_s = str(snap["total"]) if snap["total"] is not None else "?"
     current = snap["current"] or "(starting)"
@@ -889,6 +906,20 @@ def _run_parent(args: argparse.Namespace) -> int:
     sel = selectors.DefaultSelector()
     proc = None
     try:
+        # The forwarding handlers go in BEFORE the child is spawned (StarshipSuperjam/engine-template#1188).
+        # A signal disposition inherits across exec, and the two kinds inherit differently: a CAUGHT handler
+        # resets to the default in the new program, while an IGNORE is preserved. A POSIX shell starts a
+        # `cmd &` job with SIGINT ignored, so a launcher that spawned first handed that ignore straight to the
+        # suite, and the SIGINT it later forwarded reached a child that could not be interrupted — a
+        # backgrounded validation run could not be stopped, and the teardown test read as a launcher hang.
+        # With a handler already installed, the child starts with SIGINT at its default however this
+        # launcher itself was started.
+        def _forward(signum, _frame):
+            _forward_signal(proc, signum)
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[sig] = signal.signal(sig, _forward)
+
         try:
             proc = subprocess.Popen(
                 child_cmd,
@@ -925,15 +956,6 @@ def _run_parent(args: argparse.Namespace) -> int:
         os.set_blocking(progress_read_fd, False)
         sel.register(out_fd, selectors.EVENT_READ, "out")
         sel.register(progress_read_fd, selectors.EVENT_READ, "prog")
-
-        def _forward(signum, _frame):
-            try:
-                os.killpg(os.getpgid(proc.pid), signum)
-            except (ProcessLookupError, PermissionError):
-                pass
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            previous_handlers[sig] = signal.signal(sig, _forward)
 
         prog_buf = ""
         registered = {"out", "prog"}
