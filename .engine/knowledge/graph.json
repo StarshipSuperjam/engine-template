@@ -5357,7 +5357,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:a9df078b35f873e21800af1e162a5816cde444d20c3e908fbff1fa7127ba5eaf",
+        "fingerprint": "sha256:4be1fee9da93d05a79877ad0910f67b9d24cccc4339eb0b8bd028d0d2c9dcd69",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -18102,7 +18102,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:9ff66396e0299322b1f4e07d9f6d68df29f6662e8219ed2dd36e8214b64760f7",
+        "fingerprint": "sha256:855db0f1f9c5b8ee8802361caec4b7d624e268b23dbbed1ad6dc5033444421bd",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
