@@ -4321,7 +4321,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:bb482a0f8193912464fab4a06f08c1b576c9fdb0a88656c181a45521faa6015d",
+        "fingerprint": "sha256:08e2742f64e2af81c1a82acb483a81df5713034e3447dcca8f0b85409c03d38d",
         "path": ".agents/skills/engine-routine/SKILL.md"
       },
       "status": "active",
@@ -5853,7 +5853,7 @@
       },
       "slug": "codex-settings",
       "source": {
-        "fingerprint": "sha256:4555e1d68250d9108b0fd3b4d6a8a0471acbca4a1b259fc5b852d3098bf15dfb",
+        "fingerprint": "sha256:e8eb02fa95c8401f695be9d3f3c3a905f59c9e8d8ebe2e7fa9cbc79ffabf04d3",
         "path": ".engine/operations/codex-settings.md"
       },
       "status": "active",
@@ -6233,7 +6233,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:567ddba00f7f484993bdf8693bd3b2d1af1eea9f08b5397960a60a4a0976c156",
+        "fingerprint": "sha256:ad8ee3bafba97bfe56cb7b0610c084b1767f73718ea438f0e6fbd09facb8cfa4",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -6373,7 +6373,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:2e5b955fb3c9f4a9e8f23a2ab668fda81a8bf086b0d0631d4d8eed55b3cc215c",
+        "fingerprint": "sha256:7568b7681d5fefedc9fc1f2ec08a7a60d8e2affd67c44d379e787bee325c64bf",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -8408,7 +8408,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:77dcf9440c133a765a4dd475d19946bcc8f90a43af4c60a2cc6fffaf572eb472",
+        "fingerprint": "sha256:7c02ceab4ac76e66cd751e1df8e30dd3832bde30581a12f57b3b31beb7909d46",
         "path": ".claude/skills/engine-routine/SKILL.md"
       },
       "status": "active",
@@ -18707,7 +18707,7 @@
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:03ba1978c7def105ca8d93377b65654e1d19a7dddb4892a9ebab0318d89853a2",
+        "fingerprint": "sha256:cd1824751b0a4fdd3b8bad2002050f54bb41a87c0bfca12f25a0f3c6b7fa9bfc",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
