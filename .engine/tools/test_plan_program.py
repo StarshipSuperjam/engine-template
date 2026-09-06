@@ -4362,6 +4362,188 @@ class TheLaneRecordHasOneReader(unittest.TestCase):
                          f"{stale}")
 
 
+class TheIntendedRecordHasOneReader(unittest.TestCase):
+    """`TheLaneRecordHasOneReader`'s precedent, applied to the intended-order record: nothing outside
+    the enumerated surface reads the raw `intended`/`intended_history` keys. A future coordinator,
+    skill or tool that reads the intended order directly — rather than through `intended_standing`,
+    the one accessor that owns what readiness means — trips this even though it adds no refusal and
+    touches no intent code, so authority drift over the recorded order has to edit the allowlist in
+    the open.
+
+    `program_projection.py` deliberately reaches this record only through `plan_program.
+    intended_standing` (see its own module docstring on `_next_intended_line`), never the raw keys,
+    and so is NOT on this allowlist — a real read from it would be exactly the drift this test exists
+    to catch, and is reported as an unresolved concern rather than silently added here.
+    """
+
+    KEYS = {"intended", "intended_history"}
+    ALLOWLIST = {"plan_program.py", "program_manager.py", "test_plan_program.py",
+                 "test_program_manager.py", "demo_program_intended_order.py"}
+
+    def _record_key_reads(self, source: str) -> set:
+        import ast
+        found = set()
+        for node in ast.walk(ast.parse(source)):
+            key = None
+            if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) \
+                    and isinstance(node.slice.value, str):
+                key = node.slice.value
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr == "get" and node.args \
+                    and isinstance(node.args[0], ast.Constant) \
+                    and isinstance(node.args[0].value, str):
+                key = node.args[0].value
+            if key in self.KEYS:
+                found.add(key)
+        return found
+
+    def _scan_tree(self, root) -> dict:
+        root = Path(root)
+        offenders = {}
+        for path in sorted(root.rglob("*.py")):
+            if path.name in self.ALLOWLIST:
+                continue
+            reads = self._record_key_reads(path.read_text(encoding="utf-8"))
+            if reads:
+                offenders[str(path.relative_to(root))] = sorted(reads)
+        return offenders
+
+    def test_only_the_allowlisted_surface_reads_the_intended_record(self):
+        tools = Path(plan_program.__file__).resolve().parent
+        offenders = self._scan_tree(tools)
+        self.assertEqual(offenders, {},
+                         "the intended-order record is meant to be reached through "
+                         "`intended_standing`, and these modules read its raw keys directly and are "
+                         f"not on the allowlist: {offenders}")
+
+    def test_the_tripwire_catches_a_seeded_reader_in_a_subfolder(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            subsystem = Path(tmp) / "some_subsystem"
+            subsystem.mkdir()
+            (subsystem / "drifting_reader.py").write_text(
+                "def drift(record):\n"
+                "    return record['intended'], record.get('intended_history')\n",
+                encoding="utf-8")
+            (Path(tmp) / "unrelated.py").write_text("x = {'other': 1}\ny = x['other']\n",
+                                                    encoding="utf-8")
+            offenders = self._scan_tree(tmp)
+        self.assertEqual(offenders,
+                         {"some_subsystem/drifting_reader.py": ["intended", "intended_history"]})
+
+    def test_the_allowlist_carries_no_entry_that_no_longer_reads_the_intended_record(self):
+        """Mirrors the lane record's companion, with one documented exception. `plan_program.py`,
+        `program_manager.py` and `test_plan_program.py` all read the raw keys directly — verified
+        below — and are held to the same "no stale exemption" standard the lane record's companion
+        holds its own allowlist to.
+
+        `test_program_manager.py` is a genuine exception: it is allowlisted per this build's plan,
+        but W4-demo found it exercises `program intend`/`--fulfills`/`--outside-intent` entirely
+        through argv and the rendered `program show` text (see `IntendCommands` in
+        test_program_manager.py) and never touches `record["intended"]` or
+        `record["intended_history"]` directly — unlike its sibling test for the LANE record, which
+        does assert on `record["lanes"]` directly. test_program_manager.py is outside this node's
+        declared paths, so this cannot add the missing raw-key assertion there; it is left listed
+        (matching the plan) but not held to the read requirement, and the gap is reported as an
+        unresolved concern rather than silently papered over or used to justify dropping the file
+        from the allowlist.
+        """
+        tools = Path(plan_program.__file__).resolve().parent
+        missing = sorted(name for name in self.ALLOWLIST if not (tools / name).is_file())
+        self.assertEqual(missing, [], f"allowlisted but missing from tools/: {missing}")
+        held_to_the_read_requirement = self.ALLOWLIST - {"test_program_manager.py"}
+        stale = sorted(name for name in held_to_the_read_requirement
+                       if not self._record_key_reads((tools / name).read_text(encoding="utf-8")))
+        self.assertEqual(stale, [],
+                         "these are on the intended-record allowlist and expected to read it, but "
+                         f"no longer do: {stale}")
+
+
+class TheIntendedStandingHasNamedCallers(unittest.TestCase):
+    """`intended_standing` is the one derivation `program show` and the portfolio both format (see
+    its own docstring): readiness is read, never re-derived, by any caller. An AST scan for calls to
+    it, anywhere under `.engine/tools/` recursively, permitted only in the enumerated surface — a
+    future module that calls it to select, rank or start work trips this even though it adds no
+    refusal, so authority drift has a place it must be argued in the open rather than slipped in.
+    """
+
+    ALLOWLIST = {"plan_program.py", "program_manager.py", "program_projection.py",
+                 "test_plan_program.py", "test_program_manager.py", "test_program_projection.py",
+                 "demo_program_intended_order.py"}
+
+    @staticmethod
+    def _callee_name(func):
+        import ast
+        if isinstance(func, ast.Name):
+            return func.id
+        if isinstance(func, ast.Attribute):
+            return func.attr
+        return None
+
+    def _calls_intended_standing(self, source: str) -> bool:
+        import ast
+        return any(isinstance(node, ast.Call) and self._callee_name(node.func) == "intended_standing"
+                  for node in ast.walk(ast.parse(source)))
+
+    def _scan_tree(self, root) -> list:
+        root = Path(root)
+        offenders = []
+        for path in sorted(root.rglob("*.py")):
+            if path.name in self.ALLOWLIST:
+                continue
+            if self._calls_intended_standing(path.read_text(encoding="utf-8")):
+                offenders.append(str(path.relative_to(root)))
+        return offenders
+
+    def test_only_the_allowlisted_surface_calls_intended_standing(self):
+        tools = Path(plan_program.__file__).resolve().parent
+        offenders = self._scan_tree(tools)
+        self.assertEqual(offenders, [],
+                         "these modules call `intended_standing` and are not on the allowlist: "
+                         f"{offenders}")
+
+    def test_the_tripwire_catches_a_seeded_caller_in_a_subfolder(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            subsystem = Path(tmp) / "some_subsystem"
+            subsystem.mkdir()
+            (subsystem / "drifting_caller.py").write_text(
+                "import plan_program\n"
+                "def pick_next(record, view):\n"
+                "    return plan_program.intended_standing(record, view)\n",
+                encoding="utf-8")
+            (Path(tmp) / "unrelated.py").write_text(
+                "def other_call():\n    return len([1, 2]) and intended_standing_but_not_quite()\n",
+                encoding="utf-8")
+            offenders = self._scan_tree(tmp)
+        self.assertEqual(offenders, ["some_subsystem/drifting_caller.py"])
+
+    def test_the_allowlist_carries_no_entry_that_no_longer_calls_it_where_that_is_required(self):
+        """Every allowlisted file must exist. Beyond that, this does not demand a call the build plan
+        never required: W4-demo found that only `plan_program.py` (which defines it and calls it
+        internally from `_render_intended`), `program_projection.py` (`_next_intended_line`) and
+        `test_plan_program.py` (direct unit tests of the derivation) actually call
+        `intended_standing` today. `program_manager.py`, `test_program_manager.py`,
+        `test_program_projection.py` and `demo_program_intended_order.py` are allowlisted per the
+        plan but reach its effect only indirectly — through `plan_program.render` or
+        `program_projection.render_portfolio` — so they are not held to a call requirement the plan
+        never asked of them; the split is reported in full as an unresolved concern rather than
+        silently assumed.
+        """
+        tools = Path(plan_program.__file__).resolve().parent
+        missing = sorted(name for name in self.ALLOWLIST if not (tools / name).is_file())
+        self.assertEqual(missing, [], f"allowlisted but missing from tools/: {missing}")
+        held_to_the_call_requirement = {"plan_program.py", "program_projection.py",
+                                        "test_plan_program.py"}
+        self.assertTrue(held_to_the_call_requirement <= self.ALLOWLIST)
+        stale = sorted(name for name in held_to_the_call_requirement
+                       if not self._calls_intended_standing(
+                           (tools / name).read_text(encoding="utf-8")))
+        self.assertEqual(stale, [],
+                         "these are expected to call `intended_standing` but no longer do: "
+                         f"{stale}")
+
+
 class LaneSchema(_Program):
     """The schema pins the lane block's shape; the code pins what the schema cannot express."""
 
