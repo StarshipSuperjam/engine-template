@@ -1,5 +1,8 @@
 """Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract.
 
+Also locks the --help guard: --help / -h print usage naming the workflow that runs the tool and exit 0 before
+the issue write path is reached; `demo` is the only verb; any other argument exits 2 without acting (#807).
+
 These lock the load-bearing behaviours a non-engineer cannot read code to verify: that the workflow is an
 engine-owned traveler (FOUNDATION_INFRA → CODEOWNERS + upgrade overlay, the same treatment as the other engine
 workflows); that conformance is the SAME predicate the in-session gate uses, over issue_gate's single-source
@@ -330,6 +333,62 @@ class TestRunFailContract(unittest.TestCase):
 class TestDemo(unittest.TestCase):
     def test_demo_self_check_passes(self):
         self.assertEqual(quiet_call.run(icc.main, ["demo"]), 0)
+
+
+class TestHelpNeverActs(unittest.TestCase):
+    """The #807 guard: --help / -h print usage and exit 0 before _run() (the GitHub write path) is reached; any
+    argument other than `demo` is rejected with exit 2; the exit status reaches the process."""
+
+    LAUNCHER = ".github/workflows/engine-issue-conformance.yml"
+
+    def _run(self, argv):
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        calls = []
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(icc, "_run", side_effect=lambda *a, **k: calls.append("_run")), \
+             mock.patch.object(icc, "_demo", side_effect=lambda *a, **k: calls.append("_demo")):
+            with redirect_stdout(out), redirect_stderr(err):
+                code = icc.main(argv)
+        return code, out.getvalue(), err.getvalue(), calls
+
+    def test_help_prints_usage_names_the_launcher_and_never_runs(self):
+        for argv in (["--help"], ["-h"], ["demo", "--help"]):
+            code, out, _err, calls = self._run(argv)
+            self.assertEqual(code, 0, argv)
+            self.assertIn("usage: issue_conformance_ci.py", out)
+            self.assertIn(self.LAUNCHER, out)
+            self.assertEqual(calls, [], argv)
+
+    def test_an_unknown_flag_or_bare_word_is_rejected_without_running(self):
+        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["run"], "run"), (["demo", "extra"], "extra"),
+                            (["demo", "demo"], "demo"), (["demo", "demo", "demo"], "demo")):
+            code, out, err, calls = self._run(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("usage: issue_conformance_ci.py", err)
+            self.assertIn(f"unknown argument {stray!r}", err)     # names the wrong word, never the valid verb
+            self.assertEqual(out, "")
+            self.assertEqual(calls, [], argv)
+
+    def test_no_arguments_and_none_both_take_the_run_path(self):
+        for argv in ([], None):
+            code, _out, _err, calls = self._run(argv)
+            self.assertEqual(code, None)          # the patched _run returns None; what matters is that it ran
+            self.assertEqual(calls, ["_run"], argv)
+
+    def test_the_exit_status_reaches_the_process(self):
+        import subprocess
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "issue_conformance_ci.py")
+        env = dict(os.environ, GITHUB_REPOSITORY="acme/product", GITHUB_TOKEN="dummy-never-used")
+        helped = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(helped.returncode, 0, helped.stderr)
+        self.assertIn(self.LAUNCHER, helped.stdout)
+        rejected = subprocess.run([sys.executable, script, "--bogus"], capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(rejected.returncode, 2, rejected.stdout)
+        self.assertIn("usage: issue_conformance_ci.py", rejected.stderr)
+        twice = subprocess.run([sys.executable, script, "demo", "demo"], capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(twice.returncode, 2, twice.stderr)      # never a traceback (repair round 2)
+        self.assertNotIn("Traceback", twice.stderr)
 
 
 if __name__ == "__main__":

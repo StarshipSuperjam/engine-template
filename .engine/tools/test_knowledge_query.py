@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Self-tests for the knowledge-retrieval op-set (knowledge_query.py), the SQLite index
-(knowledge_index.py), and the graph-query MCP server (knowledge_mcp_server.py).
+(knowledge_index.py), and the graph-query MCP server (knowledge_mcp_server.py) — including its --help
+guard: --help / -h print usage naming the launcher and exit 0 before server.run(), any other argument exits
+2, and the exit status reaches the process (#807).
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
@@ -344,6 +346,59 @@ class TestDegradeSurfacing(unittest.TestCase):
         _r, note = kq.with_degrade(lambda c: kq._get_entity(c, "check:c1"),
                                    index_path=ipath, graph_path=gpath)
         self.assertIsNone(note)
+
+
+class TestMcpServerHelpNeverServes(unittest.TestCase):
+    """The #807 guard on knowledge_mcp_server.py: --help / -h exit 0 with usage that names the launcher, and
+    server.run (the outermost seam) is never entered; any other argument exits 2; main() returns an int and the
+    entry block exits with it, so the status reaches the process (proven in a subprocess with a bounded wait)."""
+
+    def _run(self, argv):
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        import knowledge_mcp_server as srv
+        calls, out, err = [], io.StringIO(), io.StringIO()
+        with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
+             redirect_stdout(out), redirect_stderr(err):
+            code = srv.main(argv)
+        return code, out.getvalue(), err.getvalue(), calls
+
+    def test_help_prints_usage_names_the_launcher_and_never_serves(self):
+        for argv in (["--help"], ["-h"], ["--json", "--help"]):
+            code, out, _err, calls = self._run(argv)
+            self.assertEqual(code, 0, argv)
+            self.assertIn("usage: knowledge_mcp_server.py", out)
+            self.assertIn("engine-knowledge-graph", out)
+            self.assertIn(".mcp.json", out)
+            self.assertEqual(calls, [], argv)
+
+    def test_an_unknown_flag_or_bare_word_is_rejected_without_serving(self):
+        for argv in (["--bogus"], ["help"], ["demo"]):
+            code, out, err, calls = self._run(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("usage: knowledge_mcp_server.py", err)
+            self.assertIn(f"unknown argument {argv[0]!r}", err)
+            self.assertEqual(out, "")
+            self.assertEqual(calls, [], argv)
+
+    def test_no_arguments_and_none_both_serve(self):
+        for argv in ([], None):
+            code, _out, _err, calls = self._run(argv)
+            self.assertEqual(code, 0)
+            self.assertEqual(calls, ["run"], argv)
+
+    def test_the_exit_status_reaches_the_process(self):
+        import subprocess
+        import knowledge_mcp_server as srv
+        script = os.path.abspath(srv.__file__)
+        helped = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, timeout=10,
+                                stdin=subprocess.DEVNULL)
+        self.assertEqual(helped.returncode, 0, helped.stderr)
+        self.assertIn("engine-knowledge-graph", helped.stdout)
+        rejected = subprocess.run([sys.executable, script, "--bogus"], capture_output=True, text=True, timeout=10,
+                                  stdin=subprocess.DEVNULL)
+        self.assertEqual(rejected.returncode, 2, rejected.stdout)
+        self.assertIn("usage: knowledge_mcp_server.py", rejected.stderr)
 
 
 class TestMcpServer(unittest.IsolatedAsyncioTestCase):

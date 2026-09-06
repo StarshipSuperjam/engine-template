@@ -1,5 +1,8 @@
 """Tests for overlay_disclosure — the non-blocking, merge-time upgrade-overwrite notice.
 
+Also locks the --help guard: --help / -h print usage naming the workflow that runs the tool and exit 0 before
+the token, the event or the comment write is reached, and any other argument exits 2 without acting (#807).
+
 These lock the behaviours a non-engineer cannot read code to verify:
   - the deployed-only gate is correct: it compares the checkout's ON-DISK git origin against the update home
     that checkout's own manifest records, slug-normalized — so the engine's own home stays silent, a case- or
@@ -157,6 +160,61 @@ class TestEngineAuthoredExempt(unittest.TestCase):
              mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "acme/product"}):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(od.main(), 0)
+
+
+class TestHelpNeverActs(unittest.TestCase):
+    """The #807 guard: --help / -h print usage and exit 0 before main() reads the environment, the token or the
+    event, and any other argument is rejected with exit 2 — the outermost seams (boot.gh_token, _load_event,
+    reconcile) are patched to record a call and must never be entered. A subprocess case proves the exit status
+    reaches the process (the precedent: test_module_manager.test_upgrade_help_prints_usage_and_never_applies)."""
+
+    LAUNCHER = ".github/workflows/engine-overlay-disclosure.yml"
+
+    def _run(self, argv):
+        calls = []
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(od.boot, "gh_token", side_effect=lambda *a, **k: calls.append("gh_token")), \
+             mock.patch.object(od, "_load_event", side_effect=lambda *a, **k: calls.append("_load_event")), \
+             mock.patch.object(od, "reconcile", side_effect=lambda *a, **k: calls.append("reconcile")):
+            with redirect_stdout(out), redirect_stderr(err):
+                code = od.main(argv)
+        return code, out.getvalue(), err.getvalue(), calls
+
+    def test_help_prints_usage_names_the_launcher_and_never_acts(self):
+        for argv in (["--help"], ["-h"], ["--json", "--help"]):
+            code, out, _err, calls = self._run(argv)
+            self.assertEqual(code, 0, argv)
+            self.assertIn("usage: overlay_disclosure.py", out)
+            self.assertIn(self.LAUNCHER, out)
+            self.assertEqual(calls, [], argv)
+
+    def test_an_unknown_flag_or_bare_word_is_rejected_without_acting(self):
+        for argv in (["--bogus"], ["help"], ["demo"]):
+            code, out, err, calls = self._run(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("usage: overlay_disclosure.py", err)
+            self.assertIn(f"unknown argument {argv[0]!r}", err)
+            self.assertEqual(out, "")
+            self.assertEqual(calls, [], argv)
+
+    def test_none_means_no_arguments_not_the_process_flags(self):
+        # The four bare od.main() calls elsewhere in this module rely on this: an omitted argv is the
+        # no-argument path even when the test runner itself was given flags.
+        with mock.patch.object(sys, "argv", ["runner", "--bogus"]), \
+             mock.patch.object(od, "is_deployed", return_value=False):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(od.main(), 0)
+
+    def test_the_exit_status_reaches_the_process(self):
+        import subprocess
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "overlay_disclosure.py")
+        env = dict(os.environ, GITHUB_REPOSITORY="acme/product", GITHUB_TOKEN="dummy-never-used")
+        helped = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(helped.returncode, 0, helped.stderr)
+        self.assertIn(self.LAUNCHER, helped.stdout)
+        rejected = subprocess.run([sys.executable, script, "--bogus"], capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(rejected.returncode, 2, rejected.stdout)
+        self.assertIn("usage: overlay_disclosure.py", rejected.stderr)
 
 
 class TestDisclosureRegisters(unittest.TestCase):

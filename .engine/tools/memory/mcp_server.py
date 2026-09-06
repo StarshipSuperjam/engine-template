@@ -34,7 +34,9 @@ NOT by this module. If the live server is simply switched off, the model's own l
 (`boot.MCP_AVAILABILITY_CHECK` — boot reads committed files only and cannot detect MCP routing); if the local
 saved store itself can't be read, boot renders the "memory offline" notice read-only (`ledger_health.detect_recall_offline`).
 
-Run (normally launched by the platform via .mcp.json over stdio):
+Run (normally launched by the platform's `engine-memory` entry in .mcp.json / .codex/config.toml, which runs
+accepted_hook_dispatch.py attended --script … --operation attended-memory-mcp and re-executes this file in the
+accepted copy over stdio; a direct run is the unqualified lane, in which memory writes refuse):
   uv run --directory .engine --frozen -- python tools/memory/mcp_server.py
 Operator demo (a throwaway practice cabinet; never the real store):
   uv run --directory .engine --frozen -- python tools/memory/mcp_server.py demo
@@ -813,9 +815,30 @@ def restore(record_id: str | None = None, session_id: str | None = None) -> dict
     return {"restored": f"{what} is back in recall."}
 
 
-def main(argv) -> int:
-    if argv and argv[0] == "demo":
+_USAGE = ("usage: mcp_server.py [demo] [--help]\n"
+          "  The engine-memory MCP server. The platform's `engine-memory` entry (.mcp.json, .codex/config.toml) launches\n"
+          "  it through accepted_hook_dispatch.py attended --script … --operation attended-memory-mcp, which re-executes\n"
+          "  this file in the accepted copy over stdio; a direct run is the unqualified lane, in which memory writes\n"
+          "  refuse. A bare run BLOCKS, serving stdio until the client closes; --help / -h prints this text and exits\n"
+          "  before the server runs; `demo` walks a throwaway practice cabinet and exits.")
+
+
+def main(argv: "list | None" = None) -> int:
+    # The StarshipSuperjam/engine-template#594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints usage
+    # and exits 0; `demo` is the only verb; anything else — a flag or a bare word — prints usage to stderr and
+    # exits 2 without reaching server.run(). None means no arguments, never sys.argv.
+    argv = list(argv or [])
+    if "--help" in argv or "-h" in argv:
+        print(_USAGE)
+        return 0
+    if argv and argv[0] == "demo" and len(argv) == 1:
         return _demo()
+    if argv:
+        print(_USAGE, file=sys.stderr)
+        # Name the word that is wrong, never the valid verb; when every word is `demo`, the second one is the stray.
+        stray = next((a for a in argv if a != "demo"), argv[1] if len(argv) > 1 else argv[0])
+        print(f"mcp_server.py: unknown argument {stray!r}", file=sys.stderr)
+        return 2
     server.run()  # stdio transport by default
     return 0
 

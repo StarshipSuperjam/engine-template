@@ -1,5 +1,8 @@
 """test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).
 
+Also locks the --help guard: --help / -h print usage naming the accepted-hook launch chain and exit 0 before
+server.run(); `demo` is the only verb; any other argument exits 2 without serving (#807).
+
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
 Exercises the server in-process (no Claude Desktop, no subprocess): the single `search` tool delegates to the
@@ -416,6 +419,57 @@ class StdioLaunchTest(unittest.IsolatedAsyncioTestCase):
 
 
 class DemoTests(unittest.TestCase):
+    def test_help_prints_usage_names_the_launch_chain_and_never_serves(self):
+        # The #807 guard: --help / -h exit 0 with usage on stdout naming the accepted-hook launch chain, and
+        # server.run (the outermost seam) is never entered; a flag anywhere in argv counts.
+        for argv in (["--help"], ["-h"], ["demo", "--help"]):
+            calls, out, err = [], io.StringIO(), io.StringIO()
+            with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
+                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(srv.main(argv), 0, argv)
+            self.assertIn("usage: mcp_server.py", out.getvalue())
+            self.assertIn("accepted_hook_dispatch.py", out.getvalue())
+            self.assertIn("attended-memory-mcp", out.getvalue())
+            self.assertEqual(calls, [], argv)
+
+    def test_an_unknown_flag_or_bare_word_is_rejected_without_serving(self):
+        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["serve"], "serve"), (["demo", "extra"], "extra"),
+                            (["demo", "demo"], "demo")):
+            calls, out, err = [], io.StringIO(), io.StringIO()
+            with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
+                 mock.patch.object(srv, "_demo", side_effect=lambda *a, **k: calls.append("demo")), \
+                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(srv.main(argv), 2, argv)
+            self.assertIn("usage: mcp_server.py", err.getvalue())
+            self.assertIn(f"unknown argument {stray!r}", err.getvalue())     # names the wrong word, never `demo`
+            self.assertEqual(out.getvalue(), "")
+            self.assertEqual(calls, [], argv)
+
+    def test_no_arguments_and_none_both_serve(self):
+        for argv in ([], None):
+            calls = []
+            with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")):
+                self.assertEqual(srv.main(argv), 0)
+            self.assertEqual(calls, ["run"], argv)
+
+    def test_the_exit_status_reaches_the_process(self):
+        # A bounded wait, since this machine has no `timeout` command: on the unfixed tool the --help run
+        # would block serving stdio and the wait would expire.
+        import subprocess
+        script = os.path.abspath(srv.__file__)
+        helped = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, timeout=10,
+                                stdin=subprocess.DEVNULL)
+        self.assertEqual(helped.returncode, 0, helped.stderr)
+        self.assertIn("attended-memory-mcp", helped.stdout)
+        rejected = subprocess.run([sys.executable, script, "--bogus"], capture_output=True, text=True, timeout=10,
+                                  stdin=subprocess.DEVNULL)
+        self.assertEqual(rejected.returncode, 2, rejected.stdout)
+        self.assertIn("usage: mcp_server.py", rejected.stderr)
+        twice = subprocess.run([sys.executable, script, "demo", "demo"], capture_output=True, text=True, timeout=10,
+                               stdin=subprocess.DEVNULL)
+        self.assertEqual(twice.returncode, 2, twice.stderr)      # never a traceback (repair round 2)
+        self.assertNotIn("Traceback", twice.stderr)
+
     def test_demo_body_exits_zero(self):
         # The operator demo exercises the REAL rank + filter + reinforce on its own throwaway cabinet; a real
         # regression flips a `!!!` and returns non-zero. (It manages its own ENGINE_MEMORY_DIR.)
