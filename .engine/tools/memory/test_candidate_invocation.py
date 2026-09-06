@@ -458,24 +458,28 @@ DISPOSITION = {
     "launcher_actually_run": "degraded (live checkout, no execution context): a fresh clone has no accepted "
                              "activation — a MECHANISM-REMOVING difference from the attended production launch.",
     "expected_class": {"claude": "not-reproduced", "codex": "not-reproduced"},
-    "expected_label": {"claude": "semantic-unavailable-keyword-ok", "codex": "semantic-unavailable-keyword-ok"},
+    "expected_label": {"claude": "healthy", "codex": "healthy"},
     # The acceptance probe's ACTUAL result, pinned like the outcome so a change in either fails loudly.
-    "expected_probe": {"claude": {"passed": False, "reason": "semantic-unavailable"},
-                       "codex": {"passed": False, "reason": "semantic-unavailable"}},
+    "expected_probe": {"claude": {"passed": True, "reason": "recalled"},
+                       "codex": {"passed": True, "reason": "recalled"}},
     "probe_disposition": (
-        "A THIRD outcome, stated plainly: the harness did NOT reproduce the fault, AND the acceptance probe "
-        "FAILED — for a separate, recorded reason (the degraded launcher cannot build the meaning index, so "
-        "meaning recall reports itself unavailable), not because recall returned the wrong records. Neither "
-        "fact is evidence about the real bug. The probe is a meaningful assertion only under an attended "
-        "launch, which is the fix child's contract, not this harness's."),
+        "Stated plainly: the harness did NOT reproduce the fault, and since C3 the acceptance probe PASSES "
+        "under the degraded launch too - a session that may not write the store answers a meaning question "
+        "read-only, from the live records embedded in memory, and the seeded conversation is recalled. Until "
+        "C3 the probe failed here for a recorded, unrelated reason (the degraded launcher could not build the "
+        "meaning index, so meaning recall reported itself unavailable). Neither fact is evidence about the real "
+        "bug: the probe under an ATTENDED launch is the fix child's contract, and this harness never enters "
+        "the qualified branch."),
     "mechanism_removing_differences": [
         "launcher: degraded (live checkout, no execution context) instead of attended (materialized accepted "
         "tree with an installed context) — the recall path under investigation runs behind the guard's "
         "qualified branch, which the clone never enters.",
-        "meaning recall: reports itself unavailable ('not qualified to build the meaning index') instead of "
-        "reconciling the semantic store — the exact operation suspected in the production failure never runs.",
-        "derived caches: the keyword-index rebuild is refused unqualified and recall falls through to a "
-        "ledger scan, so no cache is reconciled or written — the cache-trust seam (C3) is not exercised.",
+        "meaning recall: answers through the read-only door (no store to trust, so the live set is embedded "
+        "in memory for the one question) instead of reconciling the semantic store — the exact operation "
+        "suspected in the production failure never runs.",
+        "derived caches: the keyword-index rebuild and the vector store's migrate are refused unqualified, "
+        "keyword recall falls through to a ledger scan and the read-only door writes nothing, so no cache is "
+        "reconciled or written — the cache-trust seam's qualified half (C3) is not exercised here.",
         "authority: no activation, so no activation-advance can happen under the running server — the "
         "operator's moved-commit scenario cannot occur here.",
     ],
@@ -925,10 +929,12 @@ class DisposableCloneReproductionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual({"passed": probe["passed"], "reason": probe["reason"]},
                                  DISPOSITION["expected_probe"][kind], probe)
         # Containment, stated as what actually happened: a DEGRADED launch refuses the derived-index rebuild
-        # (index-rebuild is not degraded-allowed; keyword recall falls through to a ledger scan), so the reads
-        # wrote NOTHING — the sandbox's memory directory holds exactly what this harness seeded, and no
-        # derived cache exists to have landed anywhere. That is itself a recorded mechanism-removing
-        # difference from the attended launch, which reconciles its caches on the way past.
+        # (index-rebuild is not degraded-allowed; keyword recall falls through to a ledger scan) and the vector
+        # store's migrate (the read-only door answers from memory and never opens a store into existence -
+        # not even the empty file a refused open would otherwise leave), so the reads wrote NOTHING — the
+        # sandbox's memory directory holds exactly what this harness seeded, and no derived cache exists to
+        # have landed anywhere. That is itself a recorded mechanism-removing difference from the attended
+        # launch, which reconciles its caches on the way past.
         self.assertEqual(sorted(os.listdir(self.clone.memory)), ["ledger.ndjson"])
         report["derived_cache_written"] = False
         report["disposition"] = DISPOSITION

@@ -138,6 +138,26 @@ class DurabilityTests(_Base):
         self.assertIn("no backup is set up", str(caught.exception))
         self.assertIn(_SECRET, " ".join(self._texts()))
 
+    def test_it_clears_the_meaning_stores_receipt_with_its_rows(self):
+        # A reader that may not reconcile trusts the receipt-covered rows; an emptied store must not keep a
+        # receipt saying it is complete - cleared here, locally, not by the coincidence of the epoch bump.
+        import sqlite3
+        from memory.semantic import store
+        self._turn(f"the token is {_SECRET}")
+        store.sync()
+        conn = sqlite3.connect(store.store_path())
+        try:
+            self.assertIsNotNone(store._stored_receipt(conn))
+        finally:
+            conn.close()
+        rescrub.run(snapshot=False)
+        conn = sqlite3.connect(store.store_path())
+        try:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM passages").fetchone()[0], 0)
+            self.assertIsNone(store._stored_receipt(conn))
+        finally:
+            conn.close()
+
     def test_it_moves_the_index_epoch_and_not_the_content_generation(self):
         # `generation` means "content was rewritten or REMOVED", and the restore guard reads it that way: moving
         # it would make every backup taken before this refuse, telling the operator notes had been deliberately

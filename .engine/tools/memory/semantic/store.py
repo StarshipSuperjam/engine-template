@@ -56,6 +56,20 @@ STORE_FILENAME = "vectors.sqlite3"
 # rather than silently mixed with vectors made a different way.
 SCHEMA_VERSION = 2
 
+# The PROJECTION the stored rows were split and digested under: `index._record_text` (what a record's
+# searchable text is) and `passages` below (how it is split: PASSAGE_CHARS, MAX_PASSAGES). Bump it when either
+# changes. A qualified reconcile then discards and re-embeds; a READ-ONLY reader (`search_read_only`) refuses
+# a store stamped with another projection, because a stored ordinal would address a different sentence and
+# the quoted passage is this tool's whole offer. A per-row text digest is checked as well (the row-level form
+# of the same guard), so a store stamped current but rebuilt by other code still cannot quote the wrong line.
+PROJECTION_VERSION = 1
+
+# How many records appended since the store's receipt a READ-ONLY answer embeds in memory for one question
+# before it stops and says so (completeness incomplete, the not-caught-up note). Measured at about 0.2 ms per
+# record on the shipped table, so the bound is under half a second of work, and a session that may not write
+# the store is never asked to wait longer than that for a meaning answer.
+READ_ONLY_TAIL_LIMIT = 2000
+
 DEFAULT_LIMIT = 10
 
 # Passage length, in characters. Short enough that one passage is about one thing, long enough to carry a
@@ -148,42 +162,135 @@ def _table_fingerprint() -> str:
     return ((recorded.get("files") or {}).get(name) or {}).get("sha256", "")
 
 
-def _connect(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
-    conn.execute("CREATE TABLE IF NOT EXISTS passages ("
-                 "  record_id TEXT NOT NULL,"
-                 "  ordinal INTEGER NOT NULL,"
-                 "  vec BLOB NOT NULL,"
-                 "  scale REAL NOT NULL,"
-                 # A digest of the text these vectors were made from. A record can be rewritten in place
-                 # keeping its id — a ledger migration does exactly that — and without this the old vectors
-                 # survive, so the record answers for wording it no longer contains and the passage recovered
-                 # for the caller comes back EMPTY. That would strip the one piece of evidence this whole
-                 # design asks the caller to judge on.
-                 "  text_digest TEXT NOT NULL,"
-                 "  PRIMARY KEY (record_id, ordinal))")
-    conn.execute("CREATE TABLE IF NOT EXISTS meta ("
-                 "  rowid INTEGER PRIMARY KEY CHECK (rowid = 1),"
-                 "  schema_version INTEGER NOT NULL,"
-                 "  table_fingerprint TEXT NOT NULL)")
-    row = conn.execute("SELECT schema_version, table_fingerprint FROM meta WHERE rowid = 1").fetchone()
-    current = (SCHEMA_VERSION, _table_fingerprint())
-    if row is None:
-        conn.execute("INSERT INTO meta (rowid, schema_version, table_fingerprint) VALUES (1, ?, ?)", current)
+_CREATE_PASSAGES = ("CREATE TABLE IF NOT EXISTS passages ("
+                    "  record_id TEXT NOT NULL,"
+                    "  ordinal INTEGER NOT NULL,"
+                    "  vec BLOB NOT NULL,"
+                    "  scale REAL NOT NULL,"
+                    # A digest of the text these vectors were made from. A record can be rewritten in place
+                    # keeping its id — a ledger migration does exactly that — and without this the old vectors
+                    # survive, so the record answers for wording it no longer contains and the passage recovered
+                    # for the caller comes back EMPTY. That would strip the one piece of evidence this whole
+                    # design asks the caller to judge on. The read-only search checks it per row too.
+                    "  text_digest TEXT NOT NULL,"
+                    "  PRIMARY KEY (record_id, ordinal))")
+_CREATE_META = ("CREATE TABLE IF NOT EXISTS meta ("
+                "  rowid INTEGER PRIMARY KEY CHECK (rowid = 1),"
+                "  schema_version INTEGER NOT NULL,"
+                "  table_fingerprint TEXT NOT NULL)")
+# THE RECEIPT, and the projection stamp, widened onto `meta` in place (ALTER TABLE ADD COLUMN) so a store built
+# before they existed keeps every embedding it holds. `covered_*` name the ledger identity the live set was
+# derived under when the store was last reconciled — its content generation, its index epoch, and the byte
+# length of the file the live set was read from — captured at DERIVATION (`_live_snapshot`), never at commit,
+# because a sibling can append while embedding runs. A reader that may not reconcile trusts the rows for
+# records whose line sits below `covered_length` and embeds the rest itself; a receipt whose generation or
+# epoch differ from the ledger's means the rows cannot be trusted by position at all.
+_META_COLUMNS = (("covered_generation", "INTEGER"), ("covered_epoch", "INTEGER"),
+                 ("covered_length", "INTEGER"), ("projection_version", "INTEGER"))
+
+
+def _open(path: str) -> sqlite3.Connection:
+    """Connect, and nothing else: no table is created, no version compared, no row dropped. The half of the
+    old `_connect` that writes nothing, kept separate so a read-only reader has a door that is not a writer."""
+    return sqlite3.connect(path)
+
+
+def _open_read_only(path: str) -> sqlite3.Connection:
+    """A connection SQLite itself refuses to write through (`mode=ro`): an INSERT, an UPDATE or a DROP raises
+    inside the library, so nothing on the read-only path can migrate, reconcile or empty the store — the
+    #1151 hazard closed by construction rather than by discipline. Raises when the file is absent; the
+    read-only search maps that, it never opens a store into existence."""
+    from pathlib import Path
+
+    return sqlite3.connect(Path(os.path.abspath(path)).as_uri() + "?mode=ro", uri=True)
+
+
+def _migrate(conn) -> sqlite3.Connection:
+    """Bring an open store - or, given a path, a store that does not exist yet - to this code's shape. The ONE
+    writer of DDL in this module, registered as
+    `semantic-store-migrate` (it was `semantic-store-connect` while `_connect` did both jobs), and deliberately
+    outside the degraded-allowed set: a session that may not write is refused here, before anything is dropped.
+
+    Creates what is missing, widens `meta` in place for the receipt and projection columns, and discards every
+    stored vector when the word table, the schema or the projection that made them changed. DROP, never
+    DELETE, for the passages: a version bump can change the table's SHAPE, and `CREATE TABLE IF NOT EXISTS` is
+    a no-op against a table that already exists — so emptying the rows would leave an OLD-shaped table stamped
+    as current, and the next query would fail on a missing column, for good, with no path back. Dropping it
+    forces the create to run for real. The receipt goes with the rows it vouched for."""
+    opened = None
+    if not isinstance(conn, sqlite3.Connection):
+        opened = conn = _open(conn)        # creating the file is the store's first write: it happens here
+    try:
+        conn.execute(_CREATE_PASSAGES)
+        conn.execute(_CREATE_META)
+        present = {row[1] for row in conn.execute("PRAGMA table_info(meta)").fetchall()}
+        for name, kind in _META_COLUMNS:
+            if name not in present:
+                conn.execute(f"ALTER TABLE meta ADD COLUMN {name} {kind}")
+        row = conn.execute("SELECT schema_version, table_fingerprint, projection_version FROM meta "
+                           "WHERE rowid = 1").fetchone()
+        current = (SCHEMA_VERSION, _table_fingerprint())
+        if row is None:
+            conn.execute("INSERT INTO meta (rowid, schema_version, table_fingerprint, projection_version) "
+                         "VALUES (1, ?, ?, ?)", (*current, PROJECTION_VERSION))
+        elif tuple(row[:2]) != current or (row[2] is not None and row[2] != PROJECTION_VERSION):
+            # A different table, a different way of deriving a vector, or a different way of splitting a
+            # record: every stored row is unusable.
+            conn.execute("DROP TABLE IF EXISTS passages")
+            conn.execute(_CREATE_PASSAGES)
+            conn.execute("UPDATE meta SET schema_version = ?, table_fingerprint = ?, projection_version = ?, "
+                         "covered_generation = NULL, covered_epoch = NULL, covered_length = NULL WHERE rowid = 1",
+                         (*current, PROJECTION_VERSION))
+        elif row[2] is None:
+            # A store from before the projection was stamped. Its rows were split the one way there has ever
+            # been, so it is stamped current without touching them — the whole point of widening in place.
+            conn.execute("UPDATE meta SET projection_version = ? WHERE rowid = 1", (PROJECTION_VERSION,))
         conn.commit()
-    elif tuple(row) != current:
-        # A different table, or a different way of deriving a vector: every stored row is unusable.
-        #
-        # DROP, never DELETE. A version bump can change the table's SHAPE, and `CREATE TABLE IF NOT EXISTS`
-        # is a no-op against a table that already exists — so emptying the rows would leave an OLD-shaped
-        # table stamped as current, and the next query would fail on a missing column, for good, with no
-        # path back. Dropping it forces the create above to run for real on the next connect.
-        conn.execute("DROP TABLE IF EXISTS passages")
-        conn.execute("UPDATE meta SET schema_version = ?, table_fingerprint = ? WHERE rowid = 1", current)
-        conn.commit()
-        conn.close()
-        return _connect(path)
+    except BaseException:
+        if opened is not None:
+            opened.close()
+        raise
     return conn
+
+
+def _connect(path: str) -> sqlite3.Connection:
+    """The writer's door: open, then migrate. A session that may not write is refused at `_migrate`, and the
+    connection it would have received is closed rather than leaked. A store that does not exist yet is
+    CREATED by the writer, not by the open: `sqlite3.connect` on a missing path leaves an empty file behind,
+    so the path goes to `_migrate` and the file comes into being only once the writer is admitted. A session
+    that may not write leaves no store behind, not even an empty one (the reproduction harness asserts it)."""
+    if not os.path.exists(path):
+        return _migrate(path)
+    conn = _open(path)
+    try:
+        _migrate(conn)
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+def _stored_fingerprint(conn: sqlite3.Connection):
+    """`(schema_version, table_fingerprint, projection_version)` as stamped, or None when the store has no
+    readable `meta` — a file that was never migrated, or is not a store at all."""
+    try:
+        row = conn.execute("SELECT schema_version, table_fingerprint, projection_version FROM meta "
+                           "WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return None
+    return tuple(row) if row else None
+
+
+def _stored_receipt(conn: sqlite3.Connection):
+    """`(covered_generation, covered_epoch, covered_length)`, or None when any part is unset."""
+    try:
+        row = conn.execute("SELECT covered_generation, covered_epoch, covered_length FROM meta "
+                           "WHERE rowid = 1").fetchone()
+    except sqlite3.Error:
+        return None
+    if not row or any(v is None for v in row):
+        return None
+    return tuple(int(v) for v in row)
 
 
 # The last derivation, keyed by everything that can invalidate it. `search` is the only caller and this
@@ -223,8 +330,37 @@ def _live_key(path: "str | None") -> tuple:
         return (target, None, None, None, None)
 
 
+def _live_snapshot(path: "str | None" = None) -> tuple:
+    """`(live, key)`: {record_id: (record, searchable_text, ledger_position)} for everything recall is allowed
+    to surface, and the ledger identity (`_live_key`) it was derived under.
+
+    The key is what a reconcile's receipt names, and it is captured HERE, at derivation — never at commit
+    time, because a sibling session can append while embedding runs, and a receipt naming the newer file
+    would claim rows for records the reconcile never saw. The position lets a read-only reader tell which
+    records the receipt covers (their line sits below the covered byte length) from those appended since.
+    Cached exactly as `_live_text` documents.
+    """
+    key = _live_key(path)
+    if key[1] is not None and _LIVE_CACHE.get("key") == key:
+        return _LIVE_CACHE["value"], key
+    out = {}
+    for position, length, raw, record in forget.live_records(path, with_positions=True):
+        if not isinstance(record, dict):
+            continue
+        rid = record.get("id")
+        if not rid:
+            continue                          # a legacy record with no id cannot be tracked or re-found
+        text = index._record_text(record)
+        if text.strip():
+            out[rid] = (record, text, position)
+    if key[1] is not None:
+        _LIVE_CACHE.clear()
+        _LIVE_CACHE.update({"key": key, "value": out})
+    return out, key
+
+
 def _live_text(path: "str | None" = None) -> dict:
-    """{record_id: (record, searchable_text)} for everything recall is allowed to surface.
+    """{record_id: (record, searchable_text, ledger_position)} for everything recall is allowed to surface.
 
     The text is `index._record_text` — the same projection the keyword path uses, so both paths see one
     record the same way, and a harness-inserted block is excluded from meaning-based reach exactly as it is
@@ -236,23 +372,7 @@ def _live_text(path: "str | None" = None) -> dict:
     48 ms re-hashing every record behind it. A miss re-derives from scratch; there is no partial update, so a
     stale cache cannot survive any change that could remove a record from recall.
     """
-    key = _live_key(path)
-    if key[1] is not None and _LIVE_CACHE.get("key") == key:
-        return _LIVE_CACHE["value"]
-    out = {}
-    for record in forget.live_records(path):
-        if not isinstance(record, dict):
-            continue
-        rid = record.get("id")
-        if not rid:
-            continue                          # a legacy record with no id cannot be tracked or re-found
-        text = index._record_text(record)
-        if text.strip():
-            out[rid] = (record, text)
-    if key[1] is not None:
-        _LIVE_CACHE.clear()
-        _LIVE_CACHE.update({"key": key, "value": out})
-    return out
+    return _live_snapshot(path)[0]
 
 
 def _digest(text: str) -> str:
@@ -272,12 +392,18 @@ def _quantize(vectors):
     return rows, scales
 
 
-def _reconcile(conn: sqlite3.Connection, live: dict) -> dict:
+def _reconcile(conn: sqlite3.Connection, live: dict, derived_under: "tuple | None" = None) -> dict:
     """Bring the open store in line with `live`: drop departed records, embed newly-arrived ones.
 
     The one place reconciliation happens, so the answer a question gets and the answer a maintenance run
     reports can never be computed from differently-reconciled stores. Deletions are applied and committed
-    before any embedding, so a record that left is gone even if embedding then fails.
+    before any embedding, so a record that left is gone even if embedding then fails — that ordering is a
+    stated guarantee and it stands.
+
+    `derived_under` is the `_live_key` the live set was derived under (`_live_snapshot`). It is written as the
+    store's RECEIPT in the same commit as the insertions, so a store either carries a receipt for a live set it
+    fully holds, or the previous receipt: an embedding failure leaves the receipt where it was. The receipt is
+    what lets a session that may not write answer from this store (`search_read_only`).
     """
     stored = {}
     for rid, digest in conn.execute("SELECT DISTINCT record_id, text_digest FROM passages"):
@@ -307,6 +433,10 @@ def _reconcile(conn: sqlite3.Connection, live: dict) -> dict:
                 "VALUES (?, ?, ?, ?, ?)",
                 [(owners[i], ordinals[i], rows[i].tobytes(), float(scales[i]), digests[i])
                  for i in range(len(texts))])
+    if derived_under is not None and derived_under[1] is not None:
+        conn.execute("UPDATE meta SET covered_generation = ?, covered_epoch = ?, covered_length = ?, "
+                     "projection_version = ? WHERE rowid = 1",
+                     (int(derived_under[3]), int(derived_under[4]), int(derived_under[1]), PROJECTION_VERSION))
     conn.commit()
     return {"embedded": len(fresh), "dropped": len(gone), "total": len(live)}
 
@@ -317,20 +447,26 @@ def sync(*, ledger_file: "str | None" = None, store_file: "str | None" = None) -
     Returns plain counts. Raises `embed.TableUnavailable` when the word table cannot be trusted — the
     caller turns that into a stated reason rather than an empty answer.
     """
-    live = _live_text(ledger_file)
+    live, derived_under = _live_snapshot(ledger_file)
     conn = _connect(store_path(store_file))
     try:
-        return _reconcile(conn, live)
+        return _reconcile(conn, live, derived_under)
     finally:
         conn.close()
 
 
-def _best_by_record(cursor, live: dict, question):
+def _best_by_record(cursor, live: dict, question, *, digests: "dict | None" = None, dropped: "set | None" = None):
     """(best, scanned): the closest passage of each live record, and how many passages were compared.
 
     Streams the cursor in blocks so peak memory is bounded by SCORE_BLOCK rather than by the store's size,
     and considers only rows still present in the live read — the second erasure guarantee, applied before a
     departed record's vector is ever scored.
+
+    With `digests` (record id -> the digest THIS code computes for the record's text) a row whose stored
+    `text_digest` (the cursor's fifth column) differs is skipped and its record id added to `dropped`: the
+    row was embedded from a different projection or a different wording, so its ordinal cannot be trusted to
+    name a sentence this code would quote. The read-only search uses this; a reconciled search does not need
+    it, because reconcile already re-embedded every row whose digest moved.
     """
     import numpy
 
@@ -341,7 +477,15 @@ def _best_by_record(cursor, live: dict, question):
         rows = cursor.fetchmany(SCORE_BLOCK)
         if not rows:
             break                       # only an exhausted cursor returns nothing
-        block = [row for row in rows if row[0] in live]
+        block = []
+        for row in rows:
+            if row[0] not in live:
+                continue
+            if digests is not None and row[4] != digests.get(row[0]):
+                if dropped is not None:
+                    dropped.add(row[0])
+                continue
+            block.append(row)
         if not block:
             continue                    # a block that was entirely departed records; more may follow
         matrix = numpy.frombuffer(b"".join(row[1] for row in block), dtype=numpy.int8)
@@ -390,14 +534,14 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     trustworthy answer to give — which is NOT the same as having searched and found nothing, and a caller
     must never report it as such.
     """
-    live = _live_text(ledger_file)
+    live, derived_under = _live_snapshot(ledger_file)
     try:
         conn = _connect(store_path(store_file))
     except Exception as exc:  # noqa: BLE001 — an unqualified session may not open-or-migrate the store
         return _unavailable(exc)
     try:
         try:
-            reconciled = _reconcile(conn, live)
+            reconciled = _reconcile(conn, live, derived_under)
         except Exception as exc:  # noqa: BLE001 — without the repair, this store's answer cannot be trusted
             # An unqualified session may not write embeddings: the passage store holds record text, so
             # rewriting it is a way to put invented content in front of recall without touching the ledger.
@@ -421,16 +565,18 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     finally:
         conn.close()
 
-    if not best:
-        # Every key the populated return carries must be present here too. A caller unpacks this dict
-        # positionally, and a deployed repo starts with an empty ledger — so the shape a fresh project sees
-        # FIRST is this one, and an omitted key is a crash on the first question ever asked.
-        return {"records": [], "scores": [], "passages": [], "searched": scanned,
-                "embedded": reconciled["embedded"], "unavailable": False}
+    # Every key the populated return carries must be present in the empty one too. A caller unpacks this dict
+    # positionally, and a deployed repo starts with an empty ledger — so the shape a fresh project sees FIRST
+    # is the empty one, and an omitted key is a crash on the first question ever asked. `_ranked` keeps them
+    # the same shape by construction.
+    return {**_ranked(best, live, limit), "searched": scanned, "embedded": reconciled["embedded"],
+            "unavailable": False}
 
-    ranked = sorted(best.items(), key=lambda pair: -pair[1][0])[:max(int(limit), 1)]
+
+def _ranked(best: dict, live: dict, limit) -> dict:
+    """The answer's records, scores and passages from the per-record bests, best first, above the floor."""
     records, scores_out, matched = [], [], []
-    for rid, (score, ordinal) in ranked:
+    for rid, (score, ordinal) in sorted(best.items(), key=lambda pair: -pair[1][0])[:max(int(limit), 1)]:
         if score < MIN_SIMILARITY:
             break                              # sorted best-first, so everything after this is further away
         # The passage that actually matched — recomputed from the same text, never stored twice. Without it
@@ -441,8 +587,107 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
         records.append(live[rid][0])
         scores_out.append(round(score, 4))
         matched.append(found[ordinal])
-    return {"records": records, "scores": scores_out, "passages": matched,
-            "searched": scanned, "embedded": reconciled["embedded"], "unavailable": False}
+    return {"records": records, "scores": scores_out, "passages": matched}
+
+
+def _score_in_memory(live: dict, ids, question) -> tuple:
+    """(best, scanned) for `ids`, embedded for this one question and never stored — the tail a read-only
+    answer covers itself. The same passages, the same unit vectors and the same cosine as the stored rows,
+    so a record found this way ranks against a stored one on equal terms."""
+    texts, owners, ordinals = [], [], []
+    for rid in ids:
+        for ordinal, passage in enumerate(passages(live[rid][1])):
+            texts.append(passage)
+            owners.append(rid)
+            ordinals.append(ordinal)
+    best: dict = {}
+    if not texts:
+        return best, 0
+    scores = embed.embed_many(texts) @ question
+    for i, score in enumerate(scores):
+        rid = owners[i]
+        if float(score) > best.get(rid, (-2.0, 0))[0]:
+            best[rid] = (float(score), ordinals[i])
+    return best, len(texts)
+
+
+def _read_only_unavailable(kind: str, fault_class: "str | None" = None) -> dict:
+    return {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
+            "unavailable": kind, "fault_class": fault_class, "complete": False, "tail": 0, "dropped": 0}
+
+
+def search_read_only(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" = None,
+                     store_file: "str | None" = None) -> dict:
+    """Meaning-based recall for a session that MAY NOT WRITE the store: a moved activation, no context
+    installed, a session not yet qualified. Registered as the read entry `read-semantic-store`.
+
+    TOTAL: every way this can fail is an answer, never an exception — the path that carries the program's
+    restoration claim must not reappear as a tool fault. It opens the store read-only (SQLite refuses every
+    write through that connection), runs no migration and no reconcile, and answers from three sources that
+    are each safe on their own terms:
+
+      * the RECEIPT-COVERED rows — trusted only when the store's schema, word table and projection are this
+        code's own and the receipt names the ledger's current generation and index epoch, and then only for
+        records whose line sits below the covered byte length, and only where the row's stored text digest
+        equals the digest this code computes (a row that fails that is DROPPED — never scored, never quoted —
+        and its record joins the tail below, so it is searched from its live text instead);
+      * the TAIL — every live record the receipt does not cover, embedded in memory for this one question,
+        up to READ_ONLY_TAIL_LIMIT; beyond it the tail is left unsearched and the answer says so;
+      * this code's own LIVE READ of the ledger, which every returned record and quoted passage comes from.
+
+    A file that is not a readable store (absent, never migrated, or corrupt) is simply a store with nothing
+    to trust: the live set is embedded here when it fits the bound, and otherwise declined - nothing is ever
+    quoted from such a file, and nothing is ever written to it.
+
+    `unavailable` is False for an answer, `newer-code` when the store was rebuilt by another schema, table
+    or projection (a restart clears it), `not-reconciled` when the rows cannot be trusted by position (no
+    store, no receipt, a receipt naming another generation or epoch) AND the live set is too large to embed
+    here, and `store-fault` for anything else, with the exception's class name and never its text. `complete`
+    is True when nothing was left unsearched; `tail` and `dropped` are the counts.
+    """
+    try:
+        live, key = _live_snapshot(ledger_file)
+        question = embed.embed(query)
+        path = store_path(store_file)
+        best: dict = {}
+        scanned = 0
+        dropped: set = set()
+        covered_ids: set = set()
+        trusted = False
+        if os.path.exists(path):
+            conn = _open_read_only(path)
+            try:
+                stamped = _stored_fingerprint(conn)
+                if stamped is not None:
+                    if (tuple(stamped[:2]) != (SCHEMA_VERSION, _table_fingerprint())
+                            or (stamped[2] is not None and stamped[2] != PROJECTION_VERSION)):
+                        return _read_only_unavailable("newer-code")
+                    receipt = _stored_receipt(conn)
+                    if (receipt is not None and stamped[2] == PROJECTION_VERSION
+                            and key[1] is not None and receipt[0] == key[3] and receipt[1] == key[4]):
+                        covered = {rid: v for rid, v in live.items() if v[2] < receipt[2]}
+                        expected = {rid: _digest(v[1]) for rid, v in covered.items()}
+                        best, scanned = _best_by_record(
+                            conn.execute("SELECT record_id, vec, scale, ordinal, text_digest FROM passages"),
+                            covered, question, digests=expected, dropped=dropped)
+                        covered_ids = set(covered) - dropped
+                        trusted = True
+            finally:
+                conn.close()
+        tail = [rid for rid in live if rid not in covered_ids]
+        complete = True
+        if len(tail) > READ_ONLY_TAIL_LIMIT:
+            if not trusted:
+                return _read_only_unavailable("not-reconciled")
+            complete, tail = False, []       # answer from the covered rows and say the rest was not searched
+        if tail:
+            fresh_best, fresh_scanned = _score_in_memory(live, tail, question)
+            best.update(fresh_best)
+            scanned += fresh_scanned
+        return {**_ranked(best, live, limit), "searched": scanned, "embedded": 0, "unavailable": False,
+                "fault_class": None, "complete": complete, "tail": len(tail), "dropped": len(dropped)}
+    except Exception as exc:  # noqa: BLE001 — total by contract: a fault is an answer, never a tool crash
+        return _read_only_unavailable("store-fault", type(exc).__name__)
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------

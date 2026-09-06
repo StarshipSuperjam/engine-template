@@ -682,10 +682,10 @@ class ReadSeamWiringTests(_ServerBase):
         escalate = "If this keeps happening after a restart, run /engine-status and open an engine issue."
         self.assertEqual(srv._RESTART_ACTION, restart)
         self.assertEqual(srv._ESCALATION, escalate)
-        self.assertEqual(srv._NOTE_MOVED,
+        self.assertEqual(srv._NOTE_MOVED,          # C3: neutral about meaning recall - it rides on every tool
                          "This project moved to a new commit while this memory server was running. Recall reflects "
-                         "what is saved on disk; the keyword index was not refreshed and meaning-based recall is "
-                         "unavailable. " + restart + " " + escalate)
+                         "what is saved on disk; the keyword index was not refreshed, and each answer says how "
+                         "completely it was searched. " + restart + " " + escalate)
         self.assertEqual(srv._NOTE_UNBOUND_STORE,
                          "The memory store under this session is not the one it was bound to, so nothing was read "
                          "from it. Quit Claude Desktop completely and reopen it so the memory server restarts "
@@ -710,6 +710,21 @@ class ReadSeamWiringTests(_ServerBase):
         self.assertEqual(srv._NOTE_MEANING_BACKEND,
                          "Meaning-based recall's backend is unavailable on this machine; keyword search still "
                          "covers everything saved. If this persists, run /engine-status and open an engine issue.")
+        self.assertEqual(srv._NOTE_MEANING_NOT_CAUGHT_UP,
+                         "Meaning-based recall answered from the part of its index that is current; the most "
+                         "recently saved conversation was not searched by meaning because this session cannot "
+                         "update the index. Keyword search still covers everything saved. " + restart + " " + escalate)
+        self.assertEqual(srv._NOTE_MEANING_NOT_RECONCILED,
+                         "Meaning-based recall's index has not caught up with what was saved and this session "
+                         "cannot update it; keyword search still covers everything saved. " + restart + " " + escalate)
+        self.assertEqual(srv._NOTE_MEANING_NEWER_CODE,
+                         "Meaning-based recall's index was rebuilt by a newer version of the engine than this "
+                         "memory server is running, so this session cannot read it; keyword search still covers "
+                         "everything saved. " + restart + " " + escalate)
+        # The moved note contradicts none of the meaning-recall answers it accompanies: it claims nothing
+        # about meaning recall at all.
+        for word in ("meaning", "unavailable"):
+            self.assertNotIn(word, srv._NOTE_MOVED)
         self.assertFalse(hasattr(srv, "_NOTE_INCOMPLETE"), "no generic incomplete sentence: none is reachable")
 
     async def test_an_unbound_binding_returns_no_content_from_any_read_tool(self):
@@ -1562,11 +1577,16 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(outcome["completeness"], "incomplete")   # the ledger scan answered
                         self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
                     if name == "recall-by-meaning":
-                        self.assertEqual(outcome["completeness"], "incomplete")
-                        self.assertIn("unavailable", out)
-                        self.assertIn("project moved to a new commit", out["unavailable"])
-                        self.assertNotIn("quit your client", out["unavailable"])   # the note carries recovery, once
-                        self.assertEqual(out["results"], [])
+                        # C3: the read-only door. The store is answered `mode=ro` with no migrate and no
+                        # reconcile (the derived-digest check below proves nothing was written), the seeded
+                        # conversation comes back, and the answer is complete: this fixture's receipt is
+                        # behind (the withhold bumped the epoch), so the whole small live set is embedded in
+                        # memory for the question - the not-reconciled case answered rather than refused.
+                        self.assertEqual(outcome["completeness"], "complete")
+                        self.assertNotIn("unavailable", out)
+                        probe = recall_acceptance_probe(
+                            {"tools": {"recall-by-meaning": {"is_error": False, "payload": out}}}, self.nonce)
+                        self.assertEqual((probe["passed"], probe["reason"]), (True, "recalled"), probe)
                     if name == "recall-window":
                         self.assertTrue(any(self.nonce in str(turn) for turn in out["turns"]))
                 elif expected == "healthy":
@@ -1675,19 +1695,91 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                          "Meaning-based recall could not open its store; keyword search still covers everything "
                          "saved. If this persists, run /engine-status and open an engine issue.")
 
-    async def test_meaning_recall_that_is_not_qualified_keeps_its_own_sentence_as_the_relay(self):
+    async def test_a_refused_store_open_answers_through_the_read_only_door(self):
+        """C3: the refusal itself is the trigger. The writer's door reporting not-qualified sends the read
+        through `search_read_only`, which answers from the store `mode=ro` and this code's own live read."""
         if "recall-by-meaning" not in self.TOOLS:
             self.skipTest("the optional semantic module is not installed here")
         from memory.semantic import store as _semantic_store
         self._uncached()
+        before = self._derived_digests()
         with mock.patch.object(_semantic_store, "search",
                                return_value={"records": [], "scores": [], "passages": [], "searched": 0,
                                              "embedded": 0, "unavailable": "not-qualified"}):
             out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
-        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
-        self.assertIn("isn't qualified to build the meaning index", out["unavailable"])
-        self.assertIn("If it does not, run /engine-status and open an engine issue.", out["unavailable"])
-        self.assertIsNone(out["outcome"]["note"])          # its own sentence carries the action; never two
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "complete"))
+        self.assertNotIn("unavailable", out)
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertNotIn(self.withheld_nonce, json.dumps(out))
+        self.assertIsNone(out["outcome"]["note"])
+        self.assertEqual(self._derived_digests(), before, "the read-only door wrote a derived store")
+
+    async def test_the_read_only_doors_disclosed_cases_carry_their_own_sentences(self):
+        """Each way the read-only answer falls short is its own pinned sentence, beside the moved-neutral note."""
+        if "recall-by-meaning" not in self.TOOLS:
+            self.skipTest("the optional semantic module is not installed here")
+        from memory.semantic import store as _semantic_store
+        refused = {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
+                   "unavailable": "not-qualified"}
+        cases = {
+            "newer-code": (_semantic_store._read_only_unavailable("newer-code"),
+                           "rebuilt by a newer version", srv._NOTE_MEANING_NEWER_CODE, []),
+            "not-reconciled": (_semantic_store._read_only_unavailable("not-reconciled"),
+                               "hasn't caught up", srv._NOTE_MEANING_NOT_RECONCILED, []),
+            "beyond-the-bound": ({"records": [{"id": "r1", "text": f"a covered hit {self.nonce}"}], "scores": [0.5],
+                                  "passages": [f"a covered hit {self.nonce}"], "searched": 1, "embedded": 0,
+                                  "unavailable": False, "fault_class": None, "complete": False, "tail": 0, "dropped": 0},
+                                 "was not searched by meaning", srv._NOTE_MEANING_NOT_CAUGHT_UP, [self.nonce]),
+        }
+        for case, (answer, fact, note, expected_hits) in cases.items():
+            with self.subTest(case=case):
+                self._fresh(); self._uncached()
+                with mock.patch.object(_semantic_store, "search", return_value=refused), \
+                        mock.patch.object(_semantic_store, "search_read_only", return_value=answer):
+                    out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+                self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
+                self.assertIn(fact, out["unavailable"])
+                self.assertIn("keyword search", out["unavailable"].lower())
+                self.assertEqual(out["outcome"]["note"], note)
+                self.assertEqual([hit for hit in out["results"] if any(n in hit["text"] for n in expected_hits)]
+                                 if expected_hits else out["results"], out["results"] if expected_hits else [])
+        # And under a MOVED binding the moved note takes precedence over each of them - by precedence, not by
+        # contradiction, since the moved note says nothing about meaning recall.
+        moved = execution_context.ReadBinding("moved", "ActivationStale", True, self.fixture.memory, None)
+        for case, (answer, fact, _note, _hits) in cases.items():
+            with self.subTest(case=case, binding="moved"):
+                self._fresh(); self._uncached()
+                with mock.patch.object(execution_context, "read_binding", return_value=moved), \
+                        mock.patch.object(_semantic_store, "search", return_value=refused), \
+                        mock.patch.object(_semantic_store, "search_read_only", return_value=answer):
+                    out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+                self.assertEqual(out["outcome"]["binding"], "moved")
+                self.assertEqual(out["outcome"]["note"], srv._NOTE_MOVED)
+                self.assertIn(fact, out["unavailable"])
+
+    async def test_the_read_only_door_never_surfaces_a_tool_fault(self):
+        """The path carrying the restoration claim is total: a corrupt store file is answered from memory
+        and never written, and a genuine fault inside the path is a disclosed answer, never a tool error."""
+        if "recall-by-meaning" not in self.TOOLS:
+            self.skipTest("the optional semantic module is not installed here")
+        from memory.semantic import store as _semantic_store
+        refused = {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
+                   "unavailable": "not-qualified"}
+        self._uncached()
+        Path(self.store_file).write_bytes(b"this is not a sqlite database at all\n")
+        with mock.patch.object(_semantic_store, "search", return_value=refused):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual(out["outcome"]["completeness"], "complete")
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertEqual(Path(self.store_file).read_bytes(), b"this is not a sqlite database at all\n")
+        self._fresh(); self._uncached()
+        with mock.patch.object(_semantic_store, "search", return_value=refused), \
+                mock.patch.object(_semantic_store, "_live_snapshot", side_effect=RuntimeError("boom")):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual(out["outcome"]["completeness"], "incomplete")
+        self.assertIn("not working right now", out["unavailable"])
+        self.assertEqual(out["outcome"]["note"], srv._NOTE_MEANING_STORE_FAULT)
+        self.assertFalse([e for e in self.events if e[0] is _stranding_log.Event.TOOL_FAULT], self.events)
 
     async def test_an_unavailable_embedding_backend_under_a_healthy_binding_carries_the_backend_sentence(self):
         """The fourth exit of the meaning read: numpy or the word table missing. The tool's own text is the
