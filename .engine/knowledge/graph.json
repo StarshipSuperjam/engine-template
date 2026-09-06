@@ -21180,7 +21180,7 @@
       },
       "slug": "test_wiring",
       "source": {
-        "fingerprint": "sha256:fca7929ba8b6f7b10fc3208aa75c56de9a6659f62d313bae7190b843cb344667",
+        "fingerprint": "sha256:4b9b2154669aa26ae3f7b86ded2de634e2620bdcb731ca3d374b029ee081d237",
         "path": ".engine/tools/test_wiring.py"
       },
       "status": "active",
