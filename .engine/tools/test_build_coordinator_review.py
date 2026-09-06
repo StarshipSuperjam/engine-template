@@ -90,6 +90,18 @@ class TestReviewerContractFreshness(unittest.TestCase):
         self.assertNotIn("private security note S-1", line)
         self.assertNotIn("Private details", line)
 
+    def test_disagreement_line_breaks_a_quoted_closing_keyword(self):
+        # PR #1229: a reviewer's summary may quote a past accident ("auto-closed #1210"); published verbatim
+        # it would close that issue on merge. Broken at this single source, so the body and the preflight
+        # that asserts the line present agree on one text.
+        import close_linkage_preflight
+        finding = {"id": "QA-9", "severity": "blocking", "blocks_this_pr": False,
+                   "operator_summary": "C1's wording auto-closed #1210 on merge; Fixes #1167 was meant."}
+        line = review.disagreement_line(finding)
+        self.assertEqual(line, "- Reviewer disagreement `QA-9`: C1's wording auto-closed issue #1210 on merge; "
+                               "Fixes issue #1167 was meant.")
+        self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(line))
+
     def test_disagreement_line_without_operator_summary_is_still_safe(self):
         # A missing operator_summary must never fall back to private text; the line renders a legible
         # placeholder, not the private note and not a dangling colon. (cmd_finding_record requires

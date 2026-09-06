@@ -30,6 +30,8 @@ KR_PATH = os.path.join(INTERFACES_DIR, "knowledge-retrieval.json")
 KR = validate.load_json(KR_PATH)
 SEARCH_PATH = os.path.join(INTERFACES_DIR, "search.json")
 SEARCH = validate.load_json(SEARCH_PATH)
+MC_PATH = os.path.join(INTERFACES_DIR, "memory-control.json")
+MC = validate.load_json(MC_PATH)
 RULE_PATH = os.path.join(validate.CHECK_DIR, "interface-declaration.json")
 D116_OPS = {"health", "get-entity", "find", "neighbors", "relate"}
 STATUS_ENUM = INTERFACE_SCHEMA["properties"]["status"]["enum"]
@@ -131,7 +133,7 @@ class TestDeclaration(unittest.TestCase):
         self.assertEqual(op["input_schema"]["required"], ["query"])
         self.assertEqual(set(op["input_schema"]["properties"]),
                          {"query", "tags", "session", "limit"})
-        self.assertEqual(op["output_schema"]["required"], ["results"])
+        self.assertEqual(op["output_schema"]["required"], ["results", "outcome"])
 
     def test_each_live_helper_health_signature_is_fixed_and_content_free(self):
         for declaration, server in ((SEARCH, "engine-memory"),
@@ -150,7 +152,33 @@ class TestDeclaration(unittest.TestCase):
         self.assertEqual(op["input_schema"]["required"], ["session_id"])
         self.assertEqual(set(op["input_schema"]["properties"]),
                          {"session_id", "anchor_seq", "radius", "max_turns"})
-        self.assertEqual(op["output_schema"]["required"], ["session_id", "turns"])
+        self.assertEqual(op["output_schema"]["required"], ["session_id", "turns", "outcome"])
+
+    def test_every_read_operation_declares_the_one_outcome_object(self):
+        """C2 (pln_b5eb869e55b4): every READ operation on the memory surface carries exactly one declared
+        `outcome` object - binding, completeness, reason (a closed vocabulary), restart_clears, note - and
+        rejects any other field beside it, so an undeclared or mis-shaped disclosure cannot pass the schema
+        test on either file. Health is deliberately not a read here: it touches no store and is pinned
+        content-free above."""
+        expected = {"binding", "completeness", "reason", "restart_clears", "note"}
+        for declaration, names in ((SEARCH, {"search", "recall-window", "recall-by-meaning"}),
+                                   (MC, {"list-pins", "list-withheld"})):
+            for op in declaration["operations"]:
+                if op["name"] not in names:
+                    continue
+                with self.subTest(operation=op["name"]):
+                    out = op["output_schema"]
+                    self.assertIs(out["additionalProperties"], False)
+                    self.assertIn("outcome", out["required"])
+                    outcome = out["properties"]["outcome"]
+                    self.assertIs(outcome["additionalProperties"], False)
+                    self.assertEqual(set(outcome["required"]), expected)
+                    self.assertEqual(set(outcome["properties"]), expected)
+                    self.assertEqual(outcome["properties"]["binding"]["enum"],
+                                     ["healthy", "moved", "unbound", "absent"])
+                    self.assertEqual(outcome["properties"]["completeness"]["enum"],
+                                     ["complete", "incomplete", "none"])
+                    self.assertIn(None, outcome["properties"]["reason"]["enum"])
 
     def test_search_fallback_is_engine_memory(self):
         """11b: the frozen cross-slice handle the memory-substrate slice must register its server under."""

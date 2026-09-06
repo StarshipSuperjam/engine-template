@@ -3215,7 +3215,17 @@ def _plain(text: str) -> str:
     character. Control and formatting characters go too — including the bidirectional overrides and
     zero-width joiners this project already scrubs from its boot pack — because text that reorders itself
     on screen is not text the operator can be said to have read. Nothing is deleted silently: `<` becomes a
-    visible marker, so the operator still reads what was written."""
+    visible marker, so the operator still reads what was written.
+
+    The third thing: free text may QUOTE a closing keyword beside an issue reference (an operator's recorded
+    guidance, a recorded plan-change authorisation, a plan assumption), and GitHub would honour the pair on
+    merge; `_break_closing_keywords` inserts the word "issue" between them. Paths go through `_scrub`
+    alone (see `_fenced`): a code span is not parsed for references and a path is not prose."""
+    return _break_closing_keywords(_scrub(text))
+
+
+def _scrub(text: str) -> str:
+    """`_plain` without the closing-keyword break: the character-level scrub only."""
     scrubbed = "".join(" " if unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} else ch for ch in text)
     return scrubbed.replace("`", "'").replace("<", "‹")
 
@@ -3224,7 +3234,7 @@ def _fenced(path: str) -> str:
     """A repository path inside a Markdown code span. Backticks are legal in POSIX filenames, and so are
     newlines and tabs; any of them would close the span early and spill the rest of the path into the
     operator's merge surface as markup."""
-    return "`" + _plain(path) + "`"
+    return "`" + _scrub(path) + "`"
 
 
 def _repair_round_lines(state: dict) -> list[str]:
@@ -4698,6 +4708,34 @@ def _sealed_plan_review(state: dict) -> dict | None:
     return (record or {}).get("plan_review")
 
 
+def _break_closing_keywords(text: str) -> str:
+    """Keep quoted closing keywords in rendered prose from arming a close (see the close-linkage tool).
+
+    Where prose this session did not author reaches the composed body, it passes through this: every free
+    text bound for the merge surface via `_plain` (an operator's recorded round guidance, a recorded
+    plan-change authorisation, a plan assumption and its resolution basis), the renderers of sealed-plan
+    prose (a carried obligation's statement and reason, a plan-review finding, a plan-review disagreement),
+    the spec-derived acceptance steps, and - at its own single source in the review module - the reviewer
+    disagreement line. The claim's own prose is NOT passed through it: that is the author's, and the
+    close-linkage preflight adjudicates it separately. Paths in code spans are not prose and are not passed
+    through it. Never apply this where a deliberate close line is meant to work."""
+    tools = str(ROOT / ".engine" / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import close_linkage_preflight
+    return close_linkage_preflight.break_closing_keywords(text)
+
+
+def _assumption_resolution_lines(state: dict, plan: dict) -> list[str]:
+    """Post-approval assumption resolutions for the merge surface: plan-authored claims, so their prose
+    goes through `_plain`, which carries the closing-keyword break like every free text rendered here."""
+    authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
+    return [
+        f"{_plain(d['claim'])} -> {d['resolved_as']} (self-attested, not re-reviewed) — "
+        f"basis: {_plain(d['basis'])}"
+        for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
+
+
 def _plan_obligation_lines(state: dict) -> list[str]:
     """What this plan owed a predecessor, and what it did about each — for the merge surface.
 
@@ -4722,10 +4760,10 @@ def _plan_obligation_lines(state: dict) -> list[str]:
         return []
     lines = []
     for obligation in ((document.get("program") or {}).get("carried_obligations") or []):
-        reason = (obligation.get("reason") or "").strip()
+        reason = _break_closing_keywords((obligation.get("reason") or "").strip())
         tail = f" {reason}" if reason else ""
         lines.append(f"- **{obligation['id']}** — _{obligation['state']}_. "
-                     f"{obligation['statement']}{tail}")
+                     f"{_break_closing_keywords(obligation['statement'])}{tail}")
     return lines
 
 
@@ -4919,7 +4957,7 @@ def _plan_finding_lines(state: dict) -> list[str]:
         lines.append("- **Plan findings you must still weigh.**")
         for finding in full:
             disposition = finding.get("disposition") or "undispositioned"
-            summary = finding.get("operator_summary") or finding["summary"]
+            summary = _break_closing_keywords(finding.get("operator_summary") or finding["summary"])
             blocks = " — **blocks this PR**" if finding.get("blocks_this_pr") else ""
             lines.append(f"  - **`{finding['id']}`** ({finding['lens']}, {finding['severity']}, "
                          f"{disposition}){blocks}. {summary}")
@@ -4938,7 +4976,8 @@ def _plan_disagreement_lines(state: dict) -> list[str]:
     lines = []
     for finding in (plan_review or {}).get("findings", []):
         if finding["severity"] == "blocking" and not finding.get("blocks_this_pr"):
-            summary = finding.get("operator_summary") or "[no operator-safe summary recorded]"
+            summary = _break_closing_keywords(finding.get("operator_summary")
+                                              or "[no operator-safe summary recorded]")
             lines.append(f"- Plan-review disagreement `{finding['id']}`: {summary}")
     return lines
 
@@ -5062,10 +5101,10 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # no-spec disclosure — never re-authored here.
     cs = spec_service.canonical_spec(ROOT, plan, repository=repo, issue_body=_issue_body)
     if cs["posture"] == "none":
-        spec_steps = cs["review_steps"]
+        spec_steps = _break_closing_keywords(cs["review_steps"])
     else:
         import spec_referent
-        spec_steps = spec_referent.render_review_steps_multi(cs["review_steps"])
+        spec_steps = _break_closing_keywords(spec_referent.render_review_steps_multi(cs["review_steps"]))
 
     depth = state["approval"]["depth"] if state.get("approval") else "unapproved"
     # Coverage must state what ACTUALLY ran, not what is installed. At quick depth (and any depth that
@@ -5138,11 +5177,7 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # not just `status` (StarshipSuperjam/engine-template#1014). Only an assumption authored 'unresolved' can
     # carry a disposition, so its presence is the "after approval" signal; both verified and accepted-risk are
     # disclosed so a self-attested post-hoc resolution can never vanish before the operator sees it.
-    authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
-    assumption_resolutions = [
-        f"{_plain(d['claim'])} -> {d['resolved_as']} (self-attested, not re-reviewed) — "
-        f"basis: {_plain(d['basis'])}"
-        for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
+    assumption_resolutions = _assumption_resolution_lines(state, plan)
 
     # The two cost-cadence escalations, published because an escalation the operator cannot see at merge is
     # an escalation to nobody -- the whole argument for these being real rather than a self-tick. Only rounds

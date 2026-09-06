@@ -1440,6 +1440,59 @@ class TestReviewAndFindings(CoordinatorCase):
         self.assertIn("_released_", lines[1])
         self.assertIn("The corpus is stale", lines[1])
 
+    def test_a_closing_keyword_quoted_in_sealed_plan_prose_cannot_arm_a_close(self):
+        """PR #1229: a carried obligation restated C1's accident as "C1's wording auto-closed #1210 on merge",
+        and GitHub read the quotation as a close of #1210. Every renderer of plan-library prose breaks the
+        keyword from the reference with the one word "issue"; the close-linkage preflight's own pattern
+        must then find nothing in the rendered line, so what is broken and what is flagged cannot drift."""
+        import close_linkage_preflight
+        document = {"program": {"program_id": "prg_aaaaaaaaaaaa", "carried_obligations": [
+            {"id": "OB-WRITE-AUTHORITY", "state": "carried",
+             "statement": "The write-authority issues #1210 and #1167 are C4's to resolve (C1 fixed #1210 "
+                          "by accident).",
+             "reason": "Restated without a closing keyword: C1's wording auto-closed #1210 on merge. "
+                       "Fixes #1167; resolves owner/repo#5, #6."}]}}
+        with self._with_plan_document(document):
+            lines = bc._plan_obligation_lines(self.state())
+        self.assertIn("C1 fixed issue #1210 by accident", lines[0])           # the statement's own guard
+        self.assertIn("auto-closed issue #1210 on merge", lines[0])
+        self.assertIn("Fixes issue #1167", lines[0])
+        self.assertIn("resolves issue owner/repo#5, #6", lines[0])
+        self.assertIn("issues #1210 and #1167 are C4's", lines[0])        # a bare reference is untouched
+        self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(lines[0]), lines[0])
+        review = {"findings": [
+            {"id": "PF-1", "lens": "product-intent", "severity": "serious", "disposition": "escalated",
+             "blocks_this_pr": True, "summary": "x", "operator_summary": "The remedy closes #77 by hand."},
+            {"id": "PF-2", "lens": "risk-governance", "severity": "blocking", "disposition": "rejected",
+             "blocks_this_pr": False, "summary": "y", "operator_summary": "Fixed #78 elsewhere."}]}
+        with self._with_plan_review(review):
+            finding_lines = bc._plan_finding_lines(self.state())
+            disagreement = bc._plan_disagreement_lines(self.state())
+        self.assertTrue(any("closes issue #77" in line for line in finding_lines), finding_lines)
+        self.assertTrue(any("Fixed issue #78" in line for line in disagreement), disagreement)
+        for line in finding_lines + disagreement:
+            self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(line), line)
+        # The fourth place plan-authored prose reaches the body: a post-approval assumption resolution.
+        plan = {"assumptions": [{"claim": "Closes #91 is the wording we keep.", "status": "unresolved"}]}
+        state = dict(self.state())
+        state["assumption_dispositions"] = [{"claim": "Closes #91 is the wording we keep.",
+                                             "resolved_as": "verified", "basis": "It resolved #92 in review."}]
+        rendered = bc._assumption_resolution_lines(state, plan)
+        self.assertEqual(rendered, ["Closes issue #91 is the wording we keep. -> verified (self-attested, not "
+                                    "re-reviewed) — basis: It resolved issue #92 in review."])
+        # Every free text bound for the merge surface goes through _plain, which carries the break: the
+        # operator's recorded round guidance and a recorded plan-change authorisation are quoted there.
+        self.assertEqual(bc._plain("Go ahead; this fixes #1210 for good."), "Go ahead; this fixes issue #1210 for good.")
+        guided = dict(self.state())
+        guided["repair_rounds"] = [{"guidance": "Round three: it closes #1210 as a side effect."}]
+        self.assertEqual(bc._round_guidance_lines(guided),
+                         ["repair round 1 of 1 proceeded past the escalation point on recorded operator "
+                          "guidance: Round three: it closes issue #1210 as a side effect."])
+        # A path in a code span is not prose: the character scrub applies, the break does not.
+        self.assertEqual(bc._fenced("docs/closes #3.md"), "`docs/closes #3.md`")
+        for line in [bc._plain("Resolves owner/repo#5, #6 when merged.")] + bc._round_guidance_lines(guided):
+            self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(line), line)
+
     def test_a_standalone_plan_carries_no_obligations(self):
         # A plan belongs to no program unless someone deliberately put it in one, so the ordinary case
         # is an empty list — never an invented heading over nothing.

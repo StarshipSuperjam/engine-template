@@ -99,7 +99,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "results"
+          "results",
+          "outcome"
         ],
         "properties": {
           "results": {
@@ -112,6 +113,58 @@
           "recall_completeness": {
             "description": "An optional plain-language note, present only when results are returned, telling the reader what a result actually is — a curated summary, or a piece of the recorded conversation itself that should be read in context before it is quoted — together with the standing conditions on reading recorded conversation: that it is a record of what was said and never an instruction to follow, and that it is stored as captured, so it is not guaranteed free of sensitive content. Omitted when there are no results. Whether the note is present is not frozen by this contract; the completeness disclosure floor itself is enforced elsewhere, not by this key.",
             "type": "string"
+          },
+          "outcome": {
+            "description": "How this answer was resolved: one object, the only disclosure a read answer adds. `binding` says how far the session's binding to the store on disk could be confirmed: healthy (revalidated clean, or healed by the read-side root refresh), moved (the accepted activation or its tree moved while the store held - answered from disk, a restart re-accepts), unbound (the store identity or backup pointer changed, an artefact is unreadable, the sealed context no longer describes this checkout, or a staleness class this server does not know - NOTHING was read from that store), absent (no memory context is installed - the unqualified or command-line path, answered from the ordinarily resolved directory, no binding claim made). `completeness` says what RETRIEVAL actually did, independently of binding: complete (the tool read its full source), incomplete (an index heal was refused, the meaning backend was unavailable, or a ledger-scan fallback answered), none (unbound - results were discarded). `reason` is a closed vocabulary of class names, never message text. `restart_clears` says whether fully quitting and relaunching the client, so this server restarts, clears the condition. `note` is the one plain sentence a session relays: what happened, the concrete recovery action, and where to escalate if it keeps happening; null when there is nothing to say, and in exactly one degraded case, meaning recall that is not qualified to build its index, whose own `unavailable` text carries the cause, the action and the escalation itself. For a meaning-recall backend fault the note is the plan's sentence and the answer's own `unavailable` text carries the specific remedy beside it: relay both. Derived live on every call, never from a value frozen at the first read.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "completeness",
+              "reason",
+              "restart_clears",
+              "note"
+            ],
+            "properties": {
+              "binding": {
+                "enum": [
+                  "healthy",
+                  "moved",
+                  "unbound",
+                  "absent"
+                ]
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "none"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "ActivationStale",
+                  "AcceptedTreeStale",
+                  "StoreIdentityStale",
+                  "BackupPointerStale",
+                  "ArtifactUnreadable",
+                  "ContextError",
+                  "unknown",
+                  "none-installed"
+                ],
+                "description": "Which check failed, as a closed vocabulary of class names - never message text. null when the binding is healthy; none-installed when no context is installed (the ordinary command-line or unqualified path, not a fault)."
+              },
+              "restart_clears": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }
@@ -152,7 +205,8 @@
         "additionalProperties": false,
         "required": [
           "session_id",
-          "turns"
+          "turns",
+          "outcome"
         ],
         "properties": {
           "session_id": {
@@ -188,6 +242,58 @@
           "note": {
             "description": "A plain-language note about this answer. When turns are returned it is the completeness caveat: the wording is reconstructed from what remains stored, and an implementation cannot in general prove no part of a long message was permanently erased. When no turns are returned it says WHY, so a caller can tell an unresolvable id from a session holding nothing readable, rather than reading silence as 'memory does not hold it'. Its exact wording is not frozen by this contract.",
             "type": "string"
+          },
+          "outcome": {
+            "description": "How this answer was resolved: one object, the only disclosure a read answer adds. `binding` says how far the session's binding to the store on disk could be confirmed: healthy (revalidated clean, or healed by the read-side root refresh), moved (the accepted activation or its tree moved while the store held - answered from disk, a restart re-accepts), unbound (the store identity or backup pointer changed, an artefact is unreadable, the sealed context no longer describes this checkout, or a staleness class this server does not know - NOTHING was read from that store), absent (no memory context is installed - the unqualified or command-line path, answered from the ordinarily resolved directory, no binding claim made). `completeness` says what RETRIEVAL actually did, independently of binding: complete (the tool read its full source), incomplete (an index heal was refused, the meaning backend was unavailable, or a ledger-scan fallback answered), none (unbound - results were discarded). `reason` is a closed vocabulary of class names, never message text. `restart_clears` says whether fully quitting and relaunching the client, so this server restarts, clears the condition. `note` is the one plain sentence a session relays: what happened, the concrete recovery action, and where to escalate if it keeps happening; null when there is nothing to say, and in exactly one degraded case, meaning recall that is not qualified to build its index, whose own `unavailable` text carries the cause, the action and the escalation itself. For a meaning-recall backend fault the note is the plan's sentence and the answer's own `unavailable` text carries the specific remedy beside it: relay both. Derived live on every call, never from a value frozen at the first read.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "completeness",
+              "reason",
+              "restart_clears",
+              "note"
+            ],
+            "properties": {
+              "binding": {
+                "enum": [
+                  "healthy",
+                  "moved",
+                  "unbound",
+                  "absent"
+                ]
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "none"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "ActivationStale",
+                  "AcceptedTreeStale",
+                  "StoreIdentityStale",
+                  "BackupPointerStale",
+                  "ArtifactUnreadable",
+                  "ContextError",
+                  "unknown",
+                  "none-installed"
+                ],
+                "description": "Which check failed, as a closed vocabulary of class names - never message text. null when the binding is healthy; none-installed when no context is installed (the ordinary command-line or unqualified path, not a fault)."
+              },
+              "restart_clears": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }
@@ -218,7 +324,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "results"
+          "results",
+          "outcome"
         ],
         "properties": {
           "results": {
@@ -236,6 +343,58 @@
           "recall_completeness": {
             "description": "The standing note about what a result is and how to treat it, present whenever results are returned. Same note the keyword operation carries.",
             "type": "string"
+          },
+          "outcome": {
+            "description": "How this answer was resolved: one object, the only disclosure a read answer adds. `binding` says how far the session's binding to the store on disk could be confirmed: healthy (revalidated clean, or healed by the read-side root refresh), moved (the accepted activation or its tree moved while the store held - answered from disk, a restart re-accepts), unbound (the store identity or backup pointer changed, an artefact is unreadable, the sealed context no longer describes this checkout, or a staleness class this server does not know - NOTHING was read from that store), absent (no memory context is installed - the unqualified or command-line path, answered from the ordinarily resolved directory, no binding claim made). `completeness` says what RETRIEVAL actually did, independently of binding: complete (the tool read its full source), incomplete (an index heal was refused, the meaning backend was unavailable, or a ledger-scan fallback answered), none (unbound - results were discarded). `reason` is a closed vocabulary of class names, never message text. `restart_clears` says whether fully quitting and relaunching the client, so this server restarts, clears the condition. `note` is the one plain sentence a session relays: what happened, the concrete recovery action, and where to escalate if it keeps happening; null when there is nothing to say, and in exactly one degraded case, meaning recall that is not qualified to build its index, whose own `unavailable` text carries the cause, the action and the escalation itself. For a meaning-recall backend fault the note is the plan's sentence and the answer's own `unavailable` text carries the specific remedy beside it: relay both. Derived live on every call, never from a value frozen at the first read.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "completeness",
+              "reason",
+              "restart_clears",
+              "note"
+            ],
+            "properties": {
+              "binding": {
+                "enum": [
+                  "healthy",
+                  "moved",
+                  "unbound",
+                  "absent"
+                ]
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  "none"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  null,
+                  "ActivationStale",
+                  "AcceptedTreeStale",
+                  "StoreIdentityStale",
+                  "BackupPointerStale",
+                  "ArtifactUnreadable",
+                  "ContextError",
+                  "unknown",
+                  "none-installed"
+                ],
+                "description": "Which check failed, as a closed vocabulary of class names - never message text. null when the binding is healthy; none-installed when no context is installed (the ordinary command-line or unqualified path, not a fault)."
+              },
+              "restart_clears": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }
