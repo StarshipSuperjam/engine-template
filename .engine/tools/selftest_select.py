@@ -8,7 +8,7 @@ have their verdict changed by it? The answer is consumed by `selftest.py --chang
 evidence. For any change that touches the Engine, CI still runs the complete inventory against the exact
 submitted head, and that run alone gates the merge. For a DEPLOYED copy's change set that lies outside
 everything the Engine owns (category 4 below), CI takes its project-only arm instead and the inventory runs
-nowhere — a disclosed, acknowledged narrowing (StarshipSuperjam/engine-template#883, #758), bounded by the
+nowhere — a disclosed, acknowledged narrowing (StarshipSuperjam/engine-template#883 and StarshipSuperjam/engine-template#758), bounded by the
 validator suite that runs in full on every arm and by the final import re-deriving the same verdict.
 
 THE PARTITION IS TOTAL, AND HAS EXACTLY FOUR CATEGORIES. It had two until the guard below forced a third,
