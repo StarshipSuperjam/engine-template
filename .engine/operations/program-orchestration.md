@@ -13,8 +13,7 @@ plan; the program records only how those plans relate and in what order they lan
 This runbook is the judgment half. The tool owns the sequence — it shows the next move, names what a step
 requires, and refuses an out-of-order one while naming the way forward — so ask *it* for anything mechanical.
 This page carries what the tool cannot: whether work is a program at all, how its children get shaped, when the
-order should be re-decided, and when only the operator's own hand should move next. Enter it when multi-PR work
-needs its order held, when an operator asks where a program stands, or when a backlog needs a planned sequence.
+order should be re-decided, and when only the operator's own hand should move next.
 
 ## Steps
 
@@ -75,8 +74,9 @@ paying — and any merge-order constraint *across* lanes stated up front rather 
 And the honest answer is sometimes **do not lane it**. A backlog whose own discipline is serial — where each
 piece must land before the next is even ready — is not made faster by drawing lanes on it; lanes there invent a
 concurrency the work does not have. Recommending serial execution, or one lane, is a real answer, not a failure
-to find parallelism. Once a split stands, the portfolio shows per-lane standing and the program's own view the
-complete picture; neither ranks the lanes or says what to do next — they disclose, they do not dispatch.
+to find parallelism. Lane only what genuinely has disjoint territory and no ordering dependency between the
+lanes. Once a split stands, the portfolio shows per-lane standing and the program's own view the complete
+picture; neither ranks the lanes or says what to do next — they disclose, they do not dispatch.
 
 ### 5. End the program honestly
 

@@ -295,12 +295,21 @@ def intended_standing(record: dict, view: list) -> dict | None:
         ready = not withdrawn and (not claimed_by or dead_claim) and not waiting_on
         discrepancy = None
         if claimed_by and not dead_claim:
-            declared_refs = {e["ref"] for e in edges}
+            # A declared ref names a child directly or another intent's KEY; the chain only knows
+            # plan ids, so a key resolves to the plan that claimed it before the comparison. An
+            # unclaimed key has no seat on the chain yet and so cannot disagree with it.
+            resolved = {}
+            for e in edges:
+                referenced = by_key.get(e["ref"])
+                if referenced is None:
+                    resolved[e["ref"]] = e["ref"]
+                elif referenced.get("claimed_by"):
+                    resolved[e["ref"]] = referenced["claimed_by"]
             actual_predecessor = predecessor_of.get(claimed_by)
-            if declared_refs and actual_predecessor not in declared_refs:
+            if resolved and actual_predecessor not in set(resolved.values()):
                 discrepancy = (
                     f"{intent['key']} declares precedence on "
-                    f"{', '.join(sorted(declared_refs))}, but its claiming child {claimed_by} "
+                    f"{', '.join(sorted(resolved))}, but its claiming child {claimed_by} "
                     f"actually succeeds {actual_predecessor or 'nothing'} on the chain.")
         entries.append({
             "key": intent["key"], "title": intent["title"], "statement": intent["statement"],
@@ -794,6 +803,14 @@ class ProgramLibrary:
                 and (not intent.get("claimed_by")
                      or status_of.get(intent["claimed_by"]) in DEAD_BRANCH_STATES)]
 
+    def _claim_is_dead(self, record: dict, intent: dict) -> bool:
+        """Whether `intent`'s claim is held by a plan that has since died — the S4 reading
+        `_unclaimed_intents` and `intended_standing` share, so revise and withdraw treat a dead
+        claim as no seat at all rather than sending the operator to a supersede that refuses an
+        unsealed draft."""
+        status_of = {child["plan_id"]: child["status"] for child in self.child_view(record)}
+        return status_of.get(intent.get("claimed_by")) in DEAD_BRANCH_STATES
+
     @staticmethod
     def _unclaimed_intents_refusal(unclaimed: list) -> str:
         """The S2 join-guard refusal: what is waiting, and which of the two doors applies."""
@@ -820,10 +837,14 @@ class ProgramLibrary:
         no-op: the refusals only fire when there is something to answer to, which is what keeps a
         program that never uses intents joining byte-for-byte as it always has.
         """
-        if fulfills and outside_intent:
+        if fulfills is not None and outside_intent is not None:
             raise ProgramError(
                 "pass --fulfills or --outside-intent, never both — a child either claims a "
                 "recorded intent or stands outside the recorded order; it cannot do both at once.")
+        if outside_intent is not None and not outside_intent.strip():
+            raise ProgramError(
+                "--outside-intent costs a reason — standing outside the recorded order is a "
+                "decision, and the reason is what lets a later reader tell it from an omission.")
         if out_of_order_reason and not fulfills:
             raise ProgramError(
                 "--out-of-order-reason only means something beside --fulfills — it prices JUMPING "
@@ -1005,7 +1026,7 @@ class ProgramLibrary:
                 raise ProgramError("a statement cannot be blanked to nothing; drop --statement to "
                                    "leave it as it is.")
             if after is not None:
-                if intent.get("claimed_by"):
+                if intent.get("claimed_by") and not self._claim_is_dead(record, intent):
                     raise ProgramError(
                         f"{key!r} is claimed by {intent['claimed_by']}, so its edges are no "
                         "longer just a plan on paper — a claimed step already has a seat on the "
@@ -1052,7 +1073,7 @@ class ProgramLibrary:
                 raise ProgramError(f"{key!r} is not a recorded intent on this program.")
             if intent.get("withdrawn"):
                 raise ProgramError(f"{key!r} was already withdrawn.")
-            if intent.get("claimed_by"):
+            if intent.get("claimed_by") and not self._claim_is_dead(record, intent):
                 raise ProgramError(
                     f"{key!r} is claimed by {intent['claimed_by']}, which already has a seat on "
                     f"the chain; withdrawing the intent behind it would not move that seat. "
@@ -1247,12 +1268,13 @@ class ProgramLibrary:
             # it actually admitted, a cold reviewer proved: retire an unsealed draft for unrelated
             # reasons, and supersede would then mark it replaced — a plan that was never terminal
             # recorded as superseded, and `reopen` refusing it forever after.
-            raise ProgramError(
+            raise ProgramError(_with_intent_note(
                 f"{superseded_id} is not sealed — supersede exists for a plan a seal has made "
                 "terminal, and this one never was. An open draft is revised: edit the plan itself. "
                 f"A closed draft is reopened or left closed: `reopen {superseded_id}` if its "
                 "closure was wrong, or add the replacement with `program add`/`program insert` "
-                "and let this one stand as the record tells it.")
+                "and let this one stand as the record tells it.",
+                bool(self._unclaimed_intents(record))))
 
         inherited = child.get("predecessor_plan_id")
         if not already:
@@ -2601,10 +2623,16 @@ def _render_intended(record: dict, view: list) -> list:
     entries = standing["entries"]
     ready = standing["ready_keys"]
     title_of = {e["key"]: e["title"] for e in entries}
-    lines += ["## Intended, not yet authored", "",
-             "- **Next intended**: "
-             + ("; ".join(f"{key} — {title_of[key]}" for key in ready) if ready else "none recorded"),
-             ""]
+    open_keys = standing["open_keys"]
+    if ready:
+        next_line = "; ".join(f"{key} — {title_of[key]}" for key in ready)
+    elif open_keys:
+        waiting = {e["key"]: e["waiting_on"] for e in entries}
+        next_line = "none ready — " + "; ".join(
+            f"{key} waits on {', '.join(w['ref'] for w in waiting[key])}" for key in open_keys)
+    else:
+        next_line = "none open"
+    lines += ["## Intended order", "", f"- **Next intended**: {next_line}", ""]
     for entry in entries:
         header = f"- **{entry['key']}** — {entry['title']}"
         if entry["withdrawn"]:

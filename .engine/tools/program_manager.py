@@ -585,7 +585,11 @@ def cmd_program_intend_add(args) -> int:
 def cmd_program_intend_revise(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
-    edges = _parse_follows(args.follows) if args.follows is not None else None
+    if args.follows_none and args.follows:
+        raise ProgramManagerError("pass --follows-none or --follows, never both — one clears the "
+                                  "declared precedence and the other replaces it.")
+    edges = [] if args.follows_none else (
+        _parse_follows(args.follows) if args.follows is not None else None)
     record = programs.revise_intent(slug, args.key, title=args.title, statement=args.statement,
                                     after=edges, reason=args.reason)
     entry = next(i for i in record["intended"] if i["key"] == args.key)
@@ -701,6 +705,9 @@ def build_parser() -> argparse.ArgumentParser:
     intend_revise.add_argument("--follows", action="append", metavar="REF=REASON",
                                help="replace the declared precedence edges entirely; repeat for more "
                                     "than one; omit to leave the edges as they are")
+    intend_revise.add_argument("--follows-none", action="store_true",
+                               help="clear the declared precedence entirely: this step no longer "
+                                    "follows anything (never beside --follows)")
     intend_revise.add_argument("--reason", required=True,
                                help="why it changed; the prior wording is kept in history")
     intend_revise.set_defaults(func=cmd_program_intend_revise)

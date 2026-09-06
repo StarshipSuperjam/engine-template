@@ -970,6 +970,31 @@ class IntendCommands(ProgramVerbs):
         self.assertIn("follows step-a — needed after all", rendered)
         self.assertIn("scope changed", rendered)
 
+    def test_intend_revise_follows_none_clears_the_declared_precedence(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B",
+                         "--follows", "step-a=needed first")
+        code, out, err = self.run_command(
+            "program", "intend", "revise", program_id, "step-b", "--follows-none",
+            "--reason", "it can go first after all")
+        self.assertEqual(code, 0, err)
+        self.assertIn("follows (nothing)", out)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("- **Next intended**: step-a — Step A; step-b — Step B", rendered)
+
+    def test_intend_revise_refuses_follows_none_beside_follows(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        code, out, err = self.run_command(
+            "program", "intend", "revise", program_id, "step-a", "--follows-none",
+            "--follows", "step-a=x", "--reason", "confused")
+        self.assertNotEqual(code, 0)
+        self.assertIn("never both", err)
+
     def test_intend_revise_requires_a_reason(self):
         program_id = self._program_with_child()
         self.run_command("program", "intend", "add", program_id, "--key", "step-a",

@@ -1808,6 +1808,22 @@ class ReplacementInPlace(_Program):
             self.programs.supersede_check(slug, "pln_0000000000ee", "pln_0000000000ef")
         self.assertIn(plan_program.INTENT_JOIN_NOTE, str(caught.exception))
 
+    def test_superseding_an_unsealed_closed_draft_with_a_recorded_intent_names_the_note_too(self):
+        """The seventh refusal that names `program add`/`program insert`, found by the deliverable
+        review: a closed draft that was never sealed. It sends the operator to the join doors, so
+        it carries the note the other six carry."""
+        slug = self._chain("pln_0000000000f5", "pln_0000000000f6")
+        self.programs.add_intent(slug, "later-step", "Later step", "Something for later", [])
+        self._plan("pln_0000000000f7", "Replacement")
+        # Closed WITHOUT a seal: the unsealed-draft refusal, not the fixture's sealed half-state.
+        self.plans.update_record(self.plans.resolve("pln_0000000000f6"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000f6", "pln_0000000000f7")
+        message = str(caught.exception)
+        self.assertIn("is not sealed", message)
+        self.assertIn(plan_program.INTENT_JOIN_NOTE, message)
+
 
 class EndsThatSettleTheirBooks(_Program):
     """Closing a program used to leave its debts reporting as outstanding under a closed status.
@@ -3156,6 +3172,30 @@ class IntendedOrderRecord(_Program):
         self.assertIn("pln_a00000000013", message)
         self.assertIn("program supersede", message)
 
+    def test_withdraw_intent_accepts_an_entry_whose_claimant_has_died(self):
+        """A dead claim is no seat: the same S4 reading the join door and closure give, so the
+        operator is not sent to a supersede that refuses an unsealed draft."""
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self._plan("pln_a00000000014", "Claimant that died")
+        self.programs.add_child(slug, "pln_a00000000014", fulfills="k")
+        self.plans.update_record(self.plans.resolve("pln_a00000000014"), lambda r: r.update({
+            "closure": {"state": "abandoned", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        record = self.programs.withdraw_intent(slug, "k", "not building this after all")
+        self.assertTrue(record["intended"][0]["withdrawn"])
+
+    def test_revise_intent_edges_accepts_an_entry_whose_claimant_has_died(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "root", "Root", "S", [])
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self._plan("pln_a00000000015", "Claimant that died")
+        self.programs.add_child(slug, "pln_a00000000015", fulfills="k")
+        self.plans.update_record(self.plans.resolve("pln_a00000000015"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        record = self.programs.revise_intent(slug, "k", after=[{"ref": "root", "reason": "now"}],
+                                             reason="re-decided")
+        self.assertEqual(record["intended"][1]["after"], [{"ref": "root", "reason": "now"}])
+
     def test_withdraw_intent_refuses_an_entry_another_live_intent_depends_on(self):
         slug = self._slug()
         self.programs.add_intent(slug, "earlier", "Earlier", "S", [])
@@ -3230,6 +3270,17 @@ class TheNextChildAnswersToTheIntendedOrder(_Program):
         with self.assertRaisesRegex(plan_program.ProgramError, "never both"):
             self.programs.add_child(slug, "pln_b00000000005", fulfills="step-a",
                                     outside_intent="also this")
+        # Presence, not truthiness: a blank outside-intent beside a claim is still both doors.
+        with self.assertRaisesRegex(plan_program.ProgramError, "never both"):
+            self.programs.add_child(slug, "pln_b00000000005", fulfills="step-a",
+                                    outside_intent="")
+
+    def test_a_blank_outside_intent_reason_is_refused_by_name(self):
+        slug = self._program("Blank door", "Standing outside costs a reason.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000006", "Silent")
+        with self.assertRaisesRegex(plan_program.ProgramError, "--outside-intent costs a reason"):
+            self.programs.add_child(slug, "pln_b00000000006", outside_intent="  ")
 
     def test_out_of_order_reason_without_fulfills_is_refused(self):
         slug = self._program("Priced alone", "The reason only means something beside a claim.")
@@ -3414,21 +3465,59 @@ class IntendedStandingDerivation(_Program):
         self.programs.add_child(slug, "pln_c00000000010")
         self.programs.add_intent(slug, "step-a", "Step A", "Build A",
                                  [{"ref": "pln_c00000000010", "reason": "declared precedence"}])
-        self.programs.add_intent(slug, "step-elsewhere", "Elsewhere", "Unrelated", [])
+        self._plan("pln_c00000000009", "A sibling on the chain", predecessor="pln_c00000000010")
+        self.programs.add_child(slug, "pln_c00000000009", predecessor="pln_c00000000010",
+                                outside_intent="a sibling the order never named")
         self._plan("pln_c00000000011", "Claimant with a different actual predecessor")
         self.programs.add_child(slug, "pln_c00000000011", predecessor="pln_c00000000010",
                                 fulfills="step-a")
         record = self.programs.read(slug)
         # Forge a disagreement directly: the recorded edge no longer names what the claim
         # actually succeeds on the chain -- the shape `intended_standing`'s discrepancy note
-        # exists to catch, and that shape has no verb producing it honestly.
-        record["intended"][0]["after"] = [{"ref": "step-elsewhere", "reason": "a different reason"}]
+        # exists to catch, and that shape has no verb producing it honestly. The forged ref is a
+        # plan with a seat on the chain: an unclaimed intent key has no seat and so cannot disagree.
+        record["intended"][0]["after"] = [{"ref": "pln_c00000000009", "reason": "a different reason"}]
         self.programs._write(slug, record)
         record = self.programs.read(slug)
         standing = plan_program.intended_standing(record, self.programs.child_view(record))
         entry = next(e for e in standing["entries"] if e["key"] == "step-a")
         self.assertIsNotNone(entry["discrepancy"])
         self.assertIn("pln_c00000000010", entry["discrepancy"])
+
+    def test_a_claim_in_the_declared_order_behind_another_claimed_intent_has_no_discrepancy(self):
+        """The ordinary happy path: C2 declares it follows C1 by KEY, C1 is claimed by one child,
+        C2 by a child whose predecessor is exactly that child. The key resolves to the claiming
+        plan before the comparison, so the textbook sequence raises no note."""
+        slug = self._slug()
+        self.programs.add_intent(slug, "c1", "C1", "First", [])
+        self.programs.add_intent(slug, "c2", "C2", "Second", [{"ref": "c1", "reason": "builds on it"}])
+        self._plan("pln_c00000000012", "Claims C1")
+        self.programs.add_child(slug, "pln_c00000000012", fulfills="c1")
+        self._plan("pln_c00000000013", "Claims C2", predecessor="pln_c00000000012")
+        self.programs.add_child(slug, "pln_c00000000013", predecessor="pln_c00000000012",
+                                fulfills="c2")
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        self.assertIsNone(next(e for e in standing["entries"] if e["key"] == "c2")["discrepancy"])
+        self.assertNotIn("Discrepancy", plan_program.render(self.programs, record))
+
+    def test_a_claim_that_crosses_its_declared_key_out_of_order_still_reports_a_discrepancy(self):
+        slug = self._slug()
+        self._plan("pln_c00000000014", "Root")
+        self.programs.add_child(slug, "pln_c00000000014")
+        self.programs.add_intent(slug, "c1", "C1", "First", [])
+        self.programs.add_intent(slug, "c2", "C2", "Second", [{"ref": "c1", "reason": "builds on it"}])
+        self._plan("pln_c00000000015", "Claims C1", predecessor="pln_c00000000014")
+        self.programs.add_child(slug, "pln_c00000000015", predecessor="pln_c00000000014",
+                                fulfills="c1")
+        self._plan("pln_c00000000016", "Claims C2 beside, not after", predecessor="pln_c00000000014")
+        self.programs.add_child(slug, "pln_c00000000016", predecessor="pln_c00000000014",
+                                fulfills="c2")
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        entry = next(e for e in standing["entries"] if e["key"] == "c2")
+        self.assertIsNotNone(entry["discrepancy"])
+        self.assertIn("pln_c00000000014", entry["discrepancy"])
 
     def test_last_movement_sees_intent_activity(self):
         slug = self._slug()
@@ -3476,23 +3565,37 @@ class IntendedRender(_Program):
         self._plan("pln_d00000000001", "Child A")
         self.programs.add_child(slug, "pln_d00000000001")
         rendered = plan_program.render(self.programs, self.programs.read(slug))
-        self.assertNotIn("## Intended, not yet authored", rendered)
+        self.assertNotIn("## Intended order", rendered)
 
     def test_next_intended_names_every_ready_entry(self):
         slug = self._slug()
         self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
         self.programs.add_intent(slug, "step-b", "Step B", "Build B", [])
         rendered = plan_program.render(self.programs, self.programs.read(slug))
-        self.assertIn("## Intended, not yet authored", rendered)
+        self.assertIn("## Intended order", rendered)
         self.assertIn("- **Next intended**: step-a — Step A; step-b — Step B", rendered)
 
-    def test_next_intended_says_none_recorded_when_nothing_is_ready(self):
+    def test_next_intended_says_none_open_when_every_intent_is_claimed(self):
         slug = self._slug()
         self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
         self._plan("pln_d00000000002", "Claimant")
         self.programs.add_child(slug, "pln_d00000000002", fulfills="step-a")
         rendered = plan_program.render(self.programs, self.programs.read(slug))
-        self.assertIn("- **Next intended**: none recorded", rendered)
+        self.assertIn("- **Next intended**: none open", rendered)
+
+    def test_next_intended_names_what_a_stranded_intent_waits_on_as_the_portfolio_does(self):
+        """An open intent whose precedent died is never ready; `show` says what it waits on in the
+        portfolio's own words rather than calling a recorded step 'none recorded'."""
+        slug = self._slug()
+        self._plan("pln_d00000000003", "Dead precedent")
+        self.programs.add_child(slug, "pln_d00000000003")
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "pln_d00000000003", "reason": "after it"}])
+        self.plans.update_record(self.plans.resolve("pln_d00000000003"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("- **Next intended**: none ready — step-b waits on pln_d00000000003", rendered)
+        self.assertNotIn("none recorded", rendered)
 
     def test_every_rendered_edge_shows_its_reason(self):
         slug = self._slug()
@@ -3526,12 +3629,14 @@ class IntendedRender(_Program):
         self.programs.add_child(slug, "pln_d00000000010")
         self.programs.add_intent(slug, "step-a", "Step A", "Build A",
                                  [{"ref": "pln_d00000000010", "reason": "declared precedence"}])
-        self.programs.add_intent(slug, "step-elsewhere", "Elsewhere", "Unrelated", [])
+        self._plan("pln_d00000000009", "A sibling on the chain", predecessor="pln_d00000000010")
+        self.programs.add_child(slug, "pln_d00000000009", predecessor="pln_d00000000010",
+                                outside_intent="a sibling the order never named")
         self._plan("pln_d00000000011", "Claimant with a different actual predecessor")
         self.programs.add_child(slug, "pln_d00000000011", predecessor="pln_d00000000010",
                                 fulfills="step-a")
         record = self.programs.read(slug)
-        record["intended"][0]["after"] = [{"ref": "step-elsewhere", "reason": "a different reason"}]
+        record["intended"][0]["after"] = [{"ref": "pln_d00000000009", "reason": "a different reason"}]
         self.programs._write(slug, record)
         rendered = plan_program.render(self.programs, self.programs.read(slug))
         self.assertIn("_Discrepancy_:", rendered)
@@ -4378,7 +4483,7 @@ class TheIntendedRecordHasOneReader(unittest.TestCase):
 
     KEYS = {"intended", "intended_history"}
     ALLOWLIST = {"plan_program.py", "program_manager.py", "test_plan_program.py",
-                 "test_program_manager.py", "demo_program_intended_order.py"}
+                 "demo_program_intended_order.py"}
 
     def _record_key_reads(self, source: str) -> set:
         import ast
@@ -4432,27 +4537,16 @@ class TheIntendedRecordHasOneReader(unittest.TestCase):
                          {"some_subsystem/drifting_reader.py": ["intended", "intended_history"]})
 
     def test_the_allowlist_carries_no_entry_that_no_longer_reads_the_intended_record(self):
-        """Mirrors the lane record's companion, with one documented exception. `plan_program.py`,
-        `program_manager.py` and `test_plan_program.py` all read the raw keys directly — verified
-        below — and are held to the same "no stale exemption" standard the lane record's companion
-        holds its own allowlist to.
-
-        `test_program_manager.py` is a genuine exception: it is allowlisted per this build's plan,
-        but W4-demo found it exercises `program intend`/`--fulfills`/`--outside-intent` entirely
-        through argv and the rendered `program show` text (see `IntendCommands` in
-        test_program_manager.py) and never touches `record["intended"]` or
-        `record["intended_history"]` directly — unlike its sibling test for the LANE record, which
-        does assert on `record["lanes"]` directly. test_program_manager.py is outside this node's
-        declared paths, so this cannot add the missing raw-key assertion there; it is left listed
-        (matching the plan) but not held to the read requirement, and the gap is reported as an
-        unresolved concern rather than silently papered over or used to justify dropping the file
-        from the allowlist.
+        """Mirrors the lane record's companion exactly: every allowlisted file exists and reads
+        the raw keys, so an exemption cannot outlive the read it was granted for. The deliverable
+        review found the first cut listed `test_program_manager.py`, which drives `program intend`
+        through argv and the rendered text and never touches the raw keys; it is not listed now,
+        and the scan above holds it to the same rule as any other file.
         """
         tools = Path(plan_program.__file__).resolve().parent
         missing = sorted(name for name in self.ALLOWLIST if not (tools / name).is_file())
         self.assertEqual(missing, [], f"allowlisted but missing from tools/: {missing}")
-        held_to_the_read_requirement = self.ALLOWLIST - {"test_program_manager.py"}
-        stale = sorted(name for name in held_to_the_read_requirement
+        stale = sorted(name for name in self.ALLOWLIST
                        if not self._record_key_reads((tools / name).read_text(encoding="utf-8")))
         self.assertEqual(stale, [],
                          "these are on the intended-record allowlist and expected to read it, but "
@@ -4467,9 +4561,7 @@ class TheIntendedStandingHasNamedCallers(unittest.TestCase):
     refusal, so authority drift has a place it must be argued in the open rather than slipped in.
     """
 
-    ALLOWLIST = {"plan_program.py", "program_manager.py", "program_projection.py",
-                 "test_plan_program.py", "test_program_manager.py", "test_program_projection.py",
-                 "demo_program_intended_order.py"}
+    ALLOWLIST = {"plan_program.py", "program_projection.py", "test_plan_program.py"}
 
     @staticmethod
     def _callee_name(func):
@@ -4519,24 +4611,16 @@ class TheIntendedStandingHasNamedCallers(unittest.TestCase):
         self.assertEqual(offenders, ["some_subsystem/drifting_caller.py"])
 
     def test_the_allowlist_carries_no_entry_that_no_longer_calls_it_where_that_is_required(self):
-        """Every allowlisted file must exist. Beyond that, this does not demand a call the build plan
-        never required: W4-demo found that only `plan_program.py` (which defines it and calls it
-        internally from `_render_intended`), `program_projection.py` (`_next_intended_line`) and
-        `test_plan_program.py` (direct unit tests of the derivation) actually call
-        `intended_standing` today. `program_manager.py`, `test_program_manager.py`,
-        `test_program_projection.py` and `demo_program_intended_order.py` are allowlisted per the
-        plan but reach its effect only indirectly — through `plan_program.render` or
-        `program_projection.render_portfolio` — so they are not held to a call requirement the plan
-        never asked of them; the split is reported in full as an unresolved concern rather than
-        silently assumed.
+        """Every allowlisted file exists and calls `intended_standing`, so an exemption cannot
+        outlive the call it was granted for. The first cut also listed `program_manager.py`,
+        `test_program_manager.py`, `test_program_projection.py` and the demo, which reach the
+        derivation only through `plan_program.render` or `render_portfolio`; the deliverable
+        review found the list wider than the guard, so they are not listed now.
         """
         tools = Path(plan_program.__file__).resolve().parent
         missing = sorted(name for name in self.ALLOWLIST if not (tools / name).is_file())
         self.assertEqual(missing, [], f"allowlisted but missing from tools/: {missing}")
-        held_to_the_call_requirement = {"plan_program.py", "program_projection.py",
-                                        "test_plan_program.py"}
-        self.assertTrue(held_to_the_call_requirement <= self.ALLOWLIST)
-        stale = sorted(name for name in held_to_the_call_requirement
+        stale = sorted(name for name in self.ALLOWLIST
                        if not self._calls_intended_standing(
                            (tools / name).read_text(encoding="utf-8")))
         self.assertEqual(stale, [],
