@@ -31,8 +31,8 @@ import validate          # noqa: E402
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 
 # Construction-repo-only checks below are guarded by selftest_support.CONSTRUCTION: a deployment that DECLINED
-# a module legitimately lacks its files and manifest, and the gate's declined projection (ENGINE_NESTED_SELFTEST
-# set) is exactly such a shape, so they skip there (#646).
+# a module legitimately lacks its files and manifest, and the gate's projected deployed tree (silenced by
+# ENGINE_DEPLOYED_PROJECTION, set by release_gate._nested_env) is exactly such a shape, so they skip there (#646).
 import knowledge_gen     # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness the commit-boundary regen rides)
 

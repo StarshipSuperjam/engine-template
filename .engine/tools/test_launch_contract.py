@@ -659,11 +659,13 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
     inlined into a wrapper's body, so a guard keyed on the original names would have caught none of them.
     This one is keyed on the two shapes that actually drifted — a helper function (not a test case, which
     may legitimately read a manifest's content and skip when it is absent) that both calls `skipTest` and
-    reaches `discover_manifests`, and a module-level binding that combines a home-repo probe with the
-    nested-run marker — plus the old and new names as a belt. It is a tripwire for those shapes, not a
-    proof of uniqueness: a copy written in a third shape would pass it. The guard only PARSES modules; it
-    never runs them. `selftest_support.py` sits outside the `test_*.py` pattern on purpose, so it is not
-    in the population this guard scans (and must not be renamed into it: see its docstring)."""
+    reaches `discover_manifests`, and a module-level binding that calls a home-repo probe — plus the old
+    and new names as a belt. The predicate shape is flagged whether or not it also mentions a nested/
+    projection marker: a re-copied shape predicate is a copy either way, marker or no marker. It is a
+    tripwire for those shapes, not a proof of uniqueness: a copy written in a third shape would pass it.
+    The guard only PARSES modules; it never runs them. `selftest_support.py` sits outside the `test_*.py`
+    pattern on purpose, so it is not in the population this guard scans (and must not be renamed into it:
+    see its docstring)."""
 
     #: Names the consolidation removed, and the single home's public spellings — no test module may DEFINE
     #: its own under either spelling (an assignment or a def at module level; importing them is the point).
@@ -673,9 +675,12 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
         "_needs_modules", "needs_modules",
         "_needs_product_design", "_needs_design_review",
     })
-    #: The probes a re-copied construction predicate combines with the nested-run marker.
+    #: The probes a re-copied construction predicate calls — flagged with or without a marker mention.
     HOME_PROBES = frozenset({"is_home_repo", "_in_home_repo"})
-    NESTED_MARKERS = frozenset({"ENGINE_NESTED_SELFTEST", "NESTED_ENV", "_NESTED_ENV"})
+    #: Documentation/belt only: names a re-copied predicate has historically combined with a home probe.
+    #: Not required by the detector below — a home-probe call alone is enough to flag the binding.
+    NESTED_MARKERS = frozenset({"ENGINE_NESTED_SELFTEST", "NESTED_ENV", "_NESTED_ENV",
+                                 "ENGINE_DEPLOYED_PROJECTION", "PROJECTION_ENV", "_PROJECTION_ENV"})
 
     @staticmethod
     def _called_names(node: ast.AST) -> set:
@@ -713,8 +718,8 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
                 if name in cls.BANNED_NAMES:
                     found.append(f"binds `{name}` at module level")
             if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-                if cls._called_names(node.value) & cls.HOME_PROBES and cls._mentions_marker(node.value):
-                    found.append("binds a home-repo-and-not-nested predicate at module level")
+                if cls._called_names(node.value) & cls.HOME_PROBES:
+                    found.append("binds a module-level predicate that calls a home-repo probe")
         for node in ast.walk(tree):  # the inlined-wrapper shape, at any depth: a HELPER, not a test case
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("test_"):
                 called = cls._called_names(node)
@@ -747,6 +752,7 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
             "predicate": ("import os, repo_identity, validate\n"
                           "_GATE = repo_identity.is_home_repo(validate.ROOT) and not os.environ.get('ENGINE_NESTED_SELFTEST')\n"),
             "predicate_variant": "import os, release_gate as rg\n_GATE = rg._ccc._in_home_repo() and not os.environ.get(rg._NESTED_ENV)\n",
+            "predicate_no_marker": "import repo_identity, validate\n_GATE = repo_identity.is_home_repo(validate.ROOT)\n",
             "inlined_wrapper": ("import module_coherence\n"
                                 "def _needs_thing(case):\n"
                                 "    ids = {m.get('id') for _p, m in module_coherence.discover_manifests()}\n"
