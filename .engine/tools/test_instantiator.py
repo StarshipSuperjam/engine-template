@@ -1019,7 +1019,9 @@ class TestApplyStepPermissionDefaultLeftAlone(unittest.TestCase):
         # Whole-file, not a window between two helpers: the instantiator has NO reason to expand the operator's
         # home directory at all, so any reappearance anywhere in it is the retired read coming back.
         self.assertNotIn("expanduser", source, "nothing in the instantiator reads the operator's home directory")
-        self.assertNotRegex(source, r'environ(\.get\(|\[)\s*"HOME"', "nothing in the instantiator reads $HOME")
+        self.assertNotRegex(source, r'(environ(\.get\(|\[)|getenv\()\s*[\'"]HOME[\'"]',
+                            "nothing in the instantiator reads $HOME, by any spelling")
+        self.assertNotIn(".home()", source, "nothing in the instantiator resolves the home path via pathlib")
 
     def test_no_consent_is_asked_for_planning_mode(self):
         asked = []
