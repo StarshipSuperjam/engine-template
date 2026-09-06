@@ -43,7 +43,9 @@ The stance lifecycle:
    folder that would make the checkout, the home or the engine's own directories "the plan folder" is
    refused (StarshipSuperjam/engine-template#775). That is one of two path-anchored exceptions; the other (StarshipSuperjam/engine-template#766) is a Write/Edit whose every
    path resolves inside the harness's own auto-memory notebook for **this** project
-   (`~/.claude/projects/<this project>/memory/`) — the session's own notebook, not the project. Both are
+   (`~/.claude/projects/<this project>/memory/`) — the session's own notebook, not the project. That path
+   and the `.claude/worktrees/` layout its project binding recognises are platform facts the Engine watches
+   and does not control; a session outside them is simply denied the carve-out. Both are
    judged on the real filesystem (symlinks and `..` resolved, the project bound to the session's working
    directory, anything undecidable denied). A write to the operator's own `~/.claude/` config lands in
    neither place and stays denied — even during plan mode, when the denial names the plans folder the
@@ -64,6 +66,7 @@ The stance lifecycle:
    adapter reads the plan from where the harness now puts it: the inline text on an older harness, else
    the completion's own result, else the plan file that result names — read only from the platform's
    plans folder (or a `plansDirectory` set in managed or your own settings, never a project's file). That
+   order is the platform's — watched, not controlled — and a change there degrades to a refusal, never a silent pass. That
    acceptance happens in plan mode, a mode you now enter yourself — the Engine sets no permission default
    for a project (StarshipSuperjam/engine-template#1227). The
    session then reports where the text came from, the plan's id, the revision it created, and the exact
@@ -74,7 +77,7 @@ The stance lifecycle:
    platform has since reworded), `python tools/project_manager.py import-native --input - --provenance
    "<where this plan came from, in your words>"` performs the identical import from the plan text on stdin.
 5. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
-   Claude Desktop routine runs the routine command, which enters
+   Claude Desktop scheduled task runs the routine command, which enters
    the Routine write-stance through `set-routine` — a **mechanical** gate that grants the stance only in a
    proven-isolated worktree, never the operator's checkout — and which the run additionally declines to enter
    when its start-of-session hooks did not fire (an honest-tier check the run follows). It never merges the protected branch. It is the same workflow,

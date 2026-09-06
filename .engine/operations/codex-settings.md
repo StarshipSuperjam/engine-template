@@ -43,7 +43,7 @@ mismatch reopens the policy before release.
   direct/deferred merge surfaces cannot preserve the Engine's promise that only the operator merges.
   **Before merging or releasing this policy, disable every existing `$engine-routine` Automation and confirm none
   remains Active** — disabling the external task is the real retirement boundary, since the generated skill's refusal
-  cannot prove which scheduler launched it. Keep Codex Engine work interactive; the Claude Desktop Routine carries
+  cannot prove which scheduler launched it. Keep Codex Engine work interactive; a Claude Desktop scheduled task carries
   unattended writes.
 - **Credential masking is a partial host-hardening layer.** Keep reusable credentials out of spawned shells: prefer
   the OS credential store for Codex login and enable Codex's automatic secret-name exclusions:
@@ -97,7 +97,7 @@ mismatch reopens the policy before release.
 | Models and reasoning effort; telemetry, notifications, output, personality | Keep model selection current at the platform/account layer — Engine personas specify a reasoning tier, never a model id that will rot. The rest are personal/organizational choices that may improve observability or comfort but do not change Engine evidence or authority. |
 | MCP servers, skills and agents | Engine servers are registered in Engine-owned fenced TOML blocks; other servers are operator-owned, and adding one is an explicit trust decision. Engine skills and Codex agent renders are committed, generated adapter surfaces held in sync by checks; their behavioral instructions travel, but a parent task's live permissions still govern effective capability. |
 | Rules / command allowlists; Hooks | No blanket Engine allowlist: a rule that bypasses an approval is a host decision and must be narrower than the concrete command/use case, and rules never replace the protected merge. Hooks are repository-owned registration plus operator trust; a changed hook is deliberately off until re-trusted, and the Engine must say so rather than pretending its gates ran. |
-| Automations | Use for personal read-only reminders or monitoring only when the shared default is appropriately narrow. Disable old `$engine-routine` and scheduled self-review Automations. Engine unattended writes use the Claude Desktop routine; Codex self-review runs interactively in Read Only. |
+| Automations | Use for personal read-only reminders or monitoring only when the shared default is appropriately narrow. Disable old `$engine-routine` and scheduled self-review Automations. Engine unattended writes use a Claude Desktop scheduled task; Codex self-review runs interactively in Read Only. |
 
 **Run the live acceptance bar.** Repository checks can prove the files, defaults, and renders are coherent; they cannot
 prove what the desktop applied. After a Codex adapter or settings-policy change, follow `codex-validation.md`: verify the
