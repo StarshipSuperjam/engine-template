@@ -36,10 +36,9 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    it for the usual self-building case. Before this point nothing is changed; saving is what the rest builds on.
 5. **Install the choices and turn on the review gate.** With the choices saved, run
    `python3 .engine/tools/instantiator.py apply --first-run`. In order, the engine: removes the add-ons that were not
-   kept (their files are deleted); places its own ignore rules in the project's `.gitignore` (its private tool
-   folder and caches, never committed); sets who reviews changes to the engine's own files;
-   **sets up the engine's own programs in a private project folder —
-   asking the operator's one-time go-ahead first, because this downloads software onto their machine**; seeds the
+   kept (their files are deleted); adds its own ignore rules to the project's `.gitignore`; sets who reviews
+   changes to the engine's own files; **sets up the engine's own programs in a private project folder — asking
+   the operator's one-time go-ahead first, because this downloads software onto their machine**; seeds the
    operator's starting codes of conduct from the project's seed and tells them, plainly, that the stance is
    present and theirs to tune; resets the project's starting place-marker to a clean slate so a new project
    never inherits the template's own focus, open-work count, or issue list (disclosed in plain language, and
@@ -48,9 +47,8 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    product release, not the engine's — publishing a real release still needs the one-time `RELEASE_PAT` the
    release workflow explains; switches the engine on; turns on the branch review gate that makes every
    change go through approval (which may ask for a one-time GitHub approval, explained first); tells the
-   operator about GitHub's one-time Actions switch, which only they can flip; turns on GitHub's native
-   security features; and turns on the working-comfort repository settings. Show the plain-language result
-   of each step. If the engine's programs can't be set up (no internet, say), setup **stops
+   operator about GitHub's one-time Actions switch, which only they can flip; and turns on GitHub's native
+   security features and the working-comfort repository settings. Show the plain-language result of each step. If the engine's programs can't be set up (no internet, say), setup **stops
    safely there and never falls back to a different setup** — say so, and run `apply --first-run` again later to
    resume. When the steps are done, show a plain summary of what was set up and anything still left.
 6. **Check it all fits together — and pause if not.** With the steps done, run
