@@ -44,6 +44,15 @@ PROGRAMS_DIRNAME = "programs"
 RECORD_FILENAME = "record.json"
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*--[0-9a-f]{6}$")
+_INTENT_KEY_RE = re.compile(r"^(?!pln_)[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+#: The extra step named on any refusal that points at `program add --after` / `program insert` as
+#: the way through, when the target program still has live intents nobody has claimed. A join
+#: through those doors answers the carry-forward guarantee but says nothing about the intended
+#: order — so a refusal that sent an operator there without mentioning it would leave them to
+#: discover the SECOND gate only by hitting it.
+INTENT_JOIN_NOTE = (" (this program has recorded intents: also pass --fulfills KEY, or "
+                    "--outside-intent TEXT)")
 
 
 _now = moment.utc_now
@@ -215,6 +224,93 @@ def lane_standing(record: dict, view: list) -> dict | None:
             "lane_rows": lane_rows, "unlaned": unlaned, "cross_lane_edges": edges}
 
 
+def intended_standing(record: dict, view: list) -> dict | None:
+    """The recorded intended order as structured DATA — the ONE derivation `program show` and the
+    portfolio both format, so the two renders can never drift in what they MEAN. Mirrors
+    `lane_standing`'s reason for existing and its precedent: readiness is a partial order the
+    engine READS, never derives, selects, or advances — ready entries are listed BY KEY, a stable
+    label and NOT a rank, and two intents with no declared precedence between them are both ready
+    at once.
+
+    Returns None when the program has no recorded intent at all. Otherwise a dict whose keys
+    deliberately avoid the raw `intended`/`intended_history` key names, so a module formatting this
+    result stays off the intended-record reader allowlist while still reaching the record entirely
+    through this accessor:
+
+      {
+        "entries": [ {
+            "key": str, "title": str, "statement": str,
+            "edges": [{"ref": str, "reason": str}, ...],   # declared precedence, recorded order
+            "withdrawn": {"at","reason"} | None,
+            "claimed_by": plan_id | None, "claimed_at": str | None,
+            "claimer_status": str | None,   # the claiming plan's status, from `view`
+            "dead_claim": bool,             # claimed_by names a plan in DEAD_BRANCH_STATES
+            "ready": bool,                  # not withdrawn, not LIVE-claimed (a dead claim reopens
+                                             # it), every precedent satisfied
+            "waiting_on": [{"ref","reason"}, ...],   # precedents not yet satisfied
+            "discrepancy": str | None,      # a claimed entry's edges disagree with the claiming
+                                             # child's own predecessor edge
+        }, ... ],
+        "ready_keys": [str, ...],   # entries that are ready, sorted by key — a label, not a rank
+      }
+
+    Liveness is read from `view` exactly as `lane_standing` reads it: a plan_id absent from `view`
+    is unknown to this program and can never be read as satisfying a precedent.
+    """
+    intents = record.get("intended", [])
+    if not intents:
+        return None
+    status_of = {child["plan_id"]: child["status"] for child in view}
+    by_key = {i["key"]: i for i in intents}
+    predecessor_of = {child["plan_id"]: child.get("predecessor_plan_id")
+                     for child in record["children"]}
+
+    def ref_satisfied(ref: str) -> bool:
+        # A ref names either a stored child or another intent's key. It is satisfied by a LIVE
+        # stored child, or by a LIVE claimed intent — its claiming plan not in DEAD_BRANCH_STATES.
+        # A ref this record does not recognize at all can never be satisfied; it is disclosed as
+        # waiting rather than silently treated as done.
+        if ref in status_of:
+            return status_of[ref] not in DEAD_BRANCH_STATES
+        referenced = by_key.get(ref)
+        if referenced is None or referenced.get("withdrawn"):
+            return False
+        claimed_by = referenced.get("claimed_by")
+        return bool(claimed_by) and status_of.get(claimed_by) not in DEAD_BRANCH_STATES
+
+    entries, ready_keys = [], []
+    for intent in intents:
+        edges = [{"ref": e["ref"], "reason": e["reason"]} for e in intent.get("after", [])]
+        withdrawn = intent.get("withdrawn")
+        claimed_by = intent.get("claimed_by")
+        claimer_status = status_of.get(claimed_by) if claimed_by else None
+        dead_claim = bool(claimed_by) and claimer_status in DEAD_BRANCH_STATES
+        waiting_on = [] if withdrawn else [e for e in edges if not ref_satisfied(e["ref"])]
+        # A dead claim is not a live seat: the intent is open to a fresh `--fulfills` again, so it
+        # is ready exactly as an unclaimed one is — the same reading `_unclaimed_intents` gives the
+        # join door and `completion_blockers` gives closure, so the three never disagree.
+        ready = not withdrawn and (not claimed_by or dead_claim) and not waiting_on
+        discrepancy = None
+        if claimed_by and not dead_claim:
+            declared_refs = {e["ref"] for e in edges}
+            actual_predecessor = predecessor_of.get(claimed_by)
+            if declared_refs and actual_predecessor not in declared_refs:
+                discrepancy = (
+                    f"{intent['key']} declares precedence on "
+                    f"{', '.join(sorted(declared_refs))}, but its claiming child {claimed_by} "
+                    f"actually succeeds {actual_predecessor or 'nothing'} on the chain.")
+        entries.append({
+            "key": intent["key"], "title": intent["title"], "statement": intent["statement"],
+            "edges": edges, "withdrawn": withdrawn,
+            "claimed_by": claimed_by, "claimed_at": intent.get("claimed_at"),
+            "claimer_status": claimer_status, "dead_claim": dead_claim,
+            "ready": ready, "waiting_on": waiting_on, "discrepancy": discrepancy,
+        })
+        if ready:
+            ready_keys.append(intent["key"])
+    return {"entries": entries, "ready_keys": sorted(ready_keys)}
+
+
 def last_movement(record: dict) -> str:
     """The most recent moment anything about this program moved, as a YYYY-MM-DD date.
 
@@ -236,11 +332,28 @@ def last_movement(record: dict) -> str:
         stamps.append(entry.get("at"))
     for entry in record.get("objective_history", []):
         stamps.append(entry.get("replaced_at"))
+    for intent in record.get("intended", []):
+        stamps.append(intent.get("added_at"))
+        stamps.append(intent.get("claimed_at"))
+        stamps.append((intent.get("withdrawn") or {}).get("at"))
+    for entry in record.get("intended_history", []):
+        stamps.append(entry.get("at"))
     valid = [s for s in stamps if isinstance(s, str) and s]
     return max(valid)[:10] if valid else "unknown"
 
 
-def way_through_for(plan_id: str, status: str, sealed: bool) -> str:
+def _with_intent_note(text: str, has_unclaimed_intents: bool) -> str:
+    """Append the extra step to a rendered 'add after / insert' way-through sentence, only when the
+    target program still has live intents nobody has claimed. This is the ONE place that decides
+    whether that parenthetical gets said, so every refusal that names `program add --after` or
+    `program insert` as the way through says it identically — or all stay silent, exactly as they
+    read before intents existed, when a program has none recorded.
+    """
+    return text + (INTENT_JOIN_NOTE if has_unclaimed_intents else "")
+
+
+def way_through_for(plan_id: str, status: str, sealed: bool, *,
+                    has_unclaimed_intents: bool = False) -> str:
     """What the operator can actually DO about a child that cannot answer for an obligation.
 
     One owner, because two callers each worked it out for themselves and both got the same case
@@ -252,27 +365,36 @@ def way_through_for(plan_id: str, status: str, sealed: bool) -> str:
     A plan that is still open can simply be revised. A sealed one cannot — a seal is terminal — so
     it is replaced. An active one cannot be replaced either until its Build stops, and saying so is
     the difference between a way through and a door that opens onto a wall.
+
+    `has_unclaimed_intents` names only the two branches below that route through `program add
+    --after` — the sealed and default branches point at `program supersede` and a plain revision,
+    which the intended order has nothing to say about. Defaults to False so a caller with no
+    program record in hand (or the existing pinned test) sees exactly the prior text.
     """
     if status == "active":
         # The two outcomes of that Build lead to DIFFERENT doors, and saying only "let it merge, or
         # abandon it, then supersede" was this function's own defect arriving inside the fix for it:
         # a merged Build makes the plan complete, and supersede refuses a complete target flat. So
         # each route names the door that is actually open at the end of it.
-        return (f"\nA Build is bound to {plan_id} right now, so it can be neither revised (its seal "
-                "is terminal) nor superseded (superseding a plan with a Build running would strand "
-                "it). Two ways on, and they end somewhere different: ABANDON that Build, and "
-                f"`program supersede {plan_id}` then works. Or let it MERGE — after which the plan "
-                "is complete and merged history is not replaced but CORRECTED, so the way through "
-                "becomes appended work: `program add --after` a new plan that answers.")
+        return _with_intent_note(
+            f"\nA Build is bound to {plan_id} right now, so it can be neither revised (its seal "
+            "is terminal) nor superseded (superseding a plan with a Build running would strand "
+            "it). Two ways on, and they end somewhere different: ABANDON that Build, and "
+            f"`program supersede {plan_id}` then works. Or let it MERGE — after which the plan "
+            "is complete and merged history is not replaced but CORRECTED, so the way through "
+            "becomes appended work: `program add --after` a new plan that answers.",
+            has_unclaimed_intents)
     if status == "complete":
         # A complete plan carries a seal, so it fell into the sealed branch below and was told to
         # supersede — which refuses a complete target flat. Unlike the sealed case there is no
         # precondition that opens supersede here: merged history is never replaced. The door that
         # does open is the one the complete-refusal already names, and now this names it too.
-        return (f"\n{plan_id} is complete — its pull request has merged, and merged history is not "
-                "replaced but CORRECTED. Nothing can make it answer retrospectively. Append the "
-                "work instead: `program add --after` a new plan that answers for these, placed "
-                "after the last child on that branch.")
+        return _with_intent_note(
+            f"\n{plan_id} is complete — its pull request has merged, and merged history is not "
+            "replaced but CORRECTED. Nothing can make it answer retrospectively. Append the "
+            "work instead: `program add --after` a new plan that answers for these, placed "
+            "after the last child on that branch.",
+            has_unclaimed_intents)
     if sealed:
         return (f"\nThat plan is SEALED, and a seal is terminal, so it cannot be revised to answer "
                 f"for them. Replace it: `program supersede {plan_id}` with a plan that does.")
@@ -419,11 +541,18 @@ class ProgramLibrary:
             })
         return slug
 
-    def add_child(self, slug: str, plan_selector: str, *, predecessor: str | None = None) -> dict:
+    def add_child(self, slug: str, plan_selector: str, *, predecessor: str | None = None,
+                 fulfills: str | None = None, out_of_order_reason: str | None = None,
+                 outside_intent: str | None = None) -> dict:
         """Append a plan to the program, enforcing the carry-forward guarantee against its predecessor.
 
         The predecessor is DECLARED, not inferred from array position, so re-ordering the record can
         never silently re-point what a successor is answerable to.
+
+        `fulfills`/`out_of_order_reason`/`outside_intent` answer to the recorded intended order, a
+        second and independent gate from the carry-forward one above — see `_apply_intent_join`,
+        which both this and `insert_child` call identically. With no intents recorded it is a no-op,
+        so a program that never uses intents joins byte-for-byte as before they existed.
         """
         with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
             record = self.read(slug)
@@ -456,6 +585,10 @@ class ProgramLibrary:
             elif predecessor is not None:
                 raise ProgramError("the first child of a program has no predecessor to declare")
 
+            self._apply_intent_join(record, plan_id, fulfills=fulfills,
+                                    out_of_order_reason=out_of_order_reason,
+                                    outside_intent=outside_intent)
+
             child = {"plan_id": plan_id, "added_at": _now()}
             if predecessor_id:
                 child["predecessor_plan_id"] = predecessor_id
@@ -486,7 +619,7 @@ class ProgramLibrary:
         declared = (self.plans.head(plan_slug).get("program") or {}).get("program_id")
         if declared != record["program_id"]:
             sealed = bool(self.plans.read_record(plan_slug).get("seal"))
-            raise ProgramError(
+            raise ProgramError(_with_intent_note(
                 f"{plan_id} does not declare that it belongs to this program. Its document must "
                 f"carry `program.program_id` = {record['program_id']}"
                 + (f", and it currently says {declared}." if declared else ".")
@@ -500,7 +633,8 @@ class ProgramLibrary:
                    "then add the clone here. A plan is normally added to its program before it is "
                    "sealed, which is when this is a one-line revision."
                    if sealed else
-                   " Revise the plan to add it, then add it here."))
+                   " Revise the plan to add it, then add it here."),
+                bool(self._unclaimed_intents(record))))
 
         # Checked for EVERY child, including the first, and before the carry-forward comparison.
         # A release is a decision to stop answering for something, and it costs a reason wherever
@@ -516,7 +650,9 @@ class ProgramLibrary:
                   "why each was let go, or carry it.")
         return plan_slug, plan_id
 
-    def insert_child(self, slug: str, plan_selector: str, *, before: str) -> dict:
+    def insert_child(self, slug: str, plan_selector: str, *, before: str,
+                     fulfills: str | None = None, out_of_order_reason: str | None = None,
+                     outside_intent: str | None = None) -> dict:
         """Place a plan AHEAD of an existing child, re-pointing the edge that used to reach it.
 
         This is the door the program object was missing. `add_child` can only append after an
@@ -561,12 +697,13 @@ class ProgramLibrary:
             displaced_record = self.plans.read_record(self.plans.resolve(displaced_id))
             displaced_status = plan_store.derived_status(displaced_record)
             if displaced_status == "complete":
-                raise ProgramError(
+                raise ProgramError(_with_intent_note(
                     f"{displaced_id} is complete — its pull request is merged, and inserting ahead "
                     "of merged history would claim work landed in an order it did not. History is "
                     "corrected by APPENDED work: add the new plan after the last child on this "
                     "branch with `program add --after`, and let it say what it changes about what "
-                    "already shipped.")
+                    "already shipped.",
+                    bool(self._unclaimed_intents(record))))
 
             inherited = displaced.get("predecessor_plan_id")
             inserted_head = self.plans.head(plan_slug)
@@ -605,13 +742,323 @@ class ProgramLibrary:
                     f"carrying:\n"
                     + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
                     + way_through_for(displaced_id, displaced_status,
-                                      bool(displaced_record.get("seal"))))
+                                      bool(displaced_record.get("seal")),
+                                      has_unclaimed_intents=bool(self._unclaimed_intents(record))))
+
+            self._apply_intent_join(record, plan_id, fulfills=fulfills,
+                                    out_of_order_reason=out_of_order_reason,
+                                    outside_intent=outside_intent)
 
             child = {"plan_id": plan_id, "added_at": _now()}
             if inherited:
                 child["predecessor_plan_id"] = inherited
             displaced["predecessor_plan_id"] = plan_id
             record["children"].append(child)
+            self._write(slug, record)
+            return record
+
+    # -- the intended order: declared precedence for steps not yet authored --
+    #
+    # Everything below answers to a SECOND, independent gate at every join door, beside the
+    # carry-forward guarantee above. The guarantee says a successor must answer for what its
+    # predecessor carries; this says a program that has recorded what it means to build next may not
+    # have a child join silently past that record. Neither implies the other, and neither is derived
+    # from evidence: the carry-forward set is read from documents that exist, and the intended order
+    # is a partial order someone DECIDED before any of it was authored. Nothing here selects, starts,
+    # ranks, or advances a child — the order is disclosed, never executed.
+
+    def _unclaimed_intents(self, record: dict, status_of: dict | None = None) -> list:
+        """Recorded intents open to a fresh claim: not withdrawn, and either never claimed or
+        claimed by a plan that has since died. A dead claim is not a live seat on the chain — S4's
+        rule that it releases the intent back to a fresh `--fulfills` — so it counts as unclaimed
+        here exactly as it does in `intended_standing`. This is the ONE place that decides what
+        "unclaimed" means, read by every join-time refusal and by the S9 note alike.
+        """
+        intents = record.get("intended", [])
+        if not intents:
+            return []
+        if status_of is None:
+            status_of = {child["plan_id"]: child["status"] for child in self.child_view(record)}
+        return [intent for intent in intents
+                if not intent.get("withdrawn")
+                and (not intent.get("claimed_by")
+                     or status_of.get(intent["claimed_by"]) in DEAD_BRANCH_STATES)]
+
+    @staticmethod
+    def _unclaimed_intents_refusal(unclaimed: list) -> str:
+        """The S2 join-guard refusal: what is waiting, and which of the two doors applies."""
+        listing = "\n".join(f"  - {i['key']}: {i['title']}" for i in
+                            sorted(unclaimed, key=lambda i: i["key"]))
+        return (
+            f"this program has {len(unclaimed)} recorded intent(s) nobody has claimed yet:\n"
+            f"{listing}\n"
+            "If this child fulfils one of them, claim it: `--fulfills KEY` (add "
+            "`--out-of-order-reason TEXT` too if it jumps ahead of another unclaimed intent, "
+            "quoting why that one comes first). If it fulfils none of them, say so instead: "
+            "`--outside-intent TEXT`. One of the two doors is required whenever intents are "
+            "still waiting to be claimed — this join does not silently pass either of them by.")
+
+    def _apply_intent_join(self, record: dict, plan_id: str, *, fulfills: str | None,
+                           out_of_order_reason: str | None, outside_intent: str | None) -> None:
+        """Everything the recorded intended order requires of a JOINING child, mutating `record` in
+        place. `add_child` and `insert_child` both call this, identically, after their own
+        carry-forward checks pass and before the child is appended — so a join that would otherwise
+        succeed can still be refused for passing the recorded order by, and when it is not, the
+        claim or the outside-intent record lands atomically with the join, under the one write.
+
+        With no intents recorded (`record.get("intended")` empty), every combination below is a
+        no-op: the refusals only fire when there is something to answer to, which is what keeps a
+        program that never uses intents joining byte-for-byte as it always has.
+        """
+        if fulfills and outside_intent:
+            raise ProgramError(
+                "pass --fulfills or --outside-intent, never both — a child either claims a "
+                "recorded intent or stands outside the recorded order; it cannot do both at once.")
+        if out_of_order_reason and not fulfills:
+            raise ProgramError(
+                "--out-of-order-reason only means something beside --fulfills — it prices JUMPING "
+                "the recorded order when claiming an intent, and there is no claim here for it to "
+                "price.")
+        status_of = {child["plan_id"]: child["status"] for child in self.child_view(record)}
+        unclaimed = self._unclaimed_intents(record, status_of)
+        if fulfills is None and outside_intent is None:
+            if unclaimed:
+                raise ProgramError(self._unclaimed_intents_refusal(unclaimed))
+            return
+        now = _now()
+        if outside_intent is not None:
+            record.setdefault("intended_history", []).append({
+                "kind": "outside-intent", "plan_id": plan_id, "at": now,
+                "reason": outside_intent})
+            return
+        by_key = {i["key"]: i for i in record.get("intended", [])}
+        intent = by_key.get(fulfills)
+        if intent is None:
+            raise ProgramError(f"{fulfills!r} is not a recorded intent on this program.")
+        if intent.get("withdrawn"):
+            raise ProgramError(f"{fulfills!r} was withdrawn; there is nothing left to claim.")
+        claimed_by = intent.get("claimed_by")
+        claim_is_dead = bool(claimed_by) and status_of.get(claimed_by) in DEAD_BRANCH_STATES
+        if claimed_by and not claim_is_dead:
+            raise ProgramError(
+                f"{fulfills!r} is already claimed by {claimed_by}, which is still live. A live "
+                "claim stands until its plan dies or is replaced — `program supersede` transfers "
+                "the claim to a replacement; nothing else moves it.")
+        unclaimed_keys = {i["key"] for i in unclaimed}
+        crossed = [edge for edge in intent.get("after", []) if edge["ref"] in unclaimed_keys]
+        if crossed and not out_of_order_reason:
+            edge = crossed[0]
+            raise ProgramError(
+                f"{fulfills!r} follows {edge['ref']!r} ({edge['reason']}), and {edge['ref']!r} is "
+                "still unclaimed — claiming this out of order needs its own reason. Pass "
+                "--out-of-order-reason, or claim/withdraw the intent it follows first.")
+        if claim_is_dead:
+            record.setdefault("intended_history", []).append({
+                "kind": "claim-reopened", "key": fulfills, "dead_plan_id": claimed_by, "at": now})
+        intent["claimed_by"], intent["claimed_at"] = plan_id, now
+        if crossed:
+            record.setdefault("intended_history", []).append({
+                "kind": "claimed-out-of-order", "key": fulfills, "plan_id": plan_id,
+                "crossed": [{"ref": e["ref"], "reason": e["reason"]} for e in crossed],
+                "at": now, "reason": out_of_order_reason})
+
+    def _validate_after(self, record: dict, after: list) -> list:
+        """Every edge in a proposed `after` list, checked and normalized to {ref, reason}.
+
+        A ref must name either an existing child of this program or another recorded intent that
+        has not been withdrawn — "unknown or withdrawn precedence ref" is refused right here, once,
+        for `add_intent` and `revise_intent` alike.
+        """
+        child_ids = {c["plan_id"] for c in record["children"]}
+        intents_by_key = {i["key"]: i for i in record.get("intended", [])}
+        edges = []
+        for edge in after or []:
+            ref = (edge.get("ref") or "").strip()
+            reason = (edge.get("reason") or "").strip()
+            if not ref:
+                raise ProgramError("a precedence edge needs a ref to follow; nothing was recorded.")
+            if not reason:
+                raise ProgramError(
+                    f"the edge to {ref!r} needs a reason — a declared precedence is a decision, "
+                    "and an edge without one records nothing a later reader can weigh.")
+            if ref not in child_ids:
+                intent = intents_by_key.get(ref)
+                if intent is None:
+                    raise ProgramError(
+                        f"{ref!r} names neither a child of this program nor a recorded intent, so "
+                        "this precedence has nothing to follow. Record the intent it depends on "
+                        "first, or correct the reference.")
+                if intent.get("withdrawn"):
+                    raise ProgramError(
+                        f"{ref!r} was withdrawn, so nothing can declare precedence on it any more. "
+                        "Point the edge at what actually stands, or drop it.")
+            edges.append({"ref": ref, "reason": reason})
+        return edges
+
+    def _would_cycle(self, record: dict, key: str, after_edges: list, *,
+                     exclude_key: str | None = None) -> bool:
+        """Whether adding `after_edges` to `key` would put it in a cycle with other intents.
+
+        Only intent-key refs can cycle — a stored child's plan_id is a leaf in this graph, since a
+        plan is authored, not itself pointed at by way of precedence declared elsewhere against it
+        as an INTENT. `exclude_key` drops the entry being revised from the graph before its NEW
+        edges are added, so revising an intent's own edges is judged against the rest of the
+        record, never against the edges it is in the middle of replacing.
+        """
+        adjacency: dict = {}
+        for intent in record.get("intended", []):
+            if intent["key"] == exclude_key:
+                continue
+            adjacency[intent["key"]] = [e["ref"] for e in intent.get("after", [])]
+        adjacency[key] = [e["ref"] for e in after_edges]
+        seen: set = set()
+        stack = list(adjacency.get(key, []))
+        while stack:
+            node = stack.pop()
+            if node == key:
+                return True
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(adjacency.get(node, []))
+        return False
+
+    def add_intent(self, slug: str, key: str, title: str, statement: str, after: list) -> dict:
+        """Record a step this program intends to author but has not yet, as DECLARED PRECEDENCE.
+
+        Never derived: `after` is exactly the edges someone decided, each with the reason it was
+        decided, and the set across every intent is a PARTIAL order the engine never completes.
+        """
+        key = (key or "").strip()
+        title = (title or "").strip()
+        statement = (statement or "").strip()
+        if not key:
+            raise ProgramError("an intent needs a key; nothing was recorded.")
+        if not _INTENT_KEY_RE.match(key):
+            raise ProgramError(
+                f"{key!r} is not a valid intent key — it must start with a letter or digit and use "
+                "only letters, digits, '.', '_' or '-', and it must not look like a plan id "
+                "(pln_...), which names an authored child, not an intent that has none yet.")
+        if not title:
+            raise ProgramError("an intent needs a title; nothing was recorded.")
+        if not statement:
+            raise ProgramError("an intent needs a statement — what it is meant to answer for.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            if record.get("closure"):
+                raise ProgramError(f"this program is {record['closure']['state']}; reopen it first")
+            if any(i["key"] == key for i in record.get("intended", [])):
+                raise ProgramError(
+                    f"{key!r} is already a recorded intent. Revise it with `program intend "
+                    "revise`, or pick a different key.")
+            edges = self._validate_after(record, after)
+            if self._would_cycle(record, key, edges):
+                raise ProgramError(
+                    f"declaring this precedence would put {key!r} in a cycle with what it "
+                    "follows — a partial order cannot loop back on itself. Point the edge "
+                    "elsewhere, or drop it.")
+            record.setdefault("intended", []).append({
+                "key": key, "title": title, "statement": statement,
+                "after": edges, "added_at": _now()})
+            self._write(slug, record)
+            return record
+
+    def revise_intent(self, slug: str, key: str, *, title: str | None = None,
+                      statement: str | None = None, after: list | None = None,
+                      reason: str) -> dict:
+        """Replace title/statement/edges on a recorded intent, keeping what it said in history.
+
+        Refuses a no-op, a closed program, and — only for the EDGES — a claimed entry: a claim is
+        already a seat on the chain, so moving where it sits is `program insert --fulfills` or
+        `program supersede`, not a revision to a record that has not been authored yet.
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "revising an intent costs a reason — the prior wording stays in history either "
+                "way; what the reason adds is why it changed, which nobody can reconstruct "
+                "afterward.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            if record.get("closure"):
+                raise ProgramError(f"this program is {record['closure']['state']}; reopen it first")
+            intent = next((i for i in record.get("intended", []) if i["key"] == key), None)
+            if intent is None:
+                raise ProgramError(f"{key!r} is not a recorded intent on this program.")
+            if intent.get("withdrawn"):
+                raise ProgramError(f"{key!r} was withdrawn; there is nothing left to revise.")
+            new_title = intent["title"] if title is None else title.strip()
+            new_statement = intent["statement"] if statement is None else statement.strip()
+            if title is not None and not new_title:
+                raise ProgramError("a title cannot be blanked to nothing; drop --title to leave "
+                                   "it as it is.")
+            if statement is not None and not new_statement:
+                raise ProgramError("a statement cannot be blanked to nothing; drop --statement to "
+                                   "leave it as it is.")
+            if after is not None:
+                if intent.get("claimed_by"):
+                    raise ProgramError(
+                        f"{key!r} is claimed by {intent['claimed_by']}, so its edges are no "
+                        "longer just a plan on paper — a claimed step already has a seat on the "
+                        "chain. Move it there instead: `program insert --fulfills` re-places the "
+                        "claiming child, or `program supersede` replaces it and carries the claim "
+                        "with it.")
+                new_after = self._validate_after(record, after)
+                if self._would_cycle(record, key, new_after, exclude_key=key):
+                    raise ProgramError(
+                        f"revising {key!r} this way would put it in a cycle with what it "
+                        "follows — a partial order cannot loop back on itself.")
+            else:
+                new_after = intent["after"]
+            if (new_title == intent["title"] and new_statement == intent["statement"]
+                    and new_after == intent["after"]):
+                raise ProgramError(
+                    "that is what this intent already says; nothing was written, and no history "
+                    "entry was minted for a no-op.")
+            prior = {"title": intent["title"], "statement": intent["statement"],
+                     "after": intent["after"]}
+            intent["title"], intent["statement"], intent["after"] = new_title, new_statement, new_after
+            record.setdefault("intended_history", []).append({
+                "kind": "revised", "key": key, "prior": prior, "at": _now(), "reason": reason})
+            self._write(slug, record)
+            return record
+
+    def withdraw_intent(self, slug: str, key: str, reason: str) -> dict:
+        """Mark a recorded intent withdrawn, keeping it visible rather than removing it.
+
+        Permitted on a CLOSED program — a correction that the step was never going to be built is
+        the same kind of truth-telling `release` and `revise_objective` are already allowed to make
+        after closure. Refused on a claimed entry (a claim already has a seat; `program supersede`
+        is what moves it) and on an entry another live intent still declares precedence on
+        (withdrawing it would drop that declared order silently).
+        """
+        if not (reason or "").strip():
+            raise ProgramError(
+                "withdrawing an intent costs a reason — that is its whole price, and what lets a "
+                "later reader tell a decision from an omission.")
+        with core.exclusive_lock(self.program_dir(slug) / (RECORD_FILENAME + ".lock")):
+            record = self.read(slug)
+            intent = next((i for i in record.get("intended", []) if i["key"] == key), None)
+            if intent is None:
+                raise ProgramError(f"{key!r} is not a recorded intent on this program.")
+            if intent.get("withdrawn"):
+                raise ProgramError(f"{key!r} was already withdrawn.")
+            if intent.get("claimed_by"):
+                raise ProgramError(
+                    f"{key!r} is claimed by {intent['claimed_by']}, which already has a seat on "
+                    f"the chain; withdrawing the intent behind it would not move that seat. "
+                    f"Replace the child instead: `program supersede {intent['claimed_by']}` with "
+                    "a plan that carries the claim to wherever it belongs.")
+            dependents = sorted(i["key"] for i in record.get("intended", [])
+                               if not i.get("withdrawn") and i["key"] != key
+                               and any(e["ref"] == key for e in i.get("after", [])))
+            if dependents:
+                raise ProgramError(
+                    f"{', '.join(dependents)} still declare"
+                    + ("s" if len(dependents) == 1 else "")
+                    + f" precedence on {key!r}; withdrawing it would drop that declared order "
+                      "silently. Withdraw the dependent(s) first, or revise their edges to point "
+                      "elsewhere.")
+            intent["withdrawn"] = {"at": _now(), "reason": reason}
             self._write(slug, record)
             return record
 
@@ -768,18 +1215,20 @@ class ProgramLibrary:
         superseded_record = self.plans.read_record(self.plans.resolve(superseded_id))
         status = plan_store.derived_status(superseded_record)
         if status == "complete":
-            raise ProgramError(
+            raise ProgramError(_with_intent_note(
                 f"{superseded_id} is complete — its pull request is merged. Merged history is not "
                 "replaced, it is CORRECTED by appended work: add a new plan after the last child on "
                 "this branch with `program add --after`, and let it say what it changes about what "
-                "already shipped.")
+                "already shipped.",
+                bool(self._unclaimed_intents(record))))
         if status == "active":
-            raise ProgramError(
+            raise ProgramError(_with_intent_note(
                 f"{superseded_id} is ACTIVE — a Build is bound to it right now, and retiring the plan "
                 "underneath a running Build strands it: it would go on publishing from a retired plan, "
                 "and its completion could never be recorded afterwards. ABANDON that Build and this "
                 "supersede then works — or let it MERGE, after which the plan is complete and merged "
-                "history is corrected by appended work (`program add --after`), never replaced.")
+                "history is corrected by appended work (`program add --after`), never replaced.",
+                bool(self._unclaimed_intents(record))))
         if not superseded_record.get("seal") and not already:
             # The requirement binds every target not yet MARKED, closed or not. The first cut
             # exempted any closed target, reasoning that supersede's own crash debris had to
@@ -870,7 +1319,8 @@ class ProgramLibrary:
                     f"{len(dropped)} obligation(s) that {replacement_id} declares it is carrying:\n"
                     + "\n".join(f"  - {o['id']}: {o['statement']}" for o in dropped)
                     + way_through_for(other["plan_id"], downstream_status,
-                                      bool(downstream_record.get("seal"))))
+                                      bool(downstream_record.get("seal")),
+                                      has_unclaimed_intents=bool(self._unclaimed_intents(record))))
 
         return {"superseded_id": superseded_id, "replacement_id": replacement_id,
                 "replacement_slug": replacement_slug, "inherited": inherited, "already": already}
@@ -914,6 +1364,18 @@ class ProgramLibrary:
                     continue
                 if other.get("predecessor_plan_id") == superseded_id:
                     other["predecessor_plan_id"] = replacement_id
+            # S3: a claim is a seat on the chain, and supersede is what moves a seat — never a
+            # fresh join, so this never touches `_apply_intent_join`'s gate. An unclaimed replaced
+            # child records nothing about intents; one that WAS claimed hands the claim on, with
+            # its own history event, so a later reader sees the claim moved rather than vanished
+            # and reappeared unexplained.
+            claimed_intent = next((i for i in record.get("intended", [])
+                                  if i.get("claimed_by") == superseded_id), None)
+            if claimed_intent:
+                claimed_intent["claimed_by"] = replacement_id
+                record.setdefault("intended_history", []).append({
+                    "kind": "claim-transferred", "key": claimed_intent["key"],
+                    "from_plan_id": superseded_id, "to_plan_id": replacement_id, "at": _now()})
             self._write(slug, record)
             return record
 
@@ -1097,6 +1559,12 @@ class ProgramLibrary:
                       "with --acknowledge-unknown \"<why this is being accepted>\", which records the "
                       "decision rather than hiding it.")
             closure = {"state": state, "at": _now(), "reason": reason}
+            if state in ("retired", "abandoned"):
+                unclaimed_intents = self._unclaimed_intents(record)
+                if unclaimed_intents:
+                    closure["intents_left"] = [
+                        {"key": i["key"], "title": i["title"]}
+                        for i in sorted(unclaimed_intents, key=lambda i: i["key"])]
             if report["unknown"]:
                 closure["acknowledged_unknown"] = acknowledged_unknown
             elif (acknowledged_unknown or "").strip():
@@ -1174,6 +1642,14 @@ class ProgramLibrary:
         if report["unknown"]:
             blockers.append("what this program owes cannot be computed from its record: "
                             + "; ".join(report["unknown"]))
+        unclaimed_intents = self._unclaimed_intents(record, statuses)
+        if unclaimed_intents:
+            blockers.append(
+                "these intents are recorded but never claimed: "
+                + ", ".join(f"{i['key']} ({i['title']})"
+                           for i in sorted(unclaimed_intents, key=lambda i: i["key"]))
+                + " — completion cannot drop a recorded step silently. `program intend withdraw "
+                  "--reason` is the way through if the step is not going to be built after all.")
         return blockers
 
     def revise_objective(self, slug: str, objective: str, reason: str) -> dict:
