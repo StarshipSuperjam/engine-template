@@ -30,6 +30,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 import selftest_select as S
 import validate
@@ -566,6 +567,12 @@ class TheLivePredicate(unittest.TestCase):
         # Deleting the last file under the provided directory does not hand the directory to the project.
         os.remove(os.path.join(tmp, "harness", "run.py"))
         self.assertFalse(S.project_owned_predicate(tmp)("harness/other.py"))
+        # Building the predicate discovers the manifests exactly ONCE — the register and the corners
+        # come from one read, never a validated read and then an unchecked second one.
+        import module_coherence as mc
+        with mock.patch.object(mc, "discover_manifests", wraps=mc.discover_manifests) as discover:
+            S.project_owned_predicate(tmp)
+        self.assertEqual(discover.call_count, 1)
 
     def test_a_degenerate_register_makes_nothing_the_projects(self):
         tmp = tempfile.mkdtemp(prefix="selftest-select-degenerate-")

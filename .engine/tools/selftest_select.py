@@ -505,7 +505,7 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
         # outcome that could pass while running nothing.
         return full("unreached-tool", "no test module was selected for any changed path")
 
-    # `project-only` is the honest name for a run whose every considered path was the project's: what
+    # `project-only` is the honest name for a run whose EVERY changed path was the project's: what
     # runs is the standing guard alone, and the run record carries that scope so the Build's evidence
     # and the pull-request body can say the inventory did not run. A change set with ANY Engine path
     # beside the project's is an ordinary focused (or full) run and says nothing special — and an

@@ -533,7 +533,8 @@ def _run_child(args: argparse.Namespace) -> int:
     scope = "full"
     unmatched: list = []
     if selection is not None and selection.get("classification") in ("focused", "project-only"):
-        # `project-only` is a focused run whose every considered path was a deployed project's own, so
+        # `project-only` is a focused run whose every changed path was a deployed project's own (no Engine
+        # path, exempt or otherwise, beside them), so
         # what runs is the standing guard alone; the scope keeps that name so the record never reads as
         # an ordinary narrowing.
         scope = selection["classification"]

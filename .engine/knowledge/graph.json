@@ -7636,7 +7636,7 @@
       },
       "slug": "selftest-selection.v1",
       "source": {
-        "fingerprint": "sha256:332d8e5ce81eb3d211cf7ebc6f4f8c31b52802f9653d059c9066a7c95b94ebf2",
+        "fingerprint": "sha256:39f95d0df2ce2a385c8bdeb96d19b0319462bbc2a8c0902c8d6a20efdcd4df06",
         "path": ".engine/schemas/selftest-selection.v1.json"
       },
       "status": "active",
@@ -15161,7 +15161,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:74733f78c49572a3f020c30e94abaad0198540ec48d5fe3fbe34ba651ffc5a1b",
+        "fingerprint": "sha256:1107f2ba421609eda9a5e0eeebdf2b3c6ba081bf50cf7613c5f07cd6aa6123b4",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -15187,7 +15187,7 @@
       },
       "slug": "selftest_select",
       "source": {
-        "fingerprint": "sha256:c22810c43bc2e950afaaf7d9f0ae651cdc6acf417c8c8b47852c12b24e1e830a",
+        "fingerprint": "sha256:e8846c79c5897f826c6798856154c2cae11585c7cbe4cc4b84c83ce0e8e7ee2c",
         "path": ".engine/tools/selftest_select.py"
       },
       "status": "active",
@@ -20404,6 +20404,7 @@
         "tests": [
           "tool:change_classification",
           "tool:derived_state",
+          "tool:module_coherence",
           "tool:selftest",
           "tool:selftest_select",
           "tool:validate"
@@ -20411,7 +20412,7 @@
       },
       "slug": "test_selftest_select",
       "source": {
-        "fingerprint": "sha256:433621ce3d1a555c91c42155cdfd8432a709d573bf54bd9be9754e765ef8840d",
+        "fingerprint": "sha256:92fe014ddd37bfa157acc09aa337e345ee4805e8f78b126dab8c895d79d14e28",
         "path": ".engine/tools/test_selftest_select.py"
       },
       "status": "active",
