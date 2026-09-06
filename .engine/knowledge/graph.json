@@ -14536,7 +14536,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:909fd02b670259e8dd6dc6b260a18b6abcd189d2cbe44ea78600b1715c77de5f",
+        "fingerprint": "sha256:576b5aadd066f302d181ba141ed689fd15bf7589ffc3ae3ce3cac296b0cb3215",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
