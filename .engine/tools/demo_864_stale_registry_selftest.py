@@ -37,7 +37,6 @@ import validate        # noqa: E402
 
 _SELFTEST_REL = os.path.join("tools", "selftest.py")
 _REGISTRY_REL = os.path.join(".engine", "provisioning", "module-surfaces.json")
-_TARGET_TEST = "test_committed_registry_matches_the_derived_set"
 _INHERIT_DROP = ("ENGINE_NESTED_SELFTEST", "ENGINE_DEPLOYED_PROJECTION")
 
 
@@ -152,7 +151,13 @@ def main() -> int:
         print("    banner tail:")
         for ln in proc.stdout.strip().splitlines()[-6:]:
             print(f"      {ln}")
-        if record.get("verdict") != "failed":
+        home_skipped = record.get("executed", {}).get("skipped_count", 0)
+        if record.get("verdict") == "passed" and home_skipped >= 1:
+            # The exact #864 shape: a staled registry, a green verdict, and a skip where the failure should
+            # be — the registry test was SKIPPED rather than failed. This is the false green the fix removes.
+            failures.append(f"staled home clone: verdict 'passed' with executed.skipped_count={home_skipped} — "
+                            f"the registry test was SKIPPED rather than failed (the #864 false green)")
+        elif record.get("verdict") != "failed":
             failures.append(f"staled home clone: expected verdict 'failed', got {record.get('verdict')!r}")
         if not any(REGISTRY_CASE in pid for pid in problem_ids):
             failures.append(f"staled home clone: {REGISTRY_CASE} did not appear among the record's problems")
@@ -199,7 +204,11 @@ def main() -> int:
                             f"got {record3.get('verdict')!r} — origin masking failed to skip it")
         if skipped_count < 1:
             failures.append("deployed clone: expected executed.skipped_count >= 1 (the registry case skipped)")
-        print("    the deployed shape masks the staled registry by origin: the case never runs there.")
+        # The run record counts skips but does not name them (StarshipSuperjam/engine-template#1253 is the
+        # per-case surfacing). The arm still holds: the registry file IS staled, so a green verdict means the
+        # case that would have failed on it did not run.
+        print("    the deployed shape masks the staled registry by origin: the file is staled and the verdict")
+        print("    is green, so the registry case did not run there (the record counts skips, not names).")
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)

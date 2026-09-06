@@ -158,6 +158,26 @@ class SelftestLauncher(_LauncherCase):
         self.assertIn("PASSED", r.stdout)
         self.assertIn("2 cases skipped", r.stdout)
 
+    def test_skip_count_prints_after_the_tracebacks_on_a_red_run(self):
+        """On a failing run the skip line is the LAST thing before the closing rule, below the failure
+        listing and the tracebacks, so a `tail` of the banner still shows it."""
+        r = self._run_launcher("""
+            import unittest
+            class T(unittest.TestCase):
+                @unittest.skip("synthetic skip")
+                def test_skipped(self):
+                    pass
+                def test_red(self):
+                    self.fail("synthetic failure")
+        """)
+        self.assertNotEqual(r.returncode, 0)
+        out = r.stdout
+        self.assertIn("1 case skipped", out)
+        self.assertIn("Failing tests (1):", out)
+        self.assertGreater(out.index("1 case skipped"), out.index("Failing tests (1):"))
+        self.assertGreater(out.index("1 case skipped"), out.index("synthetic failure"))
+        self.assertEqual(out.rstrip().splitlines()[-2].strip(), "1 case skipped")
+
     def test_background_grandchild_does_not_hang_or_stall_teardown(self):
         """A test that leaves a subprocess running (inheriting the output pipe) must NOT stall the
         launcher. Run at a REALISTIC heartbeat interval (5s): the child finishes instantly, so the

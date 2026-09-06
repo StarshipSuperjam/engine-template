@@ -765,8 +765,9 @@ class TestNestedEnvScrub(unittest.TestCase):
 
     def test_nested_env_sets_both_markers_under_their_selftest_support_names(self):
         # _nested_env sets BOTH markers on every projection spawn: the recursion sentinel and the projection
-        # marker that silences CONSTRUCTION-gated cases in a projected deployed tree. Also pins that the
-        # gate's own names are literally the same strings selftest_support defines, not a re-copied literal.
+        # marker that silences CONSTRUCTION-gated cases in a projected deployed tree. Also pins the gate's
+        # by-value copies of both names to the strings selftest_support defines (each home holds its own
+        # literal on purpose — see selftest_support's docstring — so the pin is what stops drift).
         self.assertEqual(rg._NESTED_ENV, selftest_support.NESTED_ENV)
         self.assertEqual(rg._PROJECTION_ENV, selftest_support.PROJECTION_ENV)
         with mock.patch.dict(os.environ, {}, clear=False):

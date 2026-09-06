@@ -732,10 +732,11 @@ def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str,
         # routinely read through `tail`. An unqualified "PASSED" on a focused run is the one place the
         # qualifier could silently drop off, so it is repeated where the verdict is.
         print(scope_note)
-    print(_skipped_banner_line(output))
+    skip_line = _skipped_banner_line(output)
     if log_path:  # always set now — the log is kept for every run, and its path is printed so the session can read it
         print(f"Full output: {log_path}")
     if rc == 0:
+        print(skip_line)
         print("=" * 78)
         return
 
@@ -763,6 +764,10 @@ def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str,
         print("The run failed without a standard failure list; last lines of the output:")
         for ln in lines[-_TAIL_LINES:]:
             print(ln)
+    # On a red run the skip count prints LAST, after the tracebacks: this banner is read through `tail`,
+    # and a count that scrolled off above fifty failure blocks would vanish on exactly the run where a
+    # skipped case can hide a failure (StarshipSuperjam/engine-template#864).
+    print(skip_line)
     print("=" * 78)
 
 

@@ -677,11 +677,6 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
     })
     #: The probes a re-copied construction predicate calls — flagged with or without a marker mention.
     HOME_PROBES = frozenset({"is_home_repo", "_in_home_repo"})
-    #: Documentation/belt only: names a re-copied predicate has historically combined with a home probe.
-    #: Not required by the detector below — a home-probe call alone is enough to flag the binding.
-    NESTED_MARKERS = frozenset({"ENGINE_NESTED_SELFTEST", "NESTED_ENV", "_NESTED_ENV",
-                                 "ENGINE_DEPLOYED_PROJECTION", "PROJECTION_ENV", "_PROJECTION_ENV"})
-
     @staticmethod
     def _called_names(node: ast.AST) -> set:
         names = set()
@@ -690,17 +685,6 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
                 fn = sub.func
                 names.add(fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", None))
         return names
-
-    @classmethod
-    def _mentions_marker(cls, node: ast.AST) -> bool:
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.Constant) and sub.value in cls.NESTED_MARKERS:
-                return True
-            if isinstance(sub, ast.Attribute) and sub.attr in cls.NESTED_MARKERS:
-                return True
-            if isinstance(sub, ast.Name) and sub.id in cls.NESTED_MARKERS:
-                return True
-        return False
 
     @classmethod
     def _copies_in(cls, tree: ast.AST) -> list:
@@ -775,8 +759,9 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
     def test_the_nested_run_marker_has_one_value_across_its_homes(self):
         """The marker's name is held by value in three places on purpose (the launcher, the release gate,
         and the support module: a test module's import graph stays light, so the support module does not
-        import the launcher just to read one string). This case is the one deliberate exception — it imports
-        both to compare their values — and is what keeps the three from drifting apart."""
+        import the launcher just to read one string). This case and test_selftest_support.py's name pins are
+        the two deliberate places that import both to compare the values, and are what keep the three from
+        drifting apart."""
         import release_gate
         import selftest
         import selftest_support

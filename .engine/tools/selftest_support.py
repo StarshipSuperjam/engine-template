@@ -19,11 +19,13 @@ drops out — the roster-aware signal a test uses to skip a leg that assumes the
 module_surfaces._installed_module_ids and engine_help._installed_module_ids answer a different question —
 what engine.json's `packages` records — and are not copies of this one; do not unify them by name.
 
-THE ENV-VAR NAME IS A VALUE, NOT AN IMPORT. selftest.py and release_gate.py each define the nested-run
-marker by value, and this module does too: a test module's import graph stays light, so the launcher is not
-imported here just to read one string (the choice the copies made before they were consolidated). The three
-homes are pinned equal by a case in test_launch_contract.py — the one deliberate place that imports both
-selftest and release_gate, precisely to compare their values — so they cannot drift apart silently.
+THE ENV-VAR NAMES ARE VALUES, NOT IMPORTS. selftest.py and release_gate.py each define the nested-run
+marker by value, release_gate.py defines the projection marker by value too, and this module holds both
+the same way: a test module's import graph stays light, so the launcher is not imported here just to read
+one string (the choice the copies made before they were consolidated). Two test cases pin the copies equal
+so they cannot drift apart silently — test_launch_contract.py compares the nested-run marker across the
+launcher and the gate, and test_selftest_support.py compares both markers against the names here. Those
+two cases are the only places that import selftest and release_gate to read the values.
 
 TWO MARKERS, TWO MEANINGS, NEVER CONFLATED. `NESTED_ENV` is a recursion guard only: selftest.py sets it on
 the single child that runs the whole suite, and release_gate.py sets it on every process it spawns inside a

@@ -53,16 +53,18 @@ import validate                              # noqa: E402
 import module_manager                        # noqa: E402  (retire_set safe reader, upgrade)
 import release_source                        # noqa: E402  (_archive_tree — offline release-tree projection)
 import census_completeness_check as _ccc     # noqa: E402  (shared home-repo predicate; monkeypatched in tests)
-import selftest_support                      # noqa: E402  (shared env-var names — NESTED_ENV, PROJECTION_ENV)
 
 # Set on every nested run this gate spawns (the in-projection suite and the upgrade driver) so a projected
 # copy of the suite never re-enters the gate. Shared name with the retired belt's guard and with
 # selftest.py's own recursion-refusal marker — a pure recursion guard, nothing else reads it as a gate.
-_NESTED_ENV = selftest_support.NESTED_ENV
+# Held by VALUE, not imported: the same convention selftest_support.py states for its own copy; the
+# pins in test_selftest_support.py and test_launch_contract.py are what keep the three homes equal.
+_NESTED_ENV = "ENGINE_NESTED_SELFTEST"
 
 # Set alongside `_NESTED_ENV` on every process this gate spawns inside a projection, so `CONSTRUCTION`-gated
-# cases (like `test_release_gate.py`'s own) skip there. Shared name with `selftest_support.PROJECTION_ENV`.
-_PROJECTION_ENV = selftest_support.PROJECTION_ENV
+# cases (like `test_release_gate.py`'s own) skip there. Same string as `selftest_support.PROJECTION_ENV`,
+# held by value for the same reason as `_NESTED_ENV` and pinned equal by test_selftest_support.py.
+_PROJECTION_ENV = "ENGINE_DEPLOYED_PROJECTION"
 
 # A deployed origin that differs from the recorded home, so the projection reads as a downstream copy
 # (`is_home_repo` -> False), exactly as the retired belt relied on.
