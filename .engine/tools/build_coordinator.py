@@ -2417,7 +2417,11 @@ def _candidate_record_problems(record, *, head_tree: str, inventory_count: int) 
     # checker itself, and a log whose file was unreadable AND whose digest was absent passed
     # vacuously (None == None). Every field is now shape-checked before use, and every absent or
     # unreadable component is a refusal, never a crash and never a silent pass.
-    if record.get("scope") not in ("full", "focused"):
+    # `project-only` is admitted as candidate evidence on the same footing as `focused` — it IS a focused
+    # run, the standing guard alone, named distinctly so the retained summary and the merge surface say the
+    # inventory did not run (StarshipSuperjam/engine-template#883). Nothing here believes the narrowing was
+    # warranted: the merge proof's final import re-derives the classification for the head against its base.
+    if record.get("scope") not in ("full", "focused", "project-only"):
         problems.append(f"the record's scope {record.get('scope')!r} is missing or unrecognised")
     if record.get("tree") is None:
         problems.append("the record binds no tree — a gating record must name the tree it ran over")
@@ -2535,9 +2539,13 @@ def _final_import(args, store: Snapshot) -> None:
                 "no GitHub token is available for the receipt fetch — " + boot.gh_unreachable_note())
         head_tree = _run(["git", "rev-parse", "HEAD^{tree}"]).stdout.strip()
         try:
+            # Both receipt modes are asked for here — and ONLY here. The reuse path in engine-ci keeps the
+            # gatekeeper's full-only default; this import is the one consumer that may accept a project-only
+            # receipt, because it re-derives the verdict below rather than believing the receipt.
             ok, detail = ci_gatekeeper.find_reusable_receipt(
                 repo=repo, token=token, pr_number=pr_number, head_sha=head,
-                expected_tree=head_tree, root=str(ROOT))
+                expected_tree=head_tree, root=str(ROOT),
+                accept_modes=ci_gatekeeper.ACCEPT_FULL_OR_PROJECT_ONLY)
         except Exception as exc:                   # noqa: BLE001 - a transport failure is a refusal
             raise CoordinatorError(
                 f"the receipt fetch failed before verification ({type(exc).__name__}: {exc}) — "
@@ -2547,9 +2555,30 @@ def _final_import(args, store: Snapshot) -> None:
             raise CoordinatorError(
                 "no run of the registered workflow yields a verifiable receipt for this head: "
                 + json.dumps(detail, sort_keys=True))
+        mode = (detail.get("receipt") or {}).get("mode")
+        if mode not in (ci_gatekeeper.MODE_FULL, ci_gatekeeper.MODE_PROJECT_ONLY):
+            raise CoordinatorError(
+                f"the verified receipt names no arm this import can stand on (mode {mode!r}); refusing")
+        classification = None
+        if mode == ci_gatekeeper.MODE_PROJECT_ONLY:
+            # A project-only receipt attests the validator alone. It is imported only when THIS checkout,
+            # asked the same question of the head against the live base, gives the same answer — the
+            # receipt's own embedded verdict is never read for that. A disagreement is a refusal with a
+            # distinct message: the proof is narrower than the change set warrants.
+            classification = _classify_head_against_base(base_oid, head)
+            verdict, code = classification.get("verdict"), (classification.get("reason") or {}).get("code")
+            if verdict != "project-only":
+                raise CoordinatorError(
+                    f"the engine-ci run for this head took the project-only arm, but this checkout "
+                    f"classifies the head against its base as {verdict} ({code}) — the proof is narrower "
+                    "than the change set warrants; push a head whose run executes the full inventory")
         final = {"commit": head, "source": "ci-import", "run_id": detail["run_id"],
                  "run_attempt": detail.get("run_attempt"), "context": protocol_final["context"],
                  "tree": head_tree, "receipt_digest": _digest(detail["receipt"]),
+                 "mode": mode,
+                 "classification_digest": (_digest(classification) if classification else None),
+                 "classification_reason": ((classification.get("reason") or {}).get("code")
+                                           if classification else None),
                  "imported_at": moment.utc_now()}
 
     def record(current):
@@ -2560,6 +2589,28 @@ def _final_import(args, store: Snapshot) -> None:
 
     store.mutate(record, from_revision=revision)
     print(json.dumps({"imported": final}, indent=2, sort_keys=True))
+
+
+def _classify_head_against_base(base: str, head: str) -> dict:
+    """The coordinator's OWN answer to the third-route question, for the final import: the change set of
+    `head` against the live `base`, through the same classifier engine-ci ran — asked again here, never
+    read out of the receipt. A seam so a fixture can hand in a verdict."""
+    import change_classification
+    return change_classification.classify_range(str(ROOT), base, head)
+
+
+PROJECT_ONLY_EVIDENCE_NOTE = (
+    "the Engine self-test inventory did not run for this change set, which lies outside everything the "
+    "Engine owns; Engine health only — no product validation is registered "
+    "(StarshipSuperjam/engine-template#1147)")
+
+
+def _scope_disclosure(scope) -> str:
+    """The merge surface's words for a candidate run's scope. A project-only run must never read as an
+    ordinary narrowing, so its line carries the evidentiary limit in full."""
+    if scope == "project-only":
+        return f" — {PROJECT_ONLY_EVIDENCE_NOTE}"
+    return ""
 
 
 def cmd_validate(args, store: Snapshot) -> None:
@@ -5082,14 +5133,21 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
             record = candidate_val.get("run_record")
             scope = ""
             if record and record.get("id") == r["id"]:
-                scope = f", scope **{record['scope']}** (tree `{str(record['tree'])[:12]}`)"
+                scope = (f", scope **{record['scope']}** (tree `{str(record['tree'])[:12]}`)"
+                         + _scope_disclosure(record.get("scope")))
             vlines.append(f"- **{labels.get(r['id'], r['id'])}** — {status} at `{r['commit'][:12]}`"
                           f"{scope} — candidate evidence, not merge evidence{tail}")
         final_val = split_val["final"]
         if final_val:
+            proof_mode = final_val.get("mode") or "full"
+            proof_note = (f", a **project-only** receipt accepted only after this checkout re-derived the "
+                          f"same verdict ({final_val.get('classification_reason')}) — "
+                          f"{PROJECT_ONLY_EVIDENCE_NOTE}"
+                          if proof_mode == "project-only" else "")
             vlines.append(f"- **Merge proof** — imported engine-ci run `{final_val.get('run_id')}` "
                           f"for `{str(final_val.get('commit'))[:12]}` (tree "
-                          f"`{str(final_val.get('tree'))[:12]}`), verified via its tree-bound receipt.")
+                          f"`{str(final_val.get('tree'))[:12]}`), verified via its tree-bound receipt"
+                          f"{proof_note}.")
         else:
             vlines.append("- **Merge proof** — not yet imported: `validate final import` must verify "
                           "the live engine-ci run for the submitted head before ready.")
