@@ -100,7 +100,7 @@ _USAGE = ("usage: knowledge_mcp_server.py [--help]\n"
 
 
 def main(argv: "list | None" = None) -> int:
-    # The #594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints usage
+    # The StarshipSuperjam/engine-template#594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints usage
     # and exits 0; any other argument — a flag or a bare word (this server has no verbs) — prints usage to
     # stderr and exits 2 without reaching server.run(). None means no arguments, never sys.argv. The return
     # value is an int and the entry block exits with it, so the status reaches the process.

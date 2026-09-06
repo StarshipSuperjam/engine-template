@@ -328,7 +328,7 @@ _USAGE = ("usage: overlay_disclosure.py [--help]\n"
 
 
 def _help_or_reject(argv: list) -> "int | None":
-    """The #594 guard, first in main(): --help / -h anywhere prints usage and returns 0; any other argument
+    """The StarshipSuperjam/engine-template#594 guard, first in main(): --help / -h anywhere prints usage and returns 0; any other argument
     (a flag or a bare word — the tool takes none) prints usage to stderr and returns 2. None means proceed."""
     if "--help" in argv or "-h" in argv:
         print(_USAGE)

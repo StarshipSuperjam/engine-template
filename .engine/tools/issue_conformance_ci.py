@@ -280,7 +280,7 @@ _USAGE = ("usage: issue_conformance_ci.py [demo] [--help]\n"
 
 
 def main(argv: "list | None" = None) -> int:
-    # The #594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints
+    # The StarshipSuperjam/engine-template#594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints
     # usage and exits 0; `demo` is the only verb; anything else — a flag or a bare word — prints usage to
     # stderr and exits 2 without reaching the write path. None means no arguments, never sys.argv.
     argv = list(argv or [])
