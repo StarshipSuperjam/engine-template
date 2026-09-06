@@ -5486,7 +5486,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:f05862b90da82083ab5d93981f6cb1a14e902c8b760d73a17114bb8883d5d637",
+        "fingerprint": "sha256:7356897763616f29a80a6bf23b4bb2bbfd14472f54b8030e6f845778418e6625",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6137,7 +6137,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:879644cfb7b4d5b41c7b4733aef6555baff2d32e0d1fcf811c38cd4f867d1822",
+        "fingerprint": "sha256:b76ac8819d829429ea441799e7b5a364ecaaaff54f935cdaf7aa550fb2ccf58b",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -17650,7 +17650,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:220313620d6e27c51cbfc557cf1ab6a598efffb65fe26723886501001a8f34ee",
+        "fingerprint": "sha256:acb61210fabbf8e3a4dae9f0fa4bb69ddebe83b7c9a01b27ae5067cb2e596e83",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",
