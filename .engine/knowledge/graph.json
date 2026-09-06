@@ -6137,7 +6137,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:b76ac8819d829429ea441799e7b5a364ecaaaff54f935cdaf7aa550fb2ccf58b",
+        "fingerprint": "sha256:b4fddea905dee4d623d3142f3b27de3dbe0dd3bde3ab9ec4edc7f43cecf79935",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
