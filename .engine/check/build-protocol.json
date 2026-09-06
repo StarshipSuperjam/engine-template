@@ -1,0 +1,11 @@
+{
+  "id": "engine/check/build-protocol",
+  "target": { "context": "build-protocol" },
+  "kind": "custom/script",
+  "params": {
+    "script": ".engine/tools/build_protocol_check.py"
+  },
+  "tier": "hard",
+  "suites": ["CI"],
+  "message": "The Build protocol (.engine/build-protocol.json) is the data every Build runs on: what candidate validation runs, what the final import verifies, which review lenses each depth runs, the submission preflights, the hard holds, and — in review_consumers — which Build stage consumes which review roster. This check reads it through the one shared loader and goes red on three conditions: the file does not load as build-protocol.v1 (so the Build Coordinator and the lens-consumption check would both be stranded); the Build runbook's generated review-consumers region (.engine/operations/build-orchestration.md, between the two marker comments) does not match what the data renders (so a reader would be told a stage consumes a review it does not); or a Markdown file under .engine still carries the retired consumed-review-lenses: block, the old hand-written form of that map, which nothing reads any more. To fix: correct the protocol so it matches the schema; regenerate the runbook region with `uv run --directory .engine --frozen -- python tools/build_protocol.py render` and commit it; delete any revived consumed-review-lenses: block. This check covers the data and its projection only; whether a stage genuinely spawns its reviews at build time is the Build's own evidence and your pull-request review."
+}

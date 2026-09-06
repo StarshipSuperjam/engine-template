@@ -1,0 +1,5 @@
+{
+  "env": {
+    "ENGINE_BUILD_PROTOCOL_PATH": ".engine/_fixtures/build-protocol/malformed-protocol.json"
+  }
+}

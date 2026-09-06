@@ -411,7 +411,7 @@ def canonical_catalogue(root: str = validate.ROOT) -> str:
                     proof_text += f" ({_link(fixture, 'carrier')})"
                 rule_label = f"`{rule['id']}`"
                 out.append(f"| {_link(rel, rule_label)} | `{_cell(rule.get('tier'))}` | "
-                           f"`{_cell(rule.get('kind'))}` | {_cell(rule.get('message'))} | {proof_text} |")
+                           f"`{_cell(rule.get('kind'))}` | {_cell(validate.render_rule_message(rule))} | {proof_text} |")
             out.append("")
         module_tests = sorted(grouped_tests[module_id], key=lambda row: row["path"])
         if module_tests:

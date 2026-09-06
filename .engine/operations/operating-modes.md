@@ -60,14 +60,17 @@ The stance lifecycle:
    flip the stance straight to build, which skipped every gate the plan side exists to run. Now the
    acceptance is caught by an intake adapter — Claude's plan-exit completion, or on Codex a message whose
    very first characters are `PLEASE IMPLEMENT THIS PLAN:` — and the accepted document lands in the Project
-   Manager as an **unapproved draft**: no approval, no review, no seal, no build authority. The session
-   then reports the plan's id, the revision it created, and the exact next command, so an acceptance is
-   never followed by an unexplained refusal. Nothing is invented on the way in: the text is kept verbatim,
+   Manager as an **unapproved draft**: no approval, no review, no seal, no build authority. On Claude the
+   adapter reads the plan from where the harness now puts it: the inline text on an older harness, else
+   the completion's own result, else the plan file that result names — read only from the platform's
+   plans folder (or a `plansDirectory` set in managed or your own settings, never a project's file). The
+   session then reports where the text came from, the plan's id, the revision it created, and the exact
+   next command, so an acceptance is never followed by an unexplained refusal. Nothing is invented on the way in: the text is kept verbatim,
    the payload is empty, and the things an import cannot know — what this is asking for, the problem, the
    case against, the decomposition — are recorded as open decisions the plan cannot be sealed with.
    Where a hook cannot run (a Codex hook trust the operator has not re-approved, or an acceptance line the
    platform has since reworded), `python tools/project_manager.py import-native --input - --provenance
-   "..."` performs the identical import from the plan text on stdin.
+   "<where this plan came from, in your words>"` performs the identical import from the plan text on stdin.
 5. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
    Claude Desktop routine runs the routine command, which enters
    the Routine write-stance through `set-routine` — a **mechanical** gate that grants the stance only in a
@@ -105,7 +108,10 @@ refuses a session `gh pr merge`; the wall is the merge itself). Never dress the 
 
 Intake is fail-safe too, in every direction. If an intake adapter never fires — including accepting a plan
 with the context cleared, which does not fire it (claude-code#20397) — nothing is imported and the typed
-`import-native` verb is the recovery. A message that merely mentions or quotes the Codex acceptance line is
+`import-native` verb is the recovery. If the adapter fires but finds no plan text anywhere it may read, it
+says so rather than staying silent: the session is handed a notice naming what the hook saw, what it
+tried, and the `import-native` recovery, and is told to relay it to you — an empty acceptance is never the
+benign case it once was. A message that merely mentions or quotes the Codex acceptance line is
 not an acceptance, because the line only counts at the very start of the message. And none of it can reach
 the stance: no hook writes the signal, so a miss, a misfire, or a failed import all leave the session in
 explore, never falsely in build.

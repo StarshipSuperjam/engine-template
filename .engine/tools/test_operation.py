@@ -13,7 +13,7 @@ value (ontology). The committed template carries exactly Purpose/Steps/Done when
 Notes, its shape-spec frontmatter is a well-formed template.v1, and it is byte-identical to the operation-shape
 rule's params (no drift between scaffold and rule). The shape rule is well-formed, joins CI, dispatches the
 shape kind over .engine/operations/*.md, is green on the empty stream, and has teeth (a missing/out-of-order/
-stray section fires hard; the optional Notes section passes; over-length is a soft nudge). The
+stray section fires hard; the optional Notes section passes; over-length is a hard finding, the rule having opted\ninto the hard length tier). The
 operation-frontmatter schema rule is well-formed, joins CI, is catalog-routed (no params.schema), green on the
 empty operation stream, and has teeth on a malformed record. The catalog now routes the operation surface to
 its in-repo schema and template. There is deliberately NO coherence leg: an operation has no closed-vocabulary
@@ -195,14 +195,20 @@ class TestShapeRule(unittest.TestCase):
         self.assertFalse(passed)
         self.assertTrue(any(f["severity"] == "hard" and "does not allow" in f["message"] for f in found))
 
-    def test_over_length_is_a_soft_nudge_not_a_block(self):
+    def test_over_length_is_a_hard_finding_for_an_operation(self):
+        # The operation rule opts into the hard length tier (`length_tier: "hard"`, typed-lifecycle part C,
+        # StarshipSuperjam/engine-template#821): an over-budget runbook FAILS the rule the way a broken section does. The other
+        # shape families keep their advisory nudge (see test_validate.TestShapeLengthTier).
         body = VALID_BODY + "\n".join(f"filler line {i}" for i in range(140)) + "\n"
         with tempfile.TemporaryDirectory() as d:
             p = _write(d, "demo.md", body)
             passed, found = _run_kind(validate.kind_shape, SHAPE_RULE, [p])
-        self.assertTrue(passed)  # soft only -> still passes
-        self.assertTrue(any(f["severity"] == "soft" and "budget" in f["message"] for f in found))
-        self.assertEqual([f for f in found if f["severity"] == "hard"], [])
+        self.assertFalse(passed)
+        self.assertTrue(any(f["severity"] == "hard" and "over its" in f["message"]
+                            and "blocks the merge" in f["message"] for f in found))
+
+    def test_rule_opts_into_the_hard_length_tier(self):
+        self.assertEqual(SHAPE_RULE.get("length_tier"), "hard")
 
 
 class TestFrontmatterRule(unittest.TestCase):

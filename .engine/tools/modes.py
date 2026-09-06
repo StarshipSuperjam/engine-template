@@ -30,7 +30,9 @@ set-routine — are the deliberate in-session entries, run by the operator-typed
 
   3. THE NATIVE-PLAN INTAKE ADAPTERS — two hooks that import an accepted native plan into the Plan
      Coordinator as an unapproved DRAFT: accept_handler on Claude's plan-exit completion
-     (`ExitPlanMode`, PostToolUse) and prompt_import_handler on Codex's typed acceptance envelope
+     (`ExitPlanMode`, PostToolUse — the plan read from the completion's own result, or the plan file it
+     names, since the harness no longer passes the plan inline) and prompt_import_handler on Codex's
+     typed acceptance envelope
      (UserPromptSubmit). Accepting a plan used to flip the stance straight to Build; it no longer does,
      on either runtime. An import grants no Build authority — no approval, no review, no seal — so the
      plan-side gates it would have skipped all still stand, and the typed verb is the only way in.
@@ -941,11 +943,39 @@ def handler(payload: dict) -> dict:
 # NEITHER WRITES THE STANCE SIGNAL. After this change the signal has exactly two writers, both typed
 # operator verbs (set-build and set-routine); no hook writes it at all. `$engine-start` is the only
 # Build entry on both runtimes, which is the property the Codex side already had and the Claude side
-# now shares. FAIL-SAFE in every direction: a rejected plan fires no PostToolUse; an acceptance with
-# no plan text imports nothing; a prompt that is not the envelope imports nothing; a handler crash
-# fails open through the harness. Nothing here can block — PostToolUse and UserPromptSubmit are both
-# outside the block budget — so this declares no BLOCK_INVARIANT.
+# now shares. FAIL-SAFE in every direction: a rejected plan fires no PostToolUse (the platform routes a
+# failed or declined tool call to a separate event this engine does not register); a prompt that is not
+# the envelope imports nothing; a handler crash fails open through the harness. Nothing here can block
+# — PostToolUse and UserPromptSubmit are both outside the block budget — so this declares no
+# BLOCK_INVARIANT.
+#
+# WHERE THE ACCEPTED PLAN LIVES (StarshipSuperjam/engine-template#1163). Claude Code's ExitPlanMode no
+# longer takes the plan as a parameter: the session writes the plan to its plan FILE and the tool reads
+# it from there, and PostToolUse hands this hook the tool's RAW input as the model issued it — so
+# tool_input carries no plan text on any current acceptance, and the old inline read imported nothing,
+# silently, every time. The plan is read from the first source that yields text: the inline
+# tool_input['plan'] (older harnesses), then the completion's tool_response normalized from any of the
+# shapes the harness has been observed to deliver (the structured result {plan, filePath, isAgent}; its
+# rendering 'User has approved your plan… ## Approved Plan: …'; a list of content blocks carrying that
+# rendering), then the plan file the harness's own result names (the structured filePath, or the
+# rendered 'Your plan has been saved to:' line) — NEVER a path from tool_input, which the model controls
+# — read only when it real-path-resolves strictly inside the READ ANCHOR: the platform default plans
+# folder, or a plansDirectory from the managed or the user's own settings, never a workspace's checked-in
+# settings file (the write carve-out honours those; a hook that imports a file verbatim into the durable
+# library must not let a repository choose what it reads), capped at 1 MiB, a decode failure treated as
+# no text. An acceptance that yields no text from any source is REPORTED — a notice naming the shape the
+# hook saw, the sources that came up empty, any refused path, the typed recovery, and the relay
+# instruction — because under the current harness the empty case is never the benign one it was written
+# for. One more guard: the structured result carries `isAgent`, and a plan-exit the harness marks as an
+# AGENT's is not the operator's acceptance — it imports nothing and proceeds (no notice: there is nothing
+# the operator accepted and nothing to recover). Every recorded acceptance on this workstation is
+# isAgent false on the main thread; the guard is for the day one is not.
 _PLAN_EXIT_TOOL = "ExitPlanMode"
+_APPROVED_PLAN_HEADING = "## Approved Plan:"
+_SAVED_TO_MARKER = "Your plan has been saved to:"
+_PLAN_FILE_READ_CAP = 1_048_576          # bytes; every recorded plan is under 20 KB
+_RECOVERY_COMMAND = ("python tools/project_manager.py import-native --input - "
+                     "--provenance \"<where this plan came from, in your words>\"")
 # The Codex acceptance envelope, spelled out here rather than imported, because the handler that reads
 # it runs on EVERY prompt and must not drag the plan library into that path to learn one string. It is
 # the same string project_manager declares, and a test pins the two together — the cheap way to keep
@@ -953,8 +983,10 @@ _PLAN_EXIT_TOOL = "ExitPlanMode"
 _PLAN_ENVELOPE = "PLEASE IMPLEMENT THIS PLAN:"
 
 
-def _import_native(text: str, provenance: str) -> dict:
+def _import_native(text: str, provenance: str, preface: str = "") -> dict:
     """Import an accepted native plan and return the hook decision — the shared tail of both adapters.
+    `preface` is one sentence the Claude adapter puts before the arrival report saying where the plan's
+    text came from (StarshipSuperjam/engine-template#1163); the Codex adapter has one source and passes none.
 
     project_manager is imported HERE rather than at module scope on purpose. This module is also the
     PreToolUse gate, which runs on every tool call, and the Codex adapter runs on every prompt; pulling
@@ -971,24 +1003,216 @@ def _import_native(text: str, provenance: str) -> dict:
         return hooks.inject(
             "The plan you just accepted could NOT be imported into the Project Manager: "
             f"{exc}. Nothing was saved and nothing was built. Tell the operator plainly, and offer the "
-            "typed recovery path — `python tools/project_manager.py import-native --input - "
-            "--provenance ...` with the plan text on stdin.")
-    return hooks.inject(project_manager.arrival_report(arrival))
+            f"typed recovery path — `{_RECOVERY_COMMAND}` with the plan text on stdin.")
+    return hooks.inject(preface + project_manager.arrival_report(arrival))
+
+
+# ---- where the accepted plan lives (StarshipSuperjam/engine-template#1163) --------------------------
+
+def _response_text(tool_response) -> str:
+    """One string from whatever shape tool_response arrives in: a string as it is; a dict's first
+    text-bearing field (`plan` first — the structured result's own key — then the usual text fields, a
+    nested list walked); a list of content blocks' text joined. Anything else is empty."""
+    if isinstance(tool_response, str):
+        return tool_response
+    if isinstance(tool_response, dict):
+        for key in ("plan", "text", "content", "output", "result"):
+            value = tool_response.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+            if isinstance(value, list):
+                nested = _response_text(value)
+                if nested.strip():
+                    return nested
+        return ""
+    if isinstance(tool_response, list):
+        parts = []
+        for item in tool_response:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                parts.append(text if isinstance(text, str) else _response_text(item))
+        return "\n".join(p for p in parts if p)
+    return ""
+
+
+def _approved_plan_from_response(tool_response) -> "str | None":
+    """The plan text an approved plan-exit's result carries: the structured result's `plan` string, else
+    whatever follows the '## Approved Plan:' heading in its rendering (the preamble before the heading
+    is the harness talking, never the plan). None when neither is there."""
+    if isinstance(tool_response, dict):
+        plan = tool_response.get("plan")
+        if isinstance(plan, str) and plan.strip():
+            return plan
+    text = _response_text(tool_response)
+    if _APPROVED_PLAN_HEADING in text:
+        body = text.split(_APPROVED_PLAN_HEADING, 1)[1]
+        body = body[1:] if body.startswith("\n") else body
+        return body if body.strip() else None
+    return None
+
+
+def _harness_named_plan_file(tool_response) -> "str | None":
+    """The plan file the HARNESS's own result names — the structured result's `filePath`, else the path on
+    the rendered 'Your plan has been saved to:' line — or None. tool_input is never consulted: it is the
+    model's raw input, and a model-controlled path is the wrong thing to read off disk."""
+    if isinstance(tool_response, dict):
+        path = tool_response.get("filePath")
+        if isinstance(path, str) and path.strip():
+            return path.strip()
+    text = _response_text(tool_response)
+    at = text.find(_SAVED_TO_MARKER)
+    if at >= 0:
+        line = text[at + len(_SAVED_TO_MARKER):].split("\n", 1)[0].strip()
+        return line or None
+    return None
+
+
+def _readable_plan_settings_files() -> list:
+    """The settings files the READ anchor consults, in precedence order: the managed file(s) and the
+    user's own file — never a workspace's, so a checked-in settings file cannot choose what a hook reads.
+    A seam the tests point elsewhere."""
+    return list(_MANAGED_SETTINGS_PATHS) + [os.path.join(_user_home(), ".claude", "settings.json")]
+
+
+def _readable_plan_root(cwd) -> str:
+    """The one folder the acceptance adapter may read a plan file from: the first VALID plansDirectory in
+    the managed or user settings (containment as for the write carve-out), else the platform default
+    ~/.claude/plans. Deliberately a separate function from _plans_directory: that one answers 'where may
+    this session save its plan' and honours the workspace's files; this one answers 'what may a hook read
+    and import verbatim', and the two must be free to diverge."""
+    root = _workspace_root(cwd)
+    for path in _readable_plan_settings_files():
+        value = _read_plans_directory_setting(path)
+        if value is None:
+            continue
+        folder = _resolve_plans_value(value, root)
+        if folder is not None:
+            return folder
+    return os.path.realpath(os.path.join(_user_home(), ".claude", "plans"))
+
+
+def _read_contained_plan_file(path: str, anchor: str) -> "str | None":
+    """The text of `path` iff it is a regular file whose real path sits strictly inside `anchor`, is at
+    most _PLAN_FILE_READ_CAP bytes and decodes as UTF-8 to something non-blank; None on any other
+    outcome, in one step so no caller can skip the real-path precondition (fail-closed)."""
+    try:
+        expanded = _expand_user(path)
+        if not os.path.isabs(expanded):
+            return None
+        real = os.path.realpath(expanded)
+        rel = os.path.relpath(real, anchor)
+        if rel == "." or rel == ".." or rel.startswith(".." + os.sep):
+            return None
+        if not os.path.isfile(real) or os.path.getsize(real) > _PLAN_FILE_READ_CAP:
+            return None
+        with open(real, "rb") as fh:
+            data = fh.read(_PLAN_FILE_READ_CAP + 1)
+        if len(data) > _PLAN_FILE_READ_CAP:
+            return None
+        text = data.decode("utf-8")
+        return text if text.strip() else None
+    except Exception:  # noqa: BLE001 — unreadable, undecodable, undecidable: no text, never a crash
+        return None
+
+
+def _accepted_plan_text(payload: dict) -> dict:
+    """Walk the sources an accepted plan can live in — inline, the completion's result, the file the
+    result names — and return what was found: `text` (None when nothing yielded), `provenance` and
+    `preface` for an import, `empty` (the sources that yielded nothing, in the words the notice uses) and
+    `refused` (a named file the read anchor refused, with the anchor) for the notice."""
+    tool_input = payload.get("tool_input")
+    tool_input = tool_input if isinstance(tool_input, dict) else {}
+    tool_response = payload.get("tool_response")
+    cwd = payload.get("cwd")
+    found = {"text": None, "provenance": "", "preface": "", "empty": [], "refused": None}
+    inline = tool_input.get("plan")
+    if isinstance(inline, str) and inline.strip():
+        found.update(text=inline,
+                     provenance="Accepted Claude Code plan, imported at plan-exit (ExitPlanMode) from the "
+                                "inline plan text.",
+                     preface="The accepted plan's text came from the acceptance's inline plan text. ")
+        return found
+    found["empty"].append("the acceptance's inline plan text (absent)")
+    body = _approved_plan_from_response(tool_response)
+    if body is not None:
+        found.update(text=body,
+                     provenance="Accepted Claude Code plan, imported at plan-exit (ExitPlanMode) from the "
+                                "completion's result.",
+                     preface="The accepted plan's text came from the plan-exit completion's result. ")
+        return found
+    found["empty"].append("the completion's result (no plan text)")
+    named = _harness_named_plan_file(tool_response)
+    if named is None:
+        found["empty"].append("the plan file the completion names (none named)")
+        return found
+    anchor = _readable_plan_root(cwd)
+    text = _read_contained_plan_file(named, anchor)
+    if text is None:
+        found["refused"] = (named, anchor)
+        found["empty"].append(f"the plan file the completion named ({named}) — refused: not a readable "
+                              f"UTF-8 file of at most {_PLAN_FILE_READ_CAP} bytes inside the plans folder "
+                              f"this hook may read ({anchor})")
+        return found
+    found.update(text=text,
+                 provenance=f"Accepted Claude Code plan, imported at plan-exit (ExitPlanMode) from the plan "
+                            f"file the harness named: {named} (read anchor {anchor}).",
+                 preface=f"The accepted plan's text came from the plan file the harness named ({named}). ")
+    return found
+
+
+def _payload_shape(payload: dict) -> str:
+    """What the hook saw, as structure only — types and top-level keys, never content — so the next
+    harness drift is diagnosable from the first notice instead of from a transcript."""
+    tool_input = payload.get("tool_input")
+    response = payload.get("tool_response")
+    if isinstance(tool_input, dict):
+        input_desc = "tool_input keys " + (", ".join(sorted(str(k) for k in tool_input)) or "none")
+    else:
+        input_desc = f"tool_input {type(tool_input).__name__}"
+    if isinstance(response, dict):
+        response_desc = "tool_response dict with keys " + (", ".join(sorted(str(k) for k in response)) or "none")
+    elif isinstance(response, list):
+        response_desc = f"tool_response list of {len(response)}"
+    elif isinstance(response, str):
+        response_desc = f"tool_response string of {len(response)} characters"
+    else:
+        response_desc = f"tool_response {type(response).__name__}"
+    return f"{input_desc}; {response_desc}"
+
+
+def _no_text_notice(payload: dict, found: dict) -> str:
+    """The notice for an acceptance that yielded no plan text: what was seen, what was tried, the
+    recovery, and the relay instruction — never silence."""
+    tried = "; ".join(found["empty"])
+    return (f"I saw the plan-exit completion (ExitPlanMode) but found no plan text to import — "
+            f"{_payload_shape(payload)}. Sources tried: {tried}. Nothing was saved and nothing was built, "
+            f"and your stance did not change. Import it by hand with the typed recovery — "
+            f"`{_RECOVERY_COMMAND}` with the plan text on stdin. Tell the operator plainly that the "
+            f"accepted plan did not land, and offer that recovery.")
 
 
 def accept_handler(payload: dict) -> dict:
     """The Claude plan-acceptance adapter, run on PostToolUse. On the plan-exit completion
-    (`ExitPlanMode`), import the accepted plan as an unapproved draft and inject the arrival report;
-    on anything else, no-op. It writes no stance: accepting a plan no longer enters Build, on either
-    runtime. An acceptance carrying no plan text imports nothing and proceeds silently — there is
-    nothing to import and nothing to say. ALWAYS proceeds; never blocks."""
+    (`ExitPlanMode`), read the accepted plan from where it lives — the inline tool_input['plan'] on an
+    older harness, else the completion's result, else the plan file the result names inside the read
+    anchor (see the section comment) — import it as an unapproved draft and inject the arrival report
+    prefaced by where the text came from; on any other tool, no-op. An acceptance that yields no text
+    from any source injects a notice naming what was seen, what was tried and the typed recovery, and
+    tells the session to relay it — never silence for the operator's own acceptance. The one silent
+    case is a plan-exit the harness marks as an agent's (`isAgent`): not the operator's acceptance, so
+    nothing is imported and nothing is said. It writes no stance: accepting a plan no longer enters
+    Build, on either runtime. ALWAYS proceeds; never blocks."""
     if not isinstance(payload, dict) or payload.get("tool_name") != _PLAN_EXIT_TOOL:
         return hooks.proceed()
-    tool_input = payload.get("tool_input")
-    text = tool_input.get("plan") if isinstance(tool_input, dict) else None
-    if not isinstance(text, str) or not text.strip():
-        return hooks.proceed()
-    return _import_native(text, "Accepted Claude Code plan, imported at plan-exit (ExitPlanMode).")
+    response = payload.get("tool_response")
+    if isinstance(response, dict) and response.get("isAgent") is True:
+        return hooks.proceed()                 # an agent's plan-exit is not the operator's acceptance
+    found = _accepted_plan_text(payload)
+    if found["text"] is None:
+        return hooks.inject(_no_text_notice(payload, found))
+    return _import_native(found["text"], found["provenance"], preface=found["preface"])
 
 
 def prompt_import_handler(payload: dict) -> dict:

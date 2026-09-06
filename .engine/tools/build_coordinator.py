@@ -19,6 +19,7 @@ import time
 import unicodedata
 from typing import Any
 
+import build_protocol
 import build_coordinator_contract as composer  # aliased 'composer', not 'contract': this file uses the bare
 # name 'contract' as a local for the reviewer-contract dict and the pr-contract state, and a module alias would
 # be a shadowing landmine (a future use before the local assignment would raise UnboundLocalError).
@@ -158,14 +159,13 @@ def _hard_check_declarations() -> list[dict]:
 
 
 def _protocol() -> dict:
-    """Load only the current runtime protocol.
+    """Load only the current runtime protocol, through the one shared loader (build_protocol.load —
+    schema-validated, fail-closed).
 
     Historical preservation traceability is validated by Engine-home checks, not by
     normal Build commands.
     """
-    value = _json(PROTOCOL_PATH)
-    _validate(value, ROOT / ".engine" / "schemas" / "build-protocol.v1.json")
-    return value
+    return build_protocol.load(path=str(PROTOCOL_PATH))
 
 
 def _run(argv: list[str], *, cwd: Path = ROOT, input_text: str | None = None) -> subprocess.CompletedProcess:

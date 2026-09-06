@@ -1,0 +1,5 @@
+{
+  "env": {
+    "ENGINE_LANE_REMOVED_ROOT": ".engine/_fixtures/lane-removed/tree"
+  }
+}
