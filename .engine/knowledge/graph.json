@@ -5486,7 +5486,7 @@
       },
       "slug": "core",
       "source": {
-        "fingerprint": "sha256:5d11e2a7fe765e9ac344cf43e620ca98266fe7b3dbc1269d4d2aa27e8afa88d2",
+        "fingerprint": "sha256:f05862b90da82083ab5d93981f6cb1a14e902c8b760d73a17114bb8883d5d637",
         "path": ".engine/modules/core/manifest.json"
       },
       "status": "required",
@@ -6137,7 +6137,7 @@
       },
       "slug": "first-run",
       "source": {
-        "fingerprint": "sha256:b4dd8fb0ba405b6a05e3b510fcebf7ad56fd34b16d63512da6fa787b4a6318fb",
+        "fingerprint": "sha256:879644cfb7b4d5b41c7b4733aef6555baff2d32e0d1fcf811c38cd4f867d1822",
         "path": ".engine/operations/first-run.md"
       },
       "status": "active",
@@ -6277,7 +6277,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:afb762e5706a3825889ccd07fc6f7e9505bac1e5989e2cafc8dee1f442e9b3d8",
+        "fingerprint": "sha256:567ddba00f7f484993bdf8693bd3b2d1af1eea9f08b5397960a60a4a0976c156",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -17650,7 +17650,7 @@
       },
       "slug": "test_instantiator",
       "source": {
-        "fingerprint": "sha256:07856157a48756da7760a38bd6fd3d256b284e374012ab8200de791e397993be",
+        "fingerprint": "sha256:220313620d6e27c51cbfc557cf1ab6a598efffb65fe26723886501001a8f34ee",
         "path": ".engine/tools/test_instantiator.py"
       },
       "status": "active",

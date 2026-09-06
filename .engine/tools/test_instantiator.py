@@ -983,7 +983,7 @@ class TestApplyStepPermissionDefaultLeftAlone(unittest.TestCase):
             settings = inst._read_json_or(os.path.join(d, ".claude", "settings.json"), {})
             self.assertNotIn("permissions", settings, "the engine writes no permissions block at all")
 
-    def test_an_existing_project_default_is_left_byte_identical(self):
+    def test_an_existing_project_default_is_left_alone(self):
         for mode in ("acceptEdits", "plan", "auto", "default"):
             with tempfile.TemporaryDirectory() as d:
                 inst._build_fixture(d)
@@ -998,10 +998,11 @@ class TestApplyStepPermissionDefaultLeftAlone(unittest.TestCase):
                 self.assertEqual(self._mode(d), mode, "the operator's own value is never touched")
                 with open(path, encoding="utf-8") as fh:
                     after = fh.read()
-                # The wires step re-renders the file with the hooks block; the operator's own keys survive intact.
+                # The wires step re-renders the file with the hooks block, so the bytes legitimately change; what
+                # must survive is the operator's own value and their unrelated keys, exactly as written.
                 self.assertIn('"defaultMode": "%s"' % mode, after)
                 self.assertIn('"keep"', after)
-                self.assertTrue(before != after or "hooks" in after)
+                self.assertEqual(json.loads(after)["keep"], [1, 2])
 
     def test_no_boundary_reads_the_operators_home(self):
         # The retired step was the ONLY reader of ~/.claude/settings.json; its reader and the two injected
@@ -1015,8 +1016,10 @@ class TestApplyStepPermissionDefaultLeftAlone(unittest.TestCase):
             self.assertNotIn("settings_path", params, fn.__qualname__)
         with open(inst.__file__, encoding="utf-8") as fh:
             source = fh.read()
-        self.assertNotIn('expanduser("~")', source.split("def _uv_present")[0].split("def _codeowners_path")[-1],
-                         "nothing between the apply helpers reads the home directory")
+        # Whole-file, not a window between two helpers: the instantiator has NO reason to expand the operator's
+        # home directory at all, so any reappearance anywhere in it is the retired read coming back.
+        self.assertNotIn("expanduser", source, "nothing in the instantiator reads the operator's home directory")
+        self.assertNotRegex(source, r'environ(\.get\(|\[)\s*"HOME"', "nothing in the instantiator reads $HOME")
 
     def test_no_consent_is_asked_for_planning_mode(self):
         asked = []
@@ -1051,7 +1054,11 @@ class TestRetirementNoticeForUpgradingProjects(unittest.TestCase):
             core = json.load(fh)
         notices = core.get("retired_capabilities") or {}
         version = next(v for v in notices if "planning mode" in notices[v]["description"])
-        below = ".".join(str(int(x) - (1 if i == 1 else 0)) for i, x in enumerate(version.split(".")))
+        # The from-version is a REAL hop: core's shipped version while the notice is still pending (0.6.2 -> 0.7.0
+        # today); once the release cut lands the key, the greatest lower retired key stands in, and "0.0.0" if none.
+        lower = [v for v in list(notices) + [core["version"]]
+                 if validate._ver_tuple(v) < validate._ver_tuple(version)]
+        below = max(lower, key=validate._ver_tuple) if lower else "0.0.0"
         sel = module_manager.select_retired_capabilities({"core": below}, {"core": version}, [core])
         self.assertTrue(any("planning mode by default" in (e.get("description") or "") for e in sel), sel)
         self.assertEqual(module_manager.select_retired_capabilities({"core": version}, {"core": version}, [core]), [])
