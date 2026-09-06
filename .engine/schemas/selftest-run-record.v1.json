@@ -36,7 +36,7 @@
       "const": "engine-selftest"
     },
     "scope": {
-      "description": "REQUIRED and non-defaultable, so a record cannot be silent about what it covered. `full` means the complete discovered inventory ran. `focused` means a selected subset ran and the rest was deliberately not executed — never a claim about the modules that did not run. `project-only` means the standing derived-artifact guard alone ran because every considered change was a deployed project's own; the Engine self-test inventory did not run for that change set, and a record carrying this scope attests Engine health only — no product validation.",
+      "description": "REQUIRED and non-defaultable, so a record cannot be silent about what it covered. `full` means the complete discovered inventory ran. `focused` means a selected subset ran and the rest was deliberately not executed — never a claim about the modules that did not run. `project-only` means the standing derived-artifact guard alone ran because every changed path was a deployed project's own (no Engine path, exempt or otherwise, beside them); the Engine self-test inventory did not run for that change set, and a record carrying this scope attests Engine health only — no product validation.",
       "enum": [
         "full",
         "focused",

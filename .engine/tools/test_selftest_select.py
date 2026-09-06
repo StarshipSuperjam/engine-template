@@ -559,7 +559,8 @@ class TheLivePredicate(unittest.TestCase):
             self.assertFalse(is_project(path), path)
         # The predicate IS the classifier's per-path rule: the two gates cannot disagree on a path.
         import change_classification as cc
-        register, corners = cc.register_of(tmp), cc.corners_of(tmp)
+        register, patterns = cc.register_and_patterns_of(tmp)
+        corners = cc.register_corners(register, patterns)
         for path in ("src/app.py", "README.md", "CLAUDE.md", "harness/other.py", ".engine/tools/x.py"):
             self.assertEqual(is_project(path), cc.is_project_owned(path, register, corners), path)
         # Deleting the last file under the provided directory does not hand the directory to the project.
@@ -574,6 +575,53 @@ class TheLivePredicate(unittest.TestCase):
                        check=True)
         # A deployed origin but no engine.json: identity is unreadable, so nothing is the project's.
         self.assertFalse(S.project_owned_predicate(tmp)("src/app.py"))
+
+
+class SelectOnADeployedClone(unittest.TestCase):
+    """`select()` end to end — the four-line join that hands the live predicate to the classifier — on a
+    `--shared` clone of this checkout with a foreign origin: the real manifests, the real importer index,
+    the real derived-artifact guard. A divergence reviewer found this join untested while everything on
+    either side of it was; this is the test the earlier repair record claimed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.root = os.path.join(cls.tmp.name, "clone")
+        subprocess.run(["git", "clone", "-q", "--shared", validate.ROOT, cls.root], check=True,
+                       capture_output=True, text=True)
+        cls._git("remote", "set-url", "origin", "https://github.com/test/downstream-product.git")
+        cls._git("checkout", "-q", "-b", "product")
+        cls.base = subprocess.run(["git", "-C", cls.root, "rev-parse", "HEAD"], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    @classmethod
+    def _git(cls, *args):
+        subprocess.run(["git", "-C", cls.root, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True, text=True)
+
+    def _commit(self, rel, text):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        self._git("add", rel)
+        self._git("commit", "-q", "-m", f"change {rel}")
+
+    def test_a_product_change_selects_the_guard_alone_and_an_engine_change_does_not(self):
+        self._commit("src/app.py", "print(1)\n")
+        m = S.select(self.root, self.base)
+        self.assertEqual(m["classification"], "project-only", m.get("full_reason"))
+        self.assertEqual(m["project_paths"], ["src/app.py"])
+        self.assertTrue(m["selected"], "the derived-artifact guard is never empty on the real tree")
+        self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
+        self._commit(".engine/tools/zz_new_tool.py", "VALUE = 1\n")
+        m = S.select(self.root, self.base)
+        self.assertNotEqual(m["classification"], "project-only")
+        self.assertEqual(m["project_paths"], ["src/app.py"])
 
 
 class ThePartitionHasExactlyFourCategories(unittest.TestCase):

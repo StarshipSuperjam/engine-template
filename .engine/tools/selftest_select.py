@@ -34,11 +34,14 @@ corrected rather than defended:
   3. EVERYTHING else — every prose file, every governed data file, every deletion, every rename, every
      path this module does not recognise — runs the complete inventory, with a reason recorded.
   4. In a DEPLOYED copy only, a path the change classifier (`change_classification.py`) calls the
-     PROJECT'S — outside every Engine corner, every declared root file and the live ownership register —
-     is PROJECT-OWNED: it contributes no tests, is recorded under `project_paths`, and is otherwise
-     treated like an exempt path. When nothing else changed, the classification is `project-only` and
-     the selection is the derived-artifact guard alone. The predicate is INJECTED (`project_owned_factory`)
-     and defaults to nothing in the home repository, where every path is the Engine's.
+     PROJECT'S — outside every Engine corner, every declared root file, the live ownership register and
+     every directory a module's `provides` pattern names — is PROJECT-OWNED: it contributes no tests and
+     is recorded under `project_paths`. Unlike an exempt path it is not the Engine's at all, and that is
+     the difference the name turns on: the classification is `project-only`, with the derived-artifact
+     guard alone selected, only when EVERY changed path is project-owned — a project path beside an
+     exempt Engine path is an ordinary focused run, as the classifier would call that set engine-affecting.
+     The predicate is INJECTED (`project_owned_factory`) and defaults to nothing in the home repository,
+     where every path is the Engine's.
 
 Totality is the property that matters and it still holds: category 3 is a catch-all, so a file kind this
 module has never heard of cannot fall into a gap, and category 4 is reachable only through a classifier
@@ -569,18 +572,21 @@ def _selection_detail(code: str, path: str, reached_for: dict) -> str:
 def project_owned_predicate(root: str):
     """The live project-owned predicate for `root`, from the change classifier: a path is the project's
     only in a DEPLOYED copy with a readable, non-degenerate register, and only when it is outside every
-    floor prefix, every declared root file, the register, and every directory the register occupies.
-    Any doubt — the home repository, an unreadable identity or register — makes nothing the project's,
-    which is the direction that runs more. Imported lazily so a repository that cannot load the
-    classifier still selects exactly as it did before the fourth category existed."""
+    floor prefix, every declared root file, the register, every directory the register occupies, and
+    every directory a present manifest's `provides` pattern names (a corner that survives the deletion of
+    its last file). Any doubt — the home repository, an unreadable identity or register — makes nothing
+    the project's, which is the direction that runs more. The manifests are read ONCE, and the corners
+    are built from the register this function validated, never from a second read. Imported lazily so a
+    repository that cannot load the classifier still selects exactly as it did before the fourth category
+    existed."""
     try:
         import change_classification as cc
         if cc.identity_of(root) != cc.IDENTITY_DEPLOYED:
             return no_project_owned_paths()
-        register = cc.register_of(root)
+        register, patterns = cc.register_and_patterns_of(root)
         if register is None or cc.ENGINE_MANIFEST_REL not in register:
             return no_project_owned_paths()
-        corners = cc.corners_of(root)
+        corners = cc.register_corners(register, patterns)
         return lambda path: cc.is_project_owned(path, register, corners)
     except Exception:  # noqa: BLE001 — a classifier that cannot answer makes nothing the project's
         return no_project_owned_paths()

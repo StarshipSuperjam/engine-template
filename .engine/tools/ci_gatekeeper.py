@@ -109,12 +109,13 @@ ACCEPT_FULL_ONLY = frozenset({MODE_FULL})
 ACCEPT_FULL_OR_PROJECT_ONLY = frozenset({MODE_FULL, MODE_PROJECT_ONLY})
 
 # The repository variable that switches route three off per deployment (`vars.ENGINE_CI_PROJECT_ONLY_ARM`,
-# handed to the gate step as this env name). Only the exact value `off` disables; anything else, including an
-# unset variable, leaves the arm on — a deployment that wants it off says so unambiguously.
+# handed to the gate step as this env name). Any of the plain spellings of "off" below — trimmed, in any
+# case — disables; anything else, including an unset or empty variable, leaves the arm ON, so a stray or
+# mistyped value can never quietly switch it off. Every value that does disable it forces the FULL inventory:
+# the switch only ever resolves toward more work.
 PROJECT_ONLY_ARM_ENV = "ENGINE_CI_PROJECT_ONLY_ARM"
 PROJECT_ONLY_ARM_OFF = "off"
-# Every spelling of "off" the repository variable is accepted in, trimmed and case-folded.
-PROJECT_ONLY_ARM_OFF_VALUES = frozenset({"off", "false", "0", "no", "disabled"})
+PROJECT_ONLY_ARM_OFF_VALUES = frozenset({PROJECT_ONLY_ARM_OFF, "false", "0", "no", "disabled"})
 
 # The env name through which the receipt step learns which arm ran — the gate's own step output, handed in
 # as step-level `env:` (`ENGINE_CI_MODE: ${{ steps.gate.outputs.mode }}`), so the receipt's mode is the

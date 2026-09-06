@@ -19,18 +19,18 @@
 # runs full. Any doubt — no receipt, an unreadable one, an API failure — resolves to the full run. A reuse run
 # uploads no receipt, so reuse can never chain off reuse.
 #
-# ROUTE THREE, PROJECT-ONLY (StarshipSuperjam/engine-template#758 and StarshipSuperjam/engine-template#883)
-# is the larger weakening and the one the acknowledgement on ITS change was about: in a deployed copy of the
-# Engine, when the change classifier
-# (.engine/tools/change_classification.py) places every changed path of the merge checkout outside every Engine
-# corner, every declared root file and the live ownership register — resolving every doubt, and the home
-# repository itself, to "the Engine's" — the run executes the full validator CI suite and NOT the self-test
-# inventory. New product code takes this route on every push of a product-only pull request. The run uploads a
-# receipt stamped project-only, which route two refuses by mode (reuse never chains off it) and which the Build
-# Coordinator's final import accepts only after re-deriving the same verdict itself. The run's summary states
-# what did not run and that its green attests Engine health only — no product validation ran, and none is
-# registered until StarshipSuperjam/engine-template#1147. A run that cannot write that disclosure refuses the
-# route. The repository variable ENGINE_CI_PROJECT_ONLY_ARM=off switches the route off for a deployment.
+# ROUTE THREE, PROJECT-ONLY (StarshipSuperjam/engine-template#758 and StarshipSuperjam/engine-template#883) is
+# the larger weakening and the one the acknowledgement on ITS change was about: in a deployed copy of the
+# Engine, when the change classifier (.engine/tools/change_classification.py) places every changed path of the
+# merge checkout outside every Engine corner, every declared root file and the live ownership register —
+# resolving every doubt, and the home repository itself, to "the Engine's" — the run executes the full validator
+# CI suite and NOT the self-test inventory. New product code takes this route on every push of a product-only
+# pull request. The run uploads a receipt stamped project-only, which route two refuses by mode (reuse never
+# chains off it) and which the Build Coordinator's final import accepts only after re-deriving the same verdict
+# itself. The run's summary states what did not run and that its green attests Engine health only — no product
+# validation ran, and none is registered until StarshipSuperjam/engine-template#1147. A run that cannot write
+# that disclosure refuses the route. The repository variable ENGINE_CI_PROJECT_ONLY_ARM=off switches the route
+# off for a deployment.
 #
 # The job name `engine-ci` is the FROZEN check context bound in the branch
 # ruleset; renaming it is a guardrail-weakening change.
@@ -93,7 +93,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           # The per-deployment off switch for route three. A repository variable, so a deployed operator can
-          # turn the project-only arm off without an engine release; only the exact value `off` disables.
+          # turn the project-only arm off without an engine release: off, false, 0, no or disabled (any case,
+          # trimmed) disables; anything else, or no variable at all, leaves the arm on.
           ENGINE_CI_PROJECT_ONLY_ARM: ${{ vars.ENGINE_CI_PROJECT_ONLY_ARM }}
         run: uv run --directory .engine --frozen -- python tools/ci_gatekeeper.py decide
       - name: Run the seed validator (CI suite)

@@ -274,8 +274,10 @@ class TestGitSeam(unittest.TestCase):
         _git(self.root, "commit", "-q", "-m", "delete the harness")
         _git(self.root, "checkout", "-q", "main")
         _git(self.root, "merge", "-q", "--no-ff", "-m", "merge", "topic")
-        self.assertNotIn("harness/run.py", cc.register_of(self.root))
-        self.assertIn("harness/", cc.corners_of(self.root))
+        register, patterns = cc.register_and_patterns_of(self.root)
+        self.assertNotIn("harness/run.py", register)
+        self.assertIn("harness/*.py", patterns)
+        self.assertIn("harness/", cc.register_corners(register, patterns))
         self.assertEqual(cc.classify_merge_checkout(self.root)["reason"]["code"], "engine-owned-path")
 
     def test_a_one_parent_head_is_not_a_merge_checkout(self):
@@ -314,6 +316,15 @@ class TestGitSeam(unittest.TestCase):
     def test_register_read_failure_is_a_doubt_not_a_crash(self):
         with mock.patch.object(mc, "discover_manifests", side_effect=RuntimeError("boom")):
             self.assertIsNone(cc.register_of(self.root))
+            # One read yields both halves, and a failure yields neither: no pattern set survives a register
+            # that could not be read, so no caller can build fewer corners out of a failed read.
+            self.assertEqual(cc.register_and_patterns_of(self.root), (None, ()))
+            self.assertEqual(cc.classify_range(self.root, "HEAD", "HEAD")["reason"]["code"], "register-unreadable")
+
+    def test_the_manifests_are_read_once_per_classification(self):
+        with mock.patch.object(mc, "discover_manifests", wraps=mc.discover_manifests) as discover:
+            cc.classify_range(self.root, "HEAD", "HEAD")
+        self.assertEqual(discover.call_count, 1)
 
 
 # What an empty range (HEAD against HEAD) must say about THIS checkout, by its identity. The tests below

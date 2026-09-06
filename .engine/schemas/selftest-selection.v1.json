@@ -20,7 +20,7 @@
       "const": "selftest-selection.v1"
     },
     "classification": {
-      "description": "`focused` means a proper subset was selected and every entry in `selected` names why. `full` means the complete inventory must run. `project-only` means every considered path was a deployed project's own and the selection is the derived-artifact guard alone — a focused run by mechanism, named distinctly so the run record and the Build's evidence never present it as an ordinary narrowing. There is no documentation-only or empty-and-pass state: a run is focused or project-only only when something was positively selected, which is what makes an unexplained empty selection impossible rather than merely guarded against.",
+      "description": "`focused` means a proper subset was selected and every entry in `selected` names why. `full` means the complete inventory must run. `project-only` means every changed path was a deployed project's own — none was the Engine's, not even an exempt derived artifact beside them — and the selection is the derived-artifact guard alone — a focused run by mechanism, named distinctly so the run record and the Build's evidence never present it as an ordinary narrowing. There is no documentation-only or empty-and-pass state: a run is focused or project-only only when something was positively selected, which is what makes an unexplained empty selection impossible rather than merely guarded against.",
       "enum": [
         "focused",
         "full",

@@ -305,36 +305,29 @@ def identity_of(root: str) -> str:
         return IDENTITY_UNREADABLE
 
 
-def register_of(root: str):
-    """The engine-owned relpaths of the tree at `root`, or None when they cannot be read. The import is
-    lazy on purpose (see the module docstring)."""
+def register_and_patterns_of(root: str) -> tuple:
+    """ONE read of the manifests at `root`: `(register, provides_patterns)` — the engine-owned relpaths,
+    and every `provides` glob the present manifests declare, as written. A failure anywhere yields
+    `(None, ())`: the register is the doubt the caller must refuse on (`register-unreadable`), and no
+    helper here turns a failed read into fewer corners. Both callers — `classify_range` and the self-test
+    selector's predicate — read once and build the corners from the register they validated. The import
+    is lazy on purpose (see the module docstring)."""
     try:
         import module_coherence
         manifests = module_coherence.discover_manifests(root)
-        return set(module_coherence.engine_owned_paths(manifests, root=root))
-    except Exception:  # noqa: BLE001 — an unreadable register is a doubt, never a crash of the gate
-        return None
-
-
-def provides_patterns_of(root: str) -> tuple:
-    """Every `provides` glob the present manifests declare, as written. Their top-level directories are
-    corners whether or not a file currently matches. An unreadable manifest set yields none — the register
-    read that follows is what turns that doubt into a refusal."""
-    try:
-        import module_coherence
+        register = set(module_coherence.engine_owned_paths(manifests, root=root))
         patterns = []
-        for _rel, manifest in module_coherence.discover_manifests(root):
+        for _rel, manifest in manifests:
             for _group, globs in (manifest.get("provides") or {}).items():
                 patterns.extend(str(g) for g in globs)
-        return tuple(patterns)
-    except Exception:  # noqa: BLE001 — see above
-        return ()
+        return register, tuple(patterns)
+    except Exception:  # noqa: BLE001 — an unreadable register is a doubt, never a crash of the gate
+        return None, ()
 
 
-def corners_of(root: str) -> frozenset:
-    """The Engine's corners at `root`: the register's directories plus every provides pattern's directory."""
-    register = register_of(root) or set()
-    return register_corners(register, provides_patterns_of(root))
+def register_of(root: str):
+    """The engine-owned relpaths of the tree at `root`, or None when they cannot be read."""
+    return register_and_patterns_of(root)[0]
 
 
 ACCEPTED_PROOF_MODES = ("full", "project-only")
@@ -376,8 +369,8 @@ def merge_parents(root: str):
 def classify_range(root: str, base: str, head: str) -> dict:
     """The whole answer for one tree and two revisions."""
     entries, failure = diff_entries(root, base, head)
-    return classify_paths(entries, identity=identity_of(root), register=register_of(root),
-                          provides_patterns=provides_patterns_of(root),
+    register, patterns = register_and_patterns_of(root)
+    return classify_paths(entries, identity=identity_of(root), register=register, provides_patterns=patterns,
                           base=base, head=head, failure=failure)
 
 
