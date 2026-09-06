@@ -6313,7 +6313,7 @@
       },
       "slug": "program-orchestration",
       "source": {
-        "fingerprint": "sha256:f82e7edd34e698231e3584d10398f2351ca27aaba8c2d9ddbf0e2bf3891e848d",
+        "fingerprint": "sha256:32631c59b0e1f18588d037f8677e634528e348b7b9b75b7e397d2428ea44261c",
         "path": ".engine/operations/program-orchestration.md"
       },
       "status": "active",
