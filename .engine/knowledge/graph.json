@@ -7619,7 +7619,7 @@
       },
       "slug": "selftest-run-record.v1",
       "source": {
-        "fingerprint": "sha256:097dd2d8d8a8d8a078af927be363d727af5199d658f095c34756170cf6a1a987",
+        "fingerprint": "sha256:4f2cec56ab4f0a8c1a41e49e901a69188db1aceaf1d726d9f3a382fd93eb6f65",
         "path": ".engine/schemas/selftest-run-record.v1.json"
       },
       "status": "active",
@@ -7636,7 +7636,7 @@
       },
       "slug": "selftest-selection.v1",
       "source": {
-        "fingerprint": "sha256:e90038a2dcdf380d4eb60ba2fce82ccb8d09f64b20c4738d4ad56e4d7ebd7e2a",
+        "fingerprint": "sha256:332d8e5ce81eb3d211cf7ebc6f4f8c31b52802f9653d059c9066a7c95b94ebf2",
         "path": ".engine/schemas/selftest-selection.v1.json"
       },
       "status": "active",
@@ -9932,7 +9932,7 @@
       },
       "slug": "change_classification",
       "source": {
-        "fingerprint": "sha256:d62e6192f10bf607b5d2bd0890e39f41d8af997b91c5c1ee6d7a4dc8cd011dd3",
+        "fingerprint": "sha256:ad5ae945ef9942d8462904e5de57a7721e5644f43724baa4c9a63de2176d1287",
         "path": ".engine/tools/change_classification.py"
       },
       "status": "active",
@@ -10078,7 +10078,7 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:c2ced429d444d7dc942dadc205a735df1a3c9c5493adef775ec5550726f8ce5f",
+        "fingerprint": "sha256:34dc31bcff90f490c88711a0bae8ab580bd9bef7e98c8730822b0732e05527e2",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
@@ -15187,7 +15187,7 @@
       },
       "slug": "selftest_select",
       "source": {
-        "fingerprint": "sha256:c62a0d7822b807117b6806e78a0b5dd19ff5ad22cb626ff4497d52a57c99ae54",
+        "fingerprint": "sha256:c22810c43bc2e950afaaf7d9f0ae651cdc6acf417c8c8b47852c12b24e1e830a",
         "path": ".engine/tools/selftest_select.py"
       },
       "status": "active",
@@ -16516,7 +16516,7 @@
       },
       "slug": "test_change_classification",
       "source": {
-        "fingerprint": "sha256:de7f4d8aef9d8cca497d043740589cab446c8eb880868f39947e98a374dbf7e2",
+        "fingerprint": "sha256:3a02a392ae611fbdbd15879f8e17ef22167d0b7cd228302b2ba9eaa90e01e7d2",
         "path": ".engine/tools/test_change_classification.py"
       },
       "status": "active",
@@ -20411,7 +20411,7 @@
       },
       "slug": "test_selftest_select",
       "source": {
-        "fingerprint": "sha256:6cd681854f2e84921194244e46209d8e57c7681e711729a0080be77f692c383d",
+        "fingerprint": "sha256:433621ce3d1a555c91c42155cdfd8432a709d573bf54bd9be9754e765ef8840d",
         "path": ".engine/tools/test_selftest_select.py"
       },
       "status": "active",
