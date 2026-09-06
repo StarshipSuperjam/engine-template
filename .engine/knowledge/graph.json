@@ -12515,7 +12515,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:3bc6ffd30d66d25febec832ff18825b914df501f54e15e3c6185ef28f20d4b8b",
+        "fingerprint": "sha256:16756302f08d9a154f6748e8905f6bd6b4f8a0a15b5d4b72424182c7826c1c4b",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -15469,7 +15469,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:a38069518894a75e0032aa6226fd2c264a6f2b13ce168914d9147f16293ed0e8",
+        "fingerprint": "sha256:04d9e0a88c83269e1a2b61fcc2876b3d180b1dd8a0c682271cfd4d73b7446ea0",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
