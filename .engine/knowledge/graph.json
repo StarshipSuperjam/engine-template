@@ -5843,7 +5843,7 @@
       },
       "slug": "build-submission",
       "source": {
-        "fingerprint": "sha256:fa3d8a0891f553846348c08a6af46503bae8d54a6ba47c58927af687565db2a1",
+        "fingerprint": "sha256:fc2ba5fec87229cb111b4944ce6cc7da73acb43128743bd69daea904355aa7c1",
         "path": ".engine/operations/build-submission.md"
       },
       "status": "active",
@@ -9542,7 +9542,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:5d272bbfa2a20b09566f3a253404549817c1e142ea60fbebe1667bb380e6fc7a",
+        "fingerprint": "sha256:59031076d404beb730fd91ec7f7a62d3aca74e05ba6ea02b9683b3e8d099f8d5",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -13216,7 +13216,7 @@
       },
       "slug": "license_health",
       "source": {
-        "fingerprint": "sha256:73c6d1483ea4c36394107011f0c137c9309a3fe108441efb8c047ac5711435c4",
+        "fingerprint": "sha256:7d63a60e20ee2ced7afcbaa23001b81463766ddba12b06d569c1b368e9f50215",
         "path": ".engine/tools/license_health.py"
       },
       "status": "active",
@@ -16193,7 +16193,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:729ccd10f44a6e22a35c3b4e7964f9dfcf4cad0c815303e6e50efc0e60679c01",
+        "fingerprint": "sha256:86e3c6fe05e076b2f5eb19613117bc05b0694e9e46a179651fd62c581f7997aa",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
