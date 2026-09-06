@@ -3485,7 +3485,7 @@
       },
       "slug": "engine-design",
       "source": {
-        "fingerprint": "sha256:b823e67aa6f4426f332e025dae9a1c5a234f54d98618345dc55bae819a56e9f6",
+        "fingerprint": "sha256:ae947b9ca8ddb8ecd97b5ed8b9e276f6b826a515c6c6522da9747d11acb54582",
         "path": ".agents/skills/engine-design/SKILL.md"
       },
       "status": "active",
@@ -4885,7 +4885,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:a0595c042f0a3be9bc456130b31ab5ea53528125b30eb3632535e37447ffd9bb",
+        "fingerprint": "sha256:ff72a4fe6dab375f7a0bcf6ec7000e824a1d8cec6433ed20c5125bfd1d27962d",
         "path": ".agents/skills/engine-start/SKILL.md"
       },
       "status": "active",
@@ -8797,7 +8797,7 @@
       },
       "slug": "engine-start",
       "source": {
-        "fingerprint": "sha256:c7b68c6cb89b46bb11f13a8b18d97e684c394d7e0cd426ff87ced8c1802882f3",
+        "fingerprint": "sha256:3edfeb1a3292de1cac15d1b7b17188e24ca08539aa41a8ddb7a359dc30d67048",
         "path": ".claude/skills/engine-start/SKILL.md"
       },
       "status": "active",
