@@ -113,4 +113,8 @@ the Finalize review, not by a lease; orphan recovery is reading git state — a 
 commits (or none) and the PR open, and the next run resumes from git, the sealed plan in the library, and the
 exported handoff. The non-interactive
 posture and the worktree isolation are operator-side settings in the scheduling app, set during setup; this
-procedure confirms them (step 1's hooks check, step 3's mechanical isolation gate) but never sets them.
+procedure confirms them (step 1's hooks check, step 3's mechanical isolation gate) but never sets them. The
+platform's sandboxed shell and its credential masking are the same kind of host setting: recommended,
+complementary to the Engine's deliberately fail-open gate, turned on by the operator in the app, confirmed
+here where a check can see them, and never set. The isolation gate itself rides on a platform fact — the
+git-linked worktree under the platform's `.claude/worktrees/` layout — which the Engine watches, not controls.

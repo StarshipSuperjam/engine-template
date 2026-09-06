@@ -207,7 +207,9 @@ branch. With no plan to find, the first run has nothing to do and says so.
 **On Claude Code — a Claude Desktop scheduled task.** On the app's Routines page, create a local scheduled task and choose when it runs; put `/engine-routine`
 in its Instructions; turn on **"Work in an isolated copy of the repo"** (the Engine refuses to write unless the
 run is in a dedicated worktree, so this is required) and make sure that copy is on your build's branch; and set
-the **permission mode** to the one that lets the session act without pausing to ask you.
+the **permission mode** to the one that lets the session act without pausing to ask you. Where the app offers
+a sandboxed shell, turn it on; and keep your git and GitHub credentials in the OS credential store, never in
+the task's instructions.
 
 **On Codex — keep Engine builds interactive.** The former `$engine-routine` Automation is retired: Codex's one
 shared scheduled sandbox plus unattended repository credentials cannot preserve the promise that only you merge.

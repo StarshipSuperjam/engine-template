@@ -281,6 +281,14 @@ class TestTheLocalSchedulerIsAScheduledTask(unittest.TestCase):
             text = self._text(os.path.join(validate.ENGINE_DIR, "operations", name))
             self.assertIn("set-routine", text, name)
 
+    def test_the_host_hardening_sentences_keep_their_bounds(self):
+        """#819: the hardening guidance is bounded as host settings the operator turns on, never Engine-owned."""
+        entry = self._text(os.path.join(validate.ENGINE_DIR, "operations", "routine-entry.md"))
+        self.assertIn("fail-open", entry)
+        self.assertIn("never set", entry)
+        modes = self._text(os.path.join(validate.ENGINE_DIR, "operations", "operating-modes.md"))
+        self.assertIn("does not control", modes)
+
 
 class TestFrontmatterRule(unittest.TestCase):
     def test_rule_is_well_formed_and_joins_ci(self):

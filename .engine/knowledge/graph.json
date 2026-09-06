@@ -6233,7 +6233,7 @@
       },
       "slug": "operating-modes",
       "source": {
-        "fingerprint": "sha256:b96c5b0fcfcf18e5b098d8aa6482112ce83f7396e4fc5da6ab5f738d4ae68718",
+        "fingerprint": "sha256:ad8ee3bafba97bfe56cb7b0610c084b1767f73718ea438f0e6fbd09facb8cfa4",
         "path": ".engine/operations/operating-modes.md"
       },
       "status": "active",
@@ -6373,7 +6373,7 @@
       },
       "slug": "routine-entry",
       "source": {
-        "fingerprint": "sha256:78334bf45abb80aff74b1472f8a363a417e5338bd62a5f56a7f368b649673339",
+        "fingerprint": "sha256:7568b7681d5fefedc9fc1f2ec08a7a60d8e2affd67c44d379e787bee325c64bf",
         "path": ".engine/operations/routine-entry.md"
       },
       "status": "active",
@@ -18707,7 +18707,7 @@
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:7b87e9a1c9e00510ab3bc360630baa6960522031582e9ac572d1780e6bbe4a45",
+        "fingerprint": "sha256:cd1824751b0a4fdd3b8bad2002050f54bb41a87c0bfca12f25a0f3c6b7fa9bfc",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
