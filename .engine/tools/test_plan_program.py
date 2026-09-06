@@ -2526,14 +2526,77 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
         seeded = 'raise ProgramError("try `program unburden <program>` instead")'
         self.assertEqual(self._named_program_verbs(seeded), {"unburden"})
 
+    # -- `program <verb> --<flag>`, S9: a refusal can name a real VERB and still point at a flag that
+    # verb does not take. The intended order added several such refusals — `program insert --fulfills`,
+    # `program intend withdraw --reason` — so the sweep now resolves the flag half too, against the
+    # real subparsers' own option strings, walking one or two verb-words deep as each case needs.
+
+    def _named_program_verb_flags(self, source: str | None = None) -> set:
+        import re
+        # A backtick-quoted `program <verb...> --<flag>` with the closing backtick landing right after
+        # the flag — deliberately narrow, so a longer aside like "`program release <program> <child>
+        # --obligation <id> --reason \"...\"`" (several placeholders, no single closing backtick right
+        # after a flag) is left alone rather than misparsed into a flag pairing nobody wrote.
+        return set(re.findall(
+            r"`program ([a-z][a-z-]*(?: [a-z][a-z-]*)?) (--[a-z][a-z-]*)`",
+            source if source is not None else self._sources()))
+
+    def _resolve_program_verb_path(self, program_action, verb_path: str):
+        """Walk `program <word> <word> ...` against the real subparsers, one word at a time, returning
+        the ArgumentParser the LAST word resolves to (or raising an AssertionError naming where the
+        walk broke) — the same choices dict `test_every_program_verb_a_refusal_names_is_a_real_verb`
+        reads for the single-word case, followed one level deeper for a subgroup like `intend`."""
+        words = verb_path.split()
+        node = program_action.choices.get(words[0])
+        self.assertIsNotNone(
+            node, f"`program {verb_path}` names {words[0]!r}, which is not a real `program` verb")
+        for word in words[1:]:
+            sub_action = next((a for a in node._actions if hasattr(a, "choices") and a.choices), None)
+            self.assertIsNotNone(
+                sub_action, f"`program {verb_path}` expects a subcommand under {words[0]!r}, but it "
+                "takes none")
+            node = sub_action.choices.get(word)
+            self.assertIsNotNone(
+                node, f"`program {verb_path}` names {word!r}, which is not a real subcommand there")
+        return node
+
+    def test_every_program_verb_flag_a_refusal_names_is_a_real_flag(self):
         import program_manager
         parser = program_manager.build_parser()
         program_action = next(
             action for action in parser._subparsers._group_actions[0].choices["program"]._actions
             if hasattr(action, "choices") and action.choices)
-        self.assertEqual(self._named_program_verbs(seeded) - set(program_action.choices),
-                         {"unburden"},
-                         "the real extractor plus the real parser must together surface the miss")
+        named = self._named_program_verb_flags()
+        self.assertTrue(named, "the sweep found no named verb+flag pairs, so it is not checking anything")
+        for verb_path, flag in sorted(named):
+            node = self._resolve_program_verb_path(program_action, verb_path)
+            available = {option for action in node._actions for option in action.option_strings}
+            self.assertIn(flag, available,
+                         f"refusal text points at `program {verb_path} {flag}`, which is not a real "
+                         f"flag there; available: {sorted(available)}")
+
+    def test_the_flag_sweep_runs_its_real_machinery_against_a_seeded_miss(self):
+        """The extractor itself, driven over invented text — the same discipline the verb-only sweep
+        above holds itself to, and for the same reason: a guard that only compares two literals can go
+        green while the regex, the multi-word walk, or the parser lookup it claims to run has rotted
+        out from under it."""
+        seeded = 'raise ProgramError("try `program add --nonexistent-flag` instead")'
+        self.assertEqual(self._named_program_verb_flags(seeded), {("add", "--nonexistent-flag")})
+        seeded_nested = 'raise ProgramError("try `program intend withdraw --reason` instead")'
+        self.assertEqual(self._named_program_verb_flags(seeded_nested),
+                         {("intend withdraw", "--reason")})
+
+    def test_a_fabricated_flag_that_does_not_exist_is_caught(self):
+        """The seeded-miss proof end to end: a fabricated refusal naming a real verb but an invented
+        flag must fail the real check, not merely be extracted correctly."""
+        import program_manager
+        parser = program_manager.build_parser()
+        program_action = next(
+            action for action in parser._subparsers._group_actions[0].choices["program"]._actions
+            if hasattr(action, "choices") and action.choices)
+        node = self._resolve_program_verb_path(program_action, "add")
+        available = {option for action in node._actions for option in action.option_strings}
+        self.assertNotIn("--nonexistent-flag", available)
 
     def test_the_sweep_reads_every_module_that_writes_a_refusal(self):
         """The scope of the guard is itself asserted, so narrowing it cannot pass unnoticed."""
@@ -3384,6 +3447,160 @@ class IntendedStandingDerivation(_Program):
              "at": "2099-06-01T00:00:00Z", "reason": "later than anything else"})
         self.programs._write(slug, record)
         self.assertEqual(plan_program.last_movement(self.programs.read(slug)), "2099-06-01")
+
+
+class IntendedRender(_Program):
+    """`program show` (via plan_program.render) tells the truth about the recorded intended order —
+    the same precedent `LaneRender` sets for the decided lane split: a thin FORMATTER over
+    `intended_standing`, which owns every truth rule, so nothing here re-derives readiness or a
+    claim's status. A section only when a program has recorded intent at all; the fixed sentence
+    pinned byte-for-byte; and a history block naming every event kind."""
+
+    def _slug(self):
+        return self._program("Render", "A program with a recorded intended order.")
+
+    def _seal(self, plan_id):
+        plan_slug = self.plans.resolve(plan_id)
+        digest = self.plans.read_record(plan_slug)["current"]["plan_digest"]
+        self.plans.update_record(plan_slug, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z", "delta_judgment": "none"}}))
+
+    def _retire(self, plan_id, reason="replaced"):
+        self._seal(plan_id)
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": reason}}))
+
+    def test_no_section_without_any_recorded_intent(self):
+        slug = self._program("Untouched", "Never records an intent.")
+        self._plan("pln_d00000000001", "Child A")
+        self.programs.add_child(slug, "pln_d00000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertNotIn("## Intended, not yet authored", rendered)
+
+    def test_next_intended_names_every_ready_entry(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B", [])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("## Intended, not yet authored", rendered)
+        self.assertIn("- **Next intended**: step-a — Step A; step-b — Step B", rendered)
+
+    def test_next_intended_says_none_recorded_when_nothing_is_ready(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_d00000000002", "Claimant")
+        self.programs.add_child(slug, "pln_d00000000002", fulfills="step-a")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("- **Next intended**: none recorded", rendered)
+
+    def test_every_rendered_edge_shows_its_reason(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first for the schema"}])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("follows step-a — A must land first for the schema", rendered)
+
+    def test_a_claimed_entry_names_its_claimant_and_status(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_d00000000003", "Claimant")
+        self.programs.add_child(slug, "pln_d00000000003", fulfills="step-a")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("Claimed by `pln_d00000000003` (draft).", rendered)
+
+    def test_a_dead_claim_is_marked(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_d00000000004", "Claimant")
+        self.programs.add_child(slug, "pln_d00000000004", fulfills="step-a")
+        self.plans.update_record(self.plans.resolve("pln_d00000000004"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("a DEAD claim: open to a fresh `--fulfills` again.", rendered)
+
+    def test_a_discrepancy_is_rendered(self):
+        slug = self._slug()
+        self._plan("pln_d00000000010", "Some other child")
+        self.programs.add_child(slug, "pln_d00000000010")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A",
+                                 [{"ref": "pln_d00000000010", "reason": "declared precedence"}])
+        self.programs.add_intent(slug, "step-elsewhere", "Elsewhere", "Unrelated", [])
+        self._plan("pln_d00000000011", "Claimant with a different actual predecessor")
+        self.programs.add_child(slug, "pln_d00000000011", predecessor="pln_d00000000010",
+                                fulfills="step-a")
+        record = self.programs.read(slug)
+        record["intended"][0]["after"] = [{"ref": "step-elsewhere", "reason": "a different reason"}]
+        self.programs._write(slug, record)
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("_Discrepancy_:", rendered)
+        self.assertIn("pln_d00000000010", rendered)
+
+    def test_a_withdrawn_entry_stays_visible_with_its_reason(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.withdraw_intent(slug, "step-a", "changed course")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("step-a", rendered)
+        self.assertIn("(withdrawn 2026-", rendered)
+        self.assertIn("changed course", rendered)
+
+    def test_the_fixed_sentence_is_exact(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn(
+            "_The intended order is declared, never derived. Nothing here selects, starts, or "
+            "advances a child._", rendered)
+
+    def test_history_block_renders_every_event_kind(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first"}])
+        self.programs.add_intent(slug, "step-c", "Step C", "Build C", [])
+        self.programs.revise_intent(slug, "step-b", title="Step B renamed", reason="clearer wording")
+
+        # claimed-out-of-order: step-b jumps ahead of step-a, which is still unclaimed.
+        self._plan("pln_d00000000020", "Jumps ahead of A")
+        self.programs.add_child(slug, "pln_d00000000020", fulfills="step-b",
+                                out_of_order_reason="A's owner is on leave")
+
+        # outside-intent: a plan recorded outside the recorded order entirely.
+        self._plan("pln_d00000000021", "Outside the order", predecessor="pln_d00000000020")
+        self.programs.add_child(slug, "pln_d00000000021", predecessor="pln_d00000000020",
+                                outside_intent="a fix, not the step")
+
+        # claim-reopened: step-c is claimed, its claimant dies, a fresh --fulfills reopens it.
+        self._plan("pln_d00000000022", "First claimant of C", predecessor="pln_d00000000021")
+        self.programs.add_child(slug, "pln_d00000000022", predecessor="pln_d00000000021",
+                                fulfills="step-c")
+        self._retire("pln_d00000000022")
+        self._plan("pln_d00000000024", "Second claimant of C", predecessor="pln_d00000000021")
+        self.programs.add_child(slug, "pln_d00000000024", predecessor="pln_d00000000021",
+                                fulfills="step-c")
+
+        # claim-transferred: step-a is claimed, then that claimant is superseded in place.
+        self._plan("pln_d00000000025", "Claimant of A", predecessor="pln_d00000000024")
+        self.programs.add_child(slug, "pln_d00000000025", predecessor="pln_d00000000024",
+                                fulfills="step-a")
+        self._retire("pln_d00000000025")
+        self._plan("pln_d00000000026", "Replacement claimant of A")
+        self.programs.mark_superseded(slug, "pln_d00000000025", "pln_d00000000026")
+
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("## How the intended order has been revised", rendered)
+        self.assertIn("**step-b** revised", rendered)
+        self.assertIn("Previously: Step B — Build B", rendered)
+        self.assertIn("**step-b** claimed out of order by `pln_d00000000020`", rendered)
+        self.assertIn("A's owner is on leave", rendered)
+        self.assertIn("`pln_d00000000021` recorded outside the intended order", rendered)
+        self.assertIn("a fix, not the step", rendered)
+        self.assertIn("**step-c**'s claim reopened", rendered)
+        self.assertIn("`pln_d00000000022` died holding it", rendered)
+        self.assertIn("**step-a**'s claim transferred from `pln_d00000000025` to "
+                      "`pln_d00000000026`", rendered)
 
 
 class LaneRecord(_Program):

@@ -357,6 +357,74 @@ class ThePortfolioRendersLaneStanding(_Shelf):
         self.assertEqual(before, after)
 
 
+class ThePortfolioRendersNextIntended(_Shelf):
+    """The portfolio's one-line glance at the recorded intended order — a thin formatter over
+    `plan_program.intended_standing`, mirroring `_lanes_block`'s precedent: present only when there
+    is something ready to name, semicolon-joined when several are, and absent otherwise. Fixtures
+    seed intents ONLY through the library's own verbs (`add_intent`/`add_child` with `fulfills`),
+    never by touching the record's `intended` key directly."""
+
+    def _line(self, render, program_name):
+        block = render.split(f"### {program_name}", 1)[1].split("###", 1)[0]
+        return [line for line in block.splitlines() if line.startswith("- **Next intended**")]
+
+    def test_two_ready_entries_are_named_semicolon_joined(self):
+        with self._seeding():
+            slug = self.progs.create("Solo", "A program with two ready intents.")
+            self.progs.add_intent(slug, "step-a", "Step A", "Build A", [])
+            self.progs.add_intent(slug, "step-b", "Step B", "Build B", [])
+        render = program_projection.render_portfolio(self.progs)
+        lines = self._line(render, "Solo")
+        self.assertEqual(lines, ["- **Next intended**: step-a — Step A; step-b — Step B"])
+
+    def test_nothing_ready_renders_no_line_at_all(self):
+        with self._seeding():
+            slug = self.progs.create("Untouched", "A program that never records an intent.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000f1", "the only child", pid)
+            self.progs.add_child(slug, "pln_0000000000f1")
+        render = program_projection.render_portfolio(self.progs)
+        self.assertEqual(self._line(render, "Untouched"), [])
+        self.assertNotIn("Next intended", render)
+
+    def test_an_open_intent_stranded_behind_a_dead_child_is_named_not_silenced(self):
+        """An open intent whose precedent names a child that has since died is never ready — and
+        the line says so, naming what it waits on, instead of vanishing as if nothing were coming."""
+        with self._seeding():
+            slug = self.progs.create("Stranded", "A program whose next step waits on a dead child.")
+            pid = self.progs.read(slug)["program_id"]
+            self._seed_child("pln_0000000000f3", "the child that died", pid,
+                             closure={"state": "retired", "at": "2026-09-01T00:00:00Z",
+                                      "reason": "dropped"})
+            self.progs.add_child(slug, "pln_0000000000f3")
+            self.progs.add_intent(slug, "step-b", "Step B", "Build B",
+                                  [{"ref": "pln_0000000000f3", "reason": "builds on its seam"}])
+        render = program_projection.render_portfolio(self.progs)
+        self.assertEqual(self._line(render, "Stranded"),
+                         ["- **Next intended**: none ready — step-b waits on pln_0000000000f3"])
+
+    def test_a_fully_claimed_intent_renders_no_line(self):
+        with self._seeding():
+            slug = self.progs.create("Claimed", "A program whose only intent is already claimed.")
+            pid = self.progs.read(slug)["program_id"]
+            self.progs.add_intent(slug, "step-a", "Step A", "Build A", [])
+            self._seed_child("pln_0000000000f2", "claimant", pid)
+            self.progs.add_child(slug, "pln_0000000000f2", fulfills="step-a")
+        render = program_projection.render_portfolio(self.progs)
+        self.assertEqual(self._line(render, "Claimed"), [])
+        self.assertNotIn("Next intended", render)
+
+    def test_rendering_next_intended_does_not_touch_a_record(self):
+        with self._seeding():
+            slug = self.progs.create("Pure", "A program whose intents must not be mutated by a read.")
+            self.progs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        programs_dir = self.lib.root / "programs"
+        before = {p: p.read_bytes() for p in programs_dir.rglob("record.json")}
+        program_projection.render_portfolio(self.progs)
+        after = {p: p.read_bytes() for p in programs_dir.rglob("record.json")}
+        self.assertEqual(before, after)
+
+
 class GoalHeadlineCutsOnACompleteThought(unittest.TestCase):
     """goal_headline directly, at the boundaries the live shelf actually defeats. The portfolio tests
     exercise it through the render; these pin the cut rule itself — most importantly that a clause cut

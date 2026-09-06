@@ -252,6 +252,9 @@ def intended_standing(record: dict, view: list) -> dict | None:
                                              # child's own predecessor edge
         }, ... ],
         "ready_keys": [str, ...],   # entries that are ready, sorted by key — a label, not a rank
+        "open_keys": [str, ...],    # entries a fresh claim could take (not withdrawn, not
+                                    # live-claimed), ready or not — sorted by key
+        "events": [dict, ...],      # the recorded history, in order, for a formatter to render
       }
 
     Liveness is read from `view` exactly as `lane_standing` reads it: a plan_id absent from `view`
@@ -308,7 +311,14 @@ def intended_standing(record: dict, view: list) -> dict | None:
         })
         if ready:
             ready_keys.append(intent["key"])
-    return {"entries": entries, "ready_keys": sorted(ready_keys)}
+    # `open_keys`: entries a fresh claim could still take — not withdrawn, not live-claimed — whether
+    # or not their precedents are satisfied yet. Distinct from `ready_keys`: an open entry whose
+    # precedent names a child that has since died is open but never ready, and a reader that only
+    # looked at readiness would fall silent about it.
+    open_keys = sorted(e["key"] for e in entries
+                       if not e["withdrawn"] and (not e["claimed_by"] or e["dead_claim"]))
+    return {"entries": entries, "ready_keys": sorted(ready_keys), "open_keys": open_keys,
+            "events": [dict(event) for event in record.get("intended_history", [])]}
 
 
 def last_movement(record: dict) -> str:
@@ -2385,6 +2395,7 @@ def render(library: ProgramLibrary, record: dict) -> str:
         out.append("")
 
     out += _render_lanes(record, view)
+    out += _render_intended(record, view)
 
     out += ["## Obligations still carried", ""]
     if report["unknown"]:
@@ -2570,6 +2581,81 @@ def _render_lanes(record: dict, view: list) -> list:
             lines.append(f"  - Was: {shape} (decided {past['decided_at']}: {past['reason']})")
         lines += ["", "_Nothing was erased. A split that was replaced and one that was cleared read "
                   "differently, so a later reader can tell them apart and see when none stood._", ""]
+    return lines
+
+
+def _render_intended(record: dict, view: list) -> list:
+    """The recorded intended order, rendered truthfully — a thin FORMATTER over `intended_standing`,
+    which owns every truth rule, mirroring `_render_lanes`'s precedent and its reason for existing.
+    Readiness is a partial order the engine READS here, never derives, selects, or advances; ready
+    entries are named by KEY, a stable label and never a rank, and the fixed sentence at the end says
+    plainly what this section is not for.
+
+    [] when the program has recorded no intent at all — absence is the truth, the same precedent
+    `_render_lanes` follows for a program with no decided split.
+    """
+    lines: list = []
+    standing = intended_standing(record, view)
+    if standing is None:
+        return lines
+    entries = standing["entries"]
+    ready = standing["ready_keys"]
+    title_of = {e["key"]: e["title"] for e in entries}
+    lines += ["## Intended, not yet authored", "",
+             "- **Next intended**: "
+             + ("; ".join(f"{key} — {title_of[key]}" for key in ready) if ready else "none recorded"),
+             ""]
+    for entry in entries:
+        header = f"- **{entry['key']}** — {entry['title']}"
+        if entry["withdrawn"]:
+            lines.append(f"{header} _(withdrawn {entry['withdrawn']['at']}: "
+                         f"{entry['withdrawn']['reason']})_")
+            continue
+        lines.append(header)
+        lines.append(f"  {entry['statement']}")
+        for edge in entry["edges"]:
+            lines.append(f"  - follows {edge['ref']} — {edge['reason']}")
+        if entry["claimed_by"]:
+            if entry["dead_claim"]:
+                lines.append(f"  - Claimed by `{entry['claimed_by']}` — {entry['claimer_status']}, "
+                             "a DEAD claim: open to a fresh `--fulfills` again.")
+            else:
+                lines.append(f"  - Claimed by `{entry['claimed_by']}` ({entry['claimer_status']}).")
+            if entry["discrepancy"]:
+                lines.append(f"  - _Discrepancy_: {entry['discrepancy']}")
+        elif entry["ready"]:
+            lines.append("  - Ready.")
+        elif entry["waiting_on"]:
+            lines.append("  - Waiting on: " + "; ".join(
+                f"{w['ref']} ({w['reason']})" for w in entry["waiting_on"]))
+    lines += ["", "_The intended order is declared, never derived. Nothing here selects, starts, or "
+             "advances a child._"]
+    history = standing["events"]
+    if history:
+        lines += ["", "## How the intended order has been revised", ""]
+        for event in history:
+            kind = event["kind"]
+            if kind == "revised":
+                prior = event["prior"]
+                lines.append(f"- **{event['key']}** revised {event['at']}: {event['reason']}")
+                lines.append(f"  - Previously: {prior['title']} — {prior['statement']}")
+                if prior.get("after"):
+                    lines.append("    follows " + "; ".join(
+                        f"{e['ref']} ({e['reason']})" for e in prior["after"]))
+            elif kind == "claimed-out-of-order":
+                crossed = "; ".join(f"{c['ref']} ({c['reason']})" for c in event["crossed"])
+                lines.append(f"- **{event['key']}** claimed out of order by `{event['plan_id']}` "
+                             f"{event['at']}: crossed {crossed} — {event['reason']}")
+            elif kind == "outside-intent":
+                lines.append(f"- `{event['plan_id']}` recorded outside the intended order "
+                             f"{event['at']}: {event['reason']}")
+            elif kind == "claim-transferred":
+                lines.append(f"- **{event['key']}**'s claim transferred from "
+                             f"`{event['from_plan_id']}` to `{event['to_plan_id']}` {event['at']}.")
+            elif kind == "claim-reopened":
+                lines.append(f"- **{event['key']}**'s claim reopened {event['at']} — "
+                             f"`{event['dead_plan_id']}` died holding it.")
+        lines.append("")
     return lines
 
 
