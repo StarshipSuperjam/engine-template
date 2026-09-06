@@ -234,11 +234,11 @@ def translate_findings(raw, *, lenses: list) -> list:
     the end of a panel it had just paid for.
 
     So the mapping is made explicit and mechanical: `message` becomes the summary, `location` is
-    preserved rather than dropped (it is the most useful part of a finding and the record now has a
-    field for it), the lens is the ONE lens being recorded — a persona finding cannot carry a lens
-    it never states — and the id is minted from that lens plus its position. A mixed or unrecognised
-    batch is refused naming BOTH contracts and the mapping, rather than reported as a schema error
-    about a field the author never chose.
+    rendered to the record's string form (it is the most useful part of a finding and the record
+    now has a field for it), the lens is the ONE lens being recorded — a persona finding cannot
+    carry a lens it never states — and the id is minted from that lens plus its position. A mixed
+    or unrecognised batch is refused naming BOTH contracts and the mapping, rather than reported
+    as a schema error about a field the author never chose.
     """
     if raw is None:
         return []
@@ -286,6 +286,32 @@ def translate_findings(raw, *, lenses: list) -> list:
             "lens": lens,
             "severity": entry["severity"],
             "summary": entry["message"],
-            "location": entry["location"],
+            "location": _render_location(entry["location"]),
         })
     return translated
+
+
+def _render_location(location):
+    """Render a persona-shaped location to the record's string form.
+
+    Handles the three location forms from plan-review-finding.v1:
+    - Object with line: renders as 'file:line'
+    - Object without line or with null line: renders as the file path
+    - Null location: renders as 'the plan as a whole'
+    - String location: passes through unchanged
+    """
+    whole = "the plan as a whole"
+    if location is None:
+        return whole
+    if isinstance(location, str):
+        # A non-empty string passes through; a blank one names nothing and renders as the whole.
+        return location if location.strip() else whole
+    if isinstance(location, dict):
+        file_path = location.get("file")
+        if not file_path:
+            return whole
+        line = location.get("line")
+        if line is not None:
+            return f"{file_path}:{line}"
+        return file_path
+    return location
