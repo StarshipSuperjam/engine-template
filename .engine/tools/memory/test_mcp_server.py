@@ -1,6 +1,7 @@
-"""test_mcp_server.py — the engine-memory MCP server, headless (memory substrate). Also locks the --help
-guard: --help / -h print usage naming the accepted-hook launch chain and exit 0 before server.run(); `demo`
-is the only verb; any other argument exits 2 without serving (#807).
+"""test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).
+
+Also locks the --help guard: --help / -h print usage naming the accepted-hook launch chain and exit 0 before
+server.run(); `demo` is the only verb; any other argument exits 2 without serving (#807).
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
@@ -431,7 +432,8 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(calls, [], argv)
 
     def test_an_unknown_flag_or_bare_word_is_rejected_without_serving(self):
-        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["serve"], "serve"), (["demo", "extra"], "extra")):
+        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["serve"], "serve"), (["demo", "extra"], "extra"),
+                            (["demo", "demo"], "demo")):
             calls, out, err = [], io.StringIO(), io.StringIO()
             with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
                  mock.patch.object(srv, "_demo", side_effect=lambda *a, **k: calls.append("demo")), \
@@ -462,6 +464,10 @@ class DemoTests(unittest.TestCase):
                                   stdin=subprocess.DEVNULL)
         self.assertEqual(rejected.returncode, 2, rejected.stdout)
         self.assertIn("usage: mcp_server.py", rejected.stderr)
+        twice = subprocess.run([sys.executable, script, "demo", "demo"], capture_output=True, text=True, timeout=10,
+                               stdin=subprocess.DEVNULL)
+        self.assertEqual(twice.returncode, 2, twice.stderr)      # never a traceback (repair round 2)
+        self.assertNotIn("Traceback", twice.stderr)
 
     def test_demo_body_exits_zero(self):
         # The operator demo exercises the REAL rank + filter + reinforce on its own throwaway cabinet; a real

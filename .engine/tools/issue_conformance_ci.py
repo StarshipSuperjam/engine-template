@@ -291,7 +291,8 @@ def main(argv: "list | None" = None) -> int:
         return _demo()
     if argv:
         print(_USAGE, file=sys.stderr)
-        stray = next(a for a in argv if a != "demo")          # name the word that is wrong, never the valid verb
+        # Name the word that is wrong, never the valid verb; when every word is `demo`, the second one is the stray.
+        stray = next((a for a in argv if a != "demo"), argv[1] if len(argv) > 1 else argv[0])
         print(f"issue_conformance_ci.py: unknown argument {stray!r}", file=sys.stderr)
         return 2
     return _run()

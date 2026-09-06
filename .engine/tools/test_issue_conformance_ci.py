@@ -1,6 +1,7 @@
-"""Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract. Also locks the
---help guard: --help / -h print usage naming the workflow that runs the tool and exit 0 before the issue
-write path is reached; `demo` is the only verb; any other argument exits 2 without acting (#807).
+"""Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract.
+
+Also locks the --help guard: --help / -h print usage naming the workflow that runs the tool and exit 0 before
+the issue write path is reached; `demo` is the only verb; any other argument exits 2 without acting (#807).
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify: that the workflow is an
 engine-owned traveler (FOUNDATION_INFRA → CODEOWNERS + upgrade overlay, the same treatment as the other engine
@@ -360,7 +361,8 @@ class TestHelpNeverActs(unittest.TestCase):
             self.assertEqual(calls, [], argv)
 
     def test_an_unknown_flag_or_bare_word_is_rejected_without_running(self):
-        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["run"], "run"), (["demo", "extra"], "extra")):
+        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["run"], "run"), (["demo", "extra"], "extra"),
+                            (["demo", "demo"], "demo"), (["demo", "demo", "demo"], "demo")):
             code, out, err, calls = self._run(argv)
             self.assertEqual(code, 2, argv)
             self.assertIn("usage: issue_conformance_ci.py", err)
@@ -384,6 +386,9 @@ class TestHelpNeverActs(unittest.TestCase):
         rejected = subprocess.run([sys.executable, script, "--bogus"], capture_output=True, text=True, timeout=5, env=env)
         self.assertEqual(rejected.returncode, 2, rejected.stdout)
         self.assertIn("usage: issue_conformance_ci.py", rejected.stderr)
+        twice = subprocess.run([sys.executable, script, "demo", "demo"], capture_output=True, text=True, timeout=5, env=env)
+        self.assertEqual(twice.returncode, 2, twice.stderr)      # never a traceback (repair round 2)
+        self.assertNotIn("Traceback", twice.stderr)
 
 
 if __name__ == "__main__":

@@ -12747,7 +12747,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:927ab7e7a222fab5da0ce85555fee5c9a58c243686d63b6589bb766e6748d7d0",
+        "fingerprint": "sha256:108167155f266cd48335e0930bfcbc05ea4fabf58ea2e870d0e5b579b38faaf6",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -13296,7 +13296,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:370414146d8a5817eb87f769a8c20e49d6869cd17c906be452094e8a02c5ca8e",
+        "fingerprint": "sha256:d9af87c09c875ae87faf3ab1e37fc0a6edc847c5a9721f001ad28e2897167359",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -17794,11 +17794,11 @@
       },
       "slug": "test_issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:86be016c3028c6fb32b0577611d084dd7fc3e73ef52aacdb37575961d0aa9386",
+        "fingerprint": "sha256:bee19edadb763b73ed4a74fd659f0c273c00b1a62282ca82404c82e4f732d676",
         "path": ".engine/tools/test_issue_conformance_ci.py"
       },
       "status": "active",
-      "summary": "Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract. Also locks the",
+      "summary": "Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract.",
       "type": "tool"
     },
     {
@@ -18305,11 +18305,11 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:ad2a9638816ac1f2fe4d33d86f65592e92e0b4ab07538bdae7558578b1495263",
+        "fingerprint": "sha256:be6c745321616d78523c9ea134c916c2bafad20576ec19f444ab14cf0542d592",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
-      "summary": "test_mcp_server.py — the engine-memory MCP server, headless (memory substrate). Also locks the --help",
+      "summary": "test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).",
       "type": "tool"
     },
     {
@@ -18834,11 +18834,11 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:24c6f0bea0c6905d8e13dc3c4a10ba33abc9ff798271486b1a9679bcdb9d66e3",
+        "fingerprint": "sha256:b6cc2470cf532dd39f1105f854aabb469d4521e7bde602288c82a8bf0c1ac59d",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
-      "summary": "Tests for overlay_disclosure — the non-blocking, merge-time upgrade-overwrite notice. Also locks the",
+      "summary": "Tests for overlay_disclosure — the non-blocking, merge-time upgrade-overwrite notice.",
       "type": "tool"
     },
     {
