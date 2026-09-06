@@ -207,6 +207,13 @@ _FLOOR_ENFORCEMENT_HOOKS = (
     #                                    Same criterion as the two above: a unit test is the wrong instrument
     #                                    (the same PR can flip the belt AND its test), so it routes through the
     #                                    guardrail-ack.
+    ".engine/tools/change_classification.py",  # the helper ci_gatekeeper.py grew for its third route: decides
+    #                                    whether a deployed copy's change set lies outside everything the Engine
+    #                                    owns, so engine-ci may run the validator alone and a Build's candidate
+    #                                    validation may run the guard alone. Its declared floor IS the bound;
+    #                                    widening it (a dropped corner, a dropped root file, a doubt resolved to
+    #                                    "the project's") mints a green with no on-disk floored correlate. The
+    #                                    gatekeeper's docstring binds any helper it grows to join both sets.
 )
 # Traveling security-floor provisions — NOT enforcement gates (they check nothing and gate no merge), so they
 # do not belong with _FLOOR_ENFORCEMENT_CONFIG above. They are the git-native security floor the control plane
@@ -362,6 +369,9 @@ _HARD_EXACT = (
     # the reuse gate: it decides whether engine-ci may report success without running the inventory in that
     # run, so a one-line flip toward reuse forges a green the same way an unconditional ack forges consent:
     ".engine/tools/ci_gatekeeper.py",
+    # the gate's third-route helper: its declared floor decides what engine-ci and a Build's candidate
+    # validation may skip, so a one-line widening forges the same green (the gatekeeper's helper binding):
+    ".engine/tools/change_classification.py",
     # the meta-check that makes demoting validate.py and the check scripts honest — it must itself block:
     ".engine/tools/hard_check_bite_check.py",
     # check scripts with a recorded not-applicable bite declaration — the meta-check has NO witness for

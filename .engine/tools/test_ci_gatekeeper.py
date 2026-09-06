@@ -14,6 +14,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import unittest
 import zipfile
 from unittest import mock
@@ -105,16 +106,29 @@ def transport_for(runs, artifacts_by_run):
 ARTIFACT = [{"id": 5, "name": gk.RECEIPT_ARTIFACT_NAME, "expired": False}]
 
 
+ENGINE_AFFECTING = {"schema_version": "change-classification.v1", "verdict": "engine-affecting",
+                    "reason": {"code": "engine-corner-path", "detail": "fixture"},
+                    "changed_paths": [".engine/tools/x.py"], "engine_paths": [".engine/tools/x.py"],
+                    "project_paths": []}
+PROJECT_ONLY = {"schema_version": "change-classification.v1", "verdict": "project-only",
+                "reason": {"code": "project-only", "detail": "fixture"},
+                "changed_paths": ["src/app.py"], "engine_paths": [], "project_paths": ["src/app.py"]}
+
+
 class DecideMatrix(unittest.TestCase):
-    """Every accepted event and action resolves to exactly full or reuse — never a third state."""
+    """Every accepted event and action resolves to exactly full, reuse or project-only — never a fourth state.
+
+    The classifier is canned here: these cases are about the EVENT rules, and a real classification would
+    make them depend on this checkout's identity and history."""
 
     def setUp(self):
         patcher = mock.patch.object(gk, "tree_sha", return_value=TREE)
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _decide(self, ev, transport=None):
-        return gk.decide(ev, repo=REPO, token="t", transport=transport or (lambda *a, **k: (404, None)))
+    def _decide(self, ev, transport=None, classifier=lambda _root: ENGINE_AFFECTING, env=None):
+        return gk.decide(ev, repo=REPO, token="t", transport=transport or (lambda *a, **k: (404, None)),
+                         classifier=classifier, env=env if env is not None else {})
 
     def test_push_to_default_branch_runs_full(self):
         # The badge witness, the default-branch telemetry signal and the integration queue all read this run.
@@ -148,12 +162,145 @@ class DecideMatrix(unittest.TestCase):
         mode, reason, _ = self._decide(event("edited"), transport_for([], {}))
         self.assertEqual((mode, reason), (gk.MODE_FULL, gk.REASON_NO_RECEIPT))
 
-    def test_every_decision_is_one_of_two_modes(self):
+    def test_every_decision_is_one_of_three_modes(self):
         t = transport_for([], {})
-        for ev in (event("edited"), event("opened"), event("labeled"), event("wat"),
-                   {"event_name": "push", "payload": {}}, {"event_name": "schedule", "payload": {}}):
-            mode, _, _ = self._decide(ev, t)
-            self.assertIn(mode, (gk.MODE_FULL, gk.MODE_REUSE))
+        for classifier in (lambda _r: ENGINE_AFFECTING, lambda _r: PROJECT_ONLY):
+            for ev in (event("edited"), event("opened"), event("labeled"), event("wat"),
+                       {"event_name": "push", "payload": {}}, {"event_name": "schedule", "payload": {}}):
+                mode, _, _ = self._decide(ev, t, classifier=classifier)
+                self.assertIn(mode, gk.MODES)
+
+
+class ProjectOnlyRoute(unittest.TestCase):
+    """Route three: a deployed copy's product-only change set runs the validator alone, on any action."""
+
+    def setUp(self):
+        patcher = mock.patch.object(gk, "tree_sha", return_value=TREE)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _decide(self, ev, classifier, transport=None, env=None):
+        return gk.decide(ev, repo=REPO, token="t", transport=transport or (lambda *a, **k: (404, None)),
+                         classifier=classifier, env=env if env is not None else {})
+
+    def test_a_product_only_synchronize_takes_the_project_only_arm(self):
+        mode, reason, detail = self._decide(event("synchronize"), lambda _r: PROJECT_ONLY)
+        self.assertEqual((mode, reason), (gk.MODE_PROJECT_ONLY, gk.REASON_PROJECT_ONLY))
+        self.assertEqual(detail["classification"]["project_paths"], ["src/app.py"])
+
+    def test_a_body_only_edit_on_a_product_only_pull_request_needs_no_receipt(self):
+        # No receipt exists (a project-only run uploads one the reuse path refuses; here there is none at all),
+        # and the edit is still classified project-only before the receipt rules are consulted.
+        mode, reason, _ = self._decide(event("edited"), lambda _r: PROJECT_ONLY, transport_for([], {}))
+        self.assertEqual((mode, reason), (gk.MODE_PROJECT_ONLY, gk.REASON_PROJECT_ONLY))
+
+    def test_an_engine_touching_synchronize_runs_full(self):
+        mode, reason, _ = self._decide(event("synchronize"), lambda _r: ENGINE_AFFECTING)
+        self.assertEqual((mode, reason), (gk.MODE_FULL, gk.REASON_CODE_EVENT))
+
+    def test_an_engine_touching_edit_with_a_full_receipt_still_reuses(self):
+        t = transport_for([run_record()], {900: ARTIFACT})
+        with mock.patch.object(gk, "download_artifact", return_value=zipped(receipt())), \
+             mock.patch.object(gk, "inventory_digest", return_value=(COUNT, DIGEST)), \
+             mock.patch.object(gk, "_age_ok", return_value=None):
+            mode, _, detail = self._decide(event("edited"), lambda _r: ENGINE_AFFECTING, t)
+        self.assertEqual(mode, gk.MODE_REUSE)
+        self.assertEqual(detail["run_id"], 900)
+
+    def test_a_default_branch_push_never_takes_the_route(self):
+        mode, reason, _ = self._decide({"event_name": "push", "payload": {}}, lambda _r: PROJECT_ONLY)
+        self.assertEqual((mode, reason), (gk.MODE_FULL, gk.REASON_NOT_PULL_REQUEST))
+
+    def test_a_classifier_that_fails_or_doubts_falls_through_to_the_event_rules(self):
+        def boom(_root):
+            raise RuntimeError("no git here")
+        for classifier in (boom, lambda _r: None, lambda _r: {"verdict": "engine-affecting"},
+                           lambda _r: {**PROJECT_ONLY, "verdict": "not-a-merge-checkout"}):
+            mode, reason, _ = self._decide(event("synchronize"), classifier)
+            self.assertEqual((mode, reason), (gk.MODE_FULL, gk.REASON_CODE_EVENT))
+
+    def test_the_repository_variable_switches_the_arm_off(self):
+        mode, reason, _ = self._decide(event("synchronize"), lambda _r: PROJECT_ONLY,
+                                       env={gk.PROJECT_ONLY_ARM_ENV: gk.PROJECT_ONLY_ARM_OFF})
+        self.assertEqual((mode, reason), (gk.MODE_FULL, gk.REASON_CODE_EVENT))
+        # Only the exact word disables: an unset variable, or any other value, leaves the arm on.
+        for value in ("", "false", "OFF ", "no"):
+            mode, _, _ = self._decide(event("synchronize"), lambda _r: PROJECT_ONLY,
+                                      env={gk.PROJECT_ONLY_ARM_ENV: value})
+            self.assertEqual(mode, gk.MODE_PROJECT_ONLY, repr(value))
+
+    def test_the_live_classifier_calls_this_repository_the_engines(self):
+        # The home repository never takes route three: this is the one un-canned case, and it holds on the
+        # real checkout whatever its history looks like.
+        manifest = gk.classify_checkout(gk._repo_root())
+        self.assertEqual(manifest["verdict"], "engine-affecting")
+        self.assertIn(manifest["reason"]["code"], ("home-repository", "not-a-merge-checkout"))
+
+    def test_a_project_only_receipt_is_refused_by_the_reuse_path(self):
+        ok, why = gk.verify_receipt(receipt(mode=gk.MODE_PROJECT_ONLY), repo=REPO, pr_number=PR,
+                                    head_sha=HEAD, expected_tree=TREE, run=run_record(), now=NOW)
+        self.assertFalse(ok)
+        self.assertEqual(why, "not-a-full-run-receipt")
+
+    def test_a_project_only_receipt_is_accepted_only_when_asked_for(self):
+        with mock.patch.object(gk, "inventory_digest", return_value=(COUNT, DIGEST)):
+            ok, why = gk.verify_receipt(receipt(mode=gk.MODE_PROJECT_ONLY), repo=REPO, pr_number=PR,
+                                        head_sha=HEAD, expected_tree=TREE, run=run_record(), now=NOW,
+                                        accept_modes=gk.ACCEPT_FULL_OR_PROJECT_ONLY)
+            self.assertTrue(ok, why)
+            ok, why = gk.verify_receipt(receipt(mode="reuse"), repo=REPO, pr_number=PR, head_sha=HEAD,
+                                        expected_tree=TREE, run=run_record(), now=NOW,
+                                        accept_modes=gk.ACCEPT_FULL_OR_PROJECT_ONLY)
+        self.assertFalse(ok)
+        self.assertEqual(why, "receipt-mode-not-accepted:reuse")
+
+    def test_the_receipt_carries_the_gates_mode_and_refuses_any_other(self):
+        with mock.patch.object(gk, "head_and_base", return_value=(HEAD, BASE)), \
+             mock.patch.object(gk, "inventory_digest", return_value=(COUNT, DIGEST)), \
+             mock.patch.object(gk, "tree_sha", return_value=TREE):
+            full = gk.emit_receipt(event("synchronize"), repo=REPO, env={gk.RECEIPT_MODE_ENV: "full"}, now=NOW)
+            self.assertEqual(full["mode"], gk.MODE_FULL)
+            self.assertIsNone(full["classification"])
+            project = gk.emit_receipt(event("synchronize"), repo=REPO,
+                                      env={gk.RECEIPT_MODE_ENV: gk.MODE_PROJECT_ONLY}, now=NOW,
+                                      classifier=lambda _r: PROJECT_ONLY)
+            self.assertEqual(project["mode"], gk.MODE_PROJECT_ONLY)
+            self.assertEqual(project["classification"]["project_paths"], ["src/app.py"])
+            for bad in ("", "reuse", "FULL", "project_only"):
+                with self.assertRaises(gk.GatekeeperError):
+                    gk.emit_receipt(event("synchronize"), repo=REPO, env={gk.RECEIPT_MODE_ENV: bad}, now=NOW)
+            # A project-only receipt is refused when the checkout does not classify project-only: the mode
+            # is the gate's, but the emitter still will not vouch for a verdict it cannot re-derive.
+            with self.assertRaises(gk.GatekeeperError):
+                gk.emit_receipt(event("synchronize"), repo=REPO, env={gk.RECEIPT_MODE_ENV: gk.MODE_PROJECT_ONLY},
+                                now=NOW, classifier=lambda _r: ENGINE_AFFECTING)
+
+    def test_the_disclosure_names_what_did_not_run_and_the_evidentiary_limit(self):
+        line = gk.project_only_disclosure({"classification": PROJECT_ONLY})
+        self.assertIn("NOT run", line)
+        self.assertIn("src/app.py", line)
+        self.assertIn("Engine health only", line)
+        self.assertIn("no product validation", line)
+        self.assertIn("#1147", line)
+
+    def test_the_decide_verb_refuses_a_project_only_run_it_cannot_disclose(self):
+        # Mirrors the reuse refusal: the summary line is the whole disclosure, so no writable summary means
+        # no project-only arm — the run exits 1 rather than reporting a green nobody can account for.
+        with tempfile.TemporaryDirectory() as tmp:
+            output = os.path.join(tmp, "output")
+            with mock.patch.object(gk, "_load_event", return_value=event("synchronize")), \
+                 mock.patch.object(gk, "decide", return_value=(gk.MODE_PROJECT_ONLY, gk.REASON_PROJECT_ONLY,
+                                                               {"classification": PROJECT_ONLY})), \
+                 mock.patch.dict(os.environ, {"GITHUB_OUTPUT": output}, clear=False):
+                os.environ.pop("GITHUB_STEP_SUMMARY", None)
+                self.assertEqual(gk.main(["decide"]), 1)
+                summary = os.path.join(tmp, "summary")
+                with mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}, clear=False):
+                    self.assertEqual(gk.main(["decide"]), 0)
+                with open(summary, encoding="utf-8") as fh:
+                    self.assertIn("Engine health only", fh.read())
+            with open(output, encoding="utf-8") as fh:
+                self.assertIn(f"{gk.MODE_OUTPUT_KEY}={gk.MODE_PROJECT_ONLY}", fh.read())
 
 
 class FailsClosed(unittest.TestCase):
@@ -309,8 +456,10 @@ class TerminalAssertion(unittest.TestCase):
             self.assertEqual(gk.main(["assert-ran"]), 1)
 
     def test_each_real_arm_passes(self):
-        for arm, env in ((gk.MODE_FULL, {gk.FULL_RAN_ENV: "success", gk.REUSE_RAN_ENV: "skipped"}),
-                         (gk.MODE_REUSE, {gk.FULL_RAN_ENV: "skipped", gk.REUSE_RAN_ENV: "success"})):
+        skipped = {gk.FULL_RAN_ENV: "skipped", gk.REUSE_RAN_ENV: "skipped", gk.PROJECT_ONLY_RAN_ENV: "skipped"}
+        for arm, env in ((gk.MODE_FULL, {**skipped, gk.FULL_RAN_ENV: "success"}),
+                         (gk.MODE_REUSE, {**skipped, gk.REUSE_RAN_ENV: "success"}),
+                         (gk.MODE_PROJECT_ONLY, {**skipped, gk.PROJECT_ONLY_RAN_ENV: "success"})):
             with self.subTest(arm=arm), mock.patch.dict(os.environ, env, clear=False):
                 self.assertEqual(gk.main(["assert-ran"]), 0)
 
@@ -543,27 +692,115 @@ class Disclosures(unittest.TestCase):
         # A marker written by the decision step would prove only that the decision ran. The terminal
         # assertion must read something an ARM produced, or it cannot tell "an arm finished" from "we
         # decided". The arm evidence is the runner's own per-step outcome, carried under these two names.
-        self.assertNotIn(gk.MODE_OUTPUT_KEY, (gk.FULL_RAN_ENV, gk.REUSE_RAN_ENV))
-        self.assertNotEqual(gk.FULL_RAN_ENV, gk.REUSE_RAN_ENV)
+        self.assertNotIn(gk.MODE_OUTPUT_KEY, (gk.FULL_RAN_ENV, gk.REUSE_RAN_ENV, gk.PROJECT_ONLY_RAN_ENV))
+        self.assertEqual(len({gk.FULL_RAN_ENV, gk.REUSE_RAN_ENV, gk.PROJECT_ONLY_RAN_ENV}), 3)
 
     def test_the_terminal_assertion_refuses_unless_exactly_one_arm_succeeded(self):
         # `skipped` is what the runner reports for the arm whose condition was false, and the empty string is
-        # what a reference that resolves to nothing yields. Neither is completion. Both succeeding means the
-        # arms stopped being mutually exclusive — work was done, but the branch structure is broken.
+        # what a reference that resolves to nothing yields. Neither is completion. More than one succeeding
+        # means the arms stopped being mutually exclusive — work was done, but the branch structure is broken.
         cases = {
-            ("success", "skipped"): 0,
-            ("skipped", "success"): 0,
-            ("skipped", "skipped"): 1,
-            ("", ""): 1,
-            ("failure", "skipped"): 1,
-            ("cancelled", "cancelled"): 1,
-            ("success", "success"): 1,
+            ("success", "skipped", "skipped"): 0,
+            ("skipped", "success", "skipped"): 0,
+            ("skipped", "skipped", "success"): 0,
+            ("skipped", "skipped", "skipped"): 1,
+            ("", "", ""): 1,
+            ("failure", "skipped", "skipped"): 1,
+            ("cancelled", "cancelled", "cancelled"): 1,
+            ("success", "success", "skipped"): 1,
+            ("success", "skipped", "success"): 1,
+            ("skipped", "success", "success"): 1,
+            ("success", "success", "success"): 1,
         }
-        for (full, reuse), expected in cases.items():
-            with self.subTest(full=full, reuse=reuse):
+        for (full, reuse, project), expected in cases.items():
+            with self.subTest(full=full, reuse=reuse, project=project):
                 with mock.patch.dict(os.environ,
-                                     {gk.FULL_RAN_ENV: full, gk.REUSE_RAN_ENV: reuse}, clear=False):
+                                     {gk.FULL_RAN_ENV: full, gk.REUSE_RAN_ENV: reuse,
+                                      gk.PROJECT_ONLY_RAN_ENV: project}, clear=False):
                     self.assertEqual(gk.main(["assert-ran"]), expected)
+
+    def test_the_terminal_assertion_names_the_arm_that_ran(self):
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {gk.FULL_RAN_ENV: "skipped", gk.REUSE_RAN_ENV: "skipped",
+                                          gk.PROJECT_ONLY_RAN_ENV: "success"}, clear=False), \
+             mock.patch("sys.stdout", out):
+            self.assertEqual(gk.main(["assert-ran"]), 0)
+        self.assertIn("project-only arm completed", out.getvalue())
+
+
+class WorkflowShape(unittest.TestCase):
+    """The workflow's three-arm invariant, read from the file itself.
+
+    The gatekeeper's tests prove the decision and the assertion; this proves the YAML wires them the way the
+    assertion assumes — one gate output, the full arm the negation of BOTH other modes, positive equalities on
+    the other two, the receipt's mode taken from the gate, and the two validator invocations kept identical.
+    A full arm that forgot one exclusion would otherwise surface only at runtime in a deployed copy, as a
+    permanently red required check."""
+
+    @classmethod
+    def setUpClass(cls):
+        import yaml
+        path = os.path.join(gk._repo_root(), gk.WORKFLOW_PATH)
+        with open(path, encoding="utf-8") as fh:
+            cls.workflow = yaml.safe_load(fh)
+        cls.job = cls.workflow["jobs"]["engine-ci"]
+        cls.steps = {step.get("id") or step["name"]: step for step in cls.job["steps"]}
+
+    def _condition(self, key):
+        return self.steps[key].get("if", "")
+
+    def test_the_frozen_names_are_unchanged(self):
+        self.assertEqual(self.workflow["name"], gk.CHECK_CONTEXT)
+        self.assertEqual(self.job["name"], gk.CHECK_CONTEXT)
+        self.assertEqual(list(self.workflow["jobs"]), [gk.CHECK_CONTEXT])
+
+    def test_the_full_arm_excludes_both_other_modes(self):
+        for key in ("Run the seed validator (CI suite)", "selftests"):
+            condition = self._condition(key)
+            self.assertIn("steps.gate.outputs.mode != 'reuse'", condition, key)
+            self.assertIn("steps.gate.outputs.mode != 'project-only'", condition, key)
+            self.assertIn("&&", condition, key)
+
+    def test_the_other_arms_are_positive_equalities_on_the_one_gate_output(self):
+        self.assertEqual(self._condition("metadata"), "steps.gate.outputs.mode == 'reuse'")
+        self.assertEqual(self._condition("project"), "steps.gate.outputs.mode == 'project-only'")
+        for key, step in self.steps.items():
+            condition = step.get("if", "")
+            if "mode" in condition:
+                self.assertIn("steps.gate.outputs.mode", condition, key)
+                self.assertNotIn("env.", condition, key)
+
+    def test_the_project_arm_runs_the_validator_alone_with_the_validator_steps_env(self):
+        project, validator = self.steps["project"], self.steps["Run the seed validator (CI suite)"]
+        self.assertIn("validate.py --suite CI", project["run"])
+        self.assertNotIn("unittest", project["run"])
+        self.assertEqual(project["env"], validator["env"])
+        # The whole job runs exactly one unittest discovery, on the full arm.
+        runners = [key for key, step in self.steps.items() if "unittest" in str(step.get("run", ""))]
+        self.assertEqual(runners, ["selftests"])
+
+    def test_the_receipt_takes_its_mode_from_the_gate_and_never_runs_on_reuse(self):
+        emit, upload = self.steps["Write the receipt"], self.steps["Upload the receipt"]
+        self.assertEqual(emit["env"][gk.RECEIPT_MODE_ENV], "${{ steps.gate.outputs.mode }}")
+        for step in (emit, upload):
+            self.assertIn("steps.gate.outputs.mode != 'reuse'", step["if"])
+        self.assertEqual(upload["with"]["name"], gk.RECEIPT_ARTIFACT_NAME)
+        uploads = [key for key, step in self.steps.items() if "upload-artifact" in str(step.get("uses", ""))]
+        self.assertEqual(uploads, ["Upload the receipt"])
+
+    def test_the_terminal_step_reads_all_three_outcomes_and_carries_no_condition(self):
+        terminal = self.steps["Refuse a run in which no arm did any work"]
+        self.assertNotIn("if", terminal)
+        self.assertEqual(terminal["env"], {
+            gk.FULL_RAN_ENV: "${{ steps.selftests.outcome }}",
+            gk.REUSE_RAN_ENV: "${{ steps.metadata.outcome }}",
+            gk.PROJECT_ONLY_RAN_ENV: "${{ steps.project.outcome }}",
+        })
+
+    def test_the_gate_reads_the_off_switch_and_the_checkout_fetches_the_parent(self):
+        self.assertEqual(self.steps["gate"]["env"][gk.PROJECT_ONLY_ARM_ENV],
+                         "${{ vars.ENGINE_CI_PROJECT_ONLY_ARM }}")
+        self.assertEqual(self.steps["Check out the revision"]["with"]["fetch-depth"], 2)
 
     def test_full_disclosure_states_why_reuse_did_not_happen(self):
         line = gk.full_disclosure(gk.REASON_REFUSED, {"refusals": [{"run_id": 901, "why": "different-tree"}]})
