@@ -36,9 +36,9 @@ add-ons are in place, the review gate is on, and setup has tidied up after itsel
    it for the usual self-building case. Before this point nothing is changed; saving is what the rest builds on.
 5. **Install the choices and turn on the review gate.** With the choices saved, run
    `python3 .engine/tools/instantiator.py apply --first-run`. In order, the engine: removes the add-ons that were not
-   kept (their files are deleted); sets who reviews changes to the engine's own files; turns on the safer
-   planning default for this project (or, if the operator already has their own editing default, offers to —
-   and leaves theirs alone if they decline); **sets up the engine's own programs in a private project folder —
+   kept (their files are deleted); sets who reviews changes to the engine's own files (the engine sets no
+   permission default — the operator's assistant keeps whatever default it ships, StarshipSuperjam/engine-template#1227);
+   **sets up the engine's own programs in a private project folder —
    asking the operator's one-time go-ahead first, because this downloads software onto their machine**; seeds the
    operator's starting codes of conduct from the project's seed and tells them, plainly, that the stance is
    present and theirs to tune; resets the project's starting place-marker to a clean slate so a new project

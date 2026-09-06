@@ -175,7 +175,7 @@ class EngineArrival(transaction.Adapter):
     operation = "engine-arrival"
 
     def __init__(self, *, target_root, release_tree, engine_release=None, keep=None, declined=None,
-                 tier=None, decisions=None, opener=None, gh_api=None, home_reader=None, settings_path=None,
+                 tier=None, decisions=None, opener=None, gh_api=None,
                  uv_present=None, uv_installer=None, uv_runner=None, consent=None, control_transport=None,
                  gh_refresh=None, control_issues=None, control_repo=None, control_token=None,
                  version_info=None, gate=None, handle=None, default_branch=None, clock=None):
@@ -190,7 +190,7 @@ class EngineArrival(transaction.Adapter):
         # Every arrival boundary, injectable so the real flow runs with nothing real touched (tests, the demo,
         # and the live door all pass these). Held for b3's apply to thread into instantiator.arrive.
         self._boundaries = dict(
-            opener=opener, gh_api=gh_api, home_reader=home_reader, settings_path=settings_path,
+            opener=opener, gh_api=gh_api,
             uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner, consent=consent,
             control_transport=control_transport, gh_refresh=gh_refresh, control_issues=control_issues,
             control_repo=control_repo, control_token=control_token, version_info=version_info, gate=gate,
@@ -350,8 +350,7 @@ class EngineArrival(transaction.Adapter):
             target_root=self._target_root, release_tree=self._release_tree,
             engine_release=self._engine_release, keep=self._keep, declined=self._declined, tier=self._tier,
             handle=b["handle"], default_branch=b["default_branch"], decide=decide, apply_changes=True,
-            opener=b["opener"], gh_api=b["gh_api"], home_reader=b["home_reader"],
-            settings_path=b["settings_path"], uv_present=b["uv_present"], uv_installer=b["uv_installer"],
+            opener=b["opener"], gh_api=b["gh_api"], uv_present=b["uv_present"], uv_installer=b["uv_installer"],
             uv_runner=b["uv_runner"], consent=b["consent"], control_transport=b["control_transport"],
             gh_refresh=b["gh_refresh"], control_issues=b["control_issues"], control_repo=b["control_repo"],
             control_token=b["control_token"], version_info=b["version_info"], gate=b["gate"])

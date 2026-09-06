@@ -193,9 +193,6 @@ TEMPLATE_PATH = os.path.join(validate.ENGINE_DIR, "templates", "first-run.md")
 COPY_HEADINGS = {
     "tool-runtime-consent": "Before I set up the engine's own tools",
     "tool-runtime-degraded": "If the engine's tools couldn't be set up",
-    "plan-mode-adopted": "Your safer default is on",
-    "plan-mode-conflict": "Your editing default — keep yours, or use the safer one",
-    "plan-mode-conflict-here": "This project already sets an editing default — keep it, or use the safer one",
     "conduct-seeded": "Your stance came with this project",
     "security-seeded": "A security-contact file came with this project",
     "readme-seeded": "Your project's front page is now yours",
@@ -236,27 +233,6 @@ FALLBACK_COPY = {
         "problem. Nothing is broken and nothing was left half-done; I just can't run the rest of setup until "
         "those programs are in place, and I'll never quietly use a different setup on your computer instead. "
         "Let's try again in a moment, or once you're back online — I'll pick up exactly where I left off."
-    ),
-    "plan-mode-adopted": (
-        "You're set to start in planning mode by default in this project: I'll lay out what I'm about to do "
-        "and wait for your go-ahead before making any change — the safer way to work here. This is only a "
-        "convenience setting for this project; it changes nothing about your own setup elsewhere, and it "
-        "removes no safety check (you still review and approve every change). Change it any time with /config."
-    ),
-    "plan-mode-conflict": (
-        "You already have your own editing default set, so I've left it alone. If you'd like, this project can "
-        "start in planning mode instead — I'd lay out my plan and wait for your go-ahead before changing "
-        "anything, which is a little safer. Use planning mode for this project, or keep your own default? "
-        "Keeping yours changes nothing. Either way, nothing about your setup elsewhere changes and no safety "
-        "check is removed."
-    ),
-    "plan-mode-conflict-here": (
-        "This project's own settings already choose an editing default, so I've left it exactly as it is. If "
-        "you'd like, this project can start in planning mode instead — I'd lay out my plan and wait for your "
-        "go-ahead before changing anything, which is a little safer. Choosing planning mode replaces the "
-        "editing default saved in this project; keeping yours leaves that setting exactly as it is. Use "
-        "planning mode for this project, or keep the one it already has? Either way no safety check is removed "
-        "— you still review and approve every change."
     ),
     "security-seeded": (
         "I added a short file called SECURITY.md at the top of your project. It tells anyone who finds a "
@@ -869,10 +845,11 @@ def _external_product_or_none(supplied: str | None, self_slug: str | None) -> st
 
 # ==== APPLY — install the confirmed selection and turn on the engine's guardrails =====
 #
-# The seven ordered, idempotent, manifest-driven apply steps. The
-# phase runs on the operator's SYSTEM python; steps 1–3 need nothing extra, step 4 materializes the engine's
-# own tool-runtime (uv + the .venv), and steps 5–7 follow. Each step degrades INTERNALLY (it never crashes
-# the phase) — EXCEPT a degraded tool-runtime (step 4), which HALTS the phase, because steps 5–7 presuppose
+# The ten ordered, idempotent, manifest-driven apply steps. The
+# phase runs on the operator's SYSTEM python; steps 1–2 need nothing extra, step 3 materializes the engine's
+# own tool-runtime (uv + the .venv), and the rest follow. The engine sets NO permission default: a generated
+# project rides whatever its assistant ships (StarshipSuperjam/engine-template#1227). Each step degrades INTERNALLY (it never crashes
+# the phase) — EXCEPT a degraded tool-runtime (step 3), which HALTS the phase, because the later steps presuppose
 # a materialized runtime; a retry resumes from the manifest checkpoint. Apply ENDS after the control-plane
 # attempt — the verify/coherence pause and self-retire are the next phase.
 #
@@ -896,19 +873,6 @@ UV_INSTALL_URL = f"https://astral.sh/uv/{UV_PIN}/install.sh"
 
 def _codeowners_path() -> str:
     return os.path.join(validate.ROOT, ".github", "CODEOWNERS")
-
-
-def _read_home_settings() -> dict:
-    """The operator's OWN global Claude settings, read-only. The engine reads the interactive default from
-    here but NEVER writes `~/.claude` — the operator's global settings are the operator's. Returns
-    {} when absent or unreadable (the no-conflict path: adopt the safer default)."""
-    path = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else {}
-    except Exception:  # noqa: BLE001 — absent / unreadable / malformed → treat as no global preference
-        return {}
 
 
 def _uv_present() -> str | None:
@@ -989,7 +953,7 @@ def _apply_foundation_ignores(say) -> dict:
     brownfield apply), and pre-runtime so a tool-runtime halt still leaves `.venv/` ignored — the strand
     pre-check's clean-tree read stays true. Idempotent (fence_apply inserts iff absent); fails open (the
     helper degrades, never crashes). No operator disclosure — this is engine infra placement, not operator
-    config (unlike plan-mode / conduct)."""
+    config (unlike conduct)."""
     outcome = wiring.apply_foundation_ignores(wiring.GITIGNORE_PATH)
     return {"step": "foundation-ignores", "status": outcome["status"]}
 
@@ -1015,49 +979,8 @@ def _apply_codeowners(handle, say, copy) -> dict:
     return {"step": "codeowners", "status": "written", "owner": handle, "paths": outcome["paths"]}
 
 
-def _apply_plan_mode(home_reader, settings_path, consent, say, copy) -> dict:
-    """STEP 3 — recommend the planning permission-mode as this repo's interactive default, obeying
-    yield-to-the-operator. Read the operator's existing default read-only — BOTH the GLOBAL default
-    (`~/.claude`, never written) AND, on brownfield, any default this project's own committed
-    `.claude/settings.json` already carries. With no conflicting preference (or one already planning) ADOPT plan into the project
-    settings with a plain disclosure; on a conflict OFFER adopt-or-keep once — keep writes nothing / leaves the
-    project value exactly as it is (the yield). The project scalar is checked INDEPENDENTLY of the global value:
-    a committed project default is a recorded operator decision in THIS repo, so a global default of plan/unset
-    must never license silently overwriting it (#409). Idempotent: a project default already set to planning
-    is a no-op. The project write is surgical (preserves the operator's other settings)."""
-    proj_path = settings_path or wiring.SETTINGS_PATH
-    proj, err = wiring._read_json_tolerant(proj_path, create=True)
-    if err is not None:
-        return {"step": "plan-mode", "status": "degraded", "detail": "project settings unreadable"}
-    proj_mode = (proj.get("permissions") or {}).get("defaultMode")
-    if proj_mode == "plan":
-        return {"step": "plan-mode", "status": "already"}
-    home = home_reader() if home_reader is not None else _read_home_settings()
-    global_mode = (home.get("permissions") or {}).get("defaultMode") if isinstance(home, dict) else None
-    # A conflicting operator preference in EITHER place → offer adopt-or-keep once. The project-here conflict
-    # takes precedence: its consequence differs (adopt REPLACES a value the operator committed in this repo;
-    # keep leaves it untouched), so it gets copy that names that — not the global copy, which would falsely
-    # reassure that "nothing about your setup elsewhere changes" while the setting being changed is right here.
-    if proj_mode not in (None, "plan"):                        # the operator's own committed PROJECT default
-        if not (consent("plan-mode-adopt") if consent is not None else False):
-            say(copy["plan-mode-conflict-here"])
-            return {"step": "plan-mode", "status": "kept-operator-default"}
-    elif global_mode not in (None, "plan"):                    # a conflicting GLOBAL preference (elsewhere)
-        if not (consent("plan-mode-adopt") if consent is not None else False):
-            say(copy["plan-mode-conflict"])
-            return {"step": "plan-mode", "status": "kept-operator-default"}
-    proj.setdefault("permissions", {})["defaultMode"] = "plan"  # adopt (no conflict, or operator chose to)
-    try:
-        wiring._write_json(proj_path, proj)
-    except wiring.WiringError as exc:   # #923: a dangling-shortcut settings.json — skip, disclosed
-        say(str(exc))
-        return {"step": "plan-mode", "status": "skipped", "detail": str(exc)}
-    say(copy["plan-mode-adopted"])
-    return {"step": "plan-mode", "status": "adopted"}
-
-
 def _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy) -> dict:
-    """STEP 4 (the heaviest) — materialize the engine's own tool-runtime: ensure uv is present (install it,
+    """STEP 3 (the heaviest) — materialize the engine's own tool-runtime: ensure uv is present (install it,
     behind an explicit consent gate, when it is not — software placed on the operator's machine, a heavier
     trust class than a permission grant), then group-scoped `uv sync`. DEGRADE LOUD, never to system python;
     a degraded outcome HALTS apply (the `halt` flag) — a retry resumes from the checkpoint. Every boundary is
@@ -1418,7 +1341,7 @@ def _seed_product_version(say, copy=None) -> str:
 
 
 def _apply_substrates(say, copy=None) -> dict:
-    """STEP 5 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
+    """STEP 4 — initialize the kept set's committed substrates (runs AFTER the runtime materializes). Today:
     re-derive the knowledge graph (idempotent), confirm the state seed is present AND reset a traveled
     construction cursor to a clean genesis start (AFTER the floor swap so its construction-repo belt is
     valid), seed the operator's codes-of-conduct override from the template seed, seed a root SECURITY.md
@@ -1432,7 +1355,7 @@ def _apply_substrates(say, copy=None) -> dict:
     LICENSE — so a re-run is a no-op). The LICENSE clear is a full-text match to the shipped
     template seed (whose leading copyright line names the template author as the holder), so it must run before any
     step that could rewrite that text with operator identity; none does today (the only identity renderer,
-    _apply_codeowners, touches CODEOWNERS only), so STEP 5 is safe — a forward-defensive invariant. The
+    _apply_codeowners, touches CODEOWNERS only), so STEP 4 is safe — a forward-defensive invariant. The
     graph path is bound at import (knowledge_gen), so the demo redirects it AND we pass it explicitly — a redirected
     run never rewrites the real graph. Memory-backup setup is owed to the memory module (backup_vault), not done here."""
     result = {"step": "substrates", "status": "done"}
@@ -1460,7 +1383,7 @@ def _apply_substrates(say, copy=None) -> dict:
 
 
 def _apply_wires(say) -> dict:
-    """STEP 6 — install EVERY kept module's wiring: the hooks (boot, the exploration write-gate, the close
+    """STEP 5 — install EVERY kept module's wiring: the hooks (boot, the exploration write-gate, the close
     gate, the commit-boundary refresh), the knowledge query server, and the cache ignores. Until this runs a
     generated repo's settings carry no engine hooks, so the engine is inert — this is the step that turns it
     on. Reuses wiring.apply_all exactly as module-add does; insert-iff-absent
@@ -1498,7 +1421,7 @@ def _persist_control_plane_marker(root, marker) -> None:
 
 def _apply_control_plane(control_transport, gh_refresh, control_issues, say, copy, repo=None, token=None,
                          root=None, checkless=False) -> dict:
-    """STEP 7 — turn on the protected-branch review gate (the control-plane bootstrap, the permanent
+    """STEP 6 — turn on the protected-branch review gate (the control-plane bootstrap, the permanent
     primitive). On a brownfield arrival this AUGMENTS the project's own branch-protection rule in place rather
     than creating a second; either way it records, in engine.json, exactly what it did so removal can reverse
     it. Degrades LOUD when the repo/sign-in/capability is unavailable (never fakes the gate). Apply ENDS
@@ -1528,7 +1451,7 @@ def _apply_control_plane(control_transport, gh_refresh, control_issues, say, cop
 
 
 def _apply_actions_enablement(control_transport, say, copy, repo=None, token=None) -> dict:
-    """STEP 7b — the one-time GitHub Actions enablement only the OWNER can perform (#514). A repo created
+    """STEP 6b — the one-time GitHub Actions enablement only the OWNER can perform (#514). A repo created
     via "Use this template" has workflow runs gated behind the owner's explicit Actions-tab click; until
     then the required checks the control plane just bound never start, and no pull request — including the
     setup one — can merge. The API cannot perform that click, and the deployment evidence shows the
@@ -1548,7 +1471,7 @@ def _apply_actions_enablement(control_transport, say, copy, repo=None, token=Non
 
 
 def _apply_security_toggles(control_transport, say, copy, repo=None, token=None) -> dict:
-    """STEP 8 — turn on GitHub's NATIVE security features (secret scanning + push protection, code scanning,
+    """STEP 7 — turn on GitHub's NATIVE security features (secret scanning + push protection, code scanning,
     private vulnerability reporting) where the repository's tier supports them, branching on each call's
     status and disclosing the outcome in plain language. REUSES the operator-privileged transport the ruleset
     bootstrap already holds (no new capability) — the same injected `control_transport`. Degrades in place
@@ -1579,7 +1502,7 @@ def _github_projects_sync_present() -> bool:
 
 
 def _apply_repo_behavior(control_transport, say, copy, repo=None, token=None, brownfield=False) -> dict:
-    """STEP 10 — the repository-behavior settings a new engine repo should carry (#541). Turns ON
+    """STEP 8 — the repository-behavior settings a new engine repo should carry (#541). Turns ON
     delete-branch-on-merge, the pull-request update button, and Dependabot alerts + automatic security-fix
     pull requests; and — on a FRESH repo only (item 4) — turns OFF the project wiki, and project boards when
     the github-projects-sync module is not installed (retained if it is). Same posture as the security floor
@@ -1603,11 +1526,11 @@ def _apply_repo_behavior(control_transport, say, copy, repo=None, token=None, br
             "toggles": {t.key: t.state for t in toggles}}
 
 
-def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_present=None,
+def apply(*, root=None, announce=None, uv_present=None,
           uv_installer=None, uv_runner=None, consent=None, control_transport=None, gh_refresh=None,
           control_issues=None, control_repo=None, control_token=None, handle=None, brownfield=False,
           control_checkless=False) -> dict:
-    """The apply phase: run the eleven ordered steps against the confirmed manifest. Refuses (no change) when
+    """The apply phase: run the ten ordered steps against the confirmed manifest. Refuses (no change) when
     the manifest is absent — apply presupposes a confirmed selection. The handle is the passed one, else the
     one the manifest stored. Returns a step ledger: {refused, halted, steps:[…]}. A degraded tool-runtime
     sets `halted` and the remaining steps are not attempted (they presuppose the runtime); every other step
@@ -1621,8 +1544,7 @@ def apply(*, root=None, announce=None, home_reader=None, settings_path=None, uv_
     handle = handle if handle is not None else manifest.get("handle")
     steps = [_apply_delete_unselected(manifest, say),
              _apply_foundation_ignores(say),
-             _apply_codeowners(handle, say, copy),
-             _apply_plan_mode(home_reader, settings_path, consent, say, copy)]
+             _apply_codeowners(handle, say, copy)]
     runtime = _apply_tool_runtime(uv_present, uv_installer, uv_runner, consent, say, copy)
     steps.append(runtime)
     if runtime.get("halt"):
@@ -2138,12 +2060,12 @@ def _build_fixture(root: str) -> None:
     _write_json(os.path.join(eng, "knowledge", "graph.json"), {"schema_version": 1, "entities": [], "edges": []})
     _write_json(os.path.join(root, ".claude", "settings.json"), {})  # hook-less: the engine is not wired yet
     # A real generated repo's root README is the template's marketing landing front — it travels via "Use this
-    # template", carrying the engine marker. Plant it so STEP 5's greenfield replace path (marker present ->
+    # template", carrying the engine marker. Plant it so STEP 4's greenfield replace path (marker present ->
     # replaced) is exercised; the apply-demo also proves the construction repo's own README stays untouched.
     with open(os.path.join(root, "README.md"), "w", encoding="utf-8") as fh:
         fh.write(_MARKETING_SEED_MARKER + "\n\n# engine-template\n")
     # The template's own Apache-2.0 LICENSE travels the same way (its author's copyright). Plant
-    # a byte-true copy (the recognizer's own seed verbatim) so STEP 5's greenfield clear path (recognizer matches ->
+    # a byte-true copy (the recognizer's own seed verbatim) so STEP 4's greenfield clear path (recognizer matches ->
     # removed) is exercised; the apply-demo also proves the construction repo's own LICENSE stays untouched.
     with open(os.path.join(root, "LICENSE"), "w", encoding="utf-8") as fh:
         fh.write(_TEMPLATE_LICENSE_SEED)
@@ -2239,10 +2161,10 @@ def _demo() -> int:
 
 _APPLY_DEMO_NOTE = (
     "What's real here, and what's a stand-in: every setup step below runs its REAL logic against the "
-    "throwaway practice project — removing the unkept add-on, setting who reviews the engine's files, turning "
-    "on the safer default, switching the engine on, and preparing its saved information all really happen "
-    "there. The three things that would reach OUTSIDE the practice project are stand-ins, marked on each line: "
-    "reading your computer's own settings, downloading and setting up the engine's tools, and talking to "
+    "throwaway practice project — removing the unkept add-on, setting who reviews the engine's files, switching "
+    "the engine on, and preparing its saved information all really happen there. The two things that would "
+    "reach OUTSIDE the practice project are stand-ins, marked on each line: downloading and setting up the "
+    "engine's tools, and talking to "
     "GitHub. Nothing here touches your real machine, your accounts, or this project — which the isolation "
     "check at the end proves."
 )
@@ -2440,7 +2362,6 @@ def _assert_real_files_unchanged(snap: dict) -> bool:
 _STEP_LABELS = {
     "remove-unselected": "Remove the add-ons you didn't keep",
     "codeowners": "Set who reviews changes to the engine's own files",
-    "plan-mode": "Turn on the safer planning default",
     "tool-runtime": "Set up the engine's own tools",
     "substrates": "Prepare the engine's saved information",
     "wires": "Switch the engine on (its automatic helpers)",
@@ -2452,8 +2373,7 @@ _STEP_LABELS = {
 # A security-floor "applied" means every native toggle reached an honest outcome (on / already / pending /
 # unavailable-and-disclosed); "skipped" is the clean no-project/sign-in case. Only a failed/unconfirmed
 # toggle degrades the step.
-_GOOD_STATUSES = {"done", "written", "adopted", "already", "materialized", "applied",
-                  "kept-operator-default", "skipped", "operator-step-told"}
+_GOOD_STATUSES = {"done", "written", "already", "materialized", "applied", "skipped", "operator-step-told"}
 
 
 def _step(steps: list, name: str) -> dict:
@@ -2472,22 +2392,21 @@ def _print_apply_ledger(steps: list, faked: dict) -> None:
 
 
 def _apply_demo() -> int:
-    """Operator-runnable demonstration of the APPLY phase. Runs the REAL eleven-step apply logic against a
-    throwaway generated-repo fixture, faking ONLY the external boundaries (your computer's settings, the uv
-    install + sync, the GitHub review-gate calls — each marked in the ledger). Shows the full happy path, an
+    """Operator-runnable demonstration of the APPLY phase. Runs the REAL ten-step apply logic against a
+    throwaway generated-repo fixture, faking ONLY the external boundaries (the uv install + sync, the GitHub
+    review-gate calls — each marked in the ledger). Shows the full happy path, an
     interrupted-then-resumed run, a tools-failure that halts safely, and a review-gate that can't be turned
     on; then proves THIS real project's files are byte-for-byte unchanged. Vary it: change which boundaries
-    succeed or fail, the handle, the home preference. Leads with the honest-ceiling banner."""
+    succeed or fail, the handle. Leads with the honest-ceiling banner."""
     import tempfile
     print(_BANNER + "\n")
     print(_APPLY_DEMO_NOTE + "\n")
     real_before = _snapshot_real_files()
     ok = True
-    faked = {"plan-mode": "your computer's own settings",
-             "tool-runtime": "downloading + setting up the tools",
+    faked = {"tool-runtime": "downloading + setting up the tools",
              "control-plane": "GitHub",
              "repo-behavior": "GitHub"}
-    common = dict(home_reader=lambda: {}, uv_present=lambda: None, uv_runner=lambda uv, g: True,
+    common = dict(uv_present=lambda: None, uv_runner=lambda uv, g: True,
                   consent=lambda kind: True, gh_refresh=lambda s: True, control_issues=_FakeIssues(),
                   control_repo="you/your-project", control_token="demo-token")  # the GitHub coordinates,
                   # injected so the practice run is identical everywhere (never the ambient environment's)
@@ -2503,16 +2422,18 @@ def _apply_demo() -> int:
                         control_transport=_approve_transport(), **common)
             settings = _read_json_or(os.path.join(tmp, ".claude", "settings.json"), {})
             hooks_on = "hooks" in settings
-            plan_on = (settings.get("permissions") or {}).get("defaultMode") == "plan"
+            no_default_written = "permissions" not in settings   # the engine sets NO permission default (#1227)
             mcp_on = os.path.isfile(os.path.join(tmp, ".mcp.json"))
             graph_on = os.path.isfile(os.path.join(tmp, ".engine", "knowledge", "graph.json"))
             extras_gone = not os.path.isdir(os.path.join(tmp, ".engine", "modules", "extras-demo"))
         _print_apply_ledger(res["steps"], faked)
         gate_on = bool(_step(res["steps"], "control-plane").get("protected"))
-        print(f"    → the engine is switched on (its helpers are wired: {hooks_on}), the safer default is on "
-              f"({plan_on}), its query server is registered ({mcp_on}) and saved information prepared "
-              f"({graph_on}); the unkept add-on is gone ({extras_gone}); the review gate is on ({gate_on}).")
-        ok &= (not res["halted"] and hooks_on and plan_on and mcp_on and graph_on and extras_gone and gate_on)
+        print(f"    → the engine is switched on (its helpers are wired: {hooks_on}), your assistant's own "
+              f"permission default was left alone ({no_default_written}), its query server is registered "
+              f"({mcp_on}) and saved information prepared ({graph_on}); the unkept add-on is gone "
+              f"({extras_gone}); the review gate is on ({gate_on}).")
+        ok &= (not res["halted"] and hooks_on and no_default_written and mcp_on and graph_on and extras_gone
+               and gate_on)
 
     # Scenario 2 — interrupt then resume: a re-run repeats nothing and finishes cleanly.
     print("\n— INTERRUPTED, THEN RE-RUN: setup picks up where it left off and changes nothing twice.")
@@ -2529,7 +2450,7 @@ def _apply_demo() -> int:
         repeats = [(s["step"], s["status"]) for s in second["steps"]]
         # The two steps that WROTE on the first pass must be clean no-ops on the resume; nothing degrades.
         idempotent = (not second["halted"]) and by_step.get("codeowners") == "already" \
-            and by_step.get("plan-mode") == "already" and by_step.get("control-plane") == "already" \
+            and by_step.get("control-plane") == "already" \
             and all(s["status"] in _GOOD_STATUSES for s in second["steps"])
         print(f"    → re-run results: {[f'{n}:{st}' for n, st in repeats]}")
         print(f"    → the steps that wrote the first time are now no-ops; a resumed setup is safe ({idempotent}).")
@@ -2562,7 +2483,7 @@ def _apply_demo() -> int:
                         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                         control_transport=_defer_transport(), **dict(common, gh_refresh=lambda s: False))
         cp = _step(res["steps"], "control-plane")
-        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 11
+        ended = (not res["halted"]) and cp["step"] == "control-plane" and len(res["steps"]) == 10
         print(f"    → the review-gate step: {cp['status']} (the engine never pretends it's on: "
               f"protected={cp.get('protected')}).")
         print(f"    → setup still completed every other step and ended cleanly ({ended}).")
@@ -2820,7 +2741,7 @@ def _finish_demo() -> int:
 def _finish_apply(tmp: str) -> dict:
     """Run apply with every external boundary faked (the finish-demo's shared apply setup), returning the
     ledger — so the consistency check + tidy-up run against a real, fully-installed practice engine."""
-    return apply(announce=lambda t: None, home_reader=lambda: {}, uv_present=lambda: None,
+    return apply(announce=lambda t: None, uv_present=lambda: None,
                  uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
                  uv_runner=lambda uv, g: True, consent=lambda kind: True,
                  control_transport=_approve_transport(), gh_refresh=lambda s: True,
@@ -3297,7 +3218,7 @@ def _open_verified_arrival_pr(*, branch, title, body, repo, paths=None, target_r
 def arrive(*, target_root: str, release_tree: str, engine_release: str | None = None,
            keep=None, declined=None, tier: str | None = None, handle=None, default_branch=None, decide=None, apply_changes: bool = False,
            announce=None, opener=None, gh_api=None,
-           home_reader=None, settings_path=None, uv_present=None, uv_installer=None, uv_runner=None,
+           uv_present=None, uv_installer=None, uv_runner=None,
            consent=None, control_transport=None, gh_refresh=None, control_issues=None,
            control_repo=None, control_token=None, version_info=None, gate=None) -> dict:
     """BROWNFIELD ARRIVAL (#234) — overlay the engine onto a LIVE
@@ -3424,8 +3345,7 @@ def arrive(*, target_root: str, release_tree: str, engine_release: str | None = 
             confirm(keep or [], tier or "solo", engine_release=engine_release, handle=handle,
                     default_branch=default_branch or target_default_branch,
                     declined_ids=declined or [], home_repository=_existing_home_repository(release_tree))
-            applied = apply(announce=say, home_reader=home_reader, settings_path=settings_path,
-                            uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
+            applied = apply(announce=say, uv_present=uv_present, uv_installer=uv_installer, uv_runner=uv_runner,
                             consent=consent, control_transport=control_transport, gh_refresh=gh_refresh,
                             control_issues=control_issues, control_repo=slug,
                             control_token=control_token, handle=handle, brownfield=True, control_checkless=True)
@@ -3736,7 +3656,7 @@ def arrival_demo() -> bool:
     real_before = _snapshot_real_files()
     ok = True
     quiet = lambda text: None
-    faked = dict(home_reader=lambda: {}, uv_present=lambda: None,
+    faked = dict(uv_present=lambda: None,
                  uv_installer=lambda: "uv", uv_runner=lambda uv, g: True,
                  consent=lambda kind: True, control_transport=_approve_transport(),
                  gh_refresh=lambda s: True, control_issues=_FakeIssues(), gh_api=lambda path: None,
@@ -3923,16 +3843,12 @@ def augment_demo() -> bool:
 
 def _parse_apply_flags(argv: list) -> dict:
     """Translate the apply CLI flags into the per-kind operator decisions the apply phase consents on:
-    `--install-uv` approves installing the engine's tools; `--plan-mode adopt|keep` answers the planning
-    default conflict-offer. A decision absent from the map reads as 'not given' (conservative: the tools
-    step waits, the planning conflict keeps the operator's own default)."""
+    `--install-uv` approves installing the engine's tools. A decision absent from the map reads as 'not
+    given' (conservative: the tools step waits). The former `--plan-mode adopt|keep` flag is gone with the
+    planning-default step (StarshipSuperjam/engine-template#1227); an old invocation carrying it is ignored, never an error."""
     decisions = {}
     if "--install-uv" in argv:
         decisions["install-uv"] = True
-    if "--plan-mode" in argv:
-        i = argv.index("--plan-mode")
-        if i + 1 < len(argv):
-            decisions["plan-mode-adopt"] = (argv[i + 1] == "adopt")
     return decisions
 
 

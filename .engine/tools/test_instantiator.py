@@ -9,6 +9,7 @@ later phase); the catalog the demo plants conforms to the catalog schema; and th
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -677,7 +678,6 @@ def _fake_apply(tmp, **overrides):
     defaults, overridable per-test."""
     base = dict(
         announce=lambda t: None,
-        home_reader=lambda: {},                                  # no global preference → adopt plan
         uv_present=lambda: None,                                 # uv not yet present
         uv_installer=lambda: os.path.join(tmp, ".engine", ".uv", "uv"),
         uv_runner=lambda uv, groups: True,
@@ -710,7 +710,7 @@ class TestApplyOrchestrator(unittest.TestCase):
                 res = _fake_apply(d)
             self.assertFalse(res["refused"]); self.assertFalse(res["halted"])
             names = [s["step"] for s in res["steps"]]
-            self.assertEqual(names, ["remove-unselected", "foundation-ignores", "codeowners", "plan-mode",
+            self.assertEqual(names, ["remove-unselected", "foundation-ignores", "codeowners",
                                      "tool-runtime", "substrates", "wires", "control-plane",
                                      "actions-enablement", "security-floor", "repo-behavior"])
             behavior = next(s for s in res["steps"] if s["step"] == "repo-behavior")
@@ -963,111 +963,101 @@ class TestApplyStep2Codeowners(unittest.TestCase):
             self.assertFalse(res["halted"], "a missing handle degrades, never halts")
 
 
-class TestApplyStep3PlanMode(unittest.TestCase):
+class TestApplyStepPermissionDefaultLeftAlone(unittest.TestCase):
+    """StarshipSuperjam/engine-template#1227: the engine sets NO permission default. The former plan-mode step (adopt planning mode,
+    or offer adopt-or-keep on a conflict) is retired whole — no write, no prompt, no copy, no boundary that
+    read the operator's home. A generated project rides whatever its assistant ships."""
+
     def _mode(self, tmp):
         return (inst._read_json_or(os.path.join(tmp, ".claude", "settings.json"), {})
                 .get("permissions", {}).get("defaultMode"))
 
-    def test_adopts_when_no_global_preference(self):
+    def test_a_fresh_apply_writes_no_permission_default(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
             with inst._redirect_root(d):
                 _confirmed_fixture(d)
-                res = _fake_apply(d, home_reader=lambda: {})
-            self.assertEqual(self._plan_step(res)["status"], "adopted")
-            self.assertEqual(self._mode(d), "plan")
+                res = _fake_apply(d)
+            self.assertFalse(res["halted"])
+            self.assertNotIn("plan-mode", [st["step"] for st in res["steps"]])
+            settings = inst._read_json_or(os.path.join(d, ".claude", "settings.json"), {})
+            self.assertNotIn("permissions", settings, "the engine writes no permissions block at all")
 
-    def test_conflict_keeps_operator_default_when_declined(self):
+    def test_an_existing_project_default_is_left_byte_identical(self):
+        for mode in ("acceptEdits", "plan", "auto", "default"):
+            with tempfile.TemporaryDirectory() as d:
+                inst._build_fixture(d)
+                path = os.path.join(d, ".claude", "settings.json")
+                with inst._redirect_root(d):
+                    _confirmed_fixture(d)
+                    inst.wiring._write_json(path, {"permissions": {"defaultMode": mode}, "keep": [1, 2]})
+                    with open(path, encoding="utf-8") as fh:
+                        before = fh.read()
+                    res = _fake_apply(d)
+                self.assertFalse(res["halted"], mode)
+                self.assertEqual(self._mode(d), mode, "the operator's own value is never touched")
+                with open(path, encoding="utf-8") as fh:
+                    after = fh.read()
+                # The wires step re-renders the file with the hooks block; the operator's own keys survive intact.
+                self.assertIn('"defaultMode": "%s"' % mode, after)
+                self.assertIn('"keep"', after)
+                self.assertTrue(before != after or "hooks" in after)
+
+    def test_no_boundary_reads_the_operators_home(self):
+        # The retired step was the ONLY reader of ~/.claude/settings.json; its reader and the two injected
+        # boundaries that carried it are gone from apply, arrive and the arrival adapter alike.
+        import inspect
+        import transaction_adapters_arrival as arrival_adapter
+        self.assertFalse(hasattr(inst, "_read_home_settings"))
+        for fn in (inst.apply, inst.arrive, arrival_adapter.EngineArrival.__init__):
+            params = inspect.signature(fn).parameters
+            self.assertNotIn("home_reader", params, fn.__qualname__)
+            self.assertNotIn("settings_path", params, fn.__qualname__)
+        with open(inst.__file__, encoding="utf-8") as fh:
+            source = fh.read()
+        self.assertNotIn('expanduser("~")', source.split("def _uv_present")[0].split("def _codeowners_path")[-1],
+                         "nothing between the apply helpers reads the home directory")
+
+    def test_no_consent_is_asked_for_planning_mode(self):
+        asked = []
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
             with inst._redirect_root(d):
                 _confirmed_fixture(d)
-                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}},
-                                  consent=lambda kind: False)        # operator declines adopt
-            self.assertEqual(self._plan_step(res)["status"], "kept-operator-default")
-            self.assertIsNone(self._mode(d), "keep writes nothing — the project key stays unset (the yield)")
+                _fake_apply(d, consent=lambda kind: asked.append(kind) or True)
+        self.assertNotIn("plan-mode-adopt", asked)
 
-    def test_conflict_adopts_when_operator_chooses(self):
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            with inst._redirect_root(d):
-                _confirmed_fixture(d)
-                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}},
-                                  consent=lambda kind: kind == "plan-mode-adopt")
-            self.assertEqual(self._plan_step(res)["status"], "adopted")
-            self.assertEqual(self._mode(d), "plan")
+    def test_the_cli_ignores_the_retired_plan_mode_flag(self):
+        # An old invocation carrying --plan-mode adopt is ignored, never an error, and decides nothing.
+        self.assertEqual(inst._parse_apply_flags(["apply", "--plan-mode", "adopt"]), {})
+        self.assertEqual(inst._parse_apply_flags(["apply", "--install-uv", "--plan-mode", "keep"]),
+                         {"install-uv": True})
 
-    def test_never_writes_home_settings(self):
-        # The yield-to-the-operator law: ~/.claude is read-only. We assert by giving a home_reader that would
-        # raise if WRITTEN (it is a pure value), and checking the project — but the strongest guard is that
-        # apply has no path that writes the home file; the conflict path writes nothing at all.
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            calls = {"n": 0}
-            def reader():
-                calls["n"] += 1
-                return {"permissions": {"defaultMode": "acceptEdits"}}
-            with inst._redirect_root(d):
-                _confirmed_fixture(d)
-                _fake_apply(d, home_reader=reader, consent=lambda kind: False)
-            self.assertGreaterEqual(calls["n"], 1, "the global default is READ")
-
-    # --- #409: a pre-existing PROJECT-level non-plan defaultMode is a conflict too (not silently
-    #     overwritten), detected independently of the global value. The plan-mode step is found by NAME (its
-    #     positional index shifts when the foundation-ignores step is inserted ahead of it).
-    def _plan_step(self, res):
-        return next(s for s in res["steps"] if s["step"] == "plan-mode")
-
-    def _set_project_mode(self, d, mode):
-        inst.wiring._write_json(os.path.join(d, ".claude", "settings.json"),
-                                {"permissions": {"defaultMode": mode}})
-
-    def test_project_scalar_conflict_keeps_the_committed_value_when_declined(self):
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            with inst._redirect_root(d):
-                _confirmed_fixture(d)
-                self._set_project_mode(d, "acceptEdits")           # the operator's OWN committed project default
-                res = _fake_apply(d, home_reader=lambda: {}, consent=lambda kind: False)
-            self.assertEqual(self._plan_step(res)["status"], "kept-operator-default")
-            self.assertEqual(self._mode(d), "acceptEdits",
-                             "keep leaves the operator's committed project value exactly as it was")
-
-    def test_project_scalar_conflict_is_independent_of_a_plan_global(self):
-        # The bug this fixes: home=plan, project=acceptEdits fell straight through to a silent overwrite. A
-        # global preference (even 'plan') must never license overwriting a value committed in THIS repo.
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            with inst._redirect_root(d):
-                _confirmed_fixture(d)
-                self._set_project_mode(d, "acceptEdits")
-                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "plan"}},
-                                  consent=lambda kind: False)
-            self.assertEqual(self._plan_step(res)["status"], "kept-operator-default")
-            self.assertEqual(self._mode(d), "acceptEdits", "the committed project value is preserved")
-
-    def test_project_scalar_conflict_adopts_replaces_the_committed_value(self):
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            with inst._redirect_root(d):
-                _confirmed_fixture(d)
-                self._set_project_mode(d, "acceptEdits")
-                res = _fake_apply(d, home_reader=lambda: {},
-                                  consent=lambda kind: kind == "plan-mode-adopt")
-            self.assertEqual(self._plan_step(res)["status"], "adopted")
-            self.assertEqual(self._mode(d), "plan", "on adopt the committed value is replaced with plan")
-
-    def test_project_scalar_already_plan_is_a_no_op(self):
-        with tempfile.TemporaryDirectory() as d:
-            inst._build_fixture(d)
-            with inst._redirect_root(d):
-                _confirmed_fixture(d)
-                self._set_project_mode(d, "plan")
-                res = _fake_apply(d, home_reader=lambda: {"permissions": {"defaultMode": "acceptEdits"}})
-            self.assertEqual(self._plan_step(res)["status"], "already")
+    def test_the_retired_statuses_are_gone(self):
+        self.assertNotIn("adopted", inst._GOOD_STATUSES)
+        self.assertNotIn("kept-operator-default", inst._GOOD_STATUSES)
+        self.assertNotIn("plan-mode", inst._STEP_LABELS)
+        for key in inst.COPY_HEADINGS:
+            self.assertFalse(key.startswith("plan-mode"), key)
 
 
-class TestApplyStep4ToolRuntime(unittest.TestCase):
+class TestRetirementNoticeForUpgradingProjects(unittest.TestCase):
+    def test_the_planning_default_retirement_is_announced_across_the_version(self):
+        # StarshipSuperjam/engine-template#1227: the one-time disclosure an UPGRADING operator reads is core's retired-capabilities
+        # notice, selected by version range into the update's preview and pull request — a fresh adopter,
+        # who never had the value, sees nothing.
+        import module_manager
+        with open(os.path.join(validate.ROOT, ".engine", "modules", "core", "manifest.json"), encoding="utf-8") as fh:
+            core = json.load(fh)
+        notices = core.get("retired_capabilities") or {}
+        version = next(v for v in notices if "planning mode" in notices[v]["description"])
+        below = ".".join(str(int(x) - (1 if i == 1 else 0)) for i, x in enumerate(version.split(".")))
+        sel = module_manager.select_retired_capabilities({"core": below}, {"core": version}, [core])
+        self.assertTrue(any("planning mode by default" in (e.get("description") or "") for e in sel), sel)
+        self.assertEqual(module_manager.select_retired_capabilities({"core": version}, {"core": version}, [core]), [])
+
+
+class TestApplyStep3ToolRuntime(unittest.TestCase):
     def test_materializes_when_present_and_synced(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
@@ -1086,8 +1076,8 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
                 res = _fake_apply(d, uv_present=lambda: None, consent=lambda kind: False)
             self.assertTrue(res["halted"])
             self.assertEqual(res["steps"][-1]["step"], "tool-runtime")
-            self.assertEqual(len(res["steps"]), 5, "the post-runtime steps are not attempted on a halt "
-                             "(remove-unselected, foundation-ignores, codeowners, plan-mode, tool-runtime)")
+            self.assertEqual(len(res["steps"]), 4, "the post-runtime steps are not attempted on a halt "
+                             "(remove-unselected, foundation-ignores, codeowners, tool-runtime)")
 
     def test_halts_when_install_fails(self):
         with tempfile.TemporaryDirectory() as d:
@@ -1153,7 +1143,7 @@ class TestApplyStep4ToolRuntime(unittest.TestCase):
                 f"bump both the instantiator constant and every workflow `version:` together")
 
 
-class TestApplyStep6WiresInstallsHooks(unittest.TestCase):
+class TestApplyStep5WiresInstallsHooks(unittest.TestCase):
     def test_apply_installs_hooks_not_only_the_query_server(self):
         # B1: the apply phase must wire ALL of a kept module's wires — the HOOKS that boot/gate/close the
         # engine, not only the MCP server. A hook-less generated repo is otherwise an inert engine.
@@ -1172,7 +1162,7 @@ class TestApplyStep6WiresInstallsHooks(unittest.TestCase):
             self.assertIn("engine-knowledge-graph", mcp.get("mcpServers", {}), "and the query server too")
 
 
-class TestApplyStep7ControlPlane(unittest.TestCase):
+class TestApplyStep6ControlPlane(unittest.TestCase):
     def test_applied_turns_the_gate_on(self):
         with tempfile.TemporaryDirectory() as d:
             inst._build_fixture(d)
@@ -1278,7 +1268,6 @@ class TestApplyIdempotentResume(unittest.TestCase):
             by = {s["step"]: s["status"] for s in second["steps"]}
             self.assertFalse(second["halted"])
             self.assertEqual(by["codeowners"], "already", "a resumed render is a true no-op")
-            self.assertEqual(by["plan-mode"], "already")
             self.assertEqual(by["control-plane"], "already")
 
 
@@ -1321,6 +1310,13 @@ class TestApplyCopySurface(unittest.TestCase):
         copy = inst.load_copy(inst.TEMPLATE_PATH)
         for key in inst.COPY_HEADINGS:
             self.assertTrue(copy[key].strip(), f"apply copy section {key!r} resolves empty")
+        # The REVERSE leg (StarshipSuperjam/engine-template#1227): every section the template carries is one the tool renders.
+        # Without it, a copy key retired from the tool could leave its operator-facing section behind in the
+        # template — orphaned prose that ships in every generated project and that nothing reads.
+        headings = set(re.findall(r"^## (.+)$", template, re.M))
+        rendered = set(inst.COPY_HEADINGS.values())
+        self.assertEqual(headings - rendered, set(),
+                         "template sections no copy key renders (orphaned operator-facing prose)")
 
     def test_missing_template_falls_back_not_crashes(self):
         copy = inst.load_copy("/no/such/first-run.md")
@@ -2964,7 +2960,7 @@ class TestInsertFloor(unittest.TestCase):
 def _arrive_fakes():
     """Every external boundary arrive() threads into apply/detect_team faked, so the REAL arrival runs with
     nothing real touched (mirrors _finish_apply) — including the GitHub team-detection read (gh_api)."""
-    return dict(home_reader=lambda: {}, uv_present=lambda: None, uv_installer=lambda: "uv",
+    return dict(uv_present=lambda: None, uv_installer=lambda: "uv",
                 uv_runner=lambda uv, g: True, consent=lambda kind: True,
                 control_transport=inst._approve_transport(), gh_refresh=lambda s: True,
                 control_issues=inst._FakeIssues(), gh_api=lambda path: None,
@@ -4182,7 +4178,7 @@ def _arrival_adapter(target, release, *, keep=None, declined=None, tier=None, de
         decisions=decisions, gh_api=fakes["gh_api"], control_repo=fakes["control_repo"],
         control_transport=fakes["control_transport"], control_issues=fakes["control_issues"],
         control_token=fakes["control_token"], gh_refresh=fakes["gh_refresh"],
-        home_reader=fakes["home_reader"], uv_present=fakes["uv_present"],
+        uv_present=fakes["uv_present"],
         uv_installer=fakes["uv_installer"], uv_runner=fakes["uv_runner"], consent=fakes["consent"])
 
 
