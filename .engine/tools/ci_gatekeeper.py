@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
-"""ci_gatekeeper — decide whether an engine-ci run owes the full inventory or may reuse an earlier proof.
+"""ci_gatekeeper — decide whether an engine-ci run owes the full inventory, may reuse an earlier proof, or
+may run the validator alone because the change set cannot touch the Engine.
 
 WHY THIS EXISTS. The required `engine-ci` check re-ran the structural validator and the whole behavioural
 self-test inventory on every pull-request event, including `edited`, `labeled` and `unlabeled` — events that
-cannot change the code under test. Correcting a pull-request body, or applying an acknowledgement label, spent
-the whole suite again for an answer already known. This module implements one narrow principle:
+cannot change the code under test — and, in a DEPLOYED copy, on every product-only pull request, whose change
+set cannot touch the Engine at all. Correcting a pull-request body, applying an acknowledgement label, or
+fixing a product helper spent the whole suite again for an answer already known. This module implements two
+narrow principles:
 
     Never re-run the full suite on a tree that has already passed it.
+    Never run the Engine's inventory on a change set that lies outside everything the Engine owns.
 
-New or changed code still earns a full run every time. Only a REPEAT judgment of an unchanged tree is replaced
-by verifying the receipt an earlier genuine full run left behind.
+New or changed ENGINE code still earns a full run every time. A REPEAT judgment of an unchanged tree is
+replaced by verifying the receipt an earlier genuine full run left behind (route two, reuse). A deployed copy's
+change set that the change classifier (`change_classification.py`) places outside every Engine corner, every
+declared root file and the live ownership register takes route three, `project-only`: the full validator CI
+suite runs, the inventory does not, and the run says so where a person will see it. The classifier resolves
+every doubt to "the Engine's" — the home repository never takes route three — and the workflow can switch the
+route off per deployment through the repository variable ENGINE_CI_PROJECT_ONLY_ARM=off. This route is a
+larger weakening than reuse: new code skips the inventory on every synchronize of a product-only pull request.
+It is deliberate, acknowledged by the operator through the guardrail-ack when it shipped, and disclosed on
+every run that takes it (StarshipSuperjam/engine-template#758, StarshipSuperjam/engine-template#883).
 
 THE BINDING IS THE TREE, NOT A COMMIT. A pull-request run checks out `refs/pull/N/merge` — head merged into
 base — so neither the head commit nor the base commit alone identifies what was tested. The merge COMMIT is
@@ -27,12 +39,16 @@ never the `name:` field, which any workflow may duplicate), with conclusion `suc
 this event is about. Only then is the receipt body read, and only from that run's own artifact list. No value
 taken from a receipt is ever used to select the run that vouches for it.
 
-ONLY A FULL RUN UPLOADS. A reuse run uploads nothing, so artifact presence is the structural marker that
-separates a genuine full run from a reuse run of the same workflow — which run metadata alone cannot do, since
-it reports the event but not the action. That is also why the candidate search must ENUMERATE every matching
-successful run rather than taking the newest: a reuse run is itself a successful run of this workflow at this
-head, so a select-newest-then-verify implementation would pick the reuse run, find no artifact, and fall back to
-a full run — silently paying full cost for every metadata event after the first.
+A REUSE RUN NEVER UPLOADS. A full run uploads a receipt stamped mode `full`; a project-only run uploads one
+stamped mode `project-only`, carrying the classification that justified it; a reuse run uploads nothing. The
+reuse path accepts ONLY a full receipt (`verify_receipt`'s default `accept_modes`), so reuse can never chain off
+a project-only run — a project-only pull request's later metadata events are classified project-only again
+before the receipt rules are consulted, and cost the validator alone. The Build Coordinator's final import is
+the one consumer that accepts a project-only receipt, and it does so only after re-deriving the same verdict
+itself for the head against its base, never by believing the receipt. That is also why the candidate search must
+ENUMERATE every matching successful run rather than taking the newest: a reuse run is itself a successful run
+of this workflow at this head, so a select-newest-then-verify implementation would pick the reuse run, find no
+artifact, and fall back to a full run — silently paying full cost for every metadata event after the first.
 
 EVERY FAILURE RESOLVES TO MORE WORK. An authorization error, an API failure, a malformed or expired artifact, a
 receipt that does not match: all resolve to `full`. There is no path on which a failure yields `reuse`, and no
@@ -46,7 +62,8 @@ the inventory in that run. Weakening its decision or its verification has no on-
 notice, and the same pull request can edit both this file and its tests — the argument that already places
 `mechanic_build.py` and `ack_status.py` in the guard's hard tier. It is a member of `_FLOOR_ENFORCEMENT_HOOKS`
 and of `_HARD_EXACT`: modifying it requires a deliberate acknowledgement. Any helper module this grows joins
-both sets in the same change.
+both sets in the same change — `change_classification.py`, which decides route three, joined both when it was
+added, and its own docstring restates this binding.
 
 stdlib-only. The GitHub reads go through `github_client`, which owns the authenticated-request shape and the
 off-host guard; the helpers it gained for this module are dumb transport (list runs, list a run's artifacts,
@@ -83,6 +100,27 @@ _RUNS_PER_PAGE = 100
 
 MODE_FULL = "full"
 MODE_REUSE = "reuse"
+MODE_PROJECT_ONLY = "project-only"
+MODES = (MODE_FULL, MODE_REUSE, MODE_PROJECT_ONLY)
+
+# The receipt modes a consumer may accept. The reuse path takes the default — full only — so reuse never
+# chains off a project-only run; the Build Coordinator's final import passes both, and re-derives the verdict.
+ACCEPT_FULL_ONLY = frozenset({MODE_FULL})
+ACCEPT_FULL_OR_PROJECT_ONLY = frozenset({MODE_FULL, MODE_PROJECT_ONLY})
+
+# The repository variable that switches route three off per deployment (`vars.ENGINE_CI_PROJECT_ONLY_ARM`,
+# handed to the gate step as this env name). Any of the plain spellings of "off" below — trimmed, in any
+# case — disables; anything else, including an unset or empty variable, leaves the arm ON, so a stray or
+# mistyped value can never quietly switch it off. Every value that does disable it forces the FULL inventory:
+# the switch only ever resolves toward more work.
+PROJECT_ONLY_ARM_ENV = "ENGINE_CI_PROJECT_ONLY_ARM"
+PROJECT_ONLY_ARM_OFF = "off"
+PROJECT_ONLY_ARM_OFF_VALUES = frozenset({PROJECT_ONLY_ARM_OFF, "false", "0", "no", "disabled"})
+
+# The env name through which the receipt step learns which arm ran — the gate's own step output, handed in
+# as step-level `env:` (`ENGINE_CI_MODE: ${{ steps.gate.outputs.mode }}`), so the receipt's mode is the
+# gate's verdict and never a value the emitter guesses.
+RECEIPT_MODE_ENV = "ENGINE_CI_MODE"
 
 # WHERE THE DECISION TRAVELS. The gate publishes its verdict as its own STEP OUTPUT under this key, and the
 # arms condition on `steps.gate.outputs.mode`. A step's outputs can be written only by that step, so nothing
@@ -98,9 +136,11 @@ MODE_OUTPUT_KEY = "mode"
 # channel. A marker written by the decision step would prove only that the decision ran, which is exactly what
 # the terminal assertion must not accept as proof that an ARM ran. So the terminal step reads the platform's
 # own verdict on each arm's substantive step (`steps.<id>.outcome`, which only the runner writes) and receives
-# it under these two names. Two names rather than one lets the assertion tell "no arm ran" from "both did".
+# it under these names. One name per arm lets the assertion tell "no arm ran" from "more than one did".
 FULL_RAN_ENV = "ENGINE_CI_FULL_RAN"
 REUSE_RAN_ENV = "ENGINE_CI_REUSE_RAN"
+PROJECT_ONLY_RAN_ENV = "ENGINE_CI_PROJECT_ONLY_RAN"
+RAN_ENVS = ((MODE_FULL, FULL_RAN_ENV), (MODE_REUSE, REUSE_RAN_ENV), (MODE_PROJECT_ONLY, PROJECT_ONLY_RAN_ENV))
 
 # The runner's word for a step that completed successfully; anything else (`skipped`, `failure`, `cancelled`,
 # or an empty string from a reference that resolves to nothing) is not completion.
@@ -117,6 +157,7 @@ CODE_ACTIONS = frozenset({"opened", "synchronize", "reopened"})
 # Machine-readable reasons a run resolved to `full`. The first three are ordinary and expected; the rest mean
 # reuse was possible in principle and did not happen, which is what the workflow surfaces on a metadata event.
 REASON_NOT_PULL_REQUEST = "not-a-pull-request"
+REASON_PROJECT_ONLY = "project-only-change-set"   # the one reason that names route three, never a full run
 REASON_CODE_EVENT = "code-event"
 REASON_UNRECOGNISED_ACTION = "unrecognised-action"
 REASON_NO_RECEIPT = "no-receipt-for-this-tree"
@@ -196,7 +237,23 @@ def inventory_digest(root: str | None = None):
 # The decision
 # --------------------------------------------------------------------------------------------------
 
-def decide(event, *, repo, token, root=None, transport=None):
+def classify_checkout(root=None):
+    """Route three's question, asked of the change classifier: the merge checkout's change set against its
+    base, as a `change-classification.v1` manifest. A seam so `decide` can be handed a canned answer."""
+    import change_classification  # lazy: keeps the reuse path's unit tests free of the register
+
+    return change_classification.classify_merge_checkout(root or os.getcwd())
+
+
+def project_only_arm_enabled(env=None) -> bool:
+    """The off switch. `ENGINE_CI_PROJECT_ONLY_ARM` set to off/false/0/no/disabled — trimmed, any case —
+    disables route three; unset, empty, or anything else leaves it on. An operator who types `Off` or
+    `OFF ` in the repository-variable form gets the switch they meant."""
+    environ = env if env is not None else os.environ
+    return environ.get(PROJECT_ONLY_ARM_ENV, "").strip().casefold() not in PROJECT_ONLY_ARM_OFF_VALUES
+
+
+def decide(event, *, repo, token, root=None, transport=None, classifier=classify_checkout, env=None):
     """`(mode, reason, detail)` for one workflow run.
 
     `event` is the parsed webhook payload plus its event name, as `load_event` returns it. The rules, in order:
@@ -208,6 +265,8 @@ def decide(event, *, repo, token, root=None, transport=None):
         code is never merged on reused evidence and a broken test still surfaces on the push that broke it;
       - an action this module does not recognise -> full, because the safe default for an unknown input to a
         merge gate is more work;
+      - a pull-request event of any action whose change set is a deployed copy's own -> project-only (the
+        validator alone), unless the repository variable switches the arm off; see the block below;
       - a metadata action -> reuse if and only if a receipt for THIS tree is found and verified; otherwise full,
         carrying the reason it could not.
 
@@ -216,6 +275,18 @@ def decide(event, *, repo, token, root=None, transport=None):
     name = event.get("event_name") or event.get("name")
     if name != "pull_request":
         return MODE_FULL, REASON_NOT_PULL_REQUEST, None
+    #   - a pull-request event, of ANY action, whose merge checkout classifies project-only -> project-only.
+    #     Placed before the action rules because a product-only pull request's body edit is still a
+    #     product-only change set; and after the not-a-pull-request rule, so a default-branch push never
+    #     takes this route. The classifier answers "the Engine's" on every doubt, including the home
+    #     repository, and any failure to answer at all falls through to the rules below — more work.
+    if project_only_arm_enabled(env):
+        try:
+            manifest = classifier(root)
+        except Exception:                          # noqa: BLE001 — a classifier that cannot answer is a doubt
+            manifest = None
+        if isinstance(manifest, dict) and manifest.get("verdict") == "project-only":
+            return MODE_PROJECT_ONLY, REASON_PROJECT_ONLY, {"classification": manifest}
 
     action = (event.get("payload") or {}).get("action")
     if action in CODE_ACTIONS:
@@ -246,9 +317,10 @@ def decide(event, *, repo, token, root=None, transport=None):
     return MODE_FULL, (detail or {}).get("reason") or REASON_NO_RECEIPT, detail
 
 
-def find_reusable_receipt(*, repo, token, pr_number, head_sha, expected_tree, root=None, transport=None):
+def find_reusable_receipt(*, repo, token, pr_number, head_sha, expected_tree, root=None, transport=None,
+                          accept_modes=ACCEPT_FULL_ONLY):
     """`(found, detail)` — walk every successful engine-ci run for this head and return the first that yields a
-    receipt attesting `expected_tree`.
+    receipt attesting `expected_tree` in one of `accept_modes` (full only, by default — the reuse path's rule).
 
     ENUMERATION IS LOAD-BEARING, not an optimisation. A reuse run is itself a successful run of this workflow at
     this head, so it satisfies the candidate filter; taking only the newest match would pick it, find no
@@ -261,7 +333,8 @@ def find_reusable_receipt(*, repo, token, pr_number, head_sha, expected_tree, ro
     for run in _candidate_runs(repo=repo, head_sha=head_sha, transport=transport, progress=progress):
         ok, why, receipt = _receipt_from_run(
             repo=repo, run=run, pr_number=pr_number, head_sha=head_sha,
-            expected_tree=expected_tree, root=root, token=token, transport=transport)
+            expected_tree=expected_tree, root=root, token=token, transport=transport,
+            accept_modes=accept_modes)
         if ok:
             return True, {"run_id": run["id"], "run_url": run.get("html_url"),
                           "run_attempt": run.get("run_attempt"), "receipt": receipt}
@@ -310,7 +383,8 @@ def _candidate_runs(*, repo, head_sha, transport, progress=None):
         progress["truncated"] = True
 
 
-def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, token, transport):
+def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, token, transport,
+                      accept_modes=ACCEPT_FULL_ONLY):
     """`(ok, why, receipt)` for one candidate run: find its receipt artifact, download it, and verify it."""
     status, body = transport("GET", f"/repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100", None)
     if status >= 400 or not isinstance(body, dict):
@@ -331,24 +405,27 @@ def _receipt_from_run(*, repo, run, pr_number, head_sha, expected_tree, root, to
         return False, f"artifact-unreadable: {type(exc).__name__}", None
 
     ok, why = verify_receipt(receipt, repo=repo, pr_number=pr_number, head_sha=head_sha,
-                             expected_tree=expected_tree, run=run, root=root)
+                             expected_tree=expected_tree, run=run, root=root, accept_modes=accept_modes)
     return ok, why, (receipt if ok else None)
 
 
-def verify_receipt(receipt, *, repo, pr_number, head_sha, expected_tree, run, root=None, now=None):
+def verify_receipt(receipt, *, repo, pr_number, head_sha, expected_tree, run, root=None, now=None,
+                   accept_modes=ACCEPT_FULL_ONLY):
     """`(ok, why)` — every field a receipt must satisfy to authorize reuse. Fails closed on anything unexpected.
 
     The tree hash is the substantive check: it is what makes "the same code, already judged" literally true.
     The rest bind the receipt to this repository, this pull request, this head, and the run it was found on, so
     a receipt copied between runs or pull requests is refused. `run` is the platform's own record of the
     producing run — the comparison for head and run identity is receipt-versus-platform, never
-    receipt-versus-receipt."""
+    receipt-versus-receipt. `accept_modes` is the caller's rule about which arm's receipt counts: the reuse
+    path takes the default (full only); the final import may accept project-only too, and re-derives it."""
     if not isinstance(receipt, dict):
         return False, "receipt-not-an-object"
     if receipt.get("schema") != RECEIPT_SCHEMA:
         return False, "wrong-schema"
-    if receipt.get("mode") != MODE_FULL:
-        return False, "not-a-full-run-receipt"
+    if receipt.get("mode") not in accept_modes:
+        return False, ("not-a-full-run-receipt" if accept_modes == ACCEPT_FULL_ONLY
+                       else f"receipt-mode-not-accepted:{receipt.get('mode')}")
     if receipt.get("repository") != repo:
         return False, "wrong-repository"
     if receipt.get("pr_number") != pr_number:
@@ -426,20 +503,35 @@ def _default_transport(token):
 # The receipt a full run leaves behind
 # --------------------------------------------------------------------------------------------------
 
-def emit_receipt(event, *, repo, root=None, env=None, now=None):
-    """The receipt a genuine full run uploads, as a dict.
+def emit_receipt(event, *, repo, root=None, env=None, now=None, mode=None, classifier=classify_checkout):
+    """The receipt a full or project-only run uploads, as a dict.
 
-    Emitted only after the validator and the inventory have both passed — the workflow orders the step that
-    way, so the attestation is true by construction rather than by assertion. A reuse run never calls this."""
+    Emitted only after the arm's substantive steps have passed — the workflow orders the step that way, so the
+    attestation is true by construction rather than by assertion. A reuse run never calls this. The mode is the
+    GATE'S verdict, handed in through RECEIPT_MODE_ENV (or `mode`), never chosen here; a project-only receipt
+    carries the classification that justified the arm, which the final import re-derives rather than believes.
+    Any mode this module cannot vouch for is refused, so a receipt step wired to the wrong value cannot mint a
+    full attestation for a run that executed no inventory."""
     environ = env if env is not None else os.environ
+    mode = mode or environ.get(RECEIPT_MODE_ENV, "")
+    if mode not in (MODE_FULL, MODE_PROJECT_ONLY):
+        raise GatekeeperError(f"refusing to write a receipt for mode {mode!r}: only a full or a project-only "
+                              f"run leaves one")
     pull = (event.get("payload") or {}).get("pull_request") or {}
     number = (event.get("payload") or {}).get("number") or pull.get("number")
     head, base = head_and_base(root)
     count, digest = inventory_digest(root)
     stamp = moment.to_z(now) if now is not None else moment.utc_now()
+    classification = None
+    if mode == MODE_PROJECT_ONLY:
+        classification = classifier(root)
+        if not isinstance(classification, dict) or classification.get("verdict") != "project-only":
+            raise GatekeeperError("refusing to write a project-only receipt: the checkout does not classify "
+                                  "project-only")
     return {
         "schema": RECEIPT_SCHEMA,
-        "mode": MODE_FULL,
+        "mode": mode,
+        "classification": classification,
         "result": "success",
         "repository": repo,
         "pr_number": int(number) if number else None,
@@ -491,6 +583,28 @@ def reuse_disclosure(detail) -> str:
     )
 
 
+def project_only_disclosure(detail) -> str:
+    """The first line of a project-only run's job summary, in plain words.
+
+    The same argument as `reuse_disclosure`, with more force: this green skipped the inventory on a CODE event,
+    which reuse never does, and it looks identical to a full run's green in the checks list. So the line names
+    what did not run, why (the change set's paths and the verdict that placed them outside the Engine), and the
+    evidentiary limit — this run attests Engine health only; it ran no product validation, and none is
+    registered until StarshipSuperjam/engine-template#1147 lands the product-owned contract. The `decide` verb
+    refuses a project-only run that cannot write this line."""
+    import change_classification as cc  # lazy, as in classify_checkout
+    manifest = (detail or {}).get("classification") or {}
+    paths = manifest.get("project_paths") or []
+    verb = "lies" if len(paths) == 1 else "lie"
+    return (
+        f"Project-only run: the Engine self-test inventory was NOT run here. The {cc.count_paths(paths)} "
+        f"({cc.name_paths(paths)}) {verb} outside everything the Engine owns "
+        f"(change-classification verdict {manifest.get('verdict')!r}), so only the validator CI suite ran. "
+        f"This green attests Engine health only: no product validation ran, and none is registered "
+        f"(StarshipSuperjam/engine-template#1147)."
+    )
+
+
 def full_disclosure(reason, detail) -> str:
     """The first line of a full run's job summary when a METADATA event had to run the inventory anyway.
 
@@ -509,6 +623,12 @@ def full_disclosure(reason, detail) -> str:
 # CLI — the three verbs the workflow calls
 # --------------------------------------------------------------------------------------------------
 
+def _repo_root() -> str:
+    """The repository root, resolved explicitly: the gate step runs with `.engine` as its working directory
+    (`uv run --directory .engine`), and the classifier's diff must be asked of the checkout, not the cwd."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def _load_event():
     """The workflow event, through the engine's existing event-loading seam."""
     import issue_event  # lazy
@@ -524,17 +644,17 @@ def main(argv):
 
     if verb == "decide":
         event = _load_event()
-        mode, reason, detail = decide(event, repo=repo, token=token)
+        mode, reason, detail = decide(event, repo=repo, token=token, root=_repo_root())
         _publish_mode(mode)
-        if mode == MODE_REUSE:
-            line = reuse_disclosure(detail)
+        if mode in (MODE_REUSE, MODE_PROJECT_ONLY):
+            line = reuse_disclosure(detail) if mode == MODE_REUSE else project_only_disclosure(detail)
             print(line)
-            # A reuse run's green is indistinguishable from a full run's green in the checks list, so this
-            # summary line is the ONLY thing that tells a person the inventory did not run here. If it cannot
-            # be written, the run has no way to disclose what it did — so it refuses rather than reporting a
-            # green nobody can account for.
+            # A reuse run's green — and a project-only run's — is indistinguishable from a full run's green in
+            # the checks list, so this summary line is the ONLY thing that tells a person the inventory did not
+            # run here. If it cannot be written, the run has no way to disclose what it did — so it refuses
+            # rather than reporting a green nobody can account for.
             if not _write_summary(line):
-                print("engine-ci: refusing to reuse a proof this run cannot disclose "
+                print(f"engine-ci: refusing to take the {mode} arm when this run cannot disclose it "
                       "(no writable step summary).", file=sys.stderr)
                 return 1
         elif reason not in (REASON_NOT_PULL_REQUEST, REASON_CODE_EVENT, REASON_UNRECOGNISED_ACTION):
@@ -557,10 +677,11 @@ def main(argv):
         if not out:
             print("emit-receipt needs --out <path>", file=sys.stderr)
             return 2
-        receipt = emit_receipt(_load_event(), repo=repo)
+        receipt = emit_receipt(_load_event(), repo=repo, root=_repo_root())
         with open(out, "w", encoding="utf-8") as fh:
             json.dump(receipt, fh, indent=2, sort_keys=True)
-        print(f"receipt written for tree {receipt['tree_sha']} ({receipt['test_module_count']} modules)")
+        print(f"{receipt['mode']} receipt written for tree {receipt['tree_sha']} "
+              f"({receipt['test_module_count']} modules in the inventory)")
         return 0
 
     if verb == "assert-ran":
@@ -574,19 +695,17 @@ def main(argv):
         # It reads the runner's own outcome for each arm's substantive step, handed in as step-level `env:`.
         # Exactly one must have succeeded: none means no work was done, and both means the arms stopped being
         # mutually exclusive, which is a defect in the branch structure even though it did do the work.
-        full_ran = os.environ.get(FULL_RAN_ENV, "") == _OUTCOME_SUCCESS
-        reuse_ran = os.environ.get(REUSE_RAN_ENV, "") == _OUTCOME_SUCCESS
-        if not (full_ran or reuse_ran):
-            print("engine-ci: no arm recorded completion "
-                  f"({FULL_RAN_ENV}={os.environ.get(FULL_RAN_ENV, '')!r}, "
-                  f"{REUSE_RAN_ENV}={os.environ.get(REUSE_RAN_ENV, '')!r}); refusing to report success.",
+        ran = [mode for mode, name in RAN_ENVS if os.environ.get(name, "") == _OUTCOME_SUCCESS]
+        if not ran:
+            observed = ", ".join(f"{name}={os.environ.get(name, '')!r}" for _mode, name in RAN_ENVS)
+            print(f"engine-ci: no arm recorded completion ({observed}); refusing to report success.",
                   file=sys.stderr)
             return 1
-        if full_ran and reuse_ran:
-            print("engine-ci: BOTH arms reported completion; they must be mutually exclusive. "
-                  "Refusing to report success.", file=sys.stderr)
+        if len(ran) > 1:
+            print(f"engine-ci: {len(ran)} arms reported completion ({', '.join(ran)}); they must be mutually "
+                  "exclusive. Refusing to report success.", file=sys.stderr)
             return 1
-        print(f"engine-ci: {MODE_FULL if full_ran else MODE_REUSE} arm completed.")
+        print(f"engine-ci: {ran[0]} arm completed.")
         return 0
 
     print(__doc__)
@@ -602,8 +721,8 @@ def _publish_mode(value):
     self-test inventory overwrite this verdict mid-job (StarshipSuperjam/engine-template#1043).
 
     This helper is now the sole author of a safety-critical channel, so it validates rather than trusting its
-    caller: only the two known modes, and nothing carrying a newline, which would inject further output keys."""
-    if value not in (MODE_FULL, MODE_REUSE):
+    caller: only the three known modes, and nothing carrying a newline, which would inject further output keys."""
+    if value not in MODES:
         raise ValueError(f"refusing to publish an unknown mode: {value!r}")
     if "\n" in value or "\r" in value:                       # unreachable given the check above; the channel
         raise ValueError("refusing to publish a mode containing a newline")   # is worth defending twice

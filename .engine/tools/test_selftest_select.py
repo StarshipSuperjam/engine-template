@@ -30,6 +30,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 
 import selftest_select as S
 import validate
@@ -456,14 +457,189 @@ class ExemptionIsInjectableAndRecorded(unittest.TestCase):
         self.assertEqual(m["exempt_paths"], [])
 
 
-class ThePartitionHasExactlyThreeCategories(unittest.TestCase):
-    """The exemption is a real third category, and this is where that is stated and checked.
+class ProjectOwnedPaths(unittest.TestCase):
+    """Category 4: in a deployed copy, a project's own path contributes no tests.
+
+    The predicate is injected, so these cases decide by name what is the project's; `select()` wires the
+    real classifier, which `TheLivePredicate` below exercises against this repository (where nothing is
+    the project's) and a synthetic deployed tree."""
+
+    def _classify(self, changed, project, edges=None, guard=_no_guard):
+        return S.classify(changed, lambda: _index(edges or {}), guard_factory=guard,
+                          project_owned_factory=lambda: (lambda p: p in project), changed_from="base")
+
+    def test_a_project_only_change_set_selects_the_guard_alone_and_says_so(self):
+        m = self._classify([("src/app.py", "M"), ("docs/x.md", "A")], {"src/app.py", "docs/x.md"},
+                           guard=lambda _i: ({_p("test_map")}, None))
+        self.assertEqual(m["classification"], "project-only")
+        self.assertEqual(m["project_paths"], ["docs/x.md", "src/app.py"])
+        self.assertEqual([e["module"] for e in m["selected"]], ["test_map"])
+        self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
+
+    def test_deleted_and_renamed_project_files_do_not_force_the_full_inventory(self):
+        m = self._classify([("src/old.py", "R"), ("src/new.py", "R"), ("docs/gone.md", "D")],
+                           {"src/old.py", "src/new.py", "docs/gone.md"},
+                           guard=lambda _i: ({_p("test_map")}, None))
+        self.assertEqual(m["classification"], "project-only")
+
+    def test_a_project_path_beside_an_exempted_engine_path_is_a_focused_run_not_project_only(self):
+        # An exempted path is an Engine path the inventory need not re-run for; it is still the Engine's,
+        # and the classifier engine-ci runs would call this change set engine-affecting. The two gates agree.
+        m = S.classify([("src/app.py", "M"), ("generated/thing.json", "M")], lambda: {},
+                       guard_factory=lambda _i: ({_p("test_map")}, None),
+                       exempt_factory=lambda: frozenset({"generated/thing.json"}),
+                       project_owned_factory=lambda: (lambda p: p == "src/app.py"), changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertEqual((m["project_paths"], m["exempt_paths"]), (["src/app.py"], ["generated/thing.json"]))
+
+    def test_a_project_path_beside_tool_code_is_an_ordinary_focused_run(self):
+        m = self._classify([("src/app.py", "M"), (_p("widget"), "M")], {"src/app.py"},
+                           {"test_widget": ["widget"]})
+        self.assertEqual(m["classification"], "focused")
+        self.assertEqual([e["module"] for e in m["selected"]], ["test_widget"])
+        self.assertEqual(m["project_paths"], ["src/app.py"])
+
+    def test_a_project_path_beside_engine_prose_still_runs_everything(self):
+        m = self._classify([("src/app.py", "M"), ("CLAUDE.md", "M")], {"src/app.py"})
+        self.assertEqual(m["classification"], "full")
+        self.assertEqual(m["full_reason"]["code"], "path-not-classifiable")
+        self.assertEqual(m["project_paths"], ["src/app.py"])
+
+    def test_a_deleted_engine_file_the_predicate_does_not_claim_still_runs_everything(self):
+        m = self._classify([("CLAUDE.md", "D"), ("src/app.py", "M")], {"src/app.py"})
+        self.assertEqual(m["full_reason"]["code"], "deleted-or-renamed")
+
+    def test_the_default_predicate_claims_nothing_and_the_manifest_keeps_one_shape(self):
+        edges = {"test_widget": ["widget"]}
+        m = S.classify([(_p("widget"), "M")], lambda: _index(edges), guard_factory=_no_guard, changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertEqual(m["project_paths"], [])
+        full = S.classify([("README.md", "M")], lambda: {}, guard_factory=_no_guard, changed_from="base")
+        self.assertEqual(full["classification"], "full")
+        self.assertEqual(full["project_paths"], [])
+
+    def test_a_predicate_that_cannot_run_still_selects_as_before(self):
+        # `select()` degrades the live predicate to nothing-is-the-project's on any failure; the pure
+        # half must never see an exception from the factory as anything but that.
+        m = S.classify([("README.md", "M")], lambda: {}, guard_factory=_no_guard,
+                       project_owned_factory=S.no_project_owned_paths, changed_from="base")
+        self.assertEqual(m["full_reason"]["code"], "path-not-classifiable")
+
+
+class TheLivePredicate(unittest.TestCase):
+    def test_this_checkout_claims_what_its_identity_allows(self):
+        # Identity-aware, not home-assuming: in the home nothing is the project's; in a deployed copy (a
+        # downstream project running its own inventory) the Engine's paths are still never the project's.
+        import change_classification as cc
+        is_project = S.project_owned_predicate(validate.ROOT)
+        for path in ("CLAUDE.md", ".engine/tools/validate.py", ".mcp.json", ".github/x.yml"):
+            self.assertFalse(is_project(path), path)
+        at_home = cc.identity_of(validate.ROOT) == cc.IDENTITY_HOME
+        for path in ("src/app.py", "README.md"):
+            self.assertEqual(is_project(path), not at_home, path)
+
+    def test_a_deployed_tree_owns_only_what_lies_outside_the_engine(self):
+        tmp = tempfile.mkdtemp(prefix="selftest-select-deployed-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        subprocess.run(["git", "-C", tmp, "remote", "add", "origin", "https://github.com/test/product.git"],
+                       check=True)
+        os.makedirs(os.path.join(tmp, ".engine", "modules", "core"))
+        with open(os.path.join(tmp, ".engine", "engine.json"), "w", encoding="utf-8") as fh:
+            json.dump({"home_repository": "test/home"}, fh)
+        with open(os.path.join(tmp, ".engine", "modules", "core", "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"id": "core", "provides": {"tool": ["harness/*.py"]}}, fh)
+        os.makedirs(os.path.join(tmp, "harness"))
+        with open(os.path.join(tmp, "harness", "run.py"), "w", encoding="utf-8") as fh:
+            fh.write("x\n")
+        is_project = S.project_owned_predicate(tmp)
+        self.assertTrue(is_project("src/app.py"))
+        self.assertTrue(is_project("README.md"))
+        for path in ("CLAUDE.md", ".mcp.json", ".engine/tools/x.py", ".claude/settings.json",
+                     "harness/run.py", "harness/other.py", "Harness/other.py"):
+            self.assertFalse(is_project(path), path)
+        # The predicate IS the classifier's per-path rule: the two gates cannot disagree on a path.
+        import change_classification as cc
+        register, patterns = cc.register_and_patterns_of(tmp)
+        corners = cc.register_corners(register, patterns)
+        for path in ("src/app.py", "README.md", "CLAUDE.md", "harness/other.py", ".engine/tools/x.py"):
+            self.assertEqual(is_project(path), cc.is_project_owned(path, register, corners), path)
+        # Deleting the last file under the provided directory does not hand the directory to the project.
+        os.remove(os.path.join(tmp, "harness", "run.py"))
+        self.assertFalse(S.project_owned_predicate(tmp)("harness/other.py"))
+        # Building the predicate discovers the manifests exactly ONCE — the register and the corners
+        # come from one read, never a validated read and then an unchecked second one.
+        import module_coherence as mc
+        with mock.patch.object(mc, "discover_manifests", wraps=mc.discover_manifests) as discover:
+            S.project_owned_predicate(tmp)
+        self.assertEqual(discover.call_count, 1)
+
+    def test_a_degenerate_register_makes_nothing_the_projects(self):
+        tmp = tempfile.mkdtemp(prefix="selftest-select-degenerate-")
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        subprocess.run(["git", "-C", tmp, "remote", "add", "origin", "https://github.com/test/product.git"],
+                       check=True)
+        # A deployed origin but no engine.json: identity is unreadable, so nothing is the project's.
+        self.assertFalse(S.project_owned_predicate(tmp)("src/app.py"))
+
+
+class SelectOnADeployedClone(unittest.TestCase):
+    """`select()` end to end — the four-line join that hands the live predicate to the classifier — on a
+    `--shared` clone of this checkout with a foreign origin: the real manifests, the real importer index,
+    the real derived-artifact guard. A divergence reviewer found this join untested while everything on
+    either side of it was; this is the test the earlier repair record claimed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.root = os.path.join(cls.tmp.name, "clone")
+        subprocess.run(["git", "clone", "-q", "--shared", validate.ROOT, cls.root], check=True,
+                       capture_output=True, text=True)
+        cls._git("remote", "set-url", "origin", "https://github.com/test/downstream-product.git")
+        cls._git("checkout", "-q", "-b", "product")
+        cls.base = subprocess.run(["git", "-C", cls.root, "rev-parse", "HEAD"], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    @classmethod
+    def _git(cls, *args):
+        subprocess.run(["git", "-C", cls.root, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "-c", "commit.gpgsign=false", *args], check=True, capture_output=True, text=True)
+
+    def _commit(self, rel, text):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        self._git("add", rel)
+        self._git("commit", "-q", "-m", f"change {rel}")
+
+    def test_a_product_change_selects_the_guard_alone_and_an_engine_change_does_not(self):
+        self._commit("src/app.py", "print(1)\n")
+        m = S.select(self.root, self.base)
+        self.assertEqual(m["classification"], "project-only", m.get("full_reason"))
+        self.assertEqual(m["project_paths"], ["src/app.py"])
+        self.assertTrue(m["selected"], "the derived-artifact guard is never empty on the real tree")
+        self.assertEqual({e["reason"]["code"] for e in m["selected"]}, {"derived-artifact-guard"})
+        self._commit(".engine/tools/zz_new_tool.py", "VALUE = 1\n")
+        m = S.select(self.root, self.base)
+        self.assertNotEqual(m["classification"], "project-only")
+        self.assertEqual(m["project_paths"], ["src/app.py"])
+
+
+class ThePartitionHasExactlyFourCategories(unittest.TestCase):
+    """The exemption is a real third category and the deployed project-owned path a fourth; this is
+    where that is stated and checked.
 
     A conformance reviewer caught the source asserting a two-category partition it no longer had — the
     module docstring and the schema description both still said "there is no third category" after the
     guard had forced one. The categories are: tool code narrows, a registered generated output is
-    exempt, everything else runs the full inventory. Totality still holds because the third is a
-    catch-all; what changed is that the second exists."""
+    exempt, everything else runs the full inventory, and — in a deployed copy only — a project's own
+    path contributes nothing. Totality still holds because the third is a catch-all."""
 
     def test_a_registered_generated_output_neither_narrows_nor_forces_the_full_inventory(self):
         importers = S.build_importer_index(validate.ROOT)
@@ -528,6 +704,9 @@ class RealManifestMatchesItsSchema(unittest.TestCase):
             schema["properties"]["selected"]["items"]["properties"]["reason"]["properties"]["code"]["enum"])
         self.assertEqual(S.FULL_REASONS, published_full)
         self.assertEqual(S.SELECTION_REASONS, published_sel)
+        self.assertEqual(set(schema["properties"]["classification"]["enum"]),
+                         {"focused", "full", "project-only"})
+        self.assertIn("project_paths", schema["properties"])
 
 
 class TheProtocolDeclaresExactlyWhatCandidateRuns(unittest.TestCase):

@@ -22,11 +22,12 @@ class TestWorkflowExtraction(unittest.TestCase):
         triggers, steps = assurance.workflow_facts(assurance.load_workflow())
         self.assertEqual({row["event"] for row in triggers}, {"push", "pull_request"})
         self.assertIn("main", next(row["detail"] for row in triggers if row["event"] == "push"))
-        # The two-route gate (StarshipSuperjam/engine-template#1042): checkout, uv, materialize, decide,
-        # full-arm validator + self-tests + emit + upload, reuse-arm validator, terminal assert-ran — ten
-        # executable steps. It was twelve until the two hand-rolled completion markers were replaced by the
-        # runner's own per-step outcomes (StarshipSuperjam/engine-template#1043).
-        self.assertEqual(len(steps), 10)
+        # The three-route gate (StarshipSuperjam/engine-template#1042, #758): checkout, uv, materialize,
+        # decide, full-arm validator + self-tests, receipt emit + upload (full and project-only arms),
+        # reuse-arm validator, project-only-arm validator, terminal assert-ran — eleven executable steps. It
+        # was ten before the project-only arm, and twelve before the two hand-rolled completion markers were
+        # replaced by the runner's own per-step outcomes (StarshipSuperjam/engine-template#1043).
+        self.assertEqual(len(steps), 11)
         self.assertIn("validate.py --suite CI", " ".join(str(row["command"]) for row in steps))
         self.assertTrue(all(not row["continue"] for row in steps))
         self.assertIn("version=0.11.8", " ".join(row["details"] for row in steps))

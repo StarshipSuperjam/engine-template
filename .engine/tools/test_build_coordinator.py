@@ -3094,6 +3094,17 @@ class TestCandidateEvidenceAndCache(CandidateInventoryFixture):
                    if 'state["validation"]["' in line.replace(" ", "")]
         self.assertEqual(readers, [], f"raw validation readers bypass the accessor: {readers}")
 
+    def test_a_project_only_run_record_is_admitted_and_its_scope_retained(self):
+        """A deployed project-only Build's candidate run is the standing guard alone; the record is
+        admitted like a focused one, and the retained summary keeps the name so the merge surface can
+        say the inventory did not run (StarshipSuperjam/engine-template#883)."""
+        self.store.mutate(lambda s: s.update({"validation": None}))
+        self._validate(fake=self.candidate_validation_fake(
+            record_mutator=lambda r: r.update({"scope": "project-only"})))
+        candidate = bc._split_validation(self.state())["candidate"]
+        self.assertTrue(all(r["passed"] for r in candidate["results"]))
+        self.assertEqual(candidate["run_record"]["scope"], "project-only")
+
     def test_each_run_record_corruption_is_refused_singly(self):
         cases = {
             "foreign tree": lambda r: r.update({"tree": "c" * 40}),
@@ -3195,7 +3206,8 @@ class TestFinalImportAndRollupGate(CandidateInventoryFixture):
                 return subprocess.CompletedProcess(argv, 0, self.TREE + "\n", "")
             return real_run(argv, **kw)
         found = found if found is not None else (True, {"run_id": 42, "run_attempt": 1,
-                                                        "receipt": {"schema": "engine-ci-receipt/v1"}})
+                                                        "receipt": {"schema": "engine-ci-receipt/v1",
+                                                                    "mode": "full"}})
         out = io.StringIO()
         with mock.patch.object(bc, "_head", return_value=HEAD_A), \
                 mock.patch.object(bc, "_run", side_effect=fake_run), \
@@ -3203,10 +3215,18 @@ class TestFinalImportAndRollupGate(CandidateInventoryFixture):
                 mock.patch("boot.gh_token", return_value=token), \
                 mock.patch.object(bc.ci_gatekeeper, "find_reusable_receipt",
                                   return_value=found) as finder, \
+                mock.patch.object(bc, "_classify_head_against_base",
+                                  side_effect=getattr(self, "classifier", None)
+                                  or (lambda base, head: self._ENGINE_AFFECTING)), \
                 contextlib.redirect_stdout(out):
             bc.cmd_validate(argparse.Namespace(plan=str(self.plan_path), mode="final",
                                                action="import"), self.store)
         return finder, out.getvalue()
+
+    _ENGINE_AFFECTING = {"verdict": "engine-affecting",
+                         "reason": {"code": "engine-corner-path", "detail": "fixture"}}
+    _PROJECT_ONLY = {"verdict": "project-only", "reason": {"code": "project-only", "detail": "fixture"},
+                     "project_paths": ["src/app.py"]}
 
     def test_a_verified_import_records_final_and_only_then_is_the_head_final_ok(self):
         state = self.state()
@@ -3216,12 +3236,58 @@ class TestFinalImportAndRollupGate(CandidateInventoryFixture):
         final = bc._split_validation(state)["final"]
         self.assertEqual((final["commit"], final["run_id"], final["tree"], final["source"]),
                          (HEAD_A, 42, self.TREE, "ci-import"))
+        self.assertEqual(final["mode"], "full")
+        self.assertIsNone(final["classification_digest"])
         self.assertTrue(bc._final_ok(state, HEAD_A))
         kwargs = finder.call_args.kwargs
         self.assertEqual((kwargs["pr_number"], kwargs["head_sha"], kwargs["expected_tree"]),
                          (7, HEAD_A, self.TREE),
                          "provenance must go through the platform-filtered enumeration, bound to the "
                          "local head and its tree — never a run picked out of rollup fields")
+        self.assertEqual(kwargs["accept_modes"], bc.ci_gatekeeper.ACCEPT_FULL_OR_PROJECT_ONLY,
+                         "the import is the one consumer that may accept a project-only receipt")
+
+    def _project_only_found(self):
+        return (True, {"run_id": 43, "run_attempt": 1,
+                       "receipt": {"schema": "engine-ci-receipt/v1", "mode": "project-only",
+                                   "classification": self._PROJECT_ONLY}})
+
+    def test_a_project_only_receipt_imports_only_with_a_re_derived_project_only_verdict(self):
+        self.classifier = lambda base, head: self._PROJECT_ONLY
+        finder, out = self._import(found=self._project_only_found())
+        final = bc._split_validation(self.state())["final"]
+        self.assertEqual((final["run_id"], final["mode"], final["classification_reason"]),
+                         (43, "project-only", "project-only"))
+        self.assertEqual(final["classification_digest"], bc._digest(self._PROJECT_ONLY))
+        self.assertTrue(bc._final_ok(self.state(), HEAD_A))
+        self.assertIn('"mode": "project-only"', out)
+
+    def test_a_project_only_receipt_is_refused_when_this_checkout_disagrees(self):
+        # The receipt's own embedded verdict says project-only; the coordinator asks the classifier itself
+        # and gets engine-affecting. The receipt is never believed, so the import refuses distinctly.
+        self.classifier = lambda base, head: self._ENGINE_AFFECTING
+        with self.assertRaisesRegex(bc.CoordinatorError, "narrower than the change set warrants"):
+            self._import(found=self._project_only_found())
+        self.assertIsNone(bc._split_validation(self.state())["final"])
+        self.assertFalse(bc._final_ok(self.state(), HEAD_A))
+
+    def test_a_receipt_that_names_no_arm_is_refused(self):
+        for receipt in ({"schema": "engine-ci-receipt/v1"}, {"schema": "engine-ci-receipt/v1", "mode": "reuse"}):
+            with self.subTest(mode=receipt.get("mode")):
+                with self.assertRaisesRegex(bc.CoordinatorError, "names no arm"):
+                    self._import(found=(True, {"run_id": 44, "run_attempt": 1, "receipt": receipt}))
+                self.assertIsNone(bc._split_validation(self.state())["final"])
+
+    def test_the_merge_surface_names_a_project_only_proof_and_its_limit(self):
+        self.classifier = lambda base, head: self._PROJECT_ONLY
+        self._import(found=self._project_only_found())
+        final = bc._split_validation(self.state())["final"]
+        self.assertEqual(final["mode"], "project-only")
+        self.assertIn("no product validation is registered", bc.PROJECT_ONLY_EVIDENCE_NOTE)
+        self.assertIn("#1147", bc.PROJECT_ONLY_EVIDENCE_NOTE)
+        self.assertIn(bc.PROJECT_ONLY_EVIDENCE_NOTE, bc._scope_disclosure("project-only"))
+        self.assertEqual(bc._scope_disclosure("focused"), "")
+        self.assertEqual(bc._scope_disclosure("full"), "")
 
     @staticmethod
     def _final_slot_writers(source):

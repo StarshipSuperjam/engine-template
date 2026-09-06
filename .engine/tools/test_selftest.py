@@ -413,17 +413,18 @@ class SelftestLauncher(_LauncherCase):
 _SELECTION_SCHEMA = "selftest-selection.v1"
 
 
-def _selection(modules, classification="focused", code=None):
+def _selection(modules, classification="focused", code=None, project_paths=()):
     """A selection manifest the launcher can be handed directly, without a git repository to derive
     one from — which is why `--selection-path` exists as a hidden flag."""
     return {
         "schema_version": _SELECTION_SCHEMA,
         "classification": classification,
         "changed_from": "fixture-base",
-        "changed_paths": [],
-        "full_reason": None if classification == "focused"
+        "changed_paths": list(project_paths),
+        "full_reason": None if classification in ("focused", "project-only")
                        else {"code": code or "path-not-classifiable", "detail": "fixture"},
         "exempt_paths": [],
+        "project_paths": list(project_paths),
         "selected": [{"module": m, "path": f".engine/tools/{m}.py",
                       "reason": {"code": "changed-test-module", "detail": "fixture"}}
                      for m in modules],
@@ -537,6 +538,25 @@ class FocusedRuns(unittest.TestCase):
         tail = proc.stdout[proc.stdout.rfind("Self-tests"):]
         self.assertIn("Focused run", tail)
         self.assertIn("NOT a full-inventory result", tail)
+
+    def test_a_project_only_run_keeps_its_name_in_the_record_and_the_banner(self):
+        """A deployed project's own change: the guard alone runs, and neither the record nor the banner
+        may present that as an ordinary focused narrowing or as a full result."""
+        proc, record = self._run(
+            {"test_one.py": _CLEAN, "test_two.py": _ALSO_CLEAN},
+            _selection(["test_one"], classification="project-only", project_paths=["src/app.py"]))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(record["scope"], "project-only")
+        self.assertEqual(record["selection"]["classification"], "project-only")
+        self.assertEqual([e["module"] for e in record["modules"]], ["test_one"])
+        tail = proc.stdout[proc.stdout.rfind("Self-tests"):]
+        self.assertIn("Project-only run", tail)
+        self.assertIn("inventory did not run", tail)
+        self.assertIn("no product validation", tail)
+        self.assertIn("NOT a full-inventory result", tail)
+        # The announcement counts grammatically: one path lies, one module runs.
+        self.assertIn("1 changed path lies outside everything the Engine owns", proc.stdout)
+        self.assertIn("(1 module) runs", proc.stdout)
 
     def test_a_crashed_focused_run_does_not_claim_it_was_a_full_one(self):
         """`scope` is the field the schema calls its load-bearing honesty field; a crashed focused run

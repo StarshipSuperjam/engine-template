@@ -500,28 +500,34 @@ def provides_claims(manifests: list, root: str | None = None) -> dict:
     return claims
 
 
-def foundation_infra_paths() -> list:
+def foundation_infra_paths(root: str | None = None) -> list:
     """FOUNDATION_INFRA expanded to the concrete committed relpaths that exist in the live tree —
     each literal member that is present, plus every file a glob member (the issue templates) selects.
     `glob.glob` on a literal path returns it iff it exists, so one uniform pass handles both. This is
-    the concrete-path form the CODEOWNERS path set needs (file-precise ownership, never a bare glob)."""
+    the concrete-path form the CODEOWNERS path set needs (file-precise ownership, never a bare glob).
+    `root` overrides the tree read (default validate.ROOT) — the seam `change_classification` uses so a
+    fixture tree's register is that tree's, never the ambient repository's; every other caller passes
+    nothing and reads the real tree."""
+    base = root or validate.ROOT
     out: set = set()
     for member in FOUNDATION_INFRA:
-        for abs_path in _glob.glob(os.path.join(validate.ROOT, member), recursive=True):
+        for abs_path in _glob.glob(os.path.join(base, member), recursive=True):
             if os.path.isfile(abs_path):
-                out.add(_rel(abs_path))
+                out.add(os.path.relpath(abs_path, base).replace(os.sep, "/"))
     return sorted(out)
 
 
-def engine_owned_paths(manifests: list) -> list:
+def engine_owned_paths(manifests: list, root: str | None = None) -> list:
     """The engine-owned file set for the CODEOWNERS ownership block: every file a present module's
     `provides` claims, UNIONED with the foundation infrastructure artifacts (FOUNDATION_INFRA). The
     `∪` is load-bearing — the highest-trust engine files (the manifest, root CLAUDE.md, the
     tool-runtime lockfiles, the engine-owned .github/ files) are in no module's `provides`, so a bare
     provides-union would leave exactly those product-merge-able (the repository-topology wall).
-    Returns concrete relpaths (globs expanded), sorted and de-duplicated."""
-    paths = set(provides_claims(manifests).keys())
-    paths.update(foundation_infra_paths())
+    Returns concrete relpaths (globs expanded), sorted and de-duplicated. `root` threads through to
+    both halves (default validate.ROOT); it is a LIVE-TREE enumeration either way — a path that does
+    not exist is not in it, which is why `change_classification` declares its own floor by name."""
+    paths = set(provides_claims(manifests, root=root).keys())
+    paths.update(foundation_infra_paths(root))
     return sorted(paths)
 
 
