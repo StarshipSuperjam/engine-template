@@ -5,12 +5,15 @@ WHY THIS EXISTS. A full self-test run is the largest wall-clock cost in a build,
 on one engine tool pays it over and over for a tree it has barely moved. This library answers the narrow
 question that makes a cheaper iteration loop honest: given what changed, which test modules could possibly
 have their verdict changed by it? The answer is consumed by `selftest.py --changed-from`; it is NEVER merge
-evidence. CI still runs the complete inventory against the exact submitted head, and that run alone gates
-the merge.
+evidence. For any change that touches the Engine, CI still runs the complete inventory against the exact
+submitted head, and that run alone gates the merge. For a DEPLOYED copy's change set that lies outside
+everything the Engine owns (category 4 below), CI takes its project-only arm instead and the inventory runs
+nowhere — a disclosed, acknowledged narrowing (StarshipSuperjam/engine-template#883, #758), bounded by the
+validator suite that runs in full on every arm and by the final import re-deriving the same verdict.
 
-THE PARTITION IS TOTAL, AND HAS EXACTLY THREE CATEGORIES. It had two until the guard below forced a
-third, and the earlier wording here — "there is no third category" — was left standing after that stopped
-being true. It is corrected rather than defended:
+THE PARTITION IS TOTAL, AND HAS EXACTLY FOUR CATEGORIES. It had two until the guard below forced a third,
+and three until the deployed project-only case added a fourth; each time the earlier wording here was
+corrected rather than defended:
 
   1. A Python file under `.engine/tools/` NARROWS the run: its reachable tests are read off the import
      graph. This is the only category that can make a run cheaper.
@@ -30,10 +33,16 @@ being true. It is corrected rather than defended:
      so a derived member added later cannot become exempt without one.
   3. EVERYTHING else — every prose file, every governed data file, every deletion, every rename, every
      path this module does not recognise — runs the complete inventory, with a reason recorded.
+  4. In a DEPLOYED copy only, a path the change classifier (`change_classification.py`) calls the
+     PROJECT'S — outside every Engine corner, every declared root file and the live ownership register —
+     is PROJECT-OWNED: it contributes no tests, is recorded under `project_paths`, and is otherwise
+     treated like an exempt path. When nothing else changed, the classification is `project-only` and
+     the selection is the derived-artifact guard alone. The predicate is INJECTED (`project_owned_factory`)
+     and defaults to nothing in the home repository, where every path is the Engine's.
 
 Totality is the property that matters and it still holds: category 3 is a catch-all, so a file kind this
-module has never heard of cannot fall into a gap. What is no longer true is that only one category exists
-beside it.
+module has never heard of cannot fall into a gap, and category 4 is reachable only through a classifier
+that resolves every doubt to "the Engine's".
 
 That shape was chosen after an earlier design was rejected in review, and the reason is worth keeping
 here. The earlier design decided from three cooperating sources — the import graph, a scan of string
@@ -312,7 +321,9 @@ def derived_artifact_guard(importers: dict):
     that scans every tool by GLOB and asserts something about its CONTENT (see
     `test_optional_module_isolation`) has no import edge to any particular tool either, and is not a
     generated-artifact drift test, so this guard does not reach it. That class is bounded by the full
-    CI inventory on the submitted head, and is disclosed rather than papered over.
+    CI inventory on the submitted head for any change that touches the Engine — a deployed copy's
+    project-only change set, which cannot alter a tool's content, is bounded instead by the validator
+    suite's hard checks, which run in full on every CI arm — and is disclosed rather than papered over.
 
     What this DOES close is the one that fires on every single edit.
     Editing any tracked file changes that file's recorded source fingerprint, which stales the engine's
@@ -345,23 +356,35 @@ def derived_artifact_guard(importers: dict):
     return guard, None
 
 
+def no_project_owned_paths():
+    """The default project-owned predicate: nothing is the project's. The right answer in the home
+    repository, and the answer whenever the classifier cannot be consulted."""
+    return lambda _path: False
+
+
 def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard,
-             exempt_factory=derived_output_paths, changed_from=None, git_failure=None) -> dict:
-    """Decide, and return the `selftest-selection.v1` manifest. Pure with respect to git and the clock.
+             exempt_factory=derived_output_paths, project_owned_factory=no_project_owned_paths,
+             changed_from=None, git_failure=None) -> dict:
+    """Decide, and return the `selftest-selection.v1` manifest. Pure with respect to git and the clock:
+    every impure input — the graph, the guard, the exemption, and the project-owned predicate, whose
+    live default reaches git through `select()` — arrives through an injected factory.
 
     `changed` is `changed_paths`' entry list. `importers_factory` is called only when there is something
     to resolve, so a classification that falls back never pays for the graph.
 
-    BOTH `guard_factory` and `exempt_factory` are injected rather than reached for, which is what keeps
-    this function pure. They otherwise had to import the engine's derived-artifact register, and a
-    fixture over a synthetic tree would then silently inherit the real repository's answer. The
-    exemption in particular is the single decision that removes a path from consideration entirely, so
-    it is the last thing that should be unreachable to a test — a reviewer caught it being exactly that
-    after the first version injected only the guard."""
+    ALL of `guard_factory`, `exempt_factory` and `project_owned_factory` are injected rather than reached
+    for, which is what keeps this function pure. They otherwise had to import the engine's derived-artifact
+    register or read the repository's identity, and a fixture over a synthetic tree would then silently
+    inherit the real repository's answer. The exemption and the project-owned predicate are the two
+    decisions that remove a path from consideration entirely, so they are the last things that should be
+    unreachable to a test — a reviewer caught the exemption being exactly that after the first version
+    injected only the guard."""
     # Recorded so a reader can tell "considered, and covered by the guard" from "never looked at". This
     # is the artifact whose stated job is explaining why a test is or is not in the selection, and an
-    # exempted path was the one thing it saw and never mentioned.
+    # exempted path was the one thing it saw and never mentioned. `project_seen` is the same record for
+    # category 4, and is ALWAYS emitted (empty in the home repository) so the manifest keeps one shape.
     exempt_seen: set = set()
+    project_seen: set = set()
 
     def full(code: str, detail: str) -> dict:
         assert code in FULL_REASONS, code
@@ -372,6 +395,7 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
             "changed_paths": sorted({p for p, _ in changed}),
             "full_reason": {"code": code, "detail": detail},
             "exempt_paths": sorted(exempt_seen),
+            "project_paths": sorted(project_seen),
             "selected": [],
         }
 
@@ -393,7 +417,14 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
     # Recorded HERE, before the deleted-or-renamed return below — the first version populated it only
     # further down, so the branch where a path was most literally waived reported nothing waived.
     exempt_seen.update(path for path in paths if path in exempt)
-    gone = [path for path in paths if statuses[path] & {"D", "R"} and path not in exempt]
+    # CATEGORY 4, consulted BEFORE the deleted-or-renamed check: a deleted or renamed project file cannot
+    # affect the Engine either, and the predicate answers by name. A deleted Engine file never reaches
+    # the predicate's "yes" (the classifier's floor matches deleted paths by name too), so the gone check
+    # below still forces the full inventory for it.
+    is_project_owned = project_owned_factory()
+    project_seen.update(path for path in paths if path not in exempt and is_project_owned(path))
+    gone = [path for path in paths if statuses[path] & {"D", "R"}
+            and path not in exempt and path not in project_seen]
     if gone:
         return full("deleted-or-renamed",
                     f"{_name_paths(gone)} deleted or renamed; the import graph is built from the "
@@ -414,7 +445,7 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
     # CATEGORY 2 of the three-way partition — see this module's docstring. These paths neither narrow
     # the run nor force the full inventory, and that is a deliberate, disclosed exception to the
     # otherwise two-way rule, not an oversight.
-    considered = [path for path in paths if path not in exempt]
+    considered = [path for path in paths if path not in exempt and path not in project_seen]
     unclassifiable = [path for path in considered if not is_tool_python(path)]
     if unclassifiable:
         return full("path-not-classifiable",
@@ -471,13 +502,19 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
         # outcome that could pass while running nothing.
         return full("unreached-tool", "no test module was selected for any changed path")
 
+    # `project-only` is the honest name for a run whose every considered path was the project's: what
+    # runs is the standing guard alone, and the run record carries that scope so the Build's evidence
+    # and the pull-request body can say the inventory did not run. A change set with ANY Engine path
+    # beside the project's is an ordinary focused (or full) run and says nothing special.
+    classification = "project-only" if project_seen and not considered else "focused"
     return {
         "schema_version": SCHEMA_VERSION,
-        "classification": "focused",
+        "classification": classification,
         "changed_from": changed_from,
         "changed_paths": sorted({p for p, _ in changed}),
         "full_reason": None,
         "exempt_paths": sorted(exempt_seen),
+        "project_paths": sorted(project_seen),
         "selected": [
             {"module": module_name(p), "path": p,
              "reason": {"code": selected[p],
@@ -526,10 +563,31 @@ def _selection_detail(code: str, path: str, reached_for: dict) -> str:
     return f"{path} {' and '.join(clauses)}"
 
 
+def project_owned_predicate(root: str):
+    """The live project-owned predicate for `root`, from the change classifier: a path is the project's
+    only in a DEPLOYED copy with a readable, non-degenerate register, and only when it is outside every
+    floor prefix, every declared root file, the register, and every directory the register occupies.
+    Any doubt — the home repository, an unreadable identity or register — makes nothing the project's,
+    which is the direction that runs more. Imported lazily so a repository that cannot load the
+    classifier still selects exactly as it did before the fourth category existed."""
+    try:
+        import change_classification as cc
+        if cc.identity_of(root) != cc.IDENTITY_DEPLOYED:
+            return no_project_owned_paths()
+        register = cc.register_of(root)
+        if register is None or cc.ENGINE_MANIFEST_REL not in register:
+            return no_project_owned_paths()
+        corners = cc.register_corners(register)
+        return lambda path: cc.floor_hit(path) is None and not cc.register_hit(path, register, corners)
+    except Exception:  # noqa: BLE001 — a classifier that cannot answer makes nothing the project's
+        return no_project_owned_paths()
+
+
 def select(root: str, since: str) -> dict:
     """The whole answer for one repository and one base: what changed, and what that means."""
     changed, failure = changed_paths(root, since)
     return classify(changed, lambda: build_importer_index(root),
+                    project_owned_factory=lambda: project_owned_predicate(root),
                     changed_from=since, git_failure=failure)
 
 
