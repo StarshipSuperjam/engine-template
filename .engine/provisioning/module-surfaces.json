@@ -855,16 +855,31 @@
   ".engine/operations/boot-session-start.md": [
    "core"
   ],
+  ".engine/operations/build-continuity.md": [
+   "core"
+  ],
   ".engine/operations/build-execution.md": [
+   "core"
+  ],
+  ".engine/operations/build-implementation.md": [
+   "core"
+  ],
+  ".engine/operations/build-kickoff.md": [
    "core"
   ],
   ".engine/operations/build-orchestration.md": [
    "core"
   ],
+  ".engine/operations/build-plan-correction.md": [
+   "core"
+  ],
   ".engine/operations/build-product-grounding.md": [
    "core"
   ],
-  ".engine/operations/build-submission-evidence.md": [
+  ".engine/operations/build-submission.md": [
+   "core"
+  ],
+  ".engine/operations/build-validation-and-review.md": [
    "core"
   ],
   ".engine/operations/build-work-dispatch.md": [

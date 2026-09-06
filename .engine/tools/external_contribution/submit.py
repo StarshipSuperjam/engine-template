@@ -6,7 +6,7 @@ open-source upstream, or engine-template reached by a fork-native deployment esc
 prepares and opens a product-only contribution to that upstream as a cross-fork pull request
 (`upstream ← fork:feature`). (The engine-MECHANIC — which OWNS its engine-template product, checked out
 separately beside it — does NOT use this path; it opens a DIRECT pull request into its owned checkout, per
-the owned-product arm of build-orchestration.md.) It is the live caller
+owned-product-build.md.) It is the live caller
 that finally exercises the dormant upstream-clean nudge against a real outgoing diff, and it follows the
 host project's pull-request conventions rather than imposing the Engine's own.
 

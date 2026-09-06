@@ -4,7 +4,7 @@
     "candidate": [
       {
         "id": "engine-ci",
-        "label": "Engine CI \u2014 the full mechanical check suite",
+        "label": "Engine CI — the full mechanical check suite",
         "command": [
           "uv",
           "run",
@@ -20,7 +20,7 @@
       },
       {
         "id": "engine-selftest",
-        "label": "Engine self-tests \u2014 affected selection against the merge base, with a run record",
+        "label": "Engine self-tests — affected selection against the merge base, with a run record",
         "command": [
           "uv",
           "run",
@@ -136,6 +136,17 @@
       "prevents": "the coordinator crossing the operator-only merge boundary"
     }
   ],
+  "phase_runbooks": {
+    "planning": "build-kickoff.md",
+    "implementation": "build-implementation.md",
+    "engineering-decision": "build-plan-correction.md",
+    "finding-disposition": "build-validation-and-review.md",
+    "deliverable-review": "build-validation-and-review.md",
+    "repair-assessment": "build-validation-and-review.md",
+    "final-validation": "build-validation-and-review.md",
+    "submission-preflight": "build-submission.md",
+    "ready": "build-submission.md"
+  },
   "review_consumers": [
     {
       "stage": "plan-review gate",

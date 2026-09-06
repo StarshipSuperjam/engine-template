@@ -2905,6 +2905,60 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             status = bc._status(self.state())
         self.assertNotIn("choose none, scoped, or full re-review", status["engineering_judgment"])
 
+    def test_status_names_the_runbook_the_session_reads_now(self):
+        """The pointer (#726): one runbook per phase, keyed on the furthest stage the Build has entered."""
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual((status["phase"], status["runbook"]), ("implementation", "build-implementation.md"))
+        # planning: no approval yet
+        no_approval = dict(self.state(), approval=None)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(no_approval)
+        self.assertEqual((status["phase"], status["runbook"]), ("planning", "build-kickoff.md"))
+        # engineering-decision is an interrupt and names plan correction wherever the Build stands
+        self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual((status["phase"], status["runbook"]), ("engineering-decision", "build-plan-correction.md"))
+        self.store.mutate(lambda s: s.update({"checkpoint": None}))
+
+    def test_a_mid_repair_commit_keeps_reading_validation_and_review(self):
+        """A post-review commit makes candidate validation stale, so the derived phase reads
+        `implementation` again — but the session is mid-repair, and the pointer must not send it back
+        to the implementation runbook. The furthest stage entered is what keys the pointer."""
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"packet_digest": "sha256:" + "d" * 64, "reviewed_commit": HEAD_A}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+                mock.patch.object(bc, "_history_was_rewritten", return_value=False):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "implementation")
+        self.assertEqual(status["runbook"], "build-validation-and-review.md")
+        # and a Build that has a contract recorded reads submission even while validation is stale
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_B, "body_digest": bc._digest(b"body"), "complete": False}}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+                mock.patch.object(bc, "_history_was_rewritten", return_value=False):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "implementation")
+        self.assertEqual(status["runbook"], "build-submission.md")
+
+    def test_status_text_and_the_transition_verbs_print_read_now(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_changed_paths", return_value=[]), \
+                mock.patch.object(bc, "_must_run", return_value="1"), contextlib.redirect_stdout(out):
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=False), self.store)
+        self.assertIn("Read now: .engine/operations/build-implementation.md", out.getvalue().splitlines()[0])
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            bc._read_now(self.store)
+        self.assertEqual(err.getvalue().strip(), "Read now: .engine/operations/build-implementation.md")
+        # a transition verb prints it too: approve moves planning -> implementation
+        err = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            bc.cmd_approve(argparse.Namespace(plan=str(self.plan_path), depth="quick"), self.store)
+        self.assertIn("Read now: .engine/operations/build-implementation.md", err.getvalue())
+
     def test_non_aligned_checkpoint_prevents_ready_phase(self):
         self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
