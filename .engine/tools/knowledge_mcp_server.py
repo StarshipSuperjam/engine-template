@@ -92,9 +92,29 @@ def relate(id_a: str, id_b: str) -> dict:
     return _merge("path", result, degraded)
 
 
-def main() -> None:
+_USAGE = ("usage: knowledge_mcp_server.py [--help]\n"
+          "  The engine-knowledge-graph MCP server. The platform's `engine-knowledge-graph` entry (.mcp.json,\n"
+          "  .codex/config.toml, provisioned from the core manifest) launches it bare over stdio. A bare run BLOCKS,\n"
+          "  serving stdio until the client closes; --help / -h prints this text and exits before the server runs. It\n"
+          "  takes no other argument.")
+
+
+def main(argv: "list | None" = None) -> int:
+    # The #594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints usage
+    # and exits 0; any other argument — a flag or a bare word (this server has no verbs) — prints usage to
+    # stderr and exits 2 without reaching server.run(). None means no arguments, never sys.argv. The return
+    # value is an int and the entry block exits with it, so the status reaches the process.
+    argv = list(argv or [])
+    if "--help" in argv or "-h" in argv:
+        print(_USAGE)
+        return 0
+    if argv:
+        print(_USAGE, file=sys.stderr)
+        print(f"knowledge_mcp_server.py: unknown argument {argv[0]!r}", file=sys.stderr)
+        return 2
     server.run()  # stdio transport by default
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

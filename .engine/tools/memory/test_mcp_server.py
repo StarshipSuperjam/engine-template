@@ -415,6 +415,51 @@ class StdioLaunchTest(unittest.IsolatedAsyncioTestCase):
 
 
 class DemoTests(unittest.TestCase):
+    def test_help_prints_usage_names_the_launch_chain_and_never_serves(self):
+        # The #807 guard: --help / -h exit 0 with usage on stdout naming the accepted-hook launch chain, and
+        # server.run (the outermost seam) is never entered; a flag anywhere in argv counts.
+        for argv in (["--help"], ["-h"], ["demo", "--help"]):
+            calls, out, err = [], io.StringIO(), io.StringIO()
+            with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
+                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(srv.main(argv), 0, argv)
+            self.assertIn("usage: mcp_server.py", out.getvalue())
+            self.assertIn("accepted_hook_dispatch.py", out.getvalue())
+            self.assertIn("attended-memory-mcp", out.getvalue())
+            self.assertEqual(calls, [], argv)
+
+    def test_an_unknown_flag_or_bare_word_is_rejected_without_serving(self):
+        for argv in (["--bogus"], ["help"], ["serve"], ["demo", "extra"]):
+            calls, out, err = [], io.StringIO(), io.StringIO()
+            with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
+                 mock.patch.object(srv, "_demo", side_effect=lambda *a, **k: calls.append("demo")), \
+                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(srv.main(argv), 2, argv)
+            self.assertIn("usage: mcp_server.py", err.getvalue())
+            self.assertEqual(out.getvalue(), "")
+            self.assertEqual(calls, [], argv)
+
+    def test_no_arguments_and_none_both_serve(self):
+        for argv in ([], None):
+            calls = []
+            with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")):
+                self.assertEqual(srv.main(argv), 0)
+            self.assertEqual(calls, ["run"], argv)
+
+    def test_the_exit_status_reaches_the_process(self):
+        # A bounded wait, since this machine has no `timeout` command: on the unfixed tool the --help run
+        # would block serving stdio and the wait would expire.
+        import subprocess
+        script = os.path.abspath(srv.__file__)
+        helped = subprocess.run([sys.executable, script, "--help"], capture_output=True, text=True, timeout=10,
+                                stdin=subprocess.DEVNULL)
+        self.assertEqual(helped.returncode, 0, helped.stderr)
+        self.assertIn("attended-memory-mcp", helped.stdout)
+        rejected = subprocess.run([sys.executable, script, "--bogus"], capture_output=True, text=True, timeout=10,
+                                  stdin=subprocess.DEVNULL)
+        self.assertEqual(rejected.returncode, 2, rejected.stdout)
+        self.assertIn("usage: mcp_server.py", rejected.stderr)
+
     def test_demo_body_exits_zero(self):
         # The operator demo exercises the REAL rank + filter + reinforce on its own throwaway cabinet; a real
         # regression flips a `!!!` and returns non-zero. (It manages its own ENGINE_MEMORY_DIR.)
