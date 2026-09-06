@@ -12515,7 +12515,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:bf008c846a1dca4bb858c8b24ffd323d57c3b2abe0880ee51bc78c7efea46e06",
+        "fingerprint": "sha256:3bc6ffd30d66d25febec832ff18825b914df501f54e15e3c6185ef28f20d4b8b",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -13232,7 +13232,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:eb465ad0d7c8fc070bd869f014ff81ed3d702693294b211754519909b25b99ad",
+        "fingerprint": "sha256:cb05be321fd1468fa2c02d9883b332b823d93af8b2419f632b0db13433a602e4",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13544,7 +13544,7 @@
       },
       "slug": "module_manager",
       "source": {
-        "fingerprint": "sha256:f9fbff826f330b4d9c23d03152dbe23ad7b0dd51e5b625f874cd2b2124820ca2",
+        "fingerprint": "sha256:70a5d0d1fc268f37681048fd076c1756f36197c0e42c78e525ea0e4337752ccc",
         "path": ".engine/tools/module_manager.py"
       },
       "status": "active",
@@ -13638,7 +13638,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:a9d5ebd0c71e2bda75f9d9d32e4dc0d09c3f3f5a928e331aade43ab48b084afd",
+        "fingerprint": "sha256:38ad94b97742722a02fe823caca8a00882fcd7cd00da0cb8f859b5b9cc5ca17d",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13658,7 +13658,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:240f8917d68c95940ffd3a5c723484c5335788a6b0f89892f1c218ba8397e9a9",
+        "fingerprint": "sha256:40dc3a2d3c3a85163a1fadf899b3b3bfd6a613bc1006bd668b4121e16931ab92",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -15469,7 +15469,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:00edb18e00783fcee811bece1b348a17468d5a13d35c94c4ea4f3c47d525d459",
+        "fingerprint": "sha256:a38069518894a75e0032aa6226fd2c264a6f2b13ce168914d9147f16293ed0e8",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -17599,7 +17599,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:6158641dd568f1bc9aa99452119186034650e5ba76f11340801bae059cd2ad6c",
+        "fingerprint": "sha256:ed3b36ff02a9bfb15981f251f26bd195434f114cdf871bd6901e5accdcad1590",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -18296,7 +18296,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:942739ed765df79f71ce7160f4b78a4e64908f6c2662fc6450634b41f9d3fca6",
+        "fingerprint": "sha256:936c45b28cc655ee747c841c700ed73718837003930c02af639a6423b78aca4f",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18489,7 +18489,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:0b69db61d3303712307973d593f144d5cc73472e61d7d757471d8b37aecb441d",
+        "fingerprint": "sha256:ffa611357cfc03bc0577bd5155d69ea066fc4bf223ccf622e70461bba2e0fc58",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -18601,13 +18601,14 @@
           "tool:pins",
           "tool:records",
           "tool:refusals",
+          "tool:store",
           "tool:stranding_log",
           "tool:test_mcp_server"
         ]
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:99cb42dd5dee5b37df943571c6f75292c4a193e6bc78b830a2f21d53836e1040",
+        "fingerprint": "sha256:35788ba51d14079345f4a46728f2c1826052519b769ede8776833c08ffb8454e",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -19491,7 +19492,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:9efcdd94d956fa00251f4a0c9c21d93aa90744959a86b22801596256111b9e81",
+        "fingerprint": "sha256:2dfc94a300aaf31de84a25888c2cd695d3d39383fd65502dba71d4d9277be7b1",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -20372,7 +20373,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:19db1ed145f787feb09952b68fdb82b6592c6b7f265f72d19c0e9959d30753d5",
+        "fingerprint": "sha256:f5a30550c5cc54bbe6ecb4986f8f0db8fb3e6aae8f021eac665491801d67dfbe",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",
