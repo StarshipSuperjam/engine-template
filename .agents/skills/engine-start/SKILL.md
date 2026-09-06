@@ -25,8 +25,8 @@ description: Start building — switch from looking around to making changes, wh
 ## Notes
 
 This is a command you type to begin building. I won't start building on my own — that is your call: type
-`$engine-start` and the work begins. (In Claude Code, approving a plan I've shown you also starts it; in
-Codex, the typed command is the only way in.)
+`$engine-start` and the work begins. Approving a plan I've shown you imports it as a draft for the Engine's
+planning — it does not start building; the typed command is the only way in, on either runtime.
 
 Memory-write qualification is not part of this command. It converges by itself at session start, and when it
 has not, the session simply runs unqualified: memory still reads, and writing waits. If that matters to what

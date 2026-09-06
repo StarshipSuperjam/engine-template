@@ -14,10 +14,12 @@ it to a build.
 Before building anything, it helps to write down what you actually want — in plain language, organized so
 nothing important is forgotten. The engine does this with you through one command, `engine-design`. You
 describe what you want; it lays out the pieces, helps you write each one up, checks that every part is present
-and well-formed, and keeps the result as ordinary files in your project under a folder called `docs/spec/`.
+and well-formed, and keeps the result as ordinary files in your project under a folder called `docs/spec/`. The
+writing itself happens in a build you start (by typing `/engine-start`, or `$engine-start` on Codex) once the
+pieces are agreed, and the files reach your project through a pull request you merge.
 
 You stay in control of how much detail to capture, but the default is the full write-up. Alongside the
-description of each capability under `docs/spec/`, the engine also writes the guiding principles behind your
+description of each capability under `docs/spec/`, that build also writes the guiding principles behind your
 product, an overview of how it fits together (with a simple diagram), and the guides the people who use it will
 need. If you would rather capture just enough to get moving, say so and the engine keeps it light — the
 description alone — and you can add the rest whenever you like; your choice is written down, so nothing is
@@ -41,8 +43,8 @@ not re-argue ground you already settled. For a decision record the engine makes 
 that each record it wrote still names what you ruled out — never whether your reasons were the right ones
 (that stays your call). A record you keep in some other style is left untouched.
 
-Once a piece is settled, you can hand it to a build. Two things follow, at two different moments. Right away,
-the engine writes a **build order** — your settled pieces grouped into ordered, plainly-named phases — and opens
+Once a piece is settled, you can hand it to a build. Two things follow, at two different moments. First, in
+the same build, the engine writes a **build order** — your settled pieces grouped into ordered, plainly-named phases — and opens
 a **list of things to build**, one tracked item per piece, each pointing back at its description. Later, when a
 build actually runs, that order is what groups the work into **visible phases you can watch progress against** —
 the phases appear when a build is under way, not the moment you settle. And once there is a build order, a
@@ -53,8 +55,9 @@ One thing the engine is careful about: when it checks your description, it is ch
 your reviewers'); the check only makes sure nothing is missing or malformed.
 
 Everything lives in your own project as readable files, so you can open `docs/spec/` any time and see exactly
-what was written. If your project's GitHub connection is not reachable, the engine still writes and checks your
-description from files and tells you so, rather than stopping.
+what was written. If your project's GitHub connection is not reachable, a build cannot open its pull request, so
+the engine proposes and waits and tells you so — what you said is kept in the conversation, and the writing
+happens once the connection is back.
 
 ## Finding the commands
 
