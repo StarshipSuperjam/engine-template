@@ -677,6 +677,7 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
     })
     #: The probes a re-copied construction predicate calls — flagged with or without a marker mention.
     HOME_PROBES = frozenset({"is_home_repo", "_in_home_repo"})
+
     @staticmethod
     def _called_names(node: ast.AST) -> set:
         names = set()
@@ -759,9 +760,9 @@ class TestGuardHelpersSingleHome(unittest.TestCase):
     def test_the_nested_run_marker_has_one_value_across_its_homes(self):
         """The marker's name is held by value in three places on purpose (the launcher, the release gate,
         and the support module: a test module's import graph stays light, so the support module does not
-        import the launcher just to read one string). This case and test_selftest_support.py's name pins are
-        the two deliberate places that import both to compare the values, and are what keep the three from
-        drifting apart."""
+        import the launcher just to read one string). This case, with the name pins in test_selftest_support.py
+        and test_release_gate.py, is what keeps the copies from drifting apart: the pinning cases are the
+        deliberate places that import a module just to compare the values."""
         import release_gate
         import selftest
         import selftest_support

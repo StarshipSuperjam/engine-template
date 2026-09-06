@@ -22,10 +22,11 @@ what engine.json's `packages` records — and are not copies of this one; do not
 THE ENV-VAR NAMES ARE VALUES, NOT IMPORTS. selftest.py and release_gate.py each define the nested-run
 marker by value, release_gate.py defines the projection marker by value too, and this module holds both
 the same way: a test module's import graph stays light, so the launcher is not imported here just to read
-one string (the choice the copies made before they were consolidated). Two test cases pin the copies equal
+one string (the choice the copies made before they were consolidated). Pinning cases keep the copies equal
 so they cannot drift apart silently — test_launch_contract.py compares the nested-run marker across the
-launcher and the gate, and test_selftest_support.py compares both markers against the names here. Those
-two cases are the only places that import selftest and release_gate to read the values.
+launcher and the gate, test_selftest_support.py compares both markers against the names here, and
+test_release_gate.py compares the gate's two against these. Those pins are the only places that import
+selftest or release_gate just to read the values.
 
 TWO MARKERS, TWO MEANINGS, NEVER CONFLATED. `NESTED_ENV` is a recursion guard only: selftest.py sets it on
 the single child that runs the whole suite, and release_gate.py sets it on every process it spawns inside a

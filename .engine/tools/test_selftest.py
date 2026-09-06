@@ -138,7 +138,7 @@ class SelftestLauncher(_LauncherCase):
         # No unittest summary line ever reached the parent's captured output, so the banner must say
         # so plainly rather than silently printing "0 cases skipped" (which would misreport a run
         # unittest never actually finished).
-        self.assertIn("skip count unavailable", r.stdout)
+        self.assertIn("skip count unavailable (the run ended before unittest's summary line)", r.stdout)
 
     def test_skipped_cases_are_counted_in_the_banner(self):
         """A suite with skipped cases reports the exact count in the closing banner."""

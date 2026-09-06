@@ -714,7 +714,7 @@ def _skipped_banner_line(output: str) -> str:
     of `_print_result` so a reader sees the same phrasing either way."""
     skipped = _skipped_from_summary(output)
     if skipped is None:
-        return "skip count unavailable"
+        return "skip count unavailable (the run ended before unittest's summary line)"
     if skipped == 1:
         return "1 case skipped"
     return f"{skipped} cases skipped"
