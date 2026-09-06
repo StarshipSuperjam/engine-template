@@ -10,7 +10,7 @@ allowed-tools: Bash(uv run *)
 
 1. If this is Codex, stop: the Codex build Automation path is retired. Tell the operator to open **Scheduled**,
    pause or delete any recurring task whose prompt contains `$engine-routine`, and use an interactive Codex task
-   or a Claude Desktop routine instead. Do not enter Routine.
+   or a Claude Desktop scheduled task instead. Do not enter Routine.
 2. On Claude, enter and follow the procedure in `.engine/operations/routine-entry.md`. It confirms the engine's guardrails
    are running, that this run can work on its own and in an isolated copy of your repo, enters the unattended
    write-stance, finds the next planned piece of work and the files it's allowed to touch, does that piece and
@@ -19,7 +19,7 @@ allowed-tools: Bash(uv run *)
 
 ## Notes
 
-This is a command you put inside a Claude Desktop **routine** so I can keep a planned build moving while you're
+This is a command you put inside a Claude Desktop **scheduled task** so I can keep a planned build moving while you're
 away. It is not something I start on my own. To set one up, follow **"Running unattended"** in the root README.
 The committed Codex twin exists so an old `$engine-routine` schedule fails with an actionable retirement message
 rather than silently running; it never enters the write stance on Codex.
