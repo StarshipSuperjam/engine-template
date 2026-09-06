@@ -5245,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:7f0841c85958c7256e6e484b7c54a76d5a79e800522ea5931d35a84c769aadce",
+        "fingerprint": "sha256:1450eedb5714fc81876c1d6333f1f458bd52b6e83fa9317f632f916dab2a1e16",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -12749,7 +12749,7 @@
       },
       "slug": "issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:e2bf0f6905c7087e732e55d96bc5028efb783659267db4b367cf54097c0b79b2",
+        "fingerprint": "sha256:108167155f266cd48335e0930bfcbc05ea4fabf58ea2e870d0e5b579b38faaf6",
         "path": ".engine/tools/issue_conformance_ci.py"
       },
       "status": "active",
@@ -12957,7 +12957,7 @@
       },
       "slug": "knowledge_mcp_server",
       "source": {
-        "fingerprint": "sha256:503563a6f3e051acf5178513dda5f5590ec94df74ad40d0a22f2417bf7782bc4",
+        "fingerprint": "sha256:ef2fcaa55099248bf52e23485a07b9b45a5301c349622f3a819da464d1be4958",
         "path": ".engine/tools/knowledge_mcp_server.py"
       },
       "status": "active",
@@ -13298,7 +13298,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:b6201c746752fce80adcfce2a054b60ba5de227607c3e48456ed187e9c43459a",
+        "fingerprint": "sha256:21ae055e7af89a4a0ed97d182d515321231260f1c4cee103d3b35ffb93fa9623",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13895,7 +13895,7 @@
       },
       "slug": "overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:c1499bb357047538d747b83ac477acb8a40aee255d8f162729b1b53fa63f38fd",
+        "fingerprint": "sha256:911080a6f55df695afa020bf27165a18f7a4a463f1c8eb2ceedfdeaf7a54ce2c",
         "path": ".engine/tools/overlay_disclosure.py"
       },
       "status": "active",
@@ -17798,7 +17798,7 @@
       },
       "slug": "test_issue_conformance_ci",
       "source": {
-        "fingerprint": "sha256:759bffa0fab94abfe4c10c2f25362d67affc197e872b6326961637e024035203",
+        "fingerprint": "sha256:bee19edadb763b73ed4a74fd659f0c273c00b1a62282ca82404c82e4f732d676",
         "path": ".engine/tools/test_issue_conformance_ci.py"
       },
       "status": "active",
@@ -17979,7 +17979,7 @@
       },
       "slug": "test_knowledge_query",
       "source": {
-        "fingerprint": "sha256:19b1efd602f87022b6ba04aaec4e2f8d952f72cc15faed266a3f38d0037c1b49",
+        "fingerprint": "sha256:9d4d24c752220c517162157a9f9859eca732bad23b783974a55f3d663f1cb9d8",
         "path": ".engine/tools/test_knowledge_query.py"
       },
       "status": "active",
@@ -18312,7 +18312,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:ac48a688c66cfe03ab84d8a2afc61b3b493f0dab03a2d63bf12b211113150d3d",
+        "fingerprint": "sha256:a265f1e35fe09150234546fdf39e1343d47e0b5d6f9c9df8bdba943b5603c94c",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18845,7 +18845,7 @@
       },
       "slug": "test_overlay_disclosure",
       "source": {
-        "fingerprint": "sha256:bee0bd1f4c7f6b1d59e502ab3d9e74efb163e6913254536433286a632b5bef4d",
+        "fingerprint": "sha256:b6cc2470cf532dd39f1105f854aabb469d4521e7bde602288c82a8bf0c1ac59d",
         "path": ".engine/tools/test_overlay_disclosure.py"
       },
       "status": "active",
