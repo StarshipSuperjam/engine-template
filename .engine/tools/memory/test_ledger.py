@@ -24,6 +24,53 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 from memory import ledger  # noqa: E402  (package-qualified import; .engine/tools is on sys.path)
 
 
+class AppendPositionTests(unittest.TestCase):
+    """`append` reports where its line landed, and the positioned iterator finds the same bytes there — the
+    two halves of the keyword index's trust boundary (index.py)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmp.name, "ledger.ndjson")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_append_returns_the_position_and_bytes_it_wrote(self):
+        first = ledger.append({"body": "one"}, path=self.path)
+        second = ledger.append({"body": "三 two"}, path=self.path)
+        self.assertEqual(first.position, 0)
+        self.assertEqual(second.position, first.length)
+        with open(self.path, "rb") as fh:
+            blob = fh.read()
+        for placed in (first, second):
+            self.assertEqual(blob[placed.position:placed.position + placed.length], placed.raw)
+            self.assertTrue(placed.raw.endswith(b"\n"))
+            self.assertEqual(placed.digest, ledger.line_digest(placed.raw))
+
+    def test_the_position_accounts_for_a_healing_newline(self):
+        with open(self.path, "wb") as fh:
+            fh.write(b'{"body": "torn')                       # a crashed prior append, no terminator
+        placed = ledger.append({"body": "after"}, path=self.path)
+        with open(self.path, "rb") as fh:
+            blob = fh.read()
+        self.assertEqual(blob[placed.position:placed.position + placed.length], placed.raw)
+        self.assertEqual(blob[placed.position - 1:placed.position], b"\n", "the heal's newline precedes it")
+
+    def test_the_positioned_iterator_yields_the_bytes_on_disk(self):
+        placed = [ledger.append({"body": f"note {n}"}, path=self.path) for n in range(3)]
+        with open(self.path, "ab") as fh:
+            fh.write(b"\n{not json}\n")                        # a blank and a malformed line, both skipped
+        placed.append(ledger.append({"body": "after the junk"}, path=self.path))
+        items = list(ledger.iter_records(path=self.path, with_positions=True))
+        self.assertEqual([(i[0], i[1], i[2]) for i in items], [(p.position, p.length, p.raw) for p in placed])
+        self.assertEqual([i[3] for i in items], list(ledger.iter_records(path=self.path)))
+        with open(self.path, "rb") as fh:
+            for position, length, raw, record in items:
+                fh.seek(position)
+                self.assertEqual(fh.read(length), raw)
+                self.assertEqual(json.loads(raw), record)
+
+
 class LedgerRoundTripTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()

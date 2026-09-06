@@ -220,6 +220,14 @@ def _drop_semantic_passages(data_dir: str) -> None:
         conn = sqlite3.connect(path)
         try:
             conn.execute("DELETE FROM passages")
+            # The receipt goes with the rows it vouched for: a reader that may not reconcile trusts the
+            # receipt-covered rows, and an emptied store must not carry a receipt saying it is complete.
+            # Locally, not by the coincidence that the epoch bump above also invalidates the receipt's key.
+            try:
+                conn.execute("UPDATE meta SET covered_generation = NULL, covered_epoch = NULL, "
+                             "covered_length = NULL WHERE rowid = 1")
+            except sqlite3.Error:
+                pass                       # a store from before the receipt existed has none to clear
             conn.commit()
         finally:
             conn.close()

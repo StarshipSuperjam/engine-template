@@ -7,8 +7,9 @@ ranks (lexical relevance, equally-relevant matches newest first) and filters (ta
 `memory.index.search`;
 `recall-window`, which reads one past session's actual conversation back through `memory.recall.window`
 (a fetch, never a second ranking — the ranked contract stays single); and `recall-by-meaning`, which finds
-records that mean the same thing as a question in different words, and is registered only where the optional
-semantic module is installed. `recall-window` is the read side of the
+records that mean the same thing as a question in different words — a required part of memory, registered
+unconditionally, whose word table and numpy backend load on the first meaning question. `recall-window` is the
+read side of the
 transcript-first substrate: `search` now names a conversation and can return a piece of one message, and the
 window reads that message whole, in the order it happened, with its neighbours around it.
 
@@ -64,7 +65,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records, stranding_log as _stranding_log  # noqa: E402
+from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records, stranding_log as _stranding_log, refusals as _refusals  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
@@ -96,13 +97,13 @@ server = _RecordingServer(SERVER_NAME)
 
 
 # The refusals this server raises in plain words, each carrying a sentence written to be read by the
-# operator. `mutation_authority` re-wraps its own ContextError into MutationAuthorityError at every
-# call site, so that type cannot arrive here and is deliberately absent from the tuple.
-_TRANSLATED_REFUSALS = (
-    _mutation_authority.MutationAuthorityError,
-    pins.PinRefused,
-    forget.ControlNotRecorded,
-)
+# operator: exactly the exceptions that derive from `refusals.EngineRefusal` (the qualification and
+# stale-context refusals, the re-seal and lock refusals, a refused pin, a control not recorded). One base,
+# one isinstance - never an enumeration of classes (StarshipSuperjam/engine-template#1196). The plain
+# `MutationAuthorityError` carries
+# invariant and tamper failures whose text may name a writer or a path; it does NOT derive from the base and
+# so stays the masked crash it is, as does every other exception.
+_TRANSLATED_REFUSALS = (_refusals.EngineRefusal,)
 
 
 def _tool(**registration):
@@ -251,12 +252,15 @@ _RECALL_COMPLETENESS_NOTE = (
 # second time with nothing to catch it - the crash the two captured production traces recorded.
 # ---------------------------------------------------------------------------------------------------------
 
-_RESTART_ACTION = ("To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
-                   "(in a Codex session, end the session and start a new one).")
-_ESCALATION = "If this keeps happening after a restart, run /engine-status and open an engine issue."
+# One home for both, shared with the write refusals (memory/refusals.py); the names here are aliases.
+_RESTART_ACTION = _refusals.RESTART_ACTION
+_ESCALATION = _refusals.ESCALATION
+# NEUTRAL about meaning recall on purpose: this one sentence rides on every read tool's answer under a moved
+# binding (`_outcome` gives it precedence), including the meaning-recall answers that DID find content through
+# the read-only store and the ones that could not; each of those carries its own sentence beside it.
 _NOTE_MOVED = ("This project moved to a new commit while this memory server was running. Recall reflects what is "
-               "saved on disk; the keyword index was not refreshed and meaning-based recall is unavailable. "
-               + _RESTART_ACTION + " " + _ESCALATION)
+               "saved on disk; the keyword index was not refreshed, and each answer says how completely it was "
+               "searched. " + _RESTART_ACTION + " " + _ESCALATION)
 _NOTE_UNBOUND_STORE = ("The memory store under this session is not the one it was bound to, so nothing was read "
                        "from it. Quit Claude Desktop completely and reopen it so the memory server restarts against "
                        "the current store (in a Codex session, end the session and start a new one). " + _ESCALATION)
@@ -273,13 +277,29 @@ _NOTE_INCOMPLETE_SEARCH = ("The keyword index could not be refreshed, so this an
 _NOTE_MEANING_STORE_FAULT = ("Meaning-based recall could not open its store; keyword search still covers everything "
                              "saved. If this persists, run /engine-status and open an engine issue.")
 _NOTE_MEANING_BACKEND = ("Meaning-based recall's backend is unavailable on this machine; keyword search still covers "
-                         "everything saved. If this persists, run /engine-status and open an engine issue.")
-# Only `search` (the ledger-scan fallback) and `recall-by-meaning` (its backend) can report an incomplete read;
-# recall-window, list-pins and list-withheld always read their full source. `_meaning_read` returns the note
-# with its result on EVERY exit: the plan's sentence for a store fault, the backend sentence when the embedding
-# backend itself cannot run (numpy or the word table missing), and None for the one case whose own
-# `unavailable` text already carries the recovery and the escalation - a session not qualified to build the
-# meaning index.
+                         "everything saved. If the cause is a missing numpy, run `uv sync --directory .engine "
+                         "--frozen` from the project root to reinstall the engine's tool runtime; if it is a missing "
+                         "or damaged word table, an engine upgrade reinstalls the memory module that ships it. "
+                         "If this persists, run /engine-status and open an engine issue.")
+# The three sentences of the READ-ONLY meaning answer, for a session that may not write the store (moved,
+# no context installed, not yet qualified). The answer's own `unavailable` text states the fact; these notes
+# carry the action. Under a moved binding the moved note takes precedence and these are not attached.
+_NOTE_MEANING_NOT_CAUGHT_UP = ("Meaning-based recall answered from the part of its index that is current; the most "
+                               "recently saved conversation was not searched by meaning because this session cannot "
+                               "update the index. Keyword search still covers everything saved. "
+                               + _RESTART_ACTION + " " + _ESCALATION)
+_NOTE_MEANING_NOT_RECONCILED = ("Meaning-based recall's index has not caught up with what was saved and this session "
+                                "cannot update it; keyword search still covers everything saved. "
+                                + _RESTART_ACTION + " " + _ESCALATION)
+_NOTE_MEANING_NEWER_CODE = ("Meaning-based recall's index was rebuilt by a newer version of the engine than this memory "
+                            "server is running, so this session cannot read it; keyword search still covers everything "
+                            "saved. " + _RESTART_ACTION + " " + _ESCALATION)
+# Only `search` (the ledger-scan fallback) and `recall-by-meaning` (its backend, or its read-only store path)
+# can report an incomplete read; recall-window, list-pins and list-withheld always read their full source.
+# `_meaning_read` returns the note with its result on EVERY exit: the store-fault sentence when the store
+# could not be opened or reconciled by a session that may write, the backend sentence when the embedding
+# backend itself cannot run (numpy or the word table missing), the three read-only sentences above, and None
+# for a complete answer.
 
 # One read-degraded trace per (staleness class, tool) per process. A stale session reads memory many times and
 # every read would otherwise write a near-identical record into the same bounded sink as the rare crash record
@@ -466,118 +486,102 @@ def recall_window(session_id: str, anchor_seq: int | None = None,
     return _read_seam("recall-window", read, empty=lambda: {"session_id": session_id, "turns": []})
 
 
-def _semantic_installed() -> bool:
-    """True when the optional meaning-based recall module is present.
+@_tool(
+    name="recall-by-meaning",
+    description=(
+        "Find past conversation that MEANS the same thing as your question, even when it shares no words "
+        "with it. Use this when `search` came back empty but the project has probably been here before, or "
+        "when the question is a rephrasing — 'have we tried this?', 'did we rule this out?', 'is there a "
+        "stated preference about this?'. Use `search` instead when you need an exact phrase or a known "
+        "term: it matches words, so its empty answer genuinely means the words are absent. This one always "
+        "has a nearest neighbour, so results are ordered nearest-first and each carries the `passage` that "
+        "matched. THE PASSAGE IS THE ONLY EVIDENCE — read it and decide. Nearness was measured against real "
+        "history and does NOT track relevance: an irrelevant question scored higher on one shared word than "
+        "a correct reworded match did, so no closeness figure is reported, because any such figure would be "
+        "read as confidence it cannot carry. Being first here means nearest, not right. Each result also "
+        "carries the record's `session_id`, so take a "
+        "promising one to `recall-window` to read the conversation around it. It never changes the ledger, "
+        "but when this session may write the store it reconciles the throwaway local semantic index to the "
+        "current live records before answering; otherwise it answers read-only from what a prior session "
+        "reconciled plus what was saved since, and its answer says so. "
+        "Searches the same records `search` does, so an erased memory is absent here too."
+    ),
+)
+@_mutation_authority.guard("attended-semantic-mcp-search")
+def recall_by_meaning(query: str, limit: int = 10) -> dict:
+    from memory.semantic import embed as _embed
+    from memory.semantic import store as _store
 
-    `find_spec` LOCATES the module without importing or executing it, so a session that never asks a
-    meaning-based question never pays to load a 32 MB word table. The tool below is registered only when
-    this holds: where the module is absent the tool is absent too, rather than present and answering with
-    keyword results, which would be a lie about what it does.
-    """
-    import importlib.util
+    def read(memory_dir, binding):
+        return _meaning_read(query, limit, memory_dir, binding, _embed, _store)
 
-    try:
-        spec = importlib.util.find_spec("memory.semantic.store")
-    except (ImportError, ValueError, ModuleNotFoundError):
-        return False
-    # `origin` is None for a namespace package — which is exactly what an uninstall leaves behind, because
-    # removing a module deletes its files and not the directory that held them. Probing the package alone
-    # therefore said "installed" for an empty folder, and the tool registered and failed on first call. A real
-    # module file has an origin; an empty directory does not.
-    return spec is not None and spec.origin is not None
+    return _read_seam("recall-by-meaning", read, empty=_EMPTY_ANSWERS["recall-by-meaning"])
 
-
-if _semantic_installed():
-
-    @_tool(
-        name="recall-by-meaning",
-        description=(
-            "Find past conversation that MEANS the same thing as your question, even when it shares no words "
-            "with it. Use this when `search` came back empty but the project has probably been here before, or "
-            "when the question is a rephrasing — 'have we tried this?', 'did we rule this out?', 'is there a "
-            "stated preference about this?'. Use `search` instead when you need an exact phrase or a known "
-            "term: it matches words, so its empty answer genuinely means the words are absent. This one always "
-            "has a nearest neighbour, so results are ordered nearest-first and each carries the `passage` that "
-            "matched. THE PASSAGE IS THE ONLY EVIDENCE — read it and decide. Nearness was measured against real "
-            "history and does NOT track relevance: an irrelevant question scored higher on one shared word than "
-            "a correct reworded match did, so no closeness figure is reported, because any such figure would be "
-            "read as confidence it cannot carry. Being first here means nearest, not right. Each result also "
-            "carries the record's `session_id`, so take a "
-            "promising one to `recall-window` to read the conversation around it. It never changes the ledger, "
-            "but it reconciles the throwaway local semantic index to the current live records before answering. "
-            "Searches the same records `search` does, so an erased memory is absent here too."
-        ),
-    )
-    @_mutation_authority.guard("attended-semantic-mcp-search")
-    def recall_by_meaning(query: str, limit: int = 10) -> dict:
-        from memory.semantic import embed as _embed
-        from memory.semantic import store as _store
-
-        def read(memory_dir, binding):
-            return _meaning_read(query, limit, memory_dir, binding, _embed, _store)
-
-        return _read_seam("recall-by-meaning", read, empty=_EMPTY_ANSWERS["recall-by-meaning"])
-
-    def _meaning_read(query, limit, memory_dir, binding, _embed, _store):
-        reason = _embed.unavailable_reason()
-        if reason:
-            # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
-            return {"results": [], "unavailable": reason}, "incomplete", _NOTE_MEANING_BACKEND
-        found = _store.search(query, limit=limit, ledger_file=_ledger_file(memory_dir),
-                              store_file=None if memory_dir is None else os.path.join(memory_dir, _store.STORE_FILENAME))
-        if found.get("unavailable"):
-            # NOT the same as "searched and found nothing", and the difference is the whole point: saying
-            # "your memory is empty" here would be a false statement about the operator's own project, which
-            # is what the repair review caught this tool doing on an unqualified machine. The two reasons are
-            # kept apart too — one resolves itself and the other needs someone to look at it.
-            if found["unavailable"] == "not-qualified":
-                if binding.kind == "moved":
-                    # The outcome note beside this answer carries the recovery sentence; this text states the
-                    # fact once and does not repeat it.
-                    return {"results": [], "unavailable": (
-                        "I can't search by meaning right now: the project moved to a new commit under this "
-                        "memory server, so this session isn't qualified to update the meaning index. This says "
-                        "NOTHING about what is in memory: keyword search works normally and covers "
-                        "everything.")}, "incomplete", None
-                # This text is the relay itself (the outcome note stays null): it names the self-resolving
-                # cause, the action, and where to go if the action does not clear it.
+def _meaning_read(query, limit, memory_dir, binding, _embed, _store):
+    reason = _embed.unavailable_reason()
+    if reason:
+        # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
+        return {"results": [], "unavailable": reason}, "incomplete", _NOTE_MEANING_BACKEND
+    found = _store.search(query, limit=limit, ledger_file=_ledger_file(memory_dir),
+                          store_file=None if memory_dir is None else os.path.join(memory_dir, _store.STORE_FILENAME))
+    if found.get("unavailable"):
+        # NOT the same as "searched and found nothing", and the difference is the whole point: saying
+        # "your memory is empty" here would be a false statement about the operator's own project, which
+        # is what the repair review caught this tool doing on an unqualified machine. The two reasons are
+        # kept apart too — one resolves itself and the other needs someone to look at it.
+        if found["unavailable"] == "not-qualified":
+            # The refusal itself is the trigger: a session that may not write the store - a moved
+            # activation, no context installed, not yet qualified - answers through the read-only door
+            # instead, which opens the store `mode=ro`, runs no migrate and no reconcile, trusts only the
+            # receipt-covered rows whose text digest this code confirms, and embeds what was saved since
+            # in memory for this one question. One branch for all three cases; nothing is written.
+            found = _store.search_read_only(query, limit=limit, ledger_file=_ledger_file(memory_dir),
+                                            store_file=None if memory_dir is None
+                                            else os.path.join(memory_dir, _store.STORE_FILENAME))
+            if found["unavailable"] == "newer-code":
                 return {"results": [], "unavailable": (
-                    "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
-                    "index. This says NOTHING about what is in memory: keyword search works normally and "
-                    "covers everything. It sorts itself out at a session start that can reach GitHub. If it "
-                    "does not, run /engine-status and open an engine issue.")}, "incomplete", None
-            # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
-            # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
-            # delete it loses a possibly-fine cache and gets the identical error back. The internal class
-            # name is not relayed either — a raw Python identifier in operator text is the jargon leak the
-            # status renderer has a dedicated guard against.
-            if found.get("fault_class") == "TableUnavailable":
-                remedy = ("The word table this needs is missing or damaged, which is part of the engine's "
-                          "own install rather than anything you wrote — reinstalling the memory add-on is "
-                          "what fixes it.")
-            else:
-                remedy = ("Deleting `vectors.sqlite3` in the memory folder makes it rebuild from scratch; "
-                          "nothing you said is stored there, so there is nothing to lose by doing it.")
+                    "I can't search by meaning right now: the meaning index on disk was rebuilt by a newer "
+                    "version of the engine than this memory server is running. This says NOTHING about what "
+                    "is in memory: keyword search works normally and covers everything.")}, "incomplete", _NOTE_MEANING_NEWER_CODE
+            if found["unavailable"] == "not-reconciled":
+                return {"results": [], "unavailable": (
+                    "I can't search by meaning right now: the meaning index hasn't caught up with what was "
+                    "saved, and this session isn't able to update it. This says NOTHING about what is in "
+                    "memory: keyword search works normally and covers everything.")}, "incomplete", _NOTE_MEANING_NOT_RECONCILED
+        if found.get("unavailable"):
+            # A fault in the store itself, on either path. The remedy is chosen by the fault, because the
+            # obvious one is wrong for the commonest case: a missing or corrupt shipped model asset survives
+            # deleting the cache, so an operator told to delete it loses a possibly-fine cache and gets the
+            # identical error back. The internal class name is not relayed either - a raw Python identifier
+            # in operator text is the jargon leak the status renderer has a dedicated guard against. (The
+            # word table's own faults never reach here: `unavailable_reason` above answers them first.)
+            remedy = ("Deleting `vectors.sqlite3` in the memory folder makes it rebuild from scratch; "
+                      "nothing you said is stored there, so there is nothing to lose by doing it.")
             return {"results": [], "unavailable": (
                 "Searching by meaning is not working right now. This says NOTHING about what is in memory: "
                 "keyword search works normally and covers everything. " + remedy)}, "incomplete", _NOTE_MEANING_STORE_FAULT
-        results = []
-        for record, passage in zip(found["records"], found["passages"]):
-            # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
-            # relevance across questions — measured, an irrelevant question outscored a correct reworded match
-            # — so reporting it would hand the caller a confidence signal that is not one, and a number beside
-            # a result is read as confidence no matter what the surrounding words say.
-            entry = dict(_without_harness_spans(record))
-            entry["passage"] = passage
-            results.append(entry)
-        out: dict = {"results": results, "passages_searched": found["searched"]}
-        if results:
-            out["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
-        elif not found["searched"]:
-            out["unavailable"] = ("Nothing is stored to search by meaning yet — this project's memory is "
-                                  "empty, so an empty answer here says nothing about what was discussed.")
-        return out, "complete", None   # an empty store searched in full is a complete answer, not a degraded one
-
+    results = []
+    for record, passage in zip(found["records"], found["passages"]):
+        # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
+        # relevance across questions — measured, an irrelevant question outscored a correct reworded match
+        # — so reporting it would hand the caller a confidence signal that is not one, and a number beside
+        # a result is read as confidence no matter what the surrounding words say.
+        entry = dict(_without_harness_spans(record))
+        entry["passage"] = passage
+        results.append(entry)
+    out: dict = {"results": results, "passages_searched": found["searched"]}
+    if results:
+        out["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
+    elif not found["searched"]:
+        out["unavailable"] = ("Nothing is stored to search by meaning yet — this project's memory is "
+                              "empty, so an empty answer here says nothing about what was discussed.")
+    if found.get("complete") is False:
+        # The read-only door answered from what it could trust and embed; the rest was not searched.
+        out["unavailable"] = ("The most recently saved conversation was not searched by meaning: this session "
+                              "cannot update the meaning index, and more was saved since it was last updated "
+                              "than can be searched in memory here. Keyword search covers everything.")
+        return out, "incomplete", _NOTE_MEANING_NOT_CAUGHT_UP
+    return out, "complete", None   # an empty store searched in full is a complete answer, not a degraded one
 
 # --- Operator demonstration -------------------------------------------------------------------------------
 # An operator-runnable walkthrough on a throwaway PRACTICE filing cabinet (a temp folder via ENGINE_MEMORY_DIR),

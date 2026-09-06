@@ -498,10 +498,11 @@ def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool, r
         for record in ledger.read(path=ledger_file).records if isinstance(record, dict)
     }
     appended = []
+    placed = {}     # record id -> where its line landed, for the index to record beside the row
     for record in transaction["records"]:
         if record[records.RECORD_ID_KEY] in existing_ids:
             continue
-        ledger.append(record, path=ledger_file)
+        placed[record[records.RECORD_ID_KEY]] = ledger.append(record, path=ledger_file)
         _capture_fault("ledger-append")
         appended.append(record)
         existing_ids.add(record[records.RECORD_ID_KEY])
@@ -513,7 +514,7 @@ def _recover_capture_transaction(data_dir: str, cwd=None, *, recovering: bool, r
         # only idempotent repair that cannot duplicate rows or leave a current-looking hole.
         index.rebuild(ledger_file=ledger_file, index_file=index_file)
     elif transaction["records"]:
-        index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file)
+        index.extend(transaction["records"], ledger_file=ledger_file, index_file=index_file, positions=placed)
     _capture_fault("index-apply")
     _write_capture_status("captured", transaction["session_id"], required=True,
                           detail=({"routing": routing} if routing is not None else None))

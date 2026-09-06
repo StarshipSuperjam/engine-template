@@ -28,6 +28,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memory import (capture, execution_context, forget, index, ledger, mutation_authority,  # noqa: E402
                     mutation_contract, pins, records)
+from memory import refusals as _refusals  # noqa: E402
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
 from memory.recall_acceptance_probe import recall_acceptance_probe  # noqa: E402
@@ -106,7 +107,6 @@ class ToolWiringTests(_ServerBase):
         # adds its readiness block on top of it.
         self.assertEqual(list(checker.iter_errors({"status": "ok", "server": "engine-memory"})), [])
 
-    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
         # The contract declares `additionalProperties: false`, so a key the server sends and the interface
         # does not name is a contract breach. Nothing validated this operation's shape, which is why one
@@ -141,10 +141,8 @@ class ToolWiringTests(_ServerBase):
         # makes them safe: each is a command-line verb that a person runs at a terminal, and a callable tool
         # would be exactly the model-reachable path they are built to refuse. Their descriptions say so. The
         # property that actually matters is the one below: the server offers nothing it has not declared.
-        #
-        # TWO SHAPES ARE REAL, so both are covered rather than whichever this checkout happens to be:
-        # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
-        # deployment without it offers the rest alone.
+        # `recall-by-meaning` is among the served set unconditionally: meaning recall is a required part of
+        # memory, so there is one shape to cover.
         here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(srv.__file__))))
         declared, unserved = set(), set()
         for slug in ("search", "memory-control"):
@@ -154,8 +152,6 @@ class ToolWiringTests(_ServerBase):
                     if "NOT SERVED AS A TOOL" in op.get("description", ""):
                         unserved.add(op["name"])
         expected = declared - unserved
-        if not srv._semantic_installed():
-            expected -= {"recall-by-meaning"}
         tools = await mts.list_tool_objects(srv.server)
         names = {t.name for t in tools}
         self.assertEqual(names, expected)
@@ -167,7 +163,6 @@ class ToolWiringTests(_ServerBase):
         self.assertFalse(names & unserved,
                          "an operation declared NOT SERVED is being served — the terminal gate is bypassed")
 
-    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operation_returns_the_passage_and_no_closeness_figure(self):
         # Measured, nearness does not track relevance: an irrelevant question outscored a correct reworded
         # match. A figure beside a result is read as confidence whatever the description says, so the
@@ -179,38 +174,6 @@ class ToolWiringTests(_ServerBase):
         for entry in data["results"]:
             self.assertNotIn("score", entry)
             self.assertTrue(entry.get("passage"))
-
-    async def test_an_uninstalled_module_reads_as_absent_even_though_its_folder_remains(self):
-        # The honest-absence law, tested against the way it actually breaks. Removing a module deletes its
-        # files and leaves the directory, and Python resolves an empty directory as a namespace package — so
-        # a plain "can I find this package?" probe answered YES for an uninstalled module, registered the
-        # tool, and crashed on the first call. A namespace package has no `origin`; a real module file does.
-        import importlib.util
-
-        real = importlib.util.find_spec
-
-        class _NamespaceLike:
-            """What importlib hands back for a directory with no module file in it: a spec with no origin."""
-
-            origin = None
-
-        def emptied(name, *args, **kwargs):
-            # A STAND-IN, never the real spec: importlib caches specs, so mutating one would leave
-            # `origin = None` set for the rest of the process and quietly fail every later check. Discovered
-            # by the full suite — this test passed alone and broke two others when run with them.
-            if name == "memory.semantic.store":
-                return _NamespaceLike()
-            return real(name, *args, **kwargs)
-
-        importlib.util.find_spec = emptied
-        try:
-            self.assertFalse(srv._semantic_installed(),
-                             "an emptied module directory must not read as installed")
-        finally:
-            importlib.util.find_spec = real
-        # Deliberately NOT asserting the module is present afterwards: this test file is owned by the always-
-        # present memory module, so it also runs on a deployment where the operator declined the semantic
-        # add-on. Asserting its presence would fail in exactly the configuration the decline path exists for.
 
     async def test_recall_window_reads_a_sessions_conversation_back(self):
         # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so
@@ -560,6 +523,9 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
         "pin": "PIN-REFUSAL: that pin is over the length cap and was refused rather than silently shortened.",
         "control": "CONTROL-REFUSAL: nothing was registered to forget, and erasing stays your own terminal step.",
         "crash": "CRASH: an internal detail that must never be dressed up as a refusal.",
+        # An invariant failure on the plain authority type: the kind of sentence that names a writer or a
+        # path (#1196). It is NOT an operator refusal and must be masked, not forwarded.
+        "invariant": "INVARIANT: memory.pins.add received a relative path /Users/someone/secret (measured 3 over 1).",
     }
 
     def _probe(self):
@@ -572,13 +538,15 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
             @srv._tool(name="probe", description="Raises the named refusal (or a crash), for the translation test.")
             def probe(which: str) -> dict:
                 if which == "mutation":
-                    raise mutation_authority.MutationAuthorityError(self.SENTENCES["mutation"])
+                    raise mutation_authority.MutationRefusal(self.SENTENCES["mutation"])
                 if which == "pin":
                     raise pins.PinRefused(self.SENTENCES["pin"])
                 if which == "control":
                     raise forget.ControlNotRecorded(self.SENTENCES["control"])
                 if which == "crash":
                     raise RuntimeError(self.SENTENCES["crash"])
+                if which == "invariant":
+                    raise mutation_authority.MutationAuthorityError(self.SENTENCES["invariant"])
                 return {"ok": which}
         return fresh, probe
 
@@ -611,6 +579,37 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError) as caught:
                 probe("crash")
             self.assertNotIsInstance(caught.exception, ToolError)
+        with self.subTest(not_translated="invariant"):
+            # The plain authority type carries invariant and tamper text; it is masked, never forwarded.
+            with self.assertRaises(mutation_authority.MutationAuthorityError) as caught:
+                probe("invariant")
+            self.assertNotIsInstance(caught.exception, ToolError)
+
+    def test_the_seam_is_one_isinstance_on_the_refusal_base_built_from_the_raise_sites(self):
+        """#1196: the translated set is exactly the exceptions that derive from `refusals.EngineRefusal`, and
+        the library raises that base at every site that produces an operator sentence and nowhere else. The
+        membership is enumerated from the code, not from a list this test happens to know."""
+        import inspect
+        from memory import refusals
+        self.assertEqual(srv._TRANSLATED_REFUSALS, (refusals.EngineRefusal,))
+        derived = set()
+        for module in (mutation_authority, pins, forget, refusals):
+            for name, value in vars(module).items():
+                if (isinstance(value, type) and issubclass(value, refusals.EngineRefusal)
+                        and value is not refusals.EngineRefusal and value.__module__ == module.__name__):
+                    derived.add(f"{module.__name__}.{name}")
+        self.assertEqual(derived, {"memory.mutation_authority.MutationRefusal", "memory.pins.PinRefused",
+                                   "memory.forget.ControlNotRecorded"})
+        source = inspect.getsource(mutation_authority)
+        # Every raise site that mints an operator sentence raises the refusal type...
+        for minted in ("mutation_contract.degraded_refusal(", "_stale_refusal(stale)"):
+            self.assertNotIn("raise MutationAuthorityError(" + minted, source, minted)
+            self.assertIn("raise MutationRefusal(" + minted, source, minted)
+        self.assertEqual(source.count("raise MutationRefusal("), 8,
+                         "the refusal raise sites: 3 qualification refusals, 1 stale-context, 1 re-seal and 3 lock "
+                         "refusals - a new operator sentence must be added here deliberately")
+        # ...and the plain type still carries the invariant text, which the seam masks.
+        self.assertIn('raise MutationAuthorityError(f"persistent writer', source)
 
     def test_the_guard_marker_survives_the_translation_wrapper(self):
         """search and recall-by-meaning carry a `@_mutation_authority.guard` beneath the `_tool` wrapper.
@@ -621,10 +620,9 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("attended-keyword-mcp-search", ids)
         self.assertEqual(getattr(srv.search, "__engine_registry_id__", None),
                          "attended-keyword-mcp-search")
-        if srv._semantic_installed():
-            self.assertIn("attended-semantic-mcp-search", ids)
-            self.assertEqual(getattr(srv.recall_by_meaning, "__engine_registry_id__", None),
-                             "attended-semantic-mcp-search")
+        self.assertIn("attended-semantic-mcp-search", ids)
+        self.assertEqual(getattr(srv.recall_by_meaning, "__engine_registry_id__", None),
+                         "attended-semantic-mcp-search")
 
 
 class ReadSeamWiringTests(_ServerBase):
@@ -639,11 +637,8 @@ class ReadSeamWiringTests(_ServerBase):
         index.rebuild()
 
     def _calls(self):
-        calls = [("search", {"query": "widgets"}), ("recall-window", {"session_id": "s1"}),
-                 ("list-pins", {}), ("list-withheld", {})]
-        if srv._semantic_installed():
-            calls.append(("recall-by-meaning", {"query": "widgets"}))
-        return calls
+        return [("search", {"query": "widgets"}), ("recall-window", {"session_id": "s1"}),
+                ("list-pins", {}), ("list-withheld", {}), ("recall-by-meaning", {"query": "widgets"})]
 
     async def test_every_read_tool_carries_one_outcome_object_and_no_caveat_key(self):
         self._seed_conversation()
@@ -682,10 +677,10 @@ class ReadSeamWiringTests(_ServerBase):
         escalate = "If this keeps happening after a restart, run /engine-status and open an engine issue."
         self.assertEqual(srv._RESTART_ACTION, restart)
         self.assertEqual(srv._ESCALATION, escalate)
-        self.assertEqual(srv._NOTE_MOVED,
+        self.assertEqual(srv._NOTE_MOVED,          # C3: neutral about meaning recall - it rides on every tool
                          "This project moved to a new commit while this memory server was running. Recall reflects "
-                         "what is saved on disk; the keyword index was not refreshed and meaning-based recall is "
-                         "unavailable. " + restart + " " + escalate)
+                         "what is saved on disk; the keyword index was not refreshed, and each answer says how "
+                         "completely it was searched. " + restart + " " + escalate)
         self.assertEqual(srv._NOTE_UNBOUND_STORE,
                          "The memory store under this session is not the one it was bound to, so nothing was read "
                          "from it. Quit Claude Desktop completely and reopen it so the memory server restarts "
@@ -709,7 +704,25 @@ class ReadSeamWiringTests(_ServerBase):
                          "saved. If this persists, run /engine-status and open an engine issue.")
         self.assertEqual(srv._NOTE_MEANING_BACKEND,
                          "Meaning-based recall's backend is unavailable on this machine; keyword search still "
-                         "covers everything saved. If this persists, run /engine-status and open an engine issue.")
+                         "covers everything saved. If the cause is a missing numpy, run `uv sync --directory .engine "
+                         "--frozen` from the project root to reinstall the engine's tool runtime; if it is a missing "
+                         "or damaged word table, an engine upgrade reinstalls the memory module that ships it. "
+                         "If this persists, run /engine-status and open an engine issue.")
+        self.assertEqual(srv._NOTE_MEANING_NOT_CAUGHT_UP,
+                         "Meaning-based recall answered from the part of its index that is current; the most "
+                         "recently saved conversation was not searched by meaning because this session cannot "
+                         "update the index. Keyword search still covers everything saved. " + restart + " " + escalate)
+        self.assertEqual(srv._NOTE_MEANING_NOT_RECONCILED,
+                         "Meaning-based recall's index has not caught up with what was saved and this session "
+                         "cannot update it; keyword search still covers everything saved. " + restart + " " + escalate)
+        self.assertEqual(srv._NOTE_MEANING_NEWER_CODE,
+                         "Meaning-based recall's index was rebuilt by a newer version of the engine than this "
+                         "memory server is running, so this session cannot read it; keyword search still covers "
+                         "everything saved. " + restart + " " + escalate)
+        # The moved note contradicts none of the meaning-recall answers it accompanies: it claims nothing
+        # about meaning recall at all.
+        for word in ("meaning", "unavailable"):
+            self.assertNotIn(word, srv._NOTE_MOVED)
         self.assertFalse(hasattr(srv, "_NOTE_INCOMPLETE"), "no generic incomplete sentence: none is reachable")
 
     async def test_an_unbound_binding_returns_no_content_from_any_read_tool(self):
@@ -830,7 +843,8 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
                 srv.pin("must not be written while the root is unreadable")
             message = str(caught.exception)
             self.assertIn("writing is held", message)  # refused cleanly - nothing was changed
-            self.assertIn("fresh session", message)    # names the recovery
+            self.assertIn(_refusals.RESTART_ACTION, message)    # names the one recovery action
+            self.assertIn("Reads from this store are held too", message)
             self.assertNotIn(self.fixture.base, message)
 
 
@@ -868,7 +882,7 @@ def _probe_server():
         @srv._tool(name="probe", description="Raises a refusal or a crash, for the stranding-log wiring test.")
         def probe(which: str) -> dict:
             if which == "refusal":
-                raise mutation_authority.MutationAuthorityError("REFUSAL: a designed sentence")
+                raise mutation_authority.MutationRefusal("REFUSAL: a designed sentence")
             if which == "crash":
                 raise RuntimeError("CRASH: " + _SECRET)
             if which == "unconvertible":
@@ -1358,8 +1372,7 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
     make the test adapter false, so the guard, the lock and the per-request refresh are the production ones.
     test_every_context_error_subclass_has_a_row_in_this_matrix pins that every ContextError subclass has a row here."""
 
-    TOOLS = ("search", "recall-window", "list-pins", "list-withheld") + (
-        ("recall-by-meaning",) if srv._semantic_installed() else ())
+    TOOLS = ("search", "recall-window", "list-pins", "list-withheld", "recall-by-meaning")
     EXPECTED = {"R1": "absent", "R2": "healthy", "R3": "moved", "R4": "moved", "R5": "unbound",
                 "R6": "unbound", "R7": "unbound", "R8": "unbound", "R9": "unbound"}
     REASON = {"R1": "none-installed", "R2": None, "R3": "ActivationStale", "R4": "AcceptedTreeStale",
@@ -1389,11 +1402,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         self._row_cleanups.append(self.fixture.temp.cleanup)
         self.ledger_file = os.path.join(self.fixture.memory, ledger.LEDGER_FILENAME)
         self.index_file = os.path.join(self.fixture.memory, index.INDEX_FILENAME)
-        if srv._semantic_installed():      # the optional add-on: absent, the tool is absent and so is its store
-            from memory.semantic import store as _semantic_store
-            self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
-        else:
-            self.store_file = None
+        from memory.semantic import store as _semantic_store
+        self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
         self.nonce = "nonce-" + records.new_record_id()[:10]
         self.withheld_nonce = "withheld-" + records.new_record_id()[:10]
         self.session = "s-matrix"
@@ -1415,9 +1425,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         os.environ.pop(ledger.ENV_DIR, None)
         srv._READ_DEGRADED_NOTED.clear()
         srv.set_seam_test_hook(None)
-        if srv._semantic_installed():
-            from memory.semantic import store as _semantic_store
-            _semantic_store._LIVE_CACHE.clear()
+        from memory.semantic import store as _semantic_store
+        _semantic_store._LIVE_CACHE.clear()
         mutation_authority._THREAD.state = None
 
     def _seed(self):
@@ -1437,9 +1446,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                            "session_id": self.session, "seq": seq, "speaker": "user", "ts": now + seq,
                            "text": text}, path=self.ledger_file)
         index.rebuild(ledger_file=self.ledger_file, index_file=self.index_file)
-        if srv._semantic_installed():
-            from memory.semantic import store as _semantic_store
-            _semantic_store.sync(ledger_file=self.ledger_file, store_file=self.store_file)
+        from memory.semantic import store as _semantic_store
+        _semantic_store.sync(ledger_file=self.ledger_file, store_file=self.store_file)
         withheld_id = next(r[_ID] for r in ledger.read(path=self.ledger_file).records
                            if self.withheld_nonce in r.get("text", ""))
         _forget.withhold(record_id=withheld_id, path=self.ledger_file)
@@ -1562,11 +1570,16 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                         self.assertEqual(outcome["completeness"], "incomplete")   # the ledger scan answered
                         self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
                     if name == "recall-by-meaning":
-                        self.assertEqual(outcome["completeness"], "incomplete")
-                        self.assertIn("unavailable", out)
-                        self.assertIn("project moved to a new commit", out["unavailable"])
-                        self.assertNotIn("quit your client", out["unavailable"])   # the note carries recovery, once
-                        self.assertEqual(out["results"], [])
+                        # C3: the read-only door. The store is answered `mode=ro` with no migrate and no
+                        # reconcile (the derived-digest check below proves nothing was written), the seeded
+                        # conversation comes back, and the answer is complete: this fixture's receipt is
+                        # behind (the withhold bumped the epoch), so the whole small live set is embedded in
+                        # memory for the question - the not-reconciled case answered rather than refused.
+                        self.assertEqual(outcome["completeness"], "complete")
+                        self.assertNotIn("unavailable", out)
+                        probe = recall_acceptance_probe(
+                            {"tools": {"recall-by-meaning": {"is_error": False, "payload": out}}}, self.nonce)
+                        self.assertEqual((probe["passed"], probe["reason"]), (True, "recalled"), probe)
                     if name == "recall-window":
                         self.assertTrue(any(self.nonce in str(turn) for turn in out["turns"]))
                 elif expected == "healthy":
@@ -1671,23 +1684,121 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
             out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
         self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
         self.assertIn("Searching by meaning is not working right now", out["unavailable"])
-        self.assertEqual(out["outcome"]["note"],            # the plan's sentence for this case, word for word
+        self.assertEqual(out["outcome"]["note"],            # the store-fault sentence, word for word
                          "Meaning-based recall could not open its store; keyword search still covers everything "
                          "saved. If this persists, run /engine-status and open an engine issue.")
 
-    async def test_meaning_recall_that_is_not_qualified_keeps_its_own_sentence_as_the_relay(self):
+    async def test_a_refused_store_open_answers_through_the_read_only_door(self):
+        """C3: the refusal itself is the trigger. The writer's door reporting not-qualified sends the read
+        through `search_read_only`, which answers from the store `mode=ro` and this code's own live read."""
         if "recall-by-meaning" not in self.TOOLS:
             self.skipTest("the optional semantic module is not installed here")
         from memory.semantic import store as _semantic_store
         self._uncached()
+        before = self._derived_digests()
         with mock.patch.object(_semantic_store, "search",
                                return_value={"records": [], "scores": [], "passages": [], "searched": 0,
                                              "embedded": 0, "unavailable": "not-qualified"}):
             out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
-        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
-        self.assertIn("isn't qualified to build the meaning index", out["unavailable"])
-        self.assertIn("If it does not, run /engine-status and open an engine issue.", out["unavailable"])
-        self.assertIsNone(out["outcome"]["note"])          # its own sentence carries the action; never two
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "complete"))
+        self.assertNotIn("unavailable", out)
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertNotIn(self.withheld_nonce, json.dumps(out))
+        self.assertIsNone(out["outcome"]["note"])
+        self.assertEqual(self._derived_digests(), before, "the read-only door wrote a derived store")
+
+    async def test_the_real_refusal_routes_to_the_read_only_door_with_migrate_and_reconcile_never_entered(self):
+        """Obligation 3, check (7), through the server: the writer's door raising the real refusal type sends
+        the read through `search_read_only`; the migrate writer and the reconcile are armed to fail the test."""
+        from memory.semantic import store as _semantic_store
+        from memory import mutation_contract as _contract
+        self._uncached()
+        before = self._derived_digests()
+        entry = next(e for e in _contract.REGISTRY if e["id"] == "semantic-store-migrate")
+
+        def refuse(*a, **k):
+            raise mutation_authority.MutationRefusal(_contract.degraded_refusal(entry))
+
+        def forbidden(name):
+            def _hit(*a, **k):
+                raise AssertionError(f"{name} ran on the read-only branch")
+            return _hit
+
+        with mock.patch.object(_semantic_store, "_connect", refuse), \
+                mock.patch.object(_semantic_store, "_migrate", forbidden("_migrate")), \
+                mock.patch.object(_semantic_store, "_reconcile", forbidden("_reconcile")):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "complete"))
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertNotIn(self.withheld_nonce, json.dumps(out))
+        self.assertEqual(self._derived_digests(), before, "the read-only door wrote a derived store")
+
+    async def test_the_read_only_doors_disclosed_cases_carry_their_own_sentences(self):
+        """Each way the read-only answer falls short is its own pinned sentence, beside the moved-neutral note."""
+        if "recall-by-meaning" not in self.TOOLS:
+            self.skipTest("the optional semantic module is not installed here")
+        from memory.semantic import store as _semantic_store
+        refused = {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
+                   "unavailable": "not-qualified"}
+        cases = {
+            "newer-code": (_semantic_store._read_only_unavailable("newer-code"),
+                           "rebuilt by a newer version", srv._NOTE_MEANING_NEWER_CODE, []),
+            "not-reconciled": (_semantic_store._read_only_unavailable("not-reconciled"),
+                               "hasn't caught up", srv._NOTE_MEANING_NOT_RECONCILED, []),
+            "beyond-the-bound": ({"records": [{"id": "r1", "text": f"a covered hit {self.nonce}"}], "scores": [0.5],
+                                  "passages": [f"a covered hit {self.nonce}"], "searched": 1, "embedded": 0,
+                                  "unavailable": False, "fault_class": None, "complete": False, "tail": 0, "dropped": 0},
+                                 "was not searched by meaning", srv._NOTE_MEANING_NOT_CAUGHT_UP, [self.nonce]),
+        }
+        for case, (answer, fact, note, expected_hits) in cases.items():
+            with self.subTest(case=case):
+                self._fresh(); self._uncached()
+                with mock.patch.object(_semantic_store, "search", return_value=refused), \
+                        mock.patch.object(_semantic_store, "search_read_only", return_value=answer):
+                    out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+                self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
+                self.assertIn(fact, out["unavailable"])
+                self.assertIn("keyword search", out["unavailable"].lower())
+                self.assertEqual(out["outcome"]["note"], note)
+                self.assertEqual([hit for hit in out["results"] if any(n in hit["text"] for n in expected_hits)]
+                                 if expected_hits else out["results"], out["results"] if expected_hits else [])
+        # And under a MOVED binding the moved note takes precedence over each of them - by precedence, not by
+        # contradiction, since the moved note says nothing about meaning recall.
+        moved = execution_context.ReadBinding("moved", "ActivationStale", True, self.fixture.memory, None)
+        for case, (answer, fact, _note, _hits) in cases.items():
+            with self.subTest(case=case, binding="moved"):
+                self._fresh(); self._uncached()
+                with mock.patch.object(execution_context, "read_binding", return_value=moved), \
+                        mock.patch.object(_semantic_store, "search", return_value=refused), \
+                        mock.patch.object(_semantic_store, "search_read_only", return_value=answer):
+                    out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+                self.assertEqual(out["outcome"]["binding"], "moved")
+                self.assertEqual(out["outcome"]["note"], srv._NOTE_MOVED)
+                self.assertIn(fact, out["unavailable"])
+
+    async def test_the_read_only_door_never_surfaces_a_tool_fault(self):
+        """The path carrying the restoration claim is total: a corrupt store file is answered from memory
+        and never written, and a genuine fault inside the path is a disclosed answer, never a tool error."""
+        if "recall-by-meaning" not in self.TOOLS:
+            self.skipTest("the optional semantic module is not installed here")
+        from memory.semantic import store as _semantic_store
+        refused = {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
+                   "unavailable": "not-qualified"}
+        self._uncached()
+        Path(self.store_file).write_bytes(b"this is not a sqlite database at all\n")
+        with mock.patch.object(_semantic_store, "search", return_value=refused):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual(out["outcome"]["completeness"], "complete")
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertEqual(Path(self.store_file).read_bytes(), b"this is not a sqlite database at all\n")
+        self._fresh(); self._uncached()
+        with mock.patch.object(_semantic_store, "search", return_value=refused), \
+                mock.patch.object(_semantic_store, "_live_snapshot", side_effect=RuntimeError("boom")):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual(out["outcome"]["completeness"], "incomplete")
+        self.assertIn("not working right now", out["unavailable"])
+        self.assertEqual(out["outcome"]["note"], srv._NOTE_MEANING_STORE_FAULT)
+        self.assertFalse([e for e in self.events if e[0] is _stranding_log.Event.TOOL_FAULT], self.events)
 
     async def test_an_unavailable_embedding_backend_under_a_healthy_binding_carries_the_backend_sentence(self):
         """The fourth exit of the meaning read: numpy or the word table missing. The tool's own text is the
@@ -1703,7 +1814,10 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["results"], [])
         self.assertEqual(out["outcome"]["note"],
                          "Meaning-based recall's backend is unavailable on this machine; keyword search still "
-                         "covers everything saved. If this persists, run /engine-status and open an engine issue.")
+                         "covers everything saved. If the cause is a missing numpy, run `uv sync --directory .engine "
+                         "--frozen` from the project root to reinstall the engine's tool runtime; if it is a missing "
+                         "or damaged word table, an engine upgrade reinstalls the memory module that ships it. "
+                         "If this persists, run /engine-status and open an engine issue.")
 
     async def test_searchs_ledger_scan_fallback_under_a_healthy_binding_carries_the_search_sentence(self):
         """The one incomplete read a healthy binding can produce besides a meaning-backend fault: the fast

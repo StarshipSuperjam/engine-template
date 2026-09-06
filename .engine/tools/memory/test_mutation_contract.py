@@ -308,7 +308,7 @@ class TestDegradedTiering(unittest.TestCase):
         """
         for entry_id in ("index-rebuild", "index-extend", "index-schema", "index-stale-heal",
                          "attended-semantic-sync", "semantic-store-reconcile", "semantic-passages-drop",
-                         "semantic-store-connect"):
+                         "semantic-store-migrate"):
             with self.subTest(entry_id):
                 entry = contract.entry_by_id(entry_id)
                 self.assertEqual(contract.degraded_disposition(entry), "refuse")
@@ -526,9 +526,9 @@ _ATTENDED_WRITE_ROOT_CLOSURES = {
     'attended-restore-pre-migration': ('attended-restore-pre-migration', 'automatic-restore-reconcile', 'capture-lock-create', 'index-rebuild', 'index-schema', 'ledger-generation-set', 'ledger-replace', 'migration-stamp-clear', 'restore-apply', 'restore-journal-complete', 'restore-journal-write', 'restore-orphan-cleanup', 'restore-prior-set', 'restore-quiet-remove'),
     'attended-restore-withheld': ('attended-restore-withheld', 'capture-lock-create', 'ledger-append', 'ledger-index-epoch'),
     'attended-saved-memory-projection': ('attended-saved-memory-projection', 'restore-quiet-remove', 'saved-belief-temp-projection'),
-    'attended-semantic-mcp-search': ('attended-semantic-mcp-search', 'attended-semantic-search-reconcile', 'semantic-store-connect', 'semantic-store-reconcile'),
-    'attended-semantic-search-reconcile': ('attended-semantic-search-reconcile', 'semantic-store-connect', 'semantic-store-reconcile'),
-    'attended-semantic-sync': ('attended-semantic-sync', 'semantic-store-connect', 'semantic-store-reconcile'),
+    'attended-semantic-mcp-search': ('attended-semantic-mcp-search', 'attended-semantic-search-reconcile', 'read-semantic-store', 'semantic-store-migrate', 'semantic-store-reconcile'),
+    'attended-semantic-search-reconcile': ('attended-semantic-search-reconcile', 'semantic-store-migrate', 'semantic-store-reconcile'),
+    'attended-semantic-sync': ('attended-semantic-sync', 'semantic-store-migrate', 'semantic-store-reconcile'),
     'attended-withhold': ('attended-withhold', 'capture-lock-create', 'ledger-append', 'ledger-index-epoch'),
     'automatic-backup': ('automatic-backup', 'backup-status-write', 'vault-blob-create', 'vault-commit-build', 'vault-files-push', 'vault-snapshot-publish'),
     'automatic-compaction': ('automatic-compaction', 'capture-lock-create', 'compaction-temp-reap', 'compaction-temp-write', 'index-rebuild', 'index-schema', 'ledger-generation-bump', 'ledger-replace', 'migration-window-reap'),
@@ -566,7 +566,7 @@ _ATTENDED_WRITE_ROOT_CLOSURES = {
     'resurrection-finding': ('resurrection-finding',),
     'saved-belief-temp-projection': ('restore-quiet-remove', 'saved-belief-temp-projection'),
     'semantic-passages-drop': ('semantic-passages-drop',),
-    'semantic-store-connect': ('semantic-store-connect',),
+    'semantic-store-migrate': ('semantic-store-migrate',),
     'semantic-store-reconcile': ('semantic-store-reconcile',),
     'stranding-log-append': ('stranding-log-append',),
     'stranding-log-export': ('stranding-log-export',),

@@ -51,6 +51,23 @@ class _Base(unittest.TestCase):
 
 
 class LiveRecordsTests(_Base):
+    def test_the_positioned_form_keeps_membership_and_names_the_bytes(self):
+        # The keyword index builds from this form; it must surface exactly what the plain form surfaces, and
+        # every position must point at the record's own line in the ledger.
+        self._episodic("s1", "a kept decision", "b-closed")
+        self._marker("s1", "b-closed")
+        self._episodic("s1", "an orphaned decision", "b-open")
+        ledger.append({"kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: "t1", "session_id": "s1",
+                       "seq": 0, "speaker": "user", "text": "a genuine turn", "tags": ["transcript"]})
+        plain = list(forget.live_records())
+        self.assertEqual({r.get("text") for r in plain if r.get("text")}, {"a kept decision", "a genuine turn"})
+        positioned = list(forget.live_records(with_positions=True))
+        self.assertEqual([item[3] for item in positioned], plain)
+        with open(ledger.ledger_path(), "rb") as fh:
+            for position, length, raw, record in positioned:
+                fh.seek(position)
+                self.assertEqual(fh.read(length), raw)
+
     def test_an_orphan_episodic_is_retired_from_recall(self):
         self._episodic("S", "orphan note", "batch-x")          # batch-x never gets a marker
         self.assertEqual(list(forget.live_records()), [])      # the orphan is not surfaced
@@ -764,6 +781,22 @@ class AuthorityRefusalTranslationTests(_Base):
             with self.assertRaises(forget.ControlNotRecorded) as caught:
                 forget.restore(record_id=rid)
         self._assert_translated(caught.exception)
+        self._assert_no_marker()
+
+    def test_an_unexpected_write_fault_is_refused_without_its_text_and_kept_as_raw_detail(self):
+        # The catch-all used to splice the underlying exception into the operator sentence (#1196).
+        from unittest import mock
+        rid = self._seed_one()
+        raw = "disk went away at /Users/someone/.engine/memory/ledger.ndjson"
+        with mock.patch.object(ledger, "append", side_effect=OSError(raw)):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.withhold(record_id=rid)
+        message = str(caught.exception)
+        self.assertNotIn(raw, message)
+        self.assertNotIn("/Users", message)
+        self.assertIn("nothing was changed", message)
+        self.assertIn("/engine-status", message)
+        self.assertEqual(caught.exception.raw_detail, raw)
         self._assert_no_marker()
 
     def test_an_ordinary_control_not_recorded_is_not_reworded_as_an_authority_refusal(self):

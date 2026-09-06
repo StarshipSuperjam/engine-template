@@ -30,10 +30,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import validate          # noqa: E402
 import selftest_support  # noqa: E402  (the suite's single-homed guard helpers, #940)
 
-# The optional-subtree REGISTRY check below validates the source's _OPTIONAL_MODULE_SUBTREES against the
-# shipped module manifests — it needs every module present, so it is a construction-repo check. A deployment
-# that DECLINED a module legitimately lacks that subtree and its manifest, and the gate's declined projection
-# (ENGINE_NESTED_SELFTEST set) is exactly such a shape, so both skip here (#646) — selftest_support.CONSTRUCTION.
+# Construction-repo-only checks below are guarded by selftest_support.CONSTRUCTION: a deployment that DECLINED
+# a module legitimately lacks its files and manifest, and the gate's declined projection (ENGINE_NESTED_SELFTEST
+# set) is exactly such a shape, so they skip there (#646).
 import knowledge_gen     # noqa: E402
 import hooks             # noqa: E402  (the run_hook harness the commit-boundary regen rides)
 
@@ -76,8 +75,6 @@ class TestImmutableLiveDerivationFixture(unittest.TestCase):
     def test_each_consumer_decodes_an_isolated_value(self):
         eligible_groups = (TestLiveDerivation, TestPass4LiveEdges, TestLiveDerivationAttributes)
         fresh_groups = (
-            TestOptionalModuleSubtreeCarveOut,
-            TestOptionalModuleSubtrees,
             TestPass4Attributes,
             TestCommittedGraph,
             TestGenerateCheckIO,
@@ -535,128 +532,6 @@ class TestImportResolver(unittest.TestCase):
             self.assertIsInstance(e, ValueError)
             self.assertIn("t.py", str(e))
             self.assertIn("pkg.ghost", str(e))
-
-
-class TestOptionalModuleSubtreeCarveOut(unittest.TestCase):
-    """Issue #663: a lazy, runtime-guarded import into an OPTIONAL module's subtree that is WHOLLY absent is
-    dropped, not raised — a deployment that declined the module deleted the subtree AND its manifest, so the
-    import is a legitimately-absent referent, not rename residue. But a PARTIALLY-present subtree is residue and
-    still raises. These lock that boundary against the real `_OPTIONAL_MODULE_SUBTREES` constant, using a
-    memory-shaped synthetic index so the fixed deployment shape (`memory` present, `memory/semantic` absent) is
-    exercised directly, independent of the live tree (where the subtree is present)."""
-
-    def setUp(self):
-        self.kg = knowledge_gen
-        self.root = ".engine/tools"
-        # the constant under test really does name ("memory","semantic") — these fixtures depend on it.
-        self.assertIn(("memory", "semantic"), self.kg._OPTIONAL_MODULE_SUBTREES)
-
-    def _resolve(self, src, index, source_rel="t.py"):
-        return self.kg.resolve_tool_imports(source_rel, ast.parse(src), index, self.root)
-
-    def test_absent_optional_subtree_drops_the_import_no_edge_no_raise(self):
-        # the failing deployment shape: `memory` package present (owns mcp_server.py), `memory/semantic` GONE.
-        absent = ({("memory",)}, {("memory", "mcp_server")}, {("memory",): frozenset()})
-        # the two real importers' forms — a `from … import name(s)` and a deeper `from …store import x`.
-        self.assertEqual(self._resolve("from memory.semantic import embed, store", absent), [])
-        self.assertEqual(self._resolve("from memory.semantic.store import search", absent), [])
-        # and the bare-import form (the `import x.y` raise site) drops too.
-        self.assertEqual(self._resolve("import memory.semantic.store", absent), [])
-        # a lazy in-function guarded import — the exact shape in mcp_server.recall_by_meaning — also drops.
-        self.assertEqual(
-            self._resolve("def f():\n    from memory.semantic import store as s\n    return s", absent), [])
-
-    def test_absent_optional_subtree_imported_as_a_name_also_drops(self):
-        # the third import shape: `from memory import semantic` — `memory` resolves, then the NAME `semantic`
-        # is the absent optional subtree. Covered too, so a refactor of the importers to this form can't
-        # silently re-arm #663 on a deployment.
-        absent = ({("memory",)}, {("memory", "mcp_server")}, {("memory",): frozenset()})
-        self.assertEqual(self._resolve("from memory import semantic", absent), [])
-        self.assertEqual(self._resolve("from memory import semantic as s", absent), [])
-        # when the subtree IS present, the same form resolves to a real edge (to its package __init__).
-        present = ({("memory",), ("memory", "semantic")}, {("memory", "mcp_server")},
-                   {("memory",): frozenset(), ("memory", "semantic"): frozenset()})
-        self.assertEqual(self._resolve("from memory import semantic", present),
-                         [".engine/tools/memory/semantic/__init__.py"])
-
-    def test_present_optional_subtree_resolves_the_edge_unchanged(self):
-        # where the module IS installed, the import is a real dependency and its edge is recorded as before.
-        present = ({("memory",), ("memory", "semantic")},
-                   {("memory", "mcp_server"), ("memory", "semantic", "store"),
-                    ("memory", "semantic", "embed")},
-                   {("memory",): frozenset(), ("memory", "semantic"): frozenset()})
-        self.assertEqual(sorted(self._resolve("from memory.semantic import embed, store", present)),
-                         [".engine/tools/memory/semantic/embed.py", ".engine/tools/memory/semantic/store.py"])
-
-    def test_dangling_name_under_a_PRESENT_optional_subtree_still_raises(self):
-        # the carve-out narrows ONLY on whole-subtree absence: with the subtree present, a genuinely missing
-        # submodule is rename residue and must still fail loud — the guarantee the check exists for.
-        present = ({("memory",), ("memory", "semantic")},
-                   {("memory", "mcp_server"), ("memory", "semantic", "store")},
-                   {("memory",): frozenset(), ("memory", "semantic"): frozenset()})
-        with self.assertRaises(self.kg.DanglingImportError):
-            self._resolve("from memory.semantic import ghost", present)
-
-    def test_partially_present_subtree_still_raises(self):
-        # the dangerous variant risk-governance flagged: the subtree package (__init__) is present but a
-        # submodule was renamed/removed. That is real residue — the package tuple resolves, so "absent" is
-        # False and the missing submodule still raises.
-        partial = ({("memory",), ("memory", "semantic")},   # __init__ present -> package tuple resolves
-                   {("memory", "mcp_server")},               # but store.py is GONE
-                   {("memory",): frozenset(), ("memory", "semantic"): frozenset()})
-        with self.assertRaises(self.kg.DanglingImportError):
-            self._resolve("from memory.semantic import store", partial)
-        with self.assertRaises(self.kg.DanglingImportError):
-            self._resolve("import memory.semantic.store", partial)
-
-
-class TestOptionalModuleSubtrees(unittest.TestCase):
-    """Construction-time coherence for `_OPTIONAL_MODULE_SUBTREES`. The constant is a hand-maintained core-owned
-    set (it cannot be derived on the deployment that needs it — module removal deletes the ownership manifest),
-    so its one silent-rot path is a subtree RENAME that leaves the constant stale: inert here (the subtree is
-    present), it would re-arm #663 on a deployment that declined the module. This proves every entry is (a) a
-    package actually present in this home repo's tool tree, and (b) owned by a REMOVABLE (non-core) module — so
-    such a rename breaks loudly here, at construction, where a human can see it."""
-
-    def setUp(self):
-        self.tools_root = os.path.join(validate.ENGINE_DIR, "tools")
-        self.modules_dir = os.path.join(validate.ENGINE_DIR, "modules")
-
-    def _module_manifests(self):
-        for name in sorted(os.listdir(self.modules_dir)):
-            man_path = os.path.join(self.modules_dir, name, "manifest.json")
-            if os.path.isfile(man_path):
-                with open(man_path, encoding="utf-8") as fh:
-                    yield json.load(fh)
-
-    @unittest.skipUnless(selftest_support.CONSTRUCTION, "construction-repo registry check — a deployment may decline the "
-                         "owning module, so its subtree and manifest are legitimately absent (#646)")
-    def test_each_subtree_is_present_here_and_owned_by_a_removable_module(self):
-        packages, _modules, _syms = knowledge_gen.tool_module_index(self.tools_root)
-        for sub in knowledge_gen._OPTIONAL_MODULE_SUBTREES:
-            # (0) at least two segments deep — never a whole top-level tool package. A top-level package that
-            # is wholly declined is already dropped as external by `_head_in_repo`, so it needs no carve-out;
-            # an entry like ("memory",) would instead broaden the carve-out to mask EVERY dangling `memory.*`
-            # import. The carve-out is only for a subtree NESTED under a package that stays present.
-            self.assertGreaterEqual(len(sub), 2,
-                                    f"_OPTIONAL_MODULE_SUBTREES entry {sub!r} is a top-level package; an optional "
-                                    f"subtree must be nested (>= 2 segments) or it masks unrelated dangling imports.")
-            # (a) present as a package in the live tool tree — a rename of the subtree breaks THIS assertion.
-            self.assertIn(sub, packages,
-                          f"_OPTIONAL_MODULE_SUBTREES names {sub!r}, but .engine/tools/{'/'.join(sub)} is not a "
-                          f"package here — did the subtree move? A stale entry silently re-arms #663 on "
-                          f"deployments that declined the module.")
-            # (b) owned by a non-core module whose provides.tool glob covers the subtree. core provides only the
-            # top-level `.engine/tools/*.py`, so a match proves the owner is an optional/removable module.
-            subtree_rel = ".engine/tools/" + "/".join(sub) + "/"
-            owners = [m.get("id") for m in self._module_manifests()
-                      if any(g.startswith(subtree_rel) for g in (m.get("provides") or {}).get("tool", []))]
-            self.assertTrue(owners,
-                            f"no module manifest provides a tool under {subtree_rel} — {sub!r} must be owned by "
-                            f"the module it is optional for.")
-            self.assertNotIn("core", owners,
-                             f"{sub!r} is provided by core — an optional subtree must belong to a removable "
-                             f"module, or its absence is not a legitimate opt-out.")
 
 
 class TestPass4Attributes(unittest.TestCase):

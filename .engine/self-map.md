@@ -122,7 +122,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
   - tool: `.engine/tools/memory/*.py`
 - wires: codex-hook, codex-mcp, gitignore, hook, mcp
 
-### `memory-semantic-recall` — version `0.1.0` (default-on)
+### `memory-semantic-recall` — version `0.2.0` (required)
 
 - depends on: `core`, `memory-substrate-sqlite-fts5`
 - provides:
@@ -190,7 +190,7 @@ The dependency graph — each module is listed after the ones it builds on (`→
 
 ## Commands and routes
 
-How you reach your engine: the commands a person types, and the automatic routes the assistant may follow on your behalf (10 operator commands, 39 automatic routes).
+How you reach your engine: the commands a person types, and the automatic routes the assistant may follow on your behalf (10 operator commands, 38 automatic routes).
 
 ### Operator commands
 
@@ -242,7 +242,6 @@ A note on runtimes: on Claude these routes are hidden from the operator's typed 
 | `engine-setup-design-review` | model-only | skill `engine-setup` (active) | `core` |
 | `engine-setup-external-contribution` | model-only | skill `engine-setup` (active) | `core` |
 | `engine-setup-github-projects-sync` | model-only | skill `engine-setup` (active); operation `.engine/operations/projects-sync-setup.md` (module-conditional) | `core` |
-| `engine-setup-memory-semantic-recall` | model-only | skill `engine-setup` (active) | `core` |
 | `engine-setup-migration-discipline` | model-only | skill `engine-setup` (active) | `core` |
 | `engine-setup-product-design` | model-only | skill `engine-setup` (active) | `core` |
 | `engine-setup-qa-review` | model-only | skill `engine-setup` (active) | `core` |

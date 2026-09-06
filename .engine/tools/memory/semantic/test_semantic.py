@@ -178,7 +178,9 @@ class ErasureTests(_Cabinet):
         self.assertTrue(first["records"])
 
         # Remove one record from the ledger entirely, as an enacted erasure leaves it.
-        kept = [line for line in open(self.ledger, encoding="utf-8").read().splitlines()
+        with open(self.ledger, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        kept = [line for line in lines
                 if "append-only" not in line]
         with open(self.ledger, "w", encoding="utf-8") as fh:
             fh.write("\n".join(kept) + ("\n" if kept else ""))
@@ -208,7 +210,8 @@ class ErasureTests(_Cabinet):
         self.assertTrue(before["records"])
         self.assertTrue(before["passages"][0])
 
-        rows = [json.loads(line) for line in open(self.ledger, encoding="utf-8") if line.strip()]
+        with open(self.ledger, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
         rows[0]["text"] = "We ruled out a cron job and hooked the calendar instead."
         with open(self.ledger, "w", encoding="utf-8") as fh:
             fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
@@ -287,6 +290,312 @@ class StoreBehaviourTests(_Cabinet):
             reopened.close()
         self.assertEqual(remaining, 0)
 
+
+
+class ReceiptTests(_Cabinet):
+    """The store's receipt: the ledger identity the live set was derived under, written with the insertions.
+    It is what lets a session that may not write answer from this store, so it must never over-claim."""
+
+    def _receipt(self):
+        import sqlite3
+        conn = sqlite3.connect(self.vectors)
+        try:
+            return store._stored_receipt(conn)
+        finally:
+            conn.close()
+
+    def test_the_receipt_names_the_derivation_not_the_commit(self):
+        # A sibling appends while embedding runs: the receipt must name the file the live set was read from.
+        self._write("The first thing we decided.")
+        live, key = store._live_snapshot(self.ledger)
+        self._write("Appended by a sibling while the reconcile was embedding.")
+        conn = store._connect(self.vectors)
+        try:
+            store._reconcile(conn, live, key)
+        finally:
+            conn.close()
+        receipt = self._receipt()
+        self.assertEqual(receipt, (key[3], key[4], key[1]))
+        self.assertLess(receipt[2], os.path.getsize(self.ledger), "the receipt claimed bytes it never saw")
+
+    def test_only_the_migrate_writer_changes_the_stores_shape_and_the_plain_open_changes_nothing(self):
+        # Obligation 2, check (5), at the source: every statement that can change the store's shape lives in
+        # the one registered writer, and the plain open issues none. A helper that grew its own DDL would be a
+        # second, unregistered writer - the census catches a new write, this pins WHICH function owns the shape.
+        import inspect
+        import re
+        ddl = re.compile(r"\b(CREATE|ALTER|DROP)\s+(TABLE|INDEX|VIRTUAL)\b", re.I)
+        owners = set()
+        for name, value in vars(store).items():
+            if inspect.isfunction(value) and value.__module__ == store.__name__:
+                if ddl.search(inspect.getsource(value)):
+                    owners.add(name)
+        self.assertEqual(owners, {"_migrate"}, owners)
+        self.assertNotRegex(inspect.getsource(store._open), ddl)
+        self.assertNotRegex(inspect.getsource(store._open_read_only), ddl)
+        # and the module-level DDL constants are consumed by that writer alone
+        for const in ("_CREATE_PASSAGES", "_CREATE_META"):
+            users = {name for name, value in vars(store).items()
+                     if inspect.isfunction(value) and value.__module__ == store.__name__
+                     and const in inspect.getsource(value)}
+            self.assertEqual(users, {"_migrate"}, (const, users))
+
+    def test_a_refused_writer_leaves_no_store_behind_not_even_an_empty_file(self):
+        # A store that does not exist is created INSIDE the registered writer: when the writer is refused (a
+        # session that may not write), no file is created first and then abandoned. The reproduction harness
+        # asserts the same thing end to end: a degraded launch's memory directory holds only the ledger.
+        from unittest import mock
+        self._write("A record nobody may index here.")
+        self.assertFalse(os.path.exists(self.vectors))
+        with mock.patch.object(store, "_migrate", side_effect=RuntimeError("refused before any write")):
+            answer = store.search("anything", ledger_file=self.ledger, store_file=self.vectors)
+        self.assertTrue(answer["unavailable"])
+        self.assertFalse(os.path.exists(self.vectors), "a refused open left an empty store file behind")
+        # and the same door, admitted, creates the store through the writer
+        conn = store._connect(self.vectors)
+        conn.close()
+        self.assertGreater(os.path.getsize(self.vectors), 0)
+
+    def test_an_embedding_failure_keeps_deletions_first_and_leaves_the_receipt_where_it_was(self):
+        import json
+        import sqlite3
+        self._write("A record that will leave.", "A record that stays.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        before = self._receipt()
+        with open(self.ledger, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
+        kept = [r for r in rows if "leave" not in r["text"]]
+        with open(self.ledger, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(json.dumps(r) for r in kept) + "\n")
+        self._write("A record that arrived and cannot be embedded.")
+        with mock.patch.object(embed, "embed_many", side_effect=RuntimeError("embedding failed")):
+            answer = self._search("anything")
+        self.assertEqual(answer["unavailable"], "store-fault")
+        conn = sqlite3.connect(self.vectors)
+        try:
+            held = {row[0] for row in conn.execute("SELECT DISTINCT record_id FROM passages")}
+        finally:
+            conn.close()
+        departed = next(r[records.RECORD_ID_KEY] for r in rows if "leave" in r["text"])
+        self.assertNotIn(departed, held, "a record that left must be gone even though embedding failed")
+        self.assertEqual(self._receipt(), before, "a failed reconcile must not move the receipt")
+
+    def test_an_older_store_is_widened_in_place_and_keeps_its_embeddings(self):
+        import sqlite3
+        self._write("A decision worth recalling later.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        # Rebuild the file in the shape the previous code left: two-column meta, the same passages.
+        old = self.vectors + ".old"
+        src = sqlite3.connect(self.vectors)
+        dst = sqlite3.connect(old)
+        try:
+            dst.execute(store._CREATE_PASSAGES)
+            dst.execute(store._CREATE_META)
+            dst.executemany("INSERT INTO passages VALUES (?, ?, ?, ?, ?)",
+                            src.execute("SELECT record_id, ordinal, vec, scale, text_digest FROM passages").fetchall())
+            dst.execute("INSERT INTO meta (rowid, schema_version, table_fingerprint) VALUES (1, ?, ?)",
+                        (store.SCHEMA_VERSION, store._table_fingerprint()))
+            dst.commit()
+            rows_before = dst.execute("SELECT COUNT(*) FROM passages").fetchone()[0]
+        finally:
+            src.close(); dst.close()
+        with mock.patch.object(embed, "embed_many", side_effect=AssertionError("re-embedded an unchanged store")):
+            conn = store._connect(old)
+            try:
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(meta)")}
+                self.assertTrue({"covered_generation", "covered_epoch", "covered_length", "projection_version"} <= columns)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM passages").fetchone()[0], rows_before)
+                self.assertEqual(conn.execute("SELECT projection_version FROM meta").fetchone()[0], store.PROJECTION_VERSION)
+                self.assertIsNone(store._stored_receipt(conn))
+                live, key = store._live_snapshot(self.ledger)
+                self.assertEqual(store._reconcile(conn, live, key)["embedded"], 0)
+            finally:
+                conn.close()
+
+    def test_a_projection_change_discards_the_rows_and_the_receipt(self):
+        import sqlite3
+        self._write("A decision worth recalling later.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        conn = sqlite3.connect(self.vectors)
+        try:
+            conn.execute("UPDATE meta SET projection_version = ? WHERE rowid = 1", (store.PROJECTION_VERSION + 1,))
+            conn.commit()
+        finally:
+            conn.close()
+        reopened = store._connect(self.vectors)
+        try:
+            self.assertEqual(reopened.execute("SELECT COUNT(*) FROM passages").fetchone()[0], 0)
+            self.assertIsNone(store._stored_receipt(reopened))
+        finally:
+            reopened.close()
+
+
+class ReadOnlySearchTests(_Cabinet):
+    """Meaning recall for a session that may not write the store: total, read-only, honest about its bound."""
+
+    def _ro(self, query, **kw):
+        return store.search_read_only(query, ledger_file=self.ledger, store_file=self.vectors, **kw)
+
+    def _digest(self):
+        import hashlib
+        if not os.path.exists(self.vectors):
+            return None
+        with open(self.vectors, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+
+    def test_the_read_only_branch_never_enters_migrate_reconcile_or_sync(self):
+        # Obligation 3, check (7), at the call sites: the read-only door is reached with the migrate writer,
+        # the reconcile and the sync all armed to fail the test if entered. It answers from the store `mode=ro`
+        # plus the in-memory tail, and none of the three runs.
+        self._write("We ruled out a cron job and hooked the calendar instead.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        self._write("Appended after the store was last reconciled.")
+
+        def forbidden(name):
+            def _hit(*a, **k):
+                raise AssertionError(f"{name} ran on the read-only branch")
+            return _hit
+
+        with mock.patch.object(store, "_migrate", forbidden("_migrate")), \
+                mock.patch.object(store, "_reconcile", forbidden("_reconcile")), \
+                mock.patch.object(store, "sync", forbidden("sync")):
+            found = self._ro("did we consider running it on a timer")
+        self.assertFalse(found["unavailable"], found)
+        self.assertTrue(found["complete"])
+        self.assertEqual(found["tail"], 1)
+        self.assertTrue(any("cron job" in (r.get("text") or "") for r in found["records"]))
+
+    def test_it_answers_the_covered_rows_and_embeds_the_tail(self):
+        self._write("We ruled out a cron job and hooked the calendar instead.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        self._write("The kitchen renovation quote covers cupboards and countertops.")
+        before = self._digest()
+        timer = self._ro("did we consider running it on a timer")
+        kitchen = self._ro("cupboards and countertops")
+        self.assertFalse(timer["unavailable"]); self.assertFalse(kitchen["unavailable"])
+        self.assertIn("cron job", timer["records"][0]["text"])
+        self.assertIn("kitchen", kitchen["records"][0]["text"])
+        self.assertTrue(timer["complete"] and kitchen["complete"])
+        self.assertEqual(kitchen["tail"], 1)
+        self.assertEqual(self._digest(), before, "the read-only search wrote the store")
+
+    def test_beyond_the_tail_bound_it_answers_the_covered_rows_and_says_so(self):
+        self._write("We ruled out a cron job and hooked the calendar instead.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        self._write("The kitchen renovation quote covers cupboards and countertops.")
+        with mock.patch.object(store, "READ_ONLY_TAIL_LIMIT", 0):
+            timer = self._ro("did we consider running it on a timer")
+            kitchen = self._ro("cupboards and countertops")
+        self.assertIn("cron job", timer["records"][0]["text"])
+        self.assertFalse(timer["complete"])
+        self.assertEqual(kitchen["records"], [], "the tail must not be searched past the bound")
+        self.assertFalse(kitchen["complete"])
+
+    def test_without_a_trustworthy_receipt_a_small_live_set_is_embedded_and_a_large_one_declined(self):
+        self._write("We ruled out a cron job and hooked the calendar instead.")
+        # No store at all.
+        found = self._ro("did we consider running it on a timer")
+        self.assertFalse(found["unavailable"]); self.assertTrue(found["complete"])
+        self.assertIn("cron job", found["records"][0]["text"])
+        self.assertFalse(os.path.exists(self.vectors), "the read-only search created a store")
+        with mock.patch.object(store, "READ_ONLY_TAIL_LIMIT", 0):
+            self.assertEqual(self._ro("did we consider running it on a timer")["unavailable"], "not-reconciled")
+        # A receipt naming another epoch (a withhold happened since): the rows cannot be trusted by position.
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        ledger.bump_index_epoch(for_path=self.ledger)
+        found = self._ro("did we consider running it on a timer")
+        self.assertTrue(found["complete"])
+        self.assertEqual(found["tail"], 1, "everything is tail when the receipt cannot be trusted")
+        with mock.patch.object(store, "READ_ONLY_TAIL_LIMIT", 0):
+            self.assertEqual(self._ro("did we consider running it on a timer")["unavailable"], "not-reconciled")
+
+    def test_a_store_from_newer_code_is_refused_rather_than_read(self):
+        import sqlite3
+        self._write("We ruled out a cron job and hooked the calendar instead.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        for column, value in (("table_fingerprint", "a-different-table"), ("projection_version", store.PROJECTION_VERSION + 1),
+                              ("schema_version", store.SCHEMA_VERSION + 1)):
+            with self.subTest(column=column):
+                conn = sqlite3.connect(self.vectors)
+                try:
+                    conn.execute(f"UPDATE meta SET {column} = ? WHERE rowid = 1", (value,)); conn.commit()
+                finally:
+                    conn.close()
+                self.assertEqual(self._ro("did we consider running it on a timer")["unavailable"], "newer-code")
+                store.sync(ledger_file=self.ledger, store_file=self.vectors)      # the qualified path repairs it
+
+    def test_a_row_whose_digest_is_not_this_codes_projection_is_dropped_not_quoted(self):
+        import sqlite3
+        self._write("We ruled out a cron job and hooked the calendar instead.",
+                    "The onboarding copy should stay short and direct.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        conn = sqlite3.connect(self.vectors)
+        try:
+            cron = next(rid for rid, (rec, text, pos) in store._live_text(self.ledger).items() if "cron" in text)
+            conn.execute("UPDATE passages SET text_digest = 'made-by-other-code' WHERE record_id = ?", (cron,))
+            conn.commit()
+        finally:
+            conn.close()
+        # The stale row is never scored or quoted; the record is searched from its LIVE text instead, so the
+        # answer is still right and still complete - and the passage it quotes is this code's own.
+        # WHY `complete` IS THE HONEST WORD (a cold review read obligation 3's 'no hit was dropped' as
+        # incomplete-on-any-drop): a dropped ROW is not a dropped RECORD. Its record joins the in-memory tail
+        # and is searched from its live text, so nothing saved is left unsearched; `dropped` counts the rows
+        # this code declined to trust, and `complete` reports whether every record was searched. Both are
+        # returned, so a caller can see each. Reporting incomplete here would tell the operator the newest
+        # conversation went unsearched when it did not.
+        reads = []
+        real = store._best_by_record
+
+        def spy(cursor, live, question, **kw):
+            best, scanned = real(cursor, live, question, **kw)
+            reads.append(set(best))
+            return best, scanned
+
+        with mock.patch.object(store, "_best_by_record", spy):
+            found = self._ro("did we consider running it on a timer")
+        self.assertFalse(found["unavailable"])
+        self.assertNotIn(cron, reads[0], "the foreign-digest row was scored from the store")
+        self.assertIn("cron job", found["records"][0]["text"])
+        self.assertIn("cron job", found["passages"][0])
+        self.assertEqual(found["dropped"], 1)
+        self.assertTrue(found["complete"])
+
+    def test_a_removed_record_is_never_returned(self):
+        self._write("We decided to keep the ledger append-only forever.",
+                    "The onboarding copy should stay short and direct.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        with open(self.ledger, encoding="utf-8") as fh:
+            kept = [line for line in fh.read().splitlines() if "append-only" not in line]
+        with open(self.ledger, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(kept) + "\n")
+        found = self._ro("append only ledger")
+        self.assertNotIn("append-only", " ".join(r.get("text", "") for r in found["records"]))
+
+    def test_the_read_only_connection_cannot_write_and_a_bad_file_is_treated_as_no_store(self):
+        import sqlite3
+        self._write("A decision worth recalling later.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        conn = store._open_read_only(self.vectors)
+        try:
+            for statement in ("INSERT INTO passages VALUES ('x', 0, x'00', 1.0, 'd')", "DROP TABLE passages",
+                              "UPDATE meta SET covered_length = 0"):
+                with self.assertRaises(sqlite3.OperationalError):
+                    conn.execute(statement)
+        finally:
+            conn.close()
+        with open(self.vectors, "wb") as fh:
+            fh.write(b"not a database\n")
+        found = self._ro("a decision worth recalling")
+        self.assertFalse(found["unavailable"], found)
+        self.assertTrue(found["complete"])
+        self.assertIn("decision", found["records"][0]["text"])          # from memory, never from the file
+        with open(self.vectors, "rb") as fh:
+            self.assertEqual(fh.read(), b"not a database\n")   # and the file is untouched
+        # A genuine fault is still an answer, never an exception.
+        with mock.patch.object(store, "_live_snapshot", side_effect=RuntimeError("boom")):
+            fault = self._ro("a decision worth recalling")
+        self.assertEqual((fault["unavailable"], fault["fault_class"], fault["records"]), ("store-fault", "RuntimeError", []))
 
 
 class LiveDerivationCacheTests(unittest.TestCase):

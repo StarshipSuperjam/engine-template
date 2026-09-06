@@ -712,10 +712,12 @@ class TestRenderCopy(unittest.TestCase):
 @unittest.skipUnless(selftest_support.CONSTRUCTION, _SKIP)
 class TestDeclineVocabulary(unittest.TestCase):
     """The declined arm declines every DECLINABLE module — both `default-on` (the #663 shape) and `optional`
-    (the #646 shape). If either status literal is ever renamed, the declined projection would silently stop
-    covering that half (the gate itself fails closed only when NOTHING is declinable, which a surviving
-    default-on module masks). These pin both literals loudly at construction, where a maintainer sees it
-    before a cut."""
+    (the #646 shape). If the `optional` literal is ever renamed, the declined projection would silently stop
+    covering that half. These pin the vocabulary loudly at construction, where a maintainer sees it before a
+    cut. No shipped module is `default-on` today: the one that was, meaning recall, became a required part of
+    memory (StarshipSuperjam/engine-template#1238) - so the #663 shape is covered by the gate's declined arm
+    only as the class it names (a wiring map that must regenerate on a module-declined tree), and this test
+    pins that the gate's vocabulary still knows the status should a future module ship with it."""
 
     def _live_statuses(self):
         modules_dir = os.path.join(validate.ROOT, ".engine", "modules")
@@ -723,14 +725,16 @@ class TestDeclineVocabulary(unittest.TestCase):
                 for mid in sorted(os.listdir(modules_dir))
                 if os.path.isfile(os.path.join(modules_dir, mid, "manifest.json"))]
 
-    def test_at_least_one_default_on_module_exists(self):
-        self.assertIn("default-on", self._live_statuses(),
-                      "no module has status 'default-on' — the gate's declined (#663) arm would have nothing "
-                      "to decline; update release_gate._decline_optional_modules for the new vocabulary")
+    def test_the_gate_still_declines_the_default_on_status_should_a_module_ship_with_it(self):
+        # No live module is default-on since #1238, and none is forbidden from being: the gate's vocabulary
+        # must still name the status so a future opt-out add-on is declined in the projection rather than
+        # silently kept. Only the vocabulary is pinned; the inventory is free to change.
+        import inspect
+        self.assertIn('"default-on"', inspect.getsource(rg._decline_optional_modules))
 
     def test_at_least_one_optional_module_exists(self):
-        # Without this, a rename of the 'optional' literal would leave the declined arm silently covering only
-        # the #663 (default-on) half while staying green, since a default-on module keeps `declinable` non-empty.
+        # Without this, a rename of the 'optional' literal would leave the declined arm with nothing to decline,
+        # which the gate itself refuses on - but loudly here, at construction, is where a maintainer sees it.
         self.assertIn("optional", self._live_statuses(),
                       "no module has status 'optional' — the gate's declined (#646) arm would silently stop "
                       "covering the add-on-declined shape; update release_gate._decline_optional_modules")

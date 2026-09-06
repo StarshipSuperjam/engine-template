@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Behavioral FALSIFICATION for the release-cut deployment gate (#664) — the gate must BLOCK a release that
 would not operate when deployed, and PASS one that does. This is the control the gate exists to be: a release
-that regenerates its wiring map cleanly on a module-declined deployment passes; one that regresses the #663
-carve-out (so the map regen fails closed on the declined shape) is caught and the cut is blocked, no release
-pull request opened.
+that regenerates its wiring map cleanly on a module-declined deployment passes; one whose wiring map cannot
+regenerate on the deployed shape (the #663 class) is caught and the cut is blocked, no release pull request
+opened.
 
-FAIL-THEN-PASS at the GATE level (a peer of `demo_663`, which falsifies the resolver one level below):
+FAIL-THEN-PASS at the GATE level:
   * POSITIVE (a healthy release): the gate projects the candidate to a module-declined deployed shape — the
-    exact #663 configuration — and it operates cleanly (the validator suite passes, the wiring map
-    regenerates). The gate would let the cut proceed.
-  * NEGATIVE CONTROL (a regressed release): the same projection built from a candidate whose optional-subtree
-    carve-out has been disabled (the pre-#663 resolver) fails to regenerate its wiring map, so the gate raises
-    its fail-CLOSED signal (`GateError`) — which `release_gate.main` turns into a nonzero exit that stops the
-    cut before any pull request opens. A gate that could not even build the projection BLOCKS; it never waves
-    the cut through.
+    #663 configuration — and it operates cleanly (the validator suite passes, the wiring map regenerates).
+    The gate would let the cut proceed.
+  * NEGATIVE CONTROL (upgrade arm): a candidate whose wiring map cannot regenerate — a genuine rename-residue
+    import seeded into the always-present memory substrate — is blocked by the gate's upgrade arm, which
+    raises its fail-CLOSED signal; `release_gate.main` turns that into a nonzero exit that stops the cut
+    before any pull request opens. A gate that could not even build the projection BLOCKS; it never waves
+    the cut through. (The earlier form of this arm regressed the resolver's optional-subtree carve-out for
+    `memory.semantic`; that carve-out went with the module's promotion to a required part of memory, so the
+    residue seed is now the one way to break map regeneration.)
 
 Both arms run the REAL gate helpers (`release_gate._project_to_deployed` — real module removal, real map
 regeneration) against a throwaway CLONE of this engine, so the falsification exercises the shipped gate logic,
@@ -32,9 +34,6 @@ import engine_fixture           # noqa: E402  (the shared tracked-only fixture c
 import validate                 # noqa: E402
 import release_gate as rg       # noqa: E402  (the shipped gate helpers under test)
 
-_KNOWLEDGE_GEN_REL = os.path.join(".engine", "tools", "knowledge_gen.py")
-_CARVE_OUT_LINE = '_OPTIONAL_MODULE_SUBTREES = frozenset({("memory", "semantic")})'
-_CARVE_OUT_DISABLED = "_OPTIONAL_MODULE_SUBTREES = frozenset()"
 _MODULE_MANAGER_REL = os.path.join(".engine", "tools", "module_manager.py")
 _SWITCH_BACK_LINE = '    if _git(root, "checkout", branch) is None:'
 _SWITCH_BACK_BROKEN = '    if True:  # seeded rollback regression (demo #664 negative control): switch-back neutralized'
@@ -72,27 +71,12 @@ def _seed_rename_residue(tree: str) -> bool:
     return True
 
 
-def _disable_carve_out(tree: str) -> bool:
-    """Regress the #663 fix in the CLONE's own `knowledge_gen.py` (the pre-#663 resolver, no optional-subtree
-    carve-out), so a module-declined projection can no longer regenerate its wiring map. Returns True if the
-    edit landed."""
-    path = os.path.join(tree, _KNOWLEDGE_GEN_REL)
-    with open(path, encoding="utf-8") as fh:
-        src = fh.read()
-    if _CARVE_OUT_LINE not in src:
-        return False
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(src.replace(_CARVE_OUT_LINE, _CARVE_OUT_DISABLED))
-    return True
-
-
 def main() -> int:
     real_root = validate.ROOT
     failures = []
     print("=" * 78)
     print("DEMO #664 — the release-cut deployment gate must BLOCK a release that would not operate when")
-    print("deployed (a regressed #663 carve-out) and PASS one that does. Same module-declined projection,")
-    print("two arms; the only difference is whether the candidate carries the optional-subtree carve-out.")
+    print("deployed (its wiring map cannot regenerate on the deployed shape) and PASS one that does.")
     print("=" * 78)
 
     # ---- POSITIVE: a healthy candidate operates on the module-declined deployed shape ----
@@ -111,23 +95,6 @@ def main() -> int:
         print(f"  the gate would let the cut proceed (operates cleanly): {not blocked}")
         if blocked:
             failures.append(f"POSITIVE: the gate blocked a healthy release: {detail[:400]}")
-
-    # ---- NEGATIVE CONTROL: a candidate that regressed the #663 carve-out is BLOCKED ----
-    with tempfile.TemporaryDirectory() as d:
-        tree = engine_fixture.clone_engine(real_root, os.path.join(d, "regressed"))
-        if not _disable_carve_out(tree):
-            failures.append("NEGATIVE: could not seed the regression (carve-out line not found)")
-        else:
-            blocked = False
-            try:
-                rg._project_to_deployed(tree, decline_optional=True)   # the regressed map regen fails closed
-            except rg.GateError:
-                blocked = True
-            print("\n[NEGATIVE CONTROL — a release that regressed the #663 carve-out]")
-            print(f"  the gate blocked the cut (fail-closed GateError): {blocked}")
-            if not blocked:
-                failures.append("NEGATIVE: the gate did NOT block a release that cannot regenerate its wiring "
-                                "map on a module-declined deployment")
 
     # ---- NEGATIVE CONTROL (upgrade arm): a candidate that cannot regenerate its wiring map is BLOCKED ----
     with tempfile.TemporaryDirectory() as d:
@@ -176,8 +143,7 @@ def main() -> int:
             print(f"  - {f}")
         return 1
     print("DEMO #664 PASSED: the deployment gate lets a healthy release cut proceed (it operates on a "
-          "module-declined deployment, and upgrades then cleanly rolls back from a real past release), blocks a "
-          "release that regressed the #663 carve-out (its wiring map cannot regenerate on the declined shape), "
+          "module-declined deployment, and upgrades then cleanly rolls back from a real past release), "
           "blocks — on the upgrade arm — a release whose wiring map cannot regenerate during an upgrade, AND "
           "blocks — on the rollback arm — a release whose staged update cannot be cleanly undone (the #703 "
           "matrix's rollback leg). The gate fails closed, so a broken release never opens its pull request.")

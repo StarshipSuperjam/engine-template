@@ -209,9 +209,16 @@ REGISTRY = (
            "derived-rebuild", ["memory.capture._recover_capture_transaction"]),
     _entry("index-stale-heal", "memory.index._heal_if_stale", "derived-index", "reversible-mutation",
            _ATTENDED, None, "rows", "derived-rebuild", ["memory.index._ranked"], schema_cutover=True),
-    _entry("semantic-store-connect", "memory.semantic.store._connect", "semantic-index",
+    _entry("semantic-store-migrate", "memory.semantic.store._migrate", "semantic-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
-           ["memory.semantic.store.search", "memory.semantic.store.sync"], schema_cutover=True),
+           ["memory.semantic.store._connect", "memory.semantic.store.search", "memory.semantic.store.sync"],
+           schema_cutover=True),
+    # The read-only door for meaning recall: a session that may not write (moved, absent, unqualified) answers
+    # from the store through a `mode=ro` connection SQLite refuses every write on, with no migrate and no
+    # reconcile reachable. A read entry, so the closure of `recall_by_meaning` names it beside the writers it
+    # deliberately never invokes on that branch (program prg_d15d7dc8f3df, C3).
+    _entry("read-semantic-store", "memory.semantic.store.search_read_only", "semantic-index", "semantic-read",
+           _ATTENDED, None, "rows", "none", ["memory.mcp_server.recall_by_meaning"]),
     _entry("semantic-store-reconcile", "memory.semantic.store._reconcile", "semantic-index",
            "reversible-mutation", _ATTENDED, None, "rows", "derived-rebuild",
            ["memory.semantic.store.search", "memory.semantic.store.sync"]),
@@ -417,8 +424,8 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
         "index-schema",
     ),
     "memory.mcp_server.recall_by_meaning": (
-        "attended-semantic-mcp-search", "attended-semantic-search-reconcile", "semantic-store-connect",
-        "semantic-store-reconcile",
+        "attended-semantic-mcp-search", "attended-semantic-search-reconcile", "semantic-store-migrate",
+        "semantic-store-reconcile", "read-semantic-store",
     ),
     "memory.restore_vault.read_saved_memory": (
         "attended-saved-memory-projection", "saved-belief-temp-projection", "restore-quiet-remove",
@@ -587,13 +594,15 @@ DIAGNOSTIC_PRIVATE_ENTRY_IDS = frozenset({"stranding-log-append"})
 # the read falls through to the ledger scan. The read happens; the second copy is not rewritten, which is the
 # whole point.
 #
-# `semantic-store-connect` was in this set and is NOT any more. It was added on the reasoning that "opening
+# `semantic-store-connect` (now `semantic-store-migrate`: the open that writes nothing was split from the
+# migrate that owns the DDL) was in this set and is NOT any more. It was added on the reasoning that "opening
 # the store is what a read needs, and refusing it stops nothing" — and that was factually wrong about what
-# `_connect` does: on a schema or word-table fingerprint change it runs `DROP TABLE IF EXISTS passages`. So
-# unqualified code could DESTROY the passage store and then be refused the only writer that can refill it,
+# the old `_connect` did: on a schema or word-table fingerprint change it runs `DROP TABLE IF EXISTS passages`.
+# So unqualified code could DESTROY the passage store and then be refused the only writer that can refill it,
 # with an engine upgrade as a plausible non-adversarial trigger, since the first session after one is
 # unqualified by construction. The read it was protecting is handled properly instead: `store.search` reports
-# itself UNAVAILABLE when it cannot open or reconcile, and the recall tool says so in those words.
+# itself UNAVAILABLE when it cannot open or reconcile, and the recall tool then answers through the read-only
+# door (`read-semantic-store`, a `mode=ro` connection with no migrate or reconcile reachable) — C3's boundary.
 DEGRADED_ALLOWED_ENTRY_IDS = frozenset({
     "attended-keyword-mcp-search", "attended-keyword-search-heal",
     "attended-semantic-mcp-search", "attended-semantic-search-reconcile",
@@ -648,10 +657,11 @@ def degraded_refusal(entry) -> str:
     named = DEGRADED_REFUSAL_GUIDANCE.get(entry["id"])
     if named:
         return named
+    # No writer identifier in the sentence: it reaches the operator verbatim through the refusal seam, and a
+    # dotted code name is neither plain nor actionable there.
     return (
-        f"{entry['writer']} needs this session to be qualified to write memory, and it isn't yet. Nothing was "
-        f"changed. Qualification converges by itself at a session start that can reach GitHub; reading and "
-        f"recall work in the meantime."
+        "This session is not yet qualified to write memory, so nothing was changed. Qualification converges "
+        "by itself at a session start that can reach GitHub; reading and recall work in the meantime."
     )
 
 

@@ -17,9 +17,11 @@ import tempfile
 import time
 import unicodedata
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memory import forget, index, ledger, records  # noqa: E402
+records_module = records
 
 
 def _bodies(result):
@@ -36,8 +38,11 @@ class IndexTestCase(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def file(self, *records):
-        for record in records:
-            ledger.append(record, path=self.ledger)
+        return [ledger.append(record, path=self.ledger) for record in records]
+
+    def placed(self, *records):
+        """Append and hand back the `positions` mapping `extend` wants (record id -> where it landed)."""
+        return {r[records_module.RECORD_ID_KEY]: p for r, p in zip(records, self.file(*records))}
 
     def q(self, text, **kw):
         return index.query(text, ledger_file=self.ledger, index_file=self.index, **kw)
@@ -468,10 +473,10 @@ class RankingParityTests(IndexTestCase):
         hydration = {}
         real_hydrate = index._hydrate_winners
 
-        def hydrate_spy(conn, keys, limit):
+        def hydrate_spy(conn, keys, limit, src):
             hydration["cap"] = conn.getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
             hydration["keys"] = len(keys)
-            return real_hydrate(conn, keys, limit)
+            return real_hydrate(conn, keys, limit, src)
 
         sqlite3.connect = capped_connect
         index._hydrate_winners = hydrate_spy
@@ -583,9 +588,9 @@ class BoundedFastPathTests(IndexTestCase):
         seen = {}
         real = index._hydrate_winners
 
-        def spy(conn, keys, limit):
+        def spy(conn, keys, limit, src):
             seen["keys"] = list(keys)
-            return real(conn, keys, limit)
+            return real(conn, keys, limit, src)
 
         index._hydrate_winners = spy
         try:
@@ -730,11 +735,11 @@ class IndexFreshnessAndExtendTests(IndexTestCase):
         self.rebuild()
         orphan = {records.RECORD_ID_KEY: "e1", "kind": records.EPISODIC_KIND, records.BATCH_KEY: "never-closed",
                   "role": "decision", "ts": int(time.time()), "text": "zebrafish decision"}
-        added = index.extend(
-            [self._turn("t1", "a genuine wombat turn", seq=1),
-             self._turn("t2", "<task-notification> wombat done </task-notification>", seq=2, injected=True),
-             orphan],
-            ledger_file=self.ledger, index_file=self.index)
+        offered = [self._turn("t1", "a genuine wombat turn", seq=1),
+                   self._turn("t2", "<task-notification> wombat done </task-notification>", seq=2, injected=True),
+                   orphan]
+        added = index.extend(offered, ledger_file=self.ledger, index_file=self.index,
+                             positions=self.placed(*offered))
         self.assertEqual(added, 1, "only the genuine turn belongs in the index")
         self.assertTrue(index.query("wombat", ledger_file=self.ledger, index_file=self.index).records)
         for text in ("task-notification", "zebrafish"):
@@ -761,18 +766,34 @@ class ExtendFaultHealsTests(IndexTestCase):
         turn = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
                 "session_id": "s-1", "seq": 0, "speaker": "user", "ts": 1785000000,
                 "text": "the quokka turn that must not vanish"}
-        ledger.append(turn, path=self.ledger)
+        placed = {turn[records.RECORD_ID_KEY]: ledger.append(turn, path=self.ledger)}
         # The fault is injected INSIDE the guarded block, where a real one lands (a locked database, a
         # truncated file). Breaking the FTS5 probe instead would exercise the no-fast-search path, which is a
         # different case and correctly does not bump.
         with mock.patch.object(index, "_stamped_withholds", side_effect=sqlite3.Error("disk hiccup")):
-            self.assertEqual(index.extend([turn], ledger_file=self.ledger, index_file=self.index), 0)
+            self.assertEqual(index.extend([turn], ledger_file=self.ledger, index_file=self.index,
+                                          positions=placed), 0)
         self.assertGreater(ledger.index_epoch(for_path=self.ledger), epoch_before,
                            "a faulting extend left the index stamped current — the turn is now invisible")
         # And the repair is real: the next search heals and finds it.
         found = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
         self.assertEqual([r.get("text") for r in found.records], [turn["text"]])
         self.assertFalse(found.degraded)
+
+    def test_a_turn_offered_without_its_position_is_a_fault_that_marks_the_index_stale(self):
+        # A row the fast path cannot later verify must not exist. `extend` learns where a line landed only
+        # from the append that wrote it; offered a record without that, it treats it exactly as any other
+        # fault — the index is marked stale and the next search rebuilds from the ledger, positions and all.
+        self.file({"body": "an existing memory"})
+        self.rebuild()
+        epoch_before = ledger.index_epoch(for_path=self.ledger)
+        turn = {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, records.RECORD_ID_KEY: records.new_record_id(),
+                "session_id": "s-1", "seq": 0, "speaker": "user", "ts": 1785000000, "text": "a positionless turn"}
+        ledger.append(turn, path=self.ledger)
+        self.assertEqual(index.extend([turn], ledger_file=self.ledger, index_file=self.index), 0)
+        self.assertGreater(ledger.index_epoch(for_path=self.ledger), epoch_before)
+        found = index.search("positionless", ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual([r.get("text") for r in found.records], [turn["text"]])
 
     def test_an_already_stale_index_is_not_bumped_again(self):
         # Declining because the index is ALREADY stale is not a fault — every reader knows, and a bump there
@@ -787,39 +808,178 @@ class ExtendFaultHealsTests(IndexTestCase):
         self.assertEqual(ledger.index_epoch(for_path=self.ledger), epoch)
 
 
-class LedgerFreeFastPathTests(IndexTestCase):
-    """The proof the plan called load-bearing: answer a search with the ledger gone.
+class LedgerBoundFastPathTests(IndexTestCase):
+    """The derived-cache trust boundary: the index selects and ranks, the ledger supplies every body.
 
-    This is the whole read-path bound stated as something that can fail. Recall used to make a full pass over
-    the ledger on every query just to collect the usage tiebreak — measured as the ENTIRE cost of a search,
-    80.8 ms of 80.8 ms on a 30 MB store. Nothing weaker proves the pass is gone: a timing is a measurement, a
-    source scan is a proxy, and only removing the file distinguishes "reads it quickly" from "does not read
-    it". With the file unreadable, a fast path that still touched it returns nothing or raises.
+    This class replaces the one that proved the fast path could answer with the ledger REMOVED. That bound was
+    about cost — no full pass over the ledger per query — and it still holds in the form that matters: the
+    fast path reads the ledger only at its winners' recorded positions, one bounded read per returned record.
+    What it no longer does is trust the derived copy for content: a row whose body or bytes the ledger does
+    not confirm demotes the query to the always-correct scan and asks for a rebuild.
     """
 
-    def test_a_search_answers_with_the_ledger_removed(self):
-        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
-        self.rebuild()
-        os.replace(self.ledger, self.ledger + ".gone")          # the one source of truth, taken away
+    def _rows(self):
+        conn = sqlite3.connect(self.index)
         try:
-            result = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+            return conn.execute("SELECT ord, record_json, position, length, digest FROM entries ORDER BY ord").fetchall()
         finally:
-            os.replace(self.ledger + ".gone", self.ledger)
-        self.assertEqual(len(result.records), 5)
-        self.assertFalse(result.degraded, "it fell back to the scan, which means it wanted the ledger")
+            conn.close()
 
-    def test_the_slow_path_does_need_the_ledger_which_is_what_makes_the_above_meaningful(self):
-        # The control. If the scan also answered without the file, the test above would prove nothing about
-        # where the records came from.
+    def _tamper(self, ordinal, body):
+        conn = sqlite3.connect(self.index)
+        try:
+            conn.execute("UPDATE entries SET record_json = ? WHERE ord = ?", (body, ordinal))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_the_fast_path_reads_the_ledger_only_at_its_winners(self):
+        self.file(*({records.RECORD_ID_KEY: f"r{n}", "body": f"the quokka sighting number {n}"} for n in range(40)))
+        self.rebuild()
+        reads = []
+        real = index._read_line
+
+        def counting(fh, position, length):
+            reads.append(position)
+            return real(fh, position, length)
+
+        with mock.patch.object(index, "_read_line", counting):
+            result = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual(len(result.records), 5)
+        self.assertFalse(result.degraded)
+        self.assertEqual(len(reads), 5, "one positioned read per returned winner — never per candidate")
+        # And the bodies are the ledger's: every returned record equals the parse of the bytes at its row.
+        rows = {row[0]: row for row in self._rows()}
+        with open(self.ledger, "rb") as fh:
+            for record in result.records:
+                row = next(r for r in rows.values() if json.loads(r[1])[records.RECORD_ID_KEY] == record[records.RECORD_ID_KEY])
+                fh.seek(row[2])
+                returned = {k: v for k, v in record.items() if k != records.SCORE_KEY}   # `search` adds the score
+                self.assertEqual(json.loads(fh.read(row[3]).strip()), returned)
+
+    def test_a_row_whose_body_differs_from_the_ledger_never_reaches_the_caller(self):
+        # Success obligation 1, check (1): a tampered index body is answered from the ledger, degraded, and in a
+        # session that may write the index is rebuilt so the next query is fast again.
+        self.file(*({records.RECORD_ID_KEY: f"r{n}", "body": f"the quokka sighting number {n}"} for n in range(5)))
+        self.rebuild()
+        forged = dict(json.loads(self._rows()[0][1]), body="the quokka sighting that never happened")
+        self._tamper(0, json.dumps(forged, ensure_ascii=False, separators=(",", ":")))
+        first = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
+        bodies = [r["body"] for r in first.records]
+        self.assertNotIn(forged["body"], bodies, "the tampered body reached a caller")
+        self.assertEqual(sorted(bodies), sorted(f"the quokka sighting number {n}" for n in range(5)))
+        self.assertTrue(first.degraded, "a mismatch must answer from the scan and say so")
+        second = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
+        self.assertFalse(second.degraded, "the mismatch should have requested a rebuild, which repaired the index")
+        self.assertNotIn(forged["body"], [r["body"] for r in second.records])
+
+    def test_a_refused_rebuild_still_answers_from_the_scan(self):
+        # In a session that may not write, the requested rebuild is refused at the guard; the read must still
+        # answer, and nothing may raise.
+        self.file(*({records.RECORD_ID_KEY: f"r{n}", "body": f"the quokka sighting number {n}"} for n in range(3)))
+        self.rebuild()
+        self._tamper(1, json.dumps({records.RECORD_ID_KEY: "r1", "body": "quokka forged"}, separators=(",", ":")))
+        with mock.patch.object(index, "rebuild", side_effect=RuntimeError("needs this session to be qualified to write memory")):
+            result = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
+            again = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
+        for answer in (result, again):
+            self.assertTrue(answer.degraded)
+            self.assertEqual(sorted(r["body"] for r in answer.records),
+                             sorted(f"the quokka sighting number {n}" for n in range(3)))
+
+    def test_a_ledger_rewritten_under_matching_stamps_is_answered_from_the_ledger(self):
+        # Success obligation 1, check (2): the interleaving that IS reachable — a rebuild that stamps the epoch
+        # the re-scrub bumped but streamed the ledger before the cleaned file landed. The stamps then match and
+        # the bodies do not; only the per-winner check sees it, and the cleaned line is what comes back.
+        self.file({records.RECORD_ID_KEY: "a", "body": "the quokka note carrying SECRET-TOKEN-XYZ"},
+                  {records.RECORD_ID_KEY: "b", "body": "another quokka note"})
+        ledger.bump_index_epoch(for_path=self.ledger)           # the re-scrub bumped first, as it does
+        self.rebuild()                                           # ...and this rebuild read the OLD bytes
+        with open(self.ledger, "rb") as fh:
+            old = fh.read()
+        with open(self.ledger, "wb") as fh:                      # the cleaned file lands, same stamps
+            fh.write(old.replace(b"SECRET-TOKEN-XYZ", b"[masked]"))
+        result = index.search("quokka", ledger_file=self.ledger, index_file=self.index)
+        bodies = [r["body"] for r in result.records]
+        self.assertIn("the quokka note carrying [masked]", bodies)
+        self.assertNotIn("the quokka note carrying SECRET-TOKEN-XYZ", bodies, "a pre-scrub body was served")
+        self.assertTrue(result.degraded)
+        self.assertFalse(index.search("quokka", ledger_file=self.ledger, index_file=self.index).degraded)
+
+    def test_the_unranked_query_holds_the_same_boundary(self):
+        self.file({records.RECORD_ID_KEY: "a", "body": "quokka one"}, {records.RECORD_ID_KEY: "b", "body": "quokka two"})
+        self.rebuild()
+        self._tamper(0, json.dumps({records.RECORD_ID_KEY: "a", "body": "quokka forged"}, separators=(",", ":")))
+        result = index.query("quokka", ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual(sorted(r["body"] for r in result.records), ["quokka one", "quokka two"])
+        self.assertTrue(result.degraded)
+
+    def test_the_slow_path_does_need_the_ledger(self):
+        # The control for the boundary: with the one source of truth gone, NOTHING answers — the fast path
+        # cannot verify a single winner and the scan has nothing to read. Availability holds (no raise), and the
+        # empty answer is reported as degraded, never as a confident nothing.
         self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
         self.rebuild()
         os.replace(self.ledger, self.ledger + ".gone")
         try:
-            scanned = index.search("quokka", limit=5, force_scan=True,
-                                   ledger_file=self.ledger, index_file=self.index)
+            result = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
         finally:
             os.replace(self.ledger + ".gone", self.ledger)
-        self.assertEqual(scanned.records, [])
+        self.assertEqual(result.records, [])
+        self.assertTrue(result.degraded)
+
+    def _row_count(self):
+        conn = sqlite3.connect(self.index)
+        try:
+            return conn.execute("SELECT count(*) FROM entries").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_a_ledger_that_cannot_be_read_degrades_one_answer_and_leaves_the_index_alone(self):
+        # A cold review reproduced the failure this pins: 'the ledger could not be opened' used to be treated
+        # like 'the index holds foreign bytes', so one search during a brief outage asked for a rebuild, the
+        # rebuild streamed nothing and stamped an EMPTY index current - and after the file came back, recall
+        # answered a confident nothing over a full history, for good.
+        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
+        self.rebuild()
+        self.assertEqual(self._row_count(), 20)
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            during = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual((during.records, during.degraded), ([], True))
+        after = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual(len(after.records), 5, "the index was wiped by a search taken during the outage")
+        self.assertFalse(after.degraded)
+        self.assertEqual(self._row_count(), 20, "the outage rebuilt the index from nothing")
+        # the unranked path keeps the same boundary
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            self.assertEqual(index.query("quokka", ledger_file=self.ledger, index_file=self.index).records, [])
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual(self._row_count(), 20)
+
+    def test_a_rebuild_refuses_to_replace_an_existing_index_when_the_ledger_cannot_be_opened(self):
+        # Belt and braces behind the test above: even a rebuild asked for directly leaves a prior index alone
+        # when the one source of truth cannot be opened, rather than stamping an empty index current.
+        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
+        self.rebuild()
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            with self.assertRaises(OSError):
+                index.rebuild(ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual(self._row_count(), 20)
+        # with no prior index there is nothing to protect: a fresh store may build its (empty) index
+        os.remove(self.index)
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            index.rebuild(ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
 
 
 if __name__ == "__main__":

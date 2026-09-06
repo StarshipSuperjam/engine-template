@@ -24,10 +24,9 @@ import quiet_call          # noqa: E402  (capture the demo's stdout so it cannot
 
 
 def _product_design_installed() -> bool:
-    """True when the OPTIONAL product-design module is present. Mirrors memory/mcp_server's
-    `_semantic_installed`: `find_spec` LOCATES the package without importing it, and a `None` origin (a
-    namespace package — what an uninstall leaves behind) is treated as absent, so a leftover empty directory
-    never reads as installed. This core test travels to every deployment, so the producer import below is
+    """True when the OPTIONAL product-design module is present. `find_spec` LOCATES the package without
+    importing it, and a `None` origin (a namespace package — what an uninstall leaves behind) is treated as
+    absent, so a leftover empty directory never reads as installed. This core test travels to every deployment, so the producer import below is
     guarded — a product-design-declined deployment must still collect and run this suite (only the one
     producer<->consumer seam test is skipped when it is absent)."""
     try:
