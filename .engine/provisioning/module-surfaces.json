@@ -192,12 +192,6 @@
   ".agents/skills/engine-setup-github-projects-sync/agents/openai.yaml": [
    "core"
   ],
-  ".agents/skills/engine-setup-memory-semantic-recall/SKILL.md": [
-   "core"
-  ],
-  ".agents/skills/engine-setup-memory-semantic-recall/agents/openai.yaml": [
-   "core"
-  ],
   ".agents/skills/engine-setup-migration-discipline/SKILL.md": [
    "core"
   ],
@@ -424,9 +418,6 @@
    "core"
   ],
   ".claude/skills/engine-setup-github-projects-sync/SKILL.md": [
-   "core"
-  ],
-  ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md": [
    "core"
   ],
   ".claude/skills/engine-setup-migration-discipline/SKILL.md": [
@@ -1404,9 +1395,6 @@
   ".engine/tools/demo_599d_upgrade_floor.py": [
    "core"
   ],
-  ".engine/tools/demo_663_optional_module_upgrade.py": [
-   "core"
-  ],
   ".engine/tools/demo_664_release_gate.py": [
    "core"
   ],
@@ -1813,6 +1801,9 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/records.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/refusals.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/rescrub.py": [

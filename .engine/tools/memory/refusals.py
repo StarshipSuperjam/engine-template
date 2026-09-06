@@ -11,7 +11,8 @@ fingerprint, no commit, no writer identifier, no spliced exception text. The sea
 
 WHY THE SENTENCES LIVE HERE. Reads (the memory server's outcome notes) and writes (`_stale_refusal`) tell the
 operator the same two things when a restart is what helps — the concrete action, and where to go if it keeps
-happening — and they used to say them in different words (#1211). One home, imported by both.
+happening — and they used to say them in different words (StarshipSuperjam/engine-template#1211). One home,
+imported by both.
 """
 
 

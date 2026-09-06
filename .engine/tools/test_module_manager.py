@@ -111,6 +111,15 @@ class TestRealRepoRefusals(unittest.TestCase):
         self.assertTrue(plan["refused"])
         self.assertIn("required", plan["reason"])          # required-foundation refusal
 
+    def test_remove_meaning_recall_is_refused_as_required(self):
+        # Meaning recall is a required part of memory (StarshipSuperjam/engine-template#1238): it can be neither
+        # declined at setup nor removed afterwards, and an upgrade of a deployment that never had it installs
+        # it (the classifier's required branch, tested in TestUpgradeInstallsNewModules with prior_declined
+        # flagged for the disclosure line).
+        plan = module_manager.plan_remove("memory-semantic-recall")
+        self.assertTrue(plan["refused"])
+        self.assertIn("required", plan["reason"])
+
 
 class TestUvGroupDerivation(unittest.TestCase):
 
@@ -124,15 +133,11 @@ class TestUvGroupDerivation(unittest.TestCase):
         # The drift gate: the committed [tool.uv] default-groups equals what the present set derives. This
         # leg holds in any deployment — a declined module drops out of both sides together.
         self.assertEqual(module_manager.derive_uv_groups(), module_manager.committed_default_groups())
-        # Core always carries dependencies; the semantic-recall module (numpy) carries a group only when it is
-        # installed, so a deployment that DECLINED it legitimately has just ["core"] here (#646).
-        installed = selftest_support.installed_module_ids()
+        # Core always carries dependencies, and so does meaning recall (numpy), a required part of memory
+        # since #1238 - so both groups are in the selection on every deployment.
         groups = module_manager.committed_default_groups()
         self.assertIn("core", groups)
-        if "memory-semantic-recall" in installed:
-            self.assertIn("memory-semantic-recall", groups)
-        else:
-            self.assertNotIn("memory-semantic-recall", groups)
+        self.assertIn("memory-semantic-recall", groups)
 
     def test_a_module_with_no_dependency_group_is_excluded(self):
         with tempfile.TemporaryDirectory() as d:
@@ -257,13 +262,8 @@ class TestUpgradeDefaultGroupsReconcile(unittest.TestCase):
         # what makes it travel under `unittest discover` and guard #757 in every generated repo — demo_599's
         # permanent-regression pattern.
         # The demo's GENUINE-change arm sets the live default-groups to ["core"] and asserts the derivation is
-        # FULLER than that — which needs the only dependency-group-carrying optional module,
-        # `memory-semantic-recall` (default-on), to be installed. In a deployment that DECLINED it (the
-        # deployment gate's add-on-declined projection), `derive_uv_groups()` legitimately collapses to ["core"],
-        # so the genuine arm can't fire and the demo can't pass — a real declined-shape truth, not a #757 break.
-        if "memory-semantic-recall" not in selftest_support.installed_module_ids():
-            self.skipTest("demo_757's genuine-change arm needs the memory-semantic-recall dependency group; "
-                          "it is declined in this deployment")
+        # FULLER than that - which needs a second dependency-group-carrying module present. `memory-semantic-
+        # recall` (numpy) is that module, and since #1238 it is a required part of memory, present everywhere.
         import demo_757_upgrade_reconciles_default_groups as demo
         import quiet_call
         self.assertEqual(quiet_call.run(demo.main), 0)

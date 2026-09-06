@@ -689,7 +689,8 @@ def _stale_refusal(exc: "execution_context.ContextError") -> str:
     fingerprint or commit reaches the caller for any refusal). Every branch says what held the write, that
     nothing changed, what reads do under the SAME class - and that clause is true for its branch: under the
     two MOVED classes reads answer from disk and say so; under the UNBOUND classes reads are held too and say
-    so (#1211's over-promise was one sentence for both) - then the one restart action and the one escalation
+    so (StarshipSuperjam/engine-template#1211's over-promise was one sentence for both) - then the one restart
+    action and the one escalation
     pointer reads and writes share (memory/refusals.py)."""
     tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
     if isinstance(exc, (execution_context.ActivationStale, execution_context.AcceptedTreeStale)):

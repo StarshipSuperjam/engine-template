@@ -107,7 +107,6 @@ class ToolWiringTests(_ServerBase):
         # adds its readiness block on top of it.
         self.assertEqual(list(checker.iter_errors({"status": "ok", "server": "engine-memory"})), [])
 
-    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operations_answer_matches_its_declared_schema(self):
         # The contract declares `additionalProperties: false`, so a key the server sends and the interface
         # does not name is a contract breach. Nothing validated this operation's shape, which is why one
@@ -142,10 +141,8 @@ class ToolWiringTests(_ServerBase):
         # makes them safe: each is a command-line verb that a person runs at a terminal, and a callable tool
         # would be exactly the model-reachable path they are built to refuse. Their descriptions say so. The
         # property that actually matters is the one below: the server offers nothing it has not declared.
-        #
-        # TWO SHAPES ARE REAL, so both are covered rather than whichever this checkout happens to be:
-        # `recall-by-meaning` is registered only where the optional semantic module is installed, and a
-        # deployment without it offers the rest alone.
+        # `recall-by-meaning` is among the served set unconditionally: meaning recall is a required part of
+        # memory, so there is one shape to cover.
         here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(srv.__file__))))
         declared, unserved = set(), set()
         for slug in ("search", "memory-control"):
@@ -155,8 +152,6 @@ class ToolWiringTests(_ServerBase):
                     if "NOT SERVED AS A TOOL" in op.get("description", ""):
                         unserved.add(op["name"])
         expected = declared - unserved
-        if not srv._semantic_installed():
-            expected -= {"recall-by-meaning"}
         tools = await mts.list_tool_objects(srv.server)
         names = {t.name for t in tools}
         self.assertEqual(names, expected)
@@ -168,7 +163,6 @@ class ToolWiringTests(_ServerBase):
         self.assertFalse(names & unserved,
                          "an operation declared NOT SERVED is being served — the terminal gate is bypassed")
 
-    @unittest.skipUnless(srv._semantic_installed(), "the optional semantic module is not installed here")
     async def test_the_meaning_operation_returns_the_passage_and_no_closeness_figure(self):
         # Measured, nearness does not track relevance: an irrelevant question outscored a correct reworded
         # match. A figure beside a result is read as confidence whatever the description says, so the
@@ -180,38 +174,6 @@ class ToolWiringTests(_ServerBase):
         for entry in data["results"]:
             self.assertNotIn("score", entry)
             self.assertTrue(entry.get("passage"))
-
-    async def test_an_uninstalled_module_reads_as_absent_even_though_its_folder_remains(self):
-        # The honest-absence law, tested against the way it actually breaks. Removing a module deletes its
-        # files and leaves the directory, and Python resolves an empty directory as a namespace package — so
-        # a plain "can I find this package?" probe answered YES for an uninstalled module, registered the
-        # tool, and crashed on the first call. A namespace package has no `origin`; a real module file does.
-        import importlib.util
-
-        real = importlib.util.find_spec
-
-        class _NamespaceLike:
-            """What importlib hands back for a directory with no module file in it: a spec with no origin."""
-
-            origin = None
-
-        def emptied(name, *args, **kwargs):
-            # A STAND-IN, never the real spec: importlib caches specs, so mutating one would leave
-            # `origin = None` set for the rest of the process and quietly fail every later check. Discovered
-            # by the full suite — this test passed alone and broke two others when run with them.
-            if name == "memory.semantic.store":
-                return _NamespaceLike()
-            return real(name, *args, **kwargs)
-
-        importlib.util.find_spec = emptied
-        try:
-            self.assertFalse(srv._semantic_installed(),
-                             "an emptied module directory must not read as installed")
-        finally:
-            importlib.util.find_spec = real
-        # Deliberately NOT asserting the module is present afterwards: this test file is owned by the always-
-        # present memory module, so it also runs on a deployment where the operator declined the semantic
-        # add-on. Asserting its presence would fail in exactly the configuration the decline path exists for.
 
     async def test_recall_window_reads_a_sessions_conversation_back(self):
         # The read side of the transcript-first substrate: raw turns are excluded from every ranked path, so
@@ -658,10 +620,9 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("attended-keyword-mcp-search", ids)
         self.assertEqual(getattr(srv.search, "__engine_registry_id__", None),
                          "attended-keyword-mcp-search")
-        if srv._semantic_installed():
-            self.assertIn("attended-semantic-mcp-search", ids)
-            self.assertEqual(getattr(srv.recall_by_meaning, "__engine_registry_id__", None),
-                             "attended-semantic-mcp-search")
+        self.assertIn("attended-semantic-mcp-search", ids)
+        self.assertEqual(getattr(srv.recall_by_meaning, "__engine_registry_id__", None),
+                         "attended-semantic-mcp-search")
 
 
 class ReadSeamWiringTests(_ServerBase):
@@ -676,11 +637,8 @@ class ReadSeamWiringTests(_ServerBase):
         index.rebuild()
 
     def _calls(self):
-        calls = [("search", {"query": "widgets"}), ("recall-window", {"session_id": "s1"}),
-                 ("list-pins", {}), ("list-withheld", {})]
-        if srv._semantic_installed():
-            calls.append(("recall-by-meaning", {"query": "widgets"}))
-        return calls
+        return [("search", {"query": "widgets"}), ("recall-window", {"session_id": "s1"}),
+                ("list-pins", {}), ("list-withheld", {}), ("recall-by-meaning", {"query": "widgets"})]
 
     async def test_every_read_tool_carries_one_outcome_object_and_no_caveat_key(self):
         self._seed_conversation()
@@ -1414,8 +1372,7 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
     make the test adapter false, so the guard, the lock and the per-request refresh are the production ones.
     test_every_context_error_subclass_has_a_row_in_this_matrix pins that every ContextError subclass has a row here."""
 
-    TOOLS = ("search", "recall-window", "list-pins", "list-withheld") + (
-        ("recall-by-meaning",) if srv._semantic_installed() else ())
+    TOOLS = ("search", "recall-window", "list-pins", "list-withheld", "recall-by-meaning")
     EXPECTED = {"R1": "absent", "R2": "healthy", "R3": "moved", "R4": "moved", "R5": "unbound",
                 "R6": "unbound", "R7": "unbound", "R8": "unbound", "R9": "unbound"}
     REASON = {"R1": "none-installed", "R2": None, "R3": "ActivationStale", "R4": "AcceptedTreeStale",
@@ -1445,11 +1402,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         self._row_cleanups.append(self.fixture.temp.cleanup)
         self.ledger_file = os.path.join(self.fixture.memory, ledger.LEDGER_FILENAME)
         self.index_file = os.path.join(self.fixture.memory, index.INDEX_FILENAME)
-        if srv._semantic_installed():      # the optional add-on: absent, the tool is absent and so is its store
-            from memory.semantic import store as _semantic_store
-            self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
-        else:
-            self.store_file = None
+        from memory.semantic import store as _semantic_store
+        self.store_file = os.path.join(self.fixture.memory, _semantic_store.STORE_FILENAME)
         self.nonce = "nonce-" + records.new_record_id()[:10]
         self.withheld_nonce = "withheld-" + records.new_record_id()[:10]
         self.session = "s-matrix"
@@ -1471,9 +1425,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         os.environ.pop(ledger.ENV_DIR, None)
         srv._READ_DEGRADED_NOTED.clear()
         srv.set_seam_test_hook(None)
-        if srv._semantic_installed():
-            from memory.semantic import store as _semantic_store
-            _semantic_store._LIVE_CACHE.clear()
+        from memory.semantic import store as _semantic_store
+        _semantic_store._LIVE_CACHE.clear()
         mutation_authority._THREAD.state = None
 
     def _seed(self):
@@ -1493,9 +1446,8 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
                            "session_id": self.session, "seq": seq, "speaker": "user", "ts": now + seq,
                            "text": text}, path=self.ledger_file)
         index.rebuild(ledger_file=self.ledger_file, index_file=self.index_file)
-        if srv._semantic_installed():
-            from memory.semantic import store as _semantic_store
-            _semantic_store.sync(ledger_file=self.ledger_file, store_file=self.store_file)
+        from memory.semantic import store as _semantic_store
+        _semantic_store.sync(ledger_file=self.ledger_file, store_file=self.store_file)
         withheld_id = next(r[_ID] for r in ledger.read(path=self.ledger_file).records
                            if self.withheld_nonce in r.get("text", ""))
         _forget.withhold(record_id=withheld_id, path=self.ledger_file)

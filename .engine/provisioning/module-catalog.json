@@ -24,12 +24,6 @@
     "status": "optional"
   },
   {
-    "id": "memory-semantic-recall",
-    "description": "Lets the engine find something in your saved history by what it MEANS, not just by the words you use. Without this, looking things up matches words: ask about \"running something on a timer\" and a conversation that said \"cron job\" is not found at all. With it, the engine can also ask \"have we been here before?\" and get answers worded differently from the question — which is the case where it otherwise repeats a decision you already made. It reads only and never changes or removes anything you have saved. Three costs, all plainly: it adds about 33 MB to your project's files; it builds a working copy alongside your saved history the first time you use it, taking a few seconds and roughly two to four times the size of that history; and while the language table it uses is included rather than downloaded, setting the engine up does fetch one ordinary Python package for it over the network, like the engine's other tools. Leave it out and everything else works the same — you keep word-based lookup and reading back past conversations.",
-    "category": "Software Configuration Management",
-    "status": "default-on"
-  },
-  {
     "id": "migration-discipline",
     "description": "A standing rule for your project's database migrations — the scripts that change your database's shape or move its data. Before a change that could lose data or can't be undone, the engine is set to stop and bring you in — pausing to ask when you're working with it, and holding the work for you to see when it's running unattended — in plain language and with a safer option, instead of pressing ahead on its own. It's a habit the engine follows, backed by the pull request you review and approve, not an automatic scanner — and it never runs a migration for you. Optional, and removable anytime.",
     "category": "Software Configuration Management",

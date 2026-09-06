@@ -6,7 +6,7 @@ an unconditional `from product_design import obligation_matrix`. product-design 
 deployment that declined it the import raised ModuleNotFoundError at unittest COLLECTION time and aborted the
 whole self-test suite before any test ran. This locks the class so no always-present tool can reintroduce it
 for ANY declinable module — the tool package of an `optional` or `default-on` module (e.g. `product_design`
-or `memory.semantic`).
+or `projects_sync`).
 
 Distinct in lifecycle from `engine/check/first-run-reference-closure`, which guards references to first-run-
 REMOVED assets; this guards module-top-level imports of DECLINED-optional-module packages (and it subtracts the
