@@ -869,7 +869,6 @@
           "codex-skill:engine-setup-design-review",
           "codex-skill:engine-setup-external-contribution",
           "codex-skill:engine-setup-github-projects-sync",
-          "codex-skill:engine-setup-memory-semantic-recall",
           "codex-skill:engine-setup-migration-discipline",
           "codex-skill:engine-setup-product-design",
           "codex-skill:engine-setup-qa-review",
@@ -944,7 +943,6 @@
           "codex-skill:engine-setup-design-review",
           "codex-skill:engine-setup-external-contribution",
           "codex-skill:engine-setup-github-projects-sync",
-          "codex-skill:engine-setup-memory-semantic-recall",
           "codex-skill:engine-setup-migration-discipline",
           "codex-skill:engine-setup-product-design",
           "codex-skill:engine-setup-qa-review",
@@ -2790,7 +2788,6 @@
           "skill:engine-setup-design-review",
           "skill:engine-setup-external-contribution",
           "skill:engine-setup-github-projects-sync",
-          "skill:engine-setup-memory-semantic-recall",
           "skill:engine-setup-migration-discipline",
           "skill:engine-setup-product-design",
           "skill:engine-setup-qa-review",
@@ -2865,7 +2862,6 @@
           "skill:engine-setup-design-review",
           "skill:engine-setup-external-contribution",
           "skill:engine-setup-github-projects-sync",
-          "skill:engine-setup-memory-semantic-recall",
           "skill:engine-setup-migration-discipline",
           "skill:engine-setup-product-design",
           "skill:engine-setup-qa-review",
@@ -4572,46 +4568,6 @@
       "type": "codex-skill"
     },
     {
-      "id": "codex-skill:engine-setup-memory-semantic-recall",
-      "name": ".agents/skills/engine-setup-memory-semantic-recall/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-setup-memory-semantic-recall",
-      "source": {
-        "fingerprint": "sha256:6a5c8c5c01a24ac932858e574c772e3a09cc44d620b6233c36926406d85b9ce5",
-        "path": ".agents/skills/engine-setup-memory-semantic-recall/SKILL.md"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
-      "id": "codex-skill:engine-setup-memory-semantic-recall.policy",
-      "name": ".agents/skills/engine-setup-memory-semantic-recall/agents/openai.yaml",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:codex-skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "engine-setup-memory-semantic-recall.policy",
-      "source": {
-        "fingerprint": "sha256:69ec69cbf937c7f318d577b90423ee4c256f2e17f6adecbb46416a2cee4ac565",
-        "path": ".agents/skills/engine-setup-memory-semantic-recall/agents/openai.yaml"
-      },
-      "status": "active",
-      "type": "codex-skill"
-    },
-    {
       "id": "codex-skill:engine-setup-migration-discipline",
       "name": ".agents/skills/engine-setup-migration-discipline/SKILL.md",
       "owner": "core",
@@ -5245,7 +5201,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:cc49fc9496c1c8bd563fecec75aa2bc60e7636ebe8b31d5069c013a10ee8386a",
+        "fingerprint": "sha256:3e87cdcd758f6a24b13cd822de388a24849c5ae2de7168ff4af84822f1fc980c",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5410,7 +5366,7 @@
       },
       "slug": "memory-control",
       "source": {
-        "fingerprint": "sha256:17b45899a787d0e4e5e2e24a293f0e303aab9b47e052b8d290c40e9269a1c7e8",
+        "fingerprint": "sha256:92f6e94a575c158d445c4ee9e89c802d123923e3b2593c2181055e4749400053",
         "path": ".engine/interfaces/memory-control.json"
       },
       "status": "active",
@@ -5441,7 +5397,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:9883df6246bca8df291be4c826a2e6e3afeae24de52fb2b8d60694d38ef983ec",
+        "fingerprint": "sha256:899e38511755cbc6fe05460d651a76fb20fcbc6fe8046b29517e4cff623d6099",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -5580,12 +5536,12 @@
       },
       "slug": "memory-semantic-recall",
       "source": {
-        "fingerprint": "sha256:b95cf827830b7992af311cf0542e655042cc0487214cf599855a0d3f1db41a45",
+        "fingerprint": "sha256:867a0c3fadcb33a6dfec91f4cb0a93d3613801479d9ea3cf85c324568772b0bd",
         "path": ".engine/modules/memory-semantic-recall/manifest.json"
       },
-      "status": "default-on",
+      "status": "required",
       "type": "module",
-      "version": "0.1.0"
+      "version": "0.2.0"
     },
     {
       "id": "module:memory-substrate-sqlite-fts5",
@@ -6197,7 +6153,7 @@
       },
       "slug": "memory-recall",
       "source": {
-        "fingerprint": "sha256:c9990201e55cc7b72dec7b7f05819454fd666fb370af49f877dc005411c493c0",
+        "fingerprint": "sha256:9ff2977f44f5a26ca5387012b3ce4c84271762bc013bc2cbe8c3ac399d0ca770",
         "path": ".engine/operations/memory-recall.md"
       },
       "status": "active",
@@ -8608,31 +8564,6 @@
       "type": "skill"
     },
     {
-      "id": "skill:engine-setup-memory-semantic-recall",
-      "invocation": "model-only",
-      "name": ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md",
-      "owner": "core",
-      "predicates": {
-        "governed_by": [
-          "schema:skill.v1"
-        ],
-        "provided_by": [
-          "module:core"
-        ],
-        "routes_to": [
-          "skill:engine-setup"
-        ]
-      },
-      "slug": "engine-setup-memory-semantic-recall",
-      "source": {
-        "fingerprint": "sha256:b53bd0b87b0b844b26692e0ef4e609f4063e3e3953c4742d920650739f67279c",
-        "path": ".claude/skills/engine-setup-memory-semantic-recall/SKILL.md"
-      },
-      "status": "active",
-      "title": "engine-setup-memory-semantic-recall",
-      "type": "skill"
-    },
-    {
       "id": "skill:engine-setup-migration-discipline",
       "invocation": "model-only",
       "name": ".claude/skills/engine-setup-migration-discipline/SKILL.md",
@@ -9860,7 +9791,7 @@
       },
       "slug": "capture",
       "source": {
-        "fingerprint": "sha256:b64f4ae2918e7d09e74cffa9506dcc649f98abb565f7cd25c95e1d9681c7cb98",
+        "fingerprint": "sha256:b210fd410032cf3515579dd369b6f543deefd09427240aecdacf7807526258b8",
         "path": ".engine/tools/memory/capture.py"
       },
       "status": "active",
@@ -10541,32 +10472,6 @@
     {
       "entrypoint": "demo",
       "guarded": false,
-      "id": "tool:demo_663_optional_module_upgrade",
-      "name": ".engine/tools/demo_663_optional_module_upgrade.py",
-      "owner": "core",
-      "predicates": {
-        "imports": [
-          "tool:engine_fixture",
-          "tool:knowledge_gen",
-          "tool:module_manager",
-          "tool:validate"
-        ],
-        "provided_by": [
-          "module:core"
-        ]
-      },
-      "slug": "demo_663_optional_module_upgrade",
-      "source": {
-        "fingerprint": "sha256:08e11e6fa58fb35ceb5b050ecbcf1dba9e7533e561538a56f2332142a74966e8",
-        "path": ".engine/tools/demo_663_optional_module_upgrade.py"
-      },
-      "status": "active",
-      "summary": "Behavioral FALSIFICATION for issue #663 — the engine REGENERATES its wiring map on a deployment that",
-      "type": "tool"
-    },
-    {
-      "entrypoint": "demo",
-      "guarded": false,
       "id": "tool:demo_664_release_gate",
       "name": ".engine/tools/demo_664_release_gate.py",
       "owner": "core",
@@ -10582,7 +10487,7 @@
       },
       "slug": "demo_664_release_gate",
       "source": {
-        "fingerprint": "sha256:439107eff2aae86c2652d0d0bf9a8eee173e36a13df375a93cbfb4593c69ab92",
+        "fingerprint": "sha256:4191467615c4084207a747b04b10497103755c9c3f8ae5a17d90835bceb46f73",
         "path": ".engine/tools/demo_664_release_gate.py"
       },
       "status": "active",
@@ -12417,7 +12322,8 @@
           "tool:ledger",
           "tool:legacy_shapes",
           "tool:mutation_authority",
-          "tool:records"
+          "tool:records",
+          "tool:refusals"
         ],
         "provided_by": [
           "module:memory-substrate-sqlite-fts5"
@@ -12425,7 +12331,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:d27c76c3f6b876fb3b2957e2d61434356cfb12d1ac8b3fb0eb8ac8a3cc1711a0",
+        "fingerprint": "sha256:244b79a88d63984f51303f792bf98dd1a9bc3b55984258b56849c882ff3fff4d",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -12609,7 +12515,7 @@
       },
       "slug": "index",
       "source": {
-        "fingerprint": "sha256:0708daf770a8210dcc13906efe763958c5cd02efb1ac09fce7c0a4b880d40c9d",
+        "fingerprint": "sha256:bf008c846a1dca4bb858c8b24ffd323d57c3b2abe0880ee51bc78c7efea46e06",
         "path": ".engine/tools/memory/index.py"
       },
       "status": "active",
@@ -12648,7 +12554,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:99182e3579254b356be55d0a72fb53f069be4bab4007322294298b7833412ef3",
+        "fingerprint": "sha256:8e29069ccfda9eabbec845b872aa15438716b1e7da35b285ee9c3abf034d7035",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -12937,7 +12843,7 @@
       },
       "slug": "knowledge_gen",
       "source": {
-        "fingerprint": "sha256:2d3952876a45d1d3476e36597bb985f9cebfce3445ba996314bde0e0dd1f4736",
+        "fingerprint": "sha256:13c4222b2123a6fa89eb0300aece337e325090a1870ee2985f4b25d76667c7ce",
         "path": ".engine/tools/knowledge_gen.py"
       },
       "status": "active",
@@ -13080,7 +12986,7 @@
       },
       "slug": "ledger",
       "source": {
-        "fingerprint": "sha256:2149c52b30d40e27a05f5c62d9b626a5f61a8adf3768239a3bda2c12a9e94598",
+        "fingerprint": "sha256:4bd8112481d80b9813e4a5f06528c8eb48b83856f40102508b3eb781ed9480e8",
         "path": ".engine/tools/memory/ledger.py"
       },
       "status": "active",
@@ -13316,6 +13222,7 @@
           "tool:pins",
           "tool:recall",
           "tool:records",
+          "tool:refusals",
           "tool:store",
           "tool:stranding_log"
         ],
@@ -13325,7 +13232,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:21ae055e7af89a4a0ed97d182d515321231260f1c4cee103d3b35ffb93fa9623",
+        "fingerprint": "sha256:eb465ad0d7c8fc070bd869f014ff81ed3d702693294b211754519909b25b99ad",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13722,7 +13629,8 @@
       "predicates": {
         "imports": [
           "tool:execution_context",
-          "tool:mutation_contract"
+          "tool:mutation_contract",
+          "tool:refusals"
         ],
         "provided_by": [
           "module:memory-substrate-sqlite-fts5"
@@ -13730,7 +13638,7 @@
       },
       "slug": "mutation_authority",
       "source": {
-        "fingerprint": "sha256:2245e4824a7614e8a00aa2f4235270fac2ef3791afa78239c8acdb3527fbd4d8",
+        "fingerprint": "sha256:a9d5ebd0c71e2bda75f9d9d32e4dc0d09c3f3f5a928e331aade43ab48b084afd",
         "path": ".engine/tools/memory/mutation_authority.py"
       },
       "status": "active",
@@ -13750,7 +13658,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:6b5cb6ab81a3723f6648d1cbee6d1963309afb28b6eebff0bb4bc1e3995e775b",
+        "fingerprint": "sha256:240f8917d68c95940ffd3a5c723484c5335788a6b0f89892f1c218ba8397e9a9",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -13965,6 +13873,7 @@
           "tool:ledger",
           "tool:mutation_authority",
           "tool:records",
+          "tool:refusals",
           "tool:scrub"
         ],
         "provided_by": [
@@ -13973,7 +13882,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:21f260f2ef38b0da5eb06ddb3143e0736f7c0b6bf081646b7270088b3a7735df",
+        "fingerprint": "sha256:2dfeb3abcf338e921f4fd67cc88a716e5236a9341ea6ca5a6538a2614f7f7ef2",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -14531,6 +14440,26 @@
       "type": "tool"
     },
     {
+      "entrypoint": "library",
+      "guarded": false,
+      "id": "tool:refusals",
+      "name": ".engine/tools/memory/refusals.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "refusals",
+      "source": {
+        "fingerprint": "sha256:2cc7a918d11ffc8e2fc8718f7bdc3e721ad86841df2d8f0cf5d3b23e0b3ef381",
+        "path": ".engine/tools/memory/refusals.py"
+      },
+      "status": "active",
+      "summary": "refusals.py — the one base type for a refusal written to be read by the operator, and the recovery",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:release_cut",
@@ -14821,7 +14750,7 @@
       },
       "slug": "rescrub",
       "source": {
-        "fingerprint": "sha256:fc01fce4ad5d3b0e19091e7a95de528084a1599fc5adc70633833520388c4a18",
+        "fingerprint": "sha256:6f275cfe0d1355909346952a230cfae27c7a01a45190e4e9e814f3528cf92290",
         "path": ".engine/tools/memory/rescrub.py"
       },
       "status": "active",
@@ -15540,7 +15469,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:b65974b7c684ad4dccf0552d8f76cbbe25b1e6fde54cbb0d649f8323f25fd506",
+        "fingerprint": "sha256:00edb18e00783fcee811bece1b348a17468d5a13d35c94c4ea4f3c47d525d459",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -16441,7 +16370,7 @@
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:5bc14a060542042a5eee8c1ff23508b01d97e6079354d0de7a37b7e0c4a3b7d5",
+        "fingerprint": "sha256:64fd242799a9aba576a31ac6641a1d5a6479b2d583b465f782412895d6a9717e",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -16468,7 +16397,7 @@
       },
       "slug": "test_capture",
       "source": {
-        "fingerprint": "sha256:40f11d1742c29312e42cec152dda9adf027655feaeb5b7524fe00f62a784fc72",
+        "fingerprint": "sha256:1a370c0f28e7d0e5d025a70d423d60d06e2177bc5e1b7a098e6f77f9bc1a2a17",
         "path": ".engine/tools/memory/test_capture.py"
       },
       "status": "active",
@@ -16860,7 +16789,7 @@
       },
       "slug": "test_conformance_sweep",
       "source": {
-        "fingerprint": "sha256:b90689df10e30c114f6673dc6a3d59535e2646f59a3c908694810b1c9923721b",
+        "fingerprint": "sha256:571f1238688fcd294cd6564a2d74a8024e54511d91438e55f09fb678b0921399",
         "path": ".engine/tools/test_conformance_sweep.py"
       },
       "status": "active",
@@ -17494,7 +17423,7 @@
       },
       "slug": "test_forget",
       "source": {
-        "fingerprint": "sha256:9a203e311b637cc5219409c9a7890a794468fa188edd3cae1da9eee21d3d6707",
+        "fingerprint": "sha256:73c0bfddd99b4a20d4dc26f818dd57778ec73b2389f975ce3399fd9cf2370158",
         "path": ".engine/tools/memory/test_forget.py"
       },
       "status": "active",
@@ -17670,7 +17599,7 @@
       },
       "slug": "test_index",
       "source": {
-        "fingerprint": "sha256:508d337d595e3562a2fa79bcf88e036bae11458c29b231e98f3143fdcd8ec865",
+        "fingerprint": "sha256:6158641dd568f1bc9aa99452119186034650e5ba76f11340801bae059cd2ad6c",
         "path": ".engine/tools/memory/test_index.py"
       },
       "status": "active",
@@ -18006,7 +17935,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:a54fa27f25b08c5a536c9779a0a9eff56726840db0bf1c7754c96acee743b8a7",
+        "fingerprint": "sha256:6bdecd140ba183faaca5334b24c036ac7f6bd42547b9f7d3601d1c0bda90cc4b",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -18133,7 +18062,7 @@
       },
       "slug": "test_ledger",
       "source": {
-        "fingerprint": "sha256:d723e84b2650f0fddd9daf6ce75fbea13fc52e858fd780b9ba26b220343daab1",
+        "fingerprint": "sha256:35a97afa49c12b18c96d7447ad970475318103a4b4f3d21e9f6841fc5e9c3600",
         "path": ".engine/tools/memory/test_ledger.py"
       },
       "status": "active",
@@ -18358,6 +18287,7 @@
           "tool:pins",
           "tool:recall_acceptance_probe",
           "tool:records",
+          "tool:refusals",
           "tool:store",
           "tool:stranding_log",
           "tool:test_mutation_authority",
@@ -18366,7 +18296,7 @@
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:a265f1e35fe09150234546fdf39e1343d47e0b5d6f9c9df8bdba943b5603c94c",
+        "fingerprint": "sha256:942739ed765df79f71ce7160f4b78a4e64908f6c2662fc6450634b41f9d3fca6",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18559,7 +18489,7 @@
       },
       "slug": "test_module_manager",
       "source": {
-        "fingerprint": "sha256:3e0203399e190213ca098e5563e3230bc0ff3fb32533d5366057c8da1020761d",
+        "fingerprint": "sha256:0b69db61d3303712307973d593f144d5cc73472e61d7d757471d8b37aecb441d",
         "path": ".engine/tools/test_module_manager.py"
       },
       "status": "active",
@@ -18670,13 +18600,14 @@
           "tool:mutation_contract",
           "tool:pins",
           "tool:records",
+          "tool:refusals",
           "tool:stranding_log",
           "tool:test_mcp_server"
         ]
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:a7697ba2c41f74ab60780d3fadb197e41a435d04f093aab33fa4e18e2c362ec3",
+        "fingerprint": "sha256:99cb42dd5dee5b37df943571c6f75292c4a193e6bc78b830a2f21d53836e1040",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -18704,7 +18635,7 @@
       },
       "slug": "test_mutation_contract",
       "source": {
-        "fingerprint": "sha256:ea1ce9706c5211b11e0f87a997e6f52cdcd1de073ef70466324e0f82224bf548",
+        "fingerprint": "sha256:564539d0ef1d9f5a2cb3a03f05de51e030f5ae9631425f5102638521281931b2",
         "path": ".engine/tools/memory/test_mutation_contract.py"
       },
       "status": "active",
@@ -18892,7 +18823,7 @@
       },
       "slug": "test_optional_module_isolation",
       "source": {
-        "fingerprint": "sha256:89fb37190227aace63ca4b72101704ab392e03ae71baea054e9622d308595c23",
+        "fingerprint": "sha256:e5eac4ed76df599fb5a81a5ead6f3ef3f163af6aec5f351ad56be769bb6fe913",
         "path": ".engine/tools/test_optional_module_isolation.py"
       },
       "status": "active",
@@ -18975,7 +18906,7 @@
       },
       "slug": "test_pins",
       "source": {
-        "fingerprint": "sha256:d51a551117009f4993f9c26e5a266fd9df8ab183d04a64e60214bb2c7a5a6ef0",
+        "fingerprint": "sha256:3e09b97a90a7df1dcf71aee995e27c1db6151e010c44e6f2c98f6a2c2925eec3",
         "path": ".engine/tools/memory/test_pins.py"
       },
       "status": "active",
@@ -19560,7 +19491,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:e3f8a70916b53810922f27a24fbfe301a1fe79f76d058a0b4d9e09b3089da71d",
+        "fingerprint": "sha256:9efcdd94d956fa00251f4a0c9c21d93aa90744959a86b22801596256111b9e81",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -19782,12 +19713,13 @@
           "tool:capture",
           "tool:ledger",
           "tool:records",
-          "tool:rescrub"
+          "tool:rescrub",
+          "tool:store"
         ]
       },
       "slug": "test_rescrub",
       "source": {
-        "fingerprint": "sha256:8679dd22f043c1eb78b20e24c5a848e4501972b6b87f7cf4919567ba4af20ac3",
+        "fingerprint": "sha256:390224c2e6f4722f0d1c96487f2ff4c099caadbfff9f96b4007986279a9dc0ad",
         "path": ".engine/tools/memory/test_rescrub.py"
       },
       "status": "active",
@@ -20440,7 +20372,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:080a57ad9c3dd15c7c350f6e068372ecc326f3a25e043f98e4ebe21e1367de8d",
+        "fingerprint": "sha256:19db1ed145f787feb09952b68fdb82b6592c6b7f265f72d19c0e9959d30753d5",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",
