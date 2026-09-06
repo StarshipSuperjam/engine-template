@@ -5717,7 +5717,7 @@
       },
       "slug": "boot-session-start",
       "source": {
-        "fingerprint": "sha256:be495f6283d366a2ef187017ce99ad3320e32c54cd7d5e74092e941f2000f433",
+        "fingerprint": "sha256:605137e6b70836fb575611b655d480473f6f072b2fc3f1c73e0a9bdeebba4646",
         "path": ".engine/operations/boot-session-start.md"
       },
       "status": "active",
@@ -6337,7 +6337,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:84e8784dea8cb3955f1181bd4b8deaa05242705261be745e4881d5366209a1be",
+        "fingerprint": "sha256:b77a92b50c9c759029cee7de48dcc4095aca94777bd47a213beaad97576ce39c",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -6540,7 +6540,7 @@
       },
       "slug": "escalation",
       "source": {
-        "fingerprint": "sha256:b9bc638f0e7e59f991d482c65d21c013276e1349ee59ab79d968dd2227508a54",
+        "fingerprint": "sha256:42356da7c93f00c75dfe033a6681973c066b6f66e2db85cac31da96bf7476199",
         "path": ".engine/policies/escalation.md"
       },
       "status": "active",
@@ -19106,7 +19106,7 @@
       },
       "slug": "test_policy",
       "source": {
-        "fingerprint": "sha256:2ef33b69c522d6c1b058829d15411a1dfc80977456cb7ec379870808d22354f8",
+        "fingerprint": "sha256:31f707cd3b2af1ad5322e13d486872670247704435d9bff509c437e2d177d821",
         "path": ".engine/tools/test_policy.py"
       },
       "status": "active",

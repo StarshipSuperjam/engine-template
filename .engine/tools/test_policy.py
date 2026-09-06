@@ -374,15 +374,20 @@ class TestPolicyFrontmatterRule(unittest.TestCase):
 class TestEscalationPolicyMatchesTheGuardTiers(unittest.TestCase):
     """StarshipSuperjam/engine-template#919: the escalation policy's stop rule follows the weakening guard's two
     tiers. This pin holds PHRASES, not meaning — it reds when the retired 'protected-part change always stops'
-    clause returns or the tier vocabulary and the guard's id leave the Rule; it cannot judge whether the
-    prose is right, which is the operator's read at merge."""
+    clause returns anywhere in the file, or when the tier vocabulary and the guard's id leave the Rule SECTION
+    (the text between '## Rule' and '## Scope', so a mention elsewhere cannot stand in); it cannot judge whether
+    the prose is right, which is the operator's read at merge."""
 
     def _text(self):
         with open(os.path.join(POLICIES_DIR, "escalation.md"), encoding="utf-8") as fh:
             return fh.read()
 
-    def test_the_rule_names_the_two_tiers_and_the_guard_that_owns_them(self):
+    def _rule(self):
         text = self._text()
+        return text[text.index("## Rule"):text.index("## Scope")]
+
+    def test_the_rule_names_the_two_tiers_and_the_guard_that_owns_them(self):
+        text = self._rule()
         for phrase in ("killswitch", "disclosure", "guardrail-ack", "engine/check/guardrail-weakening",
                        "authority documents"):
             self.assertIn(phrase, text, phrase)

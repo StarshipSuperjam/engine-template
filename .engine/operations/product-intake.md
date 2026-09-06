@@ -15,13 +15,14 @@ operator's own project files, and it never decides whether the design is *right*
 
 Run these with the operator, one at a time, in plain language. The stage words — a piece *not yet described*, a
 document *in progress*, one *settled* — are how you speak to them; the frontmatter markers never reach the screen.
-**Plain words only, on screen:** never the stage markers or internal engine vocabulary — only plain renders like
-"not yet described / in progress / settled", "build order", "phases", and "things to build", and the same for
-how you report what a check found. **Where the writing happens:** steps 1–3 explore and propose; nothing reaches
-the project while exploring. Every file the intake writes — the description and its deeper documents, the depth
-record, a settled marker, a decision record, the build order — lands in Build, which the operator enters by typing
-`/engine-start` (on Codex, `$engine-start`) once the shape and depth are agreed, and reaches the project through the
-pull request they merge. Accepting a plan only imports it into the engine's planning; it does not start Build.
+**Plain words only, on screen:** no stage markers or engine vocabulary — say "not yet described / in progress /
+settled", "build order", "phases", "things to build", and report a check's result the same way.
+
+**Where the writing happens:** steps 1–3 explore and propose; nothing reaches the project while exploring. Every
+file the intake writes — the description and its deeper documents, the depth record, a settled marker, a decision
+record, the build order — lands in Build, which the operator enters by typing `/engine-start` (on Codex,
+`$engine-start`) once the shape and depth are agreed, and reaches the project through the pull request they merge.
+Accepting a plan only imports it into the engine's planning; it does not start Build.
 
 1. **Check the GitHub connection, and never dead-end.** Run a quick check (for example `gh repo view`). If it fails,
    say so plainly and name the next action. A check that fails from inside a sandbox is inconclusive, though — rerun

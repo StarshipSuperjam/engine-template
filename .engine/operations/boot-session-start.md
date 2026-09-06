@@ -250,7 +250,7 @@ and never forces. What differs is *what* each protects and *how* it declines:
   the `engine-design` intake installed but no product description under `docs/spec/` yet, `greenfield_intake` detects
   the greenfield state and boot **offers** the intake at first engagement so a non-engineer discovers it — a pure
   offer, never an action (the operator starts the intake themselves). It fires only when the intake is actually
-  installed (never offering a command that isn't there) and self-resolves the moment the intake runs and writes
+  installed (never offering a command that isn't there) and self-resolves once the intake's pull request lands
   `docs/spec/index.md`; it stays silent in the engine's own home repository, where the thing being built IS the
   engine and a separate product description would be out of place. On the operator's "I'd rather work without a
   written description" the assistant runs `boot_alarm_ledger.retire` (class `greenfield_intake`) so the offer stops
