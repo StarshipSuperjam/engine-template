@@ -121,18 +121,36 @@ def cmd_program_portfolio(args) -> int:
     return 0
 
 
+def _print_intent_join(record: dict, plan_id: str, *, fulfills, out_of_order_reason, outside_intent) -> None:
+    """What the join said about the recorded intended order, beside what the carry-forward guarantee
+    said. A no-op, silently, when neither door was used — the same byte-for-byte-unchanged behaviour
+    the join itself keeps when a program records no intent at all.
+    """
+    if fulfills:
+        out_of_order = any(e.get("kind") == "claimed-out-of-order" and e.get("key") == fulfills
+                           and e.get("plan_id") == plan_id
+                           for e in record.get("intended_history", []))
+        print(f"\nclaims intent {fulfills!r}" + (f" — out of order: {out_of_order_reason}"
+                                                  if out_of_order else "") + ".")
+    elif outside_intent:
+        print(f"\nrecorded outside the intended order: {outside_intent}")
+
+
 def cmd_program_add(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
-    record = programs.add_child(slug, args.plan, predecessor=args.after)
+    record = programs.add_child(slug, args.plan, predecessor=args.after, fulfills=args.fulfills,
+                                out_of_order_reason=args.out_of_order_reason,
+                                outside_intent=args.outside_intent)
     # THIS child's own carries, not the program-wide union. Once the chain forks, "what the program
     # still owes" and "what the next child on THIS branch must answer for" are different questions,
     # and only the second one is what an operator adding to a branch is being told. Printing the union
     # here would attribute another branch's debts to a successor that can never answer for them.
     plan_slug = programs.plans.resolve(args.plan)
+    plan_id = programs.plans.read_record(plan_slug)["plan_id"]
     outstanding = _still_carried(programs, args.plan)
     ordinal = next((child["chain_ordinal"] for child in programs.child_view(record)
-                    if child["plan_id"] == programs.plans.read_record(plan_slug)["plan_id"]),
+                    if child["plan_id"] == plan_id),
                    len(record["children"]))
     print(f"added {args.plan} as child {ordinal} of {record['program_id']}")
     if outstanding:
@@ -141,6 +159,8 @@ def cmd_program_add(args) -> int:
             print(f"  - {obligation['id']}: {obligation['statement']}")
         print("\nThe next child on this branch must answer for each — satisfied, still carried, or "
               "released with a stated reason. None of them can be dropped by saying nothing.")
+    _print_intent_join(record, plan_id, fulfills=args.fulfills,
+                       out_of_order_reason=args.out_of_order_reason, outside_intent=args.outside_intent)
     _report_decay(programs, slug)
     _refresh_projection(programs, slug)
     return 0
@@ -203,7 +223,9 @@ def cmd_program_supersede(args) -> int:
 def cmd_program_insert(args) -> int:
     programs = _programs(args)
     slug = programs.resolve(args.program)
-    record = programs.insert_child(slug, args.plan, before=args.before)
+    record = programs.insert_child(slug, args.plan, before=args.before, fulfills=args.fulfills,
+                                   out_of_order_reason=args.out_of_order_reason,
+                                   outside_intent=args.outside_intent)
     plan_slug = programs.plans.resolve(args.plan)
     plan_id = programs.plans.read_record(plan_slug)["plan_id"]
     view = programs.child_view(record)
@@ -224,6 +246,8 @@ def cmd_program_insert(args) -> int:
               f"{plan_id}:")
         for obligation in outstanding:
             print(f"  - {obligation['id']}: {obligation['statement']}")
+    _print_intent_join(record, plan_id, fulfills=args.fulfills,
+                       out_of_order_reason=args.out_of_order_reason, outside_intent=args.outside_intent)
     _report_decay(programs, slug)
     _refresh_projection(programs, slug)
     return 0
@@ -519,6 +543,74 @@ def cmd_program_lanes_propose(args) -> int:
     return 0
 
 
+def _parse_follows(specs: list | None) -> list:
+    """`--follows REF=REASON` entries, split on the FIRST '=' so a reason may itself contain one.
+
+    An entry with no '=' at all, or an empty reason, is refused right here — before it ever reaches
+    `add_intent`/`revise_intent` — because the CLI's own job is turning the flag's raw text into the
+    {ref, reason} shape those verbs expect; a malformed ref is still theirs to judge.
+    """
+    edges = []
+    for spec in specs or []:
+        if "=" not in spec:
+            raise ProgramManagerError(
+                f"--follows expects REF=REASON; {spec!r} has no '=' to split the ref it follows from "
+                "the reason it follows it for. The reason is required — a declared precedence without "
+                "one records nothing a later reader can weigh.")
+        ref, _, reason = spec.partition("=")
+        ref, reason = ref.strip(), reason.strip()
+        if not reason:
+            raise ProgramManagerError(
+                f"--follows {spec!r} has an empty reason — a declared precedence is a decision, and "
+                "an edge without a stated reason records nothing a later reader can weigh.")
+        edges.append({"ref": ref, "reason": reason})
+    return edges
+
+
+def cmd_program_intend_add(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    edges = _parse_follows(args.follows)
+    record = programs.add_intent(slug, args.key, args.title, args.statement, edges)
+    entry = next(i for i in record["intended"] if i["key"] == args.key)
+    print(f"recorded intent {entry['key']!r} on {record['program_id']}: {entry['title']}")
+    if edges:
+        print("  follows " + "; ".join(f"{e['ref']} ({e['reason']})" for e in edges))
+    print("Declared precedence, never derived — a partial order this program never completes. "
+          "`program show` names it under 'Next intended' once it is live and ready.")
+    _refresh_projection(programs, slug)
+    return 0
+
+
+def cmd_program_intend_revise(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    edges = _parse_follows(args.follows) if args.follows is not None else None
+    record = programs.revise_intent(slug, args.key, title=args.title, statement=args.statement,
+                                    after=edges, reason=args.reason)
+    entry = next(i for i in record["intended"] if i["key"] == args.key)
+    print(f"revised intent {args.key!r} on {record['program_id']}")
+    print(f"  {args.reason}")
+    print(f"  now: {entry['title']} — {entry['statement']}")
+    if edges is not None:
+        print("  follows " + ("; ".join(f"{e['ref']} ({e['reason']})" for e in edges) or "(nothing)"))
+    print("Nothing was overwritten silently — `program show` lists how the intended order has been "
+          "revised.")
+    _refresh_projection(programs, slug)
+    return 0
+
+
+def cmd_program_intend_withdraw(args) -> int:
+    programs = _programs(args)
+    slug = programs.resolve(args.program)
+    record = programs.withdraw_intent(slug, args.key, args.reason)
+    print(f"withdrew intent {args.key!r} from {record['program_id']}")
+    print(f"  {args.reason}")
+    print("Kept visible, not removed — `program show` lists it withdrawn, with the reason.")
+    _refresh_projection(programs, slug)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="program_manager.py",
@@ -559,6 +651,13 @@ def build_parser() -> argparse.ArgumentParser:
     program_add.add_argument("program")
     program_add.add_argument("plan")
     program_add.add_argument("--after", help="the plan this one succeeds; required after the first child")
+    program_add.add_argument("--fulfills", metavar="KEY",
+                             help="claim the recorded intent this child fulfils")
+    program_add.add_argument("--out-of-order-reason", dest="out_of_order_reason", metavar="TEXT",
+                             help="only beside --fulfills: why this claim jumps ahead of another "
+                                  "unclaimed intent it follows")
+    program_add.add_argument("--outside-intent", dest="outside_intent", metavar="TEXT",
+                             help="record that this child stands outside the recorded intended order")
     program_add.set_defaults(func=cmd_program_add)
 
     program_insert = program.add_parser(
@@ -568,7 +667,50 @@ def build_parser() -> argparse.ArgumentParser:
     program_insert.add_argument("--before", required=True,
                                 help="the child this plan is placed ahead of; it will succeed the "
                                      "inserted plan instead of what it succeeds now")
+    program_insert.add_argument("--fulfills", metavar="KEY",
+                                help="claim the recorded intent this child fulfils")
+    program_insert.add_argument("--out-of-order-reason", dest="out_of_order_reason", metavar="TEXT",
+                                help="only beside --fulfills: why this claim jumps ahead of another "
+                                     "unclaimed intent it follows")
+    program_insert.add_argument("--outside-intent", dest="outside_intent", metavar="TEXT",
+                                help="record that this child stands outside the recorded intended "
+                                     "order")
     program_insert.set_defaults(func=cmd_program_insert)
+
+    program_intend_parser = program.add_parser(
+        "intend", help="record, revise, or withdraw a not-yet-authored step's declared precedence")
+    program_intend = program_intend_parser.add_subparsers(dest="intend_command", required=True)
+
+    intend_add = program_intend.add_parser("add", help="record a new intent")
+    intend_add.add_argument("program")
+    intend_add.add_argument("--key", required=True)
+    intend_add.add_argument("--title", required=True)
+    intend_add.add_argument("--statement", required=True,
+                            help="what this step is meant to answer for")
+    intend_add.add_argument("--follows", action="append", metavar="REF=REASON",
+                            help="a declared precedence edge: what this follows, and why — repeat "
+                                 "for more than one")
+    intend_add.set_defaults(func=cmd_program_intend_add)
+
+    intend_revise = program_intend.add_parser(
+        "revise", help="replace an intent's title, statement, or declared precedence")
+    intend_revise.add_argument("program")
+    intend_revise.add_argument("key")
+    intend_revise.add_argument("--title")
+    intend_revise.add_argument("--statement")
+    intend_revise.add_argument("--follows", action="append", metavar="REF=REASON",
+                               help="replace the declared precedence edges entirely; repeat for more "
+                                    "than one; omit to leave the edges as they are")
+    intend_revise.add_argument("--reason", required=True,
+                               help="why it changed; the prior wording is kept in history")
+    intend_revise.set_defaults(func=cmd_program_intend_revise)
+
+    intend_withdraw = program_intend.add_parser(
+        "withdraw", help="mark an intent withdrawn, keeping it visible")
+    intend_withdraw.add_argument("program")
+    intend_withdraw.add_argument("key")
+    intend_withdraw.add_argument("--reason", required=True)
+    intend_withdraw.set_defaults(func=cmd_program_intend_withdraw)
 
     program_supersede = program.add_parser(
         "supersede", help="replace a child that turned out wrong, keeping it and its place visible")

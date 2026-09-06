@@ -18,15 +18,18 @@ engine-targets:
 
    - **The program vocabulary this component names.** "Make this a program", "add the next PR to the
      program", "where does this program stand", "how is it sliced into lanes", "supersede that child",
-     "is the program done" — the direct terms now that programs have a proper name.
+     "is the program done", "what comes next in this program", "why does this step come first",
+     "the next PR should be…" — the direct terms now that programs have a proper name.
    - **The pre-name phrasing the same asks still arrive in.** A backlog or milestone with a
      sequencing-and-concurrency question: "what order should I clear these issues in", "which of these
      can be combined into one PR", "can these run in concurrent lanes", "give me a grouping outline so
-     I can start a session per lane". These describe exactly a program and its lanes without using the
-     word *program*, and they are the shape this component was built for.
+     I can start a session per lane", "record the intended order for these steps". These describe exactly
+     a program and its lanes without using the word *program*, and they are the shape this component was
+     built for.
 
    Name the Engine's program procedure in `.engine/operations/program-orchestration.md` as the way to
-   run it, and the Program Manager (`program_manager.py`) as the one address for the mechanics.
+   run it, and the Program Manager (`program_manager.py`) as the one address for the mechanics. Start
+   by running `program show` on the program to read where it stands and what comes next.
 
 2. Read that procedure before answering, because the judgment is the part that matters: whether the
    work is a program at all or just plans, how children are authored just-in-time through the Project

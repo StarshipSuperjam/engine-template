@@ -48,6 +48,16 @@
       "type": "array",
       "items": {"$ref": "#/$defs/ended_split"},
       "description": "Every lane split that stopped standing, discriminated by HOW it ended — replaced by a successor, or cleared outright — following closure_history's replaced-vs-erased precedent rather than objective_history's replacement-only shape, so a reader of set → set → clear → set can reconstruct when no split stood. Nothing is overwritten silently: the split's own reason travels into its history entry when it ends."
+    },
+    "intended": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/intent"},
+      "description": "Steps this program intends to author but has not yet — recorded as DECLARED PRECEDENCE, each edge carrying the reason it was decided (a code dependency, an evidence gate, a risk sequencing, a merge-order constraint, or any other), never a dependency the engine inferred. The whole set is a PARTIAL order: nothing here completes it into a total ranking, and nothing here derives, selects, or advances a child — the same restraint `children` already keeps about the order it records. An intent is claimed when an authored child joins for it, revised as the plan changes, or withdrawn if it will not be built; none of that is a schedule anything executes."
+    },
+    "intended_history": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/intent_event"},
+      "description": "Every change to the intended order that is not visible in place on the entry itself — a revision's prior wording, an out-of-order claim and the edge it jumped, a child that joined outside the recorded order, a claim carried from a superseded plan to its replacement, and a dead claim reopened for a fresh one. Withdrawal needs no event here: it is recorded in place on the entry, kept visible rather than removed, exactly as a superseded child stays in `children`."
     }
   },
   "$defs": {
@@ -91,6 +101,19 @@
           "type": "string",
           "minLength": 1,
           "description": "Present only when the program was closed while its obligation report held UNKNOWN entries — a missing or unreadable child, or a cycle. Unknown entries are sentences about a broken record, not obligations; nothing keyed to an obligation id can clear them, so refusing over them would point at a door that cannot open and would wedge permanently exactly the wrecked programs abandon exists for. Closing over them is therefore allowed, but only as a recorded decision: this is what was acknowledged and why."
+        },
+        "intents_left": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "title"],
+            "properties": {
+              "key": {"type": "string", "minLength": 1},
+              "title": {"type": "string", "minLength": 1}
+            }
+          },
+          "description": "Present only on a `retired` or `abandoned` closure that still had live, unclaimed intents on the record: what the intended order never got built, named rather than dropped when the program stopped. `complete` never carries this — completion already refuses while an unclaimed intent remains, so there is nothing left unbuilt for it to say."
         }
       }
     },
@@ -171,6 +194,142 @@
         },
         "reason": {"type": "string", "minLength": 1}
       }
+    },
+    "precedence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "reason"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Names either a stored child's plan_id or another intent's key. A DECLARED PRECEDENCE, not a dependency the engine worked out — this entry follows whatever `ref` names, for the reason given, and for no other."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this precedence was decided — a code dependency, an evidence gate, a risk sequencing, a merge-order constraint, or any other reason someone had. Required: an edge without one records a shape nobody can weigh, which is the silent order this object exists to prevent."
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "title", "statement", "after", "added_at"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^(?!pln_)[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Names this intent among the program's other intents and precedence edges. Excludes the pln_ shape on purpose: a plan_id names an authored child, and an intent is precisely a step that has none yet — the two id spaces must never collide."
+        },
+        "title": {"type": "string", "minLength": 1},
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What this step is meant to answer for, in the operator's own words — the same kind of sentence a carried obligation states, written before the child that will fulfil it exists."
+        },
+        "after": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/precedence"},
+          "description": "The declared precedence this intent follows, each edge with its own reason. Empty for a step with nothing decided ahead of it. The set across every intent is a PARTIAL order: two intents with no edge between them are not ordered at all, and nothing here completes that into a ranking."
+        },
+        "added_at": {"$ref": "#/$defs/timestamp"},
+        "claimed_by": {
+          "type": "string",
+          "pattern": "^pln_[0-9a-f]{12}$",
+          "description": "The child that fulfils this intent, once one has joined for it. A claim is a seat on the chain: only `program supersede` moves it afterward, carrying it to the replacement — the intent gate itself is never consulted again for a claimed entry."
+        },
+        "claimed_at": {"$ref": "#/$defs/timestamp"},
+        "withdrawn": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["at", "reason"],
+          "properties": {
+            "at": {"$ref": "#/$defs/timestamp"},
+            "reason": {"type": "string", "minLength": 1}
+          },
+          "description": "Present once this intent will not be built. Kept visible rather than removed — history is never erased from this record — so a later reader still sees what was decided and why it stopped."
+        }
+      }
+    },
+    "intent_event": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key", "prior", "at", "reason"],
+          "properties": {
+            "kind": {"const": "revised"},
+            "key": {"type": "string", "minLength": 1},
+            "prior": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["title", "statement", "after"],
+              "properties": {
+                "title": {"type": "string", "minLength": 1},
+                "statement": {"type": "string", "minLength": 1},
+                "after": {"type": "array", "items": {"$ref": "#/$defs/precedence"}}
+              },
+              "description": "What this intent said before this revision replaced it. Kept whole, even when only one field actually changed, so a later reader sees the entry as it stood rather than a diff they must reconstruct."
+            },
+            "at": {"$ref": "#/$defs/timestamp"},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key", "plan_id", "crossed", "at", "reason"],
+          "properties": {
+            "kind": {"const": "claimed-out-of-order"},
+            "key": {"type": "string", "minLength": 1},
+            "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+            "crossed": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/precedence"},
+              "description": "The declared precedence edge(s) this claim jumped — still-unclaimed intents this one follows — each with the reason IT was decided, so a later reader sees what was skipped and why it was owed a claim in the first place."
+            },
+            "at": {"$ref": "#/$defs/timestamp"},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "plan_id", "at", "reason"],
+          "properties": {
+            "kind": {"const": "outside-intent"},
+            "plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+            "at": {"$ref": "#/$defs/timestamp"},
+            "reason": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key", "from_plan_id", "to_plan_id", "at"],
+          "properties": {
+            "kind": {"const": "claim-transferred"},
+            "key": {"type": "string", "minLength": 1},
+            "from_plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+            "to_plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+            "at": {"$ref": "#/$defs/timestamp"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "key", "dead_plan_id", "at"],
+          "properties": {
+            "kind": {"const": "claim-reopened"},
+            "key": {"type": "string", "minLength": 1},
+            "dead_plan_id": {"type": "string", "pattern": "^pln_[0-9a-f]{12}$"},
+            "at": {"$ref": "#/$defs/timestamp"}
+          }
+        }
+      ],
+      "description": "One change to the intended order, discriminated by `kind`; each variant requires its whole payload, and nothing here is optional within a kind."
     }
   }
 }

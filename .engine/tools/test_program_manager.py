@@ -910,6 +910,224 @@ class ProgramVerbs(_ProgramSurface):
         self.assertTrue(all("position" not in child for child in record["children"]))
 
 
+class IntendCommands(ProgramVerbs):
+    """`program intend add|revise|withdraw` at the command line, and the `--fulfills`,
+    `--out-of-order-reason`, `--outside-intent` doors on `program add`/`program insert` — the
+    recorded intended order reached the ordinary way an operator reaches it, through argv."""
+
+    def test_intend_add_records_a_new_intent(self):
+        program_id = self._program_with_child()
+        code, out, err = self.run_command("program", "intend", "add", program_id,
+                                          "--key", "step-a", "--title", "Step A",
+                                          "--statement", "Build A")
+        self.assertEqual(code, 0, err)
+        self.assertIn("step-a", out)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("Step A", rendered)
+        self.assertIn("- **Next intended**: step-a — Step A", rendered)
+
+    def test_intend_add_follows_splits_on_the_first_equals_only(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        code, out, err = self.run_command(
+            "program", "intend", "add", program_id, "--key", "step-b", "--title", "Step B",
+            "--statement", "Build B",
+            "--follows", "step-a=because config=schema needs it first")
+        self.assertEqual(code, 0, err)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("follows step-a — because config=schema needs it first", rendered)
+
+    def test_intend_add_refuses_a_follows_entry_with_no_equals(self):
+        program_id = self._program_with_child()
+        code, _, err = self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                                        "--title", "Step A", "--statement", "Build A",
+                                        "--follows", "step-a")
+        self.assertEqual(code, 2)
+        self.assertIn("REF=REASON", err)
+
+    def test_intend_add_refuses_a_follows_entry_with_an_empty_reason(self):
+        program_id = self._program_with_child()
+        code, _, err = self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                                        "--title", "Step A", "--statement", "Build A",
+                                        "--follows", "step-a=")
+        self.assertEqual(code, 2)
+        self.assertIn("empty reason", err)
+
+    def test_intend_revise_replaces_title_statement_and_edges(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B")
+        code, out, err = self.run_command(
+            "program", "intend", "revise", program_id, "step-b",
+            "--title", "Step B, revised", "--follows", "step-a=needed after all",
+            "--reason", "scope changed")
+        self.assertEqual(code, 0, err)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("Step B, revised", rendered)
+        self.assertIn("follows step-a — needed after all", rendered)
+        self.assertIn("scope changed", rendered)
+
+    def test_intend_revise_requires_a_reason(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        with self.assertRaises(SystemExit):        # argparse refuses the missing --reason itself
+            self.run_command("program", "intend", "revise", program_id, "step-a",
+                             "--title", "Renamed")
+
+    def test_intend_withdraw_keeps_it_visible_with_its_reason(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        code, out, err = self.run_command("program", "intend", "withdraw", program_id, "step-a",
+                                          "--reason", "no longer needed")
+        self.assertEqual(code, 0, err)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("step-a", rendered)
+        self.assertIn("withdrawn", rendered)
+        self.assertIn("no longer needed", rendered)
+
+    def test_add_fulfills_claims_the_intent(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B")
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, out, err = self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa", "--fulfills", "step-b")
+        self.assertEqual(code, 0, err)
+        self.assertIn("claims intent 'step-b'", out)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("Claimed by `pln_bbbbbbbbbbbb`", rendered)
+
+    def test_add_outside_intent_records_it_as_standing_outside(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-elsewhere",
+                         "--title", "Elsewhere", "--statement", "Unrelated to this join")
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, out, err = self.run_command(
+            "program", "add", program_id, "pln_bbbbbbbbbbbb", "--after", "pln_aaaaaaaaaaaa",
+            "--outside-intent", "a hotfix, not a recorded step")
+        self.assertEqual(code, 0, err)
+        self.assertIn("recorded outside the intended order", out)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("recorded outside the intended order", rendered)
+        self.assertIn("a hotfix, not a recorded step", rendered)
+
+    def test_add_refuses_both_fulfills_and_outside_intent_at_once(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B")
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command(
+            "program", "add", program_id, "pln_bbbbbbbbbbbb", "--after", "pln_aaaaaaaaaaaa",
+            "--fulfills", "step-b", "--outside-intent", "also a hotfix")
+        self.assertEqual(code, 2)
+        self.assertIn("never both", err)
+
+    def test_out_of_order_reason_without_fulfills_is_refused(self):
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command(
+            "program", "add", program_id, "pln_bbbbbbbbbbbb", "--after", "pln_aaaaaaaaaaaa",
+            "--out-of-order-reason", "no claim to price")
+        self.assertEqual(code, 2)
+        self.assertIn("--out-of-order-reason", err)
+
+    def test_add_refuses_with_neither_door_while_intents_stand_unclaimed(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B")
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                        "--after", "pln_aaaaaaaaaaaa")
+        self.assertEqual(code, 2)
+        self.assertIn("step-b", err)
+
+    def test_insert_fulfills_claims_the_intent(self):
+        program_id = self._program_with_child()
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        self.assertEqual(self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                          "--after", "pln_aaaaaaaaaaaa")[0], 0)
+        self.run_command("program", "intend", "add", program_id, "--key", "step-x",
+                         "--title", "Step X", "--statement", "Build X")
+        self._plan_doc(program_id, "pln_cccccccccccc", "PR X",
+                       self._obligation("OB-1", "Still carried, now by X."))
+        code, out, err = self.run_command("program", "insert", program_id, "pln_cccccccccccc",
+                                          "--before", "pln_bbbbbbbbbbbb", "--fulfills", "step-x")
+        self.assertEqual(code, 0, err)
+        self.assertIn("claims intent 'step-x'", out)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("Claimed by `pln_cccccccccccc`", rendered)
+
+    def test_supersede_transfers_the_claim_via_the_cli(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        self._plan_doc(program_id, "pln_bbbbbbbbbbbb", "PR B",
+                       self._obligation("OB-1", "Cut over.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, _, err = self.run_command("program", "add", program_id, "pln_bbbbbbbbbbbb",
+                                        "--after", "pln_aaaaaaaaaaaa", "--fulfills", "step-a")
+        self.assertEqual(code, 0, err)
+        slug_b = self.lib.resolve("pln_bbbbbbbbbbbb")
+        digest = self.lib.read_record(slug_b)["current"]["plan_digest"]
+        self.lib.update_record(slug_b, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-23T03:00:00Z", "delta_judgment": "none"}}))
+        self._plan_doc(program_id, "pln_cccccccccccc", "PR B, second attempt",
+                       self._obligation("OB-1", "Cut over, properly this time.", "satisfied"),
+                       predecessor="pln_aaaaaaaaaaaa")
+        code, out, err = self.run_command("program", "supersede", program_id, "pln_bbbbbbbbbbbb",
+                                          "--with", "pln_cccccccccccc",
+                                          "--reason", "wrong shape")
+        self.assertEqual(code, 0, err)
+        rendered = self.run_command("program", "show", program_id)[1]
+        self.assertIn("claim transferred from `pln_bbbbbbbbbbbb` to `pln_cccccccccccc`", rendered)
+
+    def test_complete_refuses_while_an_intent_stands_unclaimed(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-1", "--reason", "void")
+        self.lib.update_record(self.lib.resolve("pln_aaaaaaaaaaaa"), lambda r: r.update(
+            {"closure": {"state": "complete", "at": "2026-08-29T05:00:00Z", "reason": "merged"}}))
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B")
+        code, _, err = self.run_command("program", "complete", program_id,
+                                        "--reason", "the objective is met")
+        self.assertEqual(code, 2)
+        self.assertIn("step-b", err)
+        self.assertIn("program intend withdraw", err)
+
+    def test_complete_succeeds_once_the_unclaimed_intent_is_withdrawn(self):
+        program_id = self._program_with_child()
+        self.run_command("program", "release", program_id, "pln_aaaaaaaaaaaa",
+                         "--obligation", "OB-1", "--reason", "void")
+        self.lib.update_record(self.lib.resolve("pln_aaaaaaaaaaaa"), lambda r: r.update(
+            {"closure": {"state": "complete", "at": "2026-08-29T05:00:00Z", "reason": "merged"}}))
+        self.run_command("program", "intend", "add", program_id, "--key", "step-b",
+                         "--title", "Step B", "--statement", "Build B")
+        self.run_command("program", "intend", "withdraw", program_id, "step-b",
+                         "--reason", "not going to be built after all")
+        code, _, err = self.run_command("program", "complete", program_id,
+                                        "--reason", "the objective is met")
+        self.assertEqual(code, 0, err)
+
+
 class LaneCommands(ProgramVerbs):
     """`program lanes set|clear` at the command line: it records the operator's decided split,
     surfaces every input refusal honestly, and the emitted set line round-trips."""
@@ -1259,6 +1477,27 @@ class TheProgramMdRefreshesWithEveryMutatingVerb(_ProgramSurface):
                          "--lane", "solo=pln_aaaaaaaaaaaa", "--reason", "one lane")
         self.run_command("program", "lanes", "clear", program_id, "--reason", "no longer split")
         self.assertIn("stopped standing", self._md(program_id))       # the cleared split, in lane history
+
+    def test_intend_add_reflects_the_new_intent(self):
+        program_id = self._new()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        self.assertIn("Step A", self._md(program_id))
+
+    def test_intend_revise_reflects_the_revision(self):
+        program_id = self._new()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        self.run_command("program", "intend", "revise", program_id, "step-a",
+                         "--title", "Step A, renamed", "--reason", "clearer wording")
+        self.assertIn("Step A, renamed", self._md(program_id))
+
+    def test_intend_withdraw_reflects_the_withdrawal(self):
+        program_id = self._new()
+        self.run_command("program", "intend", "add", program_id, "--key", "step-a",
+                         "--title", "Step A", "--statement", "Build A")
+        self.run_command("program", "intend", "withdraw", program_id, "step-a", "--reason", "dropped")
+        self.assertIn("withdrawn", self._md(program_id))
 
     def test_a_projection_failure_never_fails_the_verb_and_converges_on_a_later_sweep(self):
         program_id = self._new()          # this new() already wrote a fresh projection

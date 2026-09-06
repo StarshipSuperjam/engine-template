@@ -1737,6 +1737,77 @@ class ReplacementInPlace(_Program):
         with self.assertRaisesRegex(plan_program.ProgramError, "is not a child of this program"):
             self.programs.supersede_check(slug, "pln_0000000000cd", "pln_0000000000dd")
 
+    # -- S3: supersede carries a claim to the replacement, never through the join guard ---------
+
+    def test_superseding_a_claimed_child_transfers_the_claim(self):
+        """Supersede is what moves a seat on the chain — the claim goes with it, silently to the
+        join guard (never through `_apply_intent_join`) but recorded in its own history event."""
+        slug = self._chain("pln_0000000000e1", "pln_0000000000e2")
+        self.programs.add_intent(slug, "the-step", "The step", "Something to build", [])
+        # i2 already joined without the intent recorded (chain built it before); claim it now.
+        record = self.programs.read(slug)
+        record["intended"][0]["claimed_by"] = "pln_0000000000e2"
+        record["intended"][0]["claimed_at"] = "2026-08-29T04:00:00Z"
+        self.programs._write(slug, record)
+        self._plan("pln_0000000000e3", "Replacement for i2")
+        self._retire("pln_0000000000e2")
+        record = self.programs.mark_superseded(slug, "pln_0000000000e2", "pln_0000000000e3")
+        intent = record["intended"][0]
+        self.assertEqual(intent["claimed_by"], "pln_0000000000e3")
+        self.assertEqual(intent["claimed_at"], "2026-08-29T04:00:00Z")   # untouched by the transfer
+        transferred = [e for e in record["intended_history"] if e["kind"] == "claim-transferred"]
+        self.assertEqual(len(transferred), 1)
+        self.assertEqual(transferred[0], {
+            "kind": "claim-transferred", "key": "the-step",
+            "from_plan_id": "pln_0000000000e2", "to_plan_id": "pln_0000000000e3",
+            "at": transferred[0]["at"]})
+
+    def test_superseding_an_unclaimed_child_records_nothing_about_intents(self):
+        """The common case: nothing to transfer, so nothing is written about intents at all."""
+        slug = self._chain("pln_0000000000e4", "pln_0000000000e5")
+        self.programs.add_intent(slug, "untouched", "Untouched", "Nobody claimed this", [])
+        self._plan("pln_0000000000e6", "Replacement for j2")
+        self._retire("pln_0000000000e5")
+        record = self.programs.mark_superseded(slug, "pln_0000000000e5", "pln_0000000000e6")
+        self.assertNotIn("claim-transferred", [e["kind"] for e in record.get("intended_history", [])])
+        self.assertNotIn("claimed_by", record["intended"][0])
+
+    def test_re_running_a_transferred_supersession_does_not_duplicate_the_event(self):
+        """The crash-window convergence guarantee `test_a_half_completed_supersession_re_runs_to_
+        convergence` already pins, now with a claim in the mix: a second run of an ALREADY-marked
+        supersession must not re-transfer a claim that already moved."""
+        slug = self._chain("pln_0000000000e7", "pln_0000000000e8")
+        self.programs.add_intent(slug, "the-step", "The step", "Something to build", [])
+        record = self.programs.read(slug)
+        record["intended"][0]["claimed_by"] = "pln_0000000000e8"
+        record["intended"][0]["claimed_at"] = "2026-08-29T04:00:00Z"
+        self.programs._write(slug, record)
+        self._plan("pln_0000000000e9", "Replacement for k2")
+        self._retire("pln_0000000000e8")
+        self.programs.mark_superseded(slug, "pln_0000000000e8", "pln_0000000000e9")
+        self.programs.mark_superseded(slug, "pln_0000000000e8", "pln_0000000000e9")
+        record = self.programs.read(slug)
+        transferred = [e for e in record["intended_history"] if e["kind"] == "claim-transferred"]
+        self.assertEqual(len(transferred), 1)
+
+    def test_superseding_merged_history_with_a_recorded_intent_names_the_note_too(self):
+        slug = self._chain("pln_0000000000ea", "pln_0000000000eb")
+        self.programs.add_intent(slug, "later-step", "Later step", "Something for later", [])
+        self._plan("pln_0000000000ec", "Replacement")
+        self._complete("pln_0000000000eb")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000eb", "pln_0000000000ec")
+        self.assertIn(plan_program.INTENT_JOIN_NOTE, str(caught.exception))
+
+    def test_superseding_an_active_plan_with_a_recorded_intent_names_the_note_too(self):
+        slug = self._chain("pln_0000000000ed", "pln_0000000000ee")
+        self.programs.add_intent(slug, "later-step", "Later step", "Something for later", [])
+        self._plan("pln_0000000000ef", "Replacement")
+        self._bind("pln_0000000000ee")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.supersede_check(slug, "pln_0000000000ee", "pln_0000000000ef")
+        self.assertIn(plan_program.INTENT_JOIN_NOTE, str(caught.exception))
+
 
 class EndsThatSettleTheirBooks(_Program):
     """Closing a program used to leave its debts reporting as outstanding under a closed status.
@@ -1997,6 +2068,84 @@ class EndsThatSettleTheirBooks(_Program):
             self.programs.complete(slug, "   ")
         self.assertIsNone(self.programs.read(slug).get("closure"))
         self.assertEqual(self.programs.complete(slug, "met")["closure"]["state"], "complete")
+
+    # -- S5: closure cannot drop a recorded step silently ----------------------------------------
+
+    def test_complete_refuses_over_a_live_unclaimed_intent_naming_the_withdraw_verb(self):
+        slug = self._program("Recorded but never built", "One child, one intent nobody claimed.")
+        self._plan("pln_00000000001a", "Child A")
+        self.programs.add_child(slug, "pln_00000000001a")
+        self._complete_plan("pln_00000000001a")
+        self.programs.add_intent(slug, "the-next-step", "The next step",
+                                 "Something meant to follow", [])
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.complete(slug, "done")
+        message = str(caught.exception)
+        self.assertIn("the-next-step", message)
+        self.assertIn("program intend withdraw --reason", message)
+        blockers = self.programs.completion_blockers(self.programs.read(slug))
+        self.assertTrue(any("the-next-step" in blocker for blocker in blockers))
+
+    def test_retiring_over_a_live_unclaimed_intent_accepts_and_records_intents_left(self):
+        slug = self._program("Set down early", "One child, one intent nobody got to.")
+        self._plan("pln_00000000002a", "Child A")
+        self.programs.add_child(slug, "pln_00000000002a")
+        self.programs.add_intent(slug, "never-built", "Never built",
+                                 "Something that will not happen now", [])
+        record = self.programs.close(slug, "retired", "stopping here")
+        self.assertEqual(record["closure"]["state"], "retired")
+        self.assertEqual(record["closure"]["intents_left"],
+                         [{"key": "never-built", "title": "Never built"}])
+
+    def test_abandoning_over_a_live_unclaimed_intent_accepts_and_records_intents_left(self):
+        slug = self._program("Abandoned", "One child, one intent nobody got to.")
+        self._plan("pln_00000000003a", "Child A")
+        self.programs.add_child(slug, "pln_00000000003a")
+        self.programs.add_intent(slug, "never-built", "Never built", "Dropped with the program", [])
+        record = self.programs.close(slug, "abandoned", "dropping this")
+        self.assertEqual(record["closure"]["intents_left"],
+                         [{"key": "never-built", "title": "Never built"}])
+
+    def test_closing_with_no_recorded_intents_carries_no_intents_left_key(self):
+        slug = self._program("Nothing intended", "Never used the intended order at all.")
+        self._plan("pln_00000000004a", "Child A")
+        self.programs.add_child(slug, "pln_00000000004a")
+        record = self.programs.close(slug, "retired", "stopping here")
+        self.assertNotIn("intents_left", record["closure"])
+
+    def test_closing_over_a_claimed_intent_does_not_list_it_as_left(self):
+        """A claimed intent has a seat on the chain — it was built, or is being built. `intents_left`
+        names what the intended order never got to, not everything ever recorded."""
+        slug = self._program("Partly built", "One intent claimed, one never touched.")
+        self._plan("pln_00000000005a", "Child A")
+        self.programs.add_intent(slug, "claimed-step", "Claimed step", "This one got built", [])
+        self.programs.add_child(slug, "pln_00000000005a", fulfills="claimed-step")
+        self.programs.add_intent(slug, "never-built", "Never built", "This one did not", [])
+        record = self.programs.close(slug, "retired", "stopping here")
+        self.assertEqual(record["closure"]["intents_left"],
+                         [{"key": "never-built", "title": "Never built"}])
+
+    def test_a_withdrawn_intent_never_bars_completion(self):
+        slug = self._program("Withdrawn in time", "The intent was dropped before completion.")
+        self._plan("pln_00000000006a", "Child A")
+        self.programs.add_child(slug, "pln_00000000006a")
+        self._complete_plan("pln_00000000006a")
+        self.programs.add_intent(slug, "dropped", "Dropped", "Never going to happen", [])
+        self.programs.withdraw_intent(slug, "dropped", "decided against it")
+        record = self.programs.complete(slug, "done")
+        self.assertEqual(record["closure"]["state"], "complete")
+
+    def test_a_dead_claim_still_bars_completion_as_unclaimed(self):
+        """S4's rule that a dead claim releases the intent back to a fresh claim also means it still
+        blocks completion — the step is recorded and nobody live is answering for it."""
+        slug = self._program("Claimed then died", "The claiming child died without a successor.")
+        self._plan("pln_00000000007a", "Child A")
+        self.programs.add_intent(slug, "the-step", "The step", "Meant to be built", [])
+        self.programs.add_child(slug, "pln_00000000007a", fulfills="the-step")
+        self._retire_plan("pln_00000000007a")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.complete(slug, "done")
+        self.assertIn("the-step", str(caught.exception))
 
     def test_a_missing_superseded_child_is_history_damage_not_open_books(self):
         """A deliberate supersession must not wedge the program when the replaced plan's file goes.
@@ -2377,14 +2526,77 @@ class NoNamedWayThroughIsADeadEnd(unittest.TestCase):
         seeded = 'raise ProgramError("try `program unburden <program>` instead")'
         self.assertEqual(self._named_program_verbs(seeded), {"unburden"})
 
+    # -- `program <verb> --<flag>`, S9: a refusal can name a real VERB and still point at a flag that
+    # verb does not take. The intended order added several such refusals — `program insert --fulfills`,
+    # `program intend withdraw --reason` — so the sweep now resolves the flag half too, against the
+    # real subparsers' own option strings, walking one or two verb-words deep as each case needs.
+
+    def _named_program_verb_flags(self, source: str | None = None) -> set:
+        import re
+        # A backtick-quoted `program <verb...> --<flag>` with the closing backtick landing right after
+        # the flag — deliberately narrow, so a longer aside like "`program release <program> <child>
+        # --obligation <id> --reason \"...\"`" (several placeholders, no single closing backtick right
+        # after a flag) is left alone rather than misparsed into a flag pairing nobody wrote.
+        return set(re.findall(
+            r"`program ([a-z][a-z-]*(?: [a-z][a-z-]*)?) (--[a-z][a-z-]*)`",
+            source if source is not None else self._sources()))
+
+    def _resolve_program_verb_path(self, program_action, verb_path: str):
+        """Walk `program <word> <word> ...` against the real subparsers, one word at a time, returning
+        the ArgumentParser the LAST word resolves to (or raising an AssertionError naming where the
+        walk broke) — the same choices dict `test_every_program_verb_a_refusal_names_is_a_real_verb`
+        reads for the single-word case, followed one level deeper for a subgroup like `intend`."""
+        words = verb_path.split()
+        node = program_action.choices.get(words[0])
+        self.assertIsNotNone(
+            node, f"`program {verb_path}` names {words[0]!r}, which is not a real `program` verb")
+        for word in words[1:]:
+            sub_action = next((a for a in node._actions if hasattr(a, "choices") and a.choices), None)
+            self.assertIsNotNone(
+                sub_action, f"`program {verb_path}` expects a subcommand under {words[0]!r}, but it "
+                "takes none")
+            node = sub_action.choices.get(word)
+            self.assertIsNotNone(
+                node, f"`program {verb_path}` names {word!r}, which is not a real subcommand there")
+        return node
+
+    def test_every_program_verb_flag_a_refusal_names_is_a_real_flag(self):
         import program_manager
         parser = program_manager.build_parser()
         program_action = next(
             action for action in parser._subparsers._group_actions[0].choices["program"]._actions
             if hasattr(action, "choices") and action.choices)
-        self.assertEqual(self._named_program_verbs(seeded) - set(program_action.choices),
-                         {"unburden"},
-                         "the real extractor plus the real parser must together surface the miss")
+        named = self._named_program_verb_flags()
+        self.assertTrue(named, "the sweep found no named verb+flag pairs, so it is not checking anything")
+        for verb_path, flag in sorted(named):
+            node = self._resolve_program_verb_path(program_action, verb_path)
+            available = {option for action in node._actions for option in action.option_strings}
+            self.assertIn(flag, available,
+                         f"refusal text points at `program {verb_path} {flag}`, which is not a real "
+                         f"flag there; available: {sorted(available)}")
+
+    def test_the_flag_sweep_runs_its_real_machinery_against_a_seeded_miss(self):
+        """The extractor itself, driven over invented text — the same discipline the verb-only sweep
+        above holds itself to, and for the same reason: a guard that only compares two literals can go
+        green while the regex, the multi-word walk, or the parser lookup it claims to run has rotted
+        out from under it."""
+        seeded = 'raise ProgramError("try `program add --nonexistent-flag` instead")'
+        self.assertEqual(self._named_program_verb_flags(seeded), {("add", "--nonexistent-flag")})
+        seeded_nested = 'raise ProgramError("try `program intend withdraw --reason` instead")'
+        self.assertEqual(self._named_program_verb_flags(seeded_nested),
+                         {("intend withdraw", "--reason")})
+
+    def test_a_fabricated_flag_that_does_not_exist_is_caught(self):
+        """The seeded-miss proof end to end: a fabricated refusal naming a real verb but an invented
+        flag must fail the real check, not merely be extracted correctly."""
+        import program_manager
+        parser = program_manager.build_parser()
+        program_action = next(
+            action for action in parser._subparsers._group_actions[0].choices["program"]._actions
+            if hasattr(action, "choices") and action.choices)
+        node = self._resolve_program_verb_path(program_action, "add")
+        available = {option for action in node._actions for option in action.option_strings}
+        self.assertNotIn("--nonexistent-flag", available)
 
     def test_the_sweep_reads_every_module_that_writes_a_refusal(self):
         """The scope of the guard is itself asserted, so narrowing it cannot pass unnoticed."""
@@ -2568,6 +2780,827 @@ class NoRefusalSendsYouAtADoorThatRefuses(_Program):
         # While the actual shipped message — two routes, each ending at its own open door — passes.
         sound = plan_program.way_through_for("pln_x", "active", True)
         self._assert_no_dead_end(sound, "pln_x", "active")
+
+    # -- S9: the same matrix, with a live unclaimed intent recorded on the program ---------------
+    #
+    # Every refusal above still applies unchanged; what these two prove is that when the program
+    # ALSO carries a recorded intent nobody has claimed, the extra step is said — not just on the
+    # two doors it was demonstrated on, but on every named refusal these matrices already exhaust.
+    # `outside_intent` is passed on every join in this pair purely to clear S2's own gate, so what
+    # fails or passes here is governed by the SAME edge-two logic the plain matrix already covers.
+
+    def test_inserts_edge_two_refusal_names_the_intent_note_too(self):
+        for index, status in enumerate(self.STATUSES):
+            with self.subTest(status=status):
+                slug = self._program(f"Matrix insert intent {index}", "Every status, with an intent.")
+                first = f"pln_00000000e{index}01"
+                displaced = f"pln_00000000e{index}02"
+                newcomer = f"pln_00000000e{index}03"
+                self._plan(first, "First")
+                self.programs.add_child(slug, first)
+                self.programs.add_intent(slug, "later-step", "Later step",
+                                         "Something meant for later", [])
+                self._plan(displaced, "Displaced", predecessor=first)
+                self.programs.add_child(slug, displaced, predecessor=first,
+                                        outside_intent="not the recorded step")
+                self._put_in_status(displaced, status)
+                self._plan(newcomer, "Newcomer",
+                           _obligation("OB-NEW", "The displaced child must answer for this."))
+                try:
+                    self.programs.insert_child(slug, newcomer, before=displaced,
+                                               outside_intent="not the recorded step either")
+                except plan_program.ProgramError as refusal:
+                    message = str(refusal)
+                    self._assert_no_dead_end(message, displaced, status)
+                    # The note is scoped to the two doors that route through `program add --after`
+                    # / `program insert` — `way_through_for`'s `active` and `complete` branches, and
+                    # the standalone displaced-complete raise. The `sealed` and open-draft branches
+                    # name `program supersede` / a plain revision, which the intended order has
+                    # nothing to say about, so the note must NOT appear there either.
+                    if status in ("active", "complete"):
+                        self.assertIn(plan_program.INTENT_JOIN_NOTE, message,
+                                     f"a recorded intent must be disclosed on this refusal too "
+                                     f"(status={status}):\n{message}")
+                    else:
+                        self.assertNotIn(plan_program.INTENT_JOIN_NOTE, message,
+                                        f"this door names supersede or a plain revision, which the "
+                                        f"intended order has nothing to say about (status={status})")
+
+    def test_supersedes_edge_two_refusal_names_the_intent_note_too(self):
+        for index, status in enumerate(self.STATUSES):
+            with self.subTest(status=status):
+                slug = self._program(f"Matrix supersede intent {index}",
+                                     "Every status, with an intent.")
+                first = f"pln_00000000f{index}01"
+                target = f"pln_00000000f{index}02"
+                downstream = f"pln_00000000f{index}03"
+                replacement = f"pln_00000000f{index}04"
+                self._plan(first, "First")
+                self.programs.add_child(slug, first)
+                self.programs.add_intent(slug, "later-step", "Later step",
+                                         "Something meant for later", [])
+                self._plan(target, "The one being replaced", predecessor=first)
+                self.programs.add_child(slug, target, predecessor=first,
+                                        outside_intent="not the recorded step")
+                self._plan(downstream, "Downstream", predecessor=target)
+                self.programs.add_child(slug, downstream, predecessor=target,
+                                        outside_intent="not the recorded step either")
+                self._put_in_status(downstream, status)
+                self._plan(replacement, "Replacement",
+                           _obligation("OB-NEW", "Whoever follows must answer for this."))
+                target_slug = self.plans.resolve(target)
+                digest = self.plans.read_record(target_slug)["current"]["plan_digest"]
+                self.plans.update_record(target_slug, lambda r: r.update({"seal": {
+                    "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+                    "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z",
+                    "delta_judgment": "none"}}))
+                self.plans.update_record(target_slug, lambda r: r.update({"closure": {
+                    "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "replaced"}}))
+                try:
+                    self.programs.mark_superseded(slug, target, replacement)
+                except plan_program.ProgramError as refusal:
+                    message = str(refusal)
+                    self._assert_no_dead_end(message, downstream, status)
+                    if status in ("active", "complete"):
+                        self.assertIn(plan_program.INTENT_JOIN_NOTE, message,
+                                     f"a recorded intent must be disclosed on this refusal too "
+                                     f"(status={status}):\n{message}")
+                    else:
+                        self.assertNotIn(plan_program.INTENT_JOIN_NOTE, message,
+                                        f"this door names supersede or a plain revision, which the "
+                                        f"intended order has nothing to say about (status={status})")
+
+
+class IntendedSchema(_Program):
+    """The schema pins the intended block's shape; the code pins what the schema cannot express."""
+
+    def _record_with_intended(self, intended=None, intended_history=None, closure=None):
+        slug = self._program("Schema", "Pin the intended block.")
+        record = self.programs.read(slug)
+        if intended is not None:
+            record["intended"] = intended
+        if intended_history is not None:
+            record["intended_history"] = intended_history
+        if closure is not None:
+            record["closure"] = closure
+        return slug, record
+
+    def _assert_refused(self, **kwargs):
+        slug, record = self._record_with_intended(**kwargs)
+        with self.assertRaises(plan_store.PlanStoreError):
+            self.programs._write(slug, record)
+
+    def test_a_record_with_no_intended_block_validates_unchanged(self):
+        slug = self._program("Untouched", "Never uses intended at all.")
+        record = self.programs.read(slug)   # read() already validates; must not raise
+        self.assertNotIn("intended", record)
+
+    def test_a_well_formed_intent_and_history_event_validate(self):
+        slug, record = self._record_with_intended(
+            intended=[{"key": "the-step", "title": "The step", "statement": "Build it",
+                      "after": [{"ref": "pln_a00000000001", "reason": "code dependency"}],
+                      "added_at": "2026-01-01T00:00:00Z",
+                      "claimed_by": "pln_a00000000001", "claimed_at": "2026-01-02T00:00:00Z"}],
+            intended_history=[{"kind": "outside-intent", "plan_id": "pln_a00000000001",
+                               "at": "2026-01-01T00:00:00Z", "reason": "not it"}])
+        self.programs._write(slug, record)   # does not raise
+        self.assertEqual(self.programs.read(slug)["intended"][0]["key"], "the-step")
+
+    def test_a_withdrawn_intent_validates(self):
+        slug, record = self._record_with_intended(
+            intended=[{"key": "dropped", "title": "Dropped", "statement": "Never mind", "after": [],
+                      "added_at": "2026-01-01T00:00:00Z",
+                      "withdrawn": {"at": "2026-01-02T00:00:00Z", "reason": "changed course"}}])
+        self.programs._write(slug, record)
+
+    def test_an_intent_needs_a_key(self):
+        self._assert_refused(intended=[{"title": "T", "statement": "S", "after": [],
+                                        "added_at": "2026-01-01T00:00:00Z"}])
+
+    def test_an_intent_key_cannot_look_like_a_plan_id(self):
+        self._assert_refused(intended=[{"key": "pln_a00000000001", "title": "T", "statement": "S",
+                                        "after": [], "added_at": "2026-01-01T00:00:00Z"}])
+
+    def test_an_after_edge_without_a_reason_is_refused(self):
+        self._assert_refused(intended=[{"key": "k", "title": "T", "statement": "S",
+                                        "after": [{"ref": "pln_a00000000001"}],
+                                        "added_at": "2026-01-01T00:00:00Z"}])
+
+    def test_a_withdrawn_entry_without_a_reason_is_refused(self):
+        self._assert_refused(intended=[{"key": "k", "title": "T", "statement": "S", "after": [],
+                                        "added_at": "2026-01-01T00:00:00Z",
+                                        "withdrawn": {"at": "2026-01-02T00:00:00Z"}}])
+
+    def test_a_revised_event_without_prior_is_refused(self):
+        self._assert_refused(intended_history=[{"kind": "revised", "key": "k",
+                                                 "at": "2026-01-01T00:00:00Z", "reason": "why"}])
+
+    def test_an_outside_intent_event_without_plan_id_is_refused(self):
+        self._assert_refused(intended_history=[{"kind": "outside-intent",
+                                                 "at": "2026-01-01T00:00:00Z", "reason": "why"}])
+
+    def test_an_unrecognized_event_kind_is_refused(self):
+        self._assert_refused(intended_history=[{"kind": "mystery", "at": "2026-01-01T00:00:00Z"}])
+
+    def test_closure_intents_left_needs_key_and_title(self):
+        self._assert_refused(closure={"state": "retired", "at": "2026-01-01T00:00:00Z",
+                                      "reason": "stopped", "intents_left": [{"key": "k"}]})
+
+    def test_a_well_formed_closure_intents_left_validates(self):
+        slug, record = self._record_with_intended(
+            closure={"state": "retired", "at": "2026-01-01T00:00:00Z", "reason": "stopped",
+                    "intents_left": [{"key": "k", "title": "T"}]})
+        self.programs._write(slug, record)
+
+
+class IntendedOrderRecord(_Program):
+    """S1: the intended order itself — add, revise, withdraw — before any child ever joins for it.
+    Every named refusal fires with its own message, and success writes exactly what was asked."""
+
+    def _slug(self):
+        return self._program("Intends", "A program that records what it means to build.")
+
+    # -- add_intent --------------------------------------------------------------------------
+
+    def test_add_intent_writes_a_well_formed_entry(self):
+        slug = self._slug()
+        record = self.programs.add_intent(slug, "the-step", "The step", "Build the thing", [])
+        entry = record["intended"][0]
+        self.assertEqual(entry["key"], "the-step")
+        self.assertEqual(entry["title"], "The step")
+        self.assertEqual(entry["statement"], "Build the thing")
+        self.assertNotIn("claimed_by", entry)
+
+    def test_add_intent_refuses_a_blank_key(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "needs a key"):
+            self.programs.add_intent(slug, "  ", "T", "S", [])
+
+    def test_add_intent_refuses_a_plan_id_shaped_key(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "not a valid intent key"):
+            self.programs.add_intent(slug, "pln_a00000000001", "T", "S", [])
+
+    def test_add_intent_refuses_a_blank_title(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "needs a title"):
+            self.programs.add_intent(slug, "k", "  ", "S", [])
+
+    def test_add_intent_refuses_a_blank_statement(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "needs a statement"):
+            self.programs.add_intent(slug, "k", "T", "  ", [])
+
+    def test_add_intent_refuses_a_duplicate_key(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        with self.assertRaisesRegex(plan_program.ProgramError, "already a recorded intent"):
+            self.programs.add_intent(slug, "k", "T2", "S2", [])
+
+    def test_add_intent_refuses_an_edge_with_no_reason(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "needs a reason"):
+            self.programs.add_intent(slug, "k", "T", "S", [{"ref": "other", "reason": ""}])
+
+    def test_add_intent_refuses_an_edge_to_nothing_recorded(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "nothing to follow"):
+            self.programs.add_intent(slug, "k", "T", "S",
+                                     [{"ref": "ghost", "reason": "a reason"}])
+
+    def test_add_intent_refuses_an_edge_to_a_withdrawn_intent(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "earlier", "Earlier", "S", [])
+        self.programs.withdraw_intent(slug, "earlier", "dropped it")
+        with self.assertRaisesRegex(plan_program.ProgramError, "was withdrawn"):
+            self.programs.add_intent(slug, "later", "Later", "S",
+                                     [{"ref": "earlier", "reason": "follows it"}])
+
+    def test_add_intent_refuses_a_closed_program(self):
+        slug = self._slug()
+        self.programs.close(slug, "retired", "stopping")
+        with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
+            self.programs.add_intent(slug, "k", "T", "S", [])
+
+    def test_add_intent_accepts_an_edge_to_a_stored_child(self):
+        slug = self._slug()
+        self._plan("pln_a00000000009", "Child A")
+        self.programs.add_child(slug, "pln_a00000000009")
+        record = self.programs.add_intent(slug, "k", "T", "S",
+                                          [{"ref": "pln_a00000000009", "reason": "code dependency"}])
+        self.assertEqual(record["intended"][0]["after"][0]["ref"], "pln_a00000000009")
+
+    # -- revise_intent ------------------------------------------------------------------------
+
+    def test_revise_intent_replaces_fields_and_keeps_the_prior_in_history(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "Old title", "Old statement", [])
+        record = self.programs.revise_intent(slug, "k", title="New title", reason="renamed it")
+        entry = record["intended"][0]
+        self.assertEqual(entry["title"], "New title")
+        self.assertEqual(entry["statement"], "Old statement")
+        event = record["intended_history"][0]
+        self.assertEqual(event["kind"], "revised")
+        self.assertEqual(event["prior"]["title"], "Old title")
+        self.assertEqual(event["reason"], "renamed it")
+
+    def test_revise_intent_requires_a_reason(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.revise_intent(slug, "k", title="T2", reason="  ")
+
+    def test_revise_intent_refuses_an_unknown_key(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "not a recorded intent"):
+            self.programs.revise_intent(slug, "ghost", title="T", reason="why")
+
+    def test_revise_intent_refuses_a_withdrawn_key(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self.programs.withdraw_intent(slug, "k", "dropped")
+        with self.assertRaisesRegex(plan_program.ProgramError, "nothing left to revise"):
+            self.programs.revise_intent(slug, "k", title="T2", reason="why")
+
+    def test_revise_intent_refuses_blanking_the_title(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        with self.assertRaisesRegex(plan_program.ProgramError, "cannot be blanked"):
+            self.programs.revise_intent(slug, "k", title="   ", reason="why")
+
+    def test_revise_intent_refuses_blanking_the_statement(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        with self.assertRaisesRegex(plan_program.ProgramError, "cannot be blanked"):
+            self.programs.revise_intent(slug, "k", statement="   ", reason="why")
+
+    def test_revise_intent_refuses_a_no_op(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        with self.assertRaisesRegex(plan_program.ProgramError, "already says"):
+            self.programs.revise_intent(slug, "k", title="T", reason="why")
+
+    def test_revise_intent_refuses_a_cycle(self):
+        """The only reachable path to a cycle: `add_intent` cannot create one (a forward-only ref
+        cannot name an intent that does not exist yet), but `revise_intent` can re-point an
+        EXISTING entry at something that already points back to it."""
+        slug = self._slug()
+        self.programs.add_intent(slug, "a", "A", "S", [])
+        self.programs.add_intent(slug, "b", "B", "S", [{"ref": "a", "reason": "after a"}])
+        with self.assertRaisesRegex(plan_program.ProgramError, "cycle"):
+            self.programs.revise_intent(slug, "a", after=[{"ref": "b", "reason": "after b"}],
+                                        reason="loop it")
+
+    def test_revise_intent_refuses_changing_edges_on_a_claimed_entry(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self._plan("pln_a00000000011", "Claimant")
+        self.programs.add_child(slug, "pln_a00000000011", fulfills="k")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.revise_intent(slug, "k", after=[{"ref": "x", "reason": "y"}], reason="why")
+        message = str(caught.exception)
+        self.assertIn("program insert --fulfills", message)
+        self.assertIn("program supersede", message)
+
+    def test_revise_intent_still_allows_title_and_statement_on_a_claimed_entry(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self._plan("pln_a00000000012", "Claimant")
+        self.programs.add_child(slug, "pln_a00000000012", fulfills="k")
+        record = self.programs.revise_intent(slug, "k", title="Renamed", reason="clearer wording")
+        self.assertEqual(record["intended"][0]["title"], "Renamed")
+
+    def test_revise_intent_refuses_a_closed_program(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self.programs.close(slug, "retired", "stopping")
+        with self.assertRaisesRegex(plan_program.ProgramError, "reopen it first"):
+            self.programs.revise_intent(slug, "k", title="T2", reason="why")
+
+    # -- withdraw_intent ----------------------------------------------------------------------
+
+    def test_withdraw_intent_marks_the_entry_withdrawn_and_keeps_it_visible(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        record = self.programs.withdraw_intent(slug, "k", "no longer needed")
+        entry = record["intended"][0]
+        self.assertEqual(entry["withdrawn"]["reason"], "no longer needed")
+        self.assertEqual(entry["key"], "k")   # still present, not removed
+
+    def test_withdraw_intent_requires_a_reason(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        with self.assertRaisesRegex(plan_program.ProgramError, "costs a reason"):
+            self.programs.withdraw_intent(slug, "k", "   ")
+
+    def test_withdraw_intent_refuses_an_unknown_key(self):
+        slug = self._slug()
+        with self.assertRaisesRegex(plan_program.ProgramError, "not a recorded intent"):
+            self.programs.withdraw_intent(slug, "ghost", "why")
+
+    def test_withdraw_intent_refuses_an_already_withdrawn_key(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self.programs.withdraw_intent(slug, "k", "first reason")
+        with self.assertRaisesRegex(plan_program.ProgramError, "already withdrawn"):
+            self.programs.withdraw_intent(slug, "k", "second reason")
+
+    def test_withdraw_intent_refuses_a_claimed_entry_naming_supersede(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self._plan("pln_a00000000013", "Claimant")
+        self.programs.add_child(slug, "pln_a00000000013", fulfills="k")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.withdraw_intent(slug, "k", "changed course")
+        message = str(caught.exception)
+        self.assertIn("pln_a00000000013", message)
+        self.assertIn("program supersede", message)
+
+    def test_withdraw_intent_refuses_an_entry_another_live_intent_depends_on(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "earlier", "Earlier", "S", [])
+        self.programs.add_intent(slug, "later", "Later", "S",
+                                 [{"ref": "earlier", "reason": "follows it"}])
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.withdraw_intent(slug, "earlier", "changed course")
+        self.assertIn("later", str(caught.exception))
+
+    def test_withdraw_intent_is_permitted_on_a_closed_program(self):
+        """Unlike add/revise, withdraw is a correction still allowed after closure — the same
+        allowance `release` and `revise_objective` already have."""
+        slug = self._slug()
+        self.programs.add_intent(slug, "k", "T", "S", [])
+        self.programs.close(slug, "retired", "stopping")
+        record = self.programs.withdraw_intent(slug, "k", "correcting the record")
+        self.assertEqual(record["intended"][0]["withdrawn"]["reason"], "correcting the record")
+
+
+class TheNextChildAnswersToTheIntendedOrder(_Program):
+    """S2: the join-time gate, a SECOND and independent check from the carry-forward guarantee.
+    Exercised mostly through `add_child`; one test proves `insert_child` answers to the identical
+    gate rather than a second copy of it."""
+
+    def test_a_program_with_no_intents_joins_exactly_as_before(self):
+        """The no-op case: with nothing recorded, the whole gate is invisible."""
+        slug = self._program("No intents here", "Never uses the intended order.")
+        self._plan("pln_b00000000001", "Child A")
+        record = self.programs.add_child(slug, "pln_b00000000001")
+        self.assertEqual(len(record["children"]), 1)
+        self.assertNotIn("intended", record)
+        self.assertNotIn("intended_history", record)
+
+    def test_joining_with_neither_door_is_refused_naming_both(self):
+        slug = self._program("Waiting intents", "Two intents, nobody has joined for either.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B", [])
+        self._plan("pln_b00000000002", "Newcomer")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.add_child(slug, "pln_b00000000002")
+        message = str(caught.exception)
+        self.assertIn("step-a", message)
+        self.assertIn("step-b", message)
+        self.assertIn("--fulfills", message)
+        self.assertIn("--outside-intent", message)
+
+    def test_fulfills_claims_the_named_intent(self):
+        slug = self._program("Claimed", "One intent, one claimant.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000003", "Claimant")
+        record = self.programs.add_child(slug, "pln_b00000000003", fulfills="step-a")
+        entry = record["intended"][0]
+        self.assertEqual(entry["claimed_by"], "pln_b00000000003")
+        self.assertTrue(entry["claimed_at"])
+
+    def test_outside_intent_records_the_event_and_leaves_intents_untouched(self):
+        slug = self._program("Outside", "One intent, an unrelated child joins.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000004", "Unrelated")
+        record = self.programs.add_child(slug, "pln_b00000000004",
+                                         outside_intent="a fix, not the step")
+        self.assertIsNone(record["intended"][0].get("claimed_by"))
+        event = record["intended_history"][0]
+        self.assertEqual(event["kind"], "outside-intent")
+        self.assertEqual(event["plan_id"], "pln_b00000000004")
+        self.assertEqual(event["reason"], "a fix, not the step")
+
+    def test_both_doors_at_once_is_refused(self):
+        slug = self._program("Both doors", "A child cannot both claim and stand outside.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000005", "Confused")
+        with self.assertRaisesRegex(plan_program.ProgramError, "never both"):
+            self.programs.add_child(slug, "pln_b00000000005", fulfills="step-a",
+                                    outside_intent="also this")
+
+    def test_out_of_order_reason_without_fulfills_is_refused(self):
+        slug = self._program("Priced alone", "The reason only means something beside a claim.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000006", "Newcomer")
+        with self.assertRaisesRegex(plan_program.ProgramError, "no claim here"):
+            self.programs.add_child(slug, "pln_b00000000006", outside_intent="fine",
+                                    out_of_order_reason="jumping ahead")
+
+    def test_claiming_out_of_order_without_a_reason_quotes_the_crossed_edges_own_reason(self):
+        slug = self._program("Order matters", "One intent follows another, unclaimed.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first for the schema"}])
+        self._plan("pln_b00000000007", "Jumps ahead")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.add_child(slug, "pln_b00000000007", fulfills="step-b")
+        message = str(caught.exception)
+        self.assertIn("step-a", message)
+        self.assertIn("A must land first for the schema", message)
+        self.assertIn("--out-of-order-reason", message)
+
+    def test_claiming_out_of_order_with_a_reason_records_the_crossed_edge(self):
+        slug = self._program("Order jumped deliberately", "Claimed out of the recorded order.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first for the schema"}])
+        self._plan("pln_b00000000008", "Jumps ahead deliberately")
+        record = self.programs.add_child(slug, "pln_b00000000008", fulfills="step-b",
+                                         out_of_order_reason="A's own owner is on leave")
+        by_key = {i["key"]: i for i in record["intended"]}
+        self.assertEqual(by_key["step-b"]["claimed_by"], "pln_b00000000008")
+        event = next(e for e in record["intended_history"] if e["kind"] == "claimed-out-of-order")
+        self.assertEqual(event["key"], "step-b")
+        self.assertEqual(event["crossed"][0]["ref"], "step-a")
+        self.assertEqual(event["reason"], "A's own owner is on leave")
+
+    def test_fulfills_an_unknown_key_is_refused(self):
+        slug = self._program("Unknown key", "No such intent recorded.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000009", "Newcomer")
+        with self.assertRaisesRegex(plan_program.ProgramError, "not a recorded intent"):
+            self.programs.add_child(slug, "pln_b00000000009", fulfills="ghost")
+
+    def test_fulfills_a_withdrawn_intent_is_refused(self):
+        slug = self._program("Withdrawn", "The intent was dropped before anyone claimed it.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.withdraw_intent(slug, "step-a", "dropped it")
+        self._plan("pln_b0000000000a", "Newcomer")
+        with self.assertRaisesRegex(plan_program.ProgramError, "nothing left to claim"):
+            self.programs.add_child(slug, "pln_b0000000000a", fulfills="step-a")
+
+    def test_fulfills_an_already_live_claimed_intent_is_refused(self):
+        slug = self._program("Already claimed", "A second claimant cannot take the same seat.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b0000000000b", "First claimant")
+        self.programs.add_child(slug, "pln_b0000000000b", fulfills="step-a")
+        self._plan("pln_b0000000000c", "Second claimant")
+        with self.assertRaisesRegex(plan_program.ProgramError, "already claimed"):
+            self.programs.add_child(slug, "pln_b0000000000c", predecessor="pln_b0000000000b",
+                                    fulfills="step-a")
+
+    def test_fulfills_reopens_a_dead_claim(self):
+        """S4's rule at the join door: a claim held by a plan that has since died releases the
+        intent back to a fresh claim, and the reopening is recorded."""
+        slug = self._program("Dead claim reopened", "The first claimant died before landing.")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b0000000000d", "First claimant")
+        self.programs.add_child(slug, "pln_b0000000000d", fulfills="step-a")
+        self.plans.update_record(self.plans.resolve("pln_b0000000000d"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        self._plan("pln_b0000000000e", "Second claimant", predecessor="pln_b0000000000d")
+        record = self.programs.add_child(slug, "pln_b0000000000e", predecessor="pln_b0000000000d",
+                                         fulfills="step-a")
+        self.assertEqual(record["intended"][0]["claimed_by"], "pln_b0000000000e")
+        event = next(e for e in record["intended_history"] if e["kind"] == "claim-reopened")
+        self.assertEqual(event["dead_plan_id"], "pln_b0000000000d")
+
+    def test_insert_child_answers_to_the_same_gate(self):
+        slug = self._program("Insert too", "Insert answers to the same gate add does.")
+        self._plan("pln_b00000000101", "First")
+        self.programs.add_child(slug, "pln_b00000000101")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_b00000000102", "Displaced", predecessor="pln_b00000000101")
+        self.programs.add_child(slug, "pln_b00000000102", predecessor="pln_b00000000101",
+                                outside_intent="not it")
+        self._plan("pln_b00000000103", "Inserted")
+        with self.assertRaises(plan_program.ProgramError) as caught:
+            self.programs.insert_child(slug, "pln_b00000000103", before="pln_b00000000102")
+        self.assertIn("step-a", str(caught.exception))
+        record = self.programs.insert_child(slug, "pln_b00000000103", before="pln_b00000000102",
+                                            fulfills="step-a")
+        self.assertEqual(record["intended"][0]["claimed_by"], "pln_b00000000103")
+
+
+class IntendedStandingDerivation(_Program):
+    """`intended_standing` is the ONE derivation `program show` and the portfolio format, matching
+    `lane_standing`'s precedent exactly: readiness is READ here, never derived, selected, ranked,
+    or advanced. These pin the data it returns; render tests (a later node) pin the formatters
+    over it.
+    """
+
+    def _slug(self):
+        return self._program("Intends", "A program with a recorded intended order.")
+
+    def test_no_intents_standing_returns_none(self):
+        slug = self._slug()
+        record = self.programs.read(slug)
+        self.assertIsNone(plan_program.intended_standing(record, self.programs.child_view(record)))
+
+    def test_two_intents_with_no_edge_between_them_are_both_ready_at_once(self):
+        """The partial order, proven: nothing here totalises two unordered intents into a rank."""
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B", [])
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        self.assertEqual(standing["ready_keys"], ["step-a", "step-b"])
+        for entry in standing["entries"]:
+            self.assertTrue(entry["ready"])
+            self.assertEqual(entry["waiting_on"], [])
+
+    def test_an_intent_following_an_unclaimed_intent_is_waiting_not_ready(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first"}])
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        self.assertEqual(standing["ready_keys"], ["step-a"])
+        entry_b = next(e for e in standing["entries"] if e["key"] == "step-b")
+        self.assertFalse(entry_b["ready"])
+        self.assertEqual(entry_b["waiting_on"], [{"ref": "step-a", "reason": "A must land first"}])
+
+    def test_a_claim_by_a_since_dead_plan_is_marked_a_dead_claim(self):
+        """S4: readiness reads LIVENESS. A claimant that died leaves its claim standing on the
+        record but marked dead — the shape that lets a fresh `--fulfills` reopen it at the join
+        door (proven separately in `TheNextChildAnswersToTheIntendedOrder`)."""
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_c00000000001", "Claimant")
+        self.programs.add_child(slug, "pln_c00000000001", fulfills="step-a")
+        self.plans.update_record(self.plans.resolve("pln_c00000000001"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        entry = standing["entries"][0]
+        self.assertTrue(entry["dead_claim"])
+        self.assertEqual(entry["claimer_status"], "retired")
+        # The dead claim reopens the intent: it is ready for a fresh claim, exactly as the join
+        # door and `completion_blockers` read it — the standing never disagrees with either.
+        self.assertTrue(entry["ready"])
+        self.assertEqual(standing["ready_keys"], ["step-a"])
+
+    def test_a_precedence_edge_naming_a_dead_child_is_not_satisfied(self):
+        slug = self._slug()
+        self._plan("pln_c00000000002", "Child A")
+        self.programs.add_child(slug, "pln_c00000000002")
+        self.plans.update_record(self.plans.resolve("pln_c00000000002"), lambda r: r.update({
+            "closure": {"state": "abandoned", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A",
+                                 [{"ref": "pln_c00000000002", "reason": "must land first"}])
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        entry = standing["entries"][0]
+        self.assertFalse(entry["ready"])
+        self.assertEqual(entry["waiting_on"],
+                         [{"ref": "pln_c00000000002", "reason": "must land first"}])
+
+    def test_ready_keys_are_a_stable_label_sorted_by_key_not_a_rank(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "zeta", "Zeta", "Last alphabetically", [])
+        self.programs.add_intent(slug, "alpha", "Alpha", "First alphabetically", [])
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        self.assertEqual(standing["ready_keys"], ["alpha", "zeta"])   # sorted, not insertion order
+
+    def test_a_claim_whose_actual_predecessor_disagrees_with_the_declared_edge_reports_a_discrepancy(
+            self):
+        slug = self._slug()
+        self._plan("pln_c00000000010", "Some other child")
+        self.programs.add_child(slug, "pln_c00000000010")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A",
+                                 [{"ref": "pln_c00000000010", "reason": "declared precedence"}])
+        self.programs.add_intent(slug, "step-elsewhere", "Elsewhere", "Unrelated", [])
+        self._plan("pln_c00000000011", "Claimant with a different actual predecessor")
+        self.programs.add_child(slug, "pln_c00000000011", predecessor="pln_c00000000010",
+                                fulfills="step-a")
+        record = self.programs.read(slug)
+        # Forge a disagreement directly: the recorded edge no longer names what the claim
+        # actually succeeds on the chain -- the shape `intended_standing`'s discrepancy note
+        # exists to catch, and that shape has no verb producing it honestly.
+        record["intended"][0]["after"] = [{"ref": "step-elsewhere", "reason": "a different reason"}]
+        self.programs._write(slug, record)
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        entry = next(e for e in standing["entries"] if e["key"] == "step-a")
+        self.assertIsNotNone(entry["discrepancy"])
+        self.assertIn("pln_c00000000010", entry["discrepancy"])
+
+    def test_last_movement_sees_intent_activity(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        record = self.programs.read(slug)
+        record["intended"][0]["added_at"] = "2099-01-01T00:00:00Z"
+        self.programs._write(slug, record)
+        self.assertEqual(plan_program.last_movement(self.programs.read(slug)), "2099-01-01")
+
+    def test_last_movement_sees_intent_history_activity(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        record = self.programs.read(slug)
+        record.setdefault("intended_history", []).append(
+            {"kind": "outside-intent", "plan_id": "pln_c00000000009",
+             "at": "2099-06-01T00:00:00Z", "reason": "later than anything else"})
+        self.programs._write(slug, record)
+        self.assertEqual(plan_program.last_movement(self.programs.read(slug)), "2099-06-01")
+
+
+class IntendedRender(_Program):
+    """`program show` (via plan_program.render) tells the truth about the recorded intended order —
+    the same precedent `LaneRender` sets for the decided lane split: a thin FORMATTER over
+    `intended_standing`, which owns every truth rule, so nothing here re-derives readiness or a
+    claim's status. A section only when a program has recorded intent at all; the fixed sentence
+    pinned byte-for-byte; and a history block naming every event kind."""
+
+    def _slug(self):
+        return self._program("Render", "A program with a recorded intended order.")
+
+    def _seal(self, plan_id):
+        plan_slug = self.plans.resolve(plan_id)
+        digest = self.plans.read_record(plan_slug)["current"]["plan_digest"]
+        self.plans.update_record(plan_slug, lambda r: r.update({"seal": {
+            "revision": 1, "reviewed_digest": digest, "sealed_digest": digest,
+            "build_plan_digest": digest, "at": "2026-08-29T03:00:00Z", "delta_judgment": "none"}}))
+
+    def _retire(self, plan_id, reason="replaced"):
+        self._seal(plan_id)
+        self.plans.update_record(self.plans.resolve(plan_id), lambda r: r.update({"closure": {
+            "state": "retired", "at": "2026-08-29T06:00:00Z", "reason": reason}}))
+
+    def test_no_section_without_any_recorded_intent(self):
+        slug = self._program("Untouched", "Never records an intent.")
+        self._plan("pln_d00000000001", "Child A")
+        self.programs.add_child(slug, "pln_d00000000001")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertNotIn("## Intended, not yet authored", rendered)
+
+    def test_next_intended_names_every_ready_entry(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B", [])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("## Intended, not yet authored", rendered)
+        self.assertIn("- **Next intended**: step-a — Step A; step-b — Step B", rendered)
+
+    def test_next_intended_says_none_recorded_when_nothing_is_ready(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_d00000000002", "Claimant")
+        self.programs.add_child(slug, "pln_d00000000002", fulfills="step-a")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("- **Next intended**: none recorded", rendered)
+
+    def test_every_rendered_edge_shows_its_reason(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first for the schema"}])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("follows step-a — A must land first for the schema", rendered)
+
+    def test_a_claimed_entry_names_its_claimant_and_status(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_d00000000003", "Claimant")
+        self.programs.add_child(slug, "pln_d00000000003", fulfills="step-a")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("Claimed by `pln_d00000000003` (draft).", rendered)
+
+    def test_a_dead_claim_is_marked(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self._plan("pln_d00000000004", "Claimant")
+        self.programs.add_child(slug, "pln_d00000000004", fulfills="step-a")
+        self.plans.update_record(self.plans.resolve("pln_d00000000004"), lambda r: r.update({
+            "closure": {"state": "retired", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("a DEAD claim: open to a fresh `--fulfills` again.", rendered)
+
+    def test_a_discrepancy_is_rendered(self):
+        slug = self._slug()
+        self._plan("pln_d00000000010", "Some other child")
+        self.programs.add_child(slug, "pln_d00000000010")
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A",
+                                 [{"ref": "pln_d00000000010", "reason": "declared precedence"}])
+        self.programs.add_intent(slug, "step-elsewhere", "Elsewhere", "Unrelated", [])
+        self._plan("pln_d00000000011", "Claimant with a different actual predecessor")
+        self.programs.add_child(slug, "pln_d00000000011", predecessor="pln_d00000000010",
+                                fulfills="step-a")
+        record = self.programs.read(slug)
+        record["intended"][0]["after"] = [{"ref": "step-elsewhere", "reason": "a different reason"}]
+        self.programs._write(slug, record)
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("_Discrepancy_:", rendered)
+        self.assertIn("pln_d00000000010", rendered)
+
+    def test_a_withdrawn_entry_stays_visible_with_its_reason(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.withdraw_intent(slug, "step-a", "changed course")
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("step-a", rendered)
+        self.assertIn("(withdrawn 2026-", rendered)
+        self.assertIn("changed course", rendered)
+
+    def test_the_fixed_sentence_is_exact(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn(
+            "_The intended order is declared, never derived. Nothing here selects, starts, or "
+            "advances a child._", rendered)
+
+    def test_history_block_renders_every_event_kind(self):
+        slug = self._slug()
+        self.programs.add_intent(slug, "step-a", "Step A", "Build A", [])
+        self.programs.add_intent(slug, "step-b", "Step B", "Build B",
+                                 [{"ref": "step-a", "reason": "A must land first"}])
+        self.programs.add_intent(slug, "step-c", "Step C", "Build C", [])
+        self.programs.revise_intent(slug, "step-b", title="Step B renamed", reason="clearer wording")
+
+        # claimed-out-of-order: step-b jumps ahead of step-a, which is still unclaimed.
+        self._plan("pln_d00000000020", "Jumps ahead of A")
+        self.programs.add_child(slug, "pln_d00000000020", fulfills="step-b",
+                                out_of_order_reason="A's owner is on leave")
+
+        # outside-intent: a plan recorded outside the recorded order entirely.
+        self._plan("pln_d00000000021", "Outside the order", predecessor="pln_d00000000020")
+        self.programs.add_child(slug, "pln_d00000000021", predecessor="pln_d00000000020",
+                                outside_intent="a fix, not the step")
+
+        # claim-reopened: step-c is claimed, its claimant dies, a fresh --fulfills reopens it.
+        self._plan("pln_d00000000022", "First claimant of C", predecessor="pln_d00000000021")
+        self.programs.add_child(slug, "pln_d00000000022", predecessor="pln_d00000000021",
+                                fulfills="step-c")
+        self._retire("pln_d00000000022")
+        self._plan("pln_d00000000024", "Second claimant of C", predecessor="pln_d00000000021")
+        self.programs.add_child(slug, "pln_d00000000024", predecessor="pln_d00000000021",
+                                fulfills="step-c")
+
+        # claim-transferred: step-a is claimed, then that claimant is superseded in place.
+        self._plan("pln_d00000000025", "Claimant of A", predecessor="pln_d00000000024")
+        self.programs.add_child(slug, "pln_d00000000025", predecessor="pln_d00000000024",
+                                fulfills="step-a")
+        self._retire("pln_d00000000025")
+        self._plan("pln_d00000000026", "Replacement claimant of A")
+        self.programs.mark_superseded(slug, "pln_d00000000025", "pln_d00000000026")
+
+        rendered = plan_program.render(self.programs, self.programs.read(slug))
+        self.assertIn("## How the intended order has been revised", rendered)
+        self.assertIn("**step-b** revised", rendered)
+        self.assertIn("Previously: Step B — Build B", rendered)
+        self.assertIn("**step-b** claimed out of order by `pln_d00000000020`", rendered)
+        self.assertIn("A's owner is on leave", rendered)
+        self.assertIn("`pln_d00000000021` recorded outside the intended order", rendered)
+        self.assertIn("a fix, not the step", rendered)
+        self.assertIn("**step-c**'s claim reopened", rendered)
+        self.assertIn("`pln_d00000000022` died holding it", rendered)
+        self.assertIn("**step-a**'s claim transferred from `pln_d00000000025` to "
+                      "`pln_d00000000026`", rendered)
 
 
 class LaneRecord(_Program):
@@ -3545,6 +4578,7 @@ class LaneStandingDerivation(_Program):
 _DOCTRINE_ROOT = Path(__file__).resolve().parents[2]
 _DOCTRINE_RUNBOOK = _DOCTRINE_ROOT / ".engine/operations/program-orchestration.md"
 _DOCTRINE_SKILL = _DOCTRINE_ROOT / ".claude/skills/engine-manage-programs/SKILL.md"
+_DOCTRINE_CODEX_SKILL = _DOCTRINE_ROOT / ".agents/skills/engine-manage-programs/SKILL.md"
 
 
 class TheRecognitionSkillFiresOnBothRegisters(unittest.TestCase):
@@ -3617,10 +4651,17 @@ class TheProgramRunbookCarriesJudgmentNotSequence(unittest.TestCase):
                 f"step heading {heading!r} is too bare to carry judgment — a multi-word phrase "
                 "is what separates a step from a verb label")
 
+    def test_it_carries_the_intended_order_judgment(self):
+        self.assertIn("intended", self.lower)
+        self.assertIn("never sealed", self.lower)
+        self.assertIn("never derived", self.lower)
+        self.assertIn("evidence gate", self.lower)
+        self.assertIn("before authoring", self.lower)
+
     def test_neither_shipped_doctrine_file_names_a_repository_specific_reference(self):
         # The citation bound: runbook and skill ship to every Engine project, so they carry
         # de-identified PATTERNS only — no issue number, program/plan id, milestone, or session id.
-        for path in (_DOCTRINE_RUNBOOK, _DOCTRINE_SKILL):
+        for path in (_DOCTRINE_RUNBOOK, _DOCTRINE_SKILL, _DOCTRINE_CODEX_SKILL):
             text = path.read_text(encoding="utf-8")
             self.assertEqual(re.findall(r"#\d+", text), [], f"{path.name} names an issue number")
             self.assertEqual(re.findall(r"pln_[0-9a-f]+|prg_[0-9a-f]+", text), [],

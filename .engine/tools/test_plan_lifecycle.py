@@ -179,6 +179,36 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
                 lenses=["architecture", "feasibility"])
         self.assertIn("carry no lens of their own", str(caught.exception))
 
+    def test_persona_location_object_with_line_renders_as_file_colon_line(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": 42}}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "path/to/file.py:42")
+
+    def test_persona_location_object_without_line_renders_as_file_path(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py"}}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "path/to/file.py")
+
+    def test_persona_location_object_with_null_line_renders_as_file_path(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": None}}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "path/to/file.py")
+
+    def test_persona_null_location_renders_as_the_plan_as_a_whole(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": None}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "the plan as a whole")
+
+    def test_persona_string_location_passes_through_unchanged(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": "some location string"}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "some location string")
+
 
 class D11DepthChoiceClosesAtTheSeal(unittest.TestCase):
     """One predicate says when a review depth can no longer be chosen, and it says WHY
