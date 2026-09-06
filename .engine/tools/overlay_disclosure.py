@@ -319,7 +319,35 @@ def _is_engine_authored(event: dict) -> bool:
     return head_ref in _ENGINE_AUTHORED_BRANCH_EXACT or head_ref.startswith(_ENGINE_AUTHORED_BRANCH_PREFIXES)
 
 
-def main() -> int:
+_USAGE = ("usage: overlay_disclosure.py [--help]\n"
+          "  The engine-overlay-disclosure notice: run bare by .github/workflows/engine-overlay-disclosure.yml on a\n"
+          "  pull request, it reads the event and POSTS OR EDITS a comment on that pull request naming the engine\n"
+          "  files the next update would overwrite. A bare run performs that action; --help / -h is the only\n"
+          "  safe probe, and it prints this text and exits before any environment variable, token or event is\n"
+          "  read. It takes no other argument.")
+
+
+def _help_or_reject(argv: list) -> "int | None":
+    """The #594 guard, first in main(): --help / -h anywhere prints usage and returns 0; any other argument
+    (a flag or a bare word — the tool takes none) prints usage to stderr and returns 2. None means proceed."""
+    if "--help" in argv or "-h" in argv:
+        print(_USAGE)
+        return 0
+    if argv:
+        print(_USAGE, file=sys.stderr)
+        print(f"overlay_disclosure.py: unknown argument {argv[0]!r}", file=sys.stderr)
+        return 2
+    return None
+
+
+def main(argv: "list | None" = None) -> int:
+    # `argv` is the command line AFTER the script name; None (or an omitted argument) means NO arguments,
+    # never sys.argv — only the __main__ block supplies sys.argv[1:], so a direct caller that passes nothing
+    # asks for the no-argument path. This guard is the first statement on purpose (StarshipSuperjam/engine-template#807):
+    # nothing below it may run for a probe.
+    early = _help_or_reject(list(argv or []))
+    if early is not None:
+        return early
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     token = boot.gh_token() or ""
     event = _load_event()
@@ -363,4 +391,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

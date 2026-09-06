@@ -271,9 +271,28 @@ def _demo() -> int:
     return 0
 
 
-def main(argv: list) -> int:
-    if argv and argv[0] == "demo":
+_USAGE = ("usage: issue_conformance_ci.py [demo] [--help]\n"
+          "  The engine-Issue conformance backstop: run bare by .github/workflows/engine-issue-conformance.yml on\n"
+          "  an Issue event, it reads the event and, for a malformed engine-labelled Issue, WRITES to GitHub —\n"
+          "  applies the needs-reauthoring label and posts an advisory comment (and removes the label once the\n"
+          "  body conforms). A bare run performs that action; --help / -h prints this text and exits before any\n"
+          "  environment variable, token or event is read; `demo` walks recorded fakes and touches nothing.")
+
+
+def main(argv: "list | None" = None) -> int:
+    # The #594 guard, first on purpose (StarshipSuperjam/engine-template#807): --help / -h anywhere prints
+    # usage and exits 0; `demo` is the only verb; anything else — a flag or a bare word — prints usage to
+    # stderr and exits 2 without reaching the write path. None means no arguments, never sys.argv.
+    argv = list(argv or [])
+    if "--help" in argv or "-h" in argv:
+        print(_USAGE)
+        return 0
+    if argv and argv[0] == "demo" and len(argv) == 1:
         return _demo()
+    if argv:
+        print(_USAGE, file=sys.stderr)
+        print(f"issue_conformance_ci.py: unknown argument {argv[0]!r}", file=sys.stderr)
+        return 2
     return _run()
 
 
