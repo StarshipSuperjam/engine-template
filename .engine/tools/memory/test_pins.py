@@ -106,6 +106,20 @@ class PinTests(_Base):
                 pins.add(bad)
         self.assertEqual([r for r in ledger.iter_records() if r.get("kind") == records.PIN_KIND], [])
 
+    def test_an_unexpected_write_fault_is_refused_without_its_text_and_kept_as_raw_detail(self):
+        # The catch-all used to splice the underlying exception into the operator sentence (#1196).
+        from unittest import mock
+        raw = "disk went away at /Users/someone/.engine/memory/ledger.ndjson"
+        with mock.patch.object(ledger, "append", side_effect=OSError(raw)):
+            with self.assertRaises(pins.PinRefused) as caught:
+                pins.add("a pin that cannot land")
+        message = str(caught.exception)
+        self.assertNotIn(raw, message)
+        self.assertNotIn("/Users", message)
+        self.assertIn("nothing was saved", message)
+        self.assertIn("/engine-status", message)
+        self.assertEqual(caught.exception.raw_detail, raw)
+
     def test_an_over_long_pin_is_refused_rather_than_truncated(self):
         with self.assertRaises(pins.PinRefused) as caught:
             pins.add("y" * (pins.MAX_PIN_CHARS + 1))

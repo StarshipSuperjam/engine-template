@@ -72,7 +72,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import ledger, records  # noqa: E402
+from memory import ledger, records, refusals  # noqa: E402
 
 def _closed_batches(src: str) -> set:
     """The set of `batch` ids that a *completed* pass closed — i.e. carried by a `consolidated` marker."""
@@ -286,7 +286,7 @@ def is_withheld(record, withheld_ids: set, withheld_sessions: set) -> bool:
     return False
 
 
-class ControlNotRecorded(RuntimeError):
+class ControlNotRecorded(refusals.EngineRefusal, RuntimeError):
     """A withhold or restore could not be written. Carries the plain-language reason.
 
     This RAISES rather than degrading quietly, because a missed withhold is the operator's instruction not
@@ -412,7 +412,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         raise ControlNotRecorded(
             "another memory write is in progress, so nothing was changed. Try again in a moment."
             if writable else
-            f"memory could not be written to ({data_dir} is not writable), so nothing was changed. This will "
+            "memory could not be written to (the memory folder is not writable), so nothing was changed. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
     try:
@@ -435,7 +435,8 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
     except _mutation_authority.MutationAuthorityError as exc:
         raise _authority_refused(exc) from exc
     except Exception as exc:
-        raise ControlNotRecorded(f"the change could not be saved ({exc}).") from exc
+        raise ControlNotRecorded("the change could not be saved — an internal memory-write step did not complete, "
+                                 "so nothing was changed. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
 

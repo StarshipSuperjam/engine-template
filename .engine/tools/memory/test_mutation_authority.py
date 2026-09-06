@@ -195,7 +195,7 @@ class ConvertedCallGraphTests(unittest.TestCase):
         env.pop(execution_context.CONTEXT_ENV, None)
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+        self.assertEqual(result.stdout.strip(), "MutationRefusal False")
 
     def test_a_compiled_frame_claiming_a_test_filename_has_no_test_authority(self):
         script = (
@@ -211,7 +211,7 @@ class ConvertedCallGraphTests(unittest.TestCase):
         env.pop(execution_context.CONTEXT_ENV, None)
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+        self.assertEqual(result.stdout.strip(), "MutationRefusal False")
 
     def test_a_fabricated_module_cannot_borrow_a_real_test_source_path(self):
         script = (
@@ -229,7 +229,7 @@ class ConvertedCallGraphTests(unittest.TestCase):
         env.pop(execution_context.CONTEXT_ENV, None)
         result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+        self.assertEqual(result.stdout.strip(), "MutationRefusal False")
 
     def test_an_untracked_real_test_module_cannot_obtain_context_free_authority(self):
         candidate = TOOLS / "test_untracked_candidate_authority.py"
@@ -256,7 +256,7 @@ class ConvertedCallGraphTests(unittest.TestCase):
         finally:
             candidate.unlink(missing_ok=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "MutationAuthorityError False")
+        self.assertEqual(result.stdout.strip(), "MutationRefusal False")
 
     def test_the_compiled_source_cache_is_keyed_on_the_bytes_and_admits_no_stale_answer(self):
         """The one risk the compile cache introduces, pinned.
@@ -1336,6 +1336,68 @@ class ReadBindingTests(unittest.TestCase):
         self.assertIsNone(execution_context._CURRENT_CONTEXT)
         if binding.context is not None:
             self.assertFalse(execution_context._is_authorized_context(binding.context))
+
+class WriteRefusalWordingTests(unittest.TestCase):
+    """#1211: every write refusal says what held the write, that nothing changed, what READS do under the same
+    class (true for its branch), then the one restart action and the one escalation pointer reads share."""
+
+    MOVED = (execution_context.ActivationStale, execution_context.AcceptedTreeStale)
+    UNBOUND = (execution_context.ArtifactUnreadable, execution_context.StoreIdentityStale,
+               execution_context.BackupPointerStale, execution_context.ContextError)
+
+    def test_the_four_sentences_pinned_word_for_word(self):
+        from memory import refusals
+        tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
+        self.assertEqual(mutation_authority._stale_refusal(execution_context.ActivationStale("x")),
+                         "This project moved to a new commit while this memory server was running, so its write "
+                         "context no longer matches the project on disk. Nothing was changed, and writing stays held "
+                         "until the server restarts. Recall keeps working, and every read answer says how it was "
+                         "resolved." + tail)
+        self.assertEqual(mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
+                         "A memory file on disk could not be read, so writing is held and nothing was changed - a "
+                         "problem with the store on disk, not with what is saved in it. Reads from this store are "
+                         "held too, and each read answer says so." + tail)
+        self.assertEqual(mutation_authority._stale_refusal(execution_context.StoreIdentityStale("x")),
+                         "The memory store under this session is not the one it was bound to, so writing is held and "
+                         "nothing was changed. Reads from this store are held too, and each read answer says so." + tail)
+        self.assertEqual(mutation_authority._stale_refusal(execution_context.ContextError("x")),
+                         "This session's memory context could not be confirmed against the store, so writing is held "
+                         "and nothing was changed. Reads from this store are held too, and each read answer says so."
+                         + tail)
+        self.assertEqual(mutation_authority._stale_refusal(execution_context.AcceptedTreeStale("x")),
+                         mutation_authority._stale_refusal(execution_context.ActivationStale("x")))
+        self.assertEqual(mutation_authority._stale_refusal(execution_context.BackupPointerStale("x")),
+                         mutation_authority._stale_refusal(execution_context.StoreIdentityStale("x")))
+
+    def test_the_recall_clause_is_true_for_its_branch_and_every_sentence_is_content_free(self):
+        from memory import refusals
+        raw = "/Users/someone/project sha256:" + "a" * 64 + " commit deadbeef fingerprint 0x1234"
+        for klass in self.MOVED + self.UNBOUND:
+            with self.subTest(klass=klass.__name__):
+                sentence = mutation_authority._stale_refusal(klass(raw))
+                self.assertIn(refusals.RESTART_ACTION, sentence)
+                self.assertIn(refusals.ESCALATION, sentence)
+                self.assertNotIn("/", sentence.split("/engine-status")[0].replace("/engine-status", ""))
+                for leak in ("fingerprint", "deadbeef", "a" * 64, "/Users"):
+                    self.assertNotIn(leak, sentence)
+                if klass in self.MOVED:
+                    self.assertIn("Recall keeps working", sentence)
+                else:
+                    self.assertIn("Reads from this store are held too", sentence)
+                    self.assertNotIn("Recall keeps working", sentence)
+
+    def test_the_re_seal_and_lock_refusals_are_operator_sentences_without_a_path(self):
+        from memory import refusals
+        import inspect
+        source = inspect.getsource(mutation_authority)
+        for fragment in ("memory binding shifted while its write context was being",
+                         "cannot take the advisory file lock", "lock file is not an ordinary file",
+                         "lock could not be taken"):
+            self.assertIn(fragment, source)
+        self.assertNotIn("persistent store authority lock is unavailable", source)
+        self.assertTrue(issubclass(mutation_authority.MutationRefusal, refusals.EngineRefusal))
+        self.assertTrue(issubclass(mutation_authority.MutationRefusal, mutation_authority.MutationAuthorityError))
+
 
 if __name__ == "__main__":
     unittest.main()

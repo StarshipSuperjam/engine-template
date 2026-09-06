@@ -37,10 +37,11 @@ from contextvars import ContextVar
 from contextlib import contextmanager
 
 try:  # package import in production
-    from . import execution_context, mutation_contract
+    from . import execution_context, mutation_contract, refusals
 except ImportError:  # direct memory-module CLI import
     import execution_context  # type: ignore
     import mutation_contract  # type: ignore
+    import refusals  # type: ignore
 
 try:
     import fcntl
@@ -49,7 +50,17 @@ except ImportError:  # pragma: no cover - POSIX is the current Engine floor
 
 
 class MutationAuthorityError(RuntimeError):
-    """A persistent call lacked exact context, lock, target, or capability authority."""
+    """A persistent call lacked exact context, lock, target, or capability authority.
+
+    The plain type carries the invariant and tamper failures (measured cardinality, target escapes, capability
+    misuse, guard installation) - engine faults whose text may name a writer or a path and is NOT for the
+    operator. The refusals written to be read by the operator raise `MutationRefusal` below instead."""
+
+
+class MutationRefusal(refusals.EngineRefusal, MutationAuthorityError):
+    """A write refused with a sentence written for the operator: the qualification refusal, every stale-context
+    refusal, the re-seal refusal, and the three lock refusals (which name no path and say what the machine
+    lacks). Raised nowhere else; the MCP seam translates exactly this."""
 
 
 _THREAD = threading.local()
@@ -584,19 +595,25 @@ def _consume(context, entry: dict, measured: int, supplied=None):
 
 def _open_store_lock(context):
     if fcntl is None:
-        raise MutationAuthorityError("persistent mutation authority requires POSIX advisory locking")
+        raise MutationRefusal("This machine's Python cannot take the advisory file lock memory writes need "
+                              "(no POSIX locking), so writing is held and nothing was changed. Recall keeps "
+                              "working. " + refusals.ESCALATION)
     lock_path = context["target"]["lifecycle"]["store_identity_lock"]
     try:
         info = os.lstat(lock_path)
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            raise MutationAuthorityError("persistent store authority lock is not a regular file")
+            raise MutationRefusal("The memory store's lock file is not an ordinary file, so writing is held and "
+                                  "nothing was changed - something replaced it on disk. Recall keeps working. "
+                                  + refusals.ESCALATION)
         handle = open(lock_path, "r", encoding="utf-8")
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         return handle
     except MutationAuthorityError:
         raise
     except OSError as exc:
-        raise MutationAuthorityError("persistent store authority lock is unavailable") from exc
+        raise MutationRefusal("The memory store's lock could not be taken, so writing is held and nothing was "
+                              "changed - the memory folder may be unreadable or its disk unmounted. Recall "
+                              "keeps working. " + refusals.ESCALATION) from exc
 
 
 def _close_store_lock(handle) -> None:
@@ -669,29 +686,32 @@ def _stale_refusal(exc: "execution_context.ContextError") -> str:
 
     Keyed on the exception TYPE, never its text: the raw `ContextError` message names paths, fingerprints
     and commits, none of which belong in an operator- or client-facing refusal (obligation: no path,
-    fingerprint or commit reaches the caller for any refusal). Each branch says what held the write and
-    what clears it, and every branch keeps recall working — a stale write context never disables reads."""
+    fingerprint or commit reaches the caller for any refusal). Every branch says what held the write, that
+    nothing changed, what reads do under the SAME class - and that clause is true for its branch: under the
+    two MOVED classes reads answer from disk and say so; under the UNBOUND classes reads are held too and say
+    so (#1211's over-promise was one sentence for both) - then the one restart action and the one escalation
+    pointer reads and writes share (memory/refusals.py)."""
+    tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
     if isinstance(exc, (execution_context.ActivationStale, execution_context.AcceptedTreeStale)):
         return (
             "This project moved to a new commit while this memory server was running, so its write context no "
-            "longer matches the project on disk. Nothing was changed. Writing stays held until the session "
-            "restarts, which re-accepts the current project and restores full memory; recall keeps working in "
-            "the meantime."
+            "longer matches the project on disk. Nothing was changed, and writing stays held until the server "
+            "restarts. Recall keeps working, and every read answer says how it was resolved." + tail
         )
     if isinstance(exc, execution_context.ArtifactUnreadable):
         return (
-            "A memory file on disk could not be read, so writing is held and nothing was changed. This is a "
-            "problem with the store on disk, not with this session; recall keeps working where it can, and a "
-            "fresh session retries the read."
+            "A memory file on disk could not be read, so writing is held and nothing was changed - a problem "
+            "with the store on disk, not with what is saved in it. Reads from this store are held too, and each "
+            "read answer says so." + tail
         )
     if isinstance(exc, (execution_context.StoreIdentityStale, execution_context.BackupPointerStale)):
         return (
-            "This session's memory binding no longer matches the store on disk, so writing is held and nothing "
-            "was changed. Recall keeps working; a fresh session re-establishes the binding."
+            "The memory store under this session is not the one it was bound to, so writing is held and nothing "
+            "was changed. Reads from this store are held too, and each read answer says so." + tail
         )
     return (
         "This session's memory context could not be confirmed against the store, so writing is held and "
-        "nothing was changed. Recall keeps working; a fresh session restores writing."
+        "nothing was changed. Reads from this store are held too, and each read answer says so." + tail
     )
 
 
@@ -731,7 +751,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             # A nested writer inside a degraded outer effect is tiered on its OWN entry, never waved through
             # by its caller: an allowed diagnostic must not become a door to the ledger beneath it.
             if mutation_contract.degraded_disposition(entry) == "refuse":
-                raise MutationAuthorityError(mutation_contract.degraded_refusal(entry))
+                raise MutationRefusal(mutation_contract.degraded_refusal(entry))
             yield _degraded_receipt(entry, state["mode"], measured)
             return
         context = state["context"]
@@ -774,7 +794,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
                 _THREAD.state = None
             return
         if mutation_contract.degraded_disposition(entry) == "refuse":
-            raise MutationAuthorityError(mutation_contract.degraded_refusal(entry)) from exc
+            raise MutationRefusal(mutation_contract.degraded_refusal(entry)) from exc
         mode = _default_mode(entry)
         _THREAD.state = {"test_only": False, "degraded": True, "mode": mode}
         try:
@@ -816,10 +836,10 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
                     after = execution_context.binding_identity(context)
                     _record_reseal(before, after, time.perf_counter() - started)
                     if before != after:
-                        raise MutationAuthorityError(
+                        raise MutationRefusal(
                             "This session's memory binding shifted while its write context was being "
-                            "refreshed, so writing is held and nothing was changed. Recall keeps working; "
-                            "a fresh session restores writing.")
+                            "refreshed, so writing is held and nothing was changed. Each read answer says "
+                            "how it was resolved. " + refusals.RESTART_ACTION + " " + refusals.ESCALATION)
             except execution_context.ContextError as exc:
                 stale = exc
         if stale is not None:
@@ -828,7 +848,7 @@ def mutation_scope(entry_id: str, args: tuple, kwargs: dict, *, supplied_capabil
             # own plain caveat — rather than failing the caller outright. This mirrors, under the lock, the
             # no-context branch above, so a stale context and an absent one route by the same disposition.
             if mutation_contract.degraded_disposition(entry) == "refuse":
-                raise MutationAuthorityError(_stale_refusal(stale)) from stale
+                raise MutationRefusal(_stale_refusal(stale)) from stale
             mode = _default_mode(entry)
             _THREAD.state = {"test_only": False, "degraded": True, "mode": mode}
             try:
@@ -874,7 +894,7 @@ def authorize_nested(entry_id: str, *, measured_cardinality: int = 1):
             f"{entry['writer']} is not one of the writes this terminal-attended operation is authorized for")
     if state.get("degraded"):
         if mutation_contract.degraded_disposition(entry) == "refuse":
-            raise MutationAuthorityError(mutation_contract.degraded_refusal(entry))
+            raise MutationRefusal(mutation_contract.degraded_refusal(entry))
         return _degraded_receipt(entry, state["mode"], measured_cardinality)
     return _consume(state["context"], entry, measured_cardinality)
 

@@ -43,7 +43,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from memory import forget, ledger, records, scrub  # noqa: E402
+from memory import forget, ledger, records, refusals, scrub  # noqa: E402
 
 # What one pin may carry. A pin is a standing intention, not a document: the briefing reads every live pin at
 # every session start, so an unbounded one would quietly spend a growing share of the pack forever. The cap is
@@ -62,9 +62,14 @@ MAX_PIN_CHARS = 1000
 PIN_PRUNE_HINT_AT = 9
 
 
-class PinRefused(ValueError):
+class PinRefused(refusals.EngineRefusal, ValueError):
     """A pin could not be saved, with the plain-language reason. Raised rather than returned: the operator
-    asked for something to be remembered, and a verb that quietly declined would leave them believing it was."""
+    asked for something to be remembered, and a verb that quietly declined would leave them believing it was.
+    The sentence names no path and splices no underlying exception; `raw_detail` keeps the latter for a log."""
+
+    def __init__(self, message: str, *, raw_detail: "str | None" = None):
+        super().__init__(message)
+        self.raw_detail = raw_detail
 
 
 def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VIA_ASSISTANT,
@@ -106,7 +111,7 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
         raise PinRefused(
             "another memory write is in progress, so nothing was saved. Try again in a moment."
             if writable else
-            f"memory could not be written to ({data_dir} is not writable), so nothing was saved. This will "
+            "memory could not be written to (the memory folder is not writable), so nothing was saved. This will "
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
     try:
@@ -127,7 +132,8 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     except PinRefused:
         raise
     except Exception as exc:
-        raise PinRefused(f"the pin could not be saved ({exc}).") from exc
+        raise PinRefused("the pin could not be saved — an internal memory-write step did not complete, so nothing "
+                         "was saved. " + refusals.ESCALATION, raw_detail=str(exc)) from exc
     finally:
         capture._release_lock(lock_fd)
 

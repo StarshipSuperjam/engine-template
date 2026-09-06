@@ -64,7 +64,7 @@ _PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PARENT not in sys.path:
     sys.path.insert(0, _PARENT)
 
-from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records, stranding_log as _stranding_log  # noqa: E402
+from memory import execution_context as _execution_context, forget, index, ledger, mutation_authority as _mutation_authority, pins, recall, records, stranding_log as _stranding_log, refusals as _refusals  # noqa: E402
 
 SERVER_NAME = "engine-memory"
 
@@ -96,13 +96,12 @@ server = _RecordingServer(SERVER_NAME)
 
 
 # The refusals this server raises in plain words, each carrying a sentence written to be read by the
-# operator. `mutation_authority` re-wraps its own ContextError into MutationAuthorityError at every
-# call site, so that type cannot arrive here and is deliberately absent from the tuple.
-_TRANSLATED_REFUSALS = (
-    _mutation_authority.MutationAuthorityError,
-    pins.PinRefused,
-    forget.ControlNotRecorded,
-)
+# operator: exactly the exceptions that derive from `refusals.EngineRefusal` (the qualification and
+# stale-context refusals, the re-seal and lock refusals, a refused pin, a control not recorded). One base,
+# one isinstance - never an enumeration of classes (#1196). The plain `MutationAuthorityError` carries
+# invariant and tamper failures whose text may name a writer or a path; it does NOT derive from the base and
+# so stays the masked crash it is, as does every other exception.
+_TRANSLATED_REFUSALS = (_refusals.EngineRefusal,)
 
 
 def _tool(**registration):
@@ -251,9 +250,9 @@ _RECALL_COMPLETENESS_NOTE = (
 # second time with nothing to catch it - the crash the two captured production traces recorded.
 # ---------------------------------------------------------------------------------------------------------
 
-_RESTART_ACTION = ("To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
-                   "(in a Codex session, end the session and start a new one).")
-_ESCALATION = "If this keeps happening after a restart, run /engine-status and open an engine issue."
+# One home for both, shared with the write refusals (memory/refusals.py); the names here are aliases.
+_RESTART_ACTION = _refusals.RESTART_ACTION
+_ESCALATION = _refusals.ESCALATION
 # NEUTRAL about meaning recall on purpose: this one sentence rides on every read tool's answer under a moved
 # binding (`_outcome` gives it precedence), including the meaning-recall answers that DID find content through
 # the read-only store and the ones that could not; each of those carries its own sentence beside it.
@@ -276,7 +275,10 @@ _NOTE_INCOMPLETE_SEARCH = ("The keyword index could not be refreshed, so this an
 _NOTE_MEANING_STORE_FAULT = ("Meaning-based recall could not open its store; keyword search still covers everything "
                              "saved. If this persists, run /engine-status and open an engine issue.")
 _NOTE_MEANING_BACKEND = ("Meaning-based recall's backend is unavailable on this machine; keyword search still covers "
-                         "everything saved. If this persists, run /engine-status and open an engine issue.")
+                         "everything saved. If the cause is a missing numpy, run `uv sync --directory .engine "
+                         "--frozen` from the project root to reinstall the engine's tool runtime; if it is a missing "
+                         "or damaged word table, an engine upgrade reinstalls the memory module that ships it. "
+                         "If this persists, run /engine-status and open an engine issue.")
 # The three sentences of the READ-ONLY meaning answer, for a session that may not write the store (moved,
 # no context installed, not yet qualified). The answer's own `unavailable` text states the fact; these notes
 # carry the action. Under a moved binding the moved note takes precedence and these are not attached.

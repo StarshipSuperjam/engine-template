@@ -75,7 +75,8 @@ class CandidateFixture:
         (self.candidate / ".engine/tools/validate.py").write_text(
             "ROOT = None\n", encoding="utf-8")
         (candidate_memory / "__init__.py").write_text("", encoding="utf-8")
-        for name in ("execution_context.py", "mutation_contract.py", "mutation_authority.py", "ledger.py"):
+        for name in ("execution_context.py", "mutation_contract.py", "mutation_authority.py", "refusals.py",
+                     "ledger.py"):
             shutil.copy2(MEMORY_TOOLS / name, candidate_memory / name)
         self.script = candidate_memory / "candidate_append.py"
         self.script.write_text(

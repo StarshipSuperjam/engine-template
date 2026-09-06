@@ -783,6 +783,22 @@ class AuthorityRefusalTranslationTests(_Base):
         self._assert_translated(caught.exception)
         self._assert_no_marker()
 
+    def test_an_unexpected_write_fault_is_refused_without_its_text_and_kept_as_raw_detail(self):
+        # The catch-all used to splice the underlying exception into the operator sentence (#1196).
+        from unittest import mock
+        rid = self._seed_one()
+        raw = "disk went away at /Users/someone/.engine/memory/ledger.ndjson"
+        with mock.patch.object(ledger, "append", side_effect=OSError(raw)):
+            with self.assertRaises(forget.ControlNotRecorded) as caught:
+                forget.withhold(record_id=rid)
+        message = str(caught.exception)
+        self.assertNotIn(raw, message)
+        self.assertNotIn("/Users", message)
+        self.assertIn("nothing was changed", message)
+        self.assertIn("/engine-status", message)
+        self.assertEqual(caught.exception.raw_detail, raw)
+        self._assert_no_marker()
+
     def test_an_ordinary_control_not_recorded_is_not_reworded_as_an_authority_refusal(self):
         # A genuine non-authority refusal (an id that names nothing) keeps its own plain words, untouched by
         # the authority translation, and carries no raw_detail — the two failure classes stay distinct.

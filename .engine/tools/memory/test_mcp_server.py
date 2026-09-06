@@ -28,6 +28,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memory import (capture, execution_context, forget, index, ledger, mutation_authority,  # noqa: E402
                     mutation_contract, pins, records)
+from memory import refusals as _refusals  # noqa: E402
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
 from memory.recall_acceptance_probe import recall_acceptance_probe  # noqa: E402
@@ -560,6 +561,9 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
         "pin": "PIN-REFUSAL: that pin is over the length cap and was refused rather than silently shortened.",
         "control": "CONTROL-REFUSAL: nothing was registered to forget, and erasing stays your own terminal step.",
         "crash": "CRASH: an internal detail that must never be dressed up as a refusal.",
+        # An invariant failure on the plain authority type: the kind of sentence that names a writer or a
+        # path (#1196). It is NOT an operator refusal and must be masked, not forwarded.
+        "invariant": "INVARIANT: memory.pins.add received a relative path /Users/someone/secret (measured 3 over 1).",
     }
 
     def _probe(self):
@@ -572,13 +576,15 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
             @srv._tool(name="probe", description="Raises the named refusal (or a crash), for the translation test.")
             def probe(which: str) -> dict:
                 if which == "mutation":
-                    raise mutation_authority.MutationAuthorityError(self.SENTENCES["mutation"])
+                    raise mutation_authority.MutationRefusal(self.SENTENCES["mutation"])
                 if which == "pin":
                     raise pins.PinRefused(self.SENTENCES["pin"])
                 if which == "control":
                     raise forget.ControlNotRecorded(self.SENTENCES["control"])
                 if which == "crash":
                     raise RuntimeError(self.SENTENCES["crash"])
+                if which == "invariant":
+                    raise mutation_authority.MutationAuthorityError(self.SENTENCES["invariant"])
                 return {"ok": which}
         return fresh, probe
 
@@ -611,6 +617,37 @@ class RefusalTranslationTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError) as caught:
                 probe("crash")
             self.assertNotIsInstance(caught.exception, ToolError)
+        with self.subTest(not_translated="invariant"):
+            # The plain authority type carries invariant and tamper text; it is masked, never forwarded.
+            with self.assertRaises(mutation_authority.MutationAuthorityError) as caught:
+                probe("invariant")
+            self.assertNotIsInstance(caught.exception, ToolError)
+
+    def test_the_seam_is_one_isinstance_on_the_refusal_base_built_from_the_raise_sites(self):
+        """#1196: the translated set is exactly the exceptions that derive from `refusals.EngineRefusal`, and
+        the library raises that base at every site that produces an operator sentence and nowhere else. The
+        membership is enumerated from the code, not from a list this test happens to know."""
+        import inspect
+        from memory import refusals
+        self.assertEqual(srv._TRANSLATED_REFUSALS, (refusals.EngineRefusal,))
+        derived = set()
+        for module in (mutation_authority, pins, forget, refusals):
+            for name, value in vars(module).items():
+                if (isinstance(value, type) and issubclass(value, refusals.EngineRefusal)
+                        and value is not refusals.EngineRefusal and value.__module__ == module.__name__):
+                    derived.add(f"{module.__name__}.{name}")
+        self.assertEqual(derived, {"memory.mutation_authority.MutationRefusal", "memory.pins.PinRefused",
+                                   "memory.forget.ControlNotRecorded"})
+        source = inspect.getsource(mutation_authority)
+        # Every raise site that mints an operator sentence raises the refusal type...
+        for minted in ("mutation_contract.degraded_refusal(", "_stale_refusal(stale)"):
+            self.assertNotIn("raise MutationAuthorityError(" + minted, source, minted)
+            self.assertIn("raise MutationRefusal(" + minted, source, minted)
+        self.assertEqual(source.count("raise MutationRefusal("), 8,
+                         "the refusal raise sites: 3 qualification refusals, 1 stale-context, 1 re-seal and 3 lock "
+                         "refusals - a new operator sentence must be added here deliberately")
+        # ...and the plain type still carries the invariant text, which the seam masks.
+        self.assertIn('raise MutationAuthorityError(f"persistent writer', source)
 
     def test_the_guard_marker_survives_the_translation_wrapper(self):
         """search and recall-by-meaning carry a `@_mutation_authority.guard` beneath the `_tool` wrapper.
@@ -709,7 +746,10 @@ class ReadSeamWiringTests(_ServerBase):
                          "saved. If this persists, run /engine-status and open an engine issue.")
         self.assertEqual(srv._NOTE_MEANING_BACKEND,
                          "Meaning-based recall's backend is unavailable on this machine; keyword search still "
-                         "covers everything saved. If this persists, run /engine-status and open an engine issue.")
+                         "covers everything saved. If the cause is a missing numpy, run `uv sync --directory .engine "
+                         "--frozen` from the project root to reinstall the engine's tool runtime; if it is a missing "
+                         "or damaged word table, an engine upgrade reinstalls the memory module that ships it. "
+                         "If this persists, run /engine-status and open an engine issue.")
         self.assertEqual(srv._NOTE_MEANING_NOT_CAUGHT_UP,
                          "Meaning-based recall answered from the part of its index that is current; the most "
                          "recently saved conversation was not searched by meaning because this session cannot "
@@ -845,7 +885,8 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
                 srv.pin("must not be written while the root is unreadable")
             message = str(caught.exception)
             self.assertIn("writing is held", message)  # refused cleanly - nothing was changed
-            self.assertIn("fresh session", message)    # names the recovery
+            self.assertIn(_refusals.RESTART_ACTION, message)    # names the one recovery action
+            self.assertIn("Reads from this store are held too", message)
             self.assertNotIn(self.fixture.base, message)
 
 
@@ -883,7 +924,7 @@ def _probe_server():
         @srv._tool(name="probe", description="Raises a refusal or a crash, for the stranding-log wiring test.")
         def probe(which: str) -> dict:
             if which == "refusal":
-                raise mutation_authority.MutationAuthorityError("REFUSAL: a designed sentence")
+                raise mutation_authority.MutationRefusal("REFUSAL: a designed sentence")
             if which == "crash":
                 raise RuntimeError("CRASH: " + _SECRET)
             if which == "unconvertible":
@@ -1691,7 +1732,7 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
             out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
         self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "incomplete"))
         self.assertIn("Searching by meaning is not working right now", out["unavailable"])
-        self.assertEqual(out["outcome"]["note"],            # the plan's sentence for this case, word for word
+        self.assertEqual(out["outcome"]["note"],            # the store-fault sentence, word for word
                          "Meaning-based recall could not open its store; keyword search still covers everything "
                          "saved. If this persists, run /engine-status and open an engine issue.")
 
@@ -1795,7 +1836,10 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["results"], [])
         self.assertEqual(out["outcome"]["note"],
                          "Meaning-based recall's backend is unavailable on this machine; keyword search still "
-                         "covers everything saved. If this persists, run /engine-status and open an engine issue.")
+                         "covers everything saved. If the cause is a missing numpy, run `uv sync --directory .engine "
+                         "--frozen` from the project root to reinstall the engine's tool runtime; if it is a missing "
+                         "or damaged word table, an engine upgrade reinstalls the memory module that ships it. "
+                         "If this persists, run /engine-status and open an engine issue.")
 
     async def test_searchs_ledger_scan_fallback_under_a_healthy_binding_carries_the_search_sentence(self):
         """The one incomplete read a healthy binding can produce besides a meaning-backend fault: the fast
