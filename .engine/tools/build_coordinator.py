@@ -3215,7 +3215,17 @@ def _plain(text: str) -> str:
     character. Control and formatting characters go too — including the bidirectional overrides and
     zero-width joiners this project already scrubs from its boot pack — because text that reorders itself
     on screen is not text the operator can be said to have read. Nothing is deleted silently: `<` becomes a
-    visible marker, so the operator still reads what was written."""
+    visible marker, so the operator still reads what was written.
+
+    The third thing: free text may QUOTE a closing keyword beside an issue reference (an operator's recorded
+    guidance, a recorded plan-change authorisation, a plan assumption), and GitHub would honour the pair on
+    merge; `_break_closing_keywords` inserts the word "issue" between them. Paths go through `_scrub`
+    alone (see `_fenced`): a code span is not parsed for references and a path is not prose."""
+    return _break_closing_keywords(_scrub(text))
+
+
+def _scrub(text: str) -> str:
+    """`_plain` without the closing-keyword break: the character-level scrub only."""
     scrubbed = "".join(" " if unicodedata.category(ch) in {"Cc", "Cf", "Zl", "Zp"} else ch for ch in text)
     return scrubbed.replace("`", "'").replace("<", "‹")
 
@@ -3224,7 +3234,7 @@ def _fenced(path: str) -> str:
     """A repository path inside a Markdown code span. Backticks are legal in POSIX filenames, and so are
     newlines and tabs; any of them would close the span early and spill the rest of the path into the
     operator's merge surface as markup."""
-    return "`" + _plain(path) + "`"
+    return "`" + _scrub(path) + "`"
 
 
 def _repair_round_lines(state: dict) -> list[str]:
@@ -4701,12 +4711,14 @@ def _sealed_plan_review(state: dict) -> dict | None:
 def _break_closing_keywords(text: str) -> str:
     """Keep quoted closing keywords in rendered prose from arming a close (see the close-linkage tool).
 
-    Applied at the four places prose that this session did not author reaches the composed body: a carried
-    obligation's statement and reason, a plan-review finding's summary, a plan-review disagreement, and a
-    post-approval assumption resolution; the reviewer-side disagreement line breaks its own text at its
-    single source in the review module. The claim's own prose is NOT passed through it: that is the
-    author's, and the close-linkage preflight adjudicates it separately. Never apply this where a
-    deliberate close line is meant to work."""
+    Where prose this session did not author reaches the composed body, it passes through this: every free
+    text bound for the merge surface via `_plain` (an operator's recorded round guidance, a recorded
+    plan-change authorisation, a plan assumption and its resolution basis), the renderers of sealed-plan
+    prose (a carried obligation's statement and reason, a plan-review finding, a plan-review disagreement),
+    the spec-derived acceptance steps, and - at its own single source in the review module - the reviewer
+    disagreement line. The claim's own prose is NOT passed through it: that is the author's, and the
+    close-linkage preflight adjudicates it separately. Paths in code spans are not prose and are not passed
+    through it. Never apply this where a deliberate close line is meant to work."""
     tools = str(ROOT / ".engine" / "tools")
     if tools not in sys.path:
         sys.path.insert(0, tools)
@@ -4716,11 +4728,11 @@ def _break_closing_keywords(text: str) -> str:
 
 def _assumption_resolution_lines(state: dict, plan: dict) -> list[str]:
     """Post-approval assumption resolutions for the merge surface: plan-authored claims, so their prose
-    passes through the closing-keyword break like every other plan text the body renders."""
+    goes through `_plain`, which carries the closing-keyword break like every free text rendered here."""
     authored_unresolved = {a["claim"] for a in plan.get("assumptions", []) if a["status"] == "unresolved"}
     return [
-        f"{_break_closing_keywords(_plain(d['claim']))} -> {d['resolved_as']} (self-attested, not "
-        f"re-reviewed) — basis: {_break_closing_keywords(_plain(d['basis']))}"
+        f"{_plain(d['claim'])} -> {d['resolved_as']} (self-attested, not re-reviewed) — "
+        f"basis: {_plain(d['basis'])}"
         for d in state.get("assumption_dispositions", []) if d["claim"] in authored_unresolved]
 
 
@@ -5089,10 +5101,10 @@ def _assemble_evidence(state: dict, plan: dict, claim: dict, head: str, pr_data:
     # no-spec disclosure — never re-authored here.
     cs = spec_service.canonical_spec(ROOT, plan, repository=repo, issue_body=_issue_body)
     if cs["posture"] == "none":
-        spec_steps = cs["review_steps"]
+        spec_steps = _break_closing_keywords(cs["review_steps"])
     else:
         import spec_referent
-        spec_steps = spec_referent.render_review_steps_multi(cs["review_steps"])
+        spec_steps = _break_closing_keywords(spec_referent.render_review_steps_multi(cs["review_steps"]))
 
     depth = state["approval"]["depth"] if state.get("approval") else "unapproved"
     # Coverage must state what ACTUALLY ran, not what is installed. At quick depth (and any depth that

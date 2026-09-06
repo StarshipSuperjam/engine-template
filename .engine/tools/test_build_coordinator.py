@@ -1480,6 +1480,18 @@ class TestReviewAndFindings(CoordinatorCase):
         rendered = bc._assumption_resolution_lines(state, plan)
         self.assertEqual(rendered, ["Closes issue #91 is the wording we keep. -> verified (self-attested, not "
                                     "re-reviewed) — basis: It resolved issue #92 in review."])
+        # Every free text bound for the merge surface goes through _plain, which carries the break: the
+        # operator's recorded round guidance and a recorded plan-change authorisation are quoted there.
+        self.assertEqual(bc._plain("Go ahead; this fixes #1210 for good."), "Go ahead; this fixes issue #1210 for good.")
+        guided = dict(self.state())
+        guided["repair_rounds"] = [{"guidance": "Round three: it closes #1210 as a side effect."}]
+        self.assertEqual(bc._round_guidance_lines(guided),
+                         ["repair round 1 of 1 proceeded past the escalation point on recorded operator "
+                          "guidance: Round three: it closes issue #1210 as a side effect."])
+        # A path in a code span is not prose: the character scrub applies, the break does not.
+        self.assertEqual(bc._fenced("docs/closes #3.md"), "`docs/closes #3.md`")
+        for line in [bc._plain("Resolves owner/repo#5, #6 when merged.")] + bc._round_guidance_lines(guided):
+            self.assertIsNone(close_linkage_preflight._CLOSE_LIST_RE.search(line), line)
 
     def test_a_standalone_plan_carries_no_obligations(self):
         # A plan belongs to no program unless someone deliberately put it in one, so the ordinary case
