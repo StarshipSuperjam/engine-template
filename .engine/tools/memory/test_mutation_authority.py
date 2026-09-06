@@ -1350,9 +1350,8 @@ class WriteRefusalWordingTests(unittest.TestCase):
         tail = " " + refusals.RESTART_ACTION + " " + refusals.ESCALATION
         self.assertEqual(mutation_authority._stale_refusal(execution_context.ActivationStale("x")),
                          "This project moved to a new commit while this memory server was running, so its write "
-                         "context no longer matches the project on disk. Nothing was changed, and writing stays held "
-                         "until the server restarts. Recall keeps working, and every read answer says how it was "
-                         "resolved." + tail)
+                         "context no longer matches the project on disk. Nothing was changed, and writing is held. "
+                         "Recall keeps working, and every read answer says how it was resolved." + tail)
         self.assertEqual(mutation_authority._stale_refusal(execution_context.ArtifactUnreadable("x")),
                          "A memory file on disk could not be read, so writing is held and nothing was changed - a "
                          "problem with the store on disk, not with what is saved in it. Reads from this store are "
@@ -1386,12 +1385,56 @@ class WriteRefusalWordingTests(unittest.TestCase):
                     self.assertIn("Reads from this store are held too", sentence)
                     self.assertNotIn("Recall keeps working", sentence)
 
+    def test_every_registered_writers_qualification_refusal_is_content_free(self):
+        # Obligation 5 where it is stated: the generic qualification refusal reaches the operator verbatim
+        # through the seam, so no entry's sentence may carry the writer's dotted code name, a path, or jargon
+        # the operator cannot act on. Iterated over every registry entry, not just the ones with hand guidance.
+        for entry in mutation_contract.REGISTRY:
+            with self.subTest(entry=entry["id"]):
+                sentence = mutation_contract.degraded_refusal(entry)
+                self.assertNotIn(entry["writer"], sentence)
+                self.assertNotRegex(sentence, r"\bmemory\.[a-z_]+\.[a-z_]+")
+                self.assertNotIn("/", sentence.replace("/engine-status", ""))
+                self.assertIn("qualif", sentence.lower())   # every one names the condition that lifts it
+
+    def test_the_migrate_writers_store_path_is_confined_by_the_authority_layer(self):
+        # A cold review found the rename of the vector store's writer had switched the confinement check off:
+        # it finds path arguments by PARAMETER NAME, and `conn` was not one. The parameter is `target` now, so a
+        # relative or escaping path is refused before the store exists, while an open connection is skipped.
+        import sqlite3
+        import tempfile
+        from memory.semantic import store as semantic_store
+        entry = next(e for e in mutation_contract.REGISTRY if e["id"] == "semantic-store-migrate")
+        with tempfile.TemporaryDirectory() as d:
+            memory_dir = os.path.join(d, "memory")
+            os.makedirs(memory_dir)
+
+            class _Ctx:
+                @staticmethod
+                def to_document():
+                    return {"target": {"memory_dir": memory_dir, "kind": "canonical"}, "project": {"root": d}}
+
+            with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "relative target"):
+                mutation_authority._validate_explicit_targets(_Ctx, entry, ("vectors.sqlite3",), {},
+                                                              function=semantic_store._migrate)
+            with self.assertRaisesRegex(mutation_authority.MutationAuthorityError, "escapes"):
+                mutation_authority._validate_explicit_targets(_Ctx, entry, (os.path.join(d, "outside.sqlite3"),),
+                                                              {}, function=semantic_store._migrate)
+            mutation_authority._validate_explicit_targets(_Ctx, entry, (os.path.join(memory_dir, "vectors.sqlite3"),),
+                                                          {}, function=semantic_store._migrate)
+            conn = sqlite3.connect(":memory:")
+            try:
+                mutation_authority._validate_explicit_targets(_Ctx, entry, (conn,), {},
+                                                              function=semantic_store._migrate)
+            finally:
+                conn.close()
+
     def test_the_re_seal_and_lock_refusals_are_operator_sentences_without_a_path(self):
         from memory import refusals
         import inspect
         source = inspect.getsource(mutation_authority)
         for fragment in ("memory binding shifted while its write context was being",
-                         "cannot take the advisory file lock", "lock file is not an ordinary file",
+                         "missing the file-locking feature", "lock file is not an ordinary file",
                          "lock could not be taken"):
             self.assertIn(fragment, source)
         self.assertNotIn("persistent store authority lock is unavailable", source)

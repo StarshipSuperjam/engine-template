@@ -178,7 +178,9 @@ class ErasureTests(_Cabinet):
         self.assertTrue(first["records"])
 
         # Remove one record from the ledger entirely, as an enacted erasure leaves it.
-        kept = [line for line in open(self.ledger, encoding="utf-8").read().splitlines()
+        with open(self.ledger, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        kept = [line for line in lines
                 if "append-only" not in line]
         with open(self.ledger, "w", encoding="utf-8") as fh:
             fh.write("\n".join(kept) + ("\n" if kept else ""))
@@ -208,7 +210,8 @@ class ErasureTests(_Cabinet):
         self.assertTrue(before["records"])
         self.assertTrue(before["passages"][0])
 
-        rows = [json.loads(line) for line in open(self.ledger, encoding="utf-8") if line.strip()]
+        with open(self.ledger, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
         rows[0]["text"] = "We ruled out a cron job and hooked the calendar instead."
         with open(self.ledger, "w", encoding="utf-8") as fh:
             fh.write("\n".join(json.dumps(r) for r in rows) + "\n")
@@ -315,6 +318,28 @@ class ReceiptTests(_Cabinet):
         self.assertEqual(receipt, (key[3], key[4], key[1]))
         self.assertLess(receipt[2], os.path.getsize(self.ledger), "the receipt claimed bytes it never saw")
 
+    def test_only_the_migrate_writer_changes_the_stores_shape_and_the_plain_open_changes_nothing(self):
+        # Obligation 2, check (5), at the source: every statement that can change the store's shape lives in
+        # the one registered writer, and the plain open issues none. A helper that grew its own DDL would be a
+        # second, unregistered writer - the census catches a new write, this pins WHICH function owns the shape.
+        import inspect
+        import re
+        ddl = re.compile(r"\b(CREATE|ALTER|DROP)\s+(TABLE|INDEX|VIRTUAL)\b", re.I)
+        owners = set()
+        for name, value in vars(store).items():
+            if inspect.isfunction(value) and value.__module__ == store.__name__:
+                if ddl.search(inspect.getsource(value)):
+                    owners.add(name)
+        self.assertEqual(owners, {"_migrate"}, owners)
+        self.assertNotRegex(inspect.getsource(store._open), ddl)
+        self.assertNotRegex(inspect.getsource(store._open_read_only), ddl)
+        # and the module-level DDL constants are consumed by that writer alone
+        for const in ("_CREATE_PASSAGES", "_CREATE_META"):
+            users = {name for name, value in vars(store).items()
+                     if inspect.isfunction(value) and value.__module__ == store.__name__
+                     and const in inspect.getsource(value)}
+            self.assertEqual(users, {"_migrate"}, (const, users))
+
     def test_a_refused_writer_leaves_no_store_behind_not_even_an_empty_file(self):
         # A store that does not exist is created INSIDE the registered writer: when the writer is refused (a
         # session that may not write), no file is created first and then abandoned. The reproduction harness
@@ -337,7 +362,8 @@ class ReceiptTests(_Cabinet):
         self._write("A record that will leave.", "A record that stays.")
         store.sync(ledger_file=self.ledger, store_file=self.vectors)
         before = self._receipt()
-        rows = [json.loads(line) for line in open(self.ledger, encoding="utf-8") if line.strip()]
+        with open(self.ledger, encoding="utf-8") as fh:
+            rows = [json.loads(line) for line in fh if line.strip()]
         kept = [r for r in rows if "leave" not in r["text"]]
         with open(self.ledger, "w", encoding="utf-8") as fh:
             fh.write("\n".join(json.dumps(r) for r in kept) + "\n")
@@ -412,7 +438,32 @@ class ReadOnlySearchTests(_Cabinet):
 
     def _digest(self):
         import hashlib
-        return hashlib.sha256(open(self.vectors, "rb").read()).hexdigest() if os.path.exists(self.vectors) else None
+        if not os.path.exists(self.vectors):
+            return None
+        with open(self.vectors, "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+
+    def test_the_read_only_branch_never_enters_migrate_reconcile_or_sync(self):
+        # Obligation 3, check (7), at the call sites: the read-only door is reached with the migrate writer,
+        # the reconcile and the sync all armed to fail the test if entered. It answers from the store `mode=ro`
+        # plus the in-memory tail, and none of the three runs.
+        self._write("We ruled out a cron job and hooked the calendar instead.")
+        store.sync(ledger_file=self.ledger, store_file=self.vectors)
+        self._write("Appended after the store was last reconciled.")
+
+        def forbidden(name):
+            def _hit(*a, **k):
+                raise AssertionError(f"{name} ran on the read-only branch")
+            return _hit
+
+        with mock.patch.object(store, "_migrate", forbidden("_migrate")), \
+                mock.patch.object(store, "_reconcile", forbidden("_reconcile")), \
+                mock.patch.object(store, "sync", forbidden("sync")):
+            found = self._ro("did we consider running it on a timer")
+        self.assertFalse(found["unavailable"], found)
+        self.assertTrue(found["complete"])
+        self.assertEqual(found["tail"], 1)
+        self.assertTrue(any("cron job" in (r.get("text") or "") for r in found["records"]))
 
     def test_it_answers_the_covered_rows_and_embeds_the_tail(self):
         self._write("We ruled out a cron job and hooked the calendar instead.")
@@ -487,6 +538,12 @@ class ReadOnlySearchTests(_Cabinet):
             conn.close()
         # The stale row is never scored or quoted; the record is searched from its LIVE text instead, so the
         # answer is still right and still complete - and the passage it quotes is this code's own.
+        # WHY `complete` IS THE HONEST WORD (a cold review read obligation 3's 'no hit was dropped' as
+        # incomplete-on-any-drop): a dropped ROW is not a dropped RECORD. Its record joins the in-memory tail
+        # and is searched from its live text, so nothing saved is left unsearched; `dropped` counts the rows
+        # this code declined to trust, and `complete` reports whether every record was searched. Both are
+        # returned, so a caller can see each. Reporting incomplete here would tell the operator the newest
+        # conversation went unsearched when it did not.
         reads = []
         real = store._best_by_record
 
@@ -508,7 +565,8 @@ class ReadOnlySearchTests(_Cabinet):
         self._write("We decided to keep the ledger append-only forever.",
                     "The onboarding copy should stay short and direct.")
         store.sync(ledger_file=self.ledger, store_file=self.vectors)
-        kept = [line for line in open(self.ledger, encoding="utf-8").read().splitlines() if "append-only" not in line]
+        with open(self.ledger, encoding="utf-8") as fh:
+            kept = [line for line in fh.read().splitlines() if "append-only" not in line]
         with open(self.ledger, "w", encoding="utf-8") as fh:
             fh.write("\n".join(kept) + "\n")
         found = self._ro("append only ledger")
@@ -532,7 +590,8 @@ class ReadOnlySearchTests(_Cabinet):
         self.assertFalse(found["unavailable"], found)
         self.assertTrue(found["complete"])
         self.assertIn("decision", found["records"][0]["text"])          # from memory, never from the file
-        self.assertEqual(open(self.vectors, "rb").read(), b"not a database\n")   # and the file is untouched
+        with open(self.vectors, "rb") as fh:
+            self.assertEqual(fh.read(), b"not a database\n")   # and the file is untouched
         # A genuine fault is still an answer, never an exception.
         with mock.patch.object(store, "_live_snapshot", side_effect=RuntimeError("boom")):
             fault = self._ro("a decision worth recalling")

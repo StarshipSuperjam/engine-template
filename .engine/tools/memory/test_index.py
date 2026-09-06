@@ -928,6 +928,59 @@ class LedgerBoundFastPathTests(IndexTestCase):
         self.assertEqual(result.records, [])
         self.assertTrue(result.degraded)
 
+    def _row_count(self):
+        conn = sqlite3.connect(self.index)
+        try:
+            return conn.execute("SELECT count(*) FROM entries").fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_a_ledger_that_cannot_be_read_degrades_one_answer_and_leaves_the_index_alone(self):
+        # A cold review reproduced the failure this pins: 'the ledger could not be opened' used to be treated
+        # like 'the index holds foreign bytes', so one search during a brief outage asked for a rebuild, the
+        # rebuild streamed nothing and stamped an EMPTY index current - and after the file came back, recall
+        # answered a confident nothing over a full history, for good.
+        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
+        self.rebuild()
+        self.assertEqual(self._row_count(), 20)
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            during = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual((during.records, during.degraded), ([], True))
+        after = index.search("quokka", limit=5, ledger_file=self.ledger, index_file=self.index)
+        self.assertEqual(len(after.records), 5, "the index was wiped by a search taken during the outage")
+        self.assertFalse(after.degraded)
+        self.assertEqual(self._row_count(), 20, "the outage rebuilt the index from nothing")
+        # the unranked path keeps the same boundary
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            self.assertEqual(index.query("quokka", ledger_file=self.ledger, index_file=self.index).records, [])
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual(self._row_count(), 20)
+
+    def test_a_rebuild_refuses_to_replace_an_existing_index_when_the_ledger_cannot_be_opened(self):
+        # Belt and braces behind the test above: even a rebuild asked for directly leaves a prior index alone
+        # when the one source of truth cannot be opened, rather than stamping an empty index current.
+        self.file(*({"body": f"the quokka sighting number {n}"} for n in range(20)))
+        self.rebuild()
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            with self.assertRaises(OSError):
+                index.rebuild(ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+        self.assertEqual(self._row_count(), 20)
+        # with no prior index there is nothing to protect: a fresh store may build its (empty) index
+        os.remove(self.index)
+        os.replace(self.ledger, self.ledger + ".gone")
+        try:
+            index.rebuild(ledger_file=self.ledger, index_file=self.index)
+        finally:
+            os.replace(self.ledger + ".gone", self.ledger)
+
 
 if __name__ == "__main__":
     unittest.main()

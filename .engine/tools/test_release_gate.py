@@ -726,11 +726,9 @@ class TestDeclineVocabulary(unittest.TestCase):
                 if os.path.isfile(os.path.join(modules_dir, mid, "manifest.json"))]
 
     def test_the_gate_still_declines_the_default_on_status_should_a_module_ship_with_it(self):
-        # No live module is default-on since #1238; the gate's vocabulary must still name the status so a future
-        # opt-out add-on is declined in the projection rather than silently kept.
-        self.assertNotIn("default-on", self._live_statuses(),
-                         "a module ships default-on again - the #663 shape is live once more; nothing to change "
-                         "here, but the gate's declined arm now covers it directly")
+        # No live module is default-on since #1238, and none is forbidden from being: the gate's vocabulary
+        # must still name the status so a future opt-out add-on is declined in the projection rather than
+        # silently kept. Only the vocabulary is pinned; the inventory is free to change.
         import inspect
         self.assertIn('"default-on"', inspect.getsource(rg._decline_optional_modules))
 

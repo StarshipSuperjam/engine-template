@@ -501,7 +501,9 @@ def recall_window(session_id: str, anchor_seq: int | None = None,
         "read as confidence it cannot carry. Being first here means nearest, not right. Each result also "
         "carries the record's `session_id`, so take a "
         "promising one to `recall-window` to read the conversation around it. It never changes the ledger, "
-        "but it reconciles the throwaway local semantic index to the current live records before answering. "
+        "but when this session may write the store it reconciles the throwaway local semantic index to the "
+        "current live records before answering; otherwise it answers read-only from what a prior session "
+        "reconciled plus what was saved since, and its answer says so. "
         "Searches the same records `search` does, so an erased memory is absent here too."
     ),
 )

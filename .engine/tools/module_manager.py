@@ -847,7 +847,9 @@ def _classify_available_modules(available, present_ids, pre_overlay_known, *,
         mid, status = m.get("id"), (m.get("status") or "optional")
         if not mid or status == "retired":
             continue                             # a retired module is neither installed nor offered — it is gone
-        desc = (text.get(mid) or {}).get("description") or ""
+        # The catalog's gloss first (the offerable set's single source); the release manifest's own gloss when
+        # the catalog has none, which is every required module - its costs must still reach the operator.
+        desc = (text.get(mid) or {}).get("description") or m.get("description") or ""
         if status == "required":
             install.append({"id": mid, "status": "required", "prior_declined": mid in known,
                             "depends": m.get("depends") or {}, "description": desc})
@@ -914,7 +916,12 @@ def classify_available_modules(release_tree, present_ids, pre_overlay_known, *,
             malformed.append(rel)               # an id-less/wrong-shaped manifest could hide a required module
             continue
         if m["id"] not in skip:
-            available.append({"id": m["id"], "status": m.get("status"), "depends": m.get("depends") or {}})
+            # The manifest's own gloss rides along: a REQUIRED module has no catalog entry (the catalog is the
+            # offerable set), so the upgrade line that installs it onto a deployment that never had it would
+            # otherwise say nothing about what it costs (StarshipSuperjam/engine-template#1238).
+            pres = m.get("presentation") if isinstance(m.get("presentation"), dict) else {}
+            available.append({"id": m["id"], "status": m.get("status"), "depends": m.get("depends") or {},
+                              "description": pres.get("description") or ""})
     catalog_text = {e["id"]: {"description": e.get("description")}
                     for e in module_catalog.entries(
                         path=os.path.join(release_tree, ".engine", "provisioning", "module-catalog.json"))

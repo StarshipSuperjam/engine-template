@@ -1707,6 +1707,32 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(out["outcome"]["note"])
         self.assertEqual(self._derived_digests(), before, "the read-only door wrote a derived store")
 
+    async def test_the_real_refusal_routes_to_the_read_only_door_with_migrate_and_reconcile_never_entered(self):
+        """Obligation 3, check (7), through the server: the writer's door raising the real refusal type sends
+        the read through `search_read_only`; the migrate writer and the reconcile are armed to fail the test."""
+        from memory.semantic import store as _semantic_store
+        from memory import mutation_contract as _contract
+        self._uncached()
+        before = self._derived_digests()
+        entry = next(e for e in _contract.REGISTRY if e["id"] == "semantic-store-migrate")
+
+        def refuse(*a, **k):
+            raise mutation_authority.MutationRefusal(_contract.degraded_refusal(entry))
+
+        def forbidden(name):
+            def _hit(*a, **k):
+                raise AssertionError(f"{name} ran on the read-only branch")
+            return _hit
+
+        with mock.patch.object(_semantic_store, "_connect", refuse), \
+                mock.patch.object(_semantic_store, "_migrate", forbidden("_migrate")), \
+                mock.patch.object(_semantic_store, "_reconcile", forbidden("_reconcile")):
+            out = await self._call("recall-by-meaning", self._args("recall-by-meaning"))
+        self.assertEqual((out["outcome"]["binding"], out["outcome"]["completeness"]), ("healthy", "complete"))
+        self.assertTrue(any(self.nonce in hit["text"] for hit in out["results"]), out)
+        self.assertNotIn(self.withheld_nonce, json.dumps(out))
+        self.assertEqual(self._derived_digests(), before, "the read-only door wrote a derived store")
+
     async def test_the_read_only_doors_disclosed_cases_carry_their_own_sentences(self):
         """Each way the read-only answer falls short is its own pinned sentence, beside the moved-neutral note."""
         if "recall-by-meaning" not in self.TOOLS:

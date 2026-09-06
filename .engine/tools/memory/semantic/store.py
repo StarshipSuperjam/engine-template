@@ -38,6 +38,7 @@ supports, to save time that is not being spent.
 import os
 import re
 import sqlite3
+import threading
 import sys
 
 # Make the package parent (.engine/tools) importable so `from memory import …` resolves when this file is run
@@ -205,7 +206,7 @@ def _open_read_only(path: str) -> sqlite3.Connection:
     return sqlite3.connect(Path(os.path.abspath(path)).as_uri() + "?mode=ro", uri=True)
 
 
-def _migrate(conn) -> sqlite3.Connection:
+def _migrate(target) -> sqlite3.Connection:
     """Bring an open store - or, given a path, a store that does not exist yet - to this code's shape. The ONE
     writer of DDL in this module, registered as
     `semantic-store-migrate` (it was `semantic-store-connect` while `_connect` did both jobs), and deliberately
@@ -217,9 +218,13 @@ def _migrate(conn) -> sqlite3.Connection:
     a no-op against a table that already exists — so emptying the rows would leave an OLD-shaped table stamped
     as current, and the next query would fail on a missing column, for good, with no path back. Dropping it
     forces the create to run for real. The receipt goes with the rows it vouched for."""
+    # The parameter is named `target` so the authority layer's confinement check inspects it: a PATH passed
+    # here (the create-the-store call) must be absolute and inside the bound memory directory or the writer
+    # is refused before the file exists; an open connection is skipped by that check and migrated in place.
     opened = None
+    conn = target
     if not isinstance(conn, sqlite3.Connection):
-        opened = conn = _open(conn)        # creating the file is the store's first write: it happens here
+        opened = conn = _open(target)      # creating the file is the store's first write: it happens here
     try:
         conn.execute(_CREATE_PASSAGES)
         conn.execute(_CREATE_META)
@@ -315,7 +320,8 @@ def _stored_receipt(conn: sqlite3.Connection):
 # the first bumps the generation). Size plus mtime catches every append including a same-size rewrite; the two
 # counters catch every removal. Miss any of them and this would serve a withheld record from cache, so the
 # cache is deliberately dropped on ANY doubt rather than refreshed cleverly.
-_LIVE_CACHE: dict = {}
+_LIVE_CACHE: dict = {}          # one entry, "entry": (key, value), assigned whole - never two keys half-written
+_LIVE_LOCK = threading.Lock()   # the refresh; a read is one dict lookup and needs no lock
 
 
 def _live_key(path: "str | None") -> tuple:
@@ -341,8 +347,9 @@ def _live_snapshot(path: "str | None" = None) -> tuple:
     Cached exactly as `_live_text` documents.
     """
     key = _live_key(path)
-    if key[1] is not None and _LIVE_CACHE.get("key") == key:
-        return _LIVE_CACHE["value"], key
+    entry = _LIVE_CACHE.get("entry")            # one atomic read: a refresh on another thread replaces the
+    if key[1] is not None and entry is not None and entry[0] == key:   # whole tuple, never half of it
+        return entry[1], key
     out = {}
     for position, length, raw, record in forget.live_records(path, with_positions=True):
         if not isinstance(record, dict):
@@ -354,8 +361,8 @@ def _live_snapshot(path: "str | None" = None) -> tuple:
         if text.strip():
             out[rid] = (record, text, position)
     if key[1] is not None:
-        _LIVE_CACHE.clear()
-        _LIVE_CACHE.update({"key": key, "value": out})
+        with _LIVE_LOCK:
+            _LIVE_CACHE["entry"] = (key, out)
     return out, key
 
 
@@ -510,13 +517,13 @@ def _unavailable(exc) -> dict:
     that is never going to fix it. The exception CLASS name is carried, never its message, which can embed
     paths or record text.
     """
-    # Keyed on the refusal's own words, NOT on the exception class. `MutationAuthorityError` is the authority
-    # layer's generic type: it also carries "advisory locking is unavailable", "the lock is not a regular
-    # file", cardinality overruns and source-binding failures. Classifying those as "not qualified yet" would
-    # tell the operator to wait for a session start that is never going to fix it — the exact outcome this
-    # function exists to prevent, and the review caught it doing so. `degraded_refusal` is the one place that
-    # phrase is minted, so matching it identifies a qualification refusal and nothing else.
-    refused = "qualified to write memory" in str(exc)
+    # Keyed on the refusal's TYPE, never its words. `MutationRefusal` is exactly the set of operator
+    # refusals the authority layer mints - not qualified yet, a stale context, a lock that could not be taken -
+    # and every one of them is a session that may not write and may still read, which is what the read-only
+    # door answers. The plain `MutationAuthorityError` (a cardinality overrun, a source-binding failure) and
+    # every other exception stay a fault someone has to look at. Matching a phrase here once routed a lock
+    # refusal to a "delete your store" remedy while its own sentence promised recall kept working.
+    refused = isinstance(exc, _mutation_authority.MutationRefusal)
     return {"records": [], "scores": [], "passages": [], "searched": 0, "embedded": 0,
             "unavailable": "not-qualified" if refused else "store-fault",
             "fault_class": None if refused else type(exc).__name__}
@@ -534,11 +541,11 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     trustworthy answer to give — which is NOT the same as having searched and found nothing, and a caller
     must never report it as such.
     """
-    live, derived_under = _live_snapshot(ledger_file)
     try:
+        live, derived_under = _live_snapshot(ledger_file)
         conn = _connect(store_path(store_file))
-    except Exception as exc:  # noqa: BLE001 — an unqualified session may not open-or-migrate the store
-        return _unavailable(exc)
+    except Exception as exc:  # noqa: BLE001 — an unqualified session may not open-or-migrate the store; a
+        return _unavailable(exc)  # ledger that cannot be read is a fault to answer, not a crash to raise
     try:
         try:
             reconciled = _reconcile(conn, live, derived_under)

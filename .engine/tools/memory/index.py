@@ -358,6 +358,13 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
     dst = index_path() if index_file is None else index_file
     if not fts5_available():
         return RebuildReport(fts5=False, path=dst)
+    if os.path.exists(dst):
+        # Belt and braces for the trust boundary: a ledger that cannot be opened must never turn an existing
+        # index into an empty one stamped current. Nothing is read from it here; opening is the whole check.
+        try:
+            open(src, "rb").close()
+        except OSError as exc:
+            raise OSError("the ledger cannot be opened, so the existing index was left untouched") from exc
     parent = os.path.dirname(dst) or "."
     os.makedirs(parent, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=parent, prefix=".index-build-", suffix=".sqlite3")
@@ -578,9 +585,10 @@ def query(
                 if _index_is_current(conn, src):
                     rows = conn.execute(sql, params).fetchall()
                     verified = _verified(src, [(row[1], row[2], row[3], row[4]) for row in rows])
-                    if verified is not _MISMATCH:
+                    if verified is _MISMATCH:
+                        mismatched = True
+                    elif verified is not _UNREADABLE:
                         return QueryResult(records=verified, degraded=False)
-                    mismatched = True
             finally:
                 conn.close()
         except sqlite3.Error:
@@ -757,6 +765,7 @@ def _fast_candidates(conn, match, *, tags, session, limit, src):
 
 
 _MISMATCH = object()   # the fast path found a row whose bytes the ledger does not hold: answer from the scan
+_UNREADABLE = object() # the ledger itself could not be opened or read: answer from the scan, touch nothing
 
 
 def _read_line(fh, position: int, length: int) -> bytes:
@@ -768,34 +777,47 @@ def _read_line(fh, position: int, length: int) -> bytes:
 
 def _verified(src: str, locations: list):
     """The ledger's OWN records for `locations` (`(position, length, digest, record_json)` in answer order),
-    or `_MISMATCH` when any one of them cannot be confirmed.
+    `_MISMATCH` when any one of them cannot be confirmed, or `_UNREADABLE` when the ledger itself could not be
+    opened or read.
 
     This is the trust boundary. The index chose these rows and ranked them; the ledger supplies what is
     returned. Each line is re-read at the position the index recorded and its bytes digested; a digest that
-    differs, a short read, a line that no longer parses, or a ledger that cannot be opened means the index
-    holds something the ledger does not, and the whole answer is refused rather than mixed — the caller falls
-    back to the always-correct scan and asks for a rebuild. The bound is stated plainly: this closes 'the
-    index handed back text the ledger does not hold'; a row whose stored body fails to match or is filtered
-    out before it becomes a winner is missing content, which the stamps in `meta` and the rebuild cover, not
-    this check."""
+    differs, a short read, or a line that no longer parses means the index holds something the ledger does
+    not, and the whole answer is refused rather than mixed — the caller falls back to the always-correct scan
+    and asks for a rebuild. The bound is stated plainly: this closes 'the index handed back text the ledger
+    does not hold'; a row whose stored body fails to match or is filtered out before it becomes a winner is
+    missing content, which the stamps in `meta` and the rebuild cover, not this check.
+
+    Two failures that look alike are kept apart. A ledger that CANNOT BE READ (absent, unmounted, a permission
+    gone) says nothing about the index: the answer degrades to the scan for this one query and the index is
+    left alone — `_UNREADABLE`, never a rebuild request, because a rebuild against an unreadable ledger would
+    stream nothing and stamp an empty index as current (a cold review reproduced exactly that). Only bytes
+    that DIFFER ask for the rebuild."""
     if not locations:
         return []
     out = []
     try:
-        with open(src, "rb") as fh:
-            for position, length, digest, record_json in locations:
-                raw = _read_line(fh, int(position), int(length))
-                if len(raw) != int(length) or ledger.line_digest(raw) != digest:
-                    return _MISMATCH
-                record = json.loads(raw.strip().decode("utf-8", errors="replace"))
-                # The body the index MATCHED and FILTERED on must be this very record, serialised the one way
-                # the index writer serialises: a row whose stored body says something the ledger's line does
-                # not is a row that could have matched a query the record does not — refused, not returned.
-                if json.dumps(record, ensure_ascii=False, separators=(",", ":")) != record_json:
-                    return _MISMATCH
-                out.append(record)
-    except (OSError, ValueError, TypeError):
+        fh = open(src, "rb")
+    except OSError:
+        return _UNREADABLE
+    try:
+        for position, length, digest, record_json in locations:
+            raw = _read_line(fh, int(position), int(length))
+            if len(raw) != int(length) or ledger.line_digest(raw) != digest:
+                return _MISMATCH
+            record = json.loads(raw.strip().decode("utf-8", errors="replace"))
+            # The body the index MATCHED and FILTERED on must be this very record, serialised the one way
+            # the index writer serialises: a row whose stored body says something the ledger's line does
+            # not is a row that could have matched a query the record does not — refused, not returned.
+            if json.dumps(record, ensure_ascii=False, separators=(",", ":")) != record_json:
+                return _MISMATCH
+            out.append(record)
+    except OSError:
+        return _UNREADABLE
+    except (ValueError, TypeError):
         return _MISMATCH
+    finally:
+        fh.close()
     return out
 
 
@@ -835,8 +857,8 @@ def _hydrate_winners(conn, keys, limit, src):
             places[ordinal] = (position, length, digest, record_json)
     kept = [(rel, ordinal) for rel, ordinal in keys if ordinal in places]
     verified = _verified(src, [places[ordinal] for _, ordinal in kept])
-    if verified is _MISMATCH:
-        return _MISMATCH
+    if verified is _MISMATCH or verified is _UNREADABLE:
+        return verified
     return [(rel, ordinal, record) for (rel, ordinal), record in zip(kept, verified)]
 
 
@@ -900,9 +922,10 @@ def _ranked(tokens, src, dst, *, tags, session, limit, force_scan):
             try:
                 if _index_is_current(conn, src):
                     candidates = _fast_candidates(conn, match, tags=tags, session=session, limit=limit, src=src)
-                    if candidates is not _MISMATCH:
+                    if candidates is _MISMATCH:
+                        mismatched = True
+                    elif candidates is not _UNREADABLE:
                         return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
-                    mismatched = True
             finally:
                 conn.close()
         except sqlite3.Error:

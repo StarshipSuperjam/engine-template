@@ -657,10 +657,11 @@ def degraded_refusal(entry) -> str:
     named = DEGRADED_REFUSAL_GUIDANCE.get(entry["id"])
     if named:
         return named
+    # No writer identifier in the sentence: it reaches the operator verbatim through the refusal seam, and a
+    # dotted code name is neither plain nor actionable there.
     return (
-        f"{entry['writer']} needs this session to be qualified to write memory, and it isn't yet. Nothing was "
-        f"changed. Qualification converges by itself at a session start that can reach GitHub; reading and "
-        f"recall work in the meantime."
+        "This session is not yet qualified to write memory, so nothing was changed. Qualification converges "
+        "by itself at a session start that can reach GitHub; reading and recall work in the meantime."
     )
 
 

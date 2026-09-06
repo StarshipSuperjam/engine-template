@@ -4865,6 +4865,25 @@ class TestUpgradeInstallsNewModules(unittest.TestCase):
             self._avail(("r", "required", None)), ["core"], {"core", "r"}, catalog_trusted=True)
         self.assertTrue(out["install"][0]["prior_declined"])
 
+    def test_a_required_install_discloses_its_costs_from_the_manifest_when_the_catalog_has_no_entry(self):
+        # The catalog is the OFFERABLE set, so a required module has no entry there - yet its upgrade line is
+        # the surface the operator reads before merging an install onto a deployment that never had it
+        # (#1238's meaning recall: a 33 MB word table and a numpy fetch). The manifest's gloss fills the gap.
+        gloss = "Finds saved history by meaning. It adds about 33 MB and fetches one Python package (numpy)."
+        avail = [{"id": "r", "status": "required", "depends": {}, "description": gloss}]
+        out = module_manager._classify_available_modules(avail, ["core"], {"core", "r"}, catalog_trusted=True,
+                                                         catalog_text={})
+        self.assertEqual(out["install"][0]["description"], gloss)
+        result = {"modules_installed": [dict(out["install"][0], prior_declined=True)], "modules_offered": []}
+        body = module_manager.render_upgrade_pr_body({"core": "0.4.0"}, {"core": "0.5.0"}, result)
+        self.assertIn("33 MB", body)
+        self.assertIn("numpy", body)
+        self.assertIn("was available in your version and not installed", body)
+        # the catalog's gloss still wins when it exists
+        out = module_manager._classify_available_modules(avail, ["core"], {"core"}, catalog_trusted=True,
+                                                         catalog_text={"r": {"description": "catalog gloss"}})
+        self.assertEqual(out["install"][0]["description"], "catalog gloss")
+
     def test_net_new_default_on_is_installed_but_declined_is_only_offered(self):
         # THE safety property: a default-on module never known here is auto-installed; one known-but-absent is a
         # prior decline and is offered, never resurrected.

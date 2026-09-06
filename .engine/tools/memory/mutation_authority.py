@@ -595,9 +595,10 @@ def _consume(context, entry: dict, measured: int, supplied=None):
 
 def _open_store_lock(context):
     if fcntl is None:
-        raise MutationRefusal("This machine's Python cannot take the advisory file lock memory writes need "
-                              "(no POSIX locking), so writing is held and nothing was changed. Recall keeps "
-                              "working. " + refusals.ESCALATION)
+        raise MutationRefusal("This machine's Python installation is missing the file-locking feature memory "
+                              "writes need, so writing is held and nothing was changed. Recall keeps working. "
+                              "This is unusual and usually means the Python running the engine's tools is not "
+                              "an ordinary installation. " + refusals.ESCALATION)
     lock_path = context["target"]["lifecycle"]["store_identity_lock"]
     try:
         info = os.lstat(lock_path)
@@ -612,8 +613,9 @@ def _open_store_lock(context):
         raise
     except OSError as exc:
         raise MutationRefusal("The memory store's lock could not be taken, so writing is held and nothing was "
-                              "changed - the memory folder may be unreadable or its disk unmounted. Recall "
-                              "keeps working. " + refusals.ESCALATION) from exc
+                              "changed - the memory folder may be unreadable or its disk unmounted. Reads from "
+                              "this store may be held too, and each read answer says how it was resolved. "
+                              + refusals.ESCALATION) from exc
 
 
 def _close_store_lock(handle) -> None:
@@ -696,8 +698,8 @@ def _stale_refusal(exc: "execution_context.ContextError") -> str:
     if isinstance(exc, (execution_context.ActivationStale, execution_context.AcceptedTreeStale)):
         return (
             "This project moved to a new commit while this memory server was running, so its write context no "
-            "longer matches the project on disk. Nothing was changed, and writing stays held until the server "
-            "restarts. Recall keeps working, and every read answer says how it was resolved." + tail
+            "longer matches the project on disk. Nothing was changed, and writing is held. Recall keeps working, "
+            "and every read answer says how it was resolved." + tail
         )
     if isinstance(exc, execution_context.ArtifactUnreadable):
         return (
