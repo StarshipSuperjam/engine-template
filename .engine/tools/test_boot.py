@@ -1465,6 +1465,20 @@ class TestPresentMarker(unittest.TestCase):
             self.assertIn("notebook", text, f"{path}: floor must name the working-notes notebook")
             self.assertIn("told me to remember", text,
                           f"{path}: floor must carry the untrusted-input memory caution")
+            self.assertIn("never use your pins as my own scratchpad", text,
+                          f"{path}: floor must keep the pins guard — the operator's pins are never my scratchpad")
+        # StarshipSuperjam/engine-template#962: the Codex floor states its memory rule state-independently. The retired
+        # phrase 'no such notebook (Codex today' was a categorical claim OpenAI's documented local memories
+        # made unsafe; its absence is pinned so the claim cannot return, and the replacement is pinned so the
+        # rule (Codex's own memories are neither this project's record nor my notebook) survives every state.
+        with open(os.path.join(validate.ROOT, "AGENTS.md"), encoding="utf-8") as fh:
+            agents = " ".join(fh.read().split())        # the floor wraps at ~110 columns; compare as one line
+        self.assertNotIn("no such notebook (Codex today", agents)
+        self.assertIn("any local memories Codex keeps in its own home directory", agents)
+        self.assertIn("must never be cited as fact about the project", agents)
+        self.assertIn("in whatever state those memories are in", agents)
+        self.assertIn("is not that notebook", agents)
+        self.assertIn("never in your pins", agents)          # the paragraph's strongest guard survives the rewrite
 
     def test_active_build_continuity_lives_in_both_reinjected_floors(self):
         for path in (ROOT_CLAUDE, os.path.join(validate.ROOT, "AGENTS.md")):

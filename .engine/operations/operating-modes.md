@@ -63,7 +63,9 @@ The stance lifecycle:
    Manager as an **unapproved draft**: no approval, no review, no seal, no build authority. On Claude the
    adapter reads the plan from where the harness now puts it: the inline text on an older harness, else
    the completion's own result, else the plan file that result names — read only from the platform's
-   plans folder (or a `plansDirectory` set in managed or your own settings, never a project's file). The
+   plans folder (or a `plansDirectory` set in managed or your own settings, never a project's file). That
+   acceptance happens in plan mode, a mode you now enter yourself — the Engine sets no permission default
+   for a project (StarshipSuperjam/engine-template#1227). The
    session then reports where the text came from, the plan's id, the revision it created, and the exact
    next command, so an acceptance is never followed by an unexplained refusal. Nothing is invented on the way in: the text is kept verbatim,
    the payload is empty, and the things an import cannot know — what this is asking for, the problem, the

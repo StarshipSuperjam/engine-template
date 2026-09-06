@@ -30,6 +30,8 @@ About the Engine's own protection files: an ordinary edit to one leaves a plain-
 
 When you ask for something that changes your project, the Engine works in careful steps and shows you what it plans before it does it, so nothing significant happens without your say-so.
 
+How your assistant asks before it acts — its permission mode — is your assistant's own setting, and the Engine leaves it exactly as your assistant ships it. Planning mode is something you switch on when you want it; a plan you accept there still lands in the Engine's planning process, where you read it whole and decide before anything is built.
+
 ## Finding the commands
 
 Alongside plain conversation, the Engine gives you a set of shortcuts — short typed commands that start with **`engine-`** so you can tell them apart from the other commands your assistant offers. The opening keystroke depends on where you're working: in **Claude Code** you type them as `/engine-…`; in **Codex** the same commands are `$engine-…`. There are three easy ways to see what's available:

@@ -27,28 +27,6 @@ Nothing is broken and nothing was left half-done; I just can't run the rest of s
 in place, and I'll never quietly use a different setup on your computer instead. Let's try again in a moment,
 or once you're back online — I'll pick up exactly where I left off.
 
-## Your safer default is on
-
-You're set to start in planning mode by default in this project: I'll lay out what I'm about to do and wait
-for your go-ahead before making any change — the safer way to work here. This is only a convenience setting
-for this project; it changes nothing about your own setup elsewhere, and it removes no safety check (you still
-review and approve every change). Change it any time with /config.
-
-## Your editing default — keep yours, or use the safer one
-
-You already have your own editing default set, so I've left it alone. If you'd like, this project can start in
-planning mode instead — I'd lay out my plan and wait for your go-ahead before changing anything, which is a
-little safer. Use planning mode for this project, or keep your own default? Keeping yours changes nothing.
-Either way, nothing about your setup elsewhere changes and no safety check is removed.
-
-## This project already sets an editing default — keep it, or use the safer one
-
-This project's own settings already choose an editing default, so I've left it exactly as it is. If you'd like,
-this project can start in planning mode instead — I'd lay out my plan and wait for your go-ahead before changing
-anything, which is a little safer. Choosing planning mode replaces the editing default saved in this project;
-keeping yours leaves that setting exactly as it is. Use planning mode for this project, or keep the one it
-already has? Either way no safety check is removed — you still review and approve every change.
-
 ## Your stance came with this project
 
 This project came set up with a starting set of codes of conduct — short notes on how you like me to work with
@@ -85,24 +63,6 @@ mine. GitHub treats a project with no license file as exactly this normal starti
 choosealicense.com walks through the common options in plain language — and I can explain what a license file is
 and help you add the one you choose, though I can't tell you which terms are right for you; for anything that really
 matters legally, ask a person. I didn't do this silently — this note is me telling you.
-
-## Your project's working guide
-
-This project started from a template, and its working guide — the `CLAUDE.md` at the top — arrived carrying the
-template's own setup notes, which are about building the template itself, not your project. I've replaced it with
-the engine's working guide for **your** project, kept inside a clearly marked block I keep current as the engine
-updates — so if you open that file and see the marker lines around it, that part is mine to maintain, not
-something you need to edit. The part that's yours to shape — how you like me to work with you — lives in your
-codes of conduct instead: change it any time with `/engine-setup` (`$engine-setup` in Codex). I didn't do this silently — this note is me
-telling you.
-
-## Your project's working guide for Codex
-
-This project also arrived with the template's own Codex working guide — the `AGENTS.md` at the top, the same
-role `CLAUDE.md` plays when you work in Claude Code, for sessions run in Codex. I've replaced it with the
-engine's working guide for **your** project, kept inside the same kind of clearly marked block I maintain as
-the engine updates. You don't need to edit it — how you like me to work with you lives in your codes of
-conduct, changeable any time with `/engine-setup` (`$engine-setup` in Codex).
 
 ## Your project starts from a clean slate
 
