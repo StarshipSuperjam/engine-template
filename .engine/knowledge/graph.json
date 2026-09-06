@@ -5245,7 +5245,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:1450eedb5714fc81876c1d6333f1f458bd52b6e83fa9317f632f916dab2a1e16",
+        "fingerprint": "sha256:faebd0ed5527b4b7eafeb653fccdd155ed2c2e63f81733b70e4b43c9e0067a14",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5757,7 +5757,7 @@
       },
       "slug": "build-orchestration",
       "source": {
-        "fingerprint": "sha256:20ba477cafbc3f79847359155910d980c85e41219cb73adc6aa944f0afcc2ada",
+        "fingerprint": "sha256:30c906685626a515dda2281670492ead35b8ecc09d432ad575639a5f3bf13fa0",
         "path": ".engine/operations/build-orchestration.md"
       },
       "status": "active",
@@ -6990,7 +6990,7 @@
       },
       "slug": "build-state.v2",
       "source": {
-        "fingerprint": "sha256:3f24a1e4154e813b804af78859d449334ddb741f7caa9d2dde18fd5a1601758f",
+        "fingerprint": "sha256:80f72717460411f9e47c374601e8042933e7be2ff6ffbdaec025ec3648cb3d98",
         "path": ".engine/schemas/build-state.v2.json"
       },
       "status": "active",
@@ -7619,7 +7619,7 @@
       },
       "slug": "selftest-run-record.v1",
       "source": {
-        "fingerprint": "sha256:898688b064d51e841d9e0e800c2198d92d6c51b1467b9f2ba338f3e2d804deb0",
+        "fingerprint": "sha256:097dd2d8d8a8d8a078af927be363d727af5199d658f095c34756170cf6a1a987",
         "path": ".engine/schemas/selftest-run-record.v1.json"
       },
       "status": "active",
@@ -7636,7 +7636,7 @@
       },
       "slug": "selftest-selection.v1",
       "source": {
-        "fingerprint": "sha256:76073bd1829409f3059a5c8ff436f18dc9cf65e8bc4a6f45fca2345031cc01b9",
+        "fingerprint": "sha256:e90038a2dcdf380d4eb60ba2fce82ccb8d09f64b20c4738d4ad56e4d7ebd7e2a",
         "path": ".engine/schemas/selftest-selection.v1.json"
       },
       "status": "active",
@@ -9477,6 +9477,7 @@
           "tool:build_protocol",
           "tool:build_review_range",
           "tool:build_state_store",
+          "tool:change_classification",
           "tool:ci_gatekeeper",
           "tool:close_linkage_preflight",
           "tool:derived_state",
@@ -9500,7 +9501,7 @@
       },
       "slug": "build_coordinator",
       "source": {
-        "fingerprint": "sha256:33872f4b3de57ff2382f977a1a84d20ac89825efdb03cf572faa643f4fca2c31",
+        "fingerprint": "sha256:74c588b2c22efe540d45909047776645f809a845a289ea4bc9504db16c939104",
         "path": ".engine/tools/build_coordinator.py"
       },
       "status": "active",
@@ -9915,6 +9916,31 @@
     },
     {
       "entrypoint": "cli",
+      "guarded": true,
+      "id": "tool:change_classification",
+      "name": ".engine/tools/change_classification.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:module_coherence",
+          "tool:repo_identity",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "change_classification",
+      "source": {
+        "fingerprint": "sha256:48cd6703def28d0a30f494aab4a29fe705538699c8b0a40d17caa578b9e832c1",
+        "path": ".engine/tools/change_classification.py"
+      },
+      "status": "active",
+      "summary": "change_classification — does a change set touch anything the Engine reads, executes, or owns?",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
       "guarded": false,
       "id": "tool:checkout_auto_update",
       "name": ".engine/tools/checkout_auto_update.py",
@@ -10000,7 +10026,7 @@
       },
       "slug": "ci_assurance",
       "source": {
-        "fingerprint": "sha256:64227439c814749d6daf586df9e870c822ed392e344d18be29c913577f860b52",
+        "fingerprint": "sha256:b84906ea19eca9eaab464cc96f280f7238a4855a43b9fd46a8c9e7abfc74127b",
         "path": ".engine/tools/ci_assurance.py"
       },
       "status": "active",
@@ -10039,6 +10065,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:change_classification",
           "tool:ci_assurance",
           "tool:github_client",
           "tool:issue_event",
@@ -10051,11 +10078,11 @@
       },
       "slug": "ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:85eb87377cef2a2c4a2e15bb8117fb321a1723c216fddb4bd370f852b8d74745",
+        "fingerprint": "sha256:bbc506d22e98ec3a6c8d50307a390885ef84193dd586203e224c6b4dc1311349",
         "path": ".engine/tools/ci_gatekeeper.py"
       },
       "status": "active",
-      "summary": "ci_gatekeeper — decide whether an engine-ci run owes the full inventory or may reuse an earlier proof.",
+      "summary": "ci_gatekeeper — decide whether an engine-ci run owes the full inventory, may reuse an earlier proof, or",
       "type": "tool"
     },
     {
@@ -13563,7 +13590,7 @@
       },
       "slug": "module_coherence",
       "source": {
-        "fingerprint": "sha256:1f1c838e9681f037195be7ce9d47a215c5004aaae58eee477891a149fa05a002",
+        "fingerprint": "sha256:aa3518da76d8bf82b748d69bd452374f4b74ea2cdb1dcfb46f29ff6e29b07bdd",
         "path": ".engine/tools/module_coherence.py"
       },
       "status": "active",
@@ -15134,7 +15161,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:834c536f1d3514e907d3bcf187a477613829921875da543289ad0473b9ff4d1f",
+        "fingerprint": "sha256:b87bf897497f1617717f05bd1611202892c6c7176894358536b860c1be60fe59",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -15149,6 +15176,7 @@
       "owner": "core",
       "predicates": {
         "imports": [
+          "tool:change_classification",
           "tool:derived_state",
           "tool:knowledge_gen",
           "tool:validate"
@@ -15159,7 +15187,7 @@
       },
       "slug": "selftest_select",
       "source": {
-        "fingerprint": "sha256:4721c59d1c16b2acb4028e775f1787fa3570ac38f9991a54decf014eacab3f2e",
+        "fingerprint": "sha256:a0e4028c24ed0c1d315efa8f80415c4f0485337abff7f377330b2d39be7d83bf",
         "path": ".engine/tools/selftest_select.py"
       },
       "status": "active",
@@ -16126,7 +16154,7 @@
       },
       "slug": "test_build_coordinator",
       "source": {
-        "fingerprint": "sha256:bac5d0972482a90b5cd5de0a0b8672783a630e90f357d4be58cb994315c0bf06",
+        "fingerprint": "sha256:1f554c65667a5fa48b37301389d11a5512fa668475bef6e2d1aaf0a20ef2ea4e",
         "path": ".engine/tools/test_build_coordinator.py"
       },
       "status": "active",
@@ -16473,6 +16501,31 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_change_classification",
+      "name": ".engine/tools/test_change_classification.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:change_classification",
+          "tool:module_coherence",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_change_classification",
+      "source": {
+        "fingerprint": "sha256:bb4d7f3159d5bd212a82e11ea94e7fba50e817d280281476c0712b539ac3c75c",
+        "path": ".engine/tools/test_change_classification.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the change classifier: the declared floor, the fail-closed vocabulary, and the git seam.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_checkout_auto_update",
       "name": ".engine/tools/test_checkout_auto_update.py",
       "owner": "core",
@@ -16537,7 +16590,7 @@
       },
       "slug": "test_ci_assurance",
       "source": {
-        "fingerprint": "sha256:31325cab7f7c7e4ad1685058b6e7076d3afc8415dc89f1bec31c67d316b3fe92",
+        "fingerprint": "sha256:fc535b3ce91ba1d8996450e5f371c69f41ba814e0a0a3a8f2070879388088781",
         "path": ".engine/tools/test_ci_assurance.py"
       },
       "status": "active",
@@ -16561,7 +16614,7 @@
       },
       "slug": "test_ci_gatekeeper",
       "source": {
-        "fingerprint": "sha256:3c53cbb25366e273b79aa44a2fb6d7db96b21a5b1b7b7a0c569b73b79465d229",
+        "fingerprint": "sha256:dfc26f5703dd407cf41c9652d4b6047ed3f5d55fc09c679a853dc8ad2ad5226f",
         "path": ".engine/tools/test_ci_gatekeeper.py"
       },
       "status": "active",
@@ -18446,6 +18499,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_module_coherence",
+      "name": ".engine/tools/test_module_coherence.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:module_coherence",
+          "tool:validate"
+        ]
+      },
+      "slug": "test_module_coherence",
+      "source": {
+        "fingerprint": "sha256:b3d69c6fdc2501d32a6c1f35eaab82894bcd4adb50869f8ad3ab0a8e518cf44e",
+        "path": ".engine/tools/test_module_coherence.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for module_coherence's register readers' root seam.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_module_manager",
       "name": ".engine/tools/test_module_manager.py",
       "owner": "core",
@@ -20205,7 +20282,7 @@
       },
       "slug": "test_seed",
       "source": {
-        "fingerprint": "sha256:c2364bc07f05ace578ff6c792d6efbfd9736509806b7934991cc45c0c4b81898",
+        "fingerprint": "sha256:d9ed5740043bfecaece9900ade8cff2c6fafeef2b59e3bfc84d08843220d8745",
         "path": ".engine/tools/test_seed.py"
       },
       "status": "active",
@@ -20280,7 +20357,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:f1038b27b766f753e80715a75d9b5a8768942a9ce380f29370912fc7bc40ad3f",
+        "fingerprint": "sha256:d9ee136553f6b237c463320c201667c372bec822b872aea843afcd1b0f35b32f",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
@@ -20333,7 +20410,7 @@
       },
       "slug": "test_selftest_select",
       "source": {
-        "fingerprint": "sha256:f57c24295a89ebb30a13f47a8d65af5b7295c822103caedc2de083f8d1cfbe7c",
+        "fingerprint": "sha256:b7a4170e494f4f7b9707e9b6bca5c8bce485cbcb9aaa88a23ec2030c02dfa046",
         "path": ".engine/tools/test_selftest_select.py"
       },
       "status": "active",
@@ -21063,6 +21140,30 @@
     {
       "entrypoint": "test",
       "guarded": false,
+      "id": "tool:test_weakening_guard",
+      "name": ".engine/tools/test_weakening_guard.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:change_classification",
+          "tool:weakening_guard"
+        ]
+      },
+      "slug": "test_weakening_guard",
+      "source": {
+        "fingerprint": "sha256:0f828b82ec17dd248393de1a5a3366e17b225b8ec2766320d6258af62daa7a8a",
+        "path": ".engine/tools/test_weakening_guard.py"
+      },
+      "status": "active",
+      "summary": "Self-tests for the weakening guard's hard-tier membership of the engine-ci gate and its helper.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
       "id": "tool:test_wiring",
       "name": ".engine/tools/test_wiring.py",
       "owner": "core",
@@ -21491,7 +21592,7 @@
       },
       "slug": "weakening_guard",
       "source": {
-        "fingerprint": "sha256:50412ef16a39437bf2a88937e5e9a2ad6ac42f958320f155c75063d7f9df11bd",
+        "fingerprint": "sha256:a54d82523374ec07783b08cf761d19bbd8dc9cf77fe4d05dff859a2d2dd4ed28",
         "path": ".engine/tools/weakening_guard.py"
       },
       "status": "active",
