@@ -127,8 +127,8 @@ Restating its order here would only give you a second answer, free to drift from
   runtime's spelling, that the Build begins only when they type the engine-start command. That typed start
   enters the Build stance; the bind's recorded decision is then their consent to this Build, in that order.
   This is an offer, not a gate; nothing mechanical checks it.
-- **The Build is downstream and owns itself.** Binding the sealed plan to a draft pull request, and
-  everything after it, belongs to [Build orchestration](build-orchestration.md).
+- **The Build is downstream and owns itself.** Binding the sealed plan belongs to [Build kickoff](build-kickoff.md);
+  everything after it, to the phase runbooks [Build orchestration](build-orchestration.md) names.
 
 ## Done when
 
