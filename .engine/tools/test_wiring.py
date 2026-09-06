@@ -1182,7 +1182,9 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         # declares, so `steps.gata.outputs.mode` or a renamed step fails here, before any push.
         steps = self._steps()
         declared = {s["id"] for s in steps if "id" in s}
-        self.assertEqual(declared, {"gate", "selftests", "metadata"},
+        # `project` is the third arm's substantive step (StarshipSuperjam/engine-template#758): the terminal
+        # assertion reads its outcome, so it must be addressable, and nothing else may be.
+        self.assertEqual(declared, {"gate", "selftests", "metadata", "project"},
                          "the set of addressable steps is itself pinned: a step that grows an id becomes "
                          "referenceable, and the self-test step in particular must never be")
         writes_output = {}
@@ -1225,8 +1227,13 @@ class TestEngineCiReuseGateStructure(unittest.TestCase):
         env = term.get("env", {})
         self.assertEqual(env.get(ci_gatekeeper.FULL_RAN_ENV), "${{ steps.selftests.outcome }}")
         self.assertEqual(env.get(ci_gatekeeper.REUSE_RAN_ENV), "${{ steps.metadata.outcome }}")
+        self.assertEqual(env.get(ci_gatekeeper.PROJECT_ONLY_RAN_ENV), "${{ steps.project.outcome }}")
         self.assertEqual(self._sole_step("unittest discover").get("id"), "selftests")
         self.assertEqual(self._sole_step("--suite CI-metadata").get("id"), "metadata")
+        project = [s for s in self._steps() if s.get("id") == "project"]
+        self.assertEqual(len(project), 1)
+        self.assertIn("--suite CI", str(project[0].get("run", "")))
+        self.assertNotIn("unittest", str(project[0].get("run", "")))
 
     def test_the_self_test_step_redirects_every_runner_control_file(self):
         # The one step in the job that runs arbitrary code — the whole inventory — gets decoy paths for every

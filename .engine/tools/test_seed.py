@@ -3426,7 +3426,12 @@ class TestReuseGateIsGuarded(unittest.TestCase):
     #   validate      — the repository root only
     #   moment        — the engine's one time seam (utc_now/to_z/parse_z), so the receipt's timestamp is
     #                   formatted and parsed through the shared UTC-wire helper, never a hand-rolled strftime
-    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate", "moment"})
+    #   change_classification — the third route's decision (does a deployed copy's change set lie outside
+    #                   everything the Engine owns?). Guarded at least as strongly as the gate: it is in BOTH
+    #                   _FLOOR_ENFORCEMENT_HOOKS and _HARD_EXACT (test_weakening_guard pins the binding), and
+    #                   imported lazily inside classify_checkout so an import failure resolves to more work
+    _PERMITTED_IMPORTS = frozenset({"github_client", "ci_assurance", "issue_event", "validate", "moment",
+                                    "change_classification"})
 
     def test_the_gate_grows_no_unreviewed_helper(self):
         # The StarshipSuperjam/engine-template#895 shape: guarding the file but not the logic it calls. If the

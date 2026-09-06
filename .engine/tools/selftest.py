@@ -50,7 +50,10 @@ Two flags are for you. `--changed-from` runs only the self-tests that the change
 affect, falling back to the complete inventory for anything it cannot positively classify (see
 selftest_select.py, which decides); it is an ITERATION aid — at most CANDIDATE evidence inside a
 coordinated Build — and never merge evidence: the only merge path is the Build coordinator's final
-import of the engine-ci proof, and CI still runs everything against the exact submitted head.
+import of the engine-ci proof. For any change that touches the Engine, CI still runs everything against
+the exact submitted head; a DEPLOYED copy's change set that lies outside everything the Engine owns
+selects only the standing guard here (scope `project-only`) and CI's project-only arm runs the validator
+alone — the inventory then runs nowhere, which the record and the closing banner say in words.
 `--run-record-path` writes a machine-readable record of what the run actually did — the complete
 discovered inventory, the committed tree it ran over (nullable, with a dirty flag), what was selected
 and why, per-module timings, failures, and skips. Both appear in `--help`.
@@ -529,8 +532,12 @@ def _run_child(args: argparse.Namespace) -> int:
     selection = _read_selection(args.selection_path)
     scope = "full"
     unmatched: list = []
-    if selection is not None and selection.get("classification") == "focused":
-        scope = "focused"
+    if selection is not None and selection.get("classification") in ("focused", "project-only"):
+        # `project-only` is a focused run whose every changed path was a deployed project's own (no Engine
+        # path, exempt or otherwise, beside them), so
+        # what runs is the standing guard alone; the scope keeps that name so the record never reads as
+        # an ordinary narrowing.
+        scope = selection["classification"]
         wanted = frozenset(entry["module"] for entry in selection.get("selected", ()))
         if not wanted:
             # The SELECTOR cannot produce this — a run is focused only when something was positively
@@ -850,6 +857,7 @@ def _run_parent(args: argparse.Namespace) -> int:
     # An explicitly supplied selection wins: that is the fixture's seam, letting a test hand in a
     # manifest without constructing a git repository to derive one from.
     scope_note = None
+    scope_name = "full"
     selection_path = args.selection_path
     if selection_path is None and args.changed_from:
         # Minted the way the run log is, for the reason the log's own docstring already gives: 0600
@@ -865,7 +873,20 @@ def _run_parent(args: argparse.Namespace) -> int:
         # Announce whichever way it went, and say WHY on a fallback. A session that asked to narrow and
         # silently got the whole inventory would otherwise have no idea the selector declined.
         manifest = _read_json(selection_path) or {}
-        if manifest.get("classification") == "focused":
+        if manifest.get("classification") == "project-only":
+            picked = len(manifest.get("selected", ()))
+            owned = len(manifest.get("project_paths", ()))
+            print(f"Project-only run: {owned} changed path{'' if owned == 1 else 's'} "
+                  f"{'lies' if owned == 1 else 'lie'} outside everything the Engine owns, so only the "
+                  f"standing derived-artifact guard ({picked} module{'' if picked == 1 else 's'}) runs.",
+                  flush=True)
+            scope_note = (f"Project-only run — {picked} guard module(s) ran; the Engine self-test inventory "
+                          f"did not run for this change set. Engine health only: no product validation "
+                          f"is registered (StarshipSuperjam/engine-template#1147). "
+                          f"This is NOT a full-inventory result.")
+            scope_name = "project-only"
+        elif manifest.get("classification") == "focused":
+            scope_name = "focused"
             picked = len(manifest.get("selected", ()))
             # Say the proportion, not just the count. Editing a leaf tool selects a couple of modules;
             # editing a widely-imported one can select most of the tree, and both used to be announced
@@ -1039,7 +1060,7 @@ def _run_parent(args: argparse.Namespace) -> int:
     elapsed = time.monotonic() - start
     output = "".join(captured)
     _finish_run_record(args.run_record_path, rc, log_path, output,
-                       scope="focused" if scope_note else "full",
+                       scope=scope_name,
                        selection=_read_json(selection_path) if selection_path else None,
                        start_dir=args.start_dir)
     _cleanup_selection(selection_path, args.selection_path)
@@ -1066,7 +1087,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-path", default=None, help=argparse.SUPPRESS)
     p.add_argument("--changed-from", default=None, metavar="COMMIT",
                    help="run only the self-tests that changes since COMMIT could affect. Anything the "
-                        "selector cannot positively classify runs the complete inventory instead. An "
+                        "selector cannot positively classify runs the complete inventory instead. In a "
+                        "deployed copy, a change set that lies outside everything the Engine owns runs "
+                        "only the standing derived-artifact guard, announced as a project-only run. An "
                         "iteration aid, never merge evidence.")
     p.add_argument("--run-record-path", default=None, metavar="PATH",
                    help="write a machine-readable record of this run to PATH: the complete discovered "

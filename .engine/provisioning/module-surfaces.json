@@ -1338,6 +1338,9 @@
   ".engine/tools/census_completeness_check.py": [
    "core"
   ],
+  ".engine/tools/change_classification.py": [
+   "core"
+  ],
   ".engine/tools/checkout_auto_update.py": [
    "core"
   ],
@@ -2274,6 +2277,9 @@
   ".engine/tools/test_census_completeness.py": [
    "core"
   ],
+  ".engine/tools/test_change_classification.py": [
+   "core"
+  ],
   ".engine/tools/test_checkout_auto_update.py": [
    "core"
   ],
@@ -2449,6 +2455,9 @@
    "core"
   ],
   ".engine/tools/test_module_catalog.py": [
+   "core"
+  ],
+  ".engine/tools/test_module_coherence.py": [
    "core"
   ],
   ".engine/tools/test_module_manager.py": [
@@ -2692,6 +2701,9 @@
    "core"
   ],
   ".engine/tools/test_validate.py": [
+   "core"
+  ],
+  ".engine/tools/test_weakening_guard.py": [
    "core"
   ],
   ".engine/tools/test_wiring.py": [

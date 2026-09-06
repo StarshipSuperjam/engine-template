@@ -211,6 +211,40 @@ class TestShapeRule(unittest.TestCase):
         self.assertEqual(SHAPE_RULE.get("length_tier"), "hard")
 
 
+class TestProductIntakeRoutesWritesThroughBuild(unittest.TestCase):
+    """StarshipSuperjam/engine-template#804: the product-intake runbook routes every project write through Build
+    entered by the operator's typed command, and its operator-facing bounds survive the trim that paid for the
+    routing. This pin holds PHRASES (whitespace-collapsed), not meaning — it reds when the routing sentence, the
+    entry verb or a named bound leaves the file; whether the runbook reads right is the reviewer's cold read."""
+
+    def _text(self):
+        path = os.path.join(validate.ENGINE_DIR, "operations", "product-intake.md")
+        with open(path, encoding="utf-8") as fh:
+            return " ".join(fh.read().split())
+
+    def test_the_routing_sentence_and_the_entry_verb_are_present(self):
+        text = self._text()
+        self.assertIn("nothing reaches the project while exploring", text)
+        self.assertIn("engine-start", text)
+        self.assertIn("Accepting a plan only imports it", text)
+
+    def test_the_authoring_steps_name_build(self):
+        text = self._text()
+        for lead in ("4. **Write the description from the scaffold", "9. **Record the significant choices",
+                     "10. **Turn the settled description"):
+            start = text.index(lead)
+            self.assertIn("Build", text[start:start + 1400], lead)
+
+    def test_the_operator_facing_bounds_survive(self):
+        text = self._text()
+        for phrase in ("never imply it vouched for the design", "never imply a review ran",
+                       "never fold the two into one", "settled work left out of it will hold a merge until it is added",
+                       "Plain words only, on screen",
+                       "the engine asks the operator to confirm the change on that pull request (by applying the "
+                       "`guardrail-ack` label) before it can merge"):
+            self.assertIn(phrase, text, phrase)
+
+
 class TestFrontmatterRule(unittest.TestCase):
     def test_rule_is_well_formed_and_joins_ci(self):
         check_schema = validate.load_json(os.path.join(validate.SCHEMAS_DIR, "check.v1.json"))

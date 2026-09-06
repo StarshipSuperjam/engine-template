@@ -321,6 +321,38 @@ class TestPreviewEvidence(unittest.TestCase):
         self.assertTrue(verdict, [f["message"] for f in findings])
         self.assertIn("Change profile", body)
 
+    def test_a_project_only_build_renders_its_scope_and_proof_limit_into_the_body(self):
+        # StarshipSuperjam/engine-template#883: the composed pull-request body — not just a helper's
+        # return value — carries the project-only scope of the candidate run AND the limit of a project-only
+        # merge proof, so the operator's merge surface says what evidence actually stood where.
+        import build_coordinator as bc
+        from unittest import mock
+        claim = _good_claim()
+        pr_data = {"body": "old body", "baseRefOid": "b" * 40}
+        prof = mock.Mock(stdout="**Change profile** — small: 3 files.", returncode=0)
+        state = self._state()
+        state["validation"] = {
+            "candidate": {"commit": "a" * 40,
+                          "results": [{"id": "selftest", "commit": "a" * 40, "passed": True,
+                                       "log_digest": "sha256:abc"}],
+                          "run_record": {"id": "selftest", "scope": "project-only", "tree": "t" * 40}},
+            "final": {"commit": "a" * 40, "source": "ci-import", "run_id": 43, "tree": "t" * 40,
+                      "mode": "project-only", "classification_reason": "project-only"}}
+        with mock.patch.object(bc, "_run", return_value=prof), \
+             mock.patch.object(bc.spec_service, "canonical_spec",
+                               return_value={"posture": "none", "review_steps": "No settled spec applies."}), \
+             mock.patch.object(bc.review, "required_disagreement_lines", return_value=[]), \
+             mock.patch.object(bc, "_installed",
+                               return_value=[{"lens": "spec-conformance"}, {"lens": "divergence-hunter"}]):
+            ev = bc._assemble_evidence(state, {"intent_source": {"kind": "direct"}, "spec": {}},
+                                       claim, "a" * 40, pr_data)
+        body = bcc.compose(claim, ev)
+        self.assertIn("scope **project-only**", body)
+        self.assertIn(bc.PROJECT_ONLY_EVIDENCE_NOTE, body)
+        self.assertIn("a **project-only** receipt accepted only after this checkout re-derived", body)
+        self.assertIn("imported engine-ci run `43`", body)
+        self.assertEqual(body.count(bc.PROJECT_ONLY_EVIDENCE_NOTE), 2, "once for the run, once for the proof")
+
     def test_post_approval_assumption_resolution_reaches_the_pr_review_record(self):
         # StarshipSuperjam/engine-template#1014: a disposition of an assumption authored 'unresolved' is the
         # operator's merge-time disclosure — it must render into the composed PR body, for verified AND
