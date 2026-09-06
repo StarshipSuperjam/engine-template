@@ -23,6 +23,7 @@ so the live shape/frontmatter rules pass vacuously today.
 """
 from __future__ import annotations
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -243,6 +244,42 @@ class TestProductIntakeRoutesWritesThroughBuild(unittest.TestCase):
                        "the engine asks the operator to confirm the change on that pull request (by applying the "
                        "`guardrail-ack` label) before it can merge"):
             self.assertIn(phrase, text, phrase)
+
+
+class TestTheLocalSchedulerIsAScheduledTask(unittest.TestCase):
+    """StarshipSuperjam/engine-template#817: Anthropic's Claude Code documentation (code.claude.com, read 2026-09-06)
+    calls the Desktop app's local scheduling capability a *scheduled task* — the app's Routines page hosts local
+    scheduled tasks and cloud *routines* — so the Engine's documents name the local capability that way and keep
+    'routine' for the cloud product and for the Engine's own Routine stance (set-routine, /engine-routine,
+    routine-entry.md). This pin holds PHRASES (whitespace-collapsed), not meaning — it reds when the retired
+    'Desktop routine' wording returns to one of the five files, when 'scheduled task' leaves one, or when the
+    Engine's own stance verb leaves the two runbooks that enter it; whether a sentence reads right is the
+    reviewer's cold read. StarshipSuperjam/engine-template#819 rides the same files: the host-hardening sentences
+    those files gained are pinned by their bounding phrases."""
+
+    ROOT = os.path.dirname(validate.ENGINE_DIR)
+    FILES = (
+        os.path.join(validate.ENGINE_DIR, "operations", "routine-entry.md"),
+        os.path.join(validate.ENGINE_DIR, "operations", "operating-modes.md"),
+        os.path.join(validate.ENGINE_DIR, "operations", "codex-settings.md"),
+        os.path.join(ROOT, "README.md"),
+        os.path.join(ROOT, ".claude", "skills", "engine-routine", "SKILL.md"),
+    )
+
+    def _text(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return " ".join(fh.read().split())
+
+    def test_the_local_capability_is_a_scheduled_task_in_every_file(self):
+        for path in self.FILES:
+            text = self._text(path)
+            self.assertNotRegex(text, re.compile(r"desktop\s+\*{0,2}routine", re.IGNORECASE), path)
+            self.assertIn("scheduled task", text, path)
+
+    def test_the_engine_stance_keeps_its_verb(self):
+        for name in ("routine-entry.md", "operating-modes.md"):
+            text = self._text(os.path.join(validate.ENGINE_DIR, "operations", name))
+            self.assertIn("set-routine", text, name)
 
 
 class TestFrontmatterRule(unittest.TestCase):

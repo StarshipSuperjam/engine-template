@@ -4,7 +4,7 @@ title: Routine entry — the unattended, scope-locked entry procedure
 
 ## Purpose
 
-The procedure an unattended Routine session enters when a Claude Desktop routine fires `/engine-routine`.
+The procedure an unattended Routine session enters when a Claude Desktop scheduled task fires `/engine-routine`.
 Codex build Automations are retired and their generated skill refuses before entering this procedure.
 It is the drift-firewall for unattended work: it confirms the engine's guardrails are actually running, that
 the run genuinely cannot ask, and that it is isolated from the operator's checkout; it locks onto the sealed,
@@ -22,7 +22,7 @@ of every routine fire; the build's actual work follows the distributed-implement
    Do not enter Routine and do not write: report plainly in the run output that the hooks need
    re-trusting and stop. This is a safety refusal, not an alarm — the operator sees this run in the scheduling
    app's history like any session, so no Issue is filed.
-2. **Confirm the run is non-interactive (it genuinely cannot ask).** A Claude Desktop routine uses the
+2. **Confirm the run is non-interactive (it genuinely cannot ask).** A Claude Desktop scheduled task uses the
    operator's non-interactive permission choice. This is a host/runtime fact, not a setting the engine applies
    here. If the non-interactive posture is unavailable to the run, report
    it plainly in the run output and stop (again a visible-in-app refusal, no Issue). If an action *mid-build*
@@ -108,7 +108,7 @@ tier as the Explore write-gate. What *is* mechanical is the entry: `set-routine`
 stance unless it can prove worktree isolation, so the never-strand-main floor does not rest on prose. The only
 unbypassable wall is the protected-branch merge, which Routine never performs; the interactive Finalize review
 is the cohesion backstop. Single-flight — skipping a fire while one is already in progress — is the scheduler's
-behavior where it provides it (the Claude Desktop routine does), so two overlapping fires are bounded by the no-merge wall and
+behavior where it provides it (the Claude Desktop scheduled task does), so two overlapping fires are bounded by the no-merge wall and
 the Finalize review, not by a lease; orphan recovery is reading git state — a run that dies mid-task leaves its
 commits (or none) and the PR open, and the next run resumes from git, the sealed plan in the library, and the
 exported handoff. The non-interactive

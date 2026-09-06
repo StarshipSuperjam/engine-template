@@ -189,22 +189,22 @@ enabling its live helpers. The setup flow above tells you when one of those runt
 The Engine can advance a *planned* build on a schedule while you're away — each run does one planned chunk,
 adds its commits to an open pull request, and **never merges**. Your merge stays the only gate.
 
-The short version: first plan the build in a normal, interactive session (a routine *advances* a plan, it
-doesn't make one), then schedule `/engine-routine` as a Claude Desktop routine, pointed at that
+The short version: first plan the build in a normal, interactive session (a scheduled task *advances* a plan, it
+doesn't make one), then schedule `/engine-routine` as a Claude Desktop scheduled task, pointed at that
 build's branch in an isolated copy of the repo. When you're back, open a normal session and ask the Engine to
-wrap the pull request up for your merge — a routine never finishes it for you.
+wrap the pull request up for your merge — a scheduled task never finishes it for you.
 
 <details>
-<summary>Full setup for unattended routines</summary>
+<summary>Full setup for unattended scheduled tasks</summary>
 
 **First, plan the build (a normal, interactive session).** Before you schedule anything, work with the Engine
 in a normal session to produce what it will follow: a plan you approve in that session — which the Engine then
 publishes onto a suitable Issue as a frozen, promoted copy, naming the ordered steps and the files each may
-touch — and an open **draft pull request** on a branch. The routine reads that promoted copy and adds
+touch — and an open **draft pull request** on a branch. The scheduled task reads that promoted copy and adds
 commits to that pull request, so point the schedule at that build's branch, not a fresh copy of your default
 branch. With no plan to find, the first run has nothing to do and says so.
 
-**On Claude Code — a Claude Desktop routine.** Create a routine and choose when it runs; put `/engine-routine`
+**On Claude Code — a Claude Desktop scheduled task.** On the app's Routines page, create a local scheduled task and choose when it runs; put `/engine-routine`
 in its Instructions; turn on **"Work in an isolated copy of the repo"** (the Engine refuses to write unless the
 run is in a dedicated worktree, so this is required) and make sure that copy is on your build's branch; and set
 the **permission mode** to the one that lets the session act without pausing to ask you.
@@ -213,10 +213,10 @@ the **permission mode** to the one that lets the session act without pausing to 
 shared scheduled sandbox plus unattended repository credentials cannot preserve the promise that only you merge.
 If one exists, open **Scheduled** in the desktop sidebar, find the recurring task whose prompt contains
 `$engine-routine`, and pause or delete it; confirm it no longer appears under Active. Use Codex interactively, or
-use the Claude Desktop routine above when you need unattended writes. This is deliberately the simpler supported
+use the Claude Desktop scheduled task above when you need unattended writes. This is deliberately the simpler supported
 path; the canonical reasoning is in `.engine/operations/codex-settings.md`.
 
-**For the Claude routine — confirm before you rely on it.**
+**For the Claude scheduled task — confirm before you rely on it.**
 
 - Keep the computer on and the app running during the scheduled time — a local run only works while your
   machine is awake.
@@ -226,7 +226,7 @@ path; the canonical reasoning is in `.engine/operations/codex-settings.md`.
 You'll see each run in your scheduling app's history and its progress on the pull request. If a run can't
 safely start — hooks not running, or not isolated — it reports why and stops. It files a GitHub Issue only for
 something it hits mid-build that needs you; when GitHub itself is unreachable it can't file one, so the run's
-own history in the app is the only record of that. **The routine never finishes the pull request** — when
+own history in the app is the only record of that. **The scheduled task never finishes the pull request** — when
 you're back, open a normal session and ask the Engine to wrap it up, review it for cohesion, and submit it for
 your merge.
 

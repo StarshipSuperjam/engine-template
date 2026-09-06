@@ -74,7 +74,7 @@ The stance lifecycle:
    platform has since reworded), `python tools/project_manager.py import-native --input - --provenance
    "<where this plan came from, in your words>"` performs the identical import from the plan text on stdin.
 5. **Routine is unattended, scope-locked build work** entered by an operator-authored scheduled fire: a
-   Claude Desktop routine runs the routine command, which enters
+   Claude Desktop scheduled task runs the routine command, which enters
    the Routine write-stance through `set-routine` — a **mechanical** gate that grants the stance only in a
    proven-isolated worktree, never the operator's checkout — and which the run additionally declines to enter
    when its start-of-session hooks did not fire (an honest-tier check the run follows). It never merges the protected branch. It is the same workflow,
