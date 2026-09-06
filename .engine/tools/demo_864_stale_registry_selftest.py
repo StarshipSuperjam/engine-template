@@ -41,6 +41,9 @@ _TARGET_TEST = "test_committed_registry_matches_the_derived_set"
 _INHERIT_DROP = ("ENGINE_NESTED_SELFTEST", "ENGINE_DEPLOYED_PROJECTION")
 
 
+# The case #864 saw masked: it must be NAMED in the run record, not just its module.
+REGISTRY_CASE = "test_committed_registry_matches_the_derived_set"
+
 def _git(*args, cwd=None, check=True):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=check)
 
@@ -143,16 +146,16 @@ def main() -> int:
         record_path = os.path.join(tmp, "record-home-stale.json")
         proc = _run_launcher(home_clone, record_path)
         record = _read_record(record_path)
-        problem_modules = [p.get("module") for p in record.get("problems", [])]
+        problem_ids = [p.get("id", "") for p in record.get("problems", [])]
         print(f"[3] launcher exit={proc.returncode}, record verdict={record.get('verdict')!r}, "
-              f"problem modules={problem_modules}")
+              f"problems={problem_ids}")
         print("    banner tail:")
         for ln in proc.stdout.strip().splitlines()[-6:]:
             print(f"      {ln}")
         if record.get("verdict") != "failed":
             failures.append(f"staled home clone: expected verdict 'failed', got {record.get('verdict')!r}")
-        if "test_module_surfaces" not in problem_modules:
-            failures.append("staled home clone: the registry test did not appear among the record's problems")
+        if not any(REGISTRY_CASE in pid for pid in problem_ids):
+            failures.append(f"staled home clone: {REGISTRY_CASE} did not appear among the record's problems")
         if "FAILED" not in proc.stdout:
             failures.append("staled home clone: banner did not contain FAILED")
 
