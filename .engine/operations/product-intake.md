@@ -29,7 +29,7 @@ Accepting a plan only imports it into the engine's planning; it does not start B
    it outside the sandbox before assuming `gh auth login`. Either way carry on: what the operator has told you is kept
    in this conversation, which the engine records, and is written into `docs/spec/` once Build starts. Without a
    connection Build cannot open its pull request, so the intake proposes and waits — say so, and pick it back up when
-   the connection is there; what they said stays in the conversation the engine records.
+   the connection is there.
 2. **Lay out the pieces and confirm the shape — before writing any one document.** From what the operator wants,
    propose the full set of capabilities the product obviously needs, each as a named, not-yet-described piece. Ask at
    the shape level: "does this look like the right pieces, or is something obvious missing?" — and let them say yes,

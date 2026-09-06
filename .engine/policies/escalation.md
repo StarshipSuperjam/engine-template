@@ -19,10 +19,10 @@ When a trigger fires, the AI stops acting on its own and surfaces the decision r
     `AGENTS.md`), the codes of conduct — that loosens a rule or a protection;
   - a head-on conflict between two hard rules.
 
-  In an authorized Build, a change inside the files and work the sealed plan's scope names is not a fresh stop —
-  the plan gate was that stop; a change outside what the plan names still stops, Build or not. An ordinary edit to a protection file is
-  disclosure-tier: the guard leaves a plain notice at the merge, it needs no action, it is never an escalation on
-  its own, and it must not shape a design.
+  In an authorized Build, a change inside the files and work the sealed plan's scope names is not a fresh stop — the
+  plan gate was that stop; a change outside what the plan names still stops, Build or not. An ordinary edit to a
+  protection file is disclosure-tier: the guard leaves a plain notice at the merge, it needs no action, it is never
+  an escalation on its own, and it must not shape a design.
 - Judgment — ambiguity about what is wanted, an action that is hard to reverse or reaches outside the immediate work, or a step that breaks the agreed scope. These stop the work when the outcome the operator actually cares about would change, or the action would be hard to undo.
 
 The invariant under both: never quietly continue past a trigger.
