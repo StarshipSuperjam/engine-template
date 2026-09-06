@@ -5285,7 +5285,7 @@
       },
       "slug": "product-design",
       "source": {
-        "fingerprint": "sha256:b8883ebc451c52ca1600b33076c08e66f19050d6b233bd5873044601d97d7e5d",
+        "fingerprint": "sha256:4b7312304d1f5ccdae2868ddb2053b8fdebf783400c5e4fe330a85d2cd9582dd",
         "path": ".engine/docs/product-design.md"
       },
       "status": "active",
@@ -6337,7 +6337,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:ac73e7bb7a04a4a60ebc55a42271e5a71c2f4b517172e908bc60207333eda976",
+        "fingerprint": "sha256:84e8784dea8cb3955f1181bd4b8deaa05242705261be745e4881d5366209a1be",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -7935,7 +7935,7 @@
       },
       "slug": "engine-design",
       "source": {
-        "fingerprint": "sha256:d457cbd64e81d5b5d9e125ed4fd02edd0afeff6ecc62328008d7bed7fcab96cb",
+        "fingerprint": "sha256:9414a249f78939df8b7509c7c903fca2cdbd7456fb9a6b912f4b267c08296e0e",
         "path": ".claude/skills/engine-design/SKILL.md"
       },
       "status": "active",
@@ -18698,7 +18698,7 @@
       },
       "slug": "test_operation",
       "source": {
-        "fingerprint": "sha256:56764ea00ea38f1e8ccd0ff6a0359c8ce1e83905cd8e9bf4ca159e801c44fdb8",
+        "fingerprint": "sha256:03ba1978c7def105ca8d93377b65654e1d19a7dddb4892a9ebab0318d89853a2",
         "path": ".engine/tools/test_operation.py"
       },
       "status": "active",
