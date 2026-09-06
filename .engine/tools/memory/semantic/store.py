@@ -541,11 +541,15 @@ def search(query: str, *, limit: int = DEFAULT_LIMIT, ledger_file: "str | None" 
     trustworthy answer to give — which is NOT the same as having searched and found nothing, and a caller
     must never report it as such.
     """
+    # The live read sits OUTSIDE the store-fault handling on purpose: a ledger that cannot be read is not a
+    # fault of the meaning store, and answering it with the store-fault sentence would tell the operator that
+    # keyword search still covers everything and point them at the vector store to delete - both untrue. It
+    # reaches the read seam as the unexpected fault it is: masked, logged, diagnosable.
+    live, derived_under = _live_snapshot(ledger_file)
     try:
-        live, derived_under = _live_snapshot(ledger_file)
         conn = _connect(store_path(store_file))
-    except Exception as exc:  # noqa: BLE001 — an unqualified session may not open-or-migrate the store; a
-        return _unavailable(exc)  # ledger that cannot be read is a fault to answer, not a crash to raise
+    except Exception as exc:  # noqa: BLE001 — an unqualified session may not open-or-migrate the store
+        return _unavailable(exc)
     try:
         try:
             reconciled = _reconcile(conn, live, derived_under)

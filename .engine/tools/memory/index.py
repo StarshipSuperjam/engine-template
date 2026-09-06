@@ -788,11 +788,12 @@ def _verified(src: str, locations: list):
     does not hold'; a row whose stored body fails to match or is filtered out before it becomes a winner is
     missing content, which the stamps in `meta` and the rebuild cover, not this check.
 
-    Two failures that look alike are kept apart. A ledger that CANNOT BE READ (absent, unmounted, a permission
-    gone) says nothing about the index: the answer degrades to the scan for this one query and the index is
-    left alone — `_UNREADABLE`, never a rebuild request, because a rebuild against an unreadable ledger would
-    stream nothing and stamp an empty index as current (a cold review reproduced exactly that). Only bytes
-    that DIFFER ask for the rebuild."""
+    Two failures that look alike are kept apart. A ledger that CANNOT BE OPENED OR READ says nothing about
+    the index: the index is left alone — `_UNREADABLE`, never a rebuild request, because a rebuild against an
+    unreadable ledger would stream nothing and stamp an empty index as current (a cold review reproduced
+    exactly that) — and the query falls back to the scan, which answers nothing while the ledger is absent
+    and raises, as it always has, when the file is present but cannot be read. Only bytes that DIFFER ask for
+    the rebuild."""
     if not locations:
         return []
     out = []
