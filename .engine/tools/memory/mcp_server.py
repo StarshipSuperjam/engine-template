@@ -118,15 +118,36 @@ def _tool(**registration):
     it registers unchanged, so the wrapper is both what the boundary invokes (translation takes effect)
     and what binds to the module global (marker preserved); `inspect.signature` follows `__wrapped__`,
     so the registered tool schema is the original function's."""
+    name = registration.get("name")
+
     def register(function):
         @functools.wraps(function)
         def wrapper(*args, **kwargs):
+            if name in _READ_TOOLS:
+                # BEFORE the mutation guard beneath this wrapper resolves the context: on an uncached first
+                # resolution that met refreshable drift, this is where the read-side root refresh installs a
+                # restart's seal, so the guard then opens qualified and the derived stores can reconcile. Done
+                # inside the seam instead, the guard would already have routed this very call degraded - the
+                # operator's fixture showed meaning recall answering unavailable for exactly that reason.
+                # Never raises for a staleness (every class maps to a binding); a NON-staleness fault inside
+                # revalidation - a logic bug, a genuine corruption - still propagates by the reviewed decision
+                # of the earlier root fix, and the recording server logs it as a tool-fault. The binding is
+                # kept for this call so the seam does not resolve (and revalidate) a second time.
+                _CALL.binding = _execution_context.read_binding()
             try:
                 return function(*args, **kwargs)
             except _TRANSLATED_REFUSALS as exc:
                 raise ToolError(str(exc)) from exc
+            finally:
+                _CALL.binding = None
         return server.tool(**registration)(wrapper)
     return register
+
+
+# The served read tools: the ones whose answers pass through the read seam and whose wrapper performs the
+# read-side resolution ahead of the guard. `health` is deliberately not one: it touches no store.
+_READ_TOOLS = frozenset({"search", "recall-window", "recall-by-meaning", "list-pins", "list-withheld"})
+_CALL = threading.local()   # the binding the wrapper resolved for the tool call running on this thread
 
 
 @_tool(
@@ -154,7 +175,7 @@ def health() -> dict:
 _DEFAULT_LIMIT = 10
 
 
-def _recall(query: str, *, tags=None, session=None, limit=None):
+def _recall(query: str, *, tags=None, session=None, limit=None, memory_dir=None):
     """The recall the `search` tool performs, as a plain function shared by the tool and the operator demo so
     BOTH exercise the real path. Returns the library `QueryResult`.
 
@@ -165,7 +186,9 @@ def _recall(query: str, *, tags=None, session=None, limit=None):
     An omitted `limit` becomes `_DEFAULT_LIMIT` rather than staying unbounded. A caller that genuinely wants
     everything asks for a large number; nobody is served by the accidental unbounded read."""
     result = index.search(query, tags=tags, session=session,
-                          limit=_DEFAULT_LIMIT if limit is None else limit)
+                          limit=_DEFAULT_LIMIT if limit is None else limit,
+                          ledger_file=_ledger_file(memory_dir),
+                          index_file=None if memory_dir is None else os.path.join(memory_dir, index.INDEX_FILENAME))
     # A captured turn can be part the operator's words and part a harness block the engine fused into the same
     # message — and the record is marked as spoken by the operator either way. Handing that back whole tells a
     # reader the operator said something the engine inserted, and this answer is the one place a model reads a
@@ -217,54 +240,167 @@ _RECALL_COMPLETENESS_NOTE = (
 )
 
 
-# One plain sentence every read tool attaches when this session holds a memory context whose binding has gone
-# stale in a way a restart clears — the operator scenario, a commit landing under a running server. It is
-# honest for a read: recall still reflects what is on disk, but writing is held and the meaning index may not
-# have healed, so anything asked to be remembered in this session may not have been saved.
-_READ_CAVEAT = (
-    "This session's memory needs a restart to fully reconnect: recall reflects what is already saved on disk, "
-    "but new memories can't be written and meaning-based recall may be incomplete until you restart, which "
-    "restores full recall."
-)
+# ---------------------------------------------------------------------------------------------------------
+# The read seam (C2, pln_b5eb869e55b4). Every read tool's answer passes through `_read_seam`, which resolves
+# what this session may read WITHOUT raising (execution_context.read_binding), reads with explicit paths so
+# no read depends on `ledger_dir()`'s strict resolution, re-checks the store it read from, derives how
+# complete retrieval actually was, and attaches ONE declared `outcome` object. It replaces the earlier
+# `_memory_read_caveat`, which swallowed a stale first resolution once and left `ledger_dir()` to raise it a
+# second time with nothing to catch it - the crash the two captured production traces recorded.
+# ---------------------------------------------------------------------------------------------------------
 
+_RESTART_ACTION = ("To fully reconnect, quit Claude Desktop completely and reopen it so the memory server restarts "
+                   "(in a Codex session, end the session and start a new one).")
+_ESCALATION = "If this keeps happening after a restart, run /engine-status and open an engine issue."
+_NOTE_MOVED = ("This project moved to a new commit while this memory server was running. Recall reflects what is "
+               "saved on disk; the keyword index was not refreshed and meaning-based recall is unavailable. "
+               + _RESTART_ACTION + " " + _ESCALATION)
+_NOTE_UNBOUND_STORE = ("The memory store under this session is not the one it was bound to, so nothing was read "
+                       "from it. Quit Claude Desktop completely and reopen it so the memory server restarts against "
+                       "the current store (in a Codex session, end the session and start a new one). " + _ESCALATION)
+_NOTE_UNBOUND_UNREADABLE = ("A memory file on disk could not be read, so nothing was read from the store - this is "
+                            "a problem with the store on disk, not with what is saved in it. Quit Claude Desktop "
+                            "completely and reopen it so the memory server retries against the store (in a Codex "
+                            "session, end the session and start a new one). " + _ESCALATION)
+_NOTE_UNBOUND_UNCONFIRMED = ("This session's memory context could not be confirmed against the store, so nothing "
+                             "was read from it. Quit Claude Desktop completely and reopen it so the memory server "
+                             "re-establishes the binding (in a Codex session, end the session and start a new "
+                             "one). " + _ESCALATION)
+_NOTE_INCOMPLETE_SEARCH = ("The keyword index could not be refreshed, so this answer came from a slower full scan "
+                           "of everything saved. If this persists, run /engine-status and open an engine issue.")
+_NOTE_MEANING_STORE_FAULT = ("Meaning-based recall could not open its store; keyword search still covers everything "
+                             "saved. If this persists, run /engine-status and open an engine issue.")
+_NOTE_MEANING_BACKEND = ("Meaning-based recall's backend is unavailable on this machine; keyword search still covers "
+                         "everything saved. If this persists, run /engine-status and open an engine issue.")
+# Only `search` (the ledger-scan fallback) and `recall-by-meaning` (its backend) can report an incomplete read;
+# recall-window, list-pins and list-withheld always read their full source. `_meaning_read` returns the note
+# with its result on EVERY exit: the plan's sentence for a store fault, the backend sentence when the embedding
+# backend itself cannot run (numpy or the word table missing), and None for the one case whose own
+# `unavailable` text already carries the recovery and the escalation - a session not qualified to build the
+# meaning index.
 
-# The staleness types this process has already traced. A stale session reads memory many times and every read
-# would otherwise write a near-identical `read-degraded` record into the same bounded sink as the rare crash
-# record the log exists to keep — enough of them rotate that record out. One trace per staleness TYPE per
-# process says which binding moved without ever evicting the fault line.
+# One read-degraded trace per (staleness class, tool) per process. A stale session reads memory many times and
+# every read would otherwise write a near-identical record into the same bounded sink as the rare crash record
+# the log exists to keep. Keyed on the tool too, so the post-merge evidence shows WHICH tools degraded.
 _READ_DEGRADED_NOTED: set = set()
 _READ_DEGRADED_LOCK = threading.Lock()   # tool calls run on the SDK's worker threads; check-and-add is one step
 
+# Test-only: called with (tool, binding) after resolution and BEFORE the read, so a test can replace the store
+# in that window and prove the post-read check discards the result as unbound. Installed only through
+# `set_seam_test_hook`, which refuses outside a checked-in test module (the discipline mutation_authority's
+# under-lock hook already keeps); fired only inside a unit-test process, since the seam runs on the SDK's
+# worker threads where the frame-walking adapter check cannot see the test.
+_SEAM_HOOK = None
+_SEAM_HOOK_LOCK = threading.Lock()
 
-def _memory_read_caveat() -> str | None:
-    """Return `_READ_CAVEAT` when this session's installed context is present but stale in a restart-clearable
-    way, else None. Every read tool calls it so all four answer the operator's moved-commit scenario the same.
 
-    Deliberately narrow. It fires ONLY when a context is installed AND revalidation fails with a binding
-    change a restart would clear — a moved activation or tree, a changed store identity or pointer, an
-    unreadable artefact. It stays silent when:
-      * no context is installed (an unqualified or CLI run) — nothing a restart fixes, and each tool already
-        carries its own honest signal, so a blanket 'restart' sentence would be both noise and wrong advice;
-      * the drift is the one refreshable class, an in-place fingerprint — a read already reflects current disk.
-    The revalidation it runs only reads; it never mutates the store."""
-    try:
-        context = _execution_context.current_context()
-    except _execution_context.ContextError:
-        return None
-    try:
-        _execution_context.revalidate_context(context)
-    except _execution_context.ExpectedStateStale:
-        return None
-    except _execution_context.ContextError as exc:
-        # The typed staleness class is worth ONE trace of its own per process (see `_READ_DEGRADED_NOTED`):
-        # it says WHICH binding moved under the running server, which the plain caveat sentence does not.
-        kind = type(exc).__qualname__
-        with _READ_DEGRADED_LOCK:
-            if kind not in _READ_DEGRADED_NOTED and \
-                    _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc):
-                _READ_DEGRADED_NOTED.add(kind)
-        return _READ_CAVEAT
-    return None
+def set_seam_test_hook(hook) -> None:
+    """Install a one-process interleaving hook for the read seam; unavailable outside unit tests."""
+    if not _mutation_authority._test_adapter_allowed():
+        raise _mutation_authority.MutationAuthorityError("read-seam test hooks are test-only")
+    if hook is not None and not callable(hook):
+        raise _mutation_authority.MutationAuthorityError("read-seam test hook must be callable or None")
+    global _SEAM_HOOK
+    with _SEAM_HOOK_LOCK:
+        _SEAM_HOOK = hook
+
+
+def _run_seam_test_hook(tool: str, binding) -> None:
+    with _SEAM_HOOK_LOCK:
+        hook = _SEAM_HOOK
+    if hook is not None:
+        if sys.modules.get("unittest") is None:
+            raise _mutation_authority.MutationAuthorityError("read-seam test hook escaped a unit-test process")
+        hook(tool, binding)
+
+_EMPTY_ANSWERS = {
+    "search": lambda: {"results": []},
+    "recall-by-meaning": lambda: {"results": []},
+    "list-pins": lambda: {"pins": [], "total": 0},
+    "list-withheld": lambda: {"notes": [], "sessions": []},
+}
+
+
+def _ledger_file(memory_dir):
+    return None if memory_dir is None else os.path.join(memory_dir, ledger.LEDGER_FILENAME)
+
+
+def _read_degraded_trace(reason: str, tool: str, error=None) -> None:
+    key = (reason, tool)
+    with _READ_DEGRADED_LOCK:
+        if key in _READ_DEGRADED_NOTED:
+            return
+        exc = error
+        if exc is None:
+            klass = getattr(_execution_context, reason, None)
+            if not (isinstance(klass, type) and issubclass(klass, _execution_context.ContextError)):
+                klass = _execution_context.ContextError
+            exc = klass("read degraded")
+        # The exception revalidation actually raised, so the record keeps its content-free frame chain
+        # (basenames, functions, lines); the log never records message text, paths, fingerprints or commits.
+        if _stranding_log.record_stranding(_stranding_log.Event.READ_DEGRADED, exc, tool=tool):
+            _READ_DEGRADED_NOTED.add(key)
+
+
+def _outcome(binding, completeness: str, tool: str, read_note=None) -> dict:
+    """The one object every read answer carries; the note is the one sentence a session relays, chosen by
+    what actually happened rather than one fixed string per kind."""
+    if binding.kind == "moved":
+        note = _NOTE_MOVED
+    elif binding.kind == "unbound":
+        note = {"ArtifactUnreadable": _NOTE_UNBOUND_UNREADABLE,
+                "StoreIdentityStale": _NOTE_UNBOUND_STORE,
+                "BackupPointerStale": _NOTE_UNBOUND_STORE}.get(binding.reason, _NOTE_UNBOUND_UNCONFIRMED)
+    elif completeness == "incomplete":
+        if tool == "search":
+            note = _NOTE_INCOMPLETE_SEARCH
+        else:
+            note = read_note       # recall-by-meaning: the plan's store-fault sentence, or None (its own relays)
+    else:
+        note = None
+    return {"binding": binding.kind, "completeness": completeness, "reason": binding.reason,
+            "restart_clears": binding.restart_clears, "note": note}
+
+
+def _read_seam(tool: str, read, *, empty) -> dict:
+    """Run one read tool's body through the read-degradation contract.
+
+    `read(memory_dir, binding)` performs the tool's own read with EXPLICIT paths under `memory_dir` (None
+    means no context is installed and the ordinary resolution applies) and returns `(payload, completeness)`
+    - or exactly `(payload, completeness, note)` when the tool's read decides the outcome's sentence itself
+    (recall-by-meaning, on every exit; None where its own text is the relay) -
+    where completeness says what retrieval actually did: 'complete' (the full source was read) or 'incomplete'
+    (an index heal was refused, the meaning backend was unavailable, a ledger-scan fallback answered). `empty`
+    builds the tool's content-free answer for the unbound case.
+
+    Binding wins over content: an unbound binding reads NOTHING. Content stays bound to the store that was
+    validated: after the read, the store identity and backup pointer are checked AGAIN and a change discards
+    the result as unbound (another process can replace the store between the two; the context lock covers only
+    this process's threads). The outcome is derived on every call - `read_binding` revalidates live - so a
+    merge landing under a running server is disclosed on the next read, never frozen at the first."""
+    binding = getattr(_CALL, "binding", None) or _execution_context.read_binding()
+    _run_seam_test_hook(tool, binding)
+    read_note = None
+    if binding.kind == "unbound":
+        payload = empty()
+        completeness = "none"
+    else:
+        result = read(binding.memory_dir, binding)
+        if len(result) == 3:          # recall-by-meaning: its note travels with its result on every exit
+            payload, completeness, read_note = result
+        else:
+            payload, completeness = result
+        if binding.context is not None:
+            moved = _execution_context.explicit_store_check(binding.context)
+            if moved is not None:
+                binding = _execution_context.ReadBinding("unbound", moved, True, None, binding.context)
+                payload = empty()
+                completeness = "none"
+    payload.pop("memory_caveat", None)
+    payload["outcome"] = _outcome(binding, completeness, tool, read_note)
+    if binding.kind in ("moved", "unbound"):
+        _read_degraded_trace(binding.reason, tool, binding.error)
+    return payload
 
 
 @_tool(
@@ -291,14 +427,15 @@ def _memory_read_caveat() -> str | None:
 @_mutation_authority.guard("attended-keyword-mcp-search")
 def search(query: str, tags: list[str] | None = None,
            session: str | None = None, limit: int | None = None) -> dict:
-    out = _recall(query, tags=tags, session=session, limit=limit).records
-    result: dict = {"results": out}
-    if out:
-        result["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
-    caveat = _memory_read_caveat()
-    if caveat:
-        result["memory_caveat"] = caveat
-    return result
+    def read(memory_dir, _binding):
+        found = _recall(query, tags=tags, session=session, limit=limit, memory_dir=memory_dir)
+        result: dict = {"results": found.records}
+        if found.records:
+            result["recall_completeness"] = _RECALL_COMPLETENESS_NOTE
+        # `degraded` is the slow ledger scan: the fast index was absent, stale and its heal refused, or forced.
+        return result, ("incomplete" if found.degraded else "complete")
+
+    return _read_seam("search", read, empty=_EMPTY_ANSWERS["search"])
 
 
 @_tool(
@@ -320,11 +457,11 @@ def search(query: str, tags: list[str] | None = None,
 def recall_window(session_id: str, anchor_seq: int | None = None,
                   radius: int = recall.DEFAULT_RADIUS,
                   max_turns: int = recall.DEFAULT_MAX_TURNS) -> dict:
-    result = recall.window(session_id, anchor_seq=anchor_seq, radius=radius, max_turns=max_turns)
-    caveat = _memory_read_caveat()
-    if caveat and isinstance(result, dict):
-        result["memory_caveat"] = caveat
-    return result
+    def read(memory_dir, _binding):
+        return (recall.window(session_id, anchor_seq=anchor_seq, radius=radius, max_turns=max_turns,
+                              path=_ledger_file(memory_dir)), "complete")
+
+    return _read_seam("recall-window", read, empty=lambda: {"session_id": session_id, "turns": []})
 
 
 def _semantic_installed() -> bool:
@@ -374,30 +511,39 @@ if _semantic_installed():
         from memory.semantic import embed as _embed
         from memory.semantic import store as _store
 
-        caveat = _memory_read_caveat()
+        def read(memory_dir, binding):
+            return _meaning_read(query, limit, memory_dir, binding, _embed, _store)
 
-        def _answer(payload: dict) -> dict:
-            # Every exit passes through here so a stale or absent context adds the one plain restart sentence
-            # consistently, alongside — never overriding — this tool's own richer degradation messages.
-            if caveat:
-                payload.setdefault("memory_caveat", caveat)
-            return payload
+        return _read_seam("recall-by-meaning", read, empty=_EMPTY_ANSWERS["recall-by-meaning"])
 
+    def _meaning_read(query, limit, memory_dir, binding, _embed, _store):
         reason = _embed.unavailable_reason()
         if reason:
             # Honest degradation: say why nothing came back, never an empty list that reads as "no history".
-            return _answer({"results": [], "unavailable": reason})
-        found = _store.search(query, limit=limit)
+            return {"results": [], "unavailable": reason}, "incomplete", _NOTE_MEANING_BACKEND
+        found = _store.search(query, limit=limit, ledger_file=_ledger_file(memory_dir),
+                              store_file=None if memory_dir is None else os.path.join(memory_dir, _store.STORE_FILENAME))
         if found.get("unavailable"):
             # NOT the same as "searched and found nothing", and the difference is the whole point: saying
             # "your memory is empty" here would be a false statement about the operator's own project, which
             # is what the repair review caught this tool doing on an unqualified machine. The two reasons are
             # kept apart too — one resolves itself and the other needs someone to look at it.
             if found["unavailable"] == "not-qualified":
-                return _answer({"results": [], "unavailable": (
+                if binding.kind == "moved":
+                    # The outcome note beside this answer carries the recovery sentence; this text states the
+                    # fact once and does not repeat it.
+                    return {"results": [], "unavailable": (
+                        "I can't search by meaning right now: the project moved to a new commit under this "
+                        "memory server, so this session isn't qualified to update the meaning index. This says "
+                        "NOTHING about what is in memory: keyword search works normally and covers "
+                        "everything.")}, "incomplete", None
+                # This text is the relay itself (the outcome note stays null): it names the self-resolving
+                # cause, the action, and where to go if the action does not clear it.
+                return {"results": [], "unavailable": (
                     "I can't search by meaning in this session yet — it isn't qualified to build the meaning "
                     "index. This says NOTHING about what is in memory: keyword search works normally and "
-                    "covers everything. It sorts itself out at a session start that can reach GitHub.")})
+                    "covers everything. It sorts itself out at a session start that can reach GitHub. If it "
+                    "does not, run /engine-status and open an engine issue.")}, "incomplete", None
             # The remedy is chosen by the fault, because the obvious one is wrong for the commonest case:
             # a missing or corrupt shipped model asset survives deleting the cache, so an operator told to
             # delete it loses a possibly-fine cache and gets the identical error back. The internal class
@@ -410,9 +556,9 @@ if _semantic_installed():
             else:
                 remedy = ("Deleting `vectors.sqlite3` in the memory folder makes it rebuild from scratch; "
                           "nothing you said is stored there, so there is nothing to lose by doing it.")
-            return _answer({"results": [], "unavailable": (
+            return {"results": [], "unavailable": (
                 "Searching by meaning is not working right now. This says NOTHING about what is in memory: "
-                "keyword search works normally and covers everything. " + remedy)})
+                "keyword search works normally and covers everything. " + remedy)}, "incomplete", _NOTE_MEANING_STORE_FAULT
         results = []
         for record, passage in zip(found["records"], found["passages"]):
             # The closeness figure is deliberately NOT relayed. It ranks within one answer but does not track
@@ -428,7 +574,7 @@ if _semantic_installed():
         elif not found["searched"]:
             out["unavailable"] = ("Nothing is stored to search by meaning yet — this project's memory is "
                                   "empty, so an empty answer here says nothing about what was discussed.")
-        return _answer(out)
+        return out, "complete", None   # an empty store searched in full is a complete answer, not a degraded one
 
 
 # --- Operator demonstration -------------------------------------------------------------------------------
@@ -603,14 +749,13 @@ def pin(text: str, session_id: str | None = None) -> dict:
 def list_pins() -> dict:
     from memory import pins as _pins
 
-    live = _pins.list_pins()
-    result = {"pins": [{"id": p.get(records.RECORD_ID_KEY), "text": p.get("text"), "ts": p.get("ts"),
-                        records.PIN_VIA_KEY: p.get(records.PIN_VIA_KEY)} for p in live],
-              "total": len(live)}
-    caveat = _memory_read_caveat()
-    if caveat:
-        result["memory_caveat"] = caveat
-    return result
+    def read(memory_dir, _binding):
+        live = _pins.list_pins(path=_ledger_file(memory_dir))
+        return ({"pins": [{"id": p.get(records.RECORD_ID_KEY), "text": p.get("text"), "ts": p.get("ts"),
+                           records.PIN_VIA_KEY: p.get(records.PIN_VIA_KEY)} for p in live],
+                 "total": len(live)}, "complete")
+
+    return _read_seam("list-pins", read, empty=_EMPTY_ANSWERS["list-pins"])
 
 
 @_tool(
@@ -646,7 +791,10 @@ def withhold(record_id: str | None = None, session_id: str | None = None) -> dic
 def list_withheld() -> dict:
     from memory import forget as _forget
 
-    return _forget.withheld_report()
+    def read(memory_dir, _binding):
+        return _forget.withheld_report(path=_ledger_file(memory_dir)), "complete"
+
+    return _read_seam("list-withheld", read, empty=_EMPTY_ANSWERS["list-withheld"])
 
 
 @_tool(

@@ -989,5 +989,353 @@ class StrandingLogAuthorityTests(unittest.TestCase):
         self.assertFalse(os.path.exists(sink))
 
 
+
+class ReadBindingTests(unittest.TestCase):
+    """C2 (pln_b5eb869e55b4): the read-side resolution never raises, installs nothing except the reviewed
+    root refresh on an uncached refreshable drift in the memory server, and maps every way revalidation can
+    end onto a total, closed vocabulary. Each row here is a real on-disk drift against a sealed canonical
+    attended-memory-mcp context, except the two declared monkeypatches (base ContextError, unknown subclass),
+    which no disk change reaches."""
+
+    def setUp(self):
+        self.fixture = _QualifiedFixture(mcp=True)
+        # Not fixture.cleanup(): that routes through the under-lock test hook, which the test adapter refuses
+        # from a test file that is not yet the committed HEAD source. These tests never take the lock.
+        self.addCleanup(self.fixture.temp.cleanup)
+        self.addCleanup(self._reset_globals)
+        self._reset_globals()
+
+    def _reset_globals(self):
+        execution_context._CURRENT_CONTEXT = None
+        with execution_context._CONTEXT_LOCK:
+            execution_context._AUTHORIZED_CONTEXTS.clear()
+        os.environ.pop(execution_context.CONTEXT_ENV, None)
+        os.environ.pop(ledger.ENV_DIR, None)
+
+    def _uncached(self):
+        """The captured production shape: a context in the environment, nothing cached in the process."""
+        os.environ[execution_context.CONTEXT_ENV] = self.fixture.context.to_json()
+        execution_context._CURRENT_CONTEXT = None
+        self.assertIsNone(execution_context._CURRENT_CONTEXT)
+
+    # ---- injections (each a real drift on disk) ----
+    def _drift_fingerprint(self):
+        with open(os.path.join(self.fixture.memory, "ledger.ndjson"), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"body": "a sibling session wrote this"}) + "\n")
+
+    def _advance_activation(self, epoch=2):
+        activation = os.path.join(self.fixture.common, "engine", "accepted-hooks", "activation.json")
+        document = json.loads(Path(activation).read_text(encoding="utf-8"))
+        document["epoch"] = epoch
+        Path(activation).write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
+
+    def _remove_accepted_tree(self):
+        os.remove(os.path.join(self.fixture.accepted, ".engine", "tools", "accepted_hook_dispatch.py"))
+
+    def _replace_store_identity(self):
+        path = os.path.join(self.fixture.memory, execution_context.STORE_IDENTITY_FILENAME)
+        identity = json.loads(Path(path).read_text(encoding="utf-8"))
+        identity["store_id"] = "f" * 32
+        Path(path).write_text(json.dumps(identity, sort_keys=True) + "\n", encoding="utf-8")
+
+    def _rewrite_pointer(self):
+        Path(self.fixture.pointer).write_text(
+            '{"schema_version":1,"owner":"o","repo":"r","branch":"b","namespace":"n"}\n', encoding="utf-8")
+
+    def _make_artifact_unreadable(self):
+        # A content-hashed artefact that exists but cannot be opened: the I/O-fault class #1208 typed.
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            self.skipTest("chmod 0 does not make a file unreadable to root")
+        cursor = os.path.join(self.fixture.memory, "capture-state.json")
+        Path(cursor).write_text("{}\n", encoding="utf-8")
+        os.chmod(cursor, 0)
+        self.addCleanup(os.chmod, cursor, 0o600)
+
+    # ---- rows ----
+    def test_absent_context_resolves_absent_and_installs_nothing(self):
+        binding = execution_context.read_binding()
+        self.assertEqual((binding.kind, binding.reason, binding.restart_clears), ("absent", "none-installed", False))
+        self.assertIsNone(binding.memory_dir)
+        self.assertIsNone(execution_context._CURRENT_CONTEXT)
+
+    def test_clean_uncached_context_is_healthy_and_cached_the_ordinary_way(self):
+        self._uncached()
+        binding = execution_context.read_binding()
+        self.assertEqual(binding.kind, "healthy")
+        self.assertEqual(binding.memory_dir, self.fixture.memory)
+        self.assertIsNotNone(execution_context._CURRENT_CONTEXT)
+
+    def test_uncached_fingerprint_drift_is_healed_by_the_root_refresh(self):
+        self._uncached()
+        before = execution_context.binding_identity(self.fixture.context)
+        self._drift_fingerprint()
+        with self.assertRaises(execution_context.ExpectedStateStale):
+            execution_context.revalidate_context(self.fixture.context)  # the drift is real
+        binding = execution_context.read_binding()
+        self.assertEqual((binding.kind, binding.reason), ("healthy", None))
+        installed = execution_context._CURRENT_CONTEXT
+        self.assertIsNotNone(installed)
+        # An invariant on the refresh's own code (it copies the authority-bearing fields through), not a control
+        # against disk - the control is the full revalidation the refresh runs before installing.
+        self.assertEqual(execution_context.binding_identity(installed), before)
+        self.assertNotEqual(installed.expected_state_fingerprint, self.fixture.context.expected_state_fingerprint)
+        self.assertTrue(execution_context._is_authorized_context(installed))
+        self.assertEqual(json.loads(os.environ[execution_context.CONTEXT_ENV])["receipt"]["context_digest"],
+                         installed.digest)
+        # A restart's seal: the installed context revalidates clean and the write path's own resolution sees it.
+        execution_context.revalidate_context(installed)
+        self.assertIs(execution_context.current_context(), installed)
+
+    def test_two_concurrent_first_reads_produce_one_refresh(self):
+        import threading
+        self._uncached()
+        self._drift_fingerprint()
+        original = execution_context._remember_context
+        remembered = []
+
+        def counted(context):
+            remembered.append(context)
+            return original(context)
+
+        results = []
+        with mock.patch.object(execution_context, "_remember_context", side_effect=counted):
+            threads = [threading.Thread(target=lambda: results.append(execution_context.read_binding()))
+                       for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual([r.kind for r in results], ["healthy", "healthy"])
+        self.assertIs(results[0].context, results[1].context)
+        self.assertEqual(len(remembered), 1, "the refresh installed more than once")   # the bound, asserted
+
+    def test_a_drift_during_the_refresh_itself_is_healthy_read_only_not_unbound(self):
+        """A sibling write landing between the refresh's observation and its revalidation raises the same
+        refreshable class again; that is a read reflecting disk, never 'the store is not yours'."""
+        self._uncached()
+        self._drift_fingerprint()
+        original = execution_context._observe_state
+        seen = []
+
+        def drift_once(*args, **kwargs):
+            state = original(*args, **kwargs)
+            seen.append(1)
+            if len(seen) == 2:
+                # The second observation is the refresh's own: the write lands after it and before the
+                # refresh's revalidation, which then raises the refreshable class again.
+                self._drift_fingerprint()
+            return state
+
+        with mock.patch.object(execution_context, "_observe_state", side_effect=drift_once):
+            binding = execution_context.read_binding()
+        self.assertEqual((binding.kind, binding.reason), ("healthy", None))
+        self.assertIsNone(execution_context._CURRENT_CONTEXT)
+        self.assertEqual(binding.memory_dir, self.fixture.memory)
+
+    def test_uncached_drift_outside_the_memory_server_is_healthy_read_only_and_installs_nothing(self):
+        cli = _QualifiedFixture()  # ledger-append on pins.py: a CLI context, not the memory server
+        self.addCleanup(cli.temp.cleanup)
+        os.environ[execution_context.CONTEXT_ENV] = cli.context.to_json()
+        execution_context._CURRENT_CONTEXT = None
+        with open(os.path.join(cli.memory, "ledger.ndjson"), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"body": "drift"}) + "\n")
+        binding = execution_context.read_binding()
+        self.assertEqual(binding.kind, "healthy")
+        self.assertEqual(binding.memory_dir, cli.memory)
+        self.assertIsNone(execution_context._CURRENT_CONTEXT)
+        with self.assertRaises(execution_context.ContextError):
+            execution_context.refresh_root_for_read(cli.context)  # gated to the memory server
+
+    def test_moved_rows_answer_from_disk_and_install_nothing(self):
+        for name, inject, reason in (("activation", self._advance_activation, "ActivationStale"),
+                                     ("tree", self._remove_accepted_tree, "AcceptedTreeStale")):
+            with self.subTest(row=name):
+                self.setUp()
+                self._uncached()
+                inject()
+                binding = execution_context.read_binding()
+                self.assertEqual((binding.kind, binding.reason, binding.restart_clears), ("moved", reason, True))
+                self.assertEqual(binding.memory_dir, self.fixture.memory)
+                self._assert_not_installed_or_authorized(binding)
+
+    def test_unbound_rows_carry_no_memory_dir_and_install_nothing(self):
+        rows = (("store-identity", self._replace_store_identity, "StoreIdentityStale"),
+                ("pointer", self._rewrite_pointer, "BackupPointerStale"),
+                ("artifact", self._make_artifact_unreadable, "ArtifactUnreadable"))
+        for name, inject, reason in rows:
+            with self.subTest(row=name):
+                self.setUp()
+                self._uncached()
+                inject()
+                binding = execution_context.read_binding()
+                self.assertEqual((binding.kind, binding.reason, binding.restart_clears), ("unbound", reason, True))
+                self.assertIsNone(binding.memory_dir)
+                self._assert_not_installed_or_authorized(binding)
+
+    def test_base_context_error_and_unknown_subclass_are_unbound_by_default(self):
+        class FutureStale(execution_context.ContextError):
+            pass
+
+        for name, raised, reason in (
+                ("base", execution_context.ContextError("lifecycle paths no longer match"), "ContextError"),
+                ("unknown-subclass", FutureStale("a class this module does not know"), "unknown")):
+            with self.subTest(row=name):
+                self.setUp()
+                self._uncached()
+                with mock.patch.object(execution_context, "_revalidate_matched", side_effect=raised):
+                    binding = execution_context.read_binding()
+                self.assertEqual((binding.kind, binding.reason), ("unbound", reason))
+                self.assertIsNone(binding.memory_dir)
+                self._assert_not_installed_or_authorized(binding)
+
+    def test_activation_and_store_moving_together_is_unbound_not_moved(self):
+        """Check order puts the activation before the store identity, so ActivationStale surfaces first;
+        the explicit store check must still win."""
+        self._uncached()
+        self._advance_activation()
+        self._replace_store_identity()
+        with self.assertRaises(execution_context.ActivationStale):
+            execution_context.revalidate_context(self.fixture.context)
+        binding = execution_context.read_binding()
+        self.assertEqual((binding.kind, binding.reason), ("unbound", "StoreIdentityStale"))
+        self.assertEqual(execution_context.explicit_store_check(self.fixture.context), "StoreIdentityStale")
+
+    def test_drift_after_a_healthy_read_is_disclosed_on_the_next_read(self):
+        self._uncached()
+        self.assertEqual(execution_context.read_binding().kind, "healthy")
+        self._advance_activation()
+        binding = execution_context.read_binding()
+        self.assertEqual((binding.kind, binding.reason), ("moved", "ActivationStale"))
+
+    def test_the_read_only_binding_is_never_authorized_and_cannot_mint(self):
+        self._uncached()
+        self._advance_activation()
+        binding = execution_context.read_binding()
+        self.assertEqual(binding.kind, "moved")
+        self._assert_not_installed_or_authorized(binding)
+        with self.assertRaises(execution_context.ContextError):
+            execution_context.mint_capability(binding.context, measured_cardinality=1)
+        with self.assertRaises(execution_context.ContextError):
+            execution_context.observe_state_fingerprint(binding.context)
+
+    def test_reason_vocabulary_is_closed_and_carries_no_message_text(self):
+        self._uncached()
+        self._replace_store_identity()
+        binding = execution_context.read_binding()
+        document = binding.to_document()
+        self.assertEqual(set(document), {"binding", "reason", "restart_clears"})
+        self.assertIn(document["reason"], execution_context._READ_REASONS)
+        self.assertNotIn("/", json.dumps(document))
+        self.assertNotIn(self.fixture.memory, json.dumps(document))
+        with self.assertRaises(execution_context.ContextError):
+            execution_context.ReadBinding("unbound", "the store at /tmp moved", True, None, None)
+
+    def test_every_context_error_subclass_has_a_declared_row(self):
+        """Coverage assertion: an unlisted subclass in this module fails here before it can be omitted from
+        the matrix."""
+        declared = {"ExpectedStateStale", "ActivationStale", "AcceptedTreeStale", "StoreIdentityStale",
+                    "BackupPointerStale", "ArtifactUnreadable"}
+        found = {name for name, value in vars(execution_context).items()
+                 if isinstance(value, type) and issubclass(value, execution_context.ContextError)
+                 and value is not execution_context.ContextError}
+        self.assertEqual(found, declared)
+        self.assertTrue((declared - {"ExpectedStateStale"}) <= execution_context._READ_REASONS)
+        self.assertNotIn("ExpectedStateStale", execution_context._READ_REASONS)   # always healed or healthy
+        from memory import test_mcp_server as tms   # the matrix's own table is the second half of the check
+        self.assertTrue((declared - {"ExpectedStateStale"}) <= set(tms.ReadDegradationMatrixTests.REASON.values()))
+
+    def test_every_current_context_caller_still_fails_closed_under_every_non_refreshable_row(self):
+        """The strict resolution is untouched: under every non-refreshable row (R3-R9) an uncached
+        current_context() raises, read_binding() answers moved or unbound, and the callers that route on the
+        strict resolution fail closed - drain.is_qualified, backup_vault._pointer_path and capture._health_path
+        exercised under all seven rows; candidate_invocation.run under the five disk-drift rows only, because
+        it loads the context library under its own module name, which the two declared monkeypatch rows (R8,
+        R9) cannot reach and no disk drift shows. The write path's own mutation_scope is exercised under the
+        same rows by the matrix."""
+        import argparse
+        from contextlib import ExitStack
+        from memory import drain, candidate_invocation, backup_vault, capture
+
+        class FutureStale(execution_context.ContextError):
+            """A staleness class this module does not know (the matrix's R9)."""
+
+        def base_context_error(stack):        # the matrix's R8: the base class's own raise site
+            stack.enter_context(mock.patch.object(execution_context, "_path_identity",
+                                                  return_value={"device": -1, "inode": -1}))
+
+        def unknown_subclass(stack):          # the matrix's R9
+            stack.enter_context(mock.patch.object(execution_context, "_revalidate_matched",
+                                                  side_effect=FutureStale("a class this module does not know")))
+
+        rows = (("activation", lambda _stack: self._advance_activation(), "moved"),
+                ("tree", lambda _stack: self._remove_accepted_tree(), "moved"),
+                ("store-identity", lambda _stack: self._replace_store_identity(), "unbound"),
+                ("pointer", lambda _stack: self._rewrite_pointer(), "unbound"),
+                ("artifact", lambda _stack: self._make_artifact_unreadable(), "unbound"),
+                ("base-context-error", base_context_error, "unbound"),
+                ("unknown-subclass", unknown_subclass, "unbound"))
+        for name, inject, expected in rows:
+            with self.subTest(row=name), ExitStack() as stack:
+                self.setUp()
+                self._uncached()
+                inject(stack)
+                self.assertEqual(execution_context.read_binding().kind, expected)
+                self.assertIsNone(execution_context._CURRENT_CONTEXT)
+                with self.assertRaises(execution_context.ContextError):
+                    execution_context.current_context()
+                self.assertFalse(drain.is_qualified())
+
+                def fails_closed(call):
+                    # candidate_invocation loads the context library under its own module name, so its
+                    # staleness classes are distinct objects: match the ContextError lineage by name.
+                    try:
+                        call()
+                    except Exception as exc:  # noqa: BLE001 - the lineage is the assertion
+                        self.assertIn("ContextError", [klass.__name__ for klass in type(exc).__mro__], type(exc))
+                        return
+                    self.fail("did not fail closed")
+
+                if inject not in (base_context_error, unknown_subclass):
+                    # candidate_invocation loads the context library under its own module name, so the two
+                    # DECLARED monkeypatch rows cannot reach its copy and there is no disk drift for it to see;
+                    # every disk-drift row exercises it.
+                    fails_closed(lambda: candidate_invocation.run(argparse.Namespace(
+                        target_root=self.fixture.root, candidate_root=self.fixture.root, script="x")))
+                fails_closed(backup_vault._pointer_path)
+                fails_closed(lambda: capture._health_path("capture_status", "fallback"))
+                # mutation_scope itself: on this (main, checked-in test) thread the test adapter would admit
+                # the write, so its refusal is proven where the adapter cannot see - through the SDK client's
+                # worker threads, under every row, in test_mcp_server.ReadDegradationMatrixTests
+                # .test_write_authority_is_unchanged_across_the_rows.
+
+    def test_the_read_refresh_and_the_write_reseal_seal_the_same_state_from_the_same_disk(self):
+        """Drift alarm: the read-side refresh repeats the write-side re-seal's steps rather than sharing its
+        code (the plan forbids editing the write re-seal inside this fix). If the two ever diverge in what they
+        observe or seal, this fails: from the same document and the same disk both must produce the same
+        state (everything but the receipt) and the same binding identity."""
+        self._uncached()
+        self._drift_fingerprint()
+        execution_context._remember_context(self.fixture.context)
+        write_side = execution_context.reseal_for_stale_state(self.fixture.context).to_document()
+        with execution_context._CONTEXT_LOCK:
+            execution_context._CURRENT_CONTEXT = None
+        read_side = execution_context.refresh_root_for_read(self.fixture.context).to_document()
+        for document in (write_side, read_side):
+            document.pop("receipt")
+        self.assertEqual(write_side, read_side)
+
+    def test_degraded_allowed_sets_are_unchanged(self):
+        self.assertEqual(mutation_contract.DEGRADED_ALLOWED_ENTRY_IDS, frozenset({
+            "attended-keyword-mcp-search", "attended-keyword-search-heal",
+            "attended-semantic-mcp-search", "attended-semantic-search-reconcile"}))
+        self.assertNotIn("semantic-store-connect", mutation_contract.DEGRADED_ALLOWED_ENTRY_IDS)
+        self.assertEqual(mutation_contract.DEGRADED_ALLOWED_TARGETS, frozenset({
+            "degraded-health", "tracked-finding", "lifecycle-marker", "ephemeral-staging"}))
+
+    def _assert_not_installed_or_authorized(self, binding):
+        self.assertIsNone(execution_context._CURRENT_CONTEXT)
+        if binding.context is not None:
+            self.assertFalse(execution_context._is_authorized_context(binding.context))
+
 if __name__ == "__main__":
     unittest.main()

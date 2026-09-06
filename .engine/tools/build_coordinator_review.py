@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import build_coordinator_core as core
+import close_linkage_preflight
 
 
 def installed(root: Path) -> list[dict]:
@@ -273,7 +274,10 @@ def disagreement_line(finding: dict) -> str:
     # pr-contract preflight, so the redaction lives here — the single source both derive from. A legacy
     # or hand-edited finding could still carry a null summary; render a legible placeholder rather than
     # a dangling colon, and never fall back to the private text.
-    summary = finding.get("operator_summary") or "[no operator-safe summary recorded]"
+    # A summary may quote a closing keyword beside an issue reference; broken here, at the single source,
+    # so the body and the preflight that asserts this line present agree on the same text.
+    summary = close_linkage_preflight.break_closing_keywords(
+        finding.get("operator_summary") or "[no operator-safe summary recorded]")
     return f"- Reviewer disagreement `{finding['id']}`: {summary}"
 
 
