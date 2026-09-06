@@ -34,7 +34,7 @@ import repo_identity  # noqa: E402  (is_home_repo — the home-repo identity sea
 # The fixed title of the reviewed removal PR — the SHARED CONTRACT between the fix author and this dedupe. The
 # boot-session-start repair-offer wiring instructs the assistant to title the cleanup PR EXACTLY this, and
 # `removal_pr_open` matches open PRs by it — one source of truth on both sides, so the "opens no duplicate"
-# guarantee holds (a `Maintenance:` upkeep change, per build-kickoff's kind grammar). If this string
+# guarantee holds (a `Maintenance:` upkeep change, per the pull-request template's title-kind grammar). If this string
 # changes, the boot-session-start bullet must change with it.
 REMOVAL_PR_TITLE = "Maintenance: remove the leftover template LICENSE"
 

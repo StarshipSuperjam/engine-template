@@ -662,7 +662,8 @@ def _in_review(state: dict) -> bool:
 def runbook_for(state: dict, phase: str, protocol: dict | None = None) -> str:
     """The runbook a session reads for this Build now, relative to .engine/operations. A phase the map
     does not name falls back to the spine rather than failing `status`: the spine is the entry point
-    that names every runbook, and `phase_runbook_status` reports the gap."""
+    that names every runbook. The gap itself is caught elsewhere: the build-protocol schema requires every
+    phase in `phase_runbooks`, and test_build_protocol pins the map's keys to PHASES."""
     runbooks = (protocol or _protocol())["phase_runbooks"]
     if phase == IMPLEMENTATION and _in_review(state):
         phase = DELIVERABLE_REVIEW
@@ -3727,6 +3728,7 @@ def cmd_preflight(args, store: Snapshot) -> None:
         pr_data = _verify_draft(repo, pr)
         body = pr_data.get("body") or ""
         if args.pr_body and _input(args.pr_body) != body:
+            _read_now(store)  # a refusal is still a stop in the flow; keep the pointer in front of the coordinator
             raise CoordinatorError("the supplied PR body is not the body currently on GitHub")
         legs = _compute_preflight_legs(state, head, pr_data, body)
         results = legs["results"]

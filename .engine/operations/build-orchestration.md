@@ -30,8 +30,8 @@ authority, or the agreed capability boundary, guardrail acknowledgements, and me
 A Build moves through the coordinator's phases, and each phase has one runbook. Read this spine, then the runbook
 `status` names for the current phase — printed as `Read now: <runbook>` beside the phase, and carried as `runbook`
 in `status --json` — and nothing else until the phase changes; the verbs that move a Build between phases print
-the same line. The pointer keys on the furthest stage the Build has entered, so a mid-repair commit still reads
-validation and review, never implementation again. The table mirrors `phase_runbooks` in
+the same line. The pointer names the current phase's runbook, except that an implementation phase with review
+evidence keeps reading validation and review, never implementation again. The table mirrors `phase_runbooks` in
 `.engine/build-protocol.json`, which the coordinator reads.
 
 | Coordinator phase | Read now |

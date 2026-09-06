@@ -2907,7 +2907,7 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
         self.assertNotIn("choose none, scoped, or full re-review", status["engineering_judgment"])
 
     def test_status_names_the_runbook_the_session_reads_now(self):
-        """The pointer (#726): one runbook per phase, keyed on the furthest stage the Build has entered."""
+        """The pointer (#726): one runbook per phase, named for the current phase."""
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
             status = bc._status(self.state())
         self.assertEqual((status["phase"], status["runbook"]), ("implementation", "build-implementation.md"))
@@ -2926,7 +2926,8 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
     def test_a_mid_repair_commit_keeps_reading_validation_and_review(self):
         """A post-review commit makes candidate validation stale, so the derived phase reads
         `implementation` again — but the session is mid-repair, and the pointer must not send it back
-        to the implementation runbook. The furthest stage entered is what keys the pointer."""
+        to the implementation runbook: an implementation phase with review evidence keeps reading
+        validation and review."""
         self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
             {"packet_digest": "sha256:" + "d" * 64, "reviewed_commit": HEAD_A}))
         with mock.patch.object(bc, "_head", return_value=HEAD_B), \
@@ -2998,8 +2999,9 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             bc.cmd_approve(argparse.Namespace(plan=str(self.plan_path), depth="quick"), self.store)
         self.assertIn("Read now: .engine/operations/build-implementation.md", err.getvalue())
-        # preflight moves the Build into submission-preflight and must say so as well (us-1 of the
-        # L1-3 review), even when it is run standalone before contract apply
+        # preflight prints the pointer for whatever phase the Build is in (us-1 of the L1-3 review), even
+        # when it is run standalone before contract apply — this fixture is still at implementation, so the
+        # exact runbook is asserted rather than the prefix alone
         err = io.StringIO()
         pr = {"body": "complete", "baseRefOid": BASE}
         close = subprocess.CompletedProcess([], 0, json.dumps({"lines": [], "defang": None}), "")
@@ -3009,7 +3011,17 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
                 mock.patch.object(bc, "_pr_contract", return_value=(True, "complete")), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             bc.cmd_preflight(argparse.Namespace(pr_body=None, json=False), self.store)
-        self.assertIn("Read now: .engine/operations/", err.getvalue())
+        self.assertIn("Read now: .engine/operations/build-implementation.md", err.getvalue())
+        # and on the stale-body refusal, which raises before any state is recorded (us-r1)
+        err = io.StringIO()
+        stale = self.plan_path.parent / "stale-body.md"
+        stale.write_text("not the live body", encoding="utf-8")
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err), \
+                self.assertRaises(bc.CoordinatorError):
+            bc.cmd_preflight(argparse.Namespace(pr_body=str(stale), json=False), self.store)
+        self.assertIn("Read now: .engine/operations/build-implementation.md", err.getvalue())
 
     def test_non_aligned_checkpoint_prevents_ready_phase(self):
         self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
