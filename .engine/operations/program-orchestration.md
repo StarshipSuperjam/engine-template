@@ -30,29 +30,47 @@ plans)? Is there a single objective the whole sequence serves (unrelated debt do
 listed together)? If no, say so and stay with ordinary plans: a program manufactured around work that does not
 need one adds ceremony the operator carries forever.
 
-### 2. Author children just-in-time, not all at once
+### 2. Record the intended order up front; author children just-in-time
+
+When a program starts, record what has actually been DECIDED about the steps and which follows which, with the
+reason on each edge. The intended order is declared precedence recorded up front — never derived by the engine and
+never a total order. Dependency between steps is one reason among several that edges carry: an evidence gate
+(reproduce the failure before fixing it), a risk sequencing (the riskier slice first, to learn), a merge-order
+constraint, or any other reason you decided one step must follow another. Two steps with no decided precedence
+between them are left unordered rather than ranked; the tool does not and will not rank them.
 
 A program is a chain of plans, and each plan is still authored, reviewed and sealed through the Project Manager
-and [plan orchestration](plan-orchestration.md); the program adds no second planning path. Author the *next* child
-when its predecessor's shape is settled enough to build against, not the whole chain up front: an early plan
-written against a guess about a later one bakes that guess in, and the order is meant to be re-decided as evidence
-arrives, which a fully pre-authored chain resists.
+and [plan orchestration](plan-orchestration.md); the program adds no second planning path. A session reads the
+program's recorded intended order BEFORE authoring the next child, the way it already reads what the predecessor
+owes. Author the *next* child when its predecessor's shape is settled enough to build against, not the whole chain
+up front: an early plan written against a guess about a later one bakes that guess in, and the order is meant to be
+re-decided as evidence arrives, which a fully pre-authored chain resists.
 
 Each child carries its linkage — which program it belongs to, which plan it succeeds, and any obligation handed
-forward from its predecessor. A carried obligation is the one thing the program refuses to let drop silently: the
-next child on its branch must answer it — met, still carried, or explicitly released with a reason — and the tool
-enforces that at the seam; read what the predecessor owes before authoring the successor, so the successor answers
-for it by design.
+forward from its predecessor, and whether it fulfils a recorded intent, stands outside the intended order, or was
+authorized to jump ahead out of order. The next child on its branch either claims an intent it fulfils (out of
+order with a reason if the precedence graph demands it), records that it stands outside the intended order when it
+fulfils none, or is refused until one of those doors is passed. A carried obligation is the one thing the program
+refuses to let drop silently: the next child on its branch must answer it — met, still carried, or explicitly
+released with a reason — and the tool enforces that at the seam; read what the predecessor owes before authoring
+the successor, so the successor answers for it by design.
 
 ### 3. Re-decide the order as evidence arrives
 
-The chain records a decision, and a decision can be revisited. When a build teaches you the order was wrong — a
-step needs to come earlier, a child turned out misconceived, a new piece belongs in the middle — change the record
-rather than working around it: insert a plan before an existing child, or supersede a child that turned out wrong
-while keeping it and its place visible. The only order that cannot be re-decided is one history has already
-merged; ask it which verb fits, and trust it to refuse the ones that would rewrite merged history. What
-never happens here is dispatch: the program records and recommends order; it never selects, starts, or advances a
-child, and which plan a session works, one at a time, is the operator's call.
+The chain records a decision, and a decision can be revisited. The intended order is never sealed but always
+recorded, so each revision carries a reason into history. When evidence arrives that an unbuilt intent is wrong,
+revise or withdraw it: `program intend revise` replaces its title, statement or declared precedence, and `program intend withdraw`
+marks an intent withdrawn while keeping it visible. When a built child needs to be replaced, `program supersede`
+does that while keeping it and its place visible — and if the superseded child held a claim to an intent, the
+replacement inherits it, and the claim transfer is recorded in history.
+
+When a build teaches you the order was wrong — a step needs to come earlier, a child turned out misconceived, a
+new piece belongs in the middle — change the record rather than working around it: record a new intent or revise
+an existing one, insert a plan before an existing child, or supersede a child that turned out wrong. The only order
+that cannot be re-decided is one history has already merged; ask it which verb fits, and trust it to refuse the
+ones that would rewrite merged history. What never happens here is dispatch: the program records and recommends
+order; it never selects, starts, or advances a child, and which plan a session works, one at a time, is the
+operator's call.
 
 ### 4. Lanes: the operator's concurrency, made visible — including when not to lane
 
@@ -84,6 +102,11 @@ if it turns out premature. Two failure modes to avoid:
   If more work is needed, author the next child; if it is truly done, record it.
 - **Dropping an obligation by saying nothing.** A carried obligation with no successor left to answer it is
   released only with a stated reason — the reason is the whole price of letting it go.
+- **Dropping a recorded intent silently.** An unbuilt recorded intent is still a step the program decided on, and
+  closure cannot drop it without a record: `program complete` refuses while unbuilt intents remain, naming
+  `program intend withdraw --reason` as the way through; `program retire` and `program abandon` accept unbuilt
+  intents and record what was never built in the closure itself, so the record says what happened to the intended
+  steps.
 
 Completing, retiring, abandoning and reopening are the operator's recorded acts. Surface the state and let them
 make the call; do not close a program on your own initiative.
@@ -91,10 +114,11 @@ make the call; do not close a program on your own initiative.
 ### 6. The reading surfaces
 
 - **The portfolio** — every open program at a glance: what each is for, how far along it is as facts (not a
-  percentage), what is in flight, and, where a split stands, per-lane standing — the grouped view the flat plan
-  list cannot give.
+  percentage), what is in flight, where a split stands per-lane standing, and the next intended step (when the
+  program has recorded intents) — the grouped view the flat plan list cannot give.
 - **The program's own view** — one program in full: its children in chain order, what each owes, the complete
-  lane standing, and the history of how the order and objective were revised.
+  lane standing, the next intended steps (if any are ready and unclaimed), the history of how the order and
+  objective were revised, and any revisions to the intended steps with their reasons.
 - **The generated file at rest** — each program keeps a generated document in its own folder, the way a plan
   keeps one. It states the moment it was generated and holds whatever it last rendered — content and
   presentation alike — so it can lag a child changed outside a program verb, or show an older rendering than the

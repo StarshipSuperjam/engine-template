@@ -4578,6 +4578,7 @@ class LaneStandingDerivation(_Program):
 _DOCTRINE_ROOT = Path(__file__).resolve().parents[2]
 _DOCTRINE_RUNBOOK = _DOCTRINE_ROOT / ".engine/operations/program-orchestration.md"
 _DOCTRINE_SKILL = _DOCTRINE_ROOT / ".claude/skills/engine-manage-programs/SKILL.md"
+_DOCTRINE_CODEX_SKILL = _DOCTRINE_ROOT / ".agents/skills/engine-manage-programs/SKILL.md"
 
 
 class TheRecognitionSkillFiresOnBothRegisters(unittest.TestCase):
@@ -4650,10 +4651,17 @@ class TheProgramRunbookCarriesJudgmentNotSequence(unittest.TestCase):
                 f"step heading {heading!r} is too bare to carry judgment — a multi-word phrase "
                 "is what separates a step from a verb label")
 
+    def test_it_carries_the_intended_order_judgment(self):
+        self.assertIn("intended", self.lower)
+        self.assertIn("never sealed", self.lower)
+        self.assertIn("never derived", self.lower)
+        self.assertIn("evidence gate", self.lower)
+        self.assertIn("before authoring", self.lower)
+
     def test_neither_shipped_doctrine_file_names_a_repository_specific_reference(self):
         # The citation bound: runbook and skill ship to every Engine project, so they carry
         # de-identified PATTERNS only — no issue number, program/plan id, milestone, or session id.
-        for path in (_DOCTRINE_RUNBOOK, _DOCTRINE_SKILL):
+        for path in (_DOCTRINE_RUNBOOK, _DOCTRINE_SKILL, _DOCTRINE_CODEX_SKILL):
             text = path.read_text(encoding="utf-8")
             self.assertEqual(re.findall(r"#\d+", text), [], f"{path.name} names an issue number")
             self.assertEqual(re.findall(r"pln_[0-9a-f]+|prg_[0-9a-f]+", text), [],
