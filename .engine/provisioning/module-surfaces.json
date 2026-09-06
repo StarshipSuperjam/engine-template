@@ -1413,6 +1413,9 @@
   ".engine/tools/demo_760_add_release_tag.py": [
    "core"
   ],
+  ".engine/tools/demo_864_stale_registry_selftest.py": [
+   "core"
+  ],
   ".engine/tools/demo_959_finalize_ready_transition.py": [
    "core"
   ],
@@ -2629,6 +2632,9 @@
    "core"
   ],
   ".engine/tools/test_selftest_select.py": [
+   "core"
+  ],
+  ".engine/tools/test_selftest_support.py": [
    "core"
   ],
   ".engine/tools/test_session_economy.py": [

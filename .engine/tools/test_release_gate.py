@@ -6,9 +6,13 @@ suite — moving that cost out of every pull request is the whole point of the s
 gate's ORCHESTRATION and its fail-CLOSED contract with the heavy arms stubbed; the genuine operate/upgrade
 proofs are the cut-time gate run and the first-run-retired `demo_664_release_gate.py`.
 
-Every case is guarded `@skipUnless(selftest_support.CONSTRUCTION)` — the home repo AND not a nested run — so that when Arm A's
-in-projection suite re-collects this file (it ships to deployed repos), these cases skip rather than recurse
-into the gate or fail against a tag-less projected tree.
+Every case is guarded `@skipUnless(selftest_support.CONSTRUCTION)` — the home repo and not a projected
+deployed tree — so that when Arm A's in-projection suite re-collects this file (it ships to deployed
+repos), these cases skip rather than run against a tag-less projected tree. The guard is silenced by the
+projection marker `_nested_env` sets on every projection spawn (`selftest_support.PROJECTION_ENV`) and by
+the projected tree's foreign origin (`_DEPLOYED_ORIGIN`) — not by the recursion sentinel
+(`selftest_support.NESTED_ENV`), which means only "do not recurse into another nested run underneath this
+one". The launcher's own child sets only that sentinel, so these cases still run there.
 """
 from __future__ import annotations
 
@@ -758,6 +762,18 @@ class TestNestedEnvScrub(unittest.TestCase):
         self.assertEqual(env.get(rg._NESTED_ENV), "1")                                  # the re-entry guard is set
         self.assertEqual(env.get("PATH"), "/usr/bin")                                   # a non-Actions var is kept
         self.assertEqual(env.get("UV_CACHE_DIR"), "/c")                                 # the tool-runtime var kept
+
+    def test_nested_env_sets_both_markers_under_their_selftest_support_names(self):
+        # _nested_env sets BOTH markers on every projection spawn: the recursion sentinel and the projection
+        # marker that silences CONSTRUCTION-gated cases in a projected deployed tree. Also pins the gate's
+        # by-value copies of both names to the strings selftest_support defines (each home holds its own
+        # literal on purpose — see selftest_support's docstring — so the pin is what stops drift).
+        self.assertEqual(rg._NESTED_ENV, selftest_support.NESTED_ENV)
+        self.assertEqual(rg._PROJECTION_ENV, selftest_support.PROJECTION_ENV)
+        with mock.patch.dict(os.environ, {}, clear=False):
+            env = rg._nested_env()
+        self.assertEqual(env.get(rg._NESTED_ENV), "1")
+        self.assertEqual(env.get(rg._PROJECTION_ENV), "1")
 
     def test_extra_keys_carry_through_and_token_still_denied(self):
         with mock.patch.dict(os.environ, {"GITHUB_TOKEN": "secret"}, clear=False):

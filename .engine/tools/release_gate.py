@@ -55,9 +55,16 @@ import release_source                        # noqa: E402  (_archive_tree — of
 import census_completeness_check as _ccc     # noqa: E402  (shared home-repo predicate; monkeypatched in tests)
 
 # Set on every nested run this gate spawns (the in-projection suite and the upgrade driver) so a projected
-# copy of the suite never re-enters the gate. Shared name with the retired belt's guard; `test_release_gate.py`
-# also skips its gate-driving cases when it is set (belt-and-suspenders alongside the home-repo skip).
+# copy of the suite never re-enters the gate. Shared name with the retired belt's guard and with
+# selftest.py's own recursion-refusal marker — a pure recursion guard, nothing else reads it as a gate.
+# Held by VALUE, not imported: the same convention selftest_support.py states for its own copy; the
+# pins in test_selftest_support.py and test_launch_contract.py are what keep the three homes equal.
 _NESTED_ENV = "ENGINE_NESTED_SELFTEST"
+
+# Set alongside `_NESTED_ENV` on every process this gate spawns inside a projection, so `CONSTRUCTION`-gated
+# cases (like `test_release_gate.py`'s own) skip there. Same string as `selftest_support.PROJECTION_ENV`,
+# held by value for the same reason as `_NESTED_ENV` and pinned equal by test_selftest_support.py.
+_PROJECTION_ENV = "ENGINE_DEPLOYED_PROJECTION"
 
 # A deployed origin that differs from the recorded home, so the projection reads as a downstream copy
 # (`is_home_repo` -> False), exactly as the retired belt relied on.
@@ -90,10 +97,11 @@ def _nested_env(**extra) -> dict:
     a genuine deployed-shape failure still blocks the cut. `GITHUB_TOKEN` is among the stripped keys, so the
     practice-upgrade child is denied the repo token here too — the driver keeps an explicit belt-and-suspenders
     pop so that property stays legible at its own spawn. EVERY nested spawn must build its env through this
-    helper; a bare `{**os.environ}` at a new spawn would re-open the leak."""
+    helper; a bare `{**os.environ}` at a new spawn would re-open the leak. It also sets `_PROJECTION_ENV`
+    alongside `_NESTED_ENV`, since every process this gate spawns is inside a projection, not merely nested."""
     keep = {k: v for k, v in os.environ.items()
             if k != "CI" and not k.startswith(("GITHUB_", "RUNNER_", "ACTIONS_"))}
-    return {**keep, _NESTED_ENV: "1", **extra}
+    return {**keep, _NESTED_ENV: "1", _PROJECTION_ENV: "1", **extra}
 
 
 class GateError(RuntimeError):

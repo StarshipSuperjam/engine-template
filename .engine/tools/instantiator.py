@@ -1667,6 +1667,12 @@ _FIRST_RUN_ASSET_FILES = (
     ".engine/tools/demo_restore_migration_routing.py",
     ".engine/tools/demo_operator_backlog.py",
     ".engine/tools/demo_control_plane_labels.py",
+    # #864: the launcher's false-green regression — nesting alone used to gate the construction-shape
+    # registry test, so any nested child ran it regardless of home/deployed origin. Falsifies the fixed
+    # `shape_verdict` predicate against real clones (home origin fails the case, deployed origin skips
+    # it), home-repo-only — retires here; the per-PR guard is test_selftest.py's skip-count banner tests
+    # plus test_module_surfaces.TestRegistryInSync. Mirrored in first-run-assets.json (parity-tested).
+    ".engine/tools/demo_864_stale_registry_selftest.py",
     # #424 U13b — a KEEP disposition recorded on the census for memory_pointer_public_safety_check.py: it is
     # construction-scoped (self-no-ops outside this repo) yet is deliberately NOT retired here. Its check.json
     # (.engine/check/memory-pointer-public-safety.json) travels in validators-core `provides.check`, so retiring

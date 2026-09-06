@@ -69,6 +69,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import selectors
 import signal
 import subprocess
@@ -688,6 +689,37 @@ def _extract_failure_blocks(lines: list) -> list:
     return blocks
 
 
+_SUMMARY_LINE_RE = re.compile(r"^(OK|FAILED)\b\s*(?:\((.*)\))?\s*$")
+
+
+def _skipped_from_summary(output: str) -> Optional[int]:
+    """The skip count from unittest's own final summary line — `OK`, `OK (skipped=N)`,
+    `FAILED (failures=1, skipped=N)`, and so on — or None when no such line is present at all
+    (a child that crashed before it ever reached the summary). Parses the same captured `output`
+    text `_extract_failure_blocks` reads, never the log file, for the reason `_print_result`
+    already gives: a concurrent run's log must never be able to change what this run reports."""
+    match = None
+    for line in output.splitlines():
+        m = _SUMMARY_LINE_RE.match(line.strip())
+        if m:
+            match = m  # last match wins — the summary is the final such line in the stream
+    if match is None:
+        return None
+    skip_match = re.search(r"skipped=(\d+)", match.group(2) or "")
+    return int(skip_match.group(1)) if skip_match else 0
+
+
+def _skipped_banner_line(output: str) -> str:
+    """The exact banner wording for the skip count, shared by both the passing and failing branches
+    of `_print_result` so a reader sees the same phrasing either way."""
+    skipped = _skipped_from_summary(output)
+    if skipped is None:
+        return "skip count unavailable"
+    if skipped == 1:
+        return "1 case skipped"
+    return f"{skipped} cases skipped"
+
+
 def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str,
                   scope_note: Optional[str] = None) -> None:
     print()
@@ -700,9 +732,11 @@ def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str,
         # routinely read through `tail`. An unqualified "PASSED" on a focused run is the one place the
         # qualifier could silently drop off, so it is repeated where the verdict is.
         print(scope_note)
+    skip_line = _skipped_banner_line(output)
     if log_path:  # always set now — the log is kept for every run, and its path is printed so the session can read it
         print(f"Full output: {log_path}")
     if rc == 0:
+        print(skip_line)
         print("=" * 78)
         return
 
@@ -730,6 +764,10 @@ def _print_result(rc: int, elapsed: float, log_path: Optional[str], output: str,
         print("The run failed without a standard failure list; last lines of the output:")
         for ln in lines[-_TAIL_LINES:]:
             print(ln)
+    # On a red run the skip count prints LAST, after the tracebacks: this banner is read through `tail`,
+    # and a count that scrolled off above fifty failure blocks would vanish on exactly the run where a
+    # skipped case can hide a failure (StarshipSuperjam/engine-template#864).
+    print(skip_line)
     print("=" * 78)
 
 
