@@ -6337,7 +6337,7 @@
       },
       "slug": "product-intake",
       "source": {
-        "fingerprint": "sha256:b77a92b50c9c759029cee7de48dcc4095aca94777bd47a213beaad97576ce39c",
+        "fingerprint": "sha256:917387579d1fce4a752e39799b9e5f9d0ef2502c4129037edbff47a02c63f666",
         "path": ".engine/operations/product-intake.md"
       },
       "status": "active",
@@ -6540,7 +6540,7 @@
       },
       "slug": "escalation",
       "source": {
-        "fingerprint": "sha256:42356da7c93f00c75dfe033a6681973c066b6f66e2db85cac31da96bf7476199",
+        "fingerprint": "sha256:9f0d75ca76243a48f0aa32ffe674f6c72480e8df5d7179058ccd204acf7011c7",
         "path": ".engine/policies/escalation.md"
       },
       "status": "active",

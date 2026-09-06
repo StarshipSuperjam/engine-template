@@ -11,16 +11,16 @@ When a trigger fires, the AI stops acting on its own and surfaces the decision r
 - Always-fire — three things always stop the work:
   - a killswitch-class weakening of the engine's own guardrails, as the weakening guard
     (`engine/check/guardrail-weakening`) classifies it: a change that removes, disables, renames or loosens an
-    enforcement gate or a protection the engine ships, changes what code its own checks run, repoints where the
-    engine's code is fetched from or written to, or lowers the project's declared identity — the tier that holds
-    the merge until the operator's deliberate `guardrail-ack`. The guard owns what falls in that tier; this policy
-    does not re-list it;
+    enforcement gate or a protection the engine ships; that changes what code its own checks run; that repoints
+    where the engine's code is fetched from or written to; or that lowers the project's declared identity — the
+    tier that holds the merge until the operator's deliberate `guardrail-ack`. The guard owns what falls in that
+    tier; this policy does not re-list it;
   - a change to one of the engine's authority documents — a policy, an instruction floor (`CLAUDE.md`,
     `AGENTS.md`), the codes of conduct — that loosens a rule or a protection;
   - a head-on conflict between two hard rules.
 
-  In an authorized Build, a change the approved plan itself names is not a fresh stop — the plan gate was that
-  stop; a change the plan did not name still stops, Build or not. An ordinary edit to a protection file is
+  In an authorized Build, a change inside the files and work the sealed plan's scope names is not a fresh stop —
+  the plan gate was that stop; a change outside what the plan names still stops, Build or not. An ordinary edit to a protection file is
   disclosure-tier: the guard leaves a plain notice at the merge, it needs no action, it is never an escalation on
   its own, and it must not shape a design.
 - Judgment — ambiguity about what is wanted, an action that is hard to reverse or reaches outside the immediate work, or a step that breaks the agreed scope. These stop the work when the outcome the operator actually cares about would change, or the action would be hard to undo.

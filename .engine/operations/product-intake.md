@@ -29,7 +29,7 @@ Accepting a plan only imports it into the engine's planning; it does not start B
    it outside the sandbox before assuming `gh auth login`. Either way carry on: what the operator has told you is kept
    in this conversation, which the engine records, and is written into `docs/spec/` once Build starts. Without a
    connection Build cannot open its pull request, so the intake proposes and waits — say so, and pick it back up when
-   the connection is there. Nothing they said is lost.
+   the connection is there; what they said stays in the conversation the engine records.
 2. **Lay out the pieces and confirm the shape — before writing any one document.** From what the operator wants,
    propose the full set of capabilities the product obviously needs, each as a named, not-yet-described piece. Ask at
    the shape level: "does this look like the right pieces, or is something obvious missing?" — and let them say yes,
@@ -92,7 +92,8 @@ Accepting a plan only imports it into the engine's planning; it does not start B
    most for a later session — the alternatives weighed and turned down, and why each lost: that ruled-out part is what
    stops a future session from re-opening ground already walked. The engine checks that each record it wrote still
    names what was ruled out (present, with something in it), never whether the reasons are good — the operator's call;
-   a record kept in some other style is left untouched.
+   a record kept in some other style is left untouched. (Distinct from the architecture overview's at-a-glance "key
+   decisions" note; these are the per-decision records.)
 10. **Turn the settled description into tracked build work.** When a description — or a newly-settled part of it — is
    settled, offer to turn it into work a build can pick up. Keep two moments distinct. *Now:* the engine writes a
    **build order** at `docs/spec/build-plan.md` — the settled capabilities grouped into ordered, plainly-named phases
