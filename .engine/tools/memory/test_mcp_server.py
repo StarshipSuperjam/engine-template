@@ -1,4 +1,6 @@
-"""test_mcp_server.py — the engine-memory MCP server, headless (memory substrate).
+"""test_mcp_server.py — the engine-memory MCP server, headless (memory substrate). Also locks the --help
+guard: --help / -h print usage naming the accepted-hook launch chain and exit 0 before server.run(); `demo`
+is the only verb; any other argument exits 2 without serving (#807).
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
@@ -429,13 +431,14 @@ class DemoTests(unittest.TestCase):
             self.assertEqual(calls, [], argv)
 
     def test_an_unknown_flag_or_bare_word_is_rejected_without_serving(self):
-        for argv in (["--bogus"], ["help"], ["serve"], ["demo", "extra"]):
+        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["serve"], "serve"), (["demo", "extra"], "extra")):
             calls, out, err = [], io.StringIO(), io.StringIO()
             with mock.patch.object(srv.server, "run", side_effect=lambda *a, **k: calls.append("run")), \
                  mock.patch.object(srv, "_demo", side_effect=lambda *a, **k: calls.append("demo")), \
                  contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
                 self.assertEqual(srv.main(argv), 2, argv)
             self.assertIn("usage: mcp_server.py", err.getvalue())
+            self.assertIn(f"unknown argument {stray!r}", err.getvalue())     # names the wrong word, never `demo`
             self.assertEqual(out.getvalue(), "")
             self.assertEqual(calls, [], argv)
 

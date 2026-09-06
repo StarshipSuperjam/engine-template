@@ -1,4 +1,6 @@
-"""Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract.
+"""Tests for issue_conformance_ci — the on:issues backstop for the engine-Issue body contract. Also locks the
+--help guard: --help / -h print usage naming the workflow that runs the tool and exit 0 before the issue
+write path is reached; `demo` is the only verb; any other argument exits 2 without acting (#807).
 
 These lock the load-bearing behaviours a non-engineer cannot read code to verify: that the workflow is an
 engine-owned traveler (FOUNDATION_INFRA → CODEOWNERS + upgrade overlay, the same treatment as the other engine
@@ -358,10 +360,11 @@ class TestHelpNeverActs(unittest.TestCase):
             self.assertEqual(calls, [], argv)
 
     def test_an_unknown_flag_or_bare_word_is_rejected_without_running(self):
-        for argv in (["--bogus"], ["help"], ["run"], ["demo", "extra"]):
+        for argv, stray in ((["--bogus"], "--bogus"), (["help"], "help"), (["run"], "run"), (["demo", "extra"], "extra")):
             code, out, err, calls = self._run(argv)
             self.assertEqual(code, 2, argv)
             self.assertIn("usage: issue_conformance_ci.py", err)
+            self.assertIn(f"unknown argument {stray!r}", err)     # names the wrong word, never the valid verb
             self.assertEqual(out, "")
             self.assertEqual(calls, [], argv)
 

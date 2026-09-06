@@ -1,4 +1,6 @@
-"""Tests for overlay_disclosure — the non-blocking, merge-time upgrade-overwrite notice.
+"""Tests for overlay_disclosure — the non-blocking, merge-time upgrade-overwrite notice. Also locks the
+--help guard: --help / -h print usage naming the workflow that runs the tool and exit 0 before the token,
+the event or the comment write is reached, and any other argument exits 2 without acting (#807).
 
 These lock the behaviours a non-engineer cannot read code to verify:
   - the deployed-only gate is correct: it compares the checkout's ON-DISK git origin against the update home
@@ -172,8 +174,7 @@ class TestHelpNeverActs(unittest.TestCase):
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.object(od.boot, "gh_token", side_effect=lambda *a, **k: calls.append("gh_token")), \
              mock.patch.object(od, "_load_event", side_effect=lambda *a, **k: calls.append("_load_event")), \
-             mock.patch.object(od, "reconcile", side_effect=lambda *a, **k: calls.append("reconcile")), \
-             mock.patch.dict(os.environ, {}, clear=False):
+             mock.patch.object(od, "reconcile", side_effect=lambda *a, **k: calls.append("reconcile")):
             with redirect_stdout(out), redirect_stderr(err):
                 code = od.main(argv)
         return code, out.getvalue(), err.getvalue(), calls
@@ -191,6 +192,7 @@ class TestHelpNeverActs(unittest.TestCase):
             code, out, err, calls = self._run(argv)
             self.assertEqual(code, 2, argv)
             self.assertIn("usage: overlay_disclosure.py", err)
+            self.assertIn(f"unknown argument {argv[0]!r}", err)
             self.assertEqual(out, "")
             self.assertEqual(calls, [], argv)
 

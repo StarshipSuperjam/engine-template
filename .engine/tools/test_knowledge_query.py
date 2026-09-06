@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Self-tests for the knowledge-retrieval op-set (knowledge_query.py), the SQLite index
-(knowledge_index.py), and the graph-query MCP server (knowledge_mcp_server.py).
+(knowledge_index.py), and the graph-query MCP server (knowledge_mcp_server.py) — including its --help
+guard: --help / -h print usage naming the launcher and exit 0 before server.run(), any other argument exits
+2, and the exit status reaches the process (#807).
 
 Run: uv run --directory .engine --frozen -- python tools/selftest.py
 
@@ -375,6 +377,7 @@ class TestMcpServerHelpNeverServes(unittest.TestCase):
             code, out, err, calls = self._run(argv)
             self.assertEqual(code, 2, argv)
             self.assertIn("usage: knowledge_mcp_server.py", err)
+            self.assertIn(f"unknown argument {argv[0]!r}", err)
             self.assertEqual(out, "")
             self.assertEqual(calls, [], argv)
 
