@@ -64,7 +64,7 @@ _NESTED_ENV = "ENGINE_NESTED_SELFTEST"
 
 # Set alongside `_NESTED_ENV` on every process this gate spawns inside a projection, so `CONSTRUCTION`-gated
 # cases (like `test_release_gate.py`'s own) skip there. Same string as `selftest_support.PROJECTION_ENV`,
-# held by value for the same reason as `_NESTED_ENV` and pinned equal by the same cases.
+# held by value for the same reason as `_NESTED_ENV`; test_selftest_support.py and test_release_gate.py pin it.
 _PROJECTION_ENV = "ENGINE_DEPLOYED_PROJECTION"
 
 # A deployed origin that differs from the recorded home, so the projection reads as a downstream copy
