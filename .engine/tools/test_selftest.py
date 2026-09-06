@@ -135,6 +135,28 @@ class SelftestLauncher(_LauncherCase):
         """)
         self.assertEqual(r.returncode, 7)
         self.assertNotIn("PASSED", r.stdout)
+        # No unittest summary line ever reached the parent's captured output, so the banner must say
+        # so plainly rather than silently printing "0 cases skipped" (which would misreport a run
+        # unittest never actually finished).
+        self.assertIn("skip count unavailable", r.stdout)
+
+    def test_skipped_cases_are_counted_in_the_banner(self):
+        """A suite with skipped cases reports the exact count in the closing banner."""
+        r = self._run_launcher("""
+            import unittest
+            class T(unittest.TestCase):
+                @unittest.skip("synthetic skip 1")
+                def test_skip_one(self):
+                    pass
+                @unittest.skip("synthetic skip 2")
+                def test_skip_two(self):
+                    pass
+                def test_ok(self):
+                    self.assertTrue(True)
+        """)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("PASSED", r.stdout)
+        self.assertIn("2 cases skipped", r.stdout)
 
     def test_background_grandchild_does_not_hang_or_stall_teardown(self):
         """A test that leaves a subprocess running (inheriting the output pipe) must NOT stall the
@@ -937,6 +959,26 @@ class NewFlagsAreDiscoverable(unittest.TestCase):
         self.assertIn("--run-record-path", proc.stdout)
         self.assertNotIn("--selection-path", proc.stdout,
                          "the hand-off path is an internal seam, not an operator flag")
+
+
+class SkippedFromSummary(unittest.TestCase):
+    """Direct unit tests of the pure helper, independent of spawning a child at all."""
+
+    def test_ok_with_no_parenthetical_is_zero(self):
+        self.assertEqual(selftest._skipped_from_summary("Ran 3 tests in 0.001s\n\nOK\n"), 0)
+
+    def test_ok_with_skipped_count(self):
+        self.assertEqual(
+            selftest._skipped_from_summary("Ran 5 tests in 0.010s\n\nOK (skipped=3)\n"), 3)
+
+    def test_failed_with_skipped_count_among_other_counts(self):
+        self.assertEqual(
+            selftest._skipped_from_summary(
+                "Ran 10 tests in 0.020s\n\nFAILED (failures=1, errors=2, skipped=4)\n"),
+            4)
+
+    def test_empty_text_is_unavailable(self):
+        self.assertIsNone(selftest._skipped_from_summary(""))
 
 
 if __name__ == "__main__":
