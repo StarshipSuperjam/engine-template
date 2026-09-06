@@ -15441,7 +15441,7 @@
       },
       "slug": "store",
       "source": {
-        "fingerprint": "sha256:0ba25723f8a599740adca04ebf1931db5bf71645695f3f716b6fd14a0bc881b5",
+        "fingerprint": "sha256:00edb18e00783fcee811bece1b348a17468d5a13d35c94c4ea4f3c47d525d459",
         "path": ".engine/tools/memory/semantic/store.py"
       },
       "status": "active",
@@ -16342,7 +16342,7 @@
       },
       "slug": "test_candidate_invocation",
       "source": {
-        "fingerprint": "sha256:5bc14a060542042a5eee8c1ff23508b01d97e6079354d0de7a37b7e0c4a3b7d5",
+        "fingerprint": "sha256:64fd242799a9aba576a31ac6641a1d5a6479b2d583b465f782412895d6a9717e",
         "path": ".engine/tools/memory/test_candidate_invocation.py"
       },
       "status": "active",
@@ -20293,7 +20293,7 @@
       },
       "slug": "test_semantic",
       "source": {
-        "fingerprint": "sha256:faa283623b1f7de303f801625c4dea80d73a623fe57d6c477f335bae78574793",
+        "fingerprint": "sha256:19db1ed145f787feb09952b68fdb82b6592c6b7f265f72d19c0e9959d30753d5",
         "path": ".engine/tools/memory/semantic/test_semantic.py"
       },
       "status": "active",
