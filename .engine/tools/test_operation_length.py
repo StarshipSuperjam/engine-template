@@ -48,14 +48,24 @@ PROGRAM_RUNBOOK_BASELINES = {
     ".engine/operations/engine-upgrade.md": 102,
     ".engine/operations/module-add.md": 53,
     ".engine/operations/module-remove.md": 54,
+    # The Build spine's phase runbooks (StarshipSuperjam/engine-template#726): each pinned at the size it
+    # measured when the spine was split, under the ordinary 120-line budget with no override. The spine
+    # itself is under the ordinary budget too and is pinned by test_build_coordinator at its own measurement.
+    ".engine/operations/build-continuity.md": 37,
+    ".engine/operations/build-implementation.md": 69,
+    ".engine/operations/build-kickoff.md": 81,
+    ".engine/operations/build-plan-correction.md": 32,
+    ".engine/operations/build-submission.md": 77,
+    ".engine/operations/build-validation-and-review.md": 61,
 }
 
 # The recorded ceilings as the operator left them at part C: boot-session-start raised 200 -> 260 by the
-# operator's typed ruling; the other three unchanged.
+# operator's typed ruling; the other two unchanged. build-orchestration.md's 250 left the set when the
+# spine was split into phase runbooks (#726): the spine now fits the ordinary budget, so the override
+# would have been slack, not a ceiling.
 RECORDED_CEILINGS = {
     ".engine/operations/boot-session-start.md": 260,
     ".engine/operations/plan-orchestration.md": 150,
-    ".engine/operations/build-orchestration.md": 250,
     ".engine/operations/memory-migration-trial.md": 160,
 }
 

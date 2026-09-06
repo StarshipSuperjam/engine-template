@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -2904,6 +2905,60 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             status = bc._status(self.state())
         self.assertNotIn("choose none, scoped, or full re-review", status["engineering_judgment"])
 
+    def test_status_names_the_runbook_the_session_reads_now(self):
+        """The pointer (#726): one runbook per phase, keyed on the furthest stage the Build has entered."""
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual((status["phase"], status["runbook"]), ("implementation", "build-implementation.md"))
+        # planning: no approval yet
+        no_approval = dict(self.state(), approval=None)
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(no_approval)
+        self.assertEqual((status["phase"], status["runbook"]), ("planning", "build-kickoff.md"))
+        # engineering-decision is an interrupt and names plan correction wherever the Build stands
+        self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_A):
+            status = bc._status(self.state())
+        self.assertEqual((status["phase"], status["runbook"]), ("engineering-decision", "build-plan-correction.md"))
+        self.store.mutate(lambda s: s.update({"checkpoint": None}))
+
+    def test_a_mid_repair_commit_keeps_reading_validation_and_review(self):
+        """A post-review commit makes candidate validation stale, so the derived phase reads
+        `implementation` again — but the session is mid-repair, and the pointer must not send it back
+        to the implementation runbook. The furthest stage entered is what keys the pointer."""
+        self.store.mutate(lambda s: s["reviews"]["deliverable"].update(
+            {"packet_digest": "sha256:" + "d" * 64, "reviewed_commit": HEAD_A}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+                mock.patch.object(bc, "_history_was_rewritten", return_value=False):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "implementation")
+        self.assertEqual(status["runbook"], "build-validation-and-review.md")
+        # and a Build that has a contract recorded reads submission even while validation is stale
+        self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_B, "body_digest": bc._digest(b"body"), "complete": False}}))
+        with mock.patch.object(bc, "_head", return_value=HEAD_B), \
+                mock.patch.object(bc, "_history_was_rewritten", return_value=False):
+            status = bc._status(self.state())
+        self.assertEqual(status["phase"], "implementation")
+        self.assertEqual(status["runbook"], "build-submission.md")
+
+    def test_status_text_and_the_transition_verbs_print_read_now(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_changed_paths", return_value=[]), \
+                mock.patch.object(bc, "_must_run", return_value="1"), contextlib.redirect_stdout(out):
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=False), self.store)
+        self.assertIn("Read now: .engine/operations/build-implementation.md", out.getvalue().splitlines()[0])
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            bc._read_now(self.store)
+        self.assertEqual(err.getvalue().strip(), "Read now: .engine/operations/build-implementation.md")
+        # a transition verb prints it too: approve moves planning -> implementation
+        err = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            bc.cmd_approve(argparse.Namespace(plan=str(self.plan_path), depth="quick"), self.store)
+        self.assertIn("Read now: .engine/operations/build-implementation.md", err.getvalue())
+
     def test_non_aligned_checkpoint_prevents_ready_phase(self):
         self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
         with mock.patch.object(bc, "_head", return_value=HEAD_A):
@@ -3990,6 +4045,93 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
                      "spec-conformance", "divergence-hunter", "usability", "technical-integrity", "security-governance"):
             self.assertIn(lens, text)
 
+    # ---- The spine split (StarshipSuperjam/engine-template#726) ----
+    SPINE = "build-orchestration.md"
+    PHASE_RUNBOOKS = ("build-kickoff.md", "build-continuity.md", "build-plan-correction.md",
+                      "build-implementation.md", "build-validation-and-review.md", "build-submission.md")
+    SIDE_RUNBOOKS = ("build-work-dispatch.md", "build-execution.md", "build-product-grounding.md",
+                     "owned-product-build.md", "serialized-integration.md", "routine-entry.md")
+
+    def test_the_spine_and_every_phase_runbook_are_present_and_registered(self):
+        operations = bc.ROOT / ".engine" / "operations"
+        manifest = json.loads((bc.ROOT / ".engine/modules/core/manifest.json").read_text())
+        registered = set(manifest["provides"]["operation"])
+        for name in (self.SPINE,) + self.PHASE_RUNBOOKS:
+            self.assertTrue((operations / name).is_file(), name)
+            self.assertIn(f".engine/operations/{name}", registered, f"{name} is not registered with core")
+        self.assertFalse((operations / "build-submission-evidence.md").exists(),
+                         "the submission runbook was renamed; its old name must not linger as a second copy")
+
+    def test_the_spine_tells_a_session_to_read_only_its_phase_runbook(self):
+        spine = (bc.ROOT / ".engine" / "operations" / self.SPINE).read_text()
+        # The rule that makes the split worth having: a session reads the spine and ONE runbook, the one
+        # the coordinator names, and nothing else until the phase changes.
+        self.assertIn("Read now: <runbook>", spine)
+        self.assertIn("and nothing else until the phase changes", spine)
+        self.assertIn("`runbook`", spine)
+        self.assertIn("phase_runbooks", spine)
+        # The map names every phase runbook exactly once as a link, and no side runbook at all.
+        for name in self.PHASE_RUNBOOKS:
+            self.assertEqual(spine.count(f"]({name})"), 1, name)
+        for name in self.SIDE_RUNBOOKS:
+            self.assertNotIn(f"]({name})", spine, f"the spine names a side runbook: {name}")
+        self.assertIn("this spine names no side runbook", " ".join(spine.split()))
+
+    def test_no_instruction_is_duplicated_across_the_spine_and_its_runbooks(self):
+        # Verbatim moves, not copies: a prose line that reads the same in two Build runbooks is the
+        # beginning of the drift the split exists to end. Headings, list markers and table rows are
+        # allowed to repeat; sentences are not. The one-line back-pointer every runbook opens with is
+        # structure too — it names the spine and carries no instruction.
+        operations = bc.ROOT / ".engine" / "operations"
+        back_pointer = "The surrounding flow is [Build orchestration](build-orchestration.md)."
+        seen = {}
+        duplicates = []
+        for name in (self.SPINE,) + self.PHASE_RUNBOOKS + self.SIDE_RUNBOOKS:
+            body = (operations / name).read_text().split("---", 2)[-1]
+            for raw in body.splitlines():
+                line = raw.strip()
+                if len(line) < 60 or line == back_pointer or line.startswith(("#", "|", "-", "*", "`", "<!--", ">")):
+                    continue
+                if line in seen and seen[line] != name:
+                    duplicates.append((seen[line], name, line[:70]))
+                seen.setdefault(line, name)
+        self.assertEqual(duplicates, [])
+
+    def test_the_submission_runbook_defers_the_manual_fill_to_the_template(self):
+        submission = (bc.ROOT / ".engine" / "operations" / "build-submission.md").read_text()
+        template = (bc.ROOT / ".github" / "pull_request_template.md").read_text()
+        # The runbook no longer restates the contract's sections for a session filling it by hand; the
+        # template is that path's own instruction surface, and the runbook says so.
+        self.assertIn("pull_request_template.md", submission)
+        self.assertIn("not restated here", submission)
+        for section in ("Purpose", "Scope", "Out of scope", "Risk", "Validation", "Review",
+                        "Demonstration", "Files of interest", "AI involvement"):
+            self.assertIn(f"## {section}", template, section)
+        self.assertIn("Your merge is the binding gate", template)
+
+    def test_every_cross_reference_into_the_build_runbooks_resolves(self):
+        # Inventory: every markdown link from an operation, a skill or an agent into a Build runbook
+        # resolves to a file, and no surviving file still names an "arm", a "fast path" or the
+        # "distributed-implement workflow" OF THE SPINE — the shapes the split retired.
+        roots = [bc.ROOT / ".engine" / "operations", bc.ROOT / ".claude" / "skills", bc.ROOT / ".claude" / "agents"]
+        link = re.compile(r"\]\(([A-Za-z0-9._/-]+\.md)(?:#[^)]*)?\)")
+        dangling = []
+        stale = []
+        for root in roots:
+            for path in sorted(root.rglob("*.md")):
+                text = path.read_text(encoding="utf-8")
+                for target in link.findall(text):
+                    if not target.startswith("build-") and "build-orchestration" not in target:
+                        continue
+                    if not (path.parent / target).exists() and not (bc.ROOT / target.lstrip("/")).exists():
+                        dangling.append((str(path.relative_to(bc.ROOT)), target))
+                for shape in ("arm of build-orchestration", "build-orchestration.md's fast path",
+                              "distributed-implement workflow"):
+                    if shape in text:
+                        stale.append((str(path.relative_to(bc.ROOT)), shape))
+        self.assertEqual(dangling, [])
+        self.assertEqual(stale, [])
+
     def test_every_mapped_obligation_has_one_live_disposition(self):
         obligations = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())
         self.assertEqual(len(obligations["obligations"]), 73)
@@ -3999,7 +4141,7 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # The two core-owned runbooks are present in EVERY projection, so they are asserted unconditionally;
         # only the external-contribution line is conditional on that optional module being installed.
         owned = (bc.ROOT / ".engine/operations/owned-product-build.md").read_text()
-        evidence = (bc.ROOT / ".engine/operations/build-submission-evidence.md").read_text()
+        evidence = (bc.ROOT / ".engine/operations/build-submission.md").read_text()
         for phrase in ("mechanic_build.py worktree", "tools/local_references.py scan", "unpushed commits", "worker fails"):
             self.assertIn(phrase, owned)
         for phrase in ("recognized automation", "fail-open", "mcp_availability_check", "unresolved-conversation", "operator-runnable demonstration"):
@@ -4048,8 +4190,14 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # session that meets one must know the node stays recoverable — re-integrate a corrected commit,
         # no plan revision — or it reads the refusal as a wedge. Priced at 8 lines, the minimal essential
         # instruction: the individual check remedies live in the refusal messages, not the runbook.
+        # 267 -> 83, the second RATCHET DOWN and the largest (#726): the file is now a SPINE — purpose,
+        # responsibility boundary, the phase map, coordinator holds — and every phase's instruction moved
+        # whole into the runbook the map names for it. The moved lines are pinned where they landed
+        # (PROGRAM_RUNBOOK_BASELINES in test_operation_length), so nothing was traded for slack; the
+        # spine's ceiling is its exact measurement, and it now also sits under the ordinary 120-prose-line
+        # budget with no override — the override's deletion is what makes the split hold.
         text = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        self.assertLessEqual(len(text.splitlines()), 267)
+        self.assertLessEqual(len(text.splitlines()), 83)
 
     def test_preservation_map_records_the_exact_historical_source_identity(self):
         source = json.loads((bc.ROOT / ".engine/build-orchestration-obligations.json").read_text())["preservation_source"]
@@ -4142,29 +4290,41 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
         # cannot resolve without knowing recovery needs no plan revision — and the same minimality: the
         # per-check remedies stay in the refusal messages. The preservation-source ratio (448/6296) is
         # unchanged, and every phrase pinned below still reads from this file.
-        self.assertLessEqual(len(text.split()), 3774)
-        for phrase in ("operator-approved plan", "one cold plan review", "reviewed-to-final divergence",
-                       "no automatic audit recursion", "operator alone merges",
-                       # The routing targets are load-bearing prose, not decoration: a runbook that
-                       # stops naming them teaches the inline behaviour again by omission.
-                       "engine-grounding-scout", "engine-validation-runner",
-                       # And the CORRECTION is load-bearing too. Pinning only the persona name would
-                       # leave a future edit free to reattach the runner to the coordinator's own
-                       # validation and stay green — the exact defect a deliverable reviewer caught,
-                       # where a scout confined to a copy was told to produce evidence that binds to
-                       # the live tree. This sentence is the half that says which runs are not its job.
-                       "It is the wrong tool for the two classes below",
-                       # The hand-back's honesty. An edit that trimmed this phrase would stay green
-                       # while the runbook quietly started reading as though the pause were enforced.
-                       "an offer, not a gate"):
-            self.assertIn(phrase, text)
+        # 3774 -> 820, the word half of the spine split (#726). The phrases below did not leave the
+        # runbook set; each is now pinned in the ONE phase runbook that owns it, so an edit that dropped
+        # one from its home fails here just as it did when the home was a single file.
+        self.assertLessEqual(len(text.split()), 820)
+        operations = bc.ROOT / ".engine" / "operations"
+        owners = {
+            "build-orchestration.md": ("operator-approved plan", "operator alone merges"),
+            # The kickoff owns the bind and the plan review, so the hand-back's honesty lives there: an
+            # edit that trimmed "an offer, not a gate" would stay green while the runbook quietly started
+            # reading as though the pause were enforced.
+            "build-kickoff.md": ("one cold plan review", "an offer, not a gate"),
+            # The routing targets are load-bearing prose, not decoration: a runbook that stops naming
+            # them teaches the inline behaviour again by omission. And the CORRECTION is load-bearing
+            # too: pinning only the persona name would leave a future edit free to reattach the runner
+            # to the coordinator's own validation and stay green — the exact defect a deliverable
+            # reviewer caught, where a scout confined to a copy was told to produce evidence that binds
+            # to the live tree. The sentence is the half that says which runs are not its job; its tail
+            # now points at the validation runbook instead of saying "below", so only the prefix is pinned.
+            "build-implementation.md": ("engine-grounding-scout", "engine-validation-runner",
+                                        "It is the wrong tool for the two classes"),
+            "build-validation-and-review.md": ("reviewed-to-final divergence", "no automatic audit recursion"),
+        }
+        for name, phrases in owners.items():
+            owner_text = (operations / name).read_text()
+            for phrase in phrases:
+                self.assertIn(phrase, owner_text, f"{phrase!r} left {name}")
 
     def test_runbook_keeps_review_synthesis_marker_grammar_and_routine_authority_boundary(self):
-        runbook = (bc.ROOT / ".engine/operations/build-orchestration.md").read_text()
-        routine = (bc.ROOT / ".engine/operations/routine-entry.md").read_text()
-        self.assertIn("one recommended call", runbook)
-        self.assertIn("ENGINE-TODO` marker grammar", runbook)
-        self.assertIn("requires no Issue", runbook)
+        operations = bc.ROOT / ".engine" / "operations"
+        review = (operations / "build-validation-and-review.md").read_text()
+        implementation = (operations / "build-implementation.md").read_text()
+        routine = (operations / "routine-entry.md").read_text()
+        self.assertIn("one recommended call", review)
+        self.assertIn("ENGINE-TODO` marker grammar", implementation)
+        self.assertIn("requires no Issue", implementation)
         self.assertIn("engineering blocker inside the approved design and scope is solved", routine)
         self.assertNotIn("a genuine blocker or a decision needing a human", routine)
 
@@ -4433,19 +4593,22 @@ class TestV2CompletionGate(CoordinatorCase):
 
     def test_no_runbook_instructs_the_removed_mechanic(self):
         operations = bc.ROOT / ".engine" / "operations"
-        routine = (operations / "routine-entry.md").read_text(encoding="utf-8")
-        orchestration = (operations / "build-orchestration.md").read_text(encoding="utf-8")
         # The flag was refused for v2 and kept for v1; with the v1 sunset it is REMOVED, so every
         # surviving mention has to be a sentence saying so. A bare instruction to run it fails here,
         # and so does a sentence that still describes it as merely refused — a runbook telling an
-        # operator a gone flag is "refused" sends them looking for a flag that is not there.
-        for line in routine.splitlines() + orchestration.splitlines():
-            if "--complete-item" in line:
-                self.assertIn("removed", line,
-                              "a runbook still describes the removed flag as available or refused: "
-                              + line.strip())
+        # operator a gone flag is "refused" sends them looking for a flag that is not there. Every
+        # operation is read, not two named ones: the Build instruction now lives across phase runbooks
+        # (#726), and a pin on two file names would miss a mention that moved.
+        for path in sorted(operations.glob("*.md")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if "--complete-item" in line:
+                    self.assertIn("removed", line,
+                                  f"{path.name} still describes the removed flag as available or refused: "
+                                  + line.strip())
+        routine = (operations / "routine-entry.md").read_text(encoding="utf-8")
+        implementation = (operations / "build-implementation.md").read_text(encoding="utf-8")
         self.assertIn("work integrate", routine)
-        self.assertIn("work integrate", orchestration)
+        self.assertIn("work integrate", implementation)
 
 class TestV1Sunset(unittest.TestCase):
     """The v1 generation is gone, and this is the search that PROVES it — with its one exclusion.

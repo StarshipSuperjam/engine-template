@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Resolve the settled-description referent a build is checked against: work item -> spec doc -> acceptance criteria.
 
-build-orchestration (core) owns the spec-referent resolution — a **path read** of the committed `docs/spec/`
+build-product-grounding (core) owns the spec-referent resolution — a **path read** of the committed `docs/spec/`
 corpus: when a
 build realizes a product-design **work item** (an ordinary GitHub Issue that points at its settled description),
 the orchestrator resolves **work item -> spec doc -> acceptance criteria** at Plan, gated on a **settled** spec
@@ -66,7 +66,7 @@ _SPEC_DIR = os.path.join("docs", "spec")
 # <repo>/.engine/tools/spec_referent.py -> <repo>. A pure leaf: computed from __file__, no sibling import. The
 # CLI reads the spec tree from here (this engine's own tree). The engine-mechanic reads the PRODUCT's spec by
 # running the PRODUCT checkout's OWN spec_referent in place (the subprocess-in-place rule in
-# build-orchestration.md's owned-product arm), whose _ROOT is anchored to the checkout — so there is no need for this copy to be redirected
+# owned-product-build.md), whose _ROOT is anchored to the checkout — so there is no need for this copy to be redirected
 # at a foreign tree. (The confined-read wall in resolve_doc still self-relativizes to whatever root it is passed.)
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

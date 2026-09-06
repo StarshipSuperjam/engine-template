@@ -45,7 +45,7 @@
       "intent": "Disclose zero installed reviewers rather than claim a green review.",
       "classification": "operator-authority",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-kickoff.md",
       "anchor": "No installed reviewer is a disclosed no-extra-review result"
     },
     {
@@ -62,7 +62,7 @@
       "intent": "Title PRs using the Kind prefix contract.",
       "classification": "advisory-practice",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-kickoff.md",
       "anchor": "using the kinds"
     },
     {
@@ -70,7 +70,7 @@
       "intent": "Use impact, installed coverage, neighbours, and nearby trouble to propose review depth.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-kickoff.md",
       "anchor": "Run the knowledge impact check"
     },
     {
@@ -115,7 +115,7 @@
     },
     {
       "id": "BO-14",
-      "intent": "Run cold plan review at approved coverage before implementation \u2014 now upstream of the Build, where the seal refuses a review that does not cover its approved depth and a Build cannot bind an unsealed plan.",
+      "intent": "Run cold plan review at approved coverage before implementation — now upstream of the Build, where the seal refuses a review that does not cover its approved depth and a Build cannot bind an unsealed plan.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",
@@ -143,7 +143,7 @@
       "intent": "Choose inline, isolated-worker, or Routine implementation according to cohesion and context pressure.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "Choose an implementation strategy"
     },
     {
@@ -151,7 +151,7 @@
       "intent": "Keep the orchestrator as single writer and integrate worker output for cohesion.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "judges cohesion"
     },
     {
@@ -159,7 +159,7 @@
       "intent": "Re-dispatch or complete a failed worker's missing work without phantom workflow state.",
       "classification": "recovery-behavior",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "worker fails"
     },
     {
@@ -167,7 +167,7 @@
       "intent": "List and disposition deferred-work markers in touched areas.",
       "classification": "advisory-practice",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "engine_todo.py list"
     },
     {
@@ -175,7 +175,7 @@
       "intent": "Use focused tests during implementation and the full suite once on the cohesive candidate.",
       "classification": "advisory-practice",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "focused tests"
     },
     {
@@ -191,7 +191,7 @@
       "intent": "Regenerate knowledge graph and self-map last; never side-pick derived conflicts.",
       "classification": "recovery-behavior",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "knowledge/graph.json"
     },
     {
@@ -199,7 +199,7 @@
       "intent": "Disclose regenerated-index count and that no work was lost.",
       "classification": "operator-authority",
       "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
+      "owner": ".engine/operations/build-submission.md",
       "anchor": "generated index files changed"
     },
     {
@@ -263,7 +263,7 @@
       "intent": "Apply the same proportional judgment after base reconciliation.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-validation-and-review.md",
       "anchor": "target-branch reconciliation"
     },
     {
@@ -336,7 +336,7 @@
       "intent": "Make the Review record operator-readable and disclose review code execution.",
       "classification": "operator-authority",
       "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
+      "owner": ".engine/operations/build-submission.md",
       "anchor": "discarded copy"
     },
     {
@@ -344,7 +344,7 @@
       "intent": "State reviewed and final commits, divergence, consequence, and re-review result.",
       "classification": "operator-authority",
       "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
+      "owner": ".engine/operations/build-submission.md",
       "anchor": "measured divergence"
     },
     {
@@ -385,7 +385,7 @@
       "intent": "Keep Routine decomposability an explicit Plan-time judgment.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "Routine follows"
     },
     {
@@ -481,7 +481,7 @@
       "intent": "Disclose recognized-automation PR-body checks as not applicable without confusing guardrail acknowledgement.",
       "classification": "special-delivery-path",
       "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
+      "owner": ".engine/operations/build-submission.md",
       "anchor": "recognized automation"
     },
     {
@@ -489,7 +489,7 @@
       "intent": "Surface open fail-open findings distinctly in Validation.",
       "classification": "operator-authority",
       "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
+      "owner": ".engine/operations/build-submission.md",
       "anchor": "fail-open"
     },
     {
@@ -497,7 +497,7 @@
       "intent": "Surface unavailable live helpers using the canonical provider diagnosis.",
       "classification": "operator-authority",
       "disposition": "prose",
-      "owner": ".engine/operations/build-submission-evidence.md",
+      "owner": ".engine/operations/build-submission.md",
       "anchor": "MCP"
     },
     {
@@ -513,7 +513,7 @@
       "intent": "Write genuine deferred work at the code site using the governed marker grammar.",
       "classification": "advisory-practice",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "ENGINE-TODO` marker grammar"
     },
     {
@@ -521,7 +521,7 @@
       "intent": "Ground load-bearing claims and delegated findings against first-hand authority.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-implementation.md",
       "anchor": "first-hand authority"
     },
     {
@@ -529,7 +529,7 @@
       "intent": "Synthesize plan-review findings into one recommended call with its tradeoff before involving the operator.",
       "classification": "ai-judgment",
       "disposition": "prose",
-      "owner": ".engine/operations/build-orchestration.md",
+      "owner": ".engine/operations/build-validation-and-review.md",
       "anchor": "one recommended call"
     },
     {
