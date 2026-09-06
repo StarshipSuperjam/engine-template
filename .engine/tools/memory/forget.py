@@ -580,8 +580,11 @@ def _derive_membership(src: str) -> tuple:
     return closed, closed_rollup, superseded, injected_keys, withheld_ids, withheld_sessions
 
 
-def live_records(path: "str | None" = None):
+def live_records(path: "str | None" = None, *, with_positions: bool = False):
     """Yield the ledger records recall should surface.
+
+    With `with_positions=True` each item is `ledger.iter_records`'s `(position, length, raw, record)` tuple
+    for the same membership, so the keyword index can record where each surfaced record's line sits.
 
     Recall surfaces the CONVERSATION and the curated layer over it. A genuine `turn-delta` — the `Stop`-appended
     verbatim of what was actually said — is recall content, because the transcript is the canonical record and
@@ -616,14 +619,15 @@ def live_records(path: "str | None" = None):
     Mutates nothing — never writes, never deletes."""
     src = ledger.ledger_path() if path is None else path
     closed, closed_rollup, superseded, injected_keys, withheld_ids, withheld_sessions = _derive_membership(src)
-    for record in ledger.iter_records(path=src):
+    for item in ledger.iter_records(path=src, with_positions=with_positions):
+        record = item[3] if with_positions else item
         if (not _is_excluded_capture(record, injected_keys)
                 and not _is_retired(record, closed)
                 and not _is_gist_orphan(record, closed_rollup)
                 and not _is_superseded(record, superseded)
                 and not is_withheld(record, withheld_ids, withheld_sessions)
                 and not _is_bookkeeping(record)):
-            yield record
+            yield item
 
 
 def duplicates(path: "str | None" = None) -> dict:

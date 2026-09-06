@@ -428,6 +428,19 @@ class ProjectionTests(CaptureTestCase):
         fast = index.query("pricing")                              # ...and reachable, with NO rebuild in between
         self.assertTrue(fast.records, "the fast path missed a turn captured after the last rebuild")
         self.assertFalse(fast.degraded, "this must be the fast path, not a fallback that masks the defect")
+        # The row capture added is verifiable: it carries where the append put the line, and those bytes are
+        # what the ledger holds (the trust boundary — a row `extend` could not place is a fault, not a row).
+        import sqlite3
+        conn = sqlite3.connect(index.index_path())
+        try:
+            row = conn.execute("SELECT position, length, digest FROM entries ORDER BY ord DESC LIMIT 1").fetchone()
+        finally:
+            conn.close()
+        with open(ledger.ledger_path(), "rb") as fh:
+            fh.seek(row[0])
+            raw = fh.read(row[1])
+        self.assertEqual(ledger.line_digest(raw), row[2])
+        self.assertIn(b"pricing", raw)
         # Both retrieval paths must agree — the parity law. The scan reads the ledger directly, so a divergence
         # here is precisely the "index says current but isn't" failure.
         self.assertTrue(index.query("pricing", force_scan=True).records)

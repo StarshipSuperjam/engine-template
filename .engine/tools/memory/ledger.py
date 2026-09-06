@@ -33,6 +33,7 @@ resolves to the shared clone root's `.engine/memory/`, overridable via the ENGIN
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -144,9 +145,34 @@ def ledger_path(cwd: str | None = None) -> str:
     return os.path.join(ledger_dir(cwd), LEDGER_FILENAME)
 
 
-def append(record: dict, *, path: str | None = None) -> None:
+@dataclass(frozen=True)
+class Appended:
+    """Where one append landed: the byte position of the line's first byte, the line's length with its
+    terminator, and the framed bytes themselves. The derived keyword index records these per row so a hit
+    can be re-read from the ledger at exactly this place and compared — the trust boundary in index.py, which
+    treats the index as a candidate selector and the ledger as the only source of a record's bytes."""
+
+    position: int
+    length: int
+    raw: bytes
+
+    @property
+    def digest(self) -> str:
+        return line_digest(self.raw)
+
+
+def line_digest(raw: bytes) -> str:
+    """The digest of one ledger line's raw bytes, terminator included. The SAME bytes are digested on the
+    write side (`append` returns them) and on the read side (`iter_records(with_positions=True)` yields them),
+    so the index and the ledger compare like with like and no canonical re-serialisation is needed."""
+    return hashlib.sha256(raw).hexdigest()
+
+
+def append(record: dict, *, path: str | None = None) -> Appended:
     """Append one record to the ledger as a single newline-terminated JSON line, under an exclusive
     advisory lock so concurrent writers never tear a line. Creates the data directory on first write.
+    Returns where the line landed (`Appended`): the position is read from the file size under the lock,
+    after any healing newline, and O_APPEND puts the write exactly there.
 
     Before writing, HEALS a torn trailing line: if a prior append crashed mid-write the file ends
     without its terminating newline, and a bare O_APPEND would weld the new record onto those torn
@@ -177,6 +203,7 @@ def append(record: dict, *, path: str | None = None) -> None:
         size = os.fstat(fd).st_size
         if size > 0 and os.pread(fd, 1, size - 1) != b"\n":
             os.write(fd, b"\n")
+            size += 1
         # Write the whole framed record while holding the lock (O_APPEND keeps every write at EOF;
         # the lock keeps a second writer out until we have written all bytes and flushed them).
         view = memoryview(data)
@@ -188,6 +215,7 @@ def append(record: dict, *, path: str | None = None) -> None:
         if _HAVE_FCNTL:
             fcntl.flock(fd, fcntl.LOCK_UN)
         os.close(fd)
+    return Appended(position=size, length=len(data), raw=data)
 
 
 def read(*, path: str | None = None) -> LedgerRead:
@@ -227,25 +255,32 @@ def read(*, path: str | None = None) -> LedgerRead:
     return result
 
 
-def iter_records(*, path: str | None = None):
+def iter_records(*, path: str | None = None, with_positions: bool = False):
     """Stream the intact records, quietly skipping malformed and torn lines. The streaming form for
     a full scan (e.g. rebuilding the derived index); use read() when the read-health report is wanted.
+
+    With `with_positions=True` each item is `(position, length, raw, record)`: the byte position of the
+    line's first byte, its length with the terminator, and the exact bytes — what `append` returned when the
+    line was written, so a derived copy built from this stream can later re-read and compare the line.
+    Read in binary for that reason: a byte position is only meaningful over the bytes on disk.
     """
     target = path or ledger_path()
     if not os.path.exists(target):
         return
-    with open(target, "r", encoding="utf-8", errors="replace") as fh:
+    offset = 0
+    with open(target, "rb") as fh:
         for raw in fh:
-            if not raw.endswith("\n"):
+            if not raw.endswith(b"\n"):
                 return  # torn trailing record — drop it
+            position, offset = offset, offset + len(raw)
             stripped = raw.strip()
             if not stripped:
                 continue
             try:
-                record = json.loads(stripped)
+                record = json.loads(stripped.decode("utf-8", errors="replace"))
             except ValueError:
                 continue
-            yield record
+            yield (position, len(raw), raw, record) if with_positions else record
 
 
 # --- Generation stamp + the crash-safe swap primitive (compaction) -------------------

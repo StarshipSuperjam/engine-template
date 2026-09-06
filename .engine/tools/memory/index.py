@@ -61,7 +61,11 @@ INDEX_FILENAME = "index.sqlite3"
 #   4 — the archived-tier age-out removed, so records an older index left out are now members.
 #   5 — the operator's withholds are members of the index's own state: it stamps what was withheld when it
 #       was built, so the incremental update can honour a withhold it did not itself see.
-INDEX_SCHEMA_VERSION = 5
+#   6 — every row carries where its record's line sits in the ledger (byte position and length) and the
+#       digest of that line's bytes, so a winner is re-read from the ledger and compared before it is
+#       returned: the index selects candidates, the ledger supplies every body (the derived-cache trust
+#       boundary, program prg_d15d7dc8f3df C3).
+INDEX_SCHEMA_VERSION = 6
 _FTS_PROBE_TABLE = "engine_fts5_probe"
 # Top-level record fields kept OUT of the searchable text. `tags` honors the locked typing law (tags are a
 # secondary filter, never in the FTS body, so tag drift never poisons term statistics). The capture-record
@@ -220,7 +224,15 @@ def _build_schema(conn: sqlite3.Connection) -> None:
     # its own — `_tokenize` already did it — so the indexed tokens are exactly what the scan path matches
     # against and the two paths agree across scripts. No porter stemming — `search` ranks the un-stemmed
     # tokens (bm25 over this body); stemming stays a future ranking concern.
-    conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL)")
+    # `position`, `length` and `digest` locate the record's own line in the ledger and fingerprint its bytes.
+    # `record_json` is still what the fast path MATCHES and FILTERS on, but it is never what a caller receives:
+    # every winner is re-read from the ledger at `position` and returned only when the bytes there digest to
+    # `digest` (`_verified`). The stamps in `meta` say which ledger STATE this index claims to reflect; they say
+    # nothing about who wrote its bodies, and an index rebuilt by whatever code ran passes them regardless —
+    # this per-row check is the boundary that makes the derived copy a candidate selector rather than a
+    # second source of truth.
+    conn.execute("CREATE TABLE entries (ord INTEGER PRIMARY KEY, record_json TEXT NOT NULL, "
+                 "position INTEGER NOT NULL, length INTEGER NOT NULL, digest TEXT NOT NULL)")
     # CONTENTLESS (`content=''`): FTS5 keeps the inverted index but does NOT keep a second copy of the body.
     # Nothing reads the body back — `_ranked` and `query` both MATCH and then hydrate the record from `entries`
     # — so the copy was pure duplication. It stopped being negligible when the conversation became recall
@@ -368,11 +380,12 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
             ordinal = 0
             # `live_records` excludes logically-retired duplicates (a crashed pass's orphans) — the SAME shared
             # filter the slow `_scan` uses, so the fast and slow lookups retire identically (parity).
-            for record in forget.live_records(path=src):
+            for position, length, raw, record in forget.live_records(path=src, with_positions=True):
                 tokens = _tokenize(_record_text(record))
                 conn.execute(
-                    "INSERT INTO entries (ord, record_json) VALUES (?, ?)",
-                    (ordinal, json.dumps(record, ensure_ascii=False, separators=(",", ":"))),
+                    "INSERT INTO entries (ord, record_json, position, length, digest) VALUES (?, ?, ?, ?, ?)",
+                    (ordinal, json.dumps(record, ensure_ascii=False, separators=(",", ":")),
+                     position, length, ledger.line_digest(raw)),
                 )
                 # Store the PRE-FOLDED token stream (space-joined), not the raw text, so the fast lookup
                 # indexes exactly the tokens the scan matches against — see `_tokenize` / `_build_schema`.
@@ -406,8 +419,19 @@ def rebuild(*, ledger_file: "str | None" = None, index_file: "str | None" = None
     return report
 
 
-def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "str | None" = None) -> int:
+class _PositionUnknown(Exception):
+    """A record offered to `extend` without the place its line landed — it cannot be recorded verifiably."""
+
+
+def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "str | None" = None,
+           positions: "dict | None" = None) -> int:
     """Add just-appended ledger records to the EXISTING fast index, returning how many rows were inserted.
+
+    `positions` maps each record's id to the `ledger.Appended` its append returned — where its line landed
+    and the bytes that were written — which is what a row needs so a later hit can be verified against the
+    ledger. It is the caller's append that knows this, never a read here; a record offered without its
+    position cannot be recorded verifiably, so that is treated as a fault (below): the index is marked stale
+    and the next search rebuilds from the ledger, positions and all.
 
     Why this exists. Nothing else refreshes the index between full rebuilds, and `ledger.append` does not move
     the generation stamp (only compaction does). Before the conversation became recall content that was
@@ -468,10 +492,14 @@ def extend(new_records: list, *, ledger_file: "str | None" = None, index_file: "
                 if forget.is_withheld(record, w_ids, w_sessions):
                     continue          # the operator took this conversation out of recall; a new turn in it is
                     # not a new exception to that
+                placed = (positions or {}).get(record.get(records.RECORD_ID_KEY))
+                if placed is None:
+                    raise _PositionUnknown(record.get(records.RECORD_ID_KEY))
                 tokens = _tokenize(_record_text(record))
                 conn.execute(
-                    "INSERT INTO entries (ord, record_json) VALUES (?, ?)",
-                    (ordinal, json.dumps(record, ensure_ascii=False, separators=(",", ":"))),
+                    "INSERT INTO entries (ord, record_json, position, length, digest) VALUES (?, ?, ?, ?, ?)",
+                    (ordinal, json.dumps(record, ensure_ascii=False, separators=(",", ":")),
+                     placed.position, placed.length, placed.digest),
                 )
                 conn.execute("INSERT INTO entries_fts (rowid, body) VALUES (?, ?)", (ordinal, " ".join(tokens)))
                 ordinal += 1
@@ -525,12 +553,13 @@ def query(
     tokens = _query_terms(text)
     if not tokens:
         return QueryResult(records=[], degraded=False)
+    mismatched = False
     if (not force_scan) and fts5_available() and os.path.exists(dst):
         # Fast path. Per-token double-quoting neutralizes any FTS5 MATCH syntax — the tokens are letters/numbers
         # only (the tokenizer already stripped operators), so this is belt-and-suspenders.
         match = " ".join('"' + token + '"' for token in tokens)
         sql = (
-            "SELECT e.record_json FROM entries_fts "
+            "SELECT e.ord, e.position, e.length, e.digest, e.record_json FROM entries_fts "
             "JOIN entries e ON e.ord = entries_fts.rowid "
             "WHERE entries_fts MATCH ? ORDER BY e.ord"
         )
@@ -548,8 +577,10 @@ def query(
                 # the queried ledger file's own sidecar.
                 if _index_is_current(conn, src):
                     rows = conn.execute(sql, params).fetchall()
-                    records = [json.loads(row[0]) for row in rows]
-                    return QueryResult(records=records, degraded=False)
+                    verified = _verified(src, [(row[1], row[2], row[3], row[4]) for row in rows])
+                    if verified is not _MISMATCH:
+                        return QueryResult(records=verified, degraded=False)
+                    mismatched = True
             finally:
                 conn.close()
         except sqlite3.Error:
@@ -558,6 +589,8 @@ def query(
             # A malformed MATCH cannot land here (the tokens are always valid), so this only ever catches a
             # broken index, never a bad query.
             pass
+        if mismatched:
+            _request_rebuild(src, dst)
     return QueryResult(records=_scan(tokens, src, limit), degraded=True)
 
 
@@ -665,7 +698,7 @@ _HYDRATE_CHUNK = 200
 _HYDRATE_MIN = 32
 
 
-def _fast_candidates(conn, match, *, tags, session, limit):
+def _fast_candidates(conn, match, *, tags, session, limit, src):
     """The fast path's candidate list — ranked WITHOUT holding the whole matched set in memory.
 
     The old shape fetched every matching row up front and parsed each one into a record dict before ranking. On
@@ -720,13 +753,69 @@ def _fast_candidates(conn, match, *, tags, session, limit):
             if limit is not None and boundary is None and len(keys) >= limit:
                 boundary = raw
         bodies = None                    # release the chunk before reading the next one
-    return _hydrate_winners(conn, keys, limit)
+    return _hydrate_winners(conn, keys, limit, src)
 
 
-def _hydrate_winners(conn, keys, limit):
+_MISMATCH = object()   # the fast path found a row whose bytes the ledger does not hold: answer from the scan
+
+
+def _read_line(fh, position: int, length: int) -> bytes:
+    """One positioned read of a ledger line. Module-level so a test can count exactly how many the fast
+    path performs — one per returned winner, never one per candidate and never a scan."""
+    fh.seek(position)
+    return fh.read(length)
+
+
+def _verified(src: str, locations: list):
+    """The ledger's OWN records for `locations` (`(position, length, digest, record_json)` in answer order),
+    or `_MISMATCH` when any one of them cannot be confirmed.
+
+    This is the trust boundary. The index chose these rows and ranked them; the ledger supplies what is
+    returned. Each line is re-read at the position the index recorded and its bytes digested; a digest that
+    differs, a short read, a line that no longer parses, or a ledger that cannot be opened means the index
+    holds something the ledger does not, and the whole answer is refused rather than mixed — the caller falls
+    back to the always-correct scan and asks for a rebuild. The bound is stated plainly: this closes 'the
+    index handed back text the ledger does not hold'; a row whose stored body fails to match or is filtered
+    out before it becomes a winner is missing content, which the stamps in `meta` and the rebuild cover, not
+    this check."""
+    if not locations:
+        return []
+    out = []
+    try:
+        with open(src, "rb") as fh:
+            for position, length, digest, record_json in locations:
+                raw = _read_line(fh, int(position), int(length))
+                if len(raw) != int(length) or ledger.line_digest(raw) != digest:
+                    return _MISMATCH
+                record = json.loads(raw.strip().decode("utf-8", errors="replace"))
+                # The body the index MATCHED and FILTERED on must be this very record, serialised the one way
+                # the index writer serialises: a row whose stored body says something the ledger's line does
+                # not is a row that could have matched a query the record does not — refused, not returned.
+                if json.dumps(record, ensure_ascii=False, separators=(",", ":")) != record_json:
+                    return _MISMATCH
+                out.append(record)
+    except (OSError, ValueError, TypeError):
+        return _MISMATCH
+    return out
+
+
+def _request_rebuild(src: str, dst: str) -> None:
+    """Ask for the index to be rebuilt after a mismatch, through the rebuild that is already the registered
+    `index-rebuild` writer. FAIL-SOFT, like `_heal_if_stale`: in a session that may not write the guard
+    refuses at the function's boundary, and that refusal must never take the read down — the query has
+    already fallen back to the scan, and the next qualified read repairs the index."""
+    try:
+        rebuild(ledger_file=src, index_file=dst)
+    except Exception:  # noqa: BLE001 — a repair that cannot run must never take the read down with it
+        pass
+
+
+def _hydrate_winners(conn, keys, limit, src):
     """Turn the surviving sort keys back into the `(rel, ord, record)` candidates `_rank_slice_score`
     expects, reading ONLY the records that can still make the answer. Sorts and slices by the same key that
-    function does — doing it twice costs nothing and is what lets the walk above keep no record bodies at all."""
+    function does — doing it twice costs nothing and is what lets the walk above keep no record bodies at all.
+    The record in each triple is the LEDGER's, re-read at the row's recorded position and verified (`_verified`);
+    returns `_MISMATCH` when any winner cannot be confirmed."""
     keys.sort(key=lambda c: (-c[0], -c[1]))
     if limit is not None:
         keys = keys[:limit]
@@ -737,18 +826,18 @@ def _hydrate_winners(conn, keys, limit):
     # driver raises `OperationalError`, which is a `sqlite3.Error` — so `_ranked`'s broken-index guard would
     # have swallowed it and dropped a perfectly healthy index through to the full plain-Python scan, seven
     # times slower and reported only as `degraded`. Reproduced at 33,000 matches before this loop existed.
-    bodies = {}
+    places = {}
     for start in range(0, len(keys), _HYDRATE_CHUNK):
         ords = [k[1] for k in keys[start:start + _HYDRATE_CHUNK]]
-        bodies.update(conn.execute(
-            "SELECT ord, record_json FROM entries WHERE ord IN (%s)" % ",".join("?" * len(ords)),
-            ords).fetchall())
-    out = []
-    for rel, ordinal in keys:
-        record_json = bodies.get(ordinal)
-        if record_json is not None:
-            out.append((rel, ordinal, json.loads(record_json)))
-    return out
+        for ordinal, position, length, digest, record_json in conn.execute(
+                "SELECT ord, position, length, digest, record_json FROM entries WHERE ord IN (%s)"
+                % ",".join("?" * len(ords)), ords).fetchall():
+            places[ordinal] = (position, length, digest, record_json)
+    kept = [(rel, ordinal) for rel, ordinal in keys if ordinal in places]
+    verified = _verified(src, [places[ordinal] for _, ordinal in kept])
+    if verified is _MISMATCH:
+        return _MISMATCH
+    return [(rel, ordinal, record) for (rel, ordinal), record in zip(kept, verified)]
 
 
 def _heal_if_stale(src: str, dst: str) -> bool:
@@ -800,21 +889,28 @@ def _ranked(tokens, src, dst, *, tags, session, limit, force_scan):
             _heal_if_stale(src, dst)
         except Exception:  # noqa: BLE001 — a repair that cannot run must never take the read down with it
             pass
-    # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one.
+    # Fast path — trust the FTS5 index only while its stamped generation matches the ledger's current one, and
+    # return only what the ledger confirms: a winner whose bytes differ from the ledger's demotes the whole
+    # query to the scan and requests a rebuild (`_verified`, `_request_rebuild`).
+    mismatched = False
     if (not force_scan) and fts5_available() and os.path.exists(dst):
         match = " ".join('"' + token + '"' for token in tokens)
         try:
             conn = sqlite3.connect(dst)
             try:
                 if _index_is_current(conn, src):
-                    candidates = _fast_candidates(conn, match, tags=tags, session=session, limit=limit)
-                    return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
+                    candidates = _fast_candidates(conn, match, tags=tags, session=session, limit=limit, src=src)
+                    if candidates is not _MISMATCH:
+                        return QueryResult(records=_rank_slice_score(candidates, limit), degraded=False)
+                    mismatched = True
             finally:
                 conn.close()
         except sqlite3.Error:
             # Broken/corrupt index: fall through to the always-correct scan (availability law). A malformed MATCH
             # cannot land here (the tokens are always valid), so this only catches a broken index, never a bad query.
             pass
+        if mismatched:
+            _request_rebuild(src, dst)
     # Slow path — rank the FULL matched set (no early limit break, so the SET matches the fast path), scoring it
     # with the SAME bm25 the fast path reads out of FTS5. One streaming pass collects both the corpus statistics
     # bm25 needs (document count, average length, per-term document frequency) and the matched records; the
@@ -874,10 +970,11 @@ def search(
     A blank string is treated as no filter rather than as a session nothing can match, so a caller passing an
     empty value through gets the whole store instead of a silent nothing.
 
-    LEDGER-SIDE-EFFECT-FREE, and now free of the ledger entirely on a current fast path: it reads no records the
-    index does not already hold, so what a search costs tracks how much it matched rather than how much is
-    stored. A stale fast index is rebuilt before that read and is therefore an attended reversible cache
-    mutation, not a semantic-read-only operation."""
+    LEDGER-SIDE-EFFECT-FREE. On a current fast path the ledger is read ONLY at the returned winners' recorded
+    positions — one bounded read per returned record, never a scan — so what a search costs tracks how much it
+    matched rather than how much is stored, and every record a caller receives is the ledger's own bytes. A
+    stale fast index is rebuilt before that read and is therefore an attended reversible cache mutation, not a
+    semantic-read-only operation."""
     src = ledger.ledger_path() if ledger_file is None else ledger_file
     dst = index_path() if index_file is None else index_file
     tags_set = set(tags) if tags is not None else None
