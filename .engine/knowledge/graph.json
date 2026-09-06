@@ -14536,7 +14536,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:5a19e3b4cfdf9f82d63199a0751daf5a8c4fe493cb9cb58254d873ebc69981d8",
+        "fingerprint": "sha256:909fd02b670259e8dd6dc6b260a18b6abcd189d2cbe44ea78600b1715c77de5f",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -15114,7 +15114,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:d28a9fd0ea7f237515679042e14b6399d4d578349e05858c39291991fdcda6b0",
+        "fingerprint": "sha256:1c345883692b5773096a496a6b9eb1dacad973872c96077edc89a54bda312434",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -15165,7 +15165,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:936ba38a32a85d0a2a7bcbda29bbb1724d9a10edef49766ca33ab0fe4c59d633",
+        "fingerprint": "sha256:36343ddbb5c7b6a2abfd105681ea025d6b485215fe5c987322f12500ef87e985",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -18061,7 +18061,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:9ba897e4647c14af3baebf74adaa434ed15d15d90e0d9041a38b3b189a60cf31",
+        "fingerprint": "sha256:aa12f439b4b7a31fb67079f823037c68944eea4f960d986b23488b078a3e9a9f",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -20314,7 +20314,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:430a1fdae9c0400526468788e4b6826839e904231ba06c58b69bf7f179a2b5d0",
+        "fingerprint": "sha256:2e77756eac8fab6052856ee36f073003acbbb1f6eae9304ef94d27f679eef14a",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
