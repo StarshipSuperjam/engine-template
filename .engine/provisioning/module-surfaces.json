@@ -1509,6 +1509,9 @@
   ".engine/tools/demo_pr_reconcile.py": [
    "core"
   ],
+  ".engine/tools/demo_program_intended_order.py": [
+   "core"
+  ],
   ".engine/tools/demo_program_lanes.py": [
    "core"
   ],
