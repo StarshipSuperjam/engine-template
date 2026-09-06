@@ -15,8 +15,8 @@ license verbs off the operator surface); boot renders the plain-language offer.
 The open-removal-PR DEDUPE is a SEPARATE, best-effort, ONLINE step (`removal_pr_open`) — a network round-trip
 never sits on the offline detector's critical path (the `checkout_health` offline/online seam).
 
-Fix-never-here: the removal lands as a reviewed pull request the operator merges (build-orchestration's trivial
-fast path), never a boot-time delete. No-op in the engine's OWN home repository, where the root LICENSE is
+Fix-never-here: the removal lands as a reviewed pull request the operator merges (build-kickoff's trivial
+profile), never a boot-time delete. No-op in the engine's OWN home repository, where the root LICENSE is
 legitimately the engine's, not a leftover — judged by whether the EXAMINED checkout's git origin equals the
 update home its manifest records (not this process's repo), so the guard tracks the repo whose LICENSE is
 being judged.
@@ -34,7 +34,7 @@ import repo_identity  # noqa: E402  (is_home_repo — the home-repo identity sea
 # The fixed title of the reviewed removal PR — the SHARED CONTRACT between the fix author and this dedupe. The
 # boot-session-start repair-offer wiring instructs the assistant to title the cleanup PR EXACTLY this, and
 # `removal_pr_open` matches open PRs by it — one source of truth on both sides, so the "opens no duplicate"
-# guarantee holds (a `Maintenance:` upkeep change, per build-orchestration's kind grammar). If this string
+# guarantee holds (a `Maintenance:` upkeep change, per build-kickoff's kind grammar). If this string
 # changes, the boot-session-start bullet must change with it.
 REMOVAL_PR_TITLE = "Maintenance: remove the leftover template LICENSE"
 

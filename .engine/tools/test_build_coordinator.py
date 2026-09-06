@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import inspect
 import re
 import stat
 import subprocess
@@ -2933,13 +2934,52 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
             status = bc._status(self.state())
         self.assertEqual(status["phase"], "implementation")
         self.assertEqual(status["runbook"], "build-validation-and-review.md")
-        # and a Build that has a contract recorded reads submission even while validation is stale
+        # and the floor stops there: a contract applied earlier does not pull a Build that is back in
+        # repair forward to submission — the repair judgment and the round budget live in validation
+        # and review, which is the runbook it must keep reading
         self.store.mutate(lambda s: s.update({"pr_contract": {"commit": HEAD_B, "body_digest": bc._digest(b"body"), "complete": False}}))
         with mock.patch.object(bc, "_head", return_value=HEAD_B), \
                 mock.patch.object(bc, "_history_was_rewritten", return_value=False):
             status = bc._status(self.state())
         self.assertEqual(status["phase"], "implementation")
-        self.assertEqual(status["runbook"], "build-submission.md")
+        self.assertEqual(status["runbook"], "build-validation-and-review.md")
+
+    def test_status_assigns_its_phase_from_the_tuple_and_an_unmapped_phase_reads_the_spine(self):
+        # dh-1 of the L1-3 review: PHASES is the source _status assigns from, not a decoration beside
+        # nine literals that could drift; and a phase the map does not name degrades to the spine
+        # instead of crashing every verb that prints the pointer.
+        source = inspect.getsource(bc._status)
+        self.assertNotRegex(source, r'phase, next_one, available = \(?"')
+        for name in ("PLANNING", "IMPLEMENTATION", "ENGINEERING_DECISION", "FINDING_DISPOSITION",
+                     "DELIVERABLE_REVIEW", "REPAIR_ASSESSMENT", "FINAL_VALIDATION", "SUBMISSION_PREFLIGHT", "READY"):
+            self.assertIn(f"= {name}," if name != "REPAIR_ASSESSMENT" and name != "FINAL_VALIDATION"
+                          else f"({name},", source)
+            self.assertIn(getattr(bc, name), bc.PHASES)
+        self.assertEqual(bc.runbook_for({}, "no-such-phase", {"phase_runbooks": {}}), "build-orchestration.md")
+        self.assertEqual(bc.runbook_for({}, "ready", {"phase_runbooks": {"ready": "build-submission.md"}}),
+                         "build-submission.md")
+
+    def test_status_json_carries_the_runbook_field(self):
+        out = io.StringIO()
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_changed_paths", return_value=[]), \
+                mock.patch.object(bc, "_must_run", return_value="1"), contextlib.redirect_stdout(out):
+            bc.cmd_status(argparse.Namespace(plan=str(self.plan_path), json=True), self.store)
+        self.assertEqual(json.loads(out.getvalue())["runbook"], "build-implementation.md")
+
+    def test_each_phase_runbook_carries_its_identifying_phrase(self):
+        # The per-phase pin the plan named: iterate the tuple, resolve each phase through the live map,
+        # and assert the phrase that identifies that phase's doctrine sits in the runbook it resolves to.
+        phrase = {"planning": "--operator-decided", "implementation": "engine-validation-runner",
+                  "engineering-decision": "plan adopt", "finding-disposition": "one recommended call",
+                  "deliverable-review": "one recommended call", "repair-assessment": "reviewed-to-final divergence",
+                  "final-validation": "no automatic audit recursion", "submission-preflight": "submit apply",
+                  "ready": "submit apply"}
+        self.assertEqual(set(phrase), set(bc.PHASES))
+        for phase in bc.PHASES:
+            runbook = bc.runbook_for({}, phase)
+            text = (bc.ROOT / ".engine" / "operations" / runbook).read_text(encoding="utf-8")
+            self.assertIn(phrase[phase], text, f"{phase} -> {runbook}")
 
     def test_status_text_and_the_transition_verbs_print_read_now(self):
         out, err = io.StringIO(), io.StringIO()
@@ -2958,6 +2998,18 @@ class TestValidationRepairAndStatus(CandidateInventoryFixture):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             bc.cmd_approve(argparse.Namespace(plan=str(self.plan_path), depth="quick"), self.store)
         self.assertIn("Read now: .engine/operations/build-implementation.md", err.getvalue())
+        # preflight moves the Build into submission-preflight and must say so as well (us-1 of the
+        # L1-3 review), even when it is run standalone before contract apply
+        err = io.StringIO()
+        pr = {"body": "complete", "baseRefOid": BASE}
+        close = subprocess.CompletedProcess([], 0, json.dumps({"lines": [], "defang": None}), "")
+        with mock.patch.object(bc, "_head", return_value=HEAD_A), \
+                mock.patch.object(bc, "_verify_draft", return_value=pr), \
+                mock.patch.object(bc, "_run", return_value=close), \
+                mock.patch.object(bc, "_pr_contract", return_value=(True, "complete")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            bc.cmd_preflight(argparse.Namespace(pr_body=None, json=False), self.store)
+        self.assertIn("Read now: .engine/operations/", err.getvalue())
 
     def test_non_aligned_checkpoint_prevents_ready_phase(self):
         self.store.mutate(lambda s: s.update({"checkpoint": {"plan_digest": s["plan"]["digest"], "objective": "x", "current_work": "x", "work_item": "W1", "assumptions": [], "non_goals": [], "planned_scope": [], "changed_paths": [], "remaining_verification": [], "judgment": "operator_decision_required", "progress": "0 of 1 planned work items complete"}}))
@@ -4111,24 +4163,34 @@ class TestHistoricalScenarioCorpus(unittest.TestCase):
 
     def test_every_cross_reference_into_the_build_runbooks_resolves(self):
         # Inventory: every markdown link from an operation, a skill or an agent into a Build runbook
-        # resolves to a file, and no surviving file still names an "arm", a "fast path" or the
-        # "distributed-implement workflow" OF THE SPINE — the shapes the split retired.
-        roots = [bc.ROOT / ".engine" / "operations", bc.ROOT / ".claude" / "skills", bc.ROOT / ".claude" / "agents"]
+        # resolves to a file, and no surviving file — operations, skills, agents, or the engine's tool
+        # sources — still names an "arm", the "trivial fast path", the "kind grammar" or the
+        # "distributed-implement workflow" OF THE SPINE. The shapes are the wordings that existed at the
+        # split's base commit (boot.py, engine-release.md, external-contribution-submit.md, license_health.py,
+        # routine-entry.md), so the sweep would have failed there; test sources are skipped because they
+        # quote the retired wordings to assert their absence.
+        roots = [bc.ROOT / ".engine" / "operations", bc.ROOT / ".claude" / "skills", bc.ROOT / ".claude" / "agents",
+                 bc.ROOT / ".engine" / "tools"]
         link = re.compile(r"\]\(([A-Za-z0-9._/-]+\.md)(?:#[^)]*)?\)")
+        retired = re.compile(r"build-orchestration(?:\.md)?`?'s (?:owned-product arm|trivial fast path|kind grammar)"
+                             r"|arm of `?(?:\.engine/operations/)?build-orchestration"
+                             r"|build-orchestration's trivial\s+fast path"
+                             r"|distributed-implement workflow")
         dangling = []
         stale = []
         for root in roots:
-            for path in sorted(root.rglob("*.md")):
+            for path in sorted(list(root.rglob("*.md")) + list(root.rglob("*.py"))):
+                if path.name.startswith("test_") or ".venv" in path.parts:
+                    continue
                 text = path.read_text(encoding="utf-8")
-                for target in link.findall(text):
-                    if not target.startswith("build-") and "build-orchestration" not in target:
-                        continue
-                    if not (path.parent / target).exists() and not (bc.ROOT / target.lstrip("/")).exists():
-                        dangling.append((str(path.relative_to(bc.ROOT)), target))
-                for shape in ("arm of build-orchestration", "build-orchestration.md's fast path",
-                              "distributed-implement workflow"):
-                    if shape in text:
-                        stale.append((str(path.relative_to(bc.ROOT)), shape))
+                if path.suffix == ".md":
+                    for target in link.findall(text):
+                        if not target.startswith("build-") and "build-orchestration" not in target:
+                            continue
+                        if not (path.parent / target).exists() and not (bc.ROOT / target.lstrip("/")).exists():
+                            dangling.append((str(path.relative_to(bc.ROOT)), target))
+                for match in retired.finditer(text):
+                    stale.append((str(path.relative_to(bc.ROOT)), match.group(0)))
         self.assertEqual(dangling, [])
         self.assertEqual(stale, [])
 

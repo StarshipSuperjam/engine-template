@@ -115,7 +115,7 @@
     },
     {
       "id": "BO-14",
-      "intent": "Run cold plan review at approved coverage before implementation — now upstream of the Build, where the seal refuses a review that does not cover its approved depth and a Build cannot bind an unsealed plan.",
+      "intent": "Run cold plan review at approved coverage before implementation \u2014 now upstream of the Build, where the seal refuses a review that does not cover its approved depth and a Build cannot bind an unsealed plan.",
       "classification": "mechanical-fact",
       "disposition": "mechanical",
       "owner": ".engine/tools/build_coordinator.py",

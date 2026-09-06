@@ -56,19 +56,18 @@ The surrounding flow is [Build orchestration](build-orchestration.md).
      helpers are healthy.
    - Carry exact spec review steps, applicable hard-check declarations, and any owned/unowned local-reference
      result. “Could not check” is never rendered as “clean.”
-8. Run registered preflights against the live PR body and final commit. PR-contract completeness is the hard
-   mechanical prerequisite. Close linkage is detect-and-surface posture: record its lines and bounded defang
-   advice but do not turn a contradiction into a readiness wall. Record the scope profile and applicable
-   declaration inventory. Truthfulness-dependent conditional lanes remain orchestrator prose checked by cold
-   review; mechanics must not claim they semantically proved the prose.
-9. Run `preflight`. It reads the live draft body, evaluates the existing PR-body completeness rule, and runs the
-   close-linkage preflight. Results and PR-contract completeness bind to the final commit. Resolve any emitted
-   defang or failed check, update the PR body, and rerun. `submit preview --plan <plan.json>` then verifies the
-   exact plan, current local/remote head, confirmed mergeability, complete review and dispositions, fresh green
-   validation and preflights, proportional repair judgment, and complete PR contract.
-10. Preview submission and inspect the resulting action. Apply may mark the draft ready. No coordinator path
+8. Run `preflight` against the live PR body and final commit. It evaluates the PR-body completeness rule — the
+   hard mechanical prerequisite — and the close-linkage preflight, and records the scope profile and applicable
+   declaration inventory, all bound to the final commit. Close linkage is detect-and-surface posture: record
+   its lines and bounded defang advice but do not turn a contradiction into a readiness wall. Resolve any
+   emitted defang or failed check, update the PR body, and rerun. Truthfulness-dependent conditional lanes
+   remain orchestrator prose checked by cold review; mechanics must not claim they semantically proved the
+   prose. `submit preview --plan <plan.json>` then verifies the exact plan, current local/remote head,
+   confirmed mergeability, complete review and dispositions, fresh green validation and preflights,
+   proportional repair judgment, and complete PR contract.
+9. Preview submission and inspect the resulting action. Apply may mark the draft ready. No coordinator path
    may merge, approve on behalf of the operator, or weaken protected-branch review.
-11. `submit apply` can invoke only `gh pr ready`. It has no merge command or merge API path. Marking ready submits
+10. `submit apply` can invoke only `gh pr ready`. It has no merge command or merge API path. Marking ready submits
    the claim to the operator; the Build ends there. Reach it through this gate, not a bare `gh pr ready` — `plan
    bind` labels the PR `engine-coordinator-owned` and `status`/`checkpoint` carry a standing reminder.
 

@@ -4,7 +4,7 @@
     "candidate": [
       {
         "id": "engine-ci",
-        "label": "Engine CI — the full mechanical check suite",
+        "label": "Engine CI \u2014 the full mechanical check suite",
         "command": [
           "uv",
           "run",
@@ -20,7 +20,7 @@
       },
       {
         "id": "engine-selftest",
-        "label": "Engine self-tests — affected selection against the merge base, with a run record",
+        "label": "Engine self-tests \u2014 affected selection against the merge base, with a run record",
         "command": [
           "uv",
           "run",

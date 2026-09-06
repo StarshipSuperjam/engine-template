@@ -640,34 +640,33 @@ def _work_projection(plan: dict, state: dict) -> dict:
 # The runbook pointer (StarshipSuperjam/engine-template#726). build-orchestration.md is a spine that names
 # one runbook per phase; the session reads the spine and the runbook named here, nothing else, until the
 # phase changes. The map lives in build-protocol.json (`phase_runbooks`) so the spine's table, the schema
-# and this tuple are checked against one source. The pointer keys on the FURTHEST stage the Build has
-# entered, not on the derived phase alone: a post-review commit makes candidate validation stale and the
-# phase reads `implementation` again, but the session is mid-repair and must keep reading validation and
-# review. `planning` and `engineering-decision` are not stages on that ladder — the first has no
-# approval yet, the second is an interrupt — so they name their runbook directly.
+# and this tuple are checked against one source; `_status` assigns its phase from the names unpacked
+# here, so a phase it emits cannot exist outside the tuple. The pointer keys on the derived phase with one
+# floor: a post-review commit makes candidate validation stale and the phase reads `implementation`
+# again, but the session is mid-repair and must keep reading validation and review. The floor stops
+# there — a Build back in review after a contract was applied reads validation and review, not
+# submission, because the doctrine it needs (the repair judgment, the round budget) lives there.
 PHASES = ("planning", "implementation", "engineering-decision", "finding-disposition", "deliverable-review",
           "repair-assessment", "final-validation", "submission-preflight", "ready")
-_STAGE_LADDER = ("implementation", "deliverable-review", "submission-preflight")
-_STAGE_OF_PHASE = {"implementation": 0, "finding-disposition": 1, "deliverable-review": 1,
-                   "repair-assessment": 1, "final-validation": 1, "submission-preflight": 2, "ready": 2}
+(PLANNING, IMPLEMENTATION, ENGINEERING_DECISION, FINDING_DISPOSITION, DELIVERABLE_REVIEW,
+ REPAIR_ASSESSMENT, FINAL_VALIDATION, SUBMISSION_PREFLIGHT, READY) = PHASES
+SPINE_RUNBOOK = "build-orchestration.md"
 
 
-def _furthest_stage(state: dict) -> int:
-    if state.get("pr_contract") or state.get("preflights"):
-        return 2
+def _in_review(state: dict) -> bool:
+    """Whether the Build has entered the deliverable review: a recorded packet or a repair judgment."""
     delivery = (state.get("reviews") or {}).get("deliverable") or {}
-    if delivery.get("packet_digest") or state.get("repair"):
-        return 1
-    return 0
+    return bool(delivery.get("packet_digest") or state.get("repair"))
 
 
 def runbook_for(state: dict, phase: str, protocol: dict | None = None) -> str:
-    """The runbook a session reads for this Build now, relative to .engine/operations."""
+    """The runbook a session reads for this Build now, relative to .engine/operations. A phase the map
+    does not name falls back to the spine rather than failing `status`: the spine is the entry point
+    that names every runbook, and `phase_runbook_status` reports the gap."""
     runbooks = (protocol or _protocol())["phase_runbooks"]
-    if phase in _STAGE_OF_PHASE:
-        stage = max(_STAGE_OF_PHASE[phase], _furthest_stage(state))
-        return runbooks[_STAGE_LADDER[stage]]
-    return runbooks[phase]
+    if phase == IMPLEMENTATION and _in_review(state):
+        phase = DELIVERABLE_REVIEW
+    return runbooks.get(phase, SPINE_RUNBOOK)
 
 
 def phase_runbook_status(protocol: dict | None = None) -> dict:
@@ -831,11 +830,11 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     final_ready = _final_ok(state, head)
 
     if not approval_ready:
-        phase, next_one, available = "planning", "approve the plan and review depth", []
+        phase, next_one, available = PLANNING, "approve the plan and review depth", []
     elif not dispositions_ready:
-        phase, next_one, available = "finding-disposition", None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
+        phase, next_one, available = FINDING_DISPOSITION, None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
-        phase, next_one, available = "engineering-decision", None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
+        phase, next_one, available = ENGINEERING_DECISION, None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
     elif not valid:
         # The delegation targets are named HERE, in the projection a session reads at the moment it is
         # about to do the work — not only in the runbook, which it may have read hours ago or not at all.
@@ -848,16 +847,16 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         # receipt and is never run locally at all. A scout confined to a disposable copy can produce
         # neither: the record, the log and the state update all vanish with the copy. Routing either
         # class through it would return a readable summary and no admissible evidence.
-        phase, next_one, available = "implementation", None, [
+        phase, next_one, available = IMPLEMENTATION, None, [
             "continue implementation",
             "send a wide recall or impact sweep to `engine-grounding-scout` rather than running it inline",
             "run focused verification through `engine-validation-runner` unless you need the raw log",
             "run final validation when the change is cohesive — here, not through a scout, since its "
             "evidence binds to this checkout and a scout only ever sees a copy"]
     elif not delivery_ready:
-        phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
+        phase, next_one, available = DELIVERABLE_REVIEW, "prepare or complete the deliverable review", []
     elif not repair_ready:
-        phase, next_one, available = ("repair-assessment",
+        phase, next_one, available = (REPAIR_ASSESSMENT,
                                        "re-anchor the review bindings with `reconcile`" if rewritten
                                        else "record the proportional re-review judgment",
                                        # A session reads this list BEFORE it acts. Naming the verb only in
@@ -866,16 +865,16 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                         "history rewrite"] if rewritten else
                                        ["record the proportional re-review judgment"])
     elif not preflight_ready or not contract_ready:
-        phase, next_one, available = "submission-preflight", "run submission preflights", []
+        phase, next_one, available = SUBMISSION_PREFLIGHT, "run submission preflights", []
     elif not final_ready:
         # A session reads this list BEFORE it acts (the same principle as the repair rung above): the
         # brand-new mandatory verb is named here and in the refusals, never only at the wall.
-        phase, next_one, available = ("final-validation",
+        phase, next_one, available = (FINAL_VALIDATION,
                                        "import the merge proof with `validate final import`",
                                        ["push the head and wait for engine-ci, then import the proof "
                                         "with `validate final import`"])
     else:
-        phase, next_one, available = "ready", "preview submission", []
+        phase, next_one, available = READY, "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
     completed_items = [item["id"] for item in state["progress"]["completed"]]
     next_item = _next_incomplete(plan, state) if plan else None
@@ -3746,6 +3745,7 @@ def cmd_preflight(args, store: Snapshot) -> None:
         advisory = [item["id"] for item in results if item["id"] not in required_ids and not item["passed"]]
         print(f"preflight recorded for {head[:12]}: required failures {len(required_failures)}, "
               f"advisory findings {len(advisory)}, {len(declarations)} applicable hard-check declaration(s)")
+    _read_now(store)
     if not contract_passed:
         raise CoordinatorError("the required PR-contract preflight needs attention")
     if not ci_passed:
@@ -4177,7 +4177,6 @@ def cmd_submit_apply(args, store: Snapshot) -> None:
                     pass
         raise
     print(f"marked {preview['repository']}#{preview['pr']} ready for the operator; no merge was attempted")
-    _read_now(store)
 
 
 def _bindings() -> dict:
