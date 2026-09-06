@@ -19,9 +19,9 @@
 # runs full. Any doubt — no receipt, an unreadable one, an API failure — resolves to the full run. A reuse run
 # uploads no receipt, so reuse can never chain off reuse.
 #
-# ROUTE THREE, PROJECT-ONLY (StarshipSuperjam/engine-template#758 and StarshipSuperjam/engine-template#883),
-# is the larger weakening and the one
-# the acknowledgement on ITS change was about: in a deployed copy of the Engine, when the change classifier
+# ROUTE THREE, PROJECT-ONLY (StarshipSuperjam/engine-template#758 and StarshipSuperjam/engine-template#883)
+# is the larger weakening and the one the acknowledgement on ITS change was about: in a deployed copy of the
+# Engine, when the change classifier
 # (.engine/tools/change_classification.py) places every changed path of the merge checkout outside every Engine
 # corner, every declared root file and the live ownership register — resolving every doubt, and the home
 # repository itself, to "the Engine's" — the run executes the full validator CI suite and NOT the self-test
@@ -138,6 +138,20 @@ jobs:
           GITHUB_STATE: ${{ runner.temp }}/decoy-github-state
           GITHUB_STEP_SUMMARY: ${{ runner.temp }}/decoy-github-step-summary
         run: uv run --directory .engine --frozen -- python -m unittest discover -s tools -p 'test_*.py' -b
+      - name: Run the seed validator alone (project-only change set)
+        # The project-only arm: the FULL validator CI suite, and nothing else. It is a separate step rather
+        # than a second condition on the validator step above because the terminal assertion reads each arm's
+        # own step outcome, and the env block is kept IDENTICAL to that step's (a test holds them equal).
+        # This step's OUTCOME is the project-only arm's completion evidence. It sits ABOVE the receipt steps
+        # so that a failure here fails the job before a receipt is written — the receipt attests by
+        # construction only when every substantive step of its arm precedes it (a test holds the order).
+        id: project
+        if: steps.gate.outputs.mode == 'project-only'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}
+        run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI
       - name: Write the receipt
         # Only after the arm's substantive steps have passed, so the receipt is an attestation by construction
         # rather than by assertion — a failure above fails the job and skips this. Runs for the full arm AND
@@ -180,18 +194,6 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}
         run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI-metadata
-      - name: Run the seed validator alone (project-only change set)
-        # The project-only arm: the FULL validator CI suite, and nothing else. It is a separate step rather
-        # than a second condition on the validator step above because the terminal assertion reads each arm's
-        # own step outcome, and the env block is kept IDENTICAL to that step's (a test holds them equal).
-        # This step's OUTCOME is the project-only arm's completion evidence.
-        id: project
-        if: steps.gate.outputs.mode == 'project-only'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PROTECTED_BRANCH: ${{ github.event.repository.default_branch }}
-        run: uv run --directory .engine --frozen -- python tools/validate.py --suite CI
       - name: Refuse a run in which no arm did any work
         # Carries NO CONDITION OF ITS OWN, and is the last word. Without it, a value the arms did not
         # anticipate would skip both, every step would report as successful, and the frozen required context

@@ -116,6 +116,71 @@ class TestPureClassification(unittest.TestCase):
         manifest = _classify([("harness/new_file.py", "A")], register=REGISTER | {"harness/x.py"})
         self.assertEqual(manifest["reason"]["code"], "engine-owned-path")
 
+    def test_a_directory_a_provides_pattern_names_stays_a_corner_after_its_last_file_is_deleted(self):
+        # The register enumerates files that exist; the pattern's directory does not depend on one.
+        deleted = [("harness/run.py", "D")]
+        self.assertEqual(_classify(deleted)["verdict"], cc.VERDICT_PROJECT_ONLY,
+                         "without the pattern the deletion is invisible to the register — the gap")
+        manifest = _classify(deleted, provides_patterns=("harness/*.py",))
+        self.assertEqual(manifest["reason"]["code"], "engine-owned-path")
+        self.assertEqual(cc.register_corners(set(), ("harness/*.py", "root-file.md")), frozenset({"harness/"}))
+
+    def test_a_mixed_change_sets_reason_code_follows_precedence_not_sort_order(self):
+        register = REGISTER | {"harness/x.py"}
+        floor_last = [("harness/x.py", "M"), (".claude/x.md", "M"), ("zz-CLAUDE.md", "M"), ("CLAUDE.md", "M")]
+        self.assertEqual(_classify(floor_last, register=register)["reason"]["code"], "floor-path")
+        corner_after_owned = [("harness/x.py", "M"), (".claude/x.md", "M")]
+        self.assertEqual(_classify(corner_after_owned, register=register)["reason"]["code"], "engine-corner-path")
+        self.assertEqual(_classify([("harness/x.py", "M"), ("src/a.py", "M")], register=register)["reason"]["code"],
+                         "engine-owned-path")
+
+    def test_floor_and_corner_matching_is_case_folded(self):
+        self.assertEqual(_classify([(".Engine/x.py", "M")])["reason"]["code"], "engine-corner-path")
+        self.assertEqual(_classify([("claude.md", "M")])["reason"]["code"], "floor-path")
+        self.assertEqual(_classify([("Harness/y.py", "A")], register=REGISTER | {"harness/x.py"})["reason"]["code"],
+                         "engine-owned-path")
+
+    def test_the_per_path_rule_is_one_function_and_the_loop_agrees_with_it(self):
+        register = REGISTER | {"harness/x.py"}
+        corners = cc.register_corners(register, ("vendor/*",))
+        paths = ["src/a.py", "CLAUDE.md", ".github/x.yml", "harness/z.py", "vendor/lib.js", "README.md"]
+        manifest = _classify([(p, "M") for p in paths], register=register, provides_patterns=("vendor/*",))
+        self.assertEqual(manifest["project_paths"],
+                         sorted(p for p in paths if cc.is_project_owned(p, register, corners)))
+        self.assertEqual(manifest["engine_paths"],
+                         sorted(p for p in paths if cc.engine_reason(p, register, corners) is not None))
+
+    def test_the_detail_reads_grammatically_for_one_path_and_for_many(self):
+        self.assertIn("src/a.py lies outside everything the Engine owns", _classify([("src/a.py", "M")])["reason"]["detail"])
+        many = _classify([("src/a.py", "M"), ("src/b.py", "M")])["reason"]["detail"]
+        self.assertIn("src/a.py, src/b.py lie outside everything the Engine owns", many)
+        self.assertNotIn("reads, executes", many)
+        self.assertIn("CLAUDE.md touches what the Engine owns", _classify([("CLAUDE.md", "M")])["reason"]["detail"])
+        self.assertEqual(cc.name_paths(["a", "b", "c", "d", "e"]), "a, b, c (+2 more)")
+        self.assertEqual((cc.count_paths(["a"]), cc.count_paths(["a", "b"])), ("1 changed path", "2 changed paths"))
+
+
+class TestReceiptAdmission(unittest.TestCase):
+    """Which engine-ci receipt a merge proof may stand on — the rule lives here, in the guarded module."""
+
+    _PROJECT_ONLY = {"verdict": "project-only", "reason": {"code": "project-only"}}
+    _ENGINE = {"verdict": "engine-affecting", "reason": {"code": "engine-corner-path"}}
+
+    def test_a_full_receipt_stands_alone(self):
+        self.assertEqual(cc.admit_receipt({"mode": "full"}, None), "full")
+        self.assertEqual(cc.admit_receipt({"mode": "full"}, self._ENGINE), "full")
+
+    def test_a_project_only_receipt_stands_only_on_an_agreeing_re_derived_verdict(self):
+        self.assertEqual(cc.admit_receipt({"mode": "project-only"}, self._PROJECT_ONLY), "project-only")
+        for disagreeing in (self._ENGINE, None, {}):
+            with self.assertRaisesRegex(cc.ClassificationError, "narrower than the change set warrants"):
+                cc.admit_receipt({"mode": "project-only"}, disagreeing)
+
+    def test_any_other_mode_names_no_arm(self):
+        for receipt in ({}, None, {"mode": "reuse"}, {"mode": "FULL"}, "full"):
+            with self.assertRaisesRegex(cc.ClassificationError, "names no arm"):
+                cc.admit_receipt(receipt, self._PROJECT_ONLY)
+
     def test_a_mixed_change_set_names_every_engine_path_and_keeps_the_project_ones(self):
         manifest = _classify([("src/a.py", "M"), (".engine/tools/validate.py", "M"), ("README.md", "M")])
         self.assertEqual(manifest["verdict"], cc.VERDICT_ENGINE_AFFECTING)
@@ -198,6 +263,21 @@ class TestGitSeam(unittest.TestCase):
         self.assertNotIn("CLAUDE.md", cc.register_of(self.root))
         self.assertEqual(cc.classify_merge_checkout(self.root)["reason"]["code"], "floor-path")
 
+    def test_deleting_the_last_file_under_a_provided_directory_keeps_the_corner(self):
+        _write(self.root, ".engine/modules/core/manifest.json",
+               json.dumps({"id": "core", "provides": {"tool": [".engine/tools/*.py", "harness/*.py"]}}))
+        _write(self.root, "harness/run.py", "x\n")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-q", "-m", "harness")
+        _git(self.root, "checkout", "-q", "-b", "topic")
+        _git(self.root, "rm", "-q", "harness/run.py")
+        _git(self.root, "commit", "-q", "-m", "delete the harness")
+        _git(self.root, "checkout", "-q", "main")
+        _git(self.root, "merge", "-q", "--no-ff", "-m", "merge", "topic")
+        self.assertNotIn("harness/run.py", cc.register_of(self.root))
+        self.assertIn("harness/", cc.corners_of(self.root))
+        self.assertEqual(cc.classify_merge_checkout(self.root)["reason"]["code"], "engine-owned-path")
+
     def test_a_one_parent_head_is_not_a_merge_checkout(self):
         _write(self.root, "src/app.py", "print(3)\n")
         _git(self.root, "commit", "-q", "-am", "direct")
@@ -236,11 +316,71 @@ class TestGitSeam(unittest.TestCase):
             self.assertIsNone(cc.register_of(self.root))
 
 
+# What an empty range (HEAD against HEAD) must say about THIS checkout, by its identity. The tests below
+# read the identity first rather than assuming the home: run from a deployed copy — a throwaway clone with a
+# foreign origin, or a real downstream project — the same code is right to answer differently, and a test
+# that hard-coded `home-repository` would fail there while proving nothing (a reviewer ran exactly that).
+_EMPTY_RANGE_BY_IDENTITY = {cc.IDENTITY_HOME: "home-repository",
+                            cc.IDENTITY_DEPLOYED: "no-changed-paths",
+                            cc.IDENTITY_UNREADABLE: "identity-unreadable"}
+
+
 class TestThisRepository(unittest.TestCase):
-    def test_the_engine_home_classifies_as_home(self):
+    def test_this_checkout_classifies_by_its_identity_never_project_only(self):
+        identity = cc.identity_of(validate.ROOT)
         manifest = cc.classify_range(validate.ROOT, "HEAD", "HEAD")
-        self.assertEqual(manifest["reason"]["code"], "home-repository")
+        self.assertEqual(manifest["identity"], identity)
+        self.assertEqual(manifest["reason"]["code"], _EMPTY_RANGE_BY_IDENTITY[identity])
         self.assertEqual(manifest["verdict"], cc.VERDICT_ENGINE_AFFECTING)
+
+
+class TestOnAThrowawayDeployedClone(unittest.TestCase):
+    """The identity-dependent tests, run again on a clone of this very tree whose origin is foreign — the
+    shape of a deployed copy, with the REAL manifests and register. This is the case a home-only assertion
+    silently never covered."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.root = os.path.join(cls.tmp.name, "clone")
+        # `--shared` borrows this checkout's object store, so the clone costs a checkout and nothing more.
+        subprocess.run(["git", "clone", "-q", "--shared", validate.ROOT, cls.root],
+                       check=True, capture_output=True, text=True)
+        _git(cls.root, "remote", "set-url", "origin", "https://github.com/test/downstream-product.git")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_the_clone_reads_as_deployed_with_a_live_register(self):
+        self.assertEqual(cc.identity_of(self.root), cc.IDENTITY_DEPLOYED)
+        register = cc.register_of(self.root)
+        self.assertIsNotNone(register)
+        self.assertIn(cc.ENGINE_MANIFEST_REL, register)
+        manifest = cc.classify_range(self.root, "HEAD", "HEAD")
+        self.assertEqual(manifest["reason"]["code"], _EMPTY_RANGE_BY_IDENTITY[cc.IDENTITY_DEPLOYED])
+        self.assertEqual(manifest["verdict"], cc.VERDICT_ENGINE_AFFECTING)
+
+    def test_a_product_commit_on_the_clone_is_project_only_and_an_engine_commit_is_not(self):
+        _git(self.root, "checkout", "-q", "-b", "product")
+        _write(self.root, "src/app.py", "print(1)\n")
+        _git(self.root, "add", "src/app.py")
+        _git(self.root, "commit", "-q", "-m", "product change")
+        product = cc.classify_range(self.root, "HEAD~1", "HEAD")
+        self.assertEqual((product["verdict"], product["project_paths"]), (cc.VERDICT_PROJECT_ONLY, ["src/app.py"]))
+        _write(self.root, ".engine/tools/validate.py", "# touched\n")
+        _git(self.root, "add", ".engine/tools/validate.py")
+        _git(self.root, "commit", "-q", "-m", "engine change")
+        engine = cc.classify_range(self.root, "HEAD~1", "HEAD")
+        self.assertEqual(engine["reason"]["code"], "engine-corner-path")
+
+    def test_the_cli_answers_for_the_clone_through_root(self):
+        out = io.StringIO()
+        with mock.patch("sys.stdout", out):
+            self.assertEqual(cc.main(["classify", "--base", "HEAD", "--head", "HEAD", "--root", self.root]), 0)
+        manifest = json.loads(out.getvalue())
+        self.assertEqual(manifest["identity"], cc.IDENTITY_DEPLOYED)
+        self.assertEqual(manifest["reason"]["code"], "no-changed-paths")
 
 
 class TestCli(unittest.TestCase):
@@ -253,12 +393,17 @@ class TestCli(unittest.TestCase):
                     self.assertEqual(cc.main(argv), 0, argv)
                 self.assertIn("usage:", out.getvalue())
 
-    def test_an_unknown_argument_exits_two(self):
-        err = io.StringIO()
-        with mock.patch("sys.stderr", err):
-            self.assertEqual(cc.main(["classify", "--bogus"]), 2)
-            self.assertEqual(cc.main(["frobnicate"]), 2)
-        self.assertIn("usage:", err.getvalue())
+    def test_an_unknown_argument_exits_two_and_names_the_problem_once(self):
+        # One usage block, preceded by the specific complaint — not argparse's own usage AND ours.
+        for argv, named in ((["classify", "--base", "x", "--head", "y", "--bogus"], "--bogus"),
+                            (["frobnicate"], "frobnicate"), (["classify", "--base", "x"], "--head")):
+            err = io.StringIO()
+            with mock.patch("sys.stderr", err):
+                self.assertEqual(cc.main(argv), 2, argv)
+            text = err.getvalue()
+            self.assertEqual(text.count("usage:"), 1, text)
+            self.assertIn(named, text.splitlines()[0], text)
+            self.assertTrue(text.startswith("change_classification.py: "), text)
 
     def test_classify_prints_the_manifest(self):
         out = io.StringIO()
@@ -266,7 +411,7 @@ class TestCli(unittest.TestCase):
             self.assertEqual(cc.main(["classify", "--base", "HEAD", "--head", "HEAD"]), 0)
         manifest = json.loads(out.getvalue())
         self.assertEqual(manifest["schema_version"], cc.SCHEMA_VERSION)
-        self.assertEqual(manifest["reason"]["code"], "home-repository")
+        self.assertEqual(manifest["reason"]["code"], _EMPTY_RANGE_BY_IDENTITY[cc.identity_of(validate.ROOT)])
 
 
 if __name__ == "__main__":

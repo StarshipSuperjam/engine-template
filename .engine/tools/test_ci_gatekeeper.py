@@ -223,8 +223,13 @@ class ProjectOnlyRoute(unittest.TestCase):
         mode, reason, _ = self._decide(event("synchronize"), lambda _r: PROJECT_ONLY,
                                        env={gk.PROJECT_ONLY_ARM_ENV: gk.PROJECT_ONLY_ARM_OFF})
         self.assertEqual((mode, reason), (gk.MODE_FULL, gk.REASON_CODE_EVENT))
-        # Only the exact word disables: an unset variable, or any other value, leaves the arm on.
-        for value in ("", "false", "OFF ", "no"):
+        # Every plain spelling of "off", trimmed and in any case, disables; unset, empty, or anything
+        # else leaves the arm on. The repository-variable form is typed by hand.
+        for value in ("OFF ", " Off", "false", "False", "0", "no", "NO", "disabled"):
+            mode, _, _ = self._decide(event("synchronize"), lambda _r: PROJECT_ONLY,
+                                      env={gk.PROJECT_ONLY_ARM_ENV: value})
+            self.assertEqual(mode, gk.MODE_FULL, repr(value))
+        for value in ("", "on", "true", "yes", "1", "project-only"):
             mode, _, _ = self._decide(event("synchronize"), lambda _r: PROJECT_ONLY,
                                       env={gk.PROJECT_ONLY_ARM_ENV: value})
             self.assertEqual(mode, gk.MODE_PROJECT_ONLY, repr(value))
@@ -282,6 +287,13 @@ class ProjectOnlyRoute(unittest.TestCase):
         self.assertIn("Engine health only", line)
         self.assertIn("no product validation", line)
         self.assertIn("#1147", line)
+        # The words a reader trusts are exactly what the floor enforces — "owns", not the broader
+        # "reads, executes, or owns" — and the count reads grammatically for one path and for many.
+        self.assertIn("outside everything the Engine owns", line)
+        self.assertNotIn("reads, executes", line)
+        self.assertIn("1 changed path (src/app.py) lies", line)
+        two = gk.project_only_disclosure({"classification": {**PROJECT_ONLY, "project_paths": ["a.py", "b.py"]}})
+        self.assertIn("2 changed paths (a.py, b.py) lie outside", two)
 
     def test_the_decide_verb_refuses_a_project_only_run_it_cannot_disclose(self):
         # Mirrors the reuse refusal: the summary line is the whole disclosure, so no writable summary means
@@ -787,6 +799,19 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(upload["with"]["name"], gk.RECEIPT_ARTIFACT_NAME)
         uploads = [key for key, step in self.steps.items() if "upload-artifact" in str(step.get("uses", ""))]
         self.assertEqual(uploads, ["Upload the receipt"])
+
+    def test_every_arms_substantive_steps_precede_the_receipt(self):
+        # The receipt attests by construction only if a failure in its arm skips it: a substantive step
+        # placed AFTER the receipt would let a run write and upload a full-looking receipt and then fail.
+        # A reviewer found the project-only step there; this holds the order for both receipt-bearing arms.
+        order = [step.get("id") or step["name"] for step in self.job["steps"]]
+        write, upload = order.index("Write the receipt"), order.index("Upload the receipt")
+        self.assertLess(write, upload)
+        for key in ("Run the seed validator (CI suite)", "selftests", "project"):
+            self.assertLess(order.index(key), write, key)
+        terminal = order.index("Refuse a run in which no arm did any work")
+        self.assertEqual(terminal, len(order) - 1, "the terminal assertion is the last word")
+        self.assertLess(order.index("metadata"), terminal)
 
     def test_the_terminal_step_reads_all_three_outcomes_and_carries_no_condition(self):
         terminal = self.steps["Refuse a run in which no arm did any work"]

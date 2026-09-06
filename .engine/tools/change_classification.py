@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
-"""change_classification — does a change set touch anything the Engine reads, executes, or owns?
+"""change_classification — does a change set touch anything the Engine owns?
 
 WHY THIS EXISTS. Two gates used to spend the whole self-test inventory on change sets that could not affect
 it: engine-ci in a DEPLOYED copy re-ran 4,600 tests on a product-only pull request, and the Build
 Coordinator's candidate validation did the same for a project-only Build (StarshipSuperjam/engine-template#758,
-StarshipSuperjam/engine-template#883). Both lacked one fact — whether every changed path lies outside the
-Engine — and both now read it from here, so the two gates cannot drift apart. The verdict is one of two
-words: `project-only`, or `engine-affecting`. Every doubt is `engine-affecting`.
+StarshipSuperjam/engine-template#883). Both lacked one fact — whether every changed path lies outside
+everything the Engine OWNS — and both now read it from here, through the one per-path rule
+(`engine_reason`), so the two gates cannot drift apart. The verdict is one of two words: `project-only`,
+or `engine-affecting`. Every doubt is `engine-affecting`.
+
+WHAT "OWNS" MEANS, precisely, because the words a reviewer trusts must not be broader than the floor: the
+Engine's own corners (the five directories below), the root files it wires or owns, and every path its
+ownership register names. A project file that an Engine RULE merely reads — the product version file, a
+product spec — is the project's here; what bounds that is the validator CI suite, which runs in full on
+every engine-ci arm and owns the hard checks over those inputs. The self-test inventory this module may
+skip reads none of them.
 
 THE FLOOR IS DECLARED, NOT DISCOVERED. The Engine's ownership register (`module_coherence.engine_owned_paths`)
 enumerates the LIVE tree, so a file a pull request deletes or renames away is simply absent from it, and the
 root wiring file `.mcp.json` — the commands the Engine's MCP servers launch — was never in it at all. So the
 floor lives in this module by NAME: the corner prefixes the Engine occupies and the root files it wires or
-owns, matched against every changed path including the deleted and rename-source sides, so presence on disk
-never matters. The register can only ADD to that floor (a module providing a file outside it, and the
-top-level directories the register occupies); shrinking the register cannot widen `project-only` below the
-floor. Every register input — the module manifests, the module_coherence source, CODEOWNERS — lives under a
+owns, matched case-folded against every changed path including the deleted and rename-source sides, so
+presence on disk never matters. The register can only ADD to that floor: a module providing a file outside
+it, the top-level directories the register occupies, and — so that deleting the last file under such a
+directory cannot erase the corner with it — the top-level directories the manifests' `provides` PATTERNS
+name, which exist whether or not a file matches. Shrinking the register cannot widen `project-only` below
+the floor. Every register input — the module manifests, the module_coherence source, CODEOWNERS — lives under a
 corner, so a pull request that shrinks the register is itself engine-affecting; that is what makes reading
 the register from the pull-request head safe, and `test_change_classification` pins it.
 
@@ -109,41 +119,78 @@ class ClassificationError(RuntimeError):
 # --------------------------------------------------------------------------------------------------
 
 def floor_hit(path: str, *, floor_prefixes=FLOOR_PREFIXES, floor_files=FLOOR_FILES) -> Optional[str]:
-    """The floor reason for `path`, or None. A pure string test: presence on disk never matters."""
-    if path in floor_files:
+    """The floor reason for `path`, or None. A pure string test: presence on disk never matters, and the
+    comparison is CASE-FOLDED — `.Engine/x` or `claude.md` lands on the real Engine file on a
+    case-insensitive checkout (the operator's machine, the coordinator's re-derivation), so it is the
+    Engine's here too. Folding can only make the answer more conservative."""
+    folded = path.casefold()
+    if folded in {f.casefold() for f in floor_files}:
         return "floor-path"
-    if any(path.startswith(prefix) for prefix in floor_prefixes):
+    if any(folded.startswith(prefix.casefold()) for prefix in floor_prefixes):
         return "engine-corner-path"
     return None
 
 
-def register_corners(register) -> frozenset:
-    """The top-level directories the register occupies, as `dir/` prefixes. A file inside one of them
-    that no manifest names is still the Engine's territory."""
-    return frozenset(p.split("/", 1)[0] + "/" for p in register if "/" in p)
+def register_corners(register, provides_patterns=()) -> frozenset:
+    """The top-level directories the Engine occupies, as `dir/` prefixes: those the register's paths sit
+    in, UNION those the present manifests' `provides` PATTERNS name. The second half is what survives a
+    deletion — the register enumerates files that exist, so deleting the last file under a directory a
+    module claims would otherwise erase that corner along with it (a reviewer proved it on
+    `harness/*.py`); a pattern's first segment does not depend on any file being present."""
+    corners = {p.split("/", 1)[0] + "/" for p in register if "/" in p}
+    corners |= {pat.split("/", 1)[0] + "/" for pat in provides_patterns if "/" in pat}
+    return frozenset(corners)
 
 
 def register_hit(path: str, register, corners) -> bool:
-    return path in register or any(path.startswith(prefix) for prefix in corners)
+    folded = path.casefold()
+    return path in register or any(folded.startswith(prefix.casefold()) for prefix in corners)
 
 
-def _name_paths(paths, limit: int = 3) -> str:
+# The precedence a mixed change set's reason code follows, strongest first, so the code never depends on
+# the order the paths happen to sort in.
+_ENGINE_CODE_PRECEDENCE = ("floor-path", "engine-corner-path", "engine-owned-path")
+
+
+def engine_reason(path: str, register, corners, *, floor_prefixes=FLOOR_PREFIXES,
+                  floor_files=FLOOR_FILES) -> Optional[str]:
+    """Why `path` is the Engine's — a reason code — or None when it is the project's. THE one per-path
+    rule: the classifier's loop and the self-test selector's predicate both call it, so a condition added
+    here reaches both gates (the drift a shared classifier exists to prevent)."""
+    code = floor_hit(path, floor_prefixes=floor_prefixes, floor_files=floor_files)
+    if code is None and register_hit(path, register, corners):
+        code = "engine-owned-path"
+    return code
+
+
+def is_project_owned(path: str, register, corners) -> bool:
+    return engine_reason(path, register, corners) is None
+
+
+def name_paths(paths, limit: int = 3) -> str:
+    """Up to `limit` paths, then how many more. Shared with the gatekeeper's disclosure."""
     shown = ", ".join(paths[:limit])
     return shown if len(paths) <= limit else f"{shown} (+{len(paths) - limit} more)"
 
 
+def count_paths(paths) -> str:
+    """'1 changed path' / '3 changed paths' — the singular and plural for a disclosure line."""
+    return f"{len(paths)} changed path" + ("" if len(paths) == 1 else "s")
+
+
 def classify_paths(entries, *, identity: str, register, base: Optional[str] = None,
                    head: Optional[str] = None, failure: Optional[str] = None,
-                   shape_failure: Optional[str] = None,
+                   shape_failure: Optional[str] = None, provides_patterns=(),
                    floor_prefixes=FLOOR_PREFIXES, floor_files=FLOOR_FILES) -> dict:
     """Decide, and return the `change-classification.v1` manifest.
 
     `entries` is a list of `(path, status)` pairs as `diff_entries` returns them — a rename or copy
     contributes BOTH sides. `identity` is one of the IDENTITY_* tokens. `register` is the set of
-    engine-owned relpaths for the tree, or None when it could not be read. `failure` is a git diagnosis,
-    or None; `shape_failure` says the checkout was not the merge shape the caller needed. Everything the
-    verdict rests on is an argument, so a fixture over a synthetic tree cannot silently inherit the real
-    repository's answer."""
+    engine-owned relpaths for the tree, or None when it could not be read; `provides_patterns` are the
+    present manifests' provides globs, whose top-level directories stay corners whether or not a file
+    exists under them. `failure` is a git diagnosis, or None; `shape_failure` says the checkout was not
+    the merge shape the caller needed. Everything the verdict rests on is an argument, so a fixture over
+    a synthetic tree cannot silently inherit the real repository's answer."""
     changed = sorted({p for p, _ in entries})
 
     def verdict(code: str, detail: str, engine_paths=(), project_paths=()) -> dict:
@@ -184,26 +231,27 @@ def classify_paths(entries, *, identity: str, register, base: Optional[str] = No
     odd = sorted(p for p, s in statuses.items() if not s <= RECOGNISED_STATUSES)
     if odd:
         return verdict("unrecognised-status",
-                       f"{_name_paths(odd)} carry a git status this module has no opinion on", engine_paths=odd)
+                       f"{name_paths(odd)} carry a git status this module has no opinion on", engine_paths=odd)
 
-    corners = register_corners(register)
+    corners = register_corners(register, provides_patterns)
     engine_paths: list = []
     project_paths: list = []
-    first_code: Optional[str] = None
+    codes: set = set()
     for path in changed:
-        code = floor_hit(path, floor_prefixes=floor_prefixes, floor_files=floor_files)
-        if code is None and register_hit(path, register, corners):
-            code = "engine-owned-path"
+        code = engine_reason(path, register, corners, floor_prefixes=floor_prefixes, floor_files=floor_files)
         if code is None:
             project_paths.append(path)
             continue
         engine_paths.append(path)
-        first_code = first_code or code
+        codes.add(code)
     if engine_paths:
-        return verdict(first_code, f"{_name_paths(engine_paths)} touch what the Engine owns",
+        strongest = next(code for code in _ENGINE_CODE_PRECEDENCE if code in codes)
+        verb = "touches" if len(engine_paths) == 1 else "touch"
+        return verdict(strongest, f"{name_paths(engine_paths)} {verb} what the Engine owns",
                        engine_paths=engine_paths, project_paths=project_paths)
+    verb = "lies" if len(project_paths) == 1 else "lie"
     return verdict(PROJECT_ONLY_REASON,
-                   f"{_name_paths(project_paths)} lie outside everything the Engine reads, executes, or owns",
+                   f"{name_paths(project_paths)} {verb} outside everything the Engine owns",
                    project_paths=project_paths)
 
 
@@ -268,6 +316,51 @@ def register_of(root: str):
         return None
 
 
+def provides_patterns_of(root: str) -> tuple:
+    """Every `provides` glob the present manifests declare, as written. Their top-level directories are
+    corners whether or not a file currently matches. An unreadable manifest set yields none — the register
+    read that follows is what turns that doubt into a refusal."""
+    try:
+        import module_coherence
+        patterns = []
+        for _rel, manifest in module_coherence.discover_manifests(root):
+            for _group, globs in (manifest.get("provides") or {}).items():
+                patterns.extend(str(g) for g in globs)
+        return tuple(patterns)
+    except Exception:  # noqa: BLE001 — see above
+        return ()
+
+
+def corners_of(root: str) -> frozenset:
+    """The Engine's corners at `root`: the register's directories plus every provides pattern's directory."""
+    register = register_of(root) or set()
+    return register_corners(register, provides_patterns_of(root))
+
+
+ACCEPTED_PROOF_MODES = ("full", "project-only")
+
+
+def admit_receipt(receipt, classification) -> str:
+    """The rule for which engine-ci receipt a MERGE PROOF may stand on, kept here — in the guarded module
+    that decides route three — rather than in the Build Coordinator that calls it. A `full` receipt stands
+    on its own. A `project-only` receipt stands only when `classification` — the caller's OWN re-derived
+    verdict for the head against its live base, never the receipt's embedded one — is project-only. Any
+    other mode, or a disagreement, raises. Returns the admitted mode."""
+    mode = (receipt or {}).get("mode") if isinstance(receipt, dict) else None
+    if mode not in ACCEPTED_PROOF_MODES:
+        raise ClassificationError(
+            f"the verified receipt names no arm a merge proof can stand on (mode {mode!r}); refusing")
+    if mode == "project-only":
+        verdict = (classification or {}).get("verdict") if isinstance(classification, dict) else None
+        code = ((classification or {}).get("reason") or {}).get("code") if isinstance(classification, dict) else None
+        if verdict != VERDICT_PROJECT_ONLY:
+            raise ClassificationError(
+                f"the engine-ci run for this head took the project-only arm, but this checkout classifies "
+                f"the head against its base as {verdict} ({code}) — the proof is narrower than the change "
+                "set warrants; push a head whose run executes the full inventory")
+    return mode
+
+
 def merge_parents(root: str):
     """`(base, head)` when HEAD is a two-parent merge (a `refs/pull/N/merge` checkout records parent 1 =
     the base tip and parent 2 = the pull-request head), else None."""
@@ -284,6 +377,7 @@ def classify_range(root: str, base: str, head: str) -> dict:
     """The whole answer for one tree and two revisions."""
     entries, failure = diff_entries(root, base, head)
     return classify_paths(entries, identity=identity_of(root), register=register_of(root),
+                          provides_patterns=provides_patterns_of(root),
                           base=base, head=head, failure=failure)
 
 
@@ -321,31 +415,39 @@ _USAGE = (
 )
 
 
+class _UsageError(ValueError):
+    """An argument problem, carried as a value so main() prints ONE usage block with the problem named."""
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):            # argparse would print its own usage and exit; say it once instead
+        raise _UsageError(message)
+
+
 def main(argv: Optional[list] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
         sys.stdout.write(_USAGE)
         return 0
-    parser = argparse.ArgumentParser(prog="change_classification.py", add_help=False, usage=_USAGE)
-    sub = parser.add_subparsers(dest="verb")
-    rng = sub.add_parser("classify", add_help=False)
+    parser = _Parser(prog="change_classification.py", add_help=False, usage=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="verb", parser_class=_Parser)
+    rng = sub.add_parser("classify", add_help=False, usage=argparse.SUPPRESS)
     rng.add_argument("--base", required=True)
     rng.add_argument("--head", required=True)
     rng.add_argument("--root", default=validate.ROOT)
-    merge = sub.add_parser("classify-merge", add_help=False)
+    merge = sub.add_parser("classify-merge", add_help=False, usage=argparse.SUPPRESS)
     merge.add_argument("--root", default=validate.ROOT)
     try:
         args = parser.parse_args(argv)
-    except SystemExit:
-        sys.stderr.write(_USAGE)
+        if args.verb not in ("classify", "classify-merge"):
+            raise _UsageError(f"expected the verb classify or classify-merge, got {argv[0]!r}")
+    except _UsageError as exc:
+        sys.stderr.write(f"change_classification.py: {exc}\n{_USAGE}")
         return 2
     if args.verb == "classify":
         manifest = classify_range(args.root, args.base, args.head)
-    elif args.verb == "classify-merge":
-        manifest = classify_merge_checkout(args.root)
     else:
-        sys.stderr.write(_USAGE)
-        return 2
+        manifest = classify_merge_checkout(args.root)
     sys.stdout.write(serialize(manifest))
     return 0
 

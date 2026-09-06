@@ -2555,23 +2555,23 @@ def _final_import(args, store: Snapshot) -> None:
             raise CoordinatorError(
                 "no run of the registered workflow yields a verifiable receipt for this head: "
                 + json.dumps(detail, sort_keys=True))
-        mode = (detail.get("receipt") or {}).get("mode")
-        if mode not in (ci_gatekeeper.MODE_FULL, ci_gatekeeper.MODE_PROJECT_ONLY):
-            raise CoordinatorError(
-                f"the verified receipt names no arm this import can stand on (mode {mode!r}); refusing")
+        receipt = detail.get("receipt") or {}
+        mode = receipt.get("mode")
         classification = None
         if mode == ci_gatekeeper.MODE_PROJECT_ONLY:
             # A project-only receipt attests the validator alone. It is imported only when THIS checkout,
             # asked the same question of the head against the live base, gives the same answer — the
-            # receipt's own embedded verdict is never read for that. A disagreement is a refusal with a
-            # distinct message: the proof is narrower than the change set warrants.
+            # receipt's own embedded verdict is never read for that.
             classification = _classify_head_against_base(base_oid, head)
-            verdict, code = classification.get("verdict"), (classification.get("reason") or {}).get("code")
-            if verdict != "project-only":
-                raise CoordinatorError(
-                    f"the engine-ci run for this head took the project-only arm, but this checkout "
-                    f"classifies the head against its base as {verdict} ({code}) — the proof is narrower "
-                    "than the change set warrants; push a head whose run executes the full inventory")
+        # The admission rule itself lives in the guarded classifier module, not here: which receipt modes
+        # a merge proof may stand on, and that a project-only one stands only when the re-derived verdict
+        # agrees. A disagreement is a refusal with a distinct message (the proof is narrower than the
+        # change set warrants); an unknown mode names no arm.
+        import change_classification
+        try:
+            mode = change_classification.admit_receipt(receipt, classification)
+        except change_classification.ClassificationError as exc:
+            raise CoordinatorError(str(exc)) from exc
         final = {"commit": head, "source": "ci-import", "run_id": detail["run_id"],
                  "run_attempt": detail.get("run_attempt"), "context": protocol_final["context"],
                  "tree": head_tree, "receipt_digest": _digest(detail["receipt"]),

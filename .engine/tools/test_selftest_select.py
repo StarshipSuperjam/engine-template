@@ -481,6 +481,16 @@ class ProjectOwnedPaths(unittest.TestCase):
                            guard=lambda _i: ({_p("test_map")}, None))
         self.assertEqual(m["classification"], "project-only")
 
+    def test_a_project_path_beside_an_exempted_engine_path_is_a_focused_run_not_project_only(self):
+        # An exempted path is an Engine path the inventory need not re-run for; it is still the Engine's,
+        # and the classifier engine-ci runs would call this change set engine-affecting. The two gates agree.
+        m = S.classify([("src/app.py", "M"), ("generated/thing.json", "M")], lambda: {},
+                       guard_factory=lambda _i: ({_p("test_map")}, None),
+                       exempt_factory=lambda: frozenset({"generated/thing.json"}),
+                       project_owned_factory=lambda: (lambda p: p == "src/app.py"), changed_from="base")
+        self.assertEqual(m["classification"], "focused")
+        self.assertEqual((m["project_paths"], m["exempt_paths"]), (["src/app.py"], ["generated/thing.json"]))
+
     def test_a_project_path_beside_tool_code_is_an_ordinary_focused_run(self):
         m = self._classify([("src/app.py", "M"), (_p("widget"), "M")], {"src/app.py"},
                            {"test_widget": ["widget"]})
@@ -516,10 +526,16 @@ class ProjectOwnedPaths(unittest.TestCase):
 
 
 class TheLivePredicate(unittest.TestCase):
-    def test_the_home_repository_owns_everything(self):
+    def test_this_checkout_claims_what_its_identity_allows(self):
+        # Identity-aware, not home-assuming: in the home nothing is the project's; in a deployed copy (a
+        # downstream project running its own inventory) the Engine's paths are still never the project's.
+        import change_classification as cc
         is_project = S.project_owned_predicate(validate.ROOT)
-        for path in ("src/app.py", "README.md", "CLAUDE.md", ".engine/tools/validate.py"):
+        for path in ("CLAUDE.md", ".engine/tools/validate.py", ".mcp.json", ".github/x.yml"):
             self.assertFalse(is_project(path), path)
+        at_home = cc.identity_of(validate.ROOT) == cc.IDENTITY_HOME
+        for path in ("src/app.py", "README.md"):
+            self.assertEqual(is_project(path), not at_home, path)
 
     def test_a_deployed_tree_owns_only_what_lies_outside_the_engine(self):
         tmp = tempfile.mkdtemp(prefix="selftest-select-deployed-")
@@ -539,8 +555,16 @@ class TheLivePredicate(unittest.TestCase):
         self.assertTrue(is_project("src/app.py"))
         self.assertTrue(is_project("README.md"))
         for path in ("CLAUDE.md", ".mcp.json", ".engine/tools/x.py", ".claude/settings.json",
-                     "harness/run.py", "harness/other.py"):
+                     "harness/run.py", "harness/other.py", "Harness/other.py"):
             self.assertFalse(is_project(path), path)
+        # The predicate IS the classifier's per-path rule: the two gates cannot disagree on a path.
+        import change_classification as cc
+        register, corners = cc.register_of(tmp), cc.corners_of(tmp)
+        for path in ("src/app.py", "README.md", "CLAUDE.md", "harness/other.py", ".engine/tools/x.py"):
+            self.assertEqual(is_project(path), cc.is_project_owned(path, register, corners), path)
+        # Deleting the last file under the provided directory does not hand the directory to the project.
+        os.remove(os.path.join(tmp, "harness", "run.py"))
+        self.assertFalse(S.project_owned_predicate(tmp)("harness/other.py"))
 
     def test_a_degenerate_register_makes_nothing_the_projects(self):
         tmp = tempfile.mkdtemp(prefix="selftest-select-degenerate-")

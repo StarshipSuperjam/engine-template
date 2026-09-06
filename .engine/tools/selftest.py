@@ -875,8 +875,10 @@ def _run_parent(args: argparse.Namespace) -> int:
         if manifest.get("classification") == "project-only":
             picked = len(manifest.get("selected", ()))
             owned = len(manifest.get("project_paths", ()))
-            print(f"Project-only run: {owned} changed path(s) lie outside everything the Engine owns, so "
-                  f"only the standing derived-artifact guard ({picked} module(s)) runs.", flush=True)
+            print(f"Project-only run: {owned} changed path{'' if owned == 1 else 's'} "
+                  f"{'lies' if owned == 1 else 'lie'} outside everything the Engine owns, so only the "
+                  f"standing derived-artifact guard ({picked} module{'' if picked == 1 else 's'}) runs.",
+                  flush=True)
             scope_note = (f"Project-only run — {picked} guard module(s) ran; the Engine self-test inventory "
                           f"did not run for this change set. Engine health only: no product validation "
                           f"is registered (StarshipSuperjam/engine-template#1147). "
@@ -1084,7 +1086,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-path", default=None, help=argparse.SUPPRESS)
     p.add_argument("--changed-from", default=None, metavar="COMMIT",
                    help="run only the self-tests that changes since COMMIT could affect. Anything the "
-                        "selector cannot positively classify runs the complete inventory instead. An "
+                        "selector cannot positively classify runs the complete inventory instead. In a "
+                        "deployed copy, a change set that lies outside everything the Engine owns runs "
+                        "only the standing derived-artifact guard, announced as a project-only run. An "
                         "iteration aid, never merge evidence.")
     p.add_argument("--run-record-path", default=None, metavar="PATH",
                    help="write a machine-readable record of this run to PATH: the complete discovered "

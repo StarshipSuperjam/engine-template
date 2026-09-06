@@ -554,6 +554,9 @@ class FocusedRuns(unittest.TestCase):
         self.assertIn("inventory did not run", tail)
         self.assertIn("no product validation", tail)
         self.assertIn("NOT a full-inventory result", tail)
+        # The announcement counts grammatically: one path lies, one module runs.
+        self.assertIn("1 changed path lies outside everything the Engine owns", proc.stdout)
+        self.assertIn("(1 module) runs", proc.stdout)
 
     def test_a_crashed_focused_run_does_not_claim_it_was_a_full_one(self):
         """`scope` is the field the schema calls its load-bearing honesty field; a crashed focused run

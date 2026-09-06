@@ -113,6 +113,8 @@ ACCEPT_FULL_OR_PROJECT_ONLY = frozenset({MODE_FULL, MODE_PROJECT_ONLY})
 # unset variable, leaves the arm on — a deployment that wants it off says so unambiguously.
 PROJECT_ONLY_ARM_ENV = "ENGINE_CI_PROJECT_ONLY_ARM"
 PROJECT_ONLY_ARM_OFF = "off"
+# Every spelling of "off" the repository variable is accepted in, trimmed and case-folded.
+PROJECT_ONLY_ARM_OFF_VALUES = frozenset({"off", "false", "0", "no", "disabled"})
 
 # The env name through which the receipt step learns which arm ran — the gate's own step output, handed in
 # as step-level `env:` (`ENGINE_CI_MODE: ${{ steps.gate.outputs.mode }}`), so the receipt's mode is the
@@ -243,8 +245,11 @@ def classify_checkout(root=None):
 
 
 def project_only_arm_enabled(env=None) -> bool:
+    """The off switch. `ENGINE_CI_PROJECT_ONLY_ARM` set to off/false/0/no/disabled — trimmed, any case —
+    disables route three; unset, empty, or anything else leaves it on. An operator who types `Off` or
+    `OFF ` in the repository-variable form gets the switch they meant."""
     environ = env if env is not None else os.environ
-    return environ.get(PROJECT_ONLY_ARM_ENV, "") != PROJECT_ONLY_ARM_OFF
+    return environ.get(PROJECT_ONLY_ARM_ENV, "").strip().casefold() not in PROJECT_ONLY_ARM_OFF_VALUES
 
 
 def decide(event, *, repo, token, root=None, transport=None, classifier=classify_checkout, env=None):
@@ -586,21 +591,17 @@ def project_only_disclosure(detail) -> str:
     evidentiary limit — this run attests Engine health only; it ran no product validation, and none is
     registered until StarshipSuperjam/engine-template#1147 lands the product-owned contract. The `decide` verb
     refuses a project-only run that cannot write this line."""
+    import change_classification as cc  # lazy, as in classify_checkout
     manifest = (detail or {}).get("classification") or {}
     paths = manifest.get("project_paths") or []
+    verb = "lies" if len(paths) == 1 else "lie"
     return (
-        f"Project-only run: the Engine self-test inventory was NOT run here. The {len(paths)} changed path(s) "
-        f"({_name_paths(paths)}) lie outside everything the Engine reads, executes, or owns "
-        f"(change-classification verdict {manifest.get('verdict')!r}, reason "
-        f"{(manifest.get('reason') or {}).get('code')!r}), so only the validator CI suite ran. "
+        f"Project-only run: the Engine self-test inventory was NOT run here. The {cc.count_paths(paths)} "
+        f"({cc.name_paths(paths)}) {verb} outside everything the Engine owns "
+        f"(change-classification verdict {manifest.get('verdict')!r}), so only the validator CI suite ran. "
         f"This green attests Engine health only: no product validation ran, and none is registered "
         f"(StarshipSuperjam/engine-template#1147)."
     )
-
-
-def _name_paths(paths, limit: int = 3) -> str:
-    shown = ", ".join(paths[:limit])
-    return shown if len(paths) <= limit else f"{shown} (+{len(paths) - limit} more)"
 
 
 def full_disclosure(reason, detail) -> str:

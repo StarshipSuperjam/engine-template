@@ -505,8 +505,11 @@ def classify(changed, importers_factory, *, guard_factory=derived_artifact_guard
     # `project-only` is the honest name for a run whose every considered path was the project's: what
     # runs is the standing guard alone, and the run record carries that scope so the Build's evidence
     # and the pull-request body can say the inventory did not run. A change set with ANY Engine path
-    # beside the project's is an ordinary focused (or full) run and says nothing special.
-    classification = "project-only" if project_seen and not considered else "focused"
+    # beside the project's is an ordinary focused (or full) run and says nothing special — and an
+    # exempted path is an Engine path (a doc, a manifest, a knowledge file), so its presence keeps the
+    # run `focused`: the classifier engine-ci runs would call the same set engine-affecting, and the two
+    # gates must agree.
+    classification = "project-only" if project_seen and not considered and not exempt_seen else "focused"
     return {
         "schema_version": SCHEMA_VERSION,
         "classification": classification,
@@ -577,8 +580,8 @@ def project_owned_predicate(root: str):
         register = cc.register_of(root)
         if register is None or cc.ENGINE_MANIFEST_REL not in register:
             return no_project_owned_paths()
-        corners = cc.register_corners(register)
-        return lambda path: cc.floor_hit(path) is None and not cc.register_hit(path, register, corners)
+        corners = cc.corners_of(root)
+        return lambda path: cc.is_project_owned(path, register, corners)
     except Exception:  # noqa: BLE001 — a classifier that cannot answer makes nothing the project's
         return no_project_owned_paths()
 
