@@ -4321,7 +4321,7 @@
       },
       "slug": "engine-routine",
       "source": {
-        "fingerprint": "sha256:bb482a0f8193912464fab4a06f08c1b576c9fdb0a88656c181a45521faa6015d",
+        "fingerprint": "sha256:08e2742f64e2af81c1a82acb483a81df5713034e3447dcca8f0b85409c03d38d",
         "path": ".agents/skills/engine-routine/SKILL.md"
       },
       "status": "active",
