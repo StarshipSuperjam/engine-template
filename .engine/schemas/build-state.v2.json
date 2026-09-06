@@ -315,7 +315,7 @@
         "protocol_digest": {"$ref": "#/$defs/digest"},
         "argv_digests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
         "inventory_digest": {"type": "string", "minLength": 1},
-        "run_record": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["id", "digest", "scope", "tree"], "properties": {"id": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}, "scope": {"enum": ["full", "focused"]}, "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}}]},
+        "run_record": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["id", "digest", "scope", "tree"], "properties": {"id": {"type": "string", "minLength": 1}, "digest": {"$ref": "#/$defs/digest"}, "scope": {"enum": ["full", "focused", "project-only"]}, "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"}}}]},
         "results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/result"}}
       }
     },
@@ -331,6 +331,9 @@
         "context": {"type": "string", "minLength": 1},
         "tree": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
         "receipt_digest": {"$ref": "#/$defs/digest"},
+        "mode": {"description": "Which engine-ci arm produced the receipt: `full` (the inventory ran on this tree) or `project-only` (the validator alone ran, because the change set lies outside everything the Engine owns; imported only after the coordinator re-derived that verdict itself). Absent on a proof imported before the third route existed, which reads as full.", "enum": ["full", "project-only"]},
+        "classification_digest": {"description": "For a project-only proof, the digest of the coordinator's OWN re-derived change-classification manifest — never the receipt's embedded one. Null for a full proof.", "oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "classification_reason": {"description": "The re-derived classification's reason code for a project-only proof; null for a full proof.", "type": ["string", "null"]},
         "imported_at": {"type": "string", "minLength": 1}
       }
     }
