@@ -1414,7 +1414,10 @@ def _apply_wires(say, copy) -> dict:
     # Ownership predicate reads the SAME .codex/hooks.json wiring.apply_all just wrote to, derived from this
     # run's own root (validate.ROOT) rather than the import-bound wiring.CODEX_HOOKS_PATH constant, per plan
     # scope_boundary[0]. _redirect_root rebinds validate.ROOT in lockstep with that constant, so a fixture run
-    # reads its own tree; TestCodexHookTrustHandoff decoys the constant to prove the read follows the root.
+    # reads its own tree. Only retire's read is pinned by a discriminating test (TestCodexHookTrustHandoff spies
+    # retire's ownership-predicate call against a decoyed constant); _apply_wires runs only under _redirect_root,
+    # which binds root and constant to the same tree, so no test distinguishes its form here — the root-derived
+    # read is used for plan conformance, not a runtime difference.
     engine_codex_hooks = wiring.codex_hooks_engine_entries(
         directives, os.path.join(validate.ROOT, ".codex", "hooks.json"))
     if engine_codex_hooks:

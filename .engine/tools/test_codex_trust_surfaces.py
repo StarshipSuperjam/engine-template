@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """One rule across every operator-facing surface that tells the operator how to trust the engine's Codex
 hooks: whenever a surface names the CLI approval path (`/hooks`), it must ALSO name the Codex Desktop Hooks
-screen — because on Desktop and in the VS Code extension the approval prompt may not appear on its own, so a
-surface that mentions only the CLI would silently strand a Desktop operator with grounding, the exploration
-write-gate, and memory capture all off (StarshipSuperjam/engine-template#805).
+screen — because on Desktop the approval prompt may not appear on its own, so a surface that mentions only the
+CLI would silently strand a Desktop operator with grounding, the exploration write-gate, and memory capture all
+off (StarshipSuperjam/engine-template#805). The VS Code extension is a separate case: it runs no project hooks
+at all, so the surfaces send a VS Code operator to the CLI or the Desktop app rather than to any Hooks screen —
+that copy is pinned per-surface, not by this cross-surface rule.
 
 This is a DYNAMIC invariant, not a fixed list of surfaces. It walks every Markdown file in the repo (via
 `validate.markdown_files`) and, for each place a standalone `/hooks` CLI token appears, requires the Desktop
