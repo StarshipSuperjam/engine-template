@@ -10,8 +10,9 @@ It is the drift-firewall for unattended work: it confirms the engine's guardrail
 the run genuinely cannot ask, and that it is isolated from the operator's checkout; it locks onto the sealed,
 scope-locked plan in the local library that the authorizing Issue names, advances the build by one planned
 chunk inside that scope, routes anything needing a human to a GitHub Issue (because it cannot ask), and never merges the protected branch. Enter it at the start
-of every routine fire; the build's actual work follows the distributed-implement workflow in
-`.engine/operations/build-orchestration.md`, which this procedure references and does not restate.
+of every routine fire; the build's actual work follows [Build implementation](build-implementation.md), the
+runbook [Build orchestration](build-orchestration.md) names for that phase, which this procedure references and
+does not restate.
 
 ## Steps
 
@@ -48,7 +49,8 @@ of every routine fire; the build's actual work follows the distributed-implement
    substitutes for the other — a plan without its Issue cannot run unattended, and an Issue without its plan
    has nothing to run.
    Progress is not written back into the plan: completed item/commit pairs live in the coordinator snapshot
-   and the exported handoff, corroborated by git. The next item is derived from those three sources.
+   and the exported handoff, corroborated by git. The next item is derived from those three sources;
+   [Build continuity](build-continuity.md) is how the snapshot and the handoff are read back and re-verified.
    - **The sealed plan is missing, unsealed, or changed** — there is no authority to build against: exit
      without proceeding (fail-safe), no Issue.
    - **GitHub is unreachable** — the authorizing Issue cannot be confirmed: exit without proceeding

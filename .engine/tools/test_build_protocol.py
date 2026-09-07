@@ -46,6 +46,28 @@ class TestLoader(unittest.TestCase):
         self.assertEqual(set(stages), {"plan-review gate", "product-design spec lock", "pre-submission gate"})
         self.assertEqual(bp.consumed_lenses(protocol), EXPECTED)
 
+    def test_the_phase_map_covers_every_coordinator_phase_and_resolves(self):
+        """The tuple the coordinator derives phases from, the map the protocol carries, the schema's
+        required keys and the spine's table are four spellings of one thing (#726)."""
+        import build_coordinator as bc  # lazy: the coordinator imports this module
+        protocol = bp.load()
+        runbooks = protocol["phase_runbooks"]
+        self.assertEqual(tuple(runbooks), bc.PHASES)
+        with open(os.path.join(validate.ROOT, bp.SCHEMA_REL), encoding="utf-8") as fh:
+            schema = json.load(fh)
+        self.assertEqual(tuple(schema["properties"]["phase_runbooks"]["required"]), bc.PHASES)
+        self.assertEqual(bc.phase_runbook_status(protocol), {"missing": [], "unmapped": [], "unlinked": []})
+        # and the agreement helper bites: a table that links a runbook the map does not name is reported
+        with mock.patch.object(bc, "ROOT", bc.ROOT):
+            drifted = dict(protocol, phase_runbooks={**runbooks, "ready": "build-shipping.md"})
+            status = bc.phase_runbook_status(drifted)
+        self.assertEqual(status["missing"], ["build-shipping.md"])
+        self.assertEqual(status["unmapped"], [])
+        self.assertEqual(status["unlinked"], ["build-shipping.md"])
+        self.assertEqual(set(runbooks.values()),
+                         {"build-kickoff.md", "build-implementation.md", "build-plan-correction.md",
+                          "build-validation-and-review.md", "build-submission.md"})
+
     def test_the_two_rosters_are_not_copies(self):
         """The protocol names rosters; the lens lists live once — with the Project Manager and in
         deliverable_review — so no consumer entry carries a lens list of its own."""
@@ -61,7 +83,24 @@ class TestLoader(unittest.TestCase):
         with mock.patch.dict(os.environ, {bp.ENV_OVERRIDE: FIXTURE}):
             with self.assertRaises(bp.ProtocolError) as ctx:
                 bp.load()
-        self.assertIn("review_consumers", str(ctx.exception))
+        self.assertIn("does not match build-protocol.v1 at", str(ctx.exception))
+        # The committed fixture predates phase_runbooks, so the first miss the sorted locator reports is
+        # that top-level key. With the map supplied, the locator reaches the seeded nested malformation
+        # (a roster nobody has) and names its path.
+        with open(os.path.join(validate.ROOT, FIXTURE), encoding="utf-8") as fh:
+            seeded = json.load(fh)
+        seeded["phase_runbooks"] = bp.load()["phase_runbooks"]
+        tmp = tempfile.mkdtemp(prefix="build-protocol-")
+        try:
+            path = os.path.join(tmp, "protocol.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(seeded, fh)
+            with mock.patch.dict(os.environ, {bp.ENV_OVERRIDE: path}):
+                with self.assertRaises(bp.ProtocolError) as ctx:
+                    bp.load()
+            self.assertIn("review_consumers", str(ctx.exception))
+        finally:
+            shutil.rmtree(tmp)
 
     def test_unreadable_json_fails_closed(self):
         tmp = _scratch_tree()

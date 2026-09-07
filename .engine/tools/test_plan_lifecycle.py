@@ -179,6 +179,36 @@ class D3TheTwoFindingShapesTranslate(_Ceremony):
                 lenses=["architecture", "feasibility"])
         self.assertIn("carry no lens of their own", str(caught.exception))
 
+    def test_persona_location_object_with_line_renders_as_file_colon_line(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": 42}}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "path/to/file.py:42")
+
+    def test_persona_location_object_without_line_renders_as_file_path(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py"}}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "path/to/file.py")
+
+    def test_persona_location_object_with_null_line_renders_as_file_path(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": {"file": "path/to/file.py", "line": None}}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "path/to/file.py")
+
+    def test_persona_null_location_renders_as_the_plan_as_a_whole(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": None}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "the plan as a whole")
+
+    def test_persona_string_location_passes_through_unchanged(self):
+        translated = plan_lifecycle.translate_findings(
+            [{"severity": "nit", "message": "msg", "location": "some location string"}],
+            lenses=["architecture"])
+        self.assertEqual(translated[0]["location"], "some location string")
+
 
 class D11DepthChoiceClosesAtTheSeal(unittest.TestCase):
     """One predicate says when a review depth can no longer be chosen, and it says WHY
@@ -662,6 +692,10 @@ CONSENT_VOCABULARY_SURFACES = (
     "tools/project_manager.py", "tools/build_coordinator.py", "tools/plan_lifecycle.py",
     "tools/build_coordinator_contract.py", "operations/build-orchestration.md",
     "operations/plan-orchestration.md",
+    # The spine's phase runbooks (#726) carry the Build-side consent vocabulary now.
+    "operations/build-kickoff.md", "operations/build-continuity.md", "operations/build-plan-correction.md",
+    "operations/build-implementation.md", "operations/build-validation-and-review.md",
+    "operations/build-submission.md",
 )
 RETIRED_CONSENT_TOKENS = ("--operator-decision", re.compile(r"\boperator_decision\b"),
                           "actual words", "in their own words")
@@ -691,7 +725,9 @@ class TheRetiredConsentVocabularyIsGone(unittest.TestCase):
 
     def test_the_switch_and_the_carrier_rule_are_what_survive(self):
         engine = Path(project_manager.__file__).resolve().parents[1]
-        for rel in ("operations/build-orchestration.md", "operations/plan-orchestration.md"):
+        # The Build side teaches the switch in its kickoff runbook — the bind is the first thing a Build
+        # does — not in the spine, which names runbooks and carries no verbs of its own.
+        for rel in ("operations/build-kickoff.md", "operations/plan-orchestration.md"):
             text = (engine / rel).read_text(encoding="utf-8")
             self.assertIn("--operator-decided", text, rel)
         self.assertIn(plan_lifecycle.CARRIER_RULE, project_manager.seal_handback("pln_0123456789ab"))

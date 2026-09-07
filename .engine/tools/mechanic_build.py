@@ -50,8 +50,8 @@ because under the subprocess-in-place build model a checkout whose origin matche
 `.engine` tools executed locally. The anchor is what stops a phished `ENGINE_PRODUCT_CHECKOUT` from turning into
 local code execution.
 
-CONTRACT. An operation tool invoked by the engine/operator and narrated by build-orchestration.md's owned-product
-mechanic arm — never by the validator. `preflight` is OFFLINE and READ-ONLY: it inspects local git + the manifest
+CONTRACT. An operation tool invoked by the engine/operator and narrated by owned-product-build.md (the
+mechanic's runbook) — never by the validator. `preflight` is OFFLINE and READ-ONLY: it inspects local git + the manifest
 and decides, never writing. `worktree` is the one verb that ACTS: it fetches and creates a worktree + branch. It
 still commits nothing and opens no pull request — the runbook's ordinary Build steps do that, inside the emitted
 worktree. Neither verb ever writes to the shared checkout's working tree or moves its HEAD.

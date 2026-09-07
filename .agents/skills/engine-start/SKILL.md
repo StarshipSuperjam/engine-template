@@ -15,9 +15,9 @@ description: Start building — switch from looking around to making changes, wh
    it must work whether or not memory-write qualification has converged on this machine.
 2. Tell the operator, in plain words, that the session is now building — say: "Building — I'll make changes
    and submit them as a pull request for your approval."
-3. Begin the work by following the build procedure in `.engine/operations/build-orchestration.md` — open
-   the draft pull request and plan the work, then show the operator the risk assessment and get their
-   how-careful depth choice, before changing anything.
+3. Begin the work by following `.engine/operations/build-orchestration.md`, the spine that names one runbook per
+   phase: start with `.engine/operations/build-kickoff.md` — open the draft pull request and bind the sealed
+   plan — and read each later runbook only when the coordinator's `status` names it.
 4. Once the Build is authorized, keep moving through its actionable work. A progress report is not a
    handoff: continue the next planned step unless the Build is submission-ready or a real authority
    boundary requires the operator's decision. Do not schedule a self-wakeup instead of working.
