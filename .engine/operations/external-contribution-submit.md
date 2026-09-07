@@ -22,7 +22,7 @@ becomes a plain question. The tool is `tools/external_contribution/submit.py`.
      is installed in your fork; you contribute the fix up to the template you do not own, exactly like any other
      forked project. (The engine-MECHANIC, which OWNS its engine-template product as a **separate checkout**,
      does NOT use this runbook — it opens a **direct** pull request into its own checkout; see
-     build-orchestration.md's owned-product arm.)
+     [Owned-product Build](owned-product-build.md).)
 
    If neither fits — if this is a repo you own and control outright — stop here; this runbook is only for
    contributing to a project you don't own.

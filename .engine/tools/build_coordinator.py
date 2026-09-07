@@ -637,6 +637,64 @@ def _work_projection(plan: dict, state: dict) -> dict:
     }
 
 
+# The runbook pointer (StarshipSuperjam/engine-template#726). build-orchestration.md is a spine that names
+# one runbook per phase; the session reads the spine and the runbook named here, nothing else, until the
+# phase changes. The map lives in build-protocol.json (`phase_runbooks`) so the spine's table, the schema
+# and this tuple are checked against one source; `_status` assigns its phase from the names unpacked
+# here, so a phase it emits cannot exist outside the tuple. The pointer keys on the derived phase with one
+# floor: a post-review commit makes candidate validation stale and the phase reads `implementation`
+# again, but the session is mid-repair and must keep reading validation and review. The floor stops
+# there — a Build back in review after a contract was applied reads validation and review, not
+# submission, because the doctrine it needs (the repair judgment, the round budget) lives there.
+PHASES = ("planning", "implementation", "engineering-decision", "finding-disposition", "deliverable-review",
+          "repair-assessment", "final-validation", "submission-preflight", "ready")
+(PLANNING, IMPLEMENTATION, ENGINEERING_DECISION, FINDING_DISPOSITION, DELIVERABLE_REVIEW,
+ REPAIR_ASSESSMENT, FINAL_VALIDATION, SUBMISSION_PREFLIGHT, READY) = PHASES
+SPINE_RUNBOOK = "build-orchestration.md"
+
+
+def _in_review(state: dict) -> bool:
+    """Whether the Build has entered the deliverable review: a recorded packet or a repair judgment."""
+    delivery = (state.get("reviews") or {}).get("deliverable") or {}
+    return bool(delivery.get("packet_digest") or state.get("repair"))
+
+
+def runbook_for(state: dict, phase: str, protocol: dict | None = None) -> str:
+    """The runbook a session reads for this Build now, relative to .engine/operations. A phase the map
+    does not name falls back to the spine rather than failing `status`: the spine is the entry point
+    that names every runbook. The gap itself is caught elsewhere: the build-protocol schema requires every
+    phase in `phase_runbooks`, and test_build_protocol pins the map's keys to PHASES."""
+    runbooks = (protocol or _protocol())["phase_runbooks"]
+    if phase == IMPLEMENTATION and _in_review(state):
+        phase = DELIVERABLE_REVIEW
+    return runbooks.get(phase, SPINE_RUNBOOK)
+
+
+def phase_runbook_status(protocol: dict | None = None) -> dict:
+    """How the phase map and the spine agree: `missing` — mapped runbooks with no file under
+    .engine/operations; `unmapped` — Build runbooks the spine's phase table links that the map does not
+    name; `unlinked` — mapped runbooks the table never links. All empty on a current tree. Only the
+    table rows are read, so a runbook the spine names for a moment rather than a phase (Build continuity)
+    is neither required nor refused there."""
+    mapped = set((protocol or _protocol())["phase_runbooks"].values())
+    operations = ROOT / ".engine" / "operations"
+    rows = [line for line in (operations / "build-orchestration.md").read_text(encoding="utf-8").splitlines()
+            if line.startswith("| `")]
+    linked = {name for row in rows for name in re.findall(r"\]\((build-[a-z-]+\.md)\)", row)}
+    return {"missing": sorted(n for n in mapped if not (operations / n).is_file()),
+            "unmapped": sorted(linked - mapped), "unlinked": sorted(mapped - linked)}
+
+
+def _read_now(store: "Snapshot", plan: dict | None = None) -> None:
+    """Print the runbook pointer after a verb that can move the Build between phases — on stderr, so a
+    verb whose stdout is a JSON payload keeps it clean. The same line `status` prints beside the phase."""
+    try:
+        result = _status(store.read(), plan)
+    except Exception:  # noqa: BLE001 — the pointer is guidance; a verb that already succeeded must not fail here
+        return
+    print(f"Read now: .engine/operations/{result['runbook']}", file=sys.stderr)
+
+
 def _status(state: dict, plan: dict | None = None) -> dict:
     head = _head()
     required_evidence, judgments, warnings = [], [], []
@@ -773,11 +831,11 @@ def _status(state: dict, plan: dict | None = None) -> dict:
     final_ready = _final_ok(state, head)
 
     if not approval_ready:
-        phase, next_one, available = "planning", "approve the plan and review depth", []
+        phase, next_one, available = PLANNING, "approve the plan and review depth", []
     elif not dispositions_ready:
-        phase, next_one, available = "finding-disposition", None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
+        phase, next_one, available = FINDING_DISPOSITION, None, ["critically adjudicate outstanding findings", "revise the plan if the agreed design changed"]
     elif trivial_violations or unresolved_assumptions or (state["checkpoint"] and state["checkpoint"]["judgment"] != "aligned"):
-        phase, next_one, available = "engineering-decision", None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
+        phase, next_one, available = ENGINEERING_DECISION, None, ["investigate unresolved assumptions", "revise the plan if the agreed design changed", "obtain a genuine operator decision only when required"]
     elif not valid:
         # The delegation targets are named HERE, in the projection a session reads at the moment it is
         # about to do the work — not only in the runbook, which it may have read hours ago or not at all.
@@ -790,16 +848,16 @@ def _status(state: dict, plan: dict | None = None) -> dict:
         # receipt and is never run locally at all. A scout confined to a disposable copy can produce
         # neither: the record, the log and the state update all vanish with the copy. Routing either
         # class through it would return a readable summary and no admissible evidence.
-        phase, next_one, available = "implementation", None, [
+        phase, next_one, available = IMPLEMENTATION, None, [
             "continue implementation",
             "send a wide recall or impact sweep to `engine-grounding-scout` rather than running it inline",
             "run focused verification through `engine-validation-runner` unless you need the raw log",
             "run final validation when the change is cohesive — here, not through a scout, since its "
             "evidence binds to this checkout and a scout only ever sees a copy"]
     elif not delivery_ready:
-        phase, next_one, available = "deliverable-review", "prepare or complete the deliverable review", []
+        phase, next_one, available = DELIVERABLE_REVIEW, "prepare or complete the deliverable review", []
     elif not repair_ready:
-        phase, next_one, available = ("repair-assessment",
+        phase, next_one, available = (REPAIR_ASSESSMENT,
                                        "re-anchor the review bindings with `reconcile`" if rewritten
                                        else "record the proportional re-review judgment",
                                        # A session reads this list BEFORE it acts. Naming the verb only in
@@ -808,20 +866,21 @@ def _status(state: dict, plan: dict | None = None) -> dict:
                                         "history rewrite"] if rewritten else
                                        ["record the proportional re-review judgment"])
     elif not preflight_ready or not contract_ready:
-        phase, next_one, available = "submission-preflight", "run submission preflights", []
+        phase, next_one, available = SUBMISSION_PREFLIGHT, "run submission preflights", []
     elif not final_ready:
         # A session reads this list BEFORE it acts (the same principle as the repair rung above): the
         # brand-new mandatory verb is named here and in the refusals, never only at the wall.
-        phase, next_one, available = ("final-validation",
+        phase, next_one, available = (FINAL_VALIDATION,
                                        "import the merge proof with `validate final import`",
                                        ["push the head and wait for engine-ci, then import the proof "
                                         "with `validate final import`"])
     else:
-        phase, next_one, available = "ready", "preview submission", []
+        phase, next_one, available = READY, "preview submission", []
     ordered_items = [] if not plan else [item["id"] for item in plan["work_items"]]
     completed_items = [item["id"] for item in state["progress"]["completed"]]
     next_item = _next_incomplete(plan, state) if plan else None
-    result = {"phase": phase, "head_commit": head, "snapshot_revision": state["revision"],
+    result = {"phase": phase, "runbook": runbook_for(state, phase, protocol),
+              "head_commit": head, "snapshot_revision": state["revision"],
               "required_evidence": required_evidence, "engineering_judgment": judgments,
               "warnings": warnings, "suggested_next": next_one, "available_activities": available,
               "progress": {"completed": completed_items, "total": len(ordered_items),
@@ -1476,6 +1535,7 @@ def cmd_plan_adopt(args, store: Snapshot) -> None:
     print("  reset: every changed or new node, everything downstream of one, and all Build-side "
           "review, validation and preflight evidence")
     print("  the plan panel does NOT re-run — it ran on the plan side, against this successor")
+    _read_now(store)
 
 
 def cmd_plan_revise(args, store: Snapshot) -> None:
@@ -1524,6 +1584,7 @@ def cmd_plan_revise(args, store: Snapshot) -> None:
     store.mutate(change, from_revision=state["revision"])
     print(f"revised plan to {_digest(plan)} on recorded operator authority; the sealed plan is unchanged "
           "and the divergence is disclosed at merge")
+    _read_now(store, plan)
 
 
 def cmd_approve(args, store: Snapshot) -> None:
@@ -1545,6 +1606,7 @@ def cmd_approve(args, store: Snapshot) -> None:
         state["approval"] = {"plan_digest": state["plan"]["digest"], "spec_digest": canonical_spec["digest"], "depth": args.depth}
     store.mutate(change, from_revision=state["revision"])
     print(f"approved plan and {args.depth} review depth")
+    _read_now(store, plan)
 
 
 def cmd_status(args, store: Snapshot) -> None:
@@ -1560,7 +1622,8 @@ def cmd_status(args, store: Snapshot) -> None:
         result["reminder"] = _COORDINATOR_OWNED_REMINDER
         print(json.dumps(result, indent=2, sort_keys=True))
         return
-    print(f"Phase: {result['phase']} (snapshot r{result['snapshot_revision']})")
+    print(f"Phase: {result['phase']} (snapshot r{result['snapshot_revision']}) — "
+          f"Read now: .engine/operations/{result.get('runbook', '?')}")
     print(_COORDINATOR_OWNED_REMINDER)
     progress = result["progress"]
     if progress["total"]:
@@ -1872,6 +1935,8 @@ def _packet(args, store: Snapshot | None) -> None:
         # packet"); otherwise the preflight would compare against a stale, arbitrarily-old baseline.
         store.mutate(lambda s: s.update({"checkout_snapshot": checkout_baseline}), from_revision=revision)
     _emit_packet(packet, args)
+    if store is not None:
+        _read_now(store)
 
 
 # `review waive` is gone. Its precondition — a Build that started before its plan was reviewed — became
@@ -2028,6 +2093,7 @@ def cmd_review_record(args, store: Snapshot) -> None:
             target["receipts"] = [r for r in target["receipts"] if r["lens"] != args.lens] + [receipt]
     store.mutate(change)
     print(f"recorded {args.stage} review from {args.lens} with {len(finding_ids)} finding(s)")
+    _read_now(store)
 
 
 def _finding_entry_from_args(args) -> dict:
@@ -2173,6 +2239,7 @@ def cmd_assumption_dispose(args, store: Snapshot) -> None:
     store.mutate(change)
     print(f"resolved assumption after approval: {claim} -> {args.resolved_as}; it clears the "
           "engineering-decision hold without re-running review, and is disclosed at merge")
+    _read_now(store)
 
 
 def _changed_paths(base: str) -> list[str]:
@@ -2322,6 +2389,7 @@ def cmd_checkpoint(args, store: Snapshot) -> None:
         print(f"checkpoint {note['judgment']}: {note['work_item']}; {note['progress']}; "
               f"{len(note['changed_paths'])} changed path(s), {len(note['remaining_verification'])} verification item(s) remain")
         print(_COORDINATOR_OWNED_REMINDER)
+    _read_now(store, plan)
 
 
 def _derived_drift() -> list:
@@ -2589,6 +2657,7 @@ def _final_import(args, store: Snapshot) -> None:
 
     store.mutate(record, from_revision=revision)
     print(json.dumps({"imported": final}, indent=2, sort_keys=True))
+    _read_now(store)
 
 
 def _classify_head_against_base(base: str, head: str) -> dict:
@@ -2732,6 +2801,7 @@ def cmd_validate(args, store: Snapshot) -> None:
     print(json.dumps({"commit": head, "results": results}, indent=2, sort_keys=True))
     if not all(x["passed"] for x in results):
         raise CoordinatorError("validation failed; the failed results remain recorded")
+    _read_now(store)
 
 
 def _sync_changed_paths() -> list:
@@ -3566,6 +3636,7 @@ def cmd_repair_assess(args, store: Snapshot) -> None:
     if same:
         print("this re-points the repair round already recorded at "
               f"{reviewed[:12]} rather than opening a new one against the escalation gate", file=sys.stderr)
+    _read_now(store)
 
 
 def _pr_contract(body: str) -> tuple[bool, str]:
@@ -3657,6 +3728,7 @@ def cmd_preflight(args, store: Snapshot) -> None:
         pr_data = _verify_draft(repo, pr)
         body = pr_data.get("body") or ""
         if args.pr_body and _input(args.pr_body) != body:
+            _read_now(store)  # a refusal is still a stop in the flow; keep the pointer in front of the coordinator
             raise CoordinatorError("the supplied PR body is not the body currently on GitHub")
         legs = _compute_preflight_legs(state, head, pr_data, body)
         results = legs["results"]
@@ -3675,6 +3747,7 @@ def cmd_preflight(args, store: Snapshot) -> None:
         advisory = [item["id"] for item in results if item["id"] not in required_ids and not item["passed"]]
         print(f"preflight recorded for {head[:12]}: required failures {len(required_failures)}, "
               f"advisory findings {len(advisory)}, {len(declarations)} applicable hard-check declaration(s)")
+    _read_now(store)
     if not contract_passed:
         raise CoordinatorError("the required PR-contract preflight needs attention")
     if not ci_passed:
@@ -4502,6 +4575,7 @@ def cmd_work_integrate(args, store: Snapshot) -> None:
         # correction happened, not just that an integration did.
         print(f"corrected the recorded completion for {args.item}: was {detail[:12]}, "
               f"now the integration commit {args.commit[:12]}")
+    _read_now(store, plan)
 
 
 def _sibling_attributions(plan: dict, state: dict, node_id: str) -> list:
@@ -5472,6 +5546,7 @@ def cmd_contract_apply(args, store: Snapshot) -> None:
         state_word = "complete" if legs["contract_passed"] else "INCOMPLETE"
         print(f"applied the composed PR contract for {head[:12]} ({state_word}); preflights recorded. "
               f"Run `submit preview` when ready — apply never marks ready.")
+    _read_now(store)
 
 
 def parser() -> argparse.ArgumentParser:

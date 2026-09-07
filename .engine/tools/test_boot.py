@@ -184,6 +184,28 @@ def _blocking(n):
     return [{"number": str(i), "title": f"broken thing {i}"} for i in range(1, n + 1)]
 
 
+class TestBootPointsAtTheRunbookThatOwnsTheMaterial(unittest.TestCase):
+    """The spine split (#726) retired the "arm" shape: what boot used to call an arm of
+    build-orchestration.md is a runbook of its own, and boot's strings name that file."""
+
+    def test_no_boot_string_names_an_arm_of_the_spine(self):
+        source = inspect.getsource(boot)
+        self.assertNotIn("arm of `.engine/operations/build-orchestration.md`", source)
+        self.assertNotIn("build-orchestration's trivial fast path", source)
+        self.assertIn("`.engine/operations/owned-product-build.md`", source)
+
+    def test_the_runbook_a_boot_string_names_carries_what_it_promises(self):
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(boot.__file__))))
+        with open(os.path.join(root, ".engine", "operations", "owned-product-build.md"), encoding="utf-8") as fh:
+            runbook = fh.read()
+        # the sprawl string promises remove/prune steps; the mechanic strings promise the direct pull
+        # request into the product and the checkout that must resolve first
+        self.assertIn("worktree prune", runbook)
+        self.assertIn("worktree remove", runbook)
+        self.assertIn("draft pull request", runbook)
+        self.assertIn("product-checkout-path", runbook)
+
+
 class TestHooksPathOffer(unittest.TestCase):
     """#707/#708: a set-and-missing core.hooksPath surfaces a content-free offer at the TOP of the offer tier
     (above the license tidy-up, below the governance alarms). A fixable value offers the consented auto-repair;
