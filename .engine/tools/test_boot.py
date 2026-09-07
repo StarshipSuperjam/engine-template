@@ -846,8 +846,15 @@ class TestMechanicOrientation(unittest.TestCase):
 
     # -- AI grounding overlay (assemble_pack) --
 
-    def _pack(self, *, mechanic, home_workshop=None, first_run=None, sprawl=None):
+    def _pack(self, *, mechanic, home_workshop=None, first_run=None, sprawl=None, binding=None):
         patchers = _offline()
+        # `binding`, when given, stands in for the resolved task_binding so an end-to-end pack render can
+        # be driven deterministically; None leaves the real resolver in place (the status quo for every
+        # other case here).
+        extra = ([mock.patch.object(boot, "resolve_task_binding", return_value=binding)]
+                 if binding is not None else [])
+        for p in extra:
+            p.start()
         try:
             with mock.patch.object(boot.checkout_health, "mechanic_orientation", return_value=mechanic), \
                  mock.patch.object(boot.checkout_health, "detect_product_build_sprawl", return_value=sprawl), \
@@ -860,8 +867,25 @@ class TestMechanicOrientation(unittest.TestCase):
                                                   "integration_debt": {"open_count": 0}}, False)):
                 return boot.assemble_pack()
         finally:
+            for p in extra:
+                p.stop()
             for p in patchers:
                 p.stop()
+
+    def test_ai_overlay_carries_a_previously_submitted_advisory_into_the_briefing(self):
+        # END-TO-END: the advisory must survive _envelope_from_signals (which used to flatten a 'none'
+        # result to a bare {state:none}) and reach the actual emitted briefing through the relay render.
+        adv = {"submission": "ready", "pr_ref": "#1259", "plan_selector": "fix-a-thing--edbeef"}
+        pack = self._pack(mechanic=self._UNSET, binding={"state": "none", "advisory": adv})
+        self.assertIn(boot.session_relay.ADVISORY_SENTENCE, pack)
+        self.assertIn("state supersede --plan fix-a-thing--edbeef", pack)
+        self.assertIn("continue THIS Build", pack)
+
+    def test_ai_overlay_shows_no_advisory_for_a_bare_none_binding(self):
+        # Status quo: a 'none' with no advisory renders exactly as before — nothing surfaced.
+        pack = self._pack(mechanic=self._UNSET, binding={"state": "none"})
+        self.assertNotIn(boot.session_relay.ADVISORY_SENTENCE, pack)
+        self.assertNotIn("state supersede --plan", pack)
 
     def test_ai_overlay_grounds_a_resolved_mechanic_and_carries_the_path(self):
         pack = self._pack(mechanic=self._RESOLVED)
@@ -5456,6 +5480,179 @@ class TestBindingReader(unittest.TestCase):
 
     def test_unresolvable_worktree_argument_fails_open_to_none(self):
         result = boot.resolve_task_binding("\x00bad-path")
+        self.assertEqual(result, {"state": "none"})
+
+
+class TestBoundSnapshotSlug(unittest.TestCase):
+    """`boot._bound_snapshot` — the (slug, snapshot) reader the advisory gate consults for the plan
+    SLUG (its own plan-directory identity), factored out of `_current_build_snapshot` so the >1-match
+    and unparsable handling stays in one place. `_current_build_snapshot` keeps its exact old contract."""
+
+    def test_it_returns_slug_and_snapshot_for_the_one_bound_build(self):
+        import build_state_store as _bss
+        import build_coordinator_core as _core
+        with mock.patch.object(_bss, "bound_snapshots",
+                               return_value=[("only--abcdef", "/p/snapshot.json")]), \
+             mock.patch.object(_core, "json_file", return_value={"revision": 6}):
+            self.assertEqual(boot._bound_snapshot("/wt"), ("only--abcdef", {"revision": 6}))
+
+    def test_more_than_one_match_is_withheld_as_none(self):
+        # A worktree that has hosted more than one plan must not point the advisory at an arbitrary one.
+        import build_state_store as _bss
+        with mock.patch.object(_bss, "bound_snapshots",
+                               return_value=[("one--aaaaaa", "/a.json"), ("two--bbbbbb", "/b.json")]):
+            self.assertIsNone(boot._bound_snapshot("/wt"))
+
+    def test_an_unparsable_snapshot_is_withheld_as_none(self):
+        import build_state_store as _bss
+        import build_coordinator_core as _core
+        with mock.patch.object(_bss, "bound_snapshots",
+                               return_value=[("only--abcdef", "/p/snapshot.json")]), \
+             mock.patch.object(_core, "json_file", side_effect=ValueError("corrupt")):
+            self.assertIsNone(boot._bound_snapshot("/wt"))
+
+    def test_current_build_snapshot_still_returns_the_bare_snapshot(self):
+        # The old callers (the fail-closed ladder's step 5) still get exactly a snapshot dict or None.
+        with mock.patch.object(boot, "_bound_snapshot", return_value=("s--abcdef", {"revision": 3})):
+            self.assertEqual(boot._current_build_snapshot("/wt"), {"revision": 3})
+        with mock.patch.object(boot, "_bound_snapshot", return_value=None):
+            self.assertIsNone(boot._current_build_snapshot("/wt"))
+
+
+class TestPreviouslySubmittedAdvisory(unittest.TestCase):
+    """The boot-side, best-effort surfacing of a PREVIOUSLY-SUBMITTED Build (submission=='ready') bound
+    to this worktree: `resolve_task_binding` carries a bounded advisory on its 'none' result, consulted
+    ONCE only after the fail-closed ladder has settled on 'none' and only when the binding locator is
+    present (boot is best-effort — an absent locator yields no advisory; the compaction carrier is the
+    reliable one). Identity comes from the SNAPSHOT'S OWN trusted fields, never the expired locator; the
+    advisory is withheld on any doubt."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.worktree = str(Path(self._tmp.name).resolve())
+
+    def _snapshot(self, **over):
+        snap = {"revision": 6, "submission": "ready",
+                "plan": {"plan_id": "pln_c1255fedbeef"},
+                "build": {"repository": "owner/repo", "pr": 1259, "worktree": self.worktree}}
+        snap.update(over)
+        return snap
+
+    def _present_locator(self):
+        path = os.path.join(self._tmp.name, "locator.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("{}")
+        os.chmod(path, 0o600)
+        return path
+
+    def _patchers(self, *, bound, origin_slug="owner/repo", locator="present",
+                  unguarded=None):
+        """Isolate the gate: force the ladder's settled result with `unguarded` (default a plain 'none'),
+        control locator presence, and stand in the (slug, snapshot) reader the gate consults."""
+        if unguarded is None:
+            unguarded = {"state": "none"}
+        if locator == "present":
+            lp = self._present_locator()
+        elif locator == "absent":
+            lp = os.path.join(self._tmp.name, "does-not-exist.json")
+        else:
+            lp = None  # the locator path could not even be computed
+        return (
+            mock.patch.object(boot, "_resolve_task_binding_unguarded", return_value=unguarded),
+            mock.patch.object(boot, "_binding_locator_path", return_value=lp),
+            mock.patch.object(boot, "_bound_snapshot", return_value=bound),
+            mock.patch.object(boot.repo_identity, "origin_slug", return_value=origin_slug),
+        )
+
+    def _resolve(self, **over):
+        p1, p2, p3, p4 = self._patchers(**over)
+        with p1, p2, p3, p4:
+            return boot.resolve_task_binding(self.worktree)
+
+    def test_a_previously_submitted_build_bound_here_yields_the_advisory(self):
+        result = self._resolve(bound=("fix-a-thing--edbeef", self._snapshot()))
+        self.assertEqual(result["state"], "none")
+        self.assertEqual(
+            result["advisory"],
+            {"submission": "ready", "pr_ref": "#1259", "plan_selector": "fix-a-thing--edbeef"})
+
+    def test_an_absent_locator_is_boot_best_effort_and_yields_no_advisory(self):
+        # Boot only surfaces the advisory when a binding artifact is actually present here; with no
+        # locator it stays byte-for-byte the status quo, leaving the reliable compaction carrier to it.
+        result = self._resolve(bound=("fix-a-thing--edbeef", self._snapshot()), locator="absent")
+        self.assertEqual(result, {"state": "none"})
+
+    def test_an_uncomputable_locator_path_yields_no_advisory(self):
+        result = self._resolve(bound=("fix-a-thing--edbeef", self._snapshot()), locator="none")
+        self.assertEqual(result, {"state": "none"})
+
+    def test_a_draft_submission_yields_no_advisory(self):
+        result = self._resolve(bound=("fix-a-thing--edbeef", self._snapshot(submission="draft")))
+        self.assertEqual(result, {"state": "none"})
+
+    def test_no_bound_snapshot_yields_no_advisory(self):
+        # _bound_snapshot returns None for absent / ambiguous (>1) / unparsable — all of which are
+        # "no advisory", so a rebound worktree never points the advisory at an unrelated snapshot.
+        result = self._resolve(bound=None)
+        self.assertEqual(result, {"state": "none"})
+
+    def test_a_wrong_repository_snapshot_is_withheld(self):
+        result = self._resolve(bound=("fix-a-thing--edbeef", self._snapshot()),
+                               origin_slug="someone-else/spoofed")
+        self.assertEqual(result, {"state": "none"})
+
+    def test_a_snapshot_recorded_against_another_worktree_is_withheld(self):
+        snap = self._snapshot(build={"repository": "owner/repo", "pr": 1259,
+                                     "worktree": "/somewhere/else/entirely"})
+        result = self._resolve(bound=("fix-a-thing--edbeef", snap))
+        self.assertEqual(result, {"state": "none"})
+
+    def test_an_ungrammatical_slug_is_rejected_not_reformatted(self):
+        # The slug is the plan_selector the advisory cites in a runnable command; a value outside the
+        # slug grammar is withheld, never coerced into the universally-read relay.
+        for bad in ["not a slug", "no-hex-suffix", "fix--zzzzzz", "```", "-> forged"]:
+            result = self._resolve(bound=(bad, self._snapshot()))
+            self.assertEqual(result, {"state": "none"},
+                             msg=f"an ungrammatical slug {bad!r} must not produce an advisory")
+
+    def test_the_plan_selector_is_the_snapshot_directory_slug(self):
+        # Identity from the snapshot's OWN plan-directory slug, not any value the expired locator echoed.
+        result = self._resolve(bound=("a-trusted-plan--abcdef", self._snapshot()))
+        self.assertEqual(result["advisory"]["plan_selector"], "a-trusted-plan--abcdef")
+
+    def test_a_string_pr_is_normalised_and_a_missing_pr_is_omitted(self):
+        result = self._resolve(bound=("fix-a-thing--edbeef",
+                                      self._snapshot(build={"repository": "owner/repo",
+                                                            "pr": "42", "worktree": self.worktree})))
+        self.assertEqual(result["advisory"]["pr_ref"], "#42")
+        no_pr = self._resolve(bound=("fix-a-thing--edbeef",
+                                     self._snapshot(build={"repository": "owner/repo",
+                                                           "worktree": self.worktree})))
+        self.assertNotIn("pr_ref", no_pr["advisory"])
+
+    def test_the_gate_is_consulted_only_at_none_never_on_a_verified_binding(self):
+        verified = {"state": "verified", "binding": {"worktree": self.worktree}}
+        with mock.patch.object(boot, "_resolve_task_binding_unguarded", return_value=verified), \
+             mock.patch.object(boot, "_bound_snapshot") as bound:
+            result = boot.resolve_task_binding(self.worktree)
+        self.assertEqual(result, verified)
+        bound.assert_not_called()
+
+    def test_a_malformed_none_still_carries_its_recovery_alongside_the_advisory(self):
+        # The one recoverable ladder outcome (malformed locator) keeps its recovery hint; the advisory
+        # layers on without displacing it. The envelope builder maps only state+advisory into the relay.
+        malformed = {"state": "none",
+                     "recovery": {"code": "malformed_session_binding_locator", "detail": "ignored"}}
+        result = self._resolve(bound=("fix-a-thing--edbeef", self._snapshot()), unguarded=malformed)
+        self.assertEqual(result["recovery"]["code"], "malformed_session_binding_locator")
+        self.assertEqual(result["advisory"]["plan_selector"], "fix-a-thing--edbeef")
+
+    def test_a_raising_gate_never_breaks_the_resolver(self):
+        with mock.patch.object(boot, "_binding_locator_path", return_value=self._present_locator()), \
+             mock.patch.object(boot, "_resolve_task_binding_unguarded", return_value={"state": "none"}), \
+             mock.patch.object(boot, "_bound_snapshot", side_effect=RuntimeError("boom")):
+            result = boot.resolve_task_binding(self.worktree)
         self.assertEqual(result, {"state": "none"})
 
 

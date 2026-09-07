@@ -6053,6 +6053,62 @@ class TestPostCompactionRegrounding(CoordinatorCase):
                                side_effect=RuntimeError("library is unreadable")):
             self.assertEqual(bc.reground_handler({"source": "compact"}), hooks.proceed())
 
+    # -- previously-submitted (submission=='ready') carrier: the reliable compaction site ---------------
+
+    def ready_snapshot(self) -> Path:
+        """A PREVIOUSLY-SUBMITTED snapshot bound to this worktree, still seeded with the reviewer-private
+        material, so a ready-path leak would be caught by the redaction case below too."""
+        self.seeded_snapshot()
+        self.store.mutate(lambda s: s.update({"submission": "ready"}))
+        return Path(self.state_path)
+
+    def test_a_previously_submitted_build_steers_new_vs_resume_not_continue_here(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("fix-a-thing--edbeef", path)]):
+            text = bc.reground_handler({"source": "compact", "session_id": "s1"})["context"]
+        # the shared advisory sentence flags a possibly-stale reported status
+        self.assertIn(bc.session_relay.ADVISORY_SENTENCE, text)
+        # a resume keeps and re-verifies the binding; supersede is offered ONLY to clear a confirmed-stale one
+        self.assertIn("continue THIS Build", text)
+        self.assertIn("do not supersede", text)
+        self.assertIn("start a DIFFERENT Build", text)
+        self.assertIn("state supersede --plan fix-a-thing--edbeef", text)
+        # the misdirecting "this is live work" framing is gone for a ready Build
+        self.assertNotIn("continue the next planned step", text)
+        self.assertNotIn("do not schedule a self-wakeup", text)
+
+    def test_the_ready_advisory_is_the_shared_relay_definition(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("fix-a-thing--edbeef", path)]):
+            text = bc.reground_handler({"source": "compact"})["context"]
+        expected = bc.session_relay.advisory_lines(
+            {"submission": "ready", "pr_ref": "#7", "plan_selector": "fix-a-thing--edbeef"})
+        for line in expected:
+            self.assertIn(line, text)
+
+    def test_the_ready_advisory_still_carries_no_reviewer_private_text(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("fix-a-thing--edbeef", path)]):
+            text = bc.reground_handler({"source": "compact"})["context"]
+        for secret in ("SECRET-FINDING-SUMMARY", "SECRET-FINDING-RATIONALE",
+                       "SECRET-PRIVATE-REFERENCE"):
+            self.assertNotIn(secret, text)
+
+    def test_an_unknown_submission_keeps_the_authority_framing(self):
+        self.seeded_snapshot()
+        self.store.mutate(lambda s: s.update({"submission": "unknown"}))
+        rendered = bc.reground_pointer(self.store.read(), "fix-a-thing--edbeef")
+        self.assertIn("continue the next planned step", rendered)
+        self.assertNotIn(bc.session_relay.ADVISORY_SENTENCE, rendered)
+
+    def test_a_ready_build_with_an_ungrammatical_slug_withholds_the_supersede_remedy(self):
+        path = self.ready_snapshot()
+        with self.resolve_to([("not a real slug", path)]):
+            text = bc.reground_handler({"source": "compact"})["context"]
+        self.assertNotIn("state supersede --plan not a real slug", text)
+        # falls back to the authority framing rather than emitting a broken command
+        self.assertIn("continue the next planned step", text)
+
 
 class ScrubbedGitRepo:
     """A throwaway git repo built under a scrubbed environment, for receipt-fact tests.

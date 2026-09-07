@@ -533,6 +533,19 @@ class PreviouslySubmittedAdvisoryTests(unittest.TestCase):
         self.assertIn("state=none", out)
         self.assertNotIn("state=verified", out)
 
+    def test_the_advisory_survives_the_worst_case_alarm_load(self):
+        # task_binding is the FIFTH section, outside the 2,000-char preview budget that governs only
+        # grounding_receipt + action_forcing_alarms; render() itself never truncates. So even the
+        # heaviest simultaneous-alarm envelope the size-spike node measured cannot cost the advisory
+        # its lines — this is the "governing budget" resolution the surfacing node calls for.
+        env = _worst_case_envelope()  # all six alarm codes firing, every optional field populated
+        adv = {"submission": "ready", "pr_ref": "#1259", "plan_selector": "fix-a-thing--edbeef"}
+        env["task_binding"] = {"state": "none", "advisory": adv}
+        sr.validate(env)  # a none+advisory alongside a full alarm load is still a valid envelope
+        out = sr.render(env)
+        for line in sr.advisory_lines(adv):
+            self.assertIn(line, out)
+
 
 if __name__ == "__main__":
     unittest.main()
