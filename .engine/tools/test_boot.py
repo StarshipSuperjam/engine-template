@@ -7186,5 +7186,26 @@ class TestVersionSurfaceMatrix(unittest.TestCase):
         self.assertNotIn("rm -rf", dash)
 
 
+class TestHooksHealthLineTrustPaths(unittest.TestCase):
+    """The 'hooks aren't running' readout is one of the surfaces that tells the operator how to approve the
+    engine's hooks, so it must name BOTH approval paths — the CLI /hooks review and the Codex Desktop Hooks
+    screen — not just the CLI one (StarshipSuperjam/engine-template#805). The rule test in test_codex_trust_surfaces enforces the
+    both-paths invariant across every surface; this pins the wording at the source boot owns."""
+
+    def test_line_names_both_the_cli_and_the_desktop_hooks_screen(self):
+        # Force the line: it is produced only when NO recent live-session marker is found.
+        with mock.patch.object(boot.providers, "read_live_session", return_value=None):
+            line = boot.hooks_health_line()
+        self.assertIsNotNone(line, "with no live-session marker the health line must render")
+        self.assertIn("/hooks", line, "the CLI approval path must be named")
+        self.assertIn("Desktop", line, "the Desktop app must be named")
+        self.assertIn("Hooks screen under Settings", line,
+                      "the Desktop Hooks screen must be named so a Desktop operator can approve too")
+
+    def test_line_is_silent_when_a_fresh_marker_exists(self):
+        with mock.patch.object(boot.providers, "read_live_session", return_value={"ts": "now"}):
+            self.assertIsNone(boot.hooks_health_line())
+
+
 if __name__ == "__main__":
     unittest.main()

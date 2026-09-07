@@ -463,7 +463,8 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None,
         return {"module_id": module_id, "refused": True, "applied": False,
                 "reason": f"'{module_id}' is already installed."}
     result = {"module_id": module_id, "refused": False, "applied": False, "version": None,
-              "copied": [], "applied_wires": [], "groups_after": None, "notes": [], "findings": []}
+              "copied": [], "applied_wires": [], "codex_hook_retrust": False,
+              "groups_after": None, "notes": [], "findings": []}
     tmp = None
     try:
         if release_tree is None:
@@ -549,6 +550,9 @@ def add(module_id: str, release_tree: str | None = None, ref: str | None = None,
         # (3) apply the module's wiring (the real appliers)
         for f in wiring.apply_all(candidate.get("wires") or []):
             result["applied_wires"].append(validate.fmt(f))
+        result["codex_hook_retrust"] = any(                  # a new codex-hook needs re-approval (StarshipSuperjam/engine-template#805)
+            isinstance(w, dict) and w.get("type") == "codex-hook"
+            for w in (candidate.get("wires") or []))
         # (4) record it in the engine manifest at its version (the guarded writer — StarshipSuperjam/engine-template#923)
         engine = module_coherence.load_engine_manifest() or {"packages": {}}
         engine.setdefault("packages", {})[module_id] = candidate.get("version")
@@ -1857,7 +1861,7 @@ def _wiring_delta(old_by_id: dict, new_by_id: dict) -> dict:
     return {"added": added, "removed": removed, "updated": updated}
 
 
-def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict, dropped_ids=()) -> list:
+def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict, dropped_ids=()) -> tuple:
     """Reverse the wires a module no longer declares and (re)apply the wires it declares now (the
     scenario's 'apply/reverse wiring deltas'). For an unchanged version the delta is empty (apply_all is
     idempotent). A removed engine-identifiable wire is reversed so it does not linger; a same-identity
@@ -1868,20 +1872,31 @@ def _apply_wiring_deltas(old_by_id: dict, new_by_id: dict, dropped_ids=()) -> li
     `dropped_ids` are modules the release removed WHOLE (not in `new_by_id`): reverse ALL their wires via
     `wiring.reverse_all` (mirroring remove(), which reverses every wire — unlike `_wiring_delta`, which skips
     identity-less wires), and do it BEFORE re-applying the survivors below, so a wire a survivor also declares is
-    re-applied rather than left stripped by the dropped module's reversal."""
+    re-applied rather than left stripped by the dropped module's reversal.
+
+    Returns `(lines, codex_hook_retrust)`: `lines` are the plain-language wiring lines; `codex_hook_retrust`
+    is True when any wire this update ADDED or re-applied with CHANGED content is a codex-hook. Codex records
+    trust against each hook's exact definition and silently distrusts a new-or-changed one until re-approved, so
+    the upgrade must say so (StarshipSuperjam/engine-template#805). Read off the SAME `_wiring_delta` this uses for removals, so the flag
+    tracks exactly what was applied; a REVERSED hook (a dropped module's, or a wire the new version drops) never
+    needs re-trust and is excluded (added/updated only)."""
     lines = []
     for mid in dropped_ids:
         for f in wiring.reverse_all((old_by_id.get(mid) or {}).get("wires") or []):
             lines.append(validate.fmt(f))
+    delta = _wiring_delta(old_by_id, new_by_id)             # single source: removals AND the codex-hook flag
     removed_by_mid: dict = {}
-    for mid, w in _wiring_delta(old_by_id, new_by_id)["removed"]:
+    for mid, w in delta["removed"]:
         removed_by_mid.setdefault(mid, []).append(w)
     for mid, new_m in new_by_id.items():
         for w in removed_by_mid.get(mid, []):               # reverse this module's removed wires first
             lines.append(validate.fmt(wiring.reverse(w)))
         for f in wiring.apply_all(new_m.get("wires") or []):  # then apply the new version's wires (idempotent)
             lines.append(validate.fmt(f))
-    return lines
+    codex_hook_retrust = any(
+        isinstance(w, dict) and w.get("type") == "codex-hook"
+        for _mid, w in (delta["added"] + delta["updated"]))
+    return lines, codex_hook_retrust
 
 
 def _bump_engine_manifest(target_versions: dict, engine_release: str, dropped_ids=()) -> dict:
@@ -3298,8 +3313,8 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     calls it directly. `practice` (or a None opener) skips the real git/PR boundary. `gate` overrides the
     structural gate for the injected test path (the real gate's custom/script checks cannot resolve against a
     throwaway fixture tree — B1); it defaults to `_reconcile_gate`."""
-    tail = {"wiring": [], "codeowners": None, "claude_floor": None, "agents_floor": None,
-            "foundation_ignores": None, "fixtures_delivered": [],
+    tail = {"wiring": [], "codex_hook_retrust": False, "codeowners": None, "claude_floor": None,
+            "agents_floor": None, "foundation_ignores": None, "fixtures_delivered": [],
             "orphans_removed": {"engine": [], "suspect": [], "left_in_place": []},
             "migrations": {"ran": [], "refused": [], "refusals": [], "receipts": [],
                            "rollback_footprint": []}, "retired_capabilities": [],
@@ -3387,7 +3402,8 @@ def _upgrade_tail(*, release_tree, target_ref, from_versions, target_versions, o
     # wire the new version drops and (re)apply the wires the survivors declare now, with the freshly-overlaid
     # appliers (StarshipSuperjam/engine-template#594). Ordering matters: reversing the dropped module before re-applying survivors means a wire a
     # survivor also declares (a shared permission, a keyed gitignore fence) is re-applied, not left stripped.
-    tail["wiring"] = _apply_wiring_deltas(old_by_id, candidates, dropped_ids=dropped_ids)
+    tail["wiring"], tail["codex_hook_retrust"] = _apply_wiring_deltas(
+        old_by_id, candidates, dropped_ids=dropped_ids)
     # (b) RE-RENDER the release-evolvable seams. The floor merge now CREATES a never-created foundation floor
     # (the AGENTS.md case, StarshipSuperjam/engine-template#599 class 2) rather than skipping it forever.
     tail["codeowners"] = _refresh_codeowners(handle)
@@ -4704,6 +4720,8 @@ def _render_add(result: dict) -> None:
         print(f"  - added {rel}")
     for line in result.get("applied_wires", []):
         print("  - " + line)
+    if result.get("codex_hook_retrust"):
+        print("  - " + wiring.CODEX_RETRUST_NOTE)
     if result.get("groups_after") is not None:
         print(f"  - tool-runtime dependency groups are now: {result['groups_after'] or '(none)'}")
     for line in result.get("notes", []):
@@ -4768,6 +4786,8 @@ def _render_upgrade(result: dict) -> None:
         print(f"  - new add-on available: {m['id']} (add with `add {m['id']}`)")
     for line in result.get("notes", []):
         print("  - " + line)
+    if result.get("codex_hook_retrust"):
+        print("  - " + wiring.CODEX_RETRUST_NOTE)
     pr = result.get("pr")
     if pr:
         num = pr.get("number") if isinstance(pr, dict) else None
