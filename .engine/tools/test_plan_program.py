@@ -3501,6 +3501,28 @@ class IntendedStandingDerivation(_Program):
         self.assertIsNone(next(e for e in standing["entries"] if e["key"] == "c2")["discrepancy"])
         self.assertNotIn("Discrepancy", plan_program.render(self.programs, record))
 
+    def test_a_declared_key_whose_claimant_died_is_no_seat_for_the_discrepancy_check(self):
+        """The repair round's gap: C1 claimed by a plan that was then abandoned, C2 claimed by a
+        child that succeeds the root instead. A dead claim is no seat anywhere else in this file,
+        so it cannot be the seat the discrepancy check measures against either."""
+        slug = self._slug()
+        self._plan("pln_c00000000017", "Root")
+        self.programs.add_child(slug, "pln_c00000000017")
+        self.programs.add_intent(slug, "c1", "C1", "First", [])
+        self.programs.add_intent(slug, "c2", "C2", "Second", [{"ref": "c1", "reason": "builds on it"}])
+        self._plan("pln_c00000000018", "Claimed C1, then died", predecessor="pln_c00000000017")
+        self.programs.add_child(slug, "pln_c00000000018", predecessor="pln_c00000000017",
+                                fulfills="c1")
+        self.plans.update_record(self.plans.resolve("pln_c00000000018"), lambda r: r.update({
+            "closure": {"state": "abandoned", "at": "2026-08-29T06:00:00Z", "reason": "dropped"}}))
+        self._plan("pln_c00000000019", "Claims C2 after the root", predecessor="pln_c00000000017")
+        self.programs.add_child(slug, "pln_c00000000019", predecessor="pln_c00000000017",
+                                fulfills="c2", out_of_order_reason="C1 must be re-claimed later")
+        record = self.programs.read(slug)
+        standing = plan_program.intended_standing(record, self.programs.child_view(record))
+        self.assertIsNone(next(e for e in standing["entries"] if e["key"] == "c2")["discrepancy"])
+        self.assertNotIn("Discrepancy", plan_program.render(self.programs, record))
+
     def test_a_claim_that_crosses_its_declared_key_out_of_order_still_reports_a_discrepancy(self):
         slug = self._slug()
         self._plan("pln_c00000000014", "Root")

@@ -225,7 +225,7 @@ def scene_four_out_of_order(program_id):
     check("the jump is kept in the program's history, not just in this run's stdout",
           "crossed C2 (builds on C2's read seam)" in rendered
           and "the fix is understood well enough to start now" in rendered)
-    check("a claim that sits where its declared precedence says raises no discrepancy note",
+    check("the crossed precedent is still unclaimed, so nothing on the chain disagrees: no discrepancy note",
           "Discrepancy" not in rendered)
 
 

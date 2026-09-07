@@ -10,10 +10,11 @@ the engine holds that order — a durable record of the multi-PR shape, authored
 Manager (`program_manager.py`), order authority beside the Project Manager, which still owns every individual
 plan; the program records only how those plans relate and in what order they land.
 
-This runbook is the judgment half. The tool owns the sequence — it shows the next move, names what a step
-requires, and refuses an out-of-order one while naming the way forward — so ask *it* for anything mechanical.
-This page carries what the tool cannot: whether work is a program at all, how its children get shaped, when the
-order should be re-decided, and when only the operator's own hand should move next.
+This runbook is the judgment half; enter it when work spanning several PRs needs its order held, re-decided, or
+ended honestly. The tool owns the sequence — it shows the next move, names what a step requires, and refuses an
+out-of-order one while naming the way forward — so ask *it* for anything mechanical. This page carries what the
+tool cannot: whether work is a program at all, how its children get shaped, when the order should be re-decided,
+and when only the operator's own hand should move next.
 
 ## Steps
 
@@ -118,5 +119,4 @@ work, splitting one PR's change into a ceremonial program, or reading a merged c
 machinery makes real order legible; it cannot make invented order true, and a program recording a shape the work
 does not have is worse than no program at all.
 
-The program tool is the authority on sequence; this page does not restate its order. Reach it for every mechanic
-and trust what it refuses: a refusal names the way forward, and restating its order here would only drift.
+The program tool is the authority on sequence; reach it for every mechanic, and trust what it refuses.

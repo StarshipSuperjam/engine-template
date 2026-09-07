@@ -297,13 +297,16 @@ def intended_standing(record: dict, view: list) -> dict | None:
         if claimed_by and not dead_claim:
             # A declared ref names a child directly or another intent's KEY; the chain only knows
             # plan ids, so a key resolves to the plan that claimed it before the comparison. An
-            # unclaimed key has no seat on the chain yet and so cannot disagree with it.
+            # unclaimed key has no seat on the chain yet and so cannot disagree with it — and a
+            # key whose claimant died is in exactly that position, the same reading
+            # `ref_satisfied` and the readiness rule give a dead claim.
             resolved = {}
             for e in edges:
                 referenced = by_key.get(e["ref"])
                 if referenced is None:
                     resolved[e["ref"]] = e["ref"]
-                elif referenced.get("claimed_by"):
+                elif (referenced.get("claimed_by")
+                        and status_of.get(referenced["claimed_by"]) not in DEAD_BRANCH_STATES):
                     resolved[e["ref"]] = referenced["claimed_by"]
             actual_predecessor = predecessor_of.get(claimed_by)
             if resolved and actual_predecessor not in set(resolved.values()):
