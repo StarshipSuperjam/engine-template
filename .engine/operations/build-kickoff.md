@@ -62,7 +62,7 @@ a GitHub comment, and GitHub or network loss does not stop same-session local wo
 [Plan orchestration](plan-orchestration.md) runs that stop — the plan's context and open questions first, the
 depth a separate, led step reached once they hit zero. Run the knowledge impact check, offer only the depths
 worth offering for this repository's installed reviewers (only Quick when no reviewers, StarshipSuperjam/engine-template#763),
-fill `.engine/templates/risk-assessment.md` — its care recommendation now one line — in plain language, and record the operator's approval.
+fill `.engine/templates/risk-assessment.md` — now carrying a one-line care recommendation — in plain language, and record the operator's approval.
 No installed reviewer is a disclosed no-extra-review result, never a false green.
 
 **That one choice covers both gates**: it names the lenses the seal will require, and it is the depth this

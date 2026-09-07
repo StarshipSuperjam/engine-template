@@ -123,8 +123,8 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
 
     def test_the_first_presentation_carries_its_decision_context(self):
         # Node first-presentation-doctrine: a drafted plan's FIRST presentation carries its decision context
-        # whole, while the depth/approval stays a distinct, session-led stop reached only once the open
-        # questions reach zero. Asserted against section 6's prose (what a test can inspect), with whitespace
+        # whole, while the depth/approval stays a distinct, session-led stop reached only once the operator
+        # has closed every open question. Asserted against section 6's prose (what a test can inspect), with whitespace
         # normalized so a phrase that wraps across source lines still matches.
         runbook = os.path.join(ROOT, ".engine", "operations", "plan-orchestration.md")
         text = open(runbook, encoding="utf-8").read()
@@ -138,9 +138,9 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
         self.assertIn("every open question with the answer you propose", show)
         self.assertIn("invite revisions", show)
         self.assertIn("No depth menu rides along", show)  # the depth ask does NOT ride with the first showing
-        # (b) the depth ask is a distinct, led stop reached only after the open questions reach zero
+        # (b) the depth ask is a distinct, led stop reached only once the operator has closed every open question
         approval = slab("**Then, once they are satisfied, the approval.**", "**One cold review")
-        self.assertIn("only when the open questions have reached zero", approval)
+        self.assertIn("only once the operator has closed every open question", approval)
         self.assertIn("distinct, led step", approval)
         self.assertIn("--operator-decided", approval)
         self.assertIn("That one choice covers the plan's cold review and the Build's later one", approval)  # one-choice rule
@@ -154,6 +154,27 @@ class TheOperatorFacingSurfacesDescribeDepthByLenses(unittest.TestCase):
         self.assertIn("the Build begins only when they type the engine-start command", s8)
         skill = open(os.path.join(ROOT, ".claude", "skills", "engine-start", "SKILL.md"), encoding="utf-8").read()
         self.assertIn("the typed command is the only way in", skill)
+
+    def test_both_runbooks_name_the_template_care_recommendation_the_same_way(self):
+        # Obligation 3 (pln_1b11d30d4892): a TEST — not a cold read — pins that both runbooks reference the
+        # risk-assessment template's care recommendation the SAME way, and that neither leans on a template
+        # section the condense removed. Plan-orchestration section 6 and build-kickoff section 2 each name it
+        # with the one shared phrase "one-line care recommendation"; the template still carries all six H2
+        # sections the consent stop turns on, so no runbook can point at a section the template no longer has.
+        orch = open(os.path.join(ROOT, ".engine", "operations", "plan-orchestration.md"), encoding="utf-8").read()
+        kickoff = open(os.path.join(ROOT, ".engine", "operations", "build-kickoff.md"), encoding="utf-8").read()
+        template = open(os.path.join(ROOT, ".engine", "templates", "risk-assessment.md"), encoding="utf-8").read()
+        # (a) both runbooks reference the care recommendation with the single shared phrasing
+        self.assertIn("one-line care recommendation", orch)
+        self.assertIn("one-line care recommendation", kickoff)
+        # (b) the template still holds every H2 section the runbooks' consent stop turns on — the condense
+        #     removed none, so a runbook that named a section the template no longer has would fail here
+        headings = re.findall(r"^##\s+(.*\S)\s*$", template, re.M)
+        self.assertEqual(
+            headings,
+            ["Headline", "What this touches", "What I'll run",
+             "How careful — your choice", "If this weakens a safety guardrail", "Your call"],
+        )
 
 
 class TheFrontDoorDemoStillWalks(unittest.TestCase):

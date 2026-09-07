@@ -78,8 +78,8 @@ rather than from memory.
   revision, the link to the updated head) and the decision context around it: what the change impacts, the
   surfaces it touches, the risk assessment's one-line care recommendation, and every open question with the
   answer you propose — then invite revisions. No depth menu rides along; a plan and an approval in one breath is no stop.
-- **Then, once they are satisfied, the approval.** You reach this stop only when the open questions have
-  reached zero — it is a distinct, led step, never a menu posted beside the plan. Offer only the review
+- **Then, once they are satisfied, the approval.** You reach this stop only once the operator has closed
+  every open question — it is a distinct, led step, never a menu posted beside the plan. Offer only the review
   depths worth offering for this repository's installed reviewers — no reviewer installed is a disclosed
   no-extra-review result, never a false green — and fill `.engine/templates/risk-assessment.md` in plain
   language. Follow that template rather than paraphrasing it: it carries the rules this stop turns on — a care
