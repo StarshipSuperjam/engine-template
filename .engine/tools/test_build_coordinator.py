@@ -6110,6 +6110,59 @@ class TestPostCompactionRegrounding(CoordinatorCase):
         self.assertIn("continue the next planned step", text)
 
 
+class TestSupersedeIsTheStaleClearingRemedy(unittest.TestCase):
+    """`state supersede` is the named, evidence-preserving remedy for deliberately clearing a
+    CONFIRMED-STALE binding. Its help and its success output say plainly that it is NOT how you
+    resume (a genuine continuation keeps and re-verifies the binding), is NOT needed to start a
+    different Build elsewhere, and neither completes the plan nor changes the PR. And the command
+    the advisory cites is a real, runnable invocation of this very parser."""
+
+    def _supersede_help(self) -> str:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
+            bc.parser().parse_args(["state", "supersede", "--help"])
+        return buf.getvalue()
+
+    def test_the_guidance_names_stale_clearing_and_disclaims_resume_plan_and_pr(self):
+        guidance = bc._SUPERSEDE_GUIDANCE.lower()
+        self.assertIn("confirmed-stale", guidance)
+        self.assertIn("resume", guidance)  # named, so it can be disclaimed
+        self.assertIn("neither completes the plan nor changes the pr", guidance)
+
+    def test_the_cli_help_renders_that_same_guidance(self):
+        rendered = " ".join(self._supersede_help().split())
+        self.assertIn(" ".join(bc._SUPERSEDE_GUIDANCE.split()), rendered)
+
+    def test_the_success_output_carries_the_guidance_note(self):
+        args = argparse.Namespace(plan="fix-a-thing--edbeef", reason="confirmed stale after submission")
+        with mock.patch.object(bc, "_library") as library, \
+                mock.patch.object(bc.build_state_store, "supersede",
+                                  return_value=Path("/lib/plan/builds/superseded-000003.json")) as sup, \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            library.return_value.resolve.return_value = "fix-a-thing--edbeef"
+            bc.cmd_state_supersede(args, None)
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["superseded"], "/lib/plan/builds/superseded-000003.json")
+        self.assertIn("neither completes the plan nor changes the PR", payload["note"])
+        sup.assert_called_once()
+
+    def test_the_advisorys_cited_command_is_a_real_invocation_of_this_parser(self):
+        import shlex
+        selector = "fix-a-thing--edbeef"
+        lines = bc.session_relay.advisory_lines(
+            {"submission": "ready", "pr_ref": "#7", "plan_selector": selector})
+        cited = next(line for line in lines if "state supersede" in line)
+        # The selector is pattern-pinned and survives the inert filter byte-for-byte.
+        self.assertRegex(selector, bc.session_relay.PLAN_SELECTOR_PATTERN)
+        self.assertEqual(bc.session_relay._inert(selector), selector)
+        # And the printed command tail parses cleanly into a state-supersede invocation.
+        tail = cited.split("build_coordinator.py", 1)[1]
+        parsed = bc.parser().parse_args(shlex.split(tail))
+        self.assertIs(parsed.func, bc.cmd_state_supersede)
+        self.assertEqual(parsed.state_command, "supersede")
+        self.assertEqual(parsed.plan, selector)
+
+
 class ScrubbedGitRepo:
     """A throwaway git repo built under a scrubbed environment, for receipt-fact tests.
 
