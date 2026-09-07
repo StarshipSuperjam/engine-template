@@ -28,7 +28,7 @@ NATIVE_TRUST_ROOTS = frozenset({
 
 
 class _QualifiedFixture:
-    def __init__(self, *, automatic: bool = False, mcp: bool = False):
+    def __init__(self, *, automatic: bool = False, mcp: bool = False, dispatch: bool = False):
         self.temp = tempfile.TemporaryDirectory(prefix="engine-authority-")
         self.base = os.path.realpath(self.temp.name)
         self.root = os.path.join(self.base, "project")
@@ -59,7 +59,10 @@ class _QualifiedFixture:
             "run_id": "run", "task_id": "task",
             "identity_initializer": execution_context._fixture_identity_initializer,
         }
-        if mcp:
+        if dispatch:
+            arguments.update({"script": ".engine/tools/memory/write_dispatch.py",
+                              "operation_id": "attended-write-dispatch"})
+        elif mcp:
             arguments.update({"script": ".engine/tools/memory/mcp_server.py",
                               "operation_id": "attended-memory-mcp"})
         elif automatic:
@@ -67,6 +70,21 @@ class _QualifiedFixture:
         else:
             arguments.update({"script": ".engine/tools/memory/pins.py", "operation_id": "ledger-append"})
         self.context = execution_context.resolve_execution_context(**arguments)
+
+    def dispatch_context(self):
+        """A second sealed context over THIS fixture's exact disk, rooted at the write dispatcher
+        (attended-write-dispatch) rather than the memory server. The production write is a child launched
+        under this root, so a test that drives the dispatched write in-process installs this and runs
+        write_dispatch.run_child under it; the server's own attended-memory-mcp context can no longer reach
+        the write operations, by design, so it is the dispatcher root that carries the write authority."""
+        bootstrap = execution_context._fixture_bootstrap(
+            self.root, self.common, pointer_digest=execution_context._file_digest(self.pointer))
+        return execution_context.resolve_execution_context(
+            bootstrap=bootstrap, accepted_tree=self.accepted, provider="codex",
+            run_id="run", task_id="task",
+            identity_initializer=execution_context._fixture_identity_initializer,
+            script=".engine/tools/memory/write_dispatch.py",
+            operation_id="attended-write-dispatch")
 
     def install(self):
         execution_context._CURRENT_CONTEXT = self.context
@@ -593,42 +611,48 @@ class LockedAuthorityTests(unittest.TestCase):
         from memory import pins
 
         self.fixture.cleanup()
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
         first = pins.add("first standing preference")
         second = pins.add("second standing preference")
         self.assertNotEqual(first[records.RECORD_ID_KEY], second[records.RECORD_ID_KEY])
         self.assertEqual(execution_context.current_context()["operation"]["registry_id"],
-                         "attended-memory-mcp")
+                         "attended-write-dispatch")
         target = os.path.join(self.fixture.memory, "ledger.ndjson")
         with open(target, "a", encoding="utf-8") as handle:
             handle.write(json.dumps({"kind": "external-accepted-capture", "body": "intervening"}) + "\n")
         third = pins.add("third preference after an automatic write")
         self.assertTrue(third[records.RECORD_ID_KEY])
 
-    def test_post_commit_mcp_refresh_failure_does_not_turn_success_into_failure(self):
+    def test_a_dispatched_write_never_runs_the_server_root_post_commit_refresh(self):
+        # Under C4 a write commits under the dispatcher root (attended-write-dispatch), never under the
+        # server's attended-memory-mcp root, so the server-root post-commit refresh - the re-seal a renewable
+        # root runs to freshen its own read cache after an in-process write - is simply not on a dispatched
+        # write's path. A refresh fault therefore cannot turn a committed write into a failure here: not
+        # because the fault is swallowed, but because the refresh is never reached. Pin exactly that - the
+        # write commits and refresh_current_context is never called. Wiring the dispatch root as a renewable
+        # root that DOES re-seal after its own write, and re-asserting that a fault in that re-seal cannot
+        # undo the commit, is node 1's concern; node 0 pins only that its write path is clear of it.
         from memory import pins
         from unittest import mock
 
         self.fixture.cleanup()
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
-        for failure in (execution_context.ContextError("injected refresh failure"),
-                        OSError("injected ordinary refresh failure")):
-            with self.subTest(failure=type(failure).__name__), mock.patch.object(
-                    execution_context, "refresh_current_context", side_effect=failure):
-                record = pins.add(f"committed despite {type(failure).__name__}")
-            self.assertTrue(record[records.RECORD_ID_KEY])
-        third = pins.add("next request refreshes from the renewable root")
-        self.assertTrue(third[records.RECORD_ID_KEY])
+        with mock.patch.object(execution_context, "refresh_current_context") as refresh:
+            record = pins.add("committed under the dispatcher root")
+            second = pins.add("and again - still no server-root refresh on the write path")
+        self.assertTrue(record[records.RECORD_ID_KEY])
+        self.assertTrue(second[records.RECORD_ID_KEY])
+        refresh.assert_not_called()
         self.assertEqual(len(list(ledger.iter_records(path=os.path.join(
-            self.fixture.memory, "ledger.ndjson")))), 3)
+            self.fixture.memory, "ledger.ndjson")))), 2)
 
     def test_long_lived_mcp_authority_state_is_bounded_after_many_requests(self):
         from memory import pins
 
         self.fixture.cleanup()
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
         for number in range(80):
             pins.add(f"bounded request {number}")
@@ -649,7 +673,7 @@ class AttendedWithholdRestoreEndToEndTests(unittest.TestCase):
     the raw "outside this invocation's closed transitive boundary" error — exactly the observed bug."""
 
     def setUp(self):
-        self.fixture = _QualifiedFixture(mcp=True)
+        self.fixture = _QualifiedFixture(dispatch=True)
         self.fixture.install()
 
     def tearDown(self):

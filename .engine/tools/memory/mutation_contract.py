@@ -113,13 +113,13 @@ REGISTRY = (
 
     # Public attended operations (CLI, MCP, setup, or maintenance).
     _entry("attended-pin-add", "memory.pins.add", "ledger", "durable-append", _ATTENDED, 1, "records",
-           "append-lock", ["memory.mcp_server.pin", "memory.pins.main"]),
+           "append-lock", ["memory.write_dispatch.run_child", "memory.pins.main"]),
     _entry("attended-pin-remove", "memory.pins.remove", "ledger", "reversible-mutation", _ATTENDED, 1,
            "records", "append-lock", ["memory.pins.main"]),
     _entry("attended-withhold", "memory.forget.withhold", "ledger", "reversible-mutation", _ATTENDED, 1,
-           "records", "append-lock", ["memory.mcp_server.withhold", "memory.pins.remove"]),
+           "records", "append-lock", ["memory.write_dispatch.run_child", "memory.pins.remove"]),
     _entry("attended-restore-withheld", "memory.forget.restore", "ledger", "reversible-mutation", _ATTENDED,
-           1, "records", "append-lock", ["memory.mcp_server.restore"]),
+           1, "records", "append-lock", ["memory.write_dispatch.run_child"]),
     _entry("attended-backup-setup", "memory.backup_vault.setup", "project-repository",
            "reversible-mutation", _ATTENDED, None, "repositories", "compare-and-set",
            ["memory.backup_vault.main"]),
@@ -163,6 +163,13 @@ REGISTRY = (
            ["memory.semantic.store.main"], schema_cutover=True),
     _entry("attended-memory-mcp", "memory.mcp_server.main", "ledger", "semantic-read", _ATTENDED,
            1, "servers", "none", ["configured MCP launchers"]),
+    # The write dispatcher: a fresh accepted process the memory server launches per durable write, so
+    # every pin/withhold/restore lands on the activation current on disk rather than the one the
+    # long-lived server bound at start. Semantic-read here (it marshals a request and relays the
+    # child's reply); the durable ledger writes are the three entries reachable through its boundary.
+    _entry("attended-write-dispatch", "memory.write_dispatch.main", "ledger", "semantic-read", _ATTENDED,
+           1, "servers", "none",
+           ["memory.mcp_server.pin", "memory.mcp_server.withhold", "memory.mcp_server.restore"]),
     _entry("read-memory-health", "memory.mcp_server.health", "degraded-health", "semantic-read", _ATTENDED,
            1, "status-records", "none", ["memory.mcp_server.main"]),
     _entry("read-recall-window", "memory.mcp_server.recall_window", "ledger", "semantic-read", _ATTENDED,
@@ -414,10 +421,13 @@ TRANSITIVE_BOUNDARIES = MappingProxyType({
         "hook-crash-debug", "hook-fail-open-promote", "telemetry-finding-emit",
     ),
     "memory.mcp_server.main": (
-        "attended-pin-add", "attended-withhold", "attended-restore-withheld",
         "attended-keyword-mcp-search", "attended-semantic-mcp-search",
         "read-memory-health", "read-recall-window", "read-pins", "read-withheld",
         "stranding-log-append",
+    ),
+    # The dispatched child reaches exactly the three durable writes, on the merge-current activation.
+    "memory.write_dispatch.main": (
+        "attended-pin-add", "attended-restore-withheld", "attended-withhold",
     ),
     "memory.mcp_server.search": (
         "attended-keyword-mcp-search", "attended-keyword-search-heal", "index-stale-heal", "index-rebuild",

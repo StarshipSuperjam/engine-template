@@ -40,6 +40,7 @@ import binascii
 import os
 import sys
 import time
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -72,8 +73,35 @@ class PinRefused(refusals.EngineRefusal, ValueError):
         self.raw_detail = raw_detail
 
 
+#: The one explicit identity an omitted session_id collapses to, so a dispatched pin with no session and a
+#: second call that also carries none are recognised as the same lane by the under-lock duplicate check.
+_NO_SESSION_IDENTITY = "\x00no-session"
+
+
+def _normalized_pin_text(text: str) -> str:
+    """The decisive key the duplicate check compares on: NFC-folded, outer whitespace stripped, inner runs
+    collapsed to one space. Two requests that differ only in those land as the same pin, never two."""
+    return " ".join(unicodedata.normalize("NFC", text).split())
+
+
+def _session_identity(session_id: "str | None") -> str:
+    return session_id if (isinstance(session_id, str) and session_id) else _NO_SESSION_IDENTITY
+
+
+def _find_duplicate_pin(cleaned: str, session_identity: str, *, path: str):
+    """The live pin already carrying this exact normalized text on this exact session lane, or None. Called
+    only under the write lock, so what it reads is the committed state the append would extend."""
+    key = _normalized_pin_text(cleaned)
+    for record in list_pins(path=path):
+        if (_normalized_pin_text(record.get("text") or "") == key
+                and _session_identity(record.get(records.PIN_SOURCE_SESSION_KEY)) == session_identity):
+            return record
+    return None
+
+
 def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VIA_ASSISTANT,
-        path: "str | None" = None, now: "int | None" = None) -> dict:
+        path: "str | None" = None, now: "int | None" = None, accepted_id: "str | None" = None,
+        emit=None, dedup: bool = False) -> dict:
     """Save one pin and return the record as written. Raises PinRefused on empty or over-long text.
 
     A pin is standing OPERATOR intent — call this when the operator asked for something to be remembered,
@@ -103,6 +131,12 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
     target = path if path is not None else ledger.ledger_path()
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
+    record_id = accepted_id if (isinstance(accepted_id, str) and accepted_id) else records.new_record_id()
+    session_identity = _session_identity(session_id)
+    if emit is not None:
+        # Forensic: the pre-minted id crosses to the parent BEFORE the lock, so a child that dies mid-write
+        # leaves the parent a record id to reason about rather than a silent gap.
+        emit("begin", {records.RECORD_ID_KEY: record_id})
     lock_fd = capture._acquire_lock(os.path.join(data_dir, capture.LOCK_FILENAME))
     if lock_fd is None:
         # `None` is not proof of contention: the same value comes back when the store cannot be opened at all.
@@ -115,10 +149,16 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
             "not clear on its own — check the folder's permissions and that its disk is mounted and has room."
         )
     try:
+        if dedup:
+            duplicate = _find_duplicate_pin(cleaned, session_identity, path=target)
+            if duplicate is not None:
+                if emit is not None:
+                    emit("already_pinned", {"record": duplicate})
+                return duplicate
         record = {
             "v": capture.RECORD_VERSION,
             "kind": records.PIN_KIND,
-            records.RECORD_ID_KEY: records.new_record_id(),
+            records.RECORD_ID_KEY: record_id,
             "text": cleaned,
             "ts": int(time.time()) if now is None else now,
             "tags": [records.PIN_TAG],
@@ -128,6 +168,8 @@ def add(text: str, *, session_id: "str | None" = None, via: str = records.PIN_VI
             record[records.PIN_SOURCE_SESSION_KEY] = session_id
         ledger.bump_index_epoch(for_path=target)
         ledger.append(record, path=path)
+        if emit is not None:
+            emit("committed", {"record": record})
         return record
     except PinRefused:
         raise

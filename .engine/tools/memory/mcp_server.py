@@ -44,7 +44,9 @@ Operator demo (a throwaway practice cabinet; never the real store):
 """
 from __future__ import annotations
 import functools
+import json
 import os
+import stat
 import sys
 import threading
 
@@ -151,6 +153,44 @@ def _tool(**registration):
 # read-side resolution ahead of the guard. `health` is deliberately not one: it touches no store.
 _READ_TOOLS = frozenset({"search", "recall-window", "recall-by-meaning", "list-pins", "list-withheld"})
 _CALL = threading.local()   # the binding the wrapper resolved for the tool call running on this thread
+_WRITE_RUNNER = None        # None in production (real accepted-child launch); tests inject run_child here
+
+
+def on_disk_write_authority_version(project_root: str | None = None) -> str | None:
+    """The write-authority version currently on disk: the accepted activation's ``<commit>-<tree>``.
+
+    A pure read for health disclosure — never guarded, never installed, never raising. It reads the
+    activation a dispatched write would launch against right now, not this process's frozen binding, so a
+    server that started before a merge can report that memory writing has advanced to a newer accepted
+    commit without the process having restarted (its ``code_version`` stays put; this moves). The root comes
+    from the argument or ``ENGINE_PROJECT_ROOT``, the common Git directory from that root, and the record
+    from ``<common>/engine/accepted-hooks/activation.json`` read as a regular, non-symlink file. Any
+    absence or malformation returns None, so health stays answerable on an unqualified or half-configured
+    checkout. It lives on the server (not the shared execution-context module) because the seam that
+    launches the write is the server's, and this is the server disclosing what that seam would run."""
+    root = project_root or os.environ.get("ENGINE_PROJECT_ROOT")
+    if not root:
+        return None
+    common = _execution_context._git_common_dir(root)
+    if not common:
+        return None
+    activation_path = os.path.join(common, "engine", "accepted-hooks", "activation.json")
+    try:
+        info = os.lstat(activation_path)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            return None
+        with open(activation_path, encoding="utf-8") as handle:
+            active = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(active, dict):
+        return None
+    commit, tree = active.get("commit"), active.get("tree")
+    for oid in (commit, tree):
+        if (not isinstance(oid, str) or len(oid) not in _execution_context._OID_LENGTHS
+                or any(char not in "0123456789abcdef" for char in oid)):
+            return None
+    return f"{commit}-{tree}"
 
 
 @_tool(
@@ -168,7 +208,8 @@ def health() -> dict:
     ready = _stranding_log.readiness()
     return {"status": "ok", "server": SERVER_NAME,
             "diagnostics": {"armed": ready["armed"], "qualification": ready["qualification"],
-                            "code_version": ready["code_version"]}}
+                            "code_version": ready["code_version"],
+                            "write_authority_version": on_disk_write_authority_version()}}
 
 
 # The cap applied when a caller omits `limit`. Search is unbounded by default in the library, which was
@@ -724,22 +765,13 @@ def _demo() -> int:
     ),
 )
 def pin(text: str, session_id: str | None = None) -> dict:
-    from memory import pins as _pins
+    from memory import write_dispatch as _write_dispatch
 
-    record = _pins.add(text, session_id=session_id, via=records.PIN_VIA_ASSISTANT)
-    live = _pins.list_pins()
-    result = {"id": record[records.RECORD_ID_KEY], "text": record["text"],
-              records.PIN_VIA_KEY: record[records.PIN_VIA_KEY], "total": len(live)}
-    # Warn, never refuse (StarshipSuperjam/engine-template#950): the pin is already saved in full. When the list has grown long, add
-    # a plain note that the briefing shows the newest as titles and folds the rest behind a disclosed count, and
-    # that pruning is easy — so the operator learns to prune rather than being surprised, without ever losing a
-    # directive they asked to keep.
-    if len(live) >= _pins.PIN_PRUNE_HINT_AT:
-        result["note"] = (f"Saved. You now have {len(live)} pinned notes. The session-start briefing shows the "
-                          "newest as one-line titles and folds the older ones behind a loud disclosed count — "
-                          "they stay safe and readable with list-pins. A list this long is worth a prune when "
-                          "it's convenient; tell me which to drop.")
-    return result
+    # No canonical write happens here. The write crosses to an accepted child launched from the current
+    # commit; the child mints, dedupes and commits under its own lock and returns the full response
+    # (id/text/via/total and any prune note). The prune-hint text now lives in `write_dispatch.run_child`.
+    return _write_dispatch.dispatch(
+        {"verb": "pin", "text": text, "session_id": session_id}, run=_WRITE_RUNNER)
 
 
 @_tool(
@@ -778,11 +810,10 @@ def list_pins() -> dict:
     ),
 )
 def withhold(record_id: str | None = None, session_id: str | None = None) -> dict:
-    from memory import forget as _forget
+    from memory import write_dispatch as _write_dispatch
 
-    _forget.withhold(record_id=record_id, session_id=session_id)
-    what = "that conversation" if session_id else "that note"
-    return {"withheld": f"{what} is out of recall now. It is still saved — say the word and it comes back."}
+    return _write_dispatch.dispatch(
+        {"verb": "withhold", "record_id": record_id, "session_id": session_id}, run=_WRITE_RUNNER)
 
 
 @_tool(
@@ -812,11 +843,10 @@ def list_withheld() -> dict:
     ),
 )
 def restore(record_id: str | None = None, session_id: str | None = None) -> dict:
-    from memory import forget as _forget
+    from memory import write_dispatch as _write_dispatch
 
-    _forget.restore(record_id=record_id, session_id=session_id)
-    what = "that conversation" if session_id else "that note"
-    return {"restored": f"{what} is back in recall."}
+    return _write_dispatch.dispatch(
+        {"verb": "restore", "record_id": record_id, "session_id": session_id}, run=_WRITE_RUNNER)
 
 
 _USAGE = ("usage: mcp_server.py [demo] [--help]\n"

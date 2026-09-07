@@ -27,7 +27,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memory import (capture, execution_context, forget, index, ledger, mutation_authority,  # noqa: E402
-                    mutation_contract, pins, records)
+                    mutation_contract, pins, records, write_dispatch)
 from memory import refusals as _refusals  # noqa: E402
 import memory.mcp_server as srv  # noqa: E402
 import mcp_test_support as mts  # noqa: E402
@@ -53,9 +53,12 @@ class _ServerBase(unittest.IsolatedAsyncioTestCase):
         self.now = int(time.time())
         self._authority = mutation_authority.test_scope("attended")
         self._authority.__enter__()
+        self._prev_runner = srv._WRITE_RUNNER
+        srv._WRITE_RUNNER = write_dispatch.run_child   # in-process dispatch child (no subprocess in tests)
 
     def tearDown(self):
         self._authority.__exit__(None, None, None)
+        srv._WRITE_RUNNER = self._prev_runner
         if self._prev is None:
             os.environ.pop(ledger.ENV_DIR, None)
         else:
@@ -86,10 +89,14 @@ class ToolWiringTests(_ServerBase):
         self.assertEqual({key: data[key] for key in ("status", "server")},
                          {"status": "ok", "server": "engine-memory"})
         self.assertEqual(set(data), {"status", "server", "diagnostics"})
-        self.assertEqual(set(data["diagnostics"]), {"armed", "qualification", "code_version"})
+        self.assertEqual(set(data["diagnostics"]),
+                         {"armed", "qualification", "code_version", "write_authority_version"})
         self.assertIsInstance(data["diagnostics"]["armed"], bool)
         self.assertIn(data["diagnostics"]["qualification"], {"attended", "degraded", "none"})
         self.assertIsNone(data["diagnostics"]["code_version"])   # in-process from a live checkout, not a tree
+        # write_authority_version reads the accepted activation the dispatcher would launch a write
+        # against; with no ENGINE_PROJECT_ROOT installed it is None, just like code_version here.
+        self.assertIsNone(data["diagnostics"]["write_authority_version"])
         # And the answer conforms to the health operation's DECLARED output schema — the interface file says
         # `additionalProperties: false`, so the diagnostics block has to be declared there, not just returned.
         import validate
@@ -291,6 +298,26 @@ class ControlToolTests(_ServerBase):
         found = await self._call("search", {"query": "filing"})
         self.assertEqual(len(found["results"]), 1)
 
+    async def test_the_id_the_operator_gets_is_the_id_the_child_stored(self):
+        # Node-0 invariant: the write happens in the dispatched child, which pre-mints ONE record id and
+        # commits under it; the server only relays. So the id handed back must be the id actually on the
+        # stored record - never a second id minted server-side - and the write must have crossed the seam.
+        # Spy on the injectable runner to prove exactly one crossing, and that it carried the write.
+        seen = []
+        real = srv._WRITE_RUNNER
+        def spy(request):
+            seen.append(request)
+            return real(request)
+        srv._WRITE_RUNNER = spy
+        self.addCleanup(lambda: setattr(srv, "_WRITE_RUNNER", real))
+        out = await self._call("pin", {"text": "the child mints the id, the server relays it"})
+        self.assertEqual([r["verb"] for r in seen], ["pin"])   # one crossing, and it was the write
+        stored = [r for r in ledger.iter_records()
+                  if r.get("kind") == records.PIN_KIND and r.get(_ID) == out["id"]]
+        self.assertEqual(len(stored), 1, "the returned id is the stored id, not a re-mint")
+        self.assertEqual(stored[0][records.PIN_VIA_KEY], records.PIN_VIA_ASSISTANT)
+        self.assertEqual(stored[0]["text"], out["text"])
+
     async def test_a_pin_is_scrubbed_at_the_transport_too(self):
         # The tool is the path a model actually uses, so the scrub has to hold here and not only in the library
         # — this is the call that would carry a credential a session had just been shown.
@@ -370,15 +397,18 @@ class StdioLaunchTest(unittest.IsolatedAsyncioTestCase):
         # cannot reach it — a richer call here would hit the operator's REAL store (see stdio_health).
         engine_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         data = await mts.stdio_health(engine_dir, "tools/memory/mcp_server.py")
-        # Fixed identity plus the stranding log's readiness — three content-free facts (armed, tier, loaded
-        # code version), never a path or a record; the exact key set is pinned so nothing else can creep in.
+        # Fixed identity plus the stranding log's readiness — four content-free facts (armed, tier, loaded
+        # code version, on-disk write-authority version), never a path or a record; the exact key set is
+        # pinned so nothing else can creep in.
         self.assertEqual({key: data[key] for key in ("status", "server")},
                          {"status": "ok", "server": "engine-memory"})
         self.assertEqual(set(data), {"status", "server", "diagnostics"})
-        self.assertEqual(set(data["diagnostics"]), {"armed", "qualification", "code_version"})
+        self.assertEqual(set(data["diagnostics"]),
+                         {"armed", "qualification", "code_version", "write_authority_version"})
         self.assertIsInstance(data["diagnostics"]["armed"], bool)
         self.assertIn(data["diagnostics"]["qualification"], {"attended", "degraded", "none"})
         self.assertIsNone(data["diagnostics"]["code_version"])   # launched from this checkout, not a tree
+        self.assertIsNone(data["diagnostics"]["write_authority_version"])  # allowlisted env: no project root
 
 
 class DemoTests(unittest.TestCase):
@@ -765,13 +795,50 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
     def setUp(self):
         from memory import test_mutation_authority as tma
 
+        # Reads run under the memory server's own context (attended-memory-mcp): the binding they report is
+        # a function of the activation/tree/store/pointer on disk. The write is a child launched under the
+        # dispatcher root (attended-write-dispatch) - the server's own context no longer reaches the write
+        # operations, by design - so drive the child body in-process through the seam, bound to a SECOND
+        # context this fixture seals over the same disk before any drift. That separation is the production
+        # shape: a read and a write on the same server answer from two different registry roots.
         self.fixture = tma._QualifiedFixture(mcp=True)
         self.fixture.install()
+        self.dispatch_context = self.fixture.dispatch_context()
+        self._prev_runner = srv._WRITE_RUNNER
+        srv._WRITE_RUNNER = self._dispatched
         self.activation = os.path.join(
             self.fixture.common, "engine", "accepted-hooks", "activation.json")
         self._original = Path(self.activation).read_text(encoding="utf-8")
 
+    def _under_dispatch_context(self, thunk):
+        # Run `thunk` under the pre-drift dispatcher context (attended-write-dispatch), then restore. Both
+        # the dispatched write and the test's own ledger seeding are writes, and under C4 no write reaches
+        # the store through the server's attended-memory-mcp root - they cross to a child launched under the
+        # dispatcher root. Rooting them here is the production shape; a row's later drift then reads as
+        # staleness to the write exactly as it did when the write ran in-process under one server context.
+        ctx = self.dispatch_context
+        prev_current = execution_context._CURRENT_CONTEXT
+        prev_env = os.environ.get(execution_context.CONTEXT_ENV)
+        execution_context._remember_context(ctx)
+        execution_context._CURRENT_CONTEXT = ctx
+        os.environ[execution_context.CONTEXT_ENV] = ctx.to_json()
+        try:
+            return thunk()
+        finally:
+            execution_context._CURRENT_CONTEXT = prev_current
+            if prev_env is None:
+                os.environ.pop(execution_context.CONTEXT_ENV, None)
+            else:
+                os.environ[execution_context.CONTEXT_ENV] = prev_env
+
+    def _dispatched(self, request):
+        # The real cross-process launcher cannot run from a pre-merge worktree (the accepted tree does not
+        # yet contain write_dispatch.py), so the child body runs in-process through the seam's injectable
+        # runner, under the dispatcher context - reads keep running under the server's own context.
+        return self._under_dispatch_context(lambda: write_dispatch.run_child(request))
+
     def tearDown(self):
+        srv._WRITE_RUNNER = self._prev_runner
         self.fixture.cleanup()
 
     def _set_commit(self, commit):
@@ -820,9 +887,13 @@ class OperatorMovedCommitReadTests(unittest.TestCase):
         # with the store-on-disk refusal and no path leaked.
         from unittest import mock
 
-        ledger.append({"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
-                       "session_id": "s-unstat", "ts": int(time.time()), "seq": 0, "speaker": "user",
-                       "text": "a line recalled while the root is unreadable", "tags": ["transcript", "stop"]})
+        # Seed a recallable line under the dispatcher context - the one root a write reaches under C4. The
+        # server's own attended-memory-mcp context no longer reaches any write, so this seeding append is
+        # rooted where the real write is, before the _path_identity failure is injected below.
+        self._under_dispatch_context(lambda: ledger.append(
+            {"v": 1, "kind": records.AMBIENT_CAPTURE_KIND, _ID: records.new_record_id(),
+             "session_id": "s-unstat", "ts": int(time.time()), "seq": 0, "speaker": "user",
+             "text": "a line recalled while the root is unreadable", "tags": ["transcript", "stop"]}))
 
         with mock.patch.object(execution_context, "_path_identity", side_effect=OSError(13, "denied")):
             pins = srv.list_pins()
@@ -1453,6 +1524,12 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
         _forget.withhold(record_id=withheld_id, path=self.ledger_file)
         execution_context._remember_context(self.fixture.context)   # _reset_process cleared the registry
         self.fixture.context = execution_context.reseal_for_stale_state(self.fixture.context)
+        # A second context rooted at the write dispatcher (attended-write-dispatch), sealed to THIS seeded
+        # disk. The production write is a child launched under that root; the memory server's own
+        # attended-memory-mcp context no longer reaches the write operations, by design. Sealing it here -
+        # before any row drifts the disk - is what makes a row's later drift read as staleness to the
+        # dispatched write, exactly as it did when the write ran in-process under the server's own context.
+        self.dispatch_context = self.fixture.dispatch_context()
         self._reset_process()
 
     # ---- cache states ----
@@ -1863,6 +1940,30 @@ class ReadDegradationMatrixTests(unittest.IsolatedAsyncioTestCase):
     async def test_write_authority_is_unchanged_across_the_rows(self):
         """The plan's authority bound: after the root refresh a write has a restarted server's authority and
         no more; under every non-refreshable row a write refuses with the UNCHANGED _stale_refusal sentence."""
+        # The write is dispatched: the server hands it to a child launched under attended-write-dispatch,
+        # never writing in-process. The real cross-process launcher cannot run from a pre-merge worktree
+        # (the accepted tree does not yet contain write_dispatch.py), so drive the child body in-process
+        # through the seam's injectable runner, under the pre-drift dispatch context this fixture sealed.
+        # That is the honest node-0 shape: the write body is unchanged, only its host root moved from the
+        # server's attended-memory-mcp context to the dispatcher's attended-write-dispatch one.
+        def _dispatched(request):
+            ctx = self.dispatch_context
+            prev_current = execution_context._CURRENT_CONTEXT
+            prev_env = os.environ.get(execution_context.CONTEXT_ENV)
+            execution_context._remember_context(ctx)
+            execution_context._CURRENT_CONTEXT = ctx
+            os.environ[execution_context.CONTEXT_ENV] = ctx.to_json()
+            try:
+                return write_dispatch.run_child(request)
+            finally:
+                execution_context._CURRENT_CONTEXT = prev_current
+                if prev_env is None:
+                    os.environ.pop(execution_context.CONTEXT_ENV, None)
+                else:
+                    os.environ[execution_context.CONTEXT_ENV] = prev_env
+        _prev_runner = srv._WRITE_RUNNER
+        srv._WRITE_RUNNER = _dispatched
+        self.addCleanup(lambda: setattr(srv, "_WRITE_RUNNER", _prev_runner))
         self._uncached()
         self._inject("R2")
         self.assertEqual((await self._call("list-pins", {}))["outcome"]["binding"], "healthy")

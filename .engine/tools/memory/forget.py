@@ -354,7 +354,8 @@ def _authority_refused(exc: Exception) -> "ControlNotRecorded":
 
 
 def _write_control(kind: str, *, record_id=None, session_id=None,
-                   path: "str | None" = None, now: "int | None" = None) -> dict:
+                   path: "str | None" = None, now: "int | None" = None,
+                   accepted_id=None, emit=None) -> dict:
     """Append one withhold/restore marker and return it. Raises ControlNotRecorded rather than failing quietly.
 
     Exactly ONE target, checked here rather than at each caller: a marker naming both would be ambiguous to
@@ -394,6 +395,11 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
     if kind == records.WITHHOLD_KIND and already:
         noun = "note" if rid is not None else "conversation"
         raise ControlNotRecorded(f"that {noun} is already out of recall — nothing needed changing.")
+    marker_id = accepted_id if (isinstance(accepted_id, str) and accepted_id) else records.new_record_id()
+    if emit is not None:
+        # Forensic parity with pins.add: the pre-minted id crosses to the parent BEFORE the lock, so a
+        # child that dies mid-write leaves a marker id to reason about rather than a silent gap.
+        emit("begin", {records.RECORD_ID_KEY: marker_id})
     data_dir = os.path.dirname(target) or "."
     os.makedirs(data_dir, exist_ok=True)
     # `_acquire_lock` consumes the capture-lock-create authority as its first act, so an authority refusal
@@ -419,7 +425,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
         marker = {
             "v": capture.RECORD_VERSION,
             "kind": kind,
-            records.RECORD_ID_KEY: records.new_record_id(),
+            records.RECORD_ID_KEY: marker_id,
             "ts": int(time.time()) if now is None else now,
             "tags": [records.WITHHOLD_TAG],
         }
@@ -429,6 +435,8 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
             marker[records.TARGET_SESSION_KEY] = sid
         ledger.bump_index_epoch(for_path=target)
         ledger.append(marker, path=path)
+        if emit is not None:
+            emit("committed", {"record": marker})
         return marker
     except ControlNotRecorded:
         raise
@@ -442,7 +450,7 @@ def _write_control(kind: str, *, record_id=None, session_id=None,
 
 
 def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
-             now: "int | None" = None) -> dict:
+             now: "int | None" = None, accepted_id=None, emit=None) -> dict:
     """Take one note, or one whole session's conversation, out of everything recall surfaces. Reversible.
 
     NOTHING IS DELETED and nothing becomes unrecoverable: the records stay in the ledger byte for byte, and
@@ -450,11 +458,11 @@ def withhold(*, record_id=None, session_id=None, path: "str | None" = None,
     different act entirely, reachable only by merging a single-purpose erasure pull request, and the two are
     kept apart in vocabulary as well as in mechanism (`records.WITHHOLD_KIND`)."""
     return _write_control(records.WITHHOLD_KIND, record_id=record_id, session_id=session_id,
-                          path=path, now=now)
+                          path=path, now=now, accepted_id=accepted_id, emit=emit)
 
 
 def restore(*, record_id=None, session_id=None, path: "str | None" = None,
-            now: "int | None" = None) -> dict:
+            now: "int | None" = None, accepted_id=None, emit=None) -> dict:
     """Undo a withhold, by the same target the withhold named. Appends; it never edits the earlier marker.
 
     Restoring something that was never withheld is harmless rather than an error — the marker simply names a
@@ -463,7 +471,7 @@ def restore(*, record_id=None, session_id=None, path: "str | None" = None,
     memory holds: an identifier matching nothing is a mistake worth telling them about rather than a silent
     no-op dressed as success (`_target_state`)."""
     return _write_control(records.RESTORE_KIND, record_id=record_id, session_id=session_id,
-                          path=path, now=now)
+                          path=path, now=now, accepted_id=accepted_id, emit=emit)
 
 
 def _injected_message_keys(src: str) -> set:
@@ -1065,6 +1073,10 @@ def main(argv: list) -> int:
     parser = argparse.ArgumentParser(prog="forget.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list-withheld", help="list reversible withheld targets and their identifiers")
+    withhold_record = sub.add_parser("withhold-record", help="take one record out of recall by id")
+    withhold_record.add_argument("record_id")
+    withhold_session = sub.add_parser("withhold-session", help="take one conversation out of recall by id")
+    withhold_session.add_argument("session_id")
     restore_record = sub.add_parser("restore-record", help="restore one withheld record by id")
     restore_record.add_argument("record_id")
     restore_session = sub.add_parser("restore-session", help="restore one withheld conversation by id")
@@ -1078,6 +1090,22 @@ def main(argv: list) -> int:
     # through the accepted-hook dispatcher as an unhandled exception. Mirror the sibling pins.py `remove` lane,
     # which already catches and prints. `str(exc)` is plain by construction (any raw authority detail lives on
     # exc.raw_detail, off the message), so nothing backstage is printed.
+    if args.cmd == "withhold-record":
+        try:
+            withhold(record_id=args.record_id)
+        except ControlNotRecorded as exc:
+            print(f"Not withheld: {exc}")
+            return 1
+        print(f"Withheld record {args.record_id}.")
+        return 0
+    if args.cmd == "withhold-session":
+        try:
+            withhold(session_id=args.session_id)
+        except ControlNotRecorded as exc:
+            print(f"Not withheld: {exc}")
+            return 1
+        print(f"Withheld session {args.session_id}.")
+        return 0
     if args.cmd == "restore-record":
         try:
             restore(record_id=args.record_id)

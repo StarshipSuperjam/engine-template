@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:92ae0100052683fc39c10e5062f084b510e61af48a028d5ff410eb218f91a97b",
+        "fingerprint": "sha256:231270549c425d97c5a51e916f006d329f385252322ada9b8eb96ed6ee9f4bd6",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -5407,7 +5407,7 @@
       },
       "slug": "search",
       "source": {
-        "fingerprint": "sha256:899e38511755cbc6fe05460d651a76fb20fcbc6fe8046b29517e4cff623d6099",
+        "fingerprint": "sha256:e7de53ae11a1193a8bf0cf50bc3178c47540ed4c301eea1a8940330732ee3a99",
         "path": ".engine/interfaces/search.json"
       },
       "status": "active",
@@ -12492,7 +12492,7 @@
       },
       "slug": "forget",
       "source": {
-        "fingerprint": "sha256:244b79a88d63984f51303f792bf98dd1a9bc3b55984258b56849c882ff3fff4d",
+        "fingerprint": "sha256:0eb9fcdd3147147087fa185a8926dfe83eb2d77caf3c5e9efd27f93c7cd126de",
         "path": ".engine/tools/memory/forget.py"
       },
       "status": "active",
@@ -13385,7 +13385,8 @@
           "tool:records",
           "tool:refusals",
           "tool:store",
-          "tool:stranding_log"
+          "tool:stranding_log",
+          "tool:write_dispatch"
         ],
         "provided_by": [
           "module:memory-substrate-sqlite-fts5"
@@ -13393,7 +13394,7 @@
       },
       "slug": "mcp_server",
       "source": {
-        "fingerprint": "sha256:cb05be321fd1468fa2c02d9883b332b823d93af8b2419f632b0db13433a602e4",
+        "fingerprint": "sha256:d7c6382bbb626ef0d4f61bbff8de6b2024eeec9faf97cf67c98e91b39e1d1940",
         "path": ".engine/tools/memory/mcp_server.py"
       },
       "status": "active",
@@ -13819,7 +13820,7 @@
       },
       "slug": "mutation_contract",
       "source": {
-        "fingerprint": "sha256:40dc3a2d3c3a85163a1fadf899b3b3bfd6a613bc1006bd668b4121e16931ab92",
+        "fingerprint": "sha256:2b43aa8f3c6a3e13e6ab8895c6b89b27baebe543194b4ca74f8642fd990e81e3",
         "path": ".engine/tools/memory/mutation_contract.py"
       },
       "status": "active",
@@ -14043,7 +14044,7 @@
       },
       "slug": "pins",
       "source": {
-        "fingerprint": "sha256:2dfeb3abcf338e921f4fd67cc88a716e5236a9341ea6ca5a6538a2614f7f7ef2",
+        "fingerprint": "sha256:6af4bd3152ed0d23ba13db43c66a56c5972a060ccb58376d7290f34611325e40",
         "path": ".engine/tools/memory/pins.py"
       },
       "status": "active",
@@ -18453,12 +18454,13 @@
           "tool:store",
           "tool:stranding_log",
           "tool:test_mutation_authority",
-          "tool:validate"
+          "tool:validate",
+          "tool:write_dispatch"
         ]
       },
       "slug": "test_mcp_server",
       "source": {
-        "fingerprint": "sha256:936c45b28cc655ee747c841c700ed73718837003930c02af639a6423b78aca4f",
+        "fingerprint": "sha256:0ac9b148212ca144fe8c6c32d7e75fab22c856834f811bb59f9dee248bbaa094",
         "path": ".engine/tools/memory/test_mcp_server.py"
       },
       "status": "active",
@@ -18770,7 +18772,7 @@
       },
       "slug": "test_mutation_authority",
       "source": {
-        "fingerprint": "sha256:35788ba51d14079345f4a46728f2c1826052519b769ede8776833c08ffb8454e",
+        "fingerprint": "sha256:9755e68a435696eb8458a5b50105206470878feee7f5f572a2a5aa7c860468a4",
         "path": ".engine/tools/memory/test_mutation_authority.py"
       },
       "status": "active",
@@ -21335,6 +21337,33 @@
       "type": "tool"
     },
     {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_write_dispatch",
+      "name": ".engine/tools/memory/test_write_dispatch.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:ledger",
+          "tool:pins",
+          "tool:records",
+          "tool:refusals",
+          "tool:write_dispatch"
+        ]
+      },
+      "slug": "test_write_dispatch",
+      "source": {
+        "fingerprint": "sha256:ca60f80e5883520ea3251c91062f3123e829160b5a5b18be0dd884b2994b44e2",
+        "path": ".engine/tools/memory/test_write_dispatch.py"
+      },
+      "status": "active",
+      "summary": "Unit tests for write_dispatch.py — the one seam every memory write crosses.",
+      "type": "tool"
+    },
+    {
       "entrypoint": "cli",
       "guarded": false,
       "id": "tool:transaction",
@@ -21787,6 +21816,34 @@
       },
       "status": "active",
       "summary": "Read the in-flight git/GitHub work record — the \"work in hand\" attention ranks at orientation",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:write_dispatch",
+      "name": ".engine/tools/memory/write_dispatch.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:execution_context",
+          "tool:forget",
+          "tool:mutation_authority",
+          "tool:pins",
+          "tool:records",
+          "tool:refusals"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "write_dispatch",
+      "source": {
+        "fingerprint": "sha256:736da10f7f3e23830bdb4554108faf3226dcc07b50b2397f3f77499c5b0c8a14",
+        "path": ".engine/tools/memory/write_dispatch.py"
+      },
+      "status": "active",
+      "summary": "write_dispatch.py — the one seam every memory write crosses: the server hands a write to a freshly",
       "type": "tool"
     }
   ],

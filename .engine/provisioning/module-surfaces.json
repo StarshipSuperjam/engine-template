@@ -1953,6 +1953,12 @@
   ".engine/tools/memory/test_snapshot_format.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/test_write_dispatch.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/write_dispatch.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory_pointer_public_safety_check.py": [
    "core"
   ],
