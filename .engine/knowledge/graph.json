@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:5adcfcedc69d6661b0d8be856f1a525d2c159a59e132094cde34a67b07206645",
+        "fingerprint": "sha256:42063b35bea24f2b5b2d8e0971b90d1779c7a59bf0c94bf9fb6a3c61a4a94696",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -10703,6 +10703,30 @@
     {
       "entrypoint": "demo",
       "guarded": false,
+      "id": "tool:demo_864_stale_registry_selftest",
+      "name": ".engine/tools/demo_864_stale_registry_selftest.py",
+      "owner": "core",
+      "predicates": {
+        "imports": [
+          "tool:repo_identity",
+          "tool:validate"
+        ],
+        "provided_by": [
+          "module:core"
+        ]
+      },
+      "slug": "demo_864_stale_registry_selftest",
+      "source": {
+        "fingerprint": "sha256:7d7ab16da0008d30a1c6939f9bb1cd567eed376443cf2e7b6ee6a14cbbb82566",
+        "path": ".engine/tools/demo_864_stale_registry_selftest.py"
+      },
+      "status": "active",
+      "summary": "Behavioral evidence for #864: a stale `module-surfaces.json` must fail the launcher's own self-tests",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "demo",
+      "guarded": false,
       "id": "tool:demo_959_finalize_ready_transition",
       "name": ".engine/tools/demo_959_finalize_ready_transition.py",
       "owner": "core",
@@ -12691,7 +12715,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:8b0ee12bf9ada3d3a5d0a89f0f676f1e8a580865346e87f0ee81fde76bc4a759",
+        "fingerprint": "sha256:57af0594c89c5a31ed4f4a22282a4f39a64122c9a0ca7b371d276f8848d0a3f2",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -14649,7 +14673,7 @@
       },
       "slug": "release_gate",
       "source": {
-        "fingerprint": "sha256:2515b85e2e3a4d0952e021c353543598ab8f45e82dc30b369f97b5a41a550b74",
+        "fingerprint": "sha256:576b5aadd066f302d181ba141ed689fd15bf7589ffc3ae3ce3cac296b0cb3215",
         "path": ".engine/tools/release_gate.py"
       },
       "status": "active",
@@ -15227,7 +15251,7 @@
       },
       "slug": "selftest",
       "source": {
-        "fingerprint": "sha256:1107f2ba421609eda9a5e0eeebdf2b3c6ba081bf50cf7613c5f07cd6aa6123b4",
+        "fingerprint": "sha256:1c345883692b5773096a496a6b9eb1dacad973872c96077edc89a54bda312434",
         "path": ".engine/tools/selftest.py"
       },
       "status": "active",
@@ -15278,7 +15302,7 @@
       },
       "slug": "selftest_support",
       "source": {
-        "fingerprint": "sha256:202ea2e97b3b7e74fafcf74d6a8556746dae362fd3f11220268283154224a281",
+        "fingerprint": "sha256:36343ddbb5c7b6a2abfd105681ea025d6b485215fe5c987322f12500ef87e985",
         "path": ".engine/tools/selftest_support.py"
       },
       "status": "active",
@@ -18099,7 +18123,7 @@
       },
       "slug": "test_knowledge",
       "source": {
-        "fingerprint": "sha256:6bdecd140ba183faaca5334b24c036ac7f6bd42547b9f7d3601d1c0bda90cc4b",
+        "fingerprint": "sha256:e92ab1189889d0a9b1dc6e5d67465ea56428c62b67d4407956c2e57a7580a264",
         "path": ".engine/tools/test_knowledge.py"
       },
       "status": "active",
@@ -18201,7 +18225,7 @@
       },
       "slug": "test_launch_contract",
       "source": {
-        "fingerprint": "sha256:b20565110939e481d7535b2d2017dbba7cfe3bce62e4cc7e6b17eb052c7c81d4",
+        "fingerprint": "sha256:aa12f439b4b7a31fb67079f823037c68944eea4f960d986b23488b078a3e9a9f",
         "path": ".engine/tools/test_launch_contract.py"
       },
       "status": "active",
@@ -19656,7 +19680,7 @@
       },
       "slug": "test_release_gate",
       "source": {
-        "fingerprint": "sha256:2dfc94a300aaf31de84a25888c2cd695d3d39383fd65502dba71d4d9277be7b1",
+        "fingerprint": "sha256:7f361ab870d72f6463564b2fb679967c2798409936c02fa524e94a4f32e06aae",
         "path": ".engine/tools/test_release_gate.py"
       },
       "status": "active",
@@ -20454,7 +20478,7 @@
       },
       "slug": "test_selftest",
       "source": {
-        "fingerprint": "sha256:08c77aa86595d0ccb8b9397ca20ef893017521b845a6292fc0b58fe4d8b03f5b",
+        "fingerprint": "sha256:2e77756eac8fab6052856ee36f073003acbbb1f6eae9304ef94d27f679eef14a",
         "path": ".engine/tools/test_selftest.py"
       },
       "status": "active",
@@ -20514,6 +20538,31 @@
       },
       "status": "active",
       "summary": "Regression fixture for the affected-test selector (selftest_select.py).",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_selftest_support",
+      "name": ".engine/tools/test_selftest_support.py",
+      "owner": "core",
+      "predicates": {
+        "provided_by": [
+          "module:core"
+        ],
+        "tests": [
+          "tool:release_gate",
+          "tool:selftest",
+          "tool:selftest_support"
+        ]
+      },
+      "slug": "test_selftest_support",
+      "source": {
+        "fingerprint": "sha256:1b4d5fc17e98eccfc02d6bd97ef8513a41be51402ab93c6d15193e2640925ea7",
+        "path": ".engine/tools/test_selftest_support.py"
+      },
+      "status": "active",
+      "summary": "Tests for `selftest_support.py`'s two env-var markers and the pure predicate built on them.",
       "type": "tool"
     },
     {
