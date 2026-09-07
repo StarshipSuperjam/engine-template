@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:231270549c425d97c5a51e916f006d329f385252322ada9b8eb96ed6ee9f4bd6",
+        "fingerprint": "sha256:b12f61ec9df77a0645f02e6b263946255ecc9e32660942cc574d28ea4b1c0d26",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -13200,6 +13200,30 @@
       "type": "tool"
     },
     {
+      "entrypoint": "cli",
+      "guarded": false,
+      "id": "tool:legacy_coverage",
+      "name": ".engine/tools/memory/legacy_coverage.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "imports": [
+          "tool:ledger",
+          "tool:records"
+        ],
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ]
+      },
+      "slug": "legacy_coverage",
+      "source": {
+        "fingerprint": "sha256:9afc55123b59725bff4962058d4d82190f96169517895b5271ee53e25a0df6ab",
+        "path": ".engine/tools/memory/legacy_coverage.py"
+      },
+      "status": "active",
+      "summary": "Legacy summary/gist coverage census — a READ-ONLY audit (StarshipSuperjam/engine-template#1053).",
+      "type": "tool"
+    },
+    {
       "entrypoint": "library",
       "guarded": false,
       "id": "tool:legacy_shapes",
@@ -18280,6 +18304,32 @@
       },
       "status": "active",
       "summary": "test_ledger_migrations.py — the home a restore routes through to carry an older-shaped backup forward.",
+      "type": "tool"
+    },
+    {
+      "entrypoint": "test",
+      "guarded": false,
+      "id": "tool:test_legacy_coverage",
+      "name": ".engine/tools/memory/test_legacy_coverage.py",
+      "owner": "memory-substrate-sqlite-fts5",
+      "predicates": {
+        "provided_by": [
+          "module:memory-substrate-sqlite-fts5"
+        ],
+        "tests": [
+          "tool:ledger",
+          "tool:legacy_coverage",
+          "tool:legacy_shapes",
+          "tool:records"
+        ]
+      },
+      "slug": "test_legacy_coverage",
+      "source": {
+        "fingerprint": "sha256:4d5c99d6a2455cf027be9358d6479d3726ddcdcf9832647f33299587af930875",
+        "path": ".engine/tools/memory/test_legacy_coverage.py"
+      },
+      "status": "active",
+      "summary": "Unit tests for legacy_coverage.py — the read-only legacy summary/gist coverage census (StarshipSuperjam/engine-template#1053).",
       "type": "tool"
     },
     {

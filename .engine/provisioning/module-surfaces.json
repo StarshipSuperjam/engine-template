@@ -1800,6 +1800,9 @@
   ".engine/tools/memory/ledger_migrations.py": [
    "memory-substrate-sqlite-fts5"
   ],
+  ".engine/tools/memory/legacy_coverage.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
   ".engine/tools/memory/legacy_shapes.py": [
    "memory-substrate-sqlite-fts5"
   ],
@@ -1918,6 +1921,9 @@
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_ledger_migrations.py": [
+   "memory-substrate-sqlite-fts5"
+  ],
+  ".engine/tools/memory/test_legacy_coverage.py": [
    "memory-substrate-sqlite-fts5"
   ],
   ".engine/tools/memory/test_mcp_server.py": [
