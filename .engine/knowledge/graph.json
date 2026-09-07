@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:5833f91eed2661221abb6c7b5c4159b5468ae1c2c2767a611dc75cbeaf3a3b96",
+        "fingerprint": "sha256:b2d0657951b712e5d9bdc26bee61a62261f6d685b6a30baa2a8baad1db972045",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -19278,7 +19278,7 @@
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:bbe175f7979823e90b15f0e32a81a0110410a32b83bc7b61508f319a7cd2ca04",
+        "fingerprint": "sha256:faa6d4444d00ad62adbe4cfb64777c342c6a176d0a1835120b103d87af212667",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
