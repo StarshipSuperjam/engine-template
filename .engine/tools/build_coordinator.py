@@ -1331,15 +1331,33 @@ def cmd_state_migrate(args, store: "Snapshot | None") -> None:
                       "source_kept": True}))
 
 
+# The one place the supersede semantics are worded, shared by the CLI help (parser `description`)
+# and the success output (`note`) so the two can never drift. It names the ONE thing supersede is
+# for and, just as loudly, the three things it is not — because the misread this whole change exists
+# to prevent is treating a previously-submitted binding as either live work to resume or an obstacle
+# to a fresh Build. The advisory's three-case steer (session_relay.advisory_lines) is the other half:
+# it points a confirmed-stale binding here, and points a genuine continuation AWAY from here.
+_SUPERSEDE_GUIDANCE = (
+    "Clears a CONFIRMED-STALE binding by setting this plan's durable Build snapshot aside so a fresh "
+    "Build of the same plan may start. This is NOT how you resume — a genuine continuation keeps this "
+    "worktree and re-verifies its binding, and never supersedes — and it is NOT needed to start a "
+    "different Build elsewhere (cut a fresh worktree and bind the plan there). It neither completes "
+    "the plan nor changes the PR; the displaced snapshot is retained as evidence, never destroyed."
+)
+
+
 def cmd_state_supersede(args, store: "Snapshot | None") -> None:
-    """Set this plan's durable snapshot aside so a second Build of it may start. Never implicit."""
+    """Clear a CONFIRMED-STALE binding: set this plan's durable snapshot aside so a fresh Build of it
+    may start. NOT the resume path (a genuine continuation keeps and re-verifies the binding), NOT
+    needed to start a different Build elsewhere, and neither a plan completion nor a PR change; the
+    displaced snapshot is retained as evidence. Never implicit — see `_SUPERSEDE_GUIDANCE`."""
     library = _library()
     slug = library.resolve(args.plan)
     retired = build_state_store.supersede(library, slug, reason=args.reason)
     if retired is None:
         raise CoordinatorError(
             f"{slug} holds no durable Build snapshot, so there is nothing to supersede.")
-    print(json.dumps({"superseded": str(retired)}))
+    print(json.dumps({"superseded": str(retired), "note": _SUPERSEDE_GUIDANCE}))
 
 
 def plan_store_module():
@@ -5573,7 +5591,7 @@ def parser() -> argparse.ArgumentParser:
     state_p = sub.add_parser("state").add_subparsers(dest="state_command", required=True)
     swhere = state_p.add_parser("where"); swhere.set_defaults(func=cmd_state_where)
     smigrate = state_p.add_parser("migrate"); smigrate.add_argument("--source", required=True, help="an existing OS-temp Build snapshot"); smigrate.add_argument("--plan", required=True, help="the sealed plan whose library folder receives it"); smigrate.set_defaults(func=cmd_state_migrate)
-    ssupersede = state_p.add_parser("supersede"); ssupersede.add_argument("--plan", required=True); ssupersede.add_argument("--reason", required=True); ssupersede.set_defaults(func=cmd_state_supersede)
+    ssupersede = state_p.add_parser("supersede", help="clear a confirmed-stale binding so a fresh Build of the plan may start", description=_SUPERSEDE_GUIDANCE); ssupersede.add_argument("--plan", required=True, help="the sealed plan whose confirmed-stale snapshot is set aside"); ssupersede.add_argument("--reason", required=True, help="why it is confirmed stale; recorded beside the retained snapshot"); ssupersede.set_defaults(func=cmd_state_supersede)
     validate = sub.add_parser("validate"); validate.add_argument("mode", nargs="?", choices=["candidate", "final"], help="bare `validate` and `validate candidate` are the same run; `validate final import` verifies and imports the live engine-ci proof for the submitted head"); validate.add_argument("action", nargs="?", choices=["import"], help="for `final`: import is the only action — the proof is never run locally"); validate.add_argument("--force", action="store_true", help="re-run even when the cached candidate identity matches"); validate.add_argument("--plan", help="the approved plan; REQUIRED for a build-plan.v2 Build, whose node roster lives only there"); validate.set_defaults(func=cmd_validate)
     sync_artifacts = sub.add_parser("sync-artifacts"); sync_artifacts.set_defaults(func=cmd_sync_artifacts)
     repair = sub.add_parser("repair").add_subparsers(dest="repair_command", required=True)
