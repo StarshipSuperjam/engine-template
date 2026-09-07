@@ -4530,14 +4530,19 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
             self.assertNotIn(copy["codex-hook-trust"], said,
                              "the operator's own Codex hook does not trip the engine's trust handoff")
 
-    def test_retire_reads_its_own_base_not_the_import_bound_hooks_constant(self):
-        # Plan scope_boundary[0]: the ownership predicate reads base/.codex/hooks.json (base = retire's own
-        # root), NEVER the import-bound wiring.CODEX_HOOKS_PATH constant. The ordinary _redirect_root idiom
-        # moves that constant in lockstep with the root, so it cannot tell the two apart — this test can:
-        # it points the constant at an EMPTY decoy tree while the fixture root carries the engine hook. A
-        # retire that reads its own base still speaks the handoff; one that read the constant would find the
-        # empty decoy and fall silent. (retire only READS the hooks file — it never writes it — so decoying
-        # the constant is safe here.)
+    def test_retire_derives_the_hooks_path_from_its_own_root_not_the_module_constant(self):
+        # Plan scope_boundary[0]: retire's ownership predicate (is an ENGINE codex hook applied on disk?) must
+        # read base/.codex/hooks.json — the root retire operates on — NOT the import-bound
+        # wiring.CODEX_HOOKS_PATH constant. Under the ordinary _redirect_root idiom base and the constant are
+        # the SAME string, and module coherence's own is_applied read (which uses the constant) forces both to
+        # carry the hook in any tree that passes the consistency gate — so no retire OUTCOME can tell the two
+        # apart; the forms are behaviourally identical by construction, which is exactly why reading the
+        # constant was never a runtime bug. This test discriminates by ARGUMENT instead: it points the
+        # constant at a SEPARATE tree that ALSO carries the applied hook (so is_applied stays consistent and
+        # retire does not refuse), spies the path retire hands the ownership predicate, and asserts it is the
+        # base path, never the constant's. A revert to reading wiring.CODEX_HOOKS_PATH would hand the predicate
+        # the decoy path and fail here. is_applied reads the constant directly (wiring.is_applied), not through
+        # codex_hooks_engine_entries, so the spy captures only retire's own predicate call.
         with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as decoy:
             with inst._redirect_root(d):
                 inst._build_fixture(d)
@@ -4546,13 +4551,29 @@ class TestCodexHookTrustHandoff(unittest.TestCase):
                 inst.confirm([], "solo", engine_release="1.0.0", handle="octocat")
                 inst._finish_apply(d)                             # writes the engine hook to d/.codex/hooks.json
                 copy = inst.load_copy()
-                inst.wiring.CODEX_HOOKS_PATH = os.path.join(decoy, ".codex", "hooks.json")  # decoy the constant
-                said = []
-                res = inst.retire(announce=said.append)
+                base_hooks = os.path.join(d, ".codex", "hooks.json")
+                decoy_hooks = os.path.join(decoy, ".codex", "hooks.json")
+                os.makedirs(os.path.dirname(decoy_hooks), exist_ok=True)
+                Path(decoy_hooks).write_bytes(Path(base_hooks).read_bytes())  # mirror so is_applied stays consistent
+                inst.wiring.CODEX_HOOKS_PATH = decoy_hooks                     # constant now diverges from base
+                seen_paths = []
+                real_predicate = inst.wiring.codex_hooks_engine_entries
+
+                def _spy(directives, path):
+                    seen_paths.append(path)
+                    return real_predicate(directives, path)
+
+                with mock.patch.object(inst.wiring, "codex_hooks_engine_entries", _spy):
+                    said = []
+                    res = inst.retire(announce=said.append)
             self.assertFalse(res["refused"], "retire proceeds on a consistent setup")
+            self.assertIn(base_hooks, seen_paths,
+                          "retire handed the ownership predicate base/.codex/hooks.json — the root it operates on")
+            self.assertNotIn(decoy_hooks, seen_paths,
+                             "retire must derive the hooks path from its own base, never the import-bound "
+                             "wiring.CODEX_HOOKS_PATH constant")
             self.assertIn(copy["codex-hook-trust"], said,
-                          "retire read base/.codex/hooks.json (its own root), not the decoyed import-bound "
-                          "constant — the read follows the caller's root")
+                          "reading its own base, retire still finds the engine hook and speaks the handoff")
 
     # ---- copy surface ----------------------------------------------------------------------------
 
