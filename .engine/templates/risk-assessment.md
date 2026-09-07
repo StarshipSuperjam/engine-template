@@ -4,11 +4,11 @@ allowed_sections: ["If this weakens a safety guardrail"]
 length_budget: 70
 ---
 
-<!-- The plan-gate consent surface. The orchestrator fills this in plain language and shows it to the operator BEFORE doing the work, so the spend is approved before it happens. Two rules bind every line: (1) plain language only — never a review-pass's internal name, a depth number, or any engine vocabulary; (2) never say how long the work will take or name a cost — the engine has no method to know either, and a made-up number is the false confidence the trust model refuses. State what will RUN and let the operator judge the spend from that. Fill each <...>; the depth wording below is fixed copy, shown as-is. The suggested depth (the Headline's care level) is your judgment, derived from the change's risk alone — what review is installed and available, and what the change sits next to (its neighbours and whether it sits near known trouble); state only what genuinely shaped it. It is never lowered by a depth the operator has preferred before — the recommendation is risk-truth. On the fast path (a trivial single reversible change) this whole surface collapses to just the Headline, relayed as one plain line with the other sections skipped; a change that weakens a guardrail or touches a schema is never trivial — it fills the whole surface and its headline stays visibly weightier, so habituation never dulls the high-stakes consent. -->
+<!-- The plan-gate consent surface. The orchestrator fills each <...> in plain language and shows it to the operator BEFORE doing the work, so the spend is approved before it happens. Two rules bind every line: (1) plain language only — never a review-pass's internal name, a depth number, or any engine vocabulary; (2) never say how long the work will take or name a cost — the engine has no method to know either, and a made-up number is the false confidence the trust model refuses. State what will RUN and let the operator judge the spend from that. Fill each <...>; the depth wording below is fixed copy, shown as-is. The recommendation (the Headline's care level) is your judgment, derived from the change's risk alone — what review is installed and available, and what the change sits next to (its neighbours and whether it sits near known trouble); state only what genuinely shaped it. It is never lowered by a depth the operator has preferred before — the recommendation is risk-truth. On the fast path (a trivial single reversible change) this whole surface collapses to just the Headline, relayed as one plain line with the other sections skipped; a change that weakens a guardrail or touches a schema is never trivial — it fills the whole surface and its headline stays visibly weightier, so habituation never dulls the high-stakes consent. -->
 
 ## Headline
 
-**<One plain sentence that varies with the change — what it touches and the care it suggests; this is the line that gets read, the detail below is what it cites. e.g. "This changes your sign-in flow and the database. I'd suggest a thorough review — security matters here.">**
+> **My recommendation: <the one care level and the single reason it is that level — e.g. "a thorough review — this touches your sign-in flow and the database.">**
 
 ## What this touches
 
@@ -16,17 +16,15 @@ length_budget: 70
 
 ## What I'll run
 
-<The review passes and checks this depth will actually run — the scope of the spend being approved — and what is missing. Never a time or a cost figure. If no review packs are installed, say so plainly: "No review packs are installed, so beyond the automatic checks this rests on your read at merge." If any part of the engine the review relies on is currently unavailable, say that in plain words too. If a review that runs at this depth would run the operator's code in a throwaway copy to judge it, say that plainly here — "to check this, the engine may run your code in a throwaway copy; it never touches your real project" — but ONLY when that is genuinely in scope for this change and depth, never as a blanket warning.>
+<The review passes and checks this depth will actually run — the scope of the spend being approved — and what is missing. Never a time or a cost figure. If no review packs are installed, say so plainly: "No review packs are installed, so beyond the automatic checks this rests on your read at merge." If any part of the engine the review relies on is currently unavailable, say that in plain words too. If a review that runs at this depth would run the operator's code in a throwaway copy to judge it, say that plainly — "to check this, the engine may run your code in a throwaway copy; it never touches your real project" — but ONLY when that is genuinely in scope for this change and depth, never as a blanket warning.>
 
 ## How careful — your choice
 
-You choose how careful this should be; the suggestion above is the default. Every level runs the same automatic checks and the same full test suite on every change — what the levels change is how much independent review runs on top. "What I'll run" above is the authoritative list for this change. I only offer levels that would actually add something here: if a heavier level would run exactly what a lighter one does, I don't offer it.
+You choose how careful this should be; the recommendation above is the default. Every level runs the same automatic checks and the same full test suite on every change — what the levels change is how much independent review runs on top. I only offer the levels that add something here: if a heavier level would run exactly what a lighter one does, I don't offer it. When only Quick would add anything (no review packs installed, or none that add coverage for this change), I present Quick alone and say so plainly — "No extra review adds anything here, so this is my own read plus the automatic checks" — rather than offer a choice that buys nothing. The levels promise what will RUN, never that the result is guaranteed correct — your merge is the gate.
 
 - **Quick check** — I look it over myself and run the automatic checks (the completeness and guardrail checks, and the full test suite, that run on every change) — no separate reviewers. The lightest: with no independent review, the least gets caught before it ships, so you lean most on your own read at merge.
-- **Standard review** — a focused subset of the independent reviews — more independent review than Quick. ("What I'll run" above lists exactly which lenses run at each gate.)
+- **Standard review** — a focused subset of the independent reviews — more independent review than Quick.
 - **Thorough review** — every independent review available — the most independent review, so the most gets caught before it ships.
-
-<Present ONLY the levels that add something here — derive them from what review is installed and what each depth would run, dropping any heavier level that would run exactly what a lighter one does. When only Quick would add anything (no review packs installed, or none that add coverage for this change), you MUST present Quick alone and say so plainly rather than offer a choice that buys nothing: "No extra review adds anything here, so this is my own read plus the automatic checks — installing a review pack is what would add deeper review to choose from." The levels promise what will RUN, never that the result is guaranteed correct — your merge is the gate.>
 
 ## If this weakens a safety guardrail
 
@@ -34,4 +32,4 @@ You choose how careful this should be; the suggestion above is the default. Ever
 
 ## Your call
 
-<The consent ask in plain words: go ahead at the suggested depth, pick a different depth, or install a review pack first. Nothing starts until the operator approves.>
+<The consent ask in plain words: go ahead at the recommended level, pick a different one, or install a review pack first. Nothing starts until the operator approves.>

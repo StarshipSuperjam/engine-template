@@ -59,11 +59,11 @@ a GitHub comment, and GitHub or network loss does not stop same-session local wo
 ### 2. Assess risk and approve the Build gate
 
 **Risk and depth are settled on the plan side, before the seal**, and
-[Plan orchestration](plan-orchestration.md) runs that stop: run the knowledge impact check, offer only the
-depths worth offering for this repository's installed reviewers (only Quick when no reviewers,
-StarshipSuperjam/engine-template#763), fill `.engine/templates/risk-assessment.md` in plain language, and
-record the operator's approval at the gate. No installed reviewer is a disclosed no-extra-review result,
-never a false green.
+[Plan orchestration](plan-orchestration.md) runs that stop — the plan's context and open questions first, the
+depth a separate, led step reached once the operator has closed every open question. Run the knowledge impact check, offer only the depths
+worth offering for this repository's installed reviewers (only Quick when no reviewers, StarshipSuperjam/engine-template#763),
+fill `.engine/templates/risk-assessment.md` — now carrying a one-line care recommendation — in plain language, and record the operator's approval.
+No installed reviewer is a disclosed no-extra-review result, never a false green.
 
 **That one choice covers both gates**: it names the lenses the seal will require, and it is the depth this
 Build's deliverable review runs at, so consent is given once and given there. On the Build side,

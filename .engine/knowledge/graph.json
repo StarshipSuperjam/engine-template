@@ -5763,7 +5763,7 @@
       },
       "slug": "build-kickoff",
       "source": {
-        "fingerprint": "sha256:a3c99d72a593ad9946254dac4656b5b3a478b2a24e6986b3787eb045a5c88061",
+        "fingerprint": "sha256:b2d0657951b712e5d9bdc26bee61a62261f6d685b6a30baa2a8baad1db972045",
         "path": ".engine/operations/build-kickoff.md"
       },
       "status": "active",
@@ -6383,7 +6383,7 @@
       },
       "slug": "plan-orchestration",
       "source": {
-        "fingerprint": "sha256:4df6c6f1ca846ce63a716e9ef95e135bbbbc6e921ba214f4d10bbf35a3d3d992",
+        "fingerprint": "sha256:96d715e5a6ac4747a09346837c83729cb1a8e2a8c74a21f24e92f4983bbdbe5f",
         "path": ".engine/operations/plan-orchestration.md"
       },
       "status": "active",
@@ -19278,7 +19278,7 @@
       },
       "slug": "test_plan_to_ready_pr_demo",
       "source": {
-        "fingerprint": "sha256:37848deadbdf642d417af9c90b58fe55e6349efa43df03528ad31ea21bcd4b73",
+        "fingerprint": "sha256:faa6d4444d00ad62adbe4cfb64777c342c6a176d0a1835120b103d87af212667",
         "path": ".engine/tools/test_plan_to_ready_pr_demo.py"
       },
       "status": "active",
