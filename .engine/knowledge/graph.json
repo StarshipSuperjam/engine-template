@@ -5211,7 +5211,7 @@
       },
       "slug": "ci-assurance",
       "source": {
-        "fingerprint": "sha256:90021dc6dbc4489564b7ca4774f03a9253fd3bcacd86fcbea015660cd4ea4734",
+        "fingerprint": "sha256:bf04347b05e84eedf33eb6dfdbaa1ac2e8c539aa19bc97dd846823086bea30e1",
         "path": ".engine/docs/ci-assurance.md"
       },
       "status": "active",
@@ -12715,7 +12715,7 @@
       },
       "slug": "instantiator",
       "source": {
-        "fingerprint": "sha256:d436fff33fabc6275c913490ee58f28a4198b2949e5a776f93a64ce0a4f70dc7",
+        "fingerprint": "sha256:162c9daafc9043792510a626f5a0bf882f5b424d0908b64c5b2564c4d66f8472",
         "path": ".engine/tools/instantiator.py"
       },
       "status": "active",
@@ -16861,7 +16861,7 @@
       },
       "slug": "test_codex_trust_surfaces",
       "source": {
-        "fingerprint": "sha256:90b422b82b9deb4610a7a49c0937ad3c25b753a84de12d297b81720afcb192c3",
+        "fingerprint": "sha256:93430da7916dbe8a9b55c463f8d83b1d65f703a6c244cc2ac9cdd5300b8d0519",
         "path": ".engine/tools/test_codex_trust_surfaces.py"
       },
       "status": "active",
