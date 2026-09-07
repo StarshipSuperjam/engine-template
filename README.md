@@ -181,8 +181,9 @@ Build evidence follow the repository between them. Each runtime receives native 
 and live helpers rather than a separate Engine implementation.
 
 On Claude Code, Engine commands use the `/engine-…` form. On Codex, they use `$engine-…`; approve the Engine's
-project hooks when prompted, re-approve them when an Engine update asks you to, and trust the project before
-enabling its live helpers. The setup flow above tells you when one of those runtime-specific actions is needed.
+project hooks when prompted — the CLI prompts, though the Desktop app may not, so open the Hooks screen under
+Settings — re-approve them when an Engine update asks you to, and trust the project before enabling its live
+helpers. The setup flow above tells you when one of those runtime-specific actions is needed.
 
 ## Running unattended
 
