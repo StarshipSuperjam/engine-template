@@ -5199,5 +5199,76 @@ class TestTheStagedMarkerIsWrittenAfterTheRecoveryTransaction(unittest.TestCase)
                         "which invalidates the warrant for the no-handle consent exception")
 
 
+class TestCodexHookRetrustNote(unittest.TestCase):
+    """When an upgrade or a module-add ADDS or CHANGES a codex-hook wire, Codex distrusts the new definition
+    until the operator re-approves it, so both flows must speak the re-trust note exactly once — and must NOT
+    speak it when no codex-hook wire changed (StarshipSuperjam/engine-template#805). The flag is derived in `_apply_wiring_deltas`
+    (upgrade) and `add()`; the renderers print `wiring.CODEX_RETRUST_NOTE` off it."""
+
+    _HOOK = {"type": "codex-hook", "event": "SessionStart",
+             "hook": {"type": "command", "command": ".engine/tools/hooks.py session-start"}}
+    _MCP = {"type": "codex-mcp", "name": "engine-x", "definition": {"a": 1}}
+
+    def _render(self, fn, result):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            fn(result)
+        return buf.getvalue()
+
+    def _apply_flag(self, old, new):
+        # Exercise the REAL derivation in _apply_wiring_deltas without touching disk: the appliers/reversers
+        # are the seam side effects, stubbed to no-ops so only the delta-driven flag is under test.
+        with mock.patch.object(wiring, "apply_all", return_value=[]), \
+                mock.patch.object(wiring, "reverse", return_value={"message": "reversed"}), \
+                mock.patch.object(wiring, "reverse_all", return_value=[]), \
+                mock.patch.object(module_manager.validate, "fmt", side_effect=lambda f: f.get("message", "")):
+            _lines, retrust = module_manager._apply_wiring_deltas(old, new)
+        return retrust
+
+    def test_upgrade_flag_true_when_a_codex_hook_is_added(self):
+        self.assertTrue(self._apply_flag({"base": {"wires": []}},
+                                         {"base": {"wires": [self._HOOK]}}))
+
+    def test_upgrade_flag_true_when_a_codex_hook_definition_changes(self):
+        changed = {"type": "codex-hook", "event": "SessionStart",
+                   "hook": {"type": "command", "command": ".engine/tools/hooks.py session-start --v2"}}
+        # same event, DIFFERENT command -> a new identity -> added (a re-trust is still required)
+        self.assertTrue(self._apply_flag({"base": {"wires": [self._HOOK]}},
+                                         {"base": {"wires": [changed]}}))
+
+    def test_upgrade_flag_false_when_no_codex_hook_changes(self):
+        # a non-hook wire changes; the codex-hook wire is byte-identical in both -> no re-trust
+        old = {"base": {"wires": [self._HOOK, self._MCP]}}
+        new = {"base": {"wires": [self._HOOK, {"type": "codex-mcp", "name": "engine-x",
+                                               "definition": {"a": 2}}]}}
+        self.assertFalse(self._apply_flag(old, new))
+
+    def test_upgrade_flag_false_when_a_codex_hook_is_only_reversed(self):
+        # a dropped hook is REVERSED, never re-applied, so it needs no re-trust
+        self.assertFalse(self._apply_flag({"base": {"wires": [self._HOOK]}},
+                                          {"base": {"wires": []}}))
+
+    def test_upgrade_render_speaks_the_note_once_when_flagged(self):
+        out = self._render(module_manager._render_upgrade,
+                           {"from": {"base": "0.1.0"}, "to": {"base": "0.2.0"},
+                            "codex_hook_retrust": True})
+        self.assertEqual(out.count(wiring.CODEX_RETRUST_NOTE), 1)
+
+    def test_upgrade_render_silent_when_not_flagged(self):
+        out = self._render(module_manager._render_upgrade,
+                           {"from": {"base": "0.1.0"}, "to": {"base": "0.2.0"}})
+        self.assertNotIn(wiring.CODEX_RETRUST_NOTE, out)
+
+    def test_add_render_speaks_the_note_once_when_flagged(self):
+        out = self._render(module_manager._render_add,
+                           {"module_id": "demo", "version": "1.0.0", "codex_hook_retrust": True})
+        self.assertEqual(out.count(wiring.CODEX_RETRUST_NOTE), 1)
+
+    def test_add_render_silent_when_not_flagged(self):
+        out = self._render(module_manager._render_add,
+                           {"module_id": "demo", "version": "1.0.0"})
+        self.assertNotIn(wiring.CODEX_RETRUST_NOTE, out)
+
+
 if __name__ == "__main__":
     unittest.main()

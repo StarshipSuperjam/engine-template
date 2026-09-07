@@ -120,9 +120,18 @@ CODEX_CONFIG_PATH = os.path.join(validate.ROOT, ".codex", "config.toml")  # code
 
 # The plain-language re-trust notice every codex-hook change carries: Codex records trust against each
 # hook's exact definition, so a new or changed registration is silently SKIPPED until the operator
-# re-trusts it — the one moment to say so is when the engine makes the change.
-CODEX_RETRUST_NOTE = ("Codex skips new or changed hooks until you approve them again — open Codex "
-                      "and run /hooks to re-approve the engine's hooks.")
+# re-trusts it — the one moment to say so is when the engine makes the change. It names BOTH approval
+# paths (the CLI /hooks review and the Codex Desktop Settings -> Hooks screen), warns that on Desktop
+# the prompt may not appear on its own and that the VS Code extension does not run project hooks at all,
+# and names what stays off until the operator approves: session grounding, the exploration write-gate,
+# and memory capture.
+CODEX_RETRUST_NOTE = ("Codex records trust for each hook exactly as written, so a hook the engine just "
+                      "added or changed is untrusted until you approve it again — and until you do, its "
+                      "session grounding, its exploration write-gate, and its memory capture stay off. "
+                      "Approve it in the Codex CLI with /hooks, or in Codex Desktop under "
+                      "Settings -> Hooks; on Desktop the prompt may not appear on its own, so open that "
+                      "Hooks screen and approve it there yourself. The VS Code extension does not run "
+                      "project hooks at all, so approve from the CLI or the Desktop app instead.")
 
 
 class WiringError(Exception):
@@ -1138,6 +1147,48 @@ def applied_engine_wires() -> list:
     for fence_id in _applied_fence_ids(CODEX_CONFIG_PATH):
         if fence_id.startswith(MCP_NAME_PREFIX):
             out.append(("codex-mcp", fence_id, _rel(CODEX_CONFIG_PATH)))
+    return out
+
+
+# ---- the ONE codex-hook ownership predicate (declared -> applied, EXACT identity) ----------
+# The single question "which of the Engine's OWN codex hooks are on disk right now?", answered by exact
+# (event, matcher, type, command) identity against the declared wires — NOT the .engine/ substring test
+# applied_engine_wires() uses for the orphan-reverse leg. Setup, upgrade and retire all speak the trust
+# handoff iff at least one Engine codex hook actually landed, and they must not be fooled by a foreign
+# hook whose command merely mentions .engine/, nor count a drifted engine-named entry no manifest
+# declares. One predicate, so those three surfaces can never disagree about what "our hooks are present"
+# means.
+
+def codex_hooks_engine_entries(directives: list, path: str) -> list:
+    """The Engine's own codex-hook registrations currently APPLIED in the hooks file at `path`: every
+    on-disk hook entry whose (event, matcher, type, command) EXACTLY matches a declared codex-hook wire
+    in `directives`. `path` is REQUIRED — setup, upgrade and retire each ask about a specific
+    hooks.json, and this never guesses one. A foreign hook whose command only mentions .engine/ is not
+    ours and is excluded; a drifted engine-named entry that no directive declares is excluded too.
+    Returns each match as {event, matcher, type, command}; an absent, empty or unreadable file yields []
+    (the read is create-tolerant, so asking never writes the file)."""
+    declared = set()
+    for directive in directives or []:
+        identity = declared_wire_identity(directive)
+        if identity and identity[0] == "codex-hook":
+            declared.add(identity[1])          # (event, matcher_normalized, type, command)
+    if not declared:
+        return []
+    data, err = _read_json_tolerant(path, create=True)
+    if err is not None:
+        return []
+    out = []
+    for event, groups in (data.get("hooks") or {}).items():
+        for group in (groups or []):
+            if not isinstance(group, dict):
+                continue
+            matcher = group.get("matcher") or None
+            for hook in (group.get("hooks") or []):
+                if not isinstance(hook, dict):
+                    continue
+                if (event, matcher, hook.get("type"), hook.get("command")) in declared:
+                    out.append({"event": event, "matcher": matcher,
+                                "type": hook.get("type"), "command": hook.get("command")})
     return out
 
 

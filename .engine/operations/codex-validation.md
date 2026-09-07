@@ -15,7 +15,8 @@ Codex adapter surfaces, or when a Codex session reports its hooks are not runnin
 1. **Item zero — version.** Run `codex --version` and confirm the installed Codex is a build with
    hooks support (a 2026 build, around v0.114 or later). On an older build every later step fails
    for that reason alone — upgrade first, or stop here and say so.
-2. Open the repository in Codex, run `/hooks`, and approve the engine's hooks (they are skipped
+2. Open the repository in Codex, run `/hooks` (or, in the Desktop app, open the Hooks screen under
+   Settings), and approve the engine's hooks (they are skipped
    until trusted; after any engine update that changes `.codex/hooks.json` they need re-approval —
    the engine says so whenever it changes that file).
 3. Start a fresh session and check the floor and grounding: the session reads `AGENTS.md`, and its

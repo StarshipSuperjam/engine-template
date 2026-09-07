@@ -199,6 +199,7 @@ COPY_HEADINGS = {
     "license-cleared": "Your project starts without a license — and that's normal",
     "state-reseeded": "Your project starts from a clean slate",
     "product-version-seeded": "Your product's release version is ready to use",
+    "codex-hook-trust": "If you use Codex, its hooks need your approval",
     "codeowners-degraded": "If I couldn't set up file ownership for reviews",
     "control-plane-unavailable": "If I couldn't reach your project on GitHub",
     "actions-enablement": "One more switch only you can flip",
@@ -378,6 +379,19 @@ FALLBACK_COPY = {
         "one-time credential the release workflow walks you through the first time you run it. The file is "
         "yours: change the starting version if you like, and it stays put when the engine updates. I didn't add "
         "it silently — this note is me telling you it's here."
+    ),
+    "codex-hook-trust": (
+        "If you use Codex, the engine just placed its own hooks in .codex/hooks.json — the small programs "
+        "that let it ground each session, guard what gets written while it explores, and capture what you "
+        "decide to memory. Codex won't run any of them until you approve them: it records trust for each hook "
+        "exactly as written and silently skips any it doesn't recognise, so until you approve these, three "
+        "things stay off — session grounding, the exploration write-gate, and memory capture. Approving takes "
+        "a moment: in the Codex CLI, run /hooks and approve the engine's hooks; in Codex Desktop, open "
+        "Settings -> Hooks and approve them there. On Desktop the approval prompt may not appear on its own, so "
+        "open that Hooks screen and approve them yourself rather than waiting to be asked; the Codex VS Code "
+        "extension does not run project hooks at all, so approve from the CLI or the Desktop app instead. "
+        "Nothing is trusted automatically and I never flip that switch for you — approval stays your "
+        "manual choice. If you don't use Codex, there's nothing to do here."
     ),
 }
 
@@ -1382,17 +1396,34 @@ def _apply_substrates(say, copy=None) -> dict:
     return result
 
 
-def _apply_wires(say) -> dict:
+def _apply_wires(say, copy) -> dict:
     """STEP 5 — install EVERY kept module's wiring: the hooks (boot, the exploration write-gate, the close
     gate, the commit-boundary refresh), the knowledge query server, and the cache ignores. Until this runs a
     generated repo's settings carry no engine hooks, so the engine is inert — this is the step that turns it
     on. Reuses wiring.apply_all exactly as module-add does; insert-iff-absent
-    (idempotent)."""
+    (idempotent). When at least one of the kept modules' hooks is a Codex hook and it actually landed in
+    .codex/hooks.json, speak the trust handoff right here, right after wiring: those hooks are untrusted
+    until the operator approves them, and the count rides in the ledger as `codex_hooks_engine`."""
     applied = []
+    directives = []
     for _p, m in module_coherence.discover_manifests():
-        for f in wiring.apply_all(m.get("wires") or []):
+        wires = m.get("wires") or []
+        directives.extend(wires)
+        for f in wiring.apply_all(wires):
             applied.append(validate.fmt(f))
-    return {"step": "wires", "status": "done", "applied": applied}
+    # Ownership predicate reads the SAME .codex/hooks.json wiring.apply_all just wrote to, derived from this
+    # run's own root (validate.ROOT) rather than the import-bound wiring.CODEX_HOOKS_PATH constant, per plan
+    # scope_boundary[0]. _redirect_root rebinds validate.ROOT in lockstep with that constant, so a fixture run
+    # reads its own tree. Only retire's read is pinned by a discriminating test (TestCodexHookTrustHandoff spies
+    # retire's ownership-predicate call against a decoyed constant); _apply_wires runs only under _redirect_root,
+    # which binds root and constant to the same tree, so no test distinguishes its form here — the root-derived
+    # read is used for plan conformance, not a runtime difference.
+    engine_codex_hooks = wiring.codex_hooks_engine_entries(
+        directives, os.path.join(validate.ROOT, ".codex", "hooks.json"))
+    if engine_codex_hooks:
+        say(copy["codex-hook-trust"])
+    return {"step": "wires", "status": "done", "applied": applied,
+            "codex_hooks_engine": len(engine_codex_hooks)}
 
 
 def _persist_control_plane_marker(root, marker) -> None:
@@ -1550,7 +1581,7 @@ def apply(*, root=None, announce=None, uv_present=None,
     if runtime.get("halt"):
         return {"refused": False, "halted": True, "steps": steps}
     steps.append(_apply_substrates(say, copy))
-    steps.append(_apply_wires(say))
+    steps.append(_apply_wires(say, copy))
     steps.append(_apply_control_plane(control_transport, gh_refresh, control_issues, say, copy,
                                       repo=control_repo, token=control_token, root=root,
                                       checkless=control_checkless))
@@ -1963,6 +1994,18 @@ def retire(*, root=None, announce=None) -> dict:
     # Drop a local awaiting-landing marker (fail-soft) so boot can confirm completion ONCE after the changes land
     # through review, and report honestly — never a bare "Setup is complete" over an uncommitted transformation.
     first_run_health.mark_first_run_applied(base, _engine_capability=landing_capability)
+    # The trust handoff, spoken once more in the close: if any of the Engine's OWN Codex hooks is still on
+    # disk — by exact (event, matcher, type, command) identity, so a foreign hook whose command merely
+    # mentions .engine/ does NOT trip it — remind the operator they stay untrusted until approved. Retire is
+    # the last first-run surface, so this is the last moment to say it; a tree with only foreign hooks (or
+    # none) stays silent.
+    _retire_directives = [wire for _p, m in module_coherence.discover_manifests()
+                          for wire in (m.get("wires") or [])]
+    # Path derived from retire's own base (root or validate.ROOT) — the same base every other retire file
+    # operation uses — not the import-bound wiring.CODEX_HOOKS_PATH constant, per plan scope_boundary[0].
+    if wiring.codex_hooks_engine_entries(_retire_directives,
+                                         os.path.join(base, ".codex", "hooks.json")):
+        say(copy["codex-hook-trust"])
     say(copy["retire-applied"])
     return {"refused": False, "durable": False, "next": "land-through-review",
             "deleted": deleted, "already_absent": already, "preserved": preserved,
