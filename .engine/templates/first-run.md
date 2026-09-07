@@ -82,6 +82,18 @@ itself. Publishing your first release needs a one-time credential the release wo
 time you run it. The file is yours: change the starting version if you like, and it stays put when the engine
 updates. I didn't add it silently — this note is me telling you it's here.
 
+## If you use Codex, its hooks need your approval
+
+If you use Codex, the engine just placed its own hooks in .codex/hooks.json — the small programs that let it
+ground each session, guard what gets written while it explores, and capture what you decide to memory. Codex
+won't run any of them until you approve them: it records trust for each hook exactly as written and silently
+skips any it doesn't recognise, so until you approve these, three things stay off — session grounding, the
+exploration write-gate, and memory capture. Approving takes a moment: in the Codex CLI, run /hooks and approve
+the engine's hooks; in Codex Desktop, open Settings → Hooks and approve them there. On Desktop and in the VS
+Code extension the approval prompt may not appear on its own, so open that Hooks screen and approve them
+yourself rather than waiting to be asked. Nothing is trusted automatically and I never flip that switch for
+you — approval stays your manual choice. If you don't use Codex, there's nothing to do here.
+
 ## If I couldn't set up file ownership for reviews
 
 I couldn't read your account name just now, so I haven't yet set up who owns the engine's own files for

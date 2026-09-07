@@ -1367,3 +1367,69 @@ class TestDanglingShortcutRefusal(_Redirected):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCodexHooksEngineEntries(_Redirected):
+    """StarshipSuperjam/engine-template#805: the ownership predicate the first-run/upgrade/retire
+    surfaces ask — 'are the engine's OWN Codex hooks on disk here?' — keyed on exact
+    (event, matcher, type, command) identity against the declared wires, never on a `.engine/`
+    substring. This is what lets the trust-handoff note fire on the engine's hooks and stay silent
+    on a foreign hook that merely mentions .engine/."""
+
+    def test_matched_engine_hook_is_reported(self):
+        wiring.apply(CODEX_HOOK)                                  # engine hook lands on disk
+        out = wiring.codex_hooks_engine_entries([CODEX_HOOK], wiring.CODEX_HOOKS_PATH)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["event"], "PreToolUse")
+        self.assertEqual(out[0]["command"], CODEX_HOOK["hook"]["command"])
+
+    def test_foreign_engine_mentioning_hook_is_excluded(self):
+        # A hook whose command mentions .engine/ but is NOT a declared engine wire must not be claimed
+        # as ours — the predicate keys on exact identity, not the `.engine/` substring.
+        os.makedirs(os.path.dirname(wiring.CODEX_HOOKS_PATH), exist_ok=True)
+        foreign = {"type": "command", "command": "python3 .engine/../my-own-hook.py"}
+        with open(wiring.CODEX_HOOKS_PATH, "w", encoding="utf-8") as fh:
+            json.dump({"hooks": {"PreToolUse": [{"hooks": [foreign]}]}}, fh)
+        out = wiring.codex_hooks_engine_entries([CODEX_HOOK], wiring.CODEX_HOOKS_PATH)
+        self.assertEqual(out, [], "a foreign hook that only mentions .engine/ is not the engine's own")
+
+    def test_absent_matcher_on_disk_matches_a_matcherless_directive(self):
+        # Codex omits the matcher key for an always-fire group; the on-disk None must match the
+        # declared directive's normalized-None matcher.
+        wiring.apply(CODEX_HOOK)                                  # writes a group with no matcher key
+        data = json.loads(_read(wiring.CODEX_HOOKS_PATH))
+        self.assertNotIn("matcher", data["hooks"]["PreToolUse"][0])
+        out = wiring.codex_hooks_engine_entries([CODEX_HOOK], wiring.CODEX_HOOKS_PATH)
+        self.assertEqual(len(out), 1)
+        self.assertIsNone(out[0]["matcher"])
+
+    def test_no_declared_codex_wire_reports_nothing(self):
+        wiring.apply(CODEX_HOOK)                                  # engine hook on disk...
+        # ...but the caller declares only non-codex wires: there is nothing to match, so [].
+        non_codex = {"type": "hook", "event": "SessionStart", "matcher": "startup",
+                     "hook": {"type": "command", "command": ".engine/tools/boot.py"}}
+        self.assertEqual(wiring.codex_hooks_engine_entries([non_codex], wiring.CODEX_HOOKS_PATH), [])
+
+    def test_absent_file_yields_empty_and_writes_nothing(self):
+        # Asking about a repo with no .codex/hooks.json is read-only-safe: [] and no file created.
+        self.assertFalse(os.path.exists(wiring.CODEX_HOOKS_PATH))
+        out = wiring.codex_hooks_engine_entries([CODEX_HOOK], wiring.CODEX_HOOKS_PATH)
+        self.assertEqual(out, [])
+        self.assertFalse(os.path.exists(wiring.CODEX_HOOKS_PATH),
+                         "asking the predicate must never create the hooks file")
+
+    def test_malformed_file_yields_empty_and_is_left_unchanged(self):
+        os.makedirs(os.path.dirname(wiring.CODEX_HOOKS_PATH), exist_ok=True)
+        with open(wiring.CODEX_HOOKS_PATH, "w", encoding="utf-8") as fh:
+            fh.write("{not json")
+        out = wiring.codex_hooks_engine_entries([CODEX_HOOK], wiring.CODEX_HOOKS_PATH)
+        self.assertEqual(out, [])
+        self.assertEqual(_read(wiring.CODEX_HOOKS_PATH), "{not json", "a malformed file is left as-is")
+
+    def test_retrust_note_names_both_the_cli_and_the_desktop_path(self):
+        # The re-trust note the seam emits must route the operator to BOTH approval surfaces, so a
+        # Desktop/VS Code user (who may never see a prompt) knows where to go.
+        note = wiring.CODEX_RETRUST_NOTE
+        self.assertIn("/hooks", note, "the CLI approval path")
+        self.assertIn("Settings -> Hooks", note, "the Codex Desktop approval path")
+        self.assertIn("VS Code", note, "the extension caveat — the prompt may not appear on its own")

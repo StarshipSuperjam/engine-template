@@ -4433,3 +4433,118 @@ class TestArrivalExecution(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCodexHookTrustHandoff(unittest.TestCase):
+    """StarshipSuperjam/engine-template#805: when setup wires the Engine's OWN Codex hooks into
+    .codex/hooks.json, the operator is told — right after wiring (STEP 5) and once more in retire's
+    close — that those hooks are untrusted until they approve them, and where to approve (CLI /hooks
+    and Codex Desktop Settings -> Hooks). The trigger is the Engine's own hooks landing on disk by
+    exact identity, never a foreign hook that merely mentions .engine/, and a repo with no Codex hook
+    stays silent."""
+
+    # A declared Engine codex-hook wire: its command points into .engine/ (codex_hooks_add requires it).
+    _CODEX_WIRE = {"type": "codex-hook", "event": "SessionStart",
+                   "hook": {"type": "command",
+                            "command": "cd \"$(git rev-parse --show-toplevel)\" && "
+                                       "sh .engine/tools/codex-hook-runner.sh \".engine/tools/boot.py\""}}
+
+    def _add_core_wire(self, root, wire):
+        """Append a wire to the fixture's core manifest so discover_manifests() declares it."""
+        mpath = os.path.join(root, ".engine", "modules", "core", "manifest.json")
+        with open(mpath, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        manifest["wires"] = list(manifest.get("wires") or []) + [wire]
+        with open(mpath, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh)
+
+    # ---- STEP 5 (apply) --------------------------------------------------------------------------
+
+    def test_apply_speaks_the_handoff_when_an_engine_codex_hook_lands(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            self._add_core_wire(d, self._CODEX_WIRE)
+            said = []
+            with inst._redirect_root(d):
+                copy = inst.load_copy()
+                step = inst._apply_wires(said.append, copy)
+            self.assertEqual(step["codex_hooks_engine"], 1, "the ledger records the one engine Codex hook")
+            self.assertIn(copy["codex-hook-trust"], said, "the trust handoff is spoken right after wiring")
+
+    def test_apply_is_silent_when_no_codex_hook_is_wired(self):
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)                       # _FIXTURE_CORE_WIRES carries no codex-hook
+            said = []
+            with inst._redirect_root(d):
+                copy = inst.load_copy()
+                step = inst._apply_wires(said.append, copy)
+            self.assertEqual(step["codex_hooks_engine"], 0)
+            self.assertNotIn(copy["codex-hook-trust"], said,
+                             "a repo with no Engine Codex hook hears nothing about Codex trust")
+
+    def test_resumed_apply_still_speaks_the_hook_already_on_disk(self):
+        # Idempotent re-apply: the hook is already on disk (a no-op write the second time), but a resumed
+        # run is the operator's second chance to see the handoff — so it must still be spoken, and the
+        # ledger must still count the standing engine hook.
+        with tempfile.TemporaryDirectory() as d:
+            inst._build_fixture(d)
+            self._add_core_wire(d, self._CODEX_WIRE)
+            with inst._redirect_root(d):
+                copy = inst.load_copy()
+                inst._apply_wires(lambda _s: None, copy)          # first pass writes the hook
+                said = []
+                step = inst._apply_wires(said.append, copy)        # second pass: idempotent no-op write
+            self.assertEqual(step["codex_hooks_engine"], 1)
+            self.assertIn(copy["codex-hook-trust"], said)
+
+    # ---- retire (the close) ----------------------------------------------------------------------
+
+    def test_retire_speaks_the_handoff_once_more_when_engine_hooks_remain(self):
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                inst._build_fixture(d)
+                self._add_core_wire(d, self._CODEX_WIRE)
+                inst._plant_first_run_assets(d)
+                inst.confirm([], "solo", engine_release="1.0.0", handle="octocat")
+                inst._finish_apply(d)                              # apply wires the Codex hook to disk
+                copy = inst.load_copy()
+                said = []
+                res = inst.retire(announce=said.append)
+            self.assertFalse(res["refused"], "retire proceeds on a consistent setup")
+            self.assertIn(copy["codex-hook-trust"], said,
+                          "retire is the last first-run surface — it says the trust handoff once more")
+
+    def test_retire_is_silent_when_only_a_foreign_operator_hook_is_present(self):
+        # A tree whose .codex/hooks.json carries only the OPERATOR's own hook (no declared engine codex
+        # wire) must not be told about Codex trust — the close keys on the Engine's OWN hooks, never a
+        # foreign one. (A foreign command that itself mentions .engine/ can't reach here: the consistency
+        # gate would flag it as an orphan wire and retire would refuse first; that exact-identity exclusion
+        # is proven at the predicate in test_wiring.TestCodexHooksEngineEntries.)
+        with tempfile.TemporaryDirectory() as d:
+            with inst._redirect_root(d):
+                _finished_fixture(d)                              # no codex-hook wire in the fixture
+                os.makedirs(os.path.dirname(inst.wiring.CODEX_HOOKS_PATH), exist_ok=True)
+                foreign = {"type": "command", "command": "python3 scripts/my-own-hook.py"}
+                with open(inst.wiring.CODEX_HOOKS_PATH, "w", encoding="utf-8") as fh:
+                    json.dump({"hooks": {"SessionStart": [{"hooks": [foreign]}]}}, fh)
+                copy = inst.load_copy()
+                said = []
+                res = inst.retire(announce=said.append)
+            self.assertFalse(res["refused"], "a plain operator hook keeps the setup consistent")
+            self.assertNotIn(copy["codex-hook-trust"], said,
+                             "the operator's own Codex hook does not trip the engine's trust handoff")
+
+    # ---- copy surface ----------------------------------------------------------------------------
+
+    def test_copy_names_both_approval_paths_and_the_three_that_stay_off(self):
+        fallback = inst.FALLBACK_COPY["codex-hook-trust"]
+        self.assertTrue(fallback.strip(), "the built-in fallback resolves to real copy")
+        self.assertIn("/hooks", fallback, "the CLI approval path")
+        self.assertIn("Settings -> Hooks", fallback, "the Codex Desktop approval path")
+        self.assertIn("VS Code", fallback, "the extension caveat — the prompt may not appear on its own")
+        for stays_off in ("grounding", "write-gate", "memory"):
+            self.assertIn(stays_off, fallback, f"the note names {stays_off!r} as staying off until approval")
+        # The template surface carries the same section (rendered by load_copy), with the arrow glyph.
+        template = inst.load_copy()["codex-hook-trust"]
+        self.assertIn("/hooks", template)
+        self.assertIn("Settings → Hooks", template)
